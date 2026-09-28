@@ -1540,6 +1540,7 @@ def test_probe_query_is_bounded_before_embedding_and_repository_io() -> None:
     async def scenario() -> None:
         manager, profile, sources, _ = await _repositories()
         observed_queries: list[str] = []
+        embedded_documents: list[str] = []
         embedded_queries: list[str] = []
 
         class FakeTopics:
@@ -1551,6 +1552,10 @@ def test_probe_query_is_bounded_before_embedding_and_repository_io() -> None:
             profile = None
 
             async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+                embedded_documents.extend(texts)
+                return EmbeddingResult(vectors=tuple((1.0, 0.0) for _ in texts))
+
+            async def embed_query(self, texts: tuple[str, ...], /) -> EmbeddingResult:
                 embedded_queries.extend(texts)
                 return EmbeddingResult(vectors=tuple((1.0, 0.0) for _ in texts))
 
@@ -1572,6 +1577,7 @@ def test_probe_query_is_bounded_before_embedding_and_repository_io() -> None:
             )
 
             assert observed_queries != embedded_queries
+            assert embedded_documents == []
             assert len(observed_queries[0]) <= MAX_TOPIC_MEMORY_QUERY_LENGTH
             assert len(embedded_queries[0]) <= MAX_TOPIC_MEMORY_QUERY_LENGTH
             assert embedded_queries[0].startswith("部署环境")

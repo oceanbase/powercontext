@@ -27,6 +27,7 @@ from pydantic_ai.models.function import FunctionModel
 from powercontext.builtin.artifacts.prompt import (
     PROMPT_KEYS,
     GeneratePromptDemonstrations,
+    Prompt,
     PromptContent,
     PromptError,
     PromptRegistry,
@@ -43,7 +44,15 @@ _EXPERIENCE = {
 }
 
 
-def _case(key: str) -> dict[str, Any]:
+def _case(key: str) -> dict[str, Any]:  # noqa: C901 - one branch per prompt key fixture
+    if key == "profile.generate":
+        return {
+            "input": {
+                "previous_content": "# Profile\n\n- Uses Python.",
+                "sources": ['{"speaker":"user","text":"Prefers Chinese."}'],
+            },
+            "expected_output": {"content": "# Profile\n\n- Uses Python.\n- Prefers Chinese."},
+        }
     if key == "memory.extract":
         return {
             "input": {
@@ -84,6 +93,63 @@ def _case(key: str) -> dict[str, Any]:
         return {
             "input": {"evidence": [{"evidence_id": "source:1", "kind": "source", "content": "Verified preflight."}]},
             "expected_output": {"proposal": proposal},
+        }
+    if key == "topic_memory.probe":
+        return {
+            "input": {"evidence": [{"evidence_id": "e1", "source_type": "source", "content": "Ports are checked."}]},
+            "expected_output": {"probes": [{"query": "port checks", "evidence_ids": ["e1"]}]},
+        }
+    if key == "topic_memory.global":
+        return {
+            "input": {
+                "evidence": [{"evidence_id": "e1", "source_type": "source", "content": "Ports are checked."}],
+                "probes": [],
+            },
+            "expected_output": {"proposals": []},
+        }
+    if key == "topic_memory.planner":
+        return {
+            "input": {
+                "probes": [{"probe_id": "p1", "query": "port checks", "evidence_ids": ["e1"]}],
+            },
+            "expected_output": {"items": [{"probe_ids": ["p1"]}]},
+        }
+    if key == "topic_memory.evolve":
+        return {
+            "input": {
+                "work_id": "w1",
+                "evidence": [{"evidence_id": "e1", "source_type": "source", "content": "Ports are checked."}],
+            },
+            "expected_output": {"proposal": None},
+        }
+    if key == "topic_memory.temporary":
+        proposal = {
+            "content": {"title": "Port checks", "summary": "Ports are checked.", "detail": "Ports are checked."},
+            "evidence_ids": ["e1"],
+        }
+        return {
+            "input": {
+                "work_id": "w1",
+                "evidence": [{"evidence_id": "e1", "source_type": "source", "content": "Ports are checked."}],
+            },
+            "expected_output": {"proposals": [proposal]},
+        }
+    if key == "topic_memory.reduce":
+        return {
+            "input": {
+                "probes": [{"query": "port checks", "evidence_ids": ["e1"]}],
+                "max_result_tokens": 128,
+            },
+            "expected_output": {"covered_indices": [0], "probe": {"query": "port checks", "evidence_ids": ["e1"]}},
+        }
+    if key == "topic_memory.reconcile":
+        proposal = {
+            "content": {"title": "Port checks", "summary": "Ports are checked.", "detail": "Ports are checked."},
+            "evidence_ids": ["e1"],
+        }
+        return {
+            "input": {"component_id": "c1", "proposals": [proposal]},
+            "expected_output": {"proposals": []},
         }
     return {
         "input": {
@@ -135,6 +201,27 @@ def test_valid_demonstrations_preserve_their_original_json(key: str) -> None:
         ("handoff.generate", ("expected_output", "state"), []),
         ("handoff.generate", ("expected_output", "state", 0, "evidence_ids"), ["source:99"]),
         ("handoff.generate", ("expected_output", "omissions"), [{"text": "Unknown.", "evidence_id": "source:99"}]),
+        ("profile.generate", ("expected_output", "content"), "   "),
+        ("topic_memory.probe", ("expected_output", "probes", 0, "evidence_ids"), ["e99"]),
+        (
+            "topic_memory.global",
+            ("expected_output", "proposals"),
+            [{"content": {"title": "t", "summary": "s", "detail": "d"}, "evidence_ids": ["e99"]}],
+        ),
+        ("topic_memory.planner", ("expected_output", "items", 0, "probe_ids"), ["p99"]),
+        (
+            "topic_memory.evolve",
+            ("expected_output", "proposal"),
+            {
+                "content": {"title": "t", "summary": "s", "detail": "d"},
+                "evidence_ids": ["e1"],
+                "candidate_id": "cand-99",
+            },
+        ),
+        ("topic_memory.temporary", ("expected_output", "proposals", 0, "candidate_id"), "cand-1"),
+        ("topic_memory.reduce", ("expected_output", "covered_indices"), [99]),
+        ("topic_memory.reduce", ("expected_output", "covered_indices"), [1]),
+        ("topic_memory.reduce", ("expected_output", "probe"), {"query": "port checks", "evidence_ids": ["e1", "e99"]}),
     ],
 )
 def test_demonstrations_reject_semantically_impossible_outputs(
@@ -151,6 +238,95 @@ def test_demonstrations_reject_semantically_impossible_outputs(
         definition.validate(content)
     assert caught.value.code == "prompt_definition_incompatible"
     assert not caught.value.during_inference
+
+
+def test_profile_noop_demonstration_uses_null_content() -> None:
+    case = _case("profile.generate")
+    case["expected_output"] = {"content": None}
+    definition = PromptRegistry(builtin_prompt_definitions()).get("profile.generate")
+    definition.validate(_content(case))
+
+
+def test_planner_demonstrations_group_shared_candidates() -> None:
+    definition = PromptRegistry(builtin_prompt_definitions()).get("topic_memory.planner")
+
+    case = deepcopy(_case("topic_memory.planner"))
+    case["input"]["probes"] = [
+        {"probe_id": "p1", "query": "port checks", "evidence_ids": ["e1"], "candidate_ids": ["c1"]},
+        {"probe_id": "p2", "query": "port conflicts", "evidence_ids": ["e1"], "candidate_ids": ["c1"]},
+    ]
+    case["expected_output"]["items"] = [{"probe_ids": ["p1"]}, {"probe_ids": ["p2"]}]
+    with pytest.raises(PromptError) as caught:
+        definition.validate(_content(case))
+    assert caught.value.code == "prompt_definition_incompatible"
+
+    case["expected_output"]["items"] = [{"probe_ids": ["p1", "p2"]}]
+    definition.validate(_content(case))
+
+
+def test_reconcile_demonstrations_preserve_distinct_historical_identities() -> None:
+    proposal = {
+        "proposal_id": "r1",
+        "candidate_id": "cand-1",
+        "content": {"title": "Port checks", "summary": "Ports are checked.", "detail": "Ports are checked."},
+        "evidence_ids": ["e1"],
+    }
+    definition = PromptRegistry(builtin_prompt_definitions()).get("topic_memory.reconcile")
+
+    case = deepcopy(_case("topic_memory.reconcile"))
+    case["input"]["proposals"] = [dict(proposal)]
+    case["expected_output"]["proposals"] = [dict(proposal)]
+    definition.validate(_content(case))
+
+    case["expected_output"]["proposals"] = [dict(proposal, candidate_id="cand-2")]
+    with pytest.raises(PromptError) as caught:
+        definition.validate(_content(case))
+    assert caught.value.code == "prompt_definition_incompatible"
+
+    case["expected_output"]["proposals"] = [dict(proposal, proposal_id="r99")]
+    with pytest.raises(PromptError) as caught:
+        definition.validate(_content(case))
+    assert caught.value.code == "prompt_definition_incompatible"
+
+
+def test_reconcile_demonstrations_may_bind_unbound_proposals_to_supplied_history() -> None:
+    definition = PromptRegistry(builtin_prompt_definitions()).get("topic_memory.reconcile")
+    unbound = {
+        "proposal_id": "r1",
+        "content": {"title": "Port checks", "summary": "Ports are checked.", "detail": "Ports are checked."},
+        "evidence_ids": ["e1"],
+    }
+    case = deepcopy(_case("topic_memory.reconcile"))
+    case["input"] = {
+        "component_id": "c1",
+        "proposals": [dict(unbound)],
+        "historical": [{"candidate_id": "cand-1", "title": "Ports", "summary": "Ports.", "detail": "Ports."}],
+    }
+    case["expected_output"]["proposals"] = [dict(unbound, candidate_id="cand-1")]
+    definition.validate(_content(case))
+
+    case["expected_output"]["proposals"] = [dict(unbound, candidate_id="cand-99")]
+    with pytest.raises(PromptError) as caught:
+        definition.validate(_content(case))
+    assert caught.value.code == "prompt_definition_incompatible"
+
+
+@pytest.mark.parametrize(
+    ("key", "contract"),
+    [
+        ("topic_memory.probe", "Each probe cites one or more supplied evidence_id values."),
+        ("topic_memory.planner", "Partition every supplied probe exactly once"),
+        ("topic_memory.reduce", "exact union of the supplied evidence_ids"),
+        ("topic_memory.reconcile", "never merge two distinct historical identities"),
+    ],
+)
+def test_custom_prompts_retain_stage_operation_contracts(key: str, contract: str) -> None:
+    definition = PromptRegistry(builtin_prompt_definitions()).get(key)
+    prompt = Prompt(artifact_id=key, revision=1, content=_content(_case(key)))
+    resolved = definition.resolve("scope-a", prompt)
+    assert resolved.selection == "artifact"
+    assert contract in resolved.compiled_instructions
+    assert contract in definition.invariant_instructions
 
 
 def test_generated_demonstrations_retry_invalid_references_within_request_budget() -> None:
@@ -174,6 +350,33 @@ def test_generated_demonstrations_retry_invalid_references_within_request_budget
         )
         assert len(result.demonstrations) == 1
         assert result.demonstrations[0].expected_output == {"selected_ranks": [1]}
+        assert len(observed) == 2
+
+    asyncio.run(scenario())
+
+
+def test_generated_profile_demonstrations_retry_blank_markdown() -> None:
+    observed = []
+
+    async def respond(messages, info) -> ModelResponse:
+        demonstration = _case("profile.generate")
+        if not observed:
+            demonstration["expected_output"]["content"] = "   "
+        observed.append(demonstration)
+        return ModelResponse(parts=[TextPart(json.dumps({"demonstrations": [demonstration]}))])
+
+    async def scenario() -> None:
+        generator = PromptDemonstrationGenerator(
+            FunctionModel(respond), limits=InferenceLimits(max_requests=2), model_settings=None
+        )
+        definition = PromptRegistry(builtin_prompt_definitions()).get("profile.generate")
+        result = await generator(
+            definition,
+            GeneratePromptDemonstrations(instructions="Keep verified lasting facts.", demonstration_count=1),
+        )
+        assert result.demonstrations[0].expected_output == {
+            "content": "# Profile\n\n- Uses Python.\n- Prefers Chinese."
+        }
         assert len(observed) == 2
 
     asyncio.run(scenario())

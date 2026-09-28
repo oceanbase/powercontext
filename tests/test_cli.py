@@ -34,18 +34,22 @@ from powercontext.client.receiver_service import ReceiverServiceInstallation
 from powercontext.client.settings import ClientSettings
 from powercontext.client.skill_receiver import ReceiverSyncResult, RemoteSkillReceiverConfig
 from powercontext.http import (
+    ArtifactPage,
     ArtifactReference,
     EnrollRemoteSkillTargetRequest,
+    ExperienceArtifact,
     ExperienceProposal,
     ExternalSkillImportMode,
     GeneratedCandidateResponse,
     GeneratedCandidateStatus,
     GenerateExperienceRequest,
     GenerateSkillRequest,
+    GetExperienceRequest,
     GetSkillRequest,
     GetStatsRequest,
     HealthResponse,
     ImportExternalSkillRequest,
+    ListArtifactsRequest,
     ListRemoteSkillTargetsRequest,
     ListRemoteSkillTargetsResponse,
     PublishRemoteSkillRequest,
@@ -126,6 +130,15 @@ def _stats_response() -> ScopedStats:
             }
         ],
     }
+    recurrence = {
+        "selected": 0,
+        "recurred": 0,
+        "avoided": 0,
+        "unknown": 0,
+        "unlinked_handoff_citations": 0,
+        "needing_review": 0,
+        "top_revisions": [],
+    }
     return ScopedStats.model_validate({
         "selection": {"mode": "exact", "scope_ids": ["project"]},
         "scope_ids": ["project"],
@@ -133,7 +146,15 @@ def _stats_response() -> ScopedStats:
         "inventory": inventory,
         "usage": usage,
         "recall": recall,
-        "by_scope": [{"scope_id": "project", "inventory": inventory, "usage": usage, "recall": recall}],
+        "by_scope": [
+            {
+                "scope_id": "project",
+                "inventory": inventory,
+                "usage": usage,
+                "recall": recall,
+                "recurrence": recurrence,
+            }
+        ],
     })
 
 
@@ -285,7 +306,9 @@ def test_remote_enroll_can_install_automatic_service_in_one_command(
 
     config_file = workspace / ".powercontext/remote-skill-target.json"
     assert result.exit_code == 0
-    assert config_file.stat().st_mode & 0o777 == 0o600
+    assert config_file.is_file()
+    if os.name != "nt":
+        assert config_file.stat().st_mode & 0o777 == 0o600
     assert len(installed) == 1
     assert installed[0][0] == config_file
     assert installed[0][1].target_id == enrolled.target_id
@@ -1061,7 +1084,7 @@ def test_server_command_does_not_load_client_settings(monkeypatch: pytest.Monkey
     monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)
     monkeypatch.setattr("powercontext.server.cli.configure_server_tracing", lambda _config: tracing)
 
-    result = CliRunner().invoke(create_cli([server_app]), ["server", "run"])
+    result = CliRunner().invoke(create_cli([server_app]), ["server", "run", "--no-env-file"])
 
     assert result.exit_code == 0
     assert "Inference capability notice" in result.stdout
@@ -1232,6 +1255,109 @@ def test_client_generation_commands_build_requests_from_explicit_options(
     assert [reference.model_dump() for reference in skill.artifact_refs] == [
         {"family": "experience", "artifact_id": "exp-2", "revision": 1}
     ]
+
+
+def _experience_page() -> ArtifactPage:
+    return ArtifactPage.model_validate({
+        "items": [
+            {
+                "scope_id": "project",
+                "family": "experience",
+                "artifact_id": "exp-1",
+                "revision": 2,
+                "sources": [],
+                "artifacts": [],
+                "content_digest": f"sha256:{'0' * 64}",
+                "title": "Bound retries by an absolute deadline",
+                "summary": "Host kill limits are not an internal timeout budget.",
+            }
+        ],
+        "next_cursor": "cursor-2",
+    })
+
+
+def _experience_artifact() -> ExperienceArtifact:
+    return ExperienceArtifact(
+        artifact=ArtifactReference(family="experience", artifact_id="exp-1", revision=2),
+        content=ExperienceProposal(
+            situation="A slow Server response outlived the host deadline.",
+            action="Bound the internal HTTP budget below the host deadline.",
+            outcome="The Stop hook exits inside the host deadline.",
+            lesson="Derive internal timeouts from the host-enforced limit.",
+        ),
+        source_refs=[],
+        artifact_refs=[],
+    )
+
+
+def test_experience_list_command_reads_current_heads(monkeypatch: pytest.MonkeyPatch) -> None:
+    received: list[tuple[str, str, ListArtifactsRequest]] = []
+
+    class ListingClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def list_artifacts(self, scope_id: str, family: str, request: ListArtifactsRequest) -> ArtifactPage:
+            received.append((scope_id, family, request))
+            return _experience_page()
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: ListingClient())
+
+    result = CliRunner().invoke(
+        create_cli([]),
+        ["experience", "list", "--scope-id", "project", "--cursor", "cursor-1", "--limit", "10"],
+    )
+
+    assert result.exit_code == 0
+    assert received == [("project", "experience", ListArtifactsRequest(cursor="cursor-1", limit=10))]
+    assert "exp-1@2  Bound retries by an absolute deadline" in result.output
+    assert "Host kill limits are not an internal timeout budget." in result.output
+    assert "Next cursor: cursor-2" in result.output
+
+
+def test_experience_show_command_reads_one_exact_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    received: list[GetExperienceRequest] = []
+
+    class ShowingClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def get_experience(self, request: GetExperienceRequest) -> ExperienceArtifact:
+            received.append(request)
+            return _experience_artifact()
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: ShowingClient())
+
+    result = CliRunner().invoke(
+        create_cli([]),
+        ["--json", "experience", "show", "--scope-id", "project", "--revision", "2", "exp-1"],
+    )
+
+    assert result.exit_code == 0
+    assert received == [
+        GetExperienceRequest(
+            scope_id="project",
+            artifact=ArtifactReference(family="experience", artifact_id="exp-1", revision=2),
+        )
+    ]
+    printed = json.loads(result.output)
+    assert printed["artifact"] == {"family": "experience", "artifact_id": "exp-1", "revision": 2}
+    assert printed["content"]["lesson"] == "Derive internal timeouts from the host-enforced limit."
+
+
+def test_experience_cli_exposes_list_and_show_commands() -> None:
+    result = CliRunner().invoke(create_cli([]), ["experience", "--help"])
+
+    assert result.exit_code == 0
+    help_text = unstyle(result.output)
+    assert "list" in help_text
+    assert "show" in help_text
 
 
 def test_client_candidate_revision_commands_build_typed_proposals(

@@ -32,6 +32,7 @@ from powercontext.builtin.artifacts.topic_memory.errors import (
 )
 from powercontext.builtin.artifacts.topic_memory.fusion import fuse_topic_memory_rankings
 from powercontext.builtin.artifacts.topic_memory.models import (
+    MAX_TOPIC_MEMORY_CHANNEL_CANDIDATES,
     MAX_TOPIC_MEMORY_DETAIL_LENGTH,
     MAX_TOPIC_MEMORY_QUERY_LENGTH,
     MAX_TOPIC_MEMORY_QUERY_TERMS,
@@ -60,6 +61,7 @@ from powercontext.builtin.artifacts.topic_memory.models import (
 TOPIC_MEMORY_SOURCE_WINDOW_BINDING = "topic-memory-source-window"
 
 __all__ = [
+    "MAX_TOPIC_MEMORY_CHANNEL_CANDIDATES",
     "MAX_TOPIC_MEMORY_DETAIL_LENGTH",
     "MAX_TOPIC_MEMORY_QUERY_LENGTH",
     "MAX_TOPIC_MEMORY_QUERY_TERMS",

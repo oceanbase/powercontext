@@ -13,8 +13,12 @@
 # limitations under the License.
 
 import asyncio
+import json
 import logging
+import os
+import re
 from collections.abc import Callable, Coroutine
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Self, TypeVar
 
@@ -32,6 +36,35 @@ from powercontext.server.mcp import create_mcp_server, mount_mcp
 ResultT = TypeVar("ResultT")
 
 
+def test_mcp_guidance_is_visible_without_loading_a_skill() -> None:
+    async def inspect() -> tuple[str, list[Any]]:
+        async with Client(create_mcp_server(create_app())) as client:
+            assert client.initialize_result is not None
+            return client.initialize_result.instructions or "", await client.list_tools()
+
+    guidance, tools = asyncio.run(inspect())
+    assert guidance
+    names = {tool.name for tool in tools}
+    assert set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", guidance)) <= names
+    if directory := os.environ.get("POWERCONTEXT_GUIDANCE_EXPORT"):
+        root = Path(__file__).parents[1]
+        for host in ("codex", "claude-code", "workbuddy", "agent-plugin", "minimax"):
+            plugin = root / "integrations" / host
+            plugin /= "powercontext" if host == "agent-plugin" else "plugins/powercontext"
+            name = "powercontext-project-context"
+            content = (plugin / f"skills/{name}/SKILL.md").read_text(encoding="utf-8")
+            catalog = {
+                "host": host,
+                "guidance": guidance,
+                "tools": [
+                    {"name": tool.name, "description": tool.description, "parameters": tool.inputSchema}
+                    for tool in tools
+                ],
+                "skill": {"name": name, "content": content},
+            }
+            (Path(directory) / f"{host}.json").write_text(json.dumps(catalog, indent=2), encoding="utf-8")
+
+
 def run_async(operation: Callable[[], Coroutine[Any, Any, ResultT]]) -> ResultT:
     return asyncio.run(operation())
 
@@ -47,6 +80,17 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
     tool_names, resource_count, prompt_count = run_async(inspect_components)
 
     assert set(tool_names) == {
+        "generate_experience",
+        "get_experience",
+        "propose_experience",
+        "generate_skill",
+        "get_skill",
+        "propose_skill",
+        "list_managed_skills",
+        "scan_external_skills",
+        "list_external_skills",
+        "resolve_external_skill",
+        "import_external_skill",
         "activate_handoff",
         "acknowledge_handoff",
         "approve_artifact_candidate",
@@ -58,14 +102,19 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "create_work_contract",
         "finalize_handoff",
         "get_artifact_candidate",
+        "get_memory_capacity",
         "get_memory_entry",
         "get_topic_memory",
         "get_scope",
         "handoff_current_work",
+        "create_dream_run",
+        "get_dream_run",
+        "list_dream_runs",
         "list_artifact_candidates",
         "list_memory_entries",
         "list_scopes",
         "publish_artifact",
+        "query_code",
         "reject_artifact_candidate",
         "record_task_outcome",
         "resolve_scope_binding",
@@ -81,7 +130,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
     assert prompt_count == 0
 
 
-def test_mcp_topic_memory_tools_are_read_only_and_flush_is_excluded() -> None:
+def test_mcp_memory_reads_are_read_only_and_flush_is_excluded() -> None:
     async def inspect_annotations() -> dict[str, Any]:
         async with Client(create_mcp_server(create_app())) as client:
             return {tool.name: tool.annotations for tool in await client.list_tools()}
@@ -89,12 +138,37 @@ def test_mcp_topic_memory_tools_are_read_only_and_flush_is_excluded() -> None:
     tools = run_async(inspect_annotations)
 
     assert "flush_topic_memory" not in tools
-    for name in ("search_topic_memory", "get_topic_memory"):
+    for name in ("search_topic_memory", "get_topic_memory", "get_memory_capacity"):
         annotations = tools[name]
         assert annotations is not None
         assert annotations.readOnlyHint is True
         assert annotations.destructiveHint is False
+        assert annotations.idempotentHint is True
         assert annotations.openWorldHint is False
+
+
+def test_mcp_full_profile_tools_describe_read_and_write_effects() -> None:
+    async def inspect_annotations() -> dict[str, Any]:
+        async with Client(create_mcp_server(create_app())) as client:
+            return {tool.name: tool.annotations for tool in await client.list_tools()}
+
+    annotations = run_async(inspect_annotations)
+    reads = {"get_experience", "get_skill", "list_managed_skills", "list_external_skills", "resolve_external_skill"}
+    writes = {
+        "generate_experience",
+        "propose_experience",
+        "generate_skill",
+        "propose_skill",
+        "scan_external_skills",
+        "import_external_skill",
+    }
+    for name in reads | writes:
+        hints = annotations[name]
+        assert hints is not None
+        assert hints.readOnlyHint is (name in reads)
+        assert hints.idempotentHint is (name in reads)
+        assert hints.destructiveHint is False
+        assert hints.openWorldHint is ("external" in name)
 
 
 def test_mcp_exposes_read_only_handoff_report_tools_only_when_feature_routes_are_enabled() -> None:

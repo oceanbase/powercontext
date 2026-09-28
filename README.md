@@ -14,7 +14,10 @@ PowerContext keeps context with the work across conversations. When you return, 
 
 ![You and agents hand work off and continue with stored context](docs/assets/readme-workflow.svg)
 
-[Website](https://powercontext.oceanbase.io/) · [Read the documentation](https://powercontext.oceanbase.io/en/docs/)
+[Website](https://powercontext.oceanbase.io/) · [Installation walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
+
+PowerContext 1.1.0 includes the guided setup. The commands below install the stable release and connect
+the matching Agent integration.
 
 ## Pick up where the work left off
 
@@ -22,32 +25,62 @@ You see the context the work needs now: confirmed decisions, constraints, progre
 
 You decide what will matter later and what needs to move with the task. PowerContext stores durable information as Memory and organizes the current objective and state into a Handoff. You can record reusable approaches as Experience or Skill. PowerContext keeps every item within the scope of the work and preserves its sources and earlier revisions.
 
-## Works with your agents
+## Install, configure, and connect your Agent
 
-Install the latest released [PowerContext](https://pypi.org/project/powercontext/):
+You need Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), and your Agent's CLI.
+Python 3.11+ is required; uv can provision it. macOS and Linux are supported; Windows support is `experimental`.
 
-```bash
-uv tool install "powercontext[cli,server]==0.2.0"
-```
-
-Start a local Server in its own terminal:
+Install 1.1.0 and open the interactive configuration wizard in a dedicated directory:
 
 ```bash
-powercontext server run
+uv tool install --force "powercontext[cli,server]==1.1.0"
+mkdir -p powercontext-config
+cd powercontext-config
+powercontext config init --language en --output .env
 ```
 
-The Server stores context in a local SQLite database by default.
+If Python dependency downloads are slow or fail, follow the [mirror retry instructions](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#retry-dependency-downloads-with-a-mirror).
 
-Then set up an agent integration from the matching release. For example:
+The wizard asks about storage, local or remote access, memory capabilities, Dashboard, model APIs, and Agent
+connections. Choose **Full memory capabilities** to test automatic Memory and Topic Memory; this requires separate
+Generation and Embedding API credentials. An Agent subscription does not provide those Server credentials.
+Choose **Basic memory** to save and retrieve memories explicitly without additional model APIs.
+
+The wizard writes one `.env` environment file and `.env.next-steps.md`.
+If seekdb needs installing, it asks once and installs the dependency in the background. Follow the printed
+connection details and start Server in this terminal:
 
 ```bash
-powercontext setup codex --ref powercontext-v0.2.0
+powercontext server run --env-file .env
 ```
 
-Keep the PowerContext tool and agent integration on the same Git ref. For `master` installation, other agents,
-and personal services, follow the [Quick Start](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
-and [installation guide](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/).
-Python 3.11+ is required. macOS and Linux are supported; Windows support is `experimental`.
+Keep Server running. In another terminal, return to `powercontext-config`, load only the client settings,
+and check the connection:
+
+```bash
+set -a
+. ./.env
+set +a
+powercontext ready
+powercontext capabilities
+```
+
+Continue with `.env.next-steps.md` to create and bind the selected Scopes, install the matching plugins, and launch
+a new Agent session. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
+covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks.
+For example, the matching Codex installation is:
+
+```bash
+powercontext setup codex --ref powercontext-v1.1.0
+powercontext doctor codex
+```
+
+`doctor` verifies integration setup. To verify automatic memory, check that a real prompt becomes a Source,
+produces a Topic, evolves after a related prompt, and can be recalled in a new session using the same Scope.
+
+For a Server on another machine, use HTTPS or follow the
+[remote connection guide](docs/en/docs/operate/connect-remote-server.md). Setup recognizes remote HTTP URLs from
+flags or environment variables and asks for explicit consent; automated setup uses `--allow-insecure-http`.
 
 Codex is `official`; other hosts and Python Agent frameworks are `community`; Bub is `evaluation` only.
 These tags describe PowerContext integration maintenance and use. See the
@@ -55,20 +88,20 @@ These tags describe PowerContext integration maintenance and use. See the
 
 <table>
 <tr>
-<td align="center" width="120"><a href="docs/en/docs/integrations/codex.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/codex-color.png?size=120" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/claude-code.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/claudecode-color.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/dsh.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/deepseek-color.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/hermes/README.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/hermesagent.png?raw=true&size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/hermesagent.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /></picture><br /><sub><b>Hermes Agent</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/pi.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/pi.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/pi.png?size=120" alt="Pi Coding Agent" width="48" height="48" /></picture><br /><sub><b>Pi Coding Agent</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/openclaw.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/openclaw-color.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/codex.md"><img src="assets/codex.png" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/claude-code.md"><img src="assets/claude-code.png" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/dsh.md"><img src="assets/deepseek.png" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
+<td align="center" width="120"><a href="integrations/hermes/README.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/hermes-dark.png"><img src="assets/hermes.png" alt="Hermes Agent" width="48" height="48" /></picture><br /><sub><b>Hermes Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/pi.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/pi-dark.png"><img src="assets/pi.png" alt="Pi Coding Agent" width="48" height="48" /></picture><br /><sub><b>Pi Coding Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/openclaw.md"><img src="assets/openclaw.png" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
 </tr>
 <tr>
-<td align="center" width="120"><a href="docs/en/docs/integrations/opencode.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/opencode.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/opencode.png?size=120" alt="OpenCode" width="48" height="48" /></picture><br /><sub><b>OpenCode</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/opencode.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/opencode-dark.png"><img src="assets/opencode.png" alt="OpenCode" width="48" height="48" /></picture><br /><sub><b>OpenCode</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="https://thesvg.org/icons/workbuddy/default.svg?size=120" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/bub/README.md"><img src="https://github.com/bubbuild.png?size=120" alt="Bub" width="48" height="48" /><br /><sub><b>Bub</b></sub></a></td>
 <td align="center" width="120"><a href="docs/en/docs/integrations/pydantic-ai.md"><img src="https://thesvg.org/icons/pydantic/default.svg?size=120" alt="Pydantic AI" width="48" height="48" /><br /><sub><b>Pydantic AI</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/langchain.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langchain-color.png?size=120" alt="LangChain" width="48" height="48" /><br /><sub><b>LangChain</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/langgraph.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/langgraph.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langgraph.png?size=120" alt="LangGraph" width="48" height="48" /></picture><br /><sub><b>LangGraph</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/langchain.md"><img src="assets/langchain.png" alt="LangChain" width="48" height="48" /><br /><sub><b>LangChain</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/langgraph.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/langgraph-dark.png"><img src="assets/langgraph.png" alt="LangGraph" width="48" height="48" /></picture><br /><sub><b>LangGraph</b></sub></a></td>
 </tr>
 </table>
 
@@ -94,13 +127,24 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow.
 
 ## Learn more
 
-- [Get started](https://powercontext.oceanbase.io/en/docs/get-started/)
+- [Get started](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 - [Connect Agents](https://powercontext.oceanbase.io/en/docs/integrations/)
 - [Manage context](https://powercontext.oceanbase.io/en/docs/workflows/)
 - [Deploy and operate](https://powercontext.oceanbase.io/en/docs/operate/)
 - [Develop with APIs](https://powercontext.oceanbase.io/en/docs/develop/)
 
 PowerContext is the successor to [PowerMem](https://www.powermem.ai/).
+
+## Contributors
+
+Thank you to everyone who contributes to PowerContext. ❤️
+
+<a href="https://github.com/oceanbase/powercontext/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=oceanbase/powercontext&amp;max=100&amp;columns=12" alt="PowerContext contributors" />
+</a>
+
+[See all contributors](https://github.com/oceanbase/powercontext/graphs/contributors) ·
+[Start contributing](CONTRIBUTING.md)
 
 ## License
 

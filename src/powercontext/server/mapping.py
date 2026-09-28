@@ -23,7 +23,13 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
+from powercontext.builtin.artifacts.experience import (
+    Experience,
+    ExperienceContent,
+    FailureRecord,
+    FailureSignature,
+    FailureVerification,
+)
 from powercontext.builtin.artifacts.handoff import HandoffCitation as RuntimeHandoffCitation
 from powercontext.builtin.artifacts.handoff.generation_metadata import (
     HandoffGenerationEnvelope,
@@ -274,7 +280,6 @@ from powercontext.http import (
     SourceDefinitionManifest,
     SourceObservationReceipt,
     SourceReference,
-    SourceType,
     SourceTypeReference,
     SubmitSourceObservationRequest,
     TaskCheck,
@@ -287,6 +292,15 @@ from powercontext.http import (
     WorkSourceReceipt,
 )
 from powercontext.http import ConnectorBinding as HttpConnectorBinding
+from powercontext.http import (
+    FailureRecord as TransportFailureRecord,
+)
+from powercontext.http import (
+    FailureSignature as TransportFailureSignature,
+)
+from powercontext.http import (
+    FailureVerification as TransportFailureVerification,
+)
 from powercontext.http import (
     HandoffActivation as TransportHandoffActivation,
 )
@@ -337,6 +351,7 @@ from powercontext.http import (
 from powercontext.http import (
     RememberMemoryRequest as TransportRememberMemoryRequest,
 )
+from powercontext.http import RepairSurface as TransportRepairSurface
 from powercontext.sources import (
     ConnectorBinding as RuntimeConnectorBinding,
 )
@@ -638,6 +653,7 @@ def propose_experience_request(value: ProposeExperienceRequest) -> RuntimePropos
         proposal=experience_content(value.proposal),
         sources=tuple(runtime_source_reference(source) for source in value.source_refs),
         artifacts=tuple(runtime_artifact_reference(artifact) for artifact in value.artifact_refs),
+        memory_citations=tuple(runtime_citation(citation) for citation in value.memory_citations or ()),
         target=None if value.target is None else runtime_artifact_reference(value.target),
         reason=value.reason,
     )
@@ -715,6 +731,11 @@ def revise_candidate_request(value: ReviseArtifactCandidateRequest) -> RuntimeRe
         proposal=reviewed_content(value.proposal),
         sources=tuple(runtime_source_reference(source) for source in value.source_refs),
         artifacts=tuple(runtime_artifact_reference(artifact) for artifact in value.artifact_refs),
+        memory_citations=(
+            None
+            if value.memory_citations is None
+            else tuple(runtime_citation(citation) for citation in value.memory_citations or ())
+        ),
         target=None if value.target is None else runtime_artifact_reference(value.target),
         reason=value.reason,
     )
@@ -935,6 +956,7 @@ def candidate_response(value: RuntimeArtifactCandidate[Any]) -> ArtifactCandidat
         proposal=reviewed_proposal(value.proposal),
         source_refs=[source_reference(source) for source in value.sources],
         artifact_refs=[artifact_reference(artifact) for artifact in value.artifacts],
+        memory_citations=[transport_citation(citation) for citation in value.memory_citations],
         target=None if value.target is None else artifact_reference(value.target),
         reason=value.reason,
         result_artifact=None if value.result_artifact is None else artifact_reference(value.result_artifact),
@@ -962,6 +984,7 @@ def experience_response(value: Experience) -> ExperienceArtifact:
         content=experience_proposal(value.content),
         source_refs=[source_reference(source) for source in value.lineage.sources],
         artifact_refs=[artifact_reference(artifact) for artifact in value.lineage.artifacts],
+        memory_citations=[transport_citation(citation) for citation in value.lineage.memory_citations],
     )
 
 
@@ -971,6 +994,7 @@ def skill_response(value: Skill) -> SkillArtifact:
         content=skill_proposal(value.content),
         source_refs=[source_reference(source) for source in value.lineage.sources],
         artifact_refs=[artifact_reference(artifact) for artifact in value.lineage.artifacts],
+        memory_citations=[],
     )
 
 
@@ -1045,6 +1069,21 @@ def experience_content(value: ExperienceProposal) -> ExperienceContent:
         action=value.action,
         outcome=value.outcome,
         lesson=value.lesson,
+        failure=None if value.failure is None else runtime_failure_record(value.failure),
+    )
+
+
+def runtime_failure_record(value: TransportFailureRecord) -> FailureRecord:
+    return FailureRecord(
+        signature=FailureSignature(
+            recall_cue=value.signature.recall_cue,
+            symptom=value.signature.symptom,
+        ),
+        repair_surface=value.repair_surface.value,
+        verification=FailureVerification(
+            condition=value.verification.condition,
+            check_subject=value.verification.check_subject,
+        ),
     )
 
 
@@ -1054,6 +1093,21 @@ def experience_proposal(value: ExperienceContent) -> ExperienceProposal:
         action=value.action,
         outcome=value.outcome,
         lesson=value.lesson,
+        failure=None if value.failure is None else transport_failure_record(value.failure),
+    )
+
+
+def transport_failure_record(value: FailureRecord) -> TransportFailureRecord:
+    return TransportFailureRecord(
+        signature=TransportFailureSignature(
+            recall_cue=value.signature.recall_cue,
+            symptom=value.signature.symptom,
+        ),
+        repair_surface=TransportRepairSurface(value.repair_surface),
+        verification=TransportFailureVerification(
+            condition=value.verification.condition,
+            check_subject=value.verification.check_subject,
+        ),
     )
 
 
@@ -1126,7 +1180,7 @@ def runtime_source_reference(value: SourceReference) -> SourceRef:
 
 
 def source_type_reference(value: SourceRef) -> SourceTypeReference:
-    return SourceTypeReference(source_type=SourceType(value.source_type), source_id=value.source_id)
+    return SourceTypeReference(source_type=value.source_type, source_id=value.source_id)
 
 
 def runtime_source_type_reference(value: SourceTypeReference) -> SourceRef:

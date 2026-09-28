@@ -1,0 +1,70 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="profile-reading">
+{% include 'components/reading-style.html' %}
+<style>
+  me pre { overflow-x: auto; white-space: pre; }
+  me .profile-content { overflow-wrap: anywhere; }
+</style>
+{% from 'components/pagination.html' import pagination %}
+{% from 'components/record-references.html' import record_references with context %}
+{% from 'macros.html' import evidence_link with context %}
+{% if profile_history_view %}
+  <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+    <h1>{{ t.profile }} · {{ t.profile_history }}</h1>
+    <a href="{{ link('profile', view=none, profile_cursor=none, profile_history=none, revision=none, return_to=none) }}">{{ t.profile_current }}</a>
+  </div>
+  <div class="list-group">
+  {% for record in profile_revisions %}
+    <a class="list-group-item list-group-item-action" href="{{ link('profile', revision=record.revision) }}">{{ t.revision }} {{ record.revision }} <code class="ms-3">profile/profile</code></a>
+  {% else %}
+    <div class="empty"><h2>{{ t.profile_history_empty }}</h2></div>
+  {% endfor %}
+  </div>
+  {{ pagination(profile_pager, t) }}
+{% elif data.profile %}
+  <article class="reading-sheet">
+    <header class="reading-heading">
+      <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+        <h1>{{ t.profile_historical if request_revision else t.profile }}</h1>
+        <div class="btn-list">
+          {% if request_revision %}<a class="btn" href="{{ link('profile', revision=none, view=none, return_to=none, profile_cursor=none, profile_history=none) }}">{{ t.profile_current }}</a>{% endif %}
+          <a class="btn" href="{{ return_to or link('profile', view='history', revision=none, return_to=none, profile_cursor=none, profile_history=none) }}">{{ t.profile_history }}</a>
+        </div>
+      </div>
+      <p class="text-secondary">{{ data.title }} · {{ t.revision }} {{ data.profile.revision }}</p>
+      <dl class="row text-secondary small mb-0">
+        <dt class="col-sm-3">{{ t.profile_generation_mode }}</dt><dd class="col-sm-9">{{ t['profile_mode_' ~ data.profile.generation.mode] }}</dd>
+        <dt class="col-sm-3">{{ t.profile_created_at }}</dt><dd class="col-sm-9"><time>{{ data.profile.generation.created_at }}</time></dd>
+        {% if data.profile.generation.source_window %}<dt class="col-sm-3">{{ t.profile_source_window }}</dt><dd class="col-sm-9">{{ data.profile.generation.source_window.after }} → {{ data.profile.generation.source_window.through }}</dd>{% endif %}
+        {% if data.profile.generation.generator_id %}<dt class="col-sm-3">{{ t.profile_generator }}</dt><dd class="col-sm-9">{{ data.profile.generation.generator_id }} · {{ data.profile.generation.generator_version }}</dd>{% endif %}
+        {% if data.profile.generation.restored_from_revision %}<dt class="col-sm-3">{{ t.profile_restored_from }}</dt><dd class="col-sm-9">{{ data.profile.generation.restored_from_revision }}</dd>{% endif %}
+      </dl>
+    </header>
+    <div class="reading-body">
+      <div class="profile-content">{{ profile_html }}</div>
+      {% call record_references(data.profile, 'profile') %}
+        {% include 'components/record-sources.html' %}
+      {% endcall %}
+    </div>
+  </article>
+  {% include 'components/evidence-modal.html' %}
+{% else %}
+  <h1>{{ t.profile }}</h1>
+  <section class="card mt-4"><div class="empty"><h2>{{ t.profile_empty }}</h2><p>{{ t.profile_empty_body }}</p></div></section>
+{% endif %}
+</div>

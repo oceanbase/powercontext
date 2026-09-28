@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { InvalidResponseError, ServerResponseError, TransportError } from './errors.ts'
+import { authenticationRejection, bodyFailureDetails, InvalidResponseError, ResponseReadError, ServerResponseError, TransportError } from './errors.ts'
 
 export interface DiagnosticEvent {
   event: string
@@ -75,6 +75,7 @@ function responseDiagnostic(event: string, outcome: string, error: ServerRespons
     event,
     outcome,
     http_status: error.statusCode,
+    ...(error.requestId ? { request_id: error.requestId } : {}),
     ...(code ? { error_code: code } : {}),
   }
 }
@@ -84,6 +85,14 @@ function isDomainStatus(status: number): boolean {
 }
 
 export function failureEvent(event: string, error: unknown): DiagnosticEvent | undefined {
+  const rejection = authenticationRejection(error)
+  if (rejection && !(error instanceof ServerResponseError)) return {
+    ...responseDiagnostic(event, rejection.statusCode === 401 ? 'authentication_failed' : 'invalid_response', rejection),
+    ...bodyFailureDetails(error),
+  }
+  if (error instanceof ResponseReadError) return { event, outcome: 'server_unavailable',
+    http_status: error.statusCode, ...(error.requestId ? { request_id: error.requestId } : {}),
+    ...bodyFailureDetails(error), recovery: 'powercontext doctor' }
   if (error instanceof ServerResponseError) {
     if (error.statusCode === 401) return responseDiagnostic(event, 'authentication_failed', error)
     if (isVersionMismatch(error)) {

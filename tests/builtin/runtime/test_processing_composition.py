@@ -50,7 +50,7 @@ from powercontext.builtin.runtime.composition import (
 )
 from powercontext.builtin.runtime.family_processing import FamilyWorkerSpec, run_family_worker
 from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingWorkAssignment
-from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
+from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest, processing_capabilities
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.runtime.topic_memory_processing import TopicMemoryWorkerSpec, run_topic_memory_worker
 
@@ -205,6 +205,36 @@ def test_schedule_and_worker_budgets_can_change_without_maintenance(tmp_path: Pa
         )
         async with open_builtin_contexts(changed):
             pass
+
+    asyncio.run(scenario())
+
+
+def test_processing_capabilities_accept_minimax_embedding_but_not_generation() -> None:
+    embedding = BuiltinConfig(
+        inference=InferenceConfig(
+            generation_model="test",
+            embedding_model="minimax:embo-01",
+            embedding_profile_id="mm-v1",
+            embedding_dimension=1536,
+        )
+    )
+    assert "topic-memory" in processing_capabilities(embedding)
+
+    generation = BuiltinConfig(inference=InferenceConfig(generation_model="minimax:chat-model"))
+    assert "topic-memory" not in processing_capabilities(generation)
+
+
+@pytest.mark.parametrize("family", ["experience", "skill"])
+def test_dream_injection_requires_a_reconstructible_worker(tmp_path: Path, family: str) -> None:
+    async def scenario() -> None:
+        config = BuiltinConfig(
+            database=_sqlite(tmp_path / "dream-injection.db"),
+            inference=InferenceConfig(generation_model="test"),
+            runtime=RuntimeConfig(artifact_processing_families=(family,)),
+        )
+        with pytest.raises(BuiltinConfigurationError, match="child-reconstructible inference resources"):
+            async with open_builtin_runtime(config, dream_generator=AsyncMock()):
+                pytest.fail("a spawned Worker must not silently ignore an injected Dream generator")
 
     asyncio.run(scenario())
 

@@ -21,6 +21,14 @@ class MemoryLayerError(PowerContextError):
     """Base exception for Memory domain and repository failures."""
 
 
+class MemoryCapacityExceededError(MemoryLayerError, RuntimeError):
+    def __init__(self, dimension: str, limit: int, observed: int) -> None:
+        self.dimension = dimension
+        self.limit = limit
+        self.observed = observed
+        super().__init__(f"memory capacity budget is exceeded: {dimension} {observed} > {limit}")
+
+
 class CapabilityNotSupportedError(MemoryLayerError, RuntimeError):
     def __init__(self, capability: str, detail: str | None = None) -> None:
         self.capability = capability
@@ -48,9 +56,16 @@ class MemoryEntryInactiveError(MemoryEntryError, RuntimeError):
 
 
 class InvalidMemoryCandidateError(MemoryLayerError, ValueError):
-    def __init__(self, code: str, detail: object | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        detail: object | None = None,
+        *,
+        canonical_code: str | None = None,
+    ) -> None:
         self.code = code
         self.detail = detail
+        self.canonical_code = canonical_code
         messages = {
             "remember-mode": f"unsupported memory remember mode: {detail}",
             "identity-kind": f"unsupported memory identity kind: {detail}",

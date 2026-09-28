@@ -15,7 +15,7 @@ provider configuration、可执行 Source Definition 和文件读取逻辑。Ser
 
 ## 前置条件
 
-该集成要求 Python 3.12 或更高版本。先启动 PowerContext Server，再从 checkout 安装 worker：
+该集成要求 Python 3.12 或更高版本。先启动默认监听 `http://127.0.0.1:8000` 的 PowerContext Server，再从 checkout 安装 worker：
 
 ```bash
 uv tool install --python 3.12 --with-editable ".[client]" ./integrations/opendal
@@ -23,7 +23,12 @@ uv tool install --python 3.12 --with-editable ".[client]" ./integrations/opendal
 
 选择稳定的 `source_namespace` 来区分不同 storage authority。不要把 credential 写进 namespace、Source payload 或
 checkpoint。Server 启用 authentication 时，通过 `POWERCONTEXT_TOKEN` 环境变量提供 bearer token。将
-`POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID。
+`POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID，并设置 worker 使用的 Server 地址：
+
+```bash
+export POWERCONTEXT_BASE_URL=http://127.0.0.1:8000
+export POWERCONTEXT_SCOPE_ID='已有的-scope-id'
+```
 
 ## 运行一个 binding
 
@@ -32,7 +37,7 @@ checkpoint。Server 启用 authentication 时，通过 `POWERCONTEXT_TOKEN` 环�
 
 ```bash
 powercontext-connector-opendal \
-  --base-url http://127.0.0.1:8765 \
+  --base-url "$POWERCONTEXT_BASE_URL" \
   --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --binding-id project-docs \
   --service fs \
@@ -53,6 +58,7 @@ cron、Kubernetes Job 或其他外部 scheduler 周期执行该命令。
 需要自定义进程监管或多 binding 调度时，可直接使用通用远程 lifecycle：
 
 ```python
+import asyncio
 import os
 
 from powercontext.client import PowerContextClient, RemoteConnectorWorker
@@ -76,8 +82,16 @@ binding = ConnectorBinding(
 )
 registry = SourceDefinitionRegistry((TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION,))
 
-async with PowerContextClient("http://127.0.0.1:8765") as client:
-    result = await RemoteConnectorWorker(client=client, registry=registry).run(connector, binding)
+async def main() -> None:
+    base_url = os.environ.get("POWERCONTEXT_BASE_URL", "http://127.0.0.1:8000")
+    token = os.environ.get("POWERCONTEXT_TOKEN")
+    async with PowerContextClient(base_url, token=token) as client:
+        result = await RemoteConnectorWorker(client=client, registry=registry).run(connector, binding)
+    print(result.model_dump_json(indent=2))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ## 运行语义
@@ -93,7 +107,8 @@ projection，Server 在接受前验证其 schema。该 evaluation 不构成通�
 ## 限制
 
 - 默认选择 Markdown、纯文本、reStructuredText 与 AsciiDoc 文件。
-- 默认每轮最多选择 10,000 个文件，每个文件最多读取 2 MiB。
+- 默认每轮最多选择 10,000 个文件，每个文件最多读取 256 KiB（262,144 bytes）。可通过 CLI 的
+  `--max-file-size` 调大，但更大的文件仍可能被 Server 的 Source observation 大小限制拒绝。
 - 只接受 UTF-8 内容。
 - Snapshot identity 由 `source_namespace`、path 与 content digest 生成。内容变化因此会产生不同的 immutable snapshot
   identity。该 evaluation identity 不是拥有多个 observation ID 的标准 logical Source identity。

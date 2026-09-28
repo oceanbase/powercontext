@@ -40,7 +40,7 @@ def default_database_path() -> Path:
 
 
 def default_seekdb_path() -> Path:
-    """Return the installed Server's default embedded seekDB directory."""
+    """Return the installed Server's default embedded seekdb directory."""
 
     return powercontext_data_dir() / "seekdb"
 

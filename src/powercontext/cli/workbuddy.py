@@ -49,7 +49,7 @@ WORKBUDDY_PLUGIN_NAME = "powercontext"
 WORKBUDDY_PLUGIN_RELATIVE = Path("integrations") / "workbuddy" / "plugins" / "powercontext"
 WORKBUDDY_HOOKS_DIRNAME = "hooks"
 WORKBUDDY_SKILLS_DIRNAME = "skills"
-WORKBUDDY_SKILL_NAME = "project-context"
+WORKBUDDY_SKILL_NAME = "powercontext-project-context"
 WORKBUDDY_SKILL_MANIFEST = ".powercontext.json"
 WORKBUDDY_PYTHON_PLACEHOLDER = "${POWERCONTEXT_PYTHON}"
 WORKBUDDY_SCOPE_BINDING_PLACEHOLDER = "${POWERCONTEXT_SCOPE_BINDING_SCRIPT}"
@@ -58,6 +58,7 @@ WORKBUDDY_SCOPE_RESOLVER = "powercontext_scope_binding.py"
 WORKBUDDY_HOOK_MODULES = (
     "workbuddy_powercontext_hook.py",
     "workbuddy_settings.py",
+    "powercontext_client_config.py",
     "prepared_context.py",
 )
 WORKBUDDY_SCRIPT_MODULES = ("__init__.py", "workspace_scope.py")
@@ -68,7 +69,7 @@ WORKBUDDY_MCP_AUTHORIZATION = f"${{{WORKBUDDY_AUTHORIZATION_ENV}:-}}"
 WORKBUDDY_LEGACY_MCP_URL = "http://127.0.0.1:8000/mcp"
 WORKBUDDY_MCP_DESCRIPTION = "PowerContext agent memory & handoff MCP server (local service on port 8000)"
 WORKBUDDY_HOOK_STATUS_MESSAGE = "Syncing PowerContext"
-WORKBUDDY_HOOK_TIMEOUT = 10
+WORKBUDDY_HOOK_TIMEOUT = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,9 +79,10 @@ class WorkBuddySetupResult:
     workbuddy_home: str
     hooks_dir: str
     data_dir: str
+    authorization_state: str = "not_attempted"
 
 
-def install_workbuddy_plugin(*, source: str, ref: str) -> WorkBuddySetupResult:
+def install_workbuddy_plugin(*, source: str, ref: str, server_url: str | None = None) -> WorkBuddySetupResult:
     """Install the PowerContext hooks, MCP server, and Skill into WorkBuddy's user directory."""
 
     data_dir = powercontext_data_dir()
@@ -118,7 +120,7 @@ def install_workbuddy_plugin(*, source: str, ref: str) -> WorkBuddySetupResult:
     try:
         _install_hook_files(plugin_dir, hooks_dir)
         _merge_workbuddy_settings(settings_file, hooks_dir)
-        _merge_workbuddy_mcp(mcp_file)
+        _merge_workbuddy_mcp(mcp_file, server_url=server_url)
         _install_workbuddy_skill(plugin_dir, skills_dir, hooks_dir)
     except BaseException:
         _restore_file(settings_file, settings_snapshot)
@@ -130,12 +132,22 @@ def install_workbuddy_plugin(*, source: str, ref: str) -> WorkBuddySetupResult:
         _remove_path(hooks_backup)
         _remove_path(skill_backup)
 
+    from powercontext.cli.authorization import (
+        configure_stored_authorization,
+        setup_authorization_value,
+    )
+
     return WorkBuddySetupResult(
         plugin=WORKBUDDY_PLUGIN_NAME,
         plugin_path=str(plugin_dir),
         workbuddy_home=str(home),
         hooks_dir=str(hooks_dir),
         data_dir=str(data_dir),
+        authorization_state=configure_stored_authorization(
+            "workbuddy",
+            server_url=server_url or "http://127.0.0.1:8000",
+            value=setup_authorization_value("workbuddy"),
+        ),
     )
 
 
@@ -249,7 +261,7 @@ def _merge_workbuddy_settings(settings_file: Path, hooks_dir: Path) -> None:
         raise SetupError.workbuddy_settings_write(settings_file, error) from error
 
 
-def _merge_workbuddy_mcp(mcp_file: Path) -> None:
+def _merge_workbuddy_mcp(mcp_file: Path, *, server_url: str | None = None) -> None:
     """Register the PowerContext MCP server without dropping existing servers."""
 
     config = _load_json_object(
@@ -264,6 +276,8 @@ def _merge_workbuddy_mcp(mcp_file: Path) -> None:
 
     existing = servers_dict.get(WORKBUDDY_PLUGIN_NAME)
     entry = _workbuddy_mcp_entry(existing)
+    if server_url is not None and entry.get("url") != server_url.rstrip("/") + "/mcp":
+        entry["url"] = f"${{{WORKBUDDY_SERVER_URL_ENV}:-{server_url}}}/mcp"
     if isinstance(existing, dict):
         servers_dict[WORKBUDDY_PLUGIN_NAME] = {**cast(dict[str, Any], existing), **entry}
     else:
@@ -317,7 +331,7 @@ def _owned_workbuddy_skill(path: Path) -> bool:
 
 
 def _install_workbuddy_skill(plugin_dir: Path, skills_dir: Path, hooks_dir: Path) -> None:
-    """Copy the project-context Skill and resolve its hooks directory placeholder."""
+    """Copy the powercontext-project-context Skill and resolve its hooks directory placeholder."""
 
     source = plugin_dir / WORKBUDDY_SKILLS_DIRNAME / WORKBUDDY_SKILL_NAME
     target = skills_dir / WORKBUDDY_SKILL_NAME
@@ -326,14 +340,14 @@ def _install_workbuddy_skill(plugin_dir: Path, skills_dir: Path, hooks_dir: Path
         if target.exists():
             shutil.rmtree(target)
         shutil.copytree(source, target)
-        skill_markdown = target / "SKILL.md"
-        content = skill_markdown.read_text(encoding="utf-8")
-        content = content.replace(WORKBUDDY_PYTHON_PLACEHOLDER, _shell_argument(_python_executable()))
-        content = content.replace(
-            WORKBUDDY_SCOPE_BINDING_PLACEHOLDER,
-            _shell_argument((hooks_dir / WORKBUDDY_SCOPE_RESOLVER).as_posix()),
-        )
-        skill_markdown.write_text(content, encoding="utf-8")
+        for skill_markdown in target.rglob("*.md"):
+            content = skill_markdown.read_text(encoding="utf-8")
+            content = content.replace(WORKBUDDY_PYTHON_PLACEHOLDER, _shell_argument(_python_executable()))
+            content = content.replace(
+                WORKBUDDY_SCOPE_BINDING_PLACEHOLDER,
+                _shell_argument((hooks_dir / WORKBUDDY_SCOPE_RESOLVER).as_posix()),
+            )
+            skill_markdown.write_text(content, encoding="utf-8")
         (target / WORKBUDDY_SKILL_MANIFEST).write_text(
             json.dumps({"schema": 1, "owner": "powercontext", "integration": "workbuddy"}, indent=2) + "\n",
             encoding="utf-8",

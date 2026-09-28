@@ -5,6 +5,10 @@ description: Run PowerContext with persistent data, health checks, authenticatio
 
 # Deploy the Server
 
+For client address configuration and the `--allow-insecure-http` confirmation, see
+[Connect to a remote Server](connect-remote-server.md). This is a client option; it does not change the Server listener
+or authentication configuration.
+
 Windows support is `experimental`.
 
 `powercontext server run` is a foreground process. On a personal macOS, Linux, or Windows workstation, PowerContext can register
@@ -20,11 +24,16 @@ powercontext service install
 powercontext service status
 ```
 
+Linux uses `systemd --user` and writes logs to the user journal. macOS uses a per-user LaunchAgent, and Windows uses a current-user Task Scheduler task; both write stdout and stderr below the PowerContext user data directory. `service status` reports the exact log selector or path.
+
+Personal services support loopback addresses only. Even with authentication enabled, setting
+`POWERCONTEXT_SERVER_HTTP_HOST` to a non-loopback address makes `service install` reject the installation. To allow
+access from another machine, use a container or an administrator-owned service manager, or put a same-host reverse proxy
+in front of the loopback Server.
+
 On Windows, the command asks whether to enable startup at the current user's next login when neither
 `--start-on-login` nor `--no-start-on-login` is supplied; pressing Enter keeps login auto-start disabled. Use either
 option for a non-interactive choice.
-
-Linux uses `systemd --user` and writes logs to the user journal. macOS uses a per-user LaunchAgent, and Windows uses a current-user Task Scheduler task; both write stdout and stderr below the PowerContext user data directory. `service status` reports the exact log selector or path.
 
 For an explicit Server configuration, protect the environment file before installing:
 
@@ -34,11 +43,18 @@ powercontext config validate --env-file /path/to/powercontext.env
 powercontext service install --env-file /path/to/powercontext.env
 ```
 
+The successful installation summary prints the environment file actually used. If Bearer authentication is enabled,
+read `POWERCONTEXT_SERVER_AUTH_TOKEN` from that file; the command never prints the token value. Authentication is
+disabled by default, so no token is generated automatically.
+
 On Windows, remove inherited access and grant the file only to the current user, `SYSTEM`, and local `Administrators` before validation, for example:
 
 ```powershell
 icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "${env:USERNAME}:(F)" "SYSTEM:(F)" "Administrators:(F)"
 ```
+
+This `icacls` command changes ACLs only; it does not change the file owner. If the owner is not the current user, fix the
+owner first.
 
 The native definition stores only the absolute file path and non-content file identity metadata. On Windows this
 includes the current user's owner SID, which is revalidated whenever the launcher starts. It does not copy
@@ -85,14 +101,11 @@ powercontext config validate --env-file /etc/powercontext/powercontext.env
 powercontext server run --env-file /etc/powercontext/powercontext.env
 ```
 
-The successful installation summary prints the environment file actually used. If Bearer authentication is enabled,
-read `POWERCONTEXT_SERVER_AUTH_TOKEN` from that file; the command never prints the token value. Authentication is
-disabled by default, so no token is generated automatically.
-
 The file may contain provider credentials or a bearer token, so restrict it to the Server operator. For `server run`,
 process environment variables override same-named file values. `config init` creates a model-free base configuration; see
 [Enable extraction and vector search](../get-started/configure-models.md)
-when you need to add inference models and enable the full capability set.
+when you need to add inference models and enable the full capability set. See [Configuration](configuration.md) for all
+configuration parameters and their defaults.
 
 Whether the Server runs in the foreground, in Docker, or as a personal service, startup or installation output warns
 that missing models may affect some artifact features and links to the
@@ -215,7 +228,14 @@ curl --fail http://127.0.0.1:8000/health/ready
 ```
 
 Readiness returns HTTP 503 when a required runtime or database binding is unavailable. An optional inference provider
-can make the response `degraded` with HTTP 200 while database-backed operations remain available.
+can make the response `degraded` with HTTP 200 while database-backed operations remain available. Therefore,
+`curl --fail` checks only the HTTP status and does not treat `degraded` as a failure. If the deployment depends on
+inference, also require the response `status` to be `ready`:
+
+```bash
+curl --fail --silent --show-error http://127.0.0.1:8000/health/ready \
+  | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data["status"]); sys.exit(data["status"] != "ready")'
+```
 
 After enabling authentication, verify a protected endpoint as well:
 

@@ -151,7 +151,7 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
 
             system_source = await client.get_source(
                 scope_id,
-                created.sources[0].source_type.value,
+                created.sources[0].source_type,
                 created.sources[0].source_id,
             )
             assert system_source.content == _memory_content()
@@ -201,7 +201,7 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
             assert replaced.sources != created.sources
             replacement_source = await client.get_source(
                 scope_id,
-                replaced.sources[0].source_type.value,
+                replaced.sources[0].source_type,
                 replaced.sources[0].source_id,
             )
             assert replacement_source.content == {"entries": [{"kind": "working_note", "text": "继续验证基础 API"}]}
@@ -361,7 +361,7 @@ def test_experience_and_skill_base_writes_are_visible_through_existing_apis(tmp_
             loaded_experience = await client.get_experience(
                 GetExperienceRequest(scope_id=scope_id, artifact=experience_ref)
             )
-            assert loaded_experience.content.model_dump() == experience_content
+            assert loaded_experience.content.model_dump(exclude_none=True) == experience_content
 
             skill = await client.create_artifact(
                 scope_id,

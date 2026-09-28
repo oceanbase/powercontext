@@ -16,7 +16,8 @@
     "dist",
     "openclaw.plugin.json",
     "README.md",
-    "scripts/configure-openclaw.py"
+    "scripts/configure-openclaw.py",
+    "skills"
   ],
   "exports": {
     ".": {
@@ -26,7 +27,7 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "pnpm run build && vitest run",
     "pack:local": "mkdir -p artifacts && pnpm build && npm pack --pack-destination ./artifacts"
   },
   "dependencies": {

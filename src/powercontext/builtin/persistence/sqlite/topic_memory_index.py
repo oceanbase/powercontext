@@ -19,6 +19,7 @@ from __future__ import annotations
 import struct
 from collections.abc import Mapping
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import (
     CheckConstraint,
@@ -106,6 +107,7 @@ SQLITE_TOPIC_MEMORY_VECTOR_TABLES = (
     SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE,
     SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE,
 )
+_SQLITE_VEC_MAX_K = 4096
 
 _CREATE_TOPIC_FTS_SQL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS pc_topic_memory_topic_fts USING fts5(
@@ -146,33 +148,88 @@ _INSERT_CHUNK_FTS_SQL = text(
     """
 )
 _SEARCH_TOPIC_FTS_SQL = """
+    WITH scored AS (
+        SELECT artifact_id, revision, title, summary,
+               bm25(pc_topic_memory_topic_fts) AS score, ({coverage}) AS coverage
+        FROM pc_topic_memory_topic_fts
+        WHERE pc_topic_memory_topic_fts MATCH :query AND scope_id = :scope_id
+    )
     SELECT artifact_id, revision, title, summary
+    FROM scored
+    WHERE coverage >= :required_matches
+    ORDER BY score, artifact_id, revision DESC
+    LIMIT :candidate_limit
+    """
+_COUNT_TOPIC_FTS_SQL = """
+    SELECT count(*)
     FROM pc_topic_memory_topic_fts
     WHERE pc_topic_memory_topic_fts MATCH :query AND scope_id = :scope_id
-      AND ({coverage}) >= :coverage_required
-    ORDER BY bm25(pc_topic_memory_topic_fts), artifact_id, revision DESC
-    LIMIT :candidate_limit
+    """
+_COUNT_TOPIC_FTS_ELIGIBLE_SQL = """
+    WITH scored AS (
+        SELECT ({coverage}) AS coverage
+        FROM pc_topic_memory_topic_fts
+        WHERE pc_topic_memory_topic_fts MATCH :query AND scope_id = :scope_id
+    )
+    SELECT count(*)
+    FROM scored
+    WHERE coverage >= :required_matches
     """
 _SEARCH_CHUNK_FTS_SQL = """
     WITH scored AS (
         SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text,
-               bm25(pc_topic_memory_chunk_fts) AS score
+               bm25(pc_topic_memory_chunk_fts) AS score, ({coverage}) AS coverage
         FROM pc_topic_memory_chunk_fts
         WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
-          AND ({coverage}) >= :coverage_required
     ), ranked AS (
         SELECT scored.*,
                row_number() OVER (
                    PARTITION BY artifact_id, revision
-                   ORDER BY score, chunk_ordinal
+                    ORDER BY coverage DESC, score, chunk_ordinal
                ) AS topic_rank
         FROM scored
     )
     SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text
     FROM ranked
-    WHERE topic_rank = 1
+    WHERE topic_rank = 1 AND coverage >= :required_matches
     ORDER BY score, artifact_id, revision DESC, chunk_ordinal
     LIMIT :candidate_limit
+    """
+_COUNT_CHUNK_FTS_SQL = """
+    WITH scored AS (
+        SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text,
+               bm25(pc_topic_memory_chunk_fts) AS score, ({coverage}) AS coverage
+        FROM pc_topic_memory_chunk_fts
+        WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
+    ), ranked AS (
+        SELECT scored.*,
+               row_number() OVER (
+                   PARTITION BY artifact_id, revision
+                    ORDER BY coverage DESC, score, chunk_ordinal
+               ) AS topic_rank
+        FROM scored
+    )
+    SELECT count(*)
+    FROM ranked
+    WHERE topic_rank = 1
+    """
+_COUNT_CHUNK_FTS_ELIGIBLE_SQL = """
+    WITH scored AS (
+        SELECT artifact_id, revision, chunk_ordinal,
+               bm25(pc_topic_memory_chunk_fts) AS score, ({coverage}) AS coverage
+        FROM pc_topic_memory_chunk_fts
+        WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
+    ), ranked AS (
+        SELECT scored.*,
+               row_number() OVER (
+                   PARTITION BY artifact_id, revision
+                    ORDER BY coverage DESC, score, chunk_ordinal
+               ) AS topic_rank
+        FROM scored
+    )
+    SELECT count(*)
+    FROM ranked
+    WHERE topic_rank = 1 AND coverage >= :required_matches
     """
 
 _DELETE_TOPIC_VECTOR_SQL = text("DELETE FROM pc_topic_memory_topic_vec WHERE rowid = :vector_id")
@@ -339,7 +396,7 @@ class SQLiteTopicMemoryFTSIndex:
         query = fts_match_query(request.query)
         if query is None:
             return TopicMemorySearchChannels()
-        query_terms, coverage_required = fts_query_requirements(request.query)
+        query_terms, required_matches = fts_query_requirements(request.query, floor=request.admission)
         coverage = " + ".join(
             f"CASE WHEN instr(' ' || searchable_text || ' ', :coverage_term_{position}) > 0 THEN 1 ELSE 0 END"
             for position, _term in enumerate(query_terms)
@@ -348,18 +405,32 @@ class SQLiteTopicMemoryFTSIndex:
             "query": query,
             "scope_id": scope_id,
             "candidate_limit": request.candidate_limit,
-            "coverage_required": coverage_required,
+            "required_matches": required_matches,
             **{f"coverage_term_{position}": f" {term} " for position, term in enumerate(query_terms)},
         }
+        topic_retrieved = await connection.scalar(text(_COUNT_TOPIC_FTS_SQL), parameters)
+        topic_eligible = await connection.scalar(
+            text(_COUNT_TOPIC_FTS_ELIGIBLE_SQL.format(coverage=coverage)),
+            parameters,
+        )
         topic_rows = (
             await connection.execute(text(_SEARCH_TOPIC_FTS_SQL.format(coverage=coverage)), parameters)
         ).mappings()
+        detail_retrieved = await connection.scalar(text(_COUNT_CHUNK_FTS_SQL.format(coverage=coverage)), parameters)
+        detail_eligible = await connection.scalar(
+            text(_COUNT_CHUNK_FTS_ELIGIBLE_SQL.format(coverage=coverage)),
+            parameters,
+        )
         chunk_rows = (
             await connection.execute(text(_SEARCH_CHUNK_FTS_SQL.format(coverage=coverage)), parameters)
         ).mappings()
         return TopicMemorySearchChannels(
             topic_fts=tuple(_channel_hit(row, "topic_fts") for row in topic_rows),
             detail_fts=tuple(_channel_hit(row, "detail_fts") for row in chunk_rows),
+            topic_fts_retrieved=int(topic_retrieved or 0),
+            detail_fts_retrieved=int(detail_retrieved or 0),
+            topic_fts_eligible=int(topic_eligible or 0),
+            detail_fts_eligible=int(detail_eligible or 0),
         )
 
     async def vector_complete(
@@ -418,42 +489,51 @@ class SQLiteTopicMemoryVectorIndex:
                     f"USING vec0(scope_id TEXT partition key, embedding float[{self.profile.dimension}])"
                 )
             probe = _pack_vector((0.0,) * self.profile.dimension)
+            probe_scope = f"__powercontext_probe_{uuid4().hex}__"
             probes = (
                 (
+                    SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE,
+                    {},
                     _DELETE_TOPIC_VECTOR_SQL,
                     _INSERT_TOPIC_VECTOR_SQL,
                     _PROBE_TOPIC_VECTOR_SQL,
                     "pc_topic_memory_topic_vec",
                 ),
                 (
+                    SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE,
+                    {"chunk_ordinal": 0},
                     _DELETE_CHUNK_VECTOR_SQL,
                     _INSERT_CHUNK_VECTOR_SQL,
                     _PROBE_CHUNK_VECTOR_SQL,
                     "pc_topic_memory_chunk_vec",
                 ),
             )
-            for delete_probe, insert_probe, select_probe, table_name in probes:
+            for metadata, extra_values, delete_probe, insert_probe, select_probe, table_name in probes:
                 await connection.execute(delete_probe, {"vector_id": -1})
-                await connection.execute(
-                    insert_probe,
-                    {
-                        "vector_id": -1,
-                        "scope_id": "__powercontext_probe__",
-                        "embedding": probe,
-                    },
-                )
-                row = (
-                    await connection.exec_driver_sql(
-                        select_probe,
-                        ("__powercontext_probe__", probe),
+                # Exercise metadata ID allocation and its vector row together without
+                # retaining probe rows or advancing the persistent ID sequence.
+                async with connection.begin_nested() as transaction:
+                    inserted = await connection.execute(
+                        insert(metadata).values(
+                            scope_id=probe_scope,
+                            artifact_id="probe",
+                            revision=1,
+                            profile_fingerprint=self._fingerprint,
+                            **extra_values,
+                        )
                     )
-                ).one_or_none()
-                await connection.execute(delete_probe, {"vector_id": -1})
-                if row is None or int(row[0]) != -1:
-                    raise TopicMemoryCapabilityError(
-                        "vector",
-                        f"sqlite-vec probe returned an invalid row for {table_name}",
+                    vector_id = inserted.lastrowid
+                    await connection.execute(
+                        insert_probe,
+                        {"vector_id": vector_id, "scope_id": probe_scope, "embedding": probe},
                     )
+                    row = (await connection.exec_driver_sql(select_probe, (probe_scope, probe))).one_or_none()
+                    if row is None or int(row[0]) != vector_id:
+                        raise TopicMemoryCapabilityError(
+                            "vector",
+                            f"sqlite-vec probe returned an invalid row for {table_name}",
+                        )
+                    await transaction.rollback()
         except SQLAlchemyError as error:
             raise TopicMemoryCapabilityError("vector", f"sqlite-vec probe failed: {error}") from error
 
@@ -468,18 +548,16 @@ class SQLiteTopicMemoryVectorIndex:
         await self._delete_existing(connection, scope_id, topic_ref.artifact_id)
         if projection.topic_embedding is None or len(projection.chunk_embeddings) != len(projection.chunks):
             raise TopicMemoryCapabilityError("vector", "projection is incomplete")
-        topic_id = (
-            await connection.execute(
-                insert(SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE)
-                .values(
-                    scope_id=scope_id,
-                    artifact_id=topic_ref.artifact_id,
-                    revision=topic_ref.revision,
-                    profile_fingerprint=self._fingerprint,
-                )
-                .returning(SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE.c.vector_id)
+        inserted = await connection.execute(
+            insert(SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE).values(
+                scope_id=scope_id,
+                artifact_id=topic_ref.artifact_id,
+                revision=topic_ref.revision,
+                profile_fingerprint=self._fingerprint,
             )
-        ).scalar_one()
+        )
+        # SQLite before 3.35 supports lastrowid, but not INSERT ... RETURNING.
+        topic_id = inserted.lastrowid
         await connection.execute(
             _INSERT_TOPIC_VECTOR_SQL,
             {
@@ -495,19 +573,16 @@ class SQLiteTopicMemoryVectorIndex:
             },
         )
         for chunk, embedding in zip(projection.chunks, projection.chunk_embeddings, strict=True):
-            vector_id = (
-                await connection.execute(
-                    insert(SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE)
-                    .values(
-                        scope_id=scope_id,
-                        artifact_id=topic_ref.artifact_id,
-                        revision=topic_ref.revision,
-                        chunk_ordinal=chunk.ordinal,
-                        profile_fingerprint=self._fingerprint,
-                    )
-                    .returning(SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.vector_id)
+            inserted = await connection.execute(
+                insert(SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE).values(
+                    scope_id=scope_id,
+                    artifact_id=topic_ref.artifact_id,
+                    revision=topic_ref.revision,
+                    chunk_ordinal=chunk.ordinal,
+                    profile_fingerprint=self._fingerprint,
                 )
-            ).scalar_one()
+            )
+            vector_id = inserted.lastrowid
             await connection.execute(
                 _INSERT_CHUNK_VECTOR_SQL,
                 {
@@ -558,7 +633,10 @@ class SQLiteTopicMemoryVectorIndex:
                 _CHUNK_VECTOR_SEARCH_SQL,
                 {
                     **parameters,
-                    "neighbor_limit": request.candidate_limit * TOPIC_MEMORY_CHUNK_MAX_COUNT,
+                    "neighbor_limit": min(
+                        request.candidate_limit * TOPIC_MEMORY_CHUNK_MAX_COUNT,
+                        _SQLITE_VEC_MAX_K,
+                    ),
                 },
             )
         ).mappings()

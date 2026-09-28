@@ -22,6 +22,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { BrandLogo } from '@/components/brand-logo';
 import type { HomeContent } from '@/lib/home-content';
 import type { Language } from '@/lib/i18n';
+import { withBasePath } from '@/lib/urls';
 
 type AgentBase = {
   darkLogo: string;
@@ -33,48 +34,44 @@ type Agent = AgentBase & ({ href: string; slug?: never } | { href?: never; slug:
 
 const agents: Agent[] = [
   {
-    darkLogo:
-      'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/codex-color.png?size=120',
-    logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/codex-color.png?size=120',
+    darkLogo: withBasePath('/icons/codex-dark.png'),
+    logo: withBasePath('/icons/codex.png'),
     name: 'Codex',
     slug: 'codex',
   },
   {
-    darkLogo:
-      'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/claudecode-color.png?size=120',
-    logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/claudecode-color.png?size=120',
+    darkLogo: withBasePath('/icons/claude-code-dark.png'),
+    logo: withBasePath('/icons/claude-code.png'),
     name: 'Claude Code',
     slug: 'claude-code',
   },
   {
-    darkLogo:
-      'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/deepseek-color.png?size=120',
-    logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/deepseek-color.png?size=120',
+    darkLogo: withBasePath('/icons/deepseek-dark.png'),
+    logo: withBasePath('/icons/deepseek.png'),
     name: 'DeepSeek Harness',
     slug: 'dsh',
   },
   {
-    darkLogo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/hermesagent.png?raw=true&size=120',
-    logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/hermesagent.png?raw=true&size=120',
+    darkLogo: withBasePath('/icons/hermes-dark.png'),
+    logo: withBasePath('/icons/hermes.png'),
     name: 'Hermes Agent',
     slug: 'hermes',
   },
   {
-    darkLogo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/opencode.png?size=120',
-    logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/opencode.png?size=120',
+    darkLogo: withBasePath('/icons/opencode-dark.png'),
+    logo: withBasePath('/icons/opencode.png'),
     name: 'OpenCode',
     slug: 'opencode',
   },
   {
-    darkLogo:
-      'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/openclaw-color.png?size=120',
-    logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/openclaw-color.png?size=120',
+    darkLogo: withBasePath('/icons/openclaw-dark.png'),
+    logo: withBasePath('/icons/openclaw.png'),
     name: 'OpenClaw',
     slug: 'openclaw',
   },
   {
-    darkLogo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/pi.png?size=120',
-    logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/pi.png?size=120',
+    darkLogo: withBasePath('/icons/pi-dark.png'),
+    logo: withBasePath('/icons/pi.png'),
     name: 'Pi Coding Agent',
     slug: 'pi',
   },
@@ -97,15 +94,14 @@ const agents: Agent[] = [
     slug: 'pydantic-ai',
   },
   {
-    darkLogo:
-      'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/langchain-color.png?size=120',
-    logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langchain-color.png?size=120',
+    darkLogo: withBasePath('/icons/langchain-dark.png'),
+    logo: withBasePath('/icons/langchain.png'),
     name: 'LangChain',
     slug: 'langchain',
   },
   {
-    darkLogo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/langgraph.png?size=120',
-    logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langgraph.png?size=120',
+    darkLogo: withBasePath('/icons/langgraph-dark.png'),
+    logo: withBasePath('/icons/langgraph.png'),
     name: 'LangGraph',
     slug: 'langgraph',
   },

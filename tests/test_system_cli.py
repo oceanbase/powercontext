@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from email.message import Message
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from unittest.mock import Mock
 from urllib.error import HTTPError
@@ -24,6 +25,7 @@ from urllib.error import HTTPError
 import pytest
 from typer.testing import CliRunner
 
+import powercontext.cli.authorization as authorization_cli
 import powercontext.cli.system as system_cli
 from powercontext.cli.app import create_cli
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, doctor_app, setup_app
@@ -38,6 +40,45 @@ from powercontext.service.model import (
     ServiceStatus,
     SupportState,
 )
+
+_probe_codex_mcp_status = system_cli._probe_codex_mcp_status
+
+
+@pytest.fixture(autouse=True)
+def isolated_codex_plugin_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    monkeypatch.delenv("POWERCONTEXT_CODEX_AUTHORIZATION", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_CODEX_SCOPE_ID", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_CLIENT_API_TOKEN", raising=False)
+    monkeypatch.setattr(authorization_cli, "configure_codex_desktop_authorization", lambda _value: False)
+    monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: None)
+    for marketplace in ("powercontext", "powercontext-local"):
+        cache = tmp_path / "codex" / "plugins" / "cache" / marketplace / "powercontext" / "0.1.0"
+        cache.mkdir(parents=True)
+        (cache / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"powercontext": {"type": "http", "url": "http://127.0.0.1:8000/mcp"}}})
+        )
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_mcp_list",
+        lambda: [
+            {
+                "name": "powercontext",
+                "enabled": True,
+                "auth_status": "unsupported",
+                "transport": {
+                    "type": "streamable_http",
+                    "url": "http://127.0.0.1:8000/mcp",
+                    "env_http_headers": {"Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"},
+                },
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        system_cli,
+        "_probe_codex_mcp_status",
+        lambda **_kwargs: {"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}},
+    )
 
 
 def test_server_defaults_to_persistent_user_storage(
@@ -99,6 +140,7 @@ def test_setup_codex_installs_from_a_remote_ref_and_prepares_storage(
         "plugin": "powercontext",
         "plugin_version": "0.1.0",
         "data_dir": str(data_dir),
+        "authorization_state": "not_configured",
     }
     assert data_dir.is_dir()
     assert run_codex.call_args_list[0].args == (
@@ -115,6 +157,566 @@ def test_setup_codex_installs_from_a_remote_ref_and_prepares_storage(
         "powercontext@powercontext",
     )
     assert run_codex.call_args_list[2].args == ("plugin", "list")
+
+
+def test_codex_diagnostics_verify_native_mcp_tools_without_process_authorization(monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    monkeypatch.delenv("POWERCONTEXT_CODEX_AUTHORIZATION", raising=False)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["mcp_configuration"].status is DiagnosticStatus.OK
+    assert diagnostics["authorization"].status is DiagnosticStatus.OK
+    assert diagnostics["mcp_tools"].status is DiagnosticStatus.OK
+    assert "2 tools" in diagnostics["mcp_tools"].detail
+
+
+def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", lambda **_kwargs: {"name": "powercontext", "tools": {}})
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["mcp_tools"].status is DiagnosticStatus.FAILED
+    assert "remember_memory, search_memory" in diagnostics["mcp_tools"].detail
+    assert "POWERCONTEXT_CODEX_AUTHORIZATION" in diagnostics["mcp_tools"].detail
+
+
+def test_codex_diagnostics_reject_native_mcp_without_authorization_environment(monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_mcp_list",
+        lambda: [
+            {
+                "name": "powercontext",
+                "enabled": True,
+                "transport": {"type": "streamable_http", "url": "http://127.0.0.1:8000/mcp"},
+            }
+        ],
+    )
+    probe = Mock()
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["mcp_configuration"].status is DiagnosticStatus.FAILED
+    assert "reinstall the current plugin" in diagnostics["mcp_configuration"].detail
+    assert diagnostics["authorization"].status is DiagnosticStatus.SKIPPED
+    probe.assert_not_called()
+
+
+def test_codex_diagnostics_reject_url_mismatched_stored_authorization(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    credential = tmp_path / "codex" / "powercontext" / "credentials.json"
+    authorization_cli.write_stored_authorization(
+        credential,
+        server_url="http://127.0.0.1:9000",
+        value="Bearer saved-token",
+    )
+    probe = Mock()
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.FAILED
+    assert "url_mismatch" in diagnostics["authorization"].detail
+    assert diagnostics["mcp_tools"].status is DiagnosticStatus.SKIPPED
+    probe.assert_not_called()
+
+
+def test_codex_app_server_probe_clears_process_authorization(monkeypatch) -> None:
+    responses = "\n".join((
+        json.dumps({"id": 1, "result": {"userAgent": "test"}}),
+        json.dumps({
+            "id": 2,
+            "result": {
+                "data": [
+                    {
+                        "name": "powercontext",
+                        "authStatus": "unsupported",
+                        "tools": {"remember_memory": {}, "search_memory": {}},
+                    }
+                ]
+            },
+        }),
+    ))
+
+    class Process:
+        def __init__(self) -> None:
+            self.stdin = StringIO()
+            self.stdout = StringIO(responses)
+
+        def terminate(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float) -> int:
+            return 0
+
+    popen = Mock(return_value=Process())
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer process-token")
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli.subprocess, "Popen", popen)
+
+    status = _probe_codex_mcp_status()
+
+    assert set(status["tools"]) == {"remember_memory", "search_memory"}
+    assert "POWERCONTEXT_CODEX_AUTHORIZATION" not in popen.call_args.kwargs["env"]
+
+
+def test_codex_app_server_probe_uses_resolved_authorization(monkeypatch) -> None:
+    responses = "\n".join((
+        json.dumps({"id": 1, "result": {"userAgent": "test"}}),
+        json.dumps({
+            "id": 2,
+            "result": {
+                "data": [
+                    {
+                        "name": "powercontext",
+                        "tools": {"remember_memory": {}, "search_memory": {}},
+                    }
+                ]
+            },
+        }),
+    ))
+
+    class Process:
+        def __init__(self) -> None:
+            self.stdin = StringIO()
+            self.stdout = StringIO(responses)
+
+        def terminate(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float) -> int:
+            return 0
+
+    popen = Mock(return_value=Process())
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli.subprocess, "Popen", popen)
+
+    _probe_codex_mcp_status(authorization="Bearer resolved-token")
+
+    assert popen.call_args.kwargs["env"]["POWERCONTEXT_CODEX_AUTHORIZATION"] == "Bearer resolved-token"
+
+
+def test_setup_codex_persists_setup_only_token_in_codex_owned_storage(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_API_TOKEN", "setup-token")
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    configure_desktop = Mock(return_value=True)
+    monkeypatch.setattr(authorization_cli, "configure_codex_desktop_authorization", configure_desktop)
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        Mock(
+            side_effect=[
+                {"marketplaceName": "powercontext"},
+                {"name": "powercontext", "version": "0.1.0"},
+            ]
+        ),
+    )
+
+    result = system_cli.install_codex_plugin(source="oceanbase/powercontext", ref="master")
+
+    assert result.authorization_state == "configured"
+    assert (
+        json.loads((tmp_path / "codex" / "powercontext" / "credentials.json").read_text())["authorization"]
+        == "Bearer setup-token"
+    )
+    configure_desktop.assert_called_once_with("Bearer setup-token")
+    mcp = json.loads((tmp_path / "codex/plugins/cache/powercontext/powercontext/0.1.0/.mcp.json").read_text())
+    helper = mcp["mcpServers"]["powercontext"]["http_headers_helper"]
+    assert "mcp_headers.py" in helper
+    assert str(tmp_path / "codex/powercontext/credentials.json") in helper
+    assert "setup-token" not in json.dumps(mcp)
+
+
+def test_codex_diagnostics_use_matching_windows_user_authorization(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    credential = tmp_path / "codex" / "powercontext" / "credentials.json"
+    authorization_cli.write_stored_authorization(
+        credential,
+        server_url="http://127.0.0.1:8000",
+        value="Bearer saved-token",
+    )
+    monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: "Bearer saved-token")
+    probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.OK
+    assert "Windows user authorization" in diagnostics["authorization"].detail
+    assert diagnostics["authorization"].checks == {
+        "current_process": "not_configured",
+        "setup_managed": "matches_desktop_restart",
+        "desktop_restart": "configured",
+    }
+    probe.assert_called_once_with(authorization="Bearer saved-token")
+
+
+def test_codex_diagnostics_prefer_process_authorization_over_stale_stored_credential(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex" / "powercontext" / "credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer old-token",
+    )
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer replacement-token")
+    probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.OK
+    assert diagnostics["authorization"].checks == {
+        "current_process": "configured",
+        "setup_managed": "stale",
+        "desktop_restart": "not_configured" if sys.platform == "win32" else "not_applicable",
+    }
+    assert "setup-managed credential is stale" in diagnostics["authorization"].detail
+    assert diagnostics["mcp_tools"].status is DiagnosticStatus.OK
+    probe.assert_called_once_with(authorization="Bearer replacement-token")
+    report = json.dumps(diagnostics["authorization"].as_json())
+    assert "old-token" not in report
+    assert "replacement-token" not in report
+
+
+def test_codex_diagnostics_reject_bare_process_token_without_repairing_it(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex" / "powercontext" / "credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer replacement-token",
+    )
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "replacement-token")
+    monkeypatch.setattr(
+        authorization_cli,
+        "read_codex_desktop_authorization",
+        lambda: "Bearer replacement-token",
+    )
+    probe = Mock()
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.FAILED
+    assert diagnostics["authorization"].checks == {
+        "current_process": "invalid",
+        "setup_managed": "matches_desktop_restart",
+        "desktop_restart": "configured",
+    }
+    assert "complete Bearer credential" in diagnostics["authorization"].detail
+    assert diagnostics["mcp_tools"].status is DiagnosticStatus.SKIPPED
+    probe.assert_not_called()
+    assert "replacement-token" not in json.dumps(diagnostics["authorization"].as_json())
+
+
+def test_codex_diagnostics_probe_lowercase_bearer_header_without_rewriting_it(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex" / "powercontext" / "credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer replacement-token",
+    )
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "bearer replacement-token")
+    monkeypatch.setattr(
+        authorization_cli,
+        "read_codex_desktop_authorization",
+        lambda: "Bearer replacement-token",
+    )
+    probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.OK
+    assert diagnostics["authorization"].checks == {
+        "current_process": "configured",
+        "setup_managed": "matches_current_process",
+        "desktop_restart": "matches_current_process",
+    }
+    assert diagnostics["mcp_tools"].status is DiagnosticStatus.OK
+    probe.assert_called_once_with(authorization="bearer replacement-token")
+
+
+def test_codex_diagnostics_do_not_replace_process_authorization_with_windows_user_value(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex" / "powercontext" / "credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer old-token",
+    )
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer replacement-token")
+    monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: "Bearer old-token")
+    probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.OK
+    assert diagnostics["authorization"].checks == {
+        "current_process": "configured",
+        "setup_managed": "stale",
+        "desktop_restart": "differs_from_current_process",
+    }
+    assert "Windows user authorization differs" in diagnostics["authorization"].detail
+    probe.assert_called_once_with(authorization="Bearer replacement-token")
+
+
+def test_codex_diagnostics_report_matching_desktop_override_separately_from_stale_storage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex" / "powercontext" / "credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer old-token",
+    )
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer replacement-token")
+    monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: "Bearer replacement-token")
+    probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.OK
+    assert diagnostics["authorization"].checks == {
+        "current_process": "configured",
+        "setup_managed": "stale",
+        "desktop_restart": "matches_current_process",
+    }
+    probe.assert_called_once_with(authorization="Bearer replacement-token")
+
+
+@pytest.mark.parametrize("process_override", [False, True])
+def test_codex_diagnostics_probe_the_native_credential_helper_without_injecting_storage(
+    tmp_path: Path, monkeypatch, process_override: bool
+) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {"name": "powercontext", "pluginId": "powercontext@powercontext", "installed": True, "enabled": True}
+            ]
+        },
+    )
+    servers = system_cli._run_codex_mcp_list()
+    servers[0]["transport"]["http_headers_helper"] = "<redacted>"
+    monkeypatch.setattr(system_cli, "_run_codex_mcp_list", lambda: servers)
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex/powercontext/credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer saved-test-token",
+    )
+    if process_override:
+        monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer override-test-token")
+    probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].ok
+    assert diagnostics["mcp_tools"].ok
+    probe.assert_called_once_with(authorization="Bearer override-test-token" if process_override else None)
+    report = json.dumps({key: value.as_json() for key, value in diagnostics.items()})
+    assert "saved-test-token" not in report
+    assert "override-test-token" not in report
+    if not process_override:
+        assert diagnostics["authorization"].checks is not None
+        assert diagnostics["authorization"].checks["setup_managed"] == "available_to_host"
+    if sys.platform != "win32":
+        assert "Windows" not in report
+
+
+def test_codex_diagnostics_fail_when_setup_credential_is_unavailable_to_host(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    credential = tmp_path / "codex" / "powercontext" / "credentials.json"
+    authorization_cli.write_stored_authorization(
+        credential,
+        server_url="http://127.0.0.1:8000",
+        value="Bearer saved-token",
+    )
+    probe = Mock()
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.FAILED
+    assert "not available to the Codex host" in diagnostics["authorization"].detail
+    assert diagnostics["mcp_tools"].status is DiagnosticStatus.SKIPPED
+    probe.assert_not_called()
 
 
 def test_setup_codex_uses_an_absolute_local_marketplace_without_a_ref(
@@ -149,6 +751,7 @@ def test_setup_codex_uses_an_absolute_local_marketplace_without_a_ref(
     )
 
     assert result.exit_code == 0
+    assert "Authorization: not_configured" in result.output
     assert run_codex.call_args_list[0].args == (
         "plugin",
         "marketplace",
@@ -171,6 +774,7 @@ def test_setup_claude_code_reports_mutations_then_installs_and_verifies(
             [
                 {
                     "id": "powercontext@powercontext",
+                    "scope": "user",
                     "version": "0.1.0",
                     "enabled": True,
                 }
@@ -205,6 +809,7 @@ def test_setup_claude_code_reports_mutations_then_installs_and_verifies(
         "settings_file": str(config_dir / "settings.json"),
         "cache_dir": str(config_dir / "plugins" / "cache" / "powercontext" / "powercontext" / "<version>"),
         "data_dir": str(config_dir / "plugins" / "data" / "powercontext-powercontext"),
+        "authorization_state": "not_configured",
     }
     assert "no changes made yet" in result.stderr
     assert str(config_dir / "settings.json") in result.stderr
@@ -234,9 +839,90 @@ def test_setup_claude_code_reports_mutations_then_installs_and_verifies(
             "options": {
                 "server_url": "http://127.0.0.1:9000",
                 "capture_prompts": False,
+                "allow_insecure_http": False,
             }
         }
     }
+    statusline = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))["statusLine"]
+    assert statusline["type"] == "command"
+    assert statusline["refreshInterval"] == 30
+    assert "scripts/statusline.py" in statusline["command"].replace("\\", "/")
+    assert "--server-url http://127.0.0.1:9000" in statusline["command"]
+
+
+def test_setup_claude_code_refreshes_the_marketplace_and_plugin_before_installing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_dir = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    monkeypatch.setattr(system_cli, "which", lambda name: "/usr/bin/claude" if name == "claude" else None)
+    installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.1", "enabled": True}]
+    refreshed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.2", "enabled": True}]
+    monkeypatch.setattr(
+        system_cli,
+        "_run_claude_json",
+        Mock(
+            side_effect=[
+                [{"name": "powercontext", "source": "github", "repo": "oceanbase/powercontext", "ref": "master"}],
+                installed,
+                refreshed,
+            ]
+        ),
+    )
+    run_claude = Mock()
+    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
+
+    result = system_cli.install_claude_code_plugin(
+        source="oceanbase/powercontext",
+        ref="master",
+        server_url="http://127.0.0.1:9000",
+        capture_prompts=True,
+    )
+
+    assert result.plugin_version == "0.1.2"
+    assert [call.args for call in run_claude.call_args_list] == [
+        ("plugin", "marketplace", "update", "powercontext"),
+        ("plugin", "update", "powercontext@powercontext", "--scope", "user"),
+        ("plugin", "install", "powercontext@powercontext", "--scope", "user"),
+    ]
+
+
+def test_setup_claude_code_ignores_a_project_scoped_plugin_when_updating_user_scope(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_dir = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    project_plugin = {"id": "powercontext@powercontext", "scope": "project", "version": "0.1.1", "enabled": True}
+    user_plugin = {"id": "powercontext@powercontext", "scope": "user", "version": "0.1.2", "enabled": True}
+    monkeypatch.setattr(
+        system_cli,
+        "_run_claude_json",
+        Mock(
+            side_effect=[
+                [{"name": "powercontext", "source": "github", "repo": "oceanbase/powercontext", "ref": "master"}],
+                [project_plugin],
+                [project_plugin, user_plugin],
+            ]
+        ),
+    )
+    run_claude = Mock()
+    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
+
+    result = system_cli.install_claude_code_plugin(
+        source="oceanbase/powercontext",
+        ref="master",
+        server_url="http://127.0.0.1:9000",
+        capture_prompts=True,
+    )
+
+    assert result.plugin_version == "0.1.2"
+    assert [call.args for call in run_claude.call_args_list] == [
+        ("plugin", "marketplace", "update", "powercontext"),
+        ("plugin", "install", "powercontext@powercontext", "--scope", "user"),
+    ]
 
 
 def test_setup_claude_code_rolls_back_only_new_objects_after_verification_failure(monkeypatch) -> None:
@@ -279,7 +965,7 @@ def test_setup_claude_code_preserves_preexisting_objects_on_failure(tmp_path: Pa
         },
     }
     settings_file.write_text(json.dumps(previous_settings), encoding="utf-8")
-    installed = [{"id": "powercontext@powercontext", "version": "0.1.0", "enabled": True}]
+    installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}]
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
     monkeypatch.setattr(
@@ -304,7 +990,11 @@ def test_setup_claude_code_preserves_preexisting_objects_on_failure(tmp_path: Pa
             capture_prompts=True,
         )
 
-    assert [call.args[:2] for call in run_claude.call_args_list] == [("plugin", "install")]
+    assert [call.args[:2] for call in run_claude.call_args_list] == [
+        ("plugin", "marketplace"),
+        ("plugin", "update"),
+        ("plugin", "install"),
+    ]
     assert json.loads(settings_file.read_text(encoding="utf-8")) == previous_settings
 
 
@@ -323,7 +1013,7 @@ def test_setup_claude_code_restores_a_preexisting_disabled_plugin_after_failure(
         "unrelated": {"preserved": True},
     }
     settings_file.write_text(json.dumps(previous_settings), encoding="utf-8")
-    disabled = [{"id": "powercontext@powercontext", "version": "0.1.0", "enabled": False}]
+    disabled = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": False}]
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
     monkeypatch.setattr(
@@ -362,7 +1052,11 @@ def test_setup_claude_code_restores_a_preexisting_disabled_plugin_after_failure(
             capture_prompts=True,
         )
 
-    assert [call.args[:2] for call in run_claude_mock.call_args_list] == [("plugin", "install")]
+    assert [call.args[:2] for call in run_claude_mock.call_args_list] == [
+        ("plugin", "marketplace"),
+        ("plugin", "update"),
+        ("plugin", "install"),
+    ]
     assert json.loads(settings_file.read_text(encoding="utf-8")) == previous_settings
 
 
@@ -428,8 +1122,8 @@ def test_setup_claude_code_normalizes_an_mcp_url_before_installing(tmp_path: Pat
         Mock(
             side_effect=[
                 [{"name": "powercontext", "source": "github", "repo": "oceanbase/powercontext", "ref": "master"}],
-                [{"id": "powercontext@powercontext", "version": "0.1.0", "enabled": True}],
-                [{"id": "powercontext@powercontext", "version": "0.1.0", "enabled": True}],
+                [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}],
+                [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}],
             ]
         ),
     )
@@ -450,6 +1144,86 @@ def test_setup_claude_code_normalizes_an_mcp_url_before_installing(tmp_path: Pat
     assert "--config" not in run_claude.call_args.args
 
 
+def test_setup_claude_code_preserves_an_unrelated_statusline(tmp_path: Path, monkeypatch) -> None:
+    config_dir = tmp_path / "claude"
+    config_dir.mkdir()
+    settings_file = config_dir / "settings.json"
+    custom_statusline = {"type": "command", "command": "custom-status", "refreshInterval": 5}
+    settings_file.write_text(json.dumps({"statusLine": custom_statusline}), encoding="utf-8")
+    installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}]
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
+    monkeypatch.setattr(system_cli, "_run_claude", Mock())
+
+    system_cli.install_claude_code_plugin(
+        source="oceanbase/powercontext",
+        ref="master",
+        server_url="http://127.0.0.1:8000",
+        capture_prompts=True,
+    )
+
+    assert json.loads(settings_file.read_text(encoding="utf-8"))["statusLine"] == custom_statusline
+
+
+def test_setup_claude_code_preserves_a_command_that_merely_mentions_powercontext(tmp_path: Path, monkeypatch) -> None:
+    config_dir = tmp_path / "claude"
+    config_dir.mkdir()
+    settings_file = config_dir / "settings.json"
+    custom_statusline = {
+        "type": "command",
+        "command": "echo powercontext statusline.py",
+        "refreshInterval": 5,
+    }
+    settings_file.write_text(json.dumps({"statusLine": custom_statusline}), encoding="utf-8")
+    installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}]
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
+    monkeypatch.setattr(system_cli, "_run_claude", Mock())
+
+    system_cli.install_claude_code_plugin(
+        source="oceanbase/powercontext",
+        ref="master",
+        server_url="http://127.0.0.1:8000",
+        capture_prompts=True,
+    )
+
+    assert json.loads(settings_file.read_text(encoding="utf-8"))["statusLine"] == custom_statusline
+
+
+def test_setup_claude_code_refreshes_an_existing_powercontext_statusline(tmp_path: Path, monkeypatch) -> None:
+    config_dir = tmp_path / "claude"
+    config_dir.mkdir()
+    settings_file = config_dir / "settings.json"
+    previous_command = (
+        "python3 /home/me/.claude/plugins/cache/powercontext/powercontext/0.0.9/scripts/statusline.py"
+        " --server-url http://127.0.0.1:7000"
+    )
+    settings_file.write_text(
+        json.dumps({"statusLine": {"type": "command", "command": previous_command, "refreshInterval": 30}}),
+        encoding="utf-8",
+    )
+    installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}]
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
+    monkeypatch.setattr(system_cli, "_run_claude", Mock())
+
+    system_cli.install_claude_code_plugin(
+        source="oceanbase/powercontext",
+        ref="master",
+        server_url="http://127.0.0.1:9000",
+        capture_prompts=True,
+    )
+
+    statusline = json.loads(settings_file.read_text(encoding="utf-8"))["statusLine"]
+    assert statusline["command"] != previous_command
+    assert "0.0.9" not in statusline["command"]
+    assert "scripts/statusline.py" in statusline["command"]
+    assert "--server-url http://127.0.0.1:9000" in statusline["command"]
+
+
 def test_setup_claude_code_preserves_unrelated_settings_when_updating_options(tmp_path: Path, monkeypatch) -> None:
     config_dir = tmp_path / "claude"
     config_dir.mkdir()
@@ -466,7 +1240,7 @@ def test_setup_claude_code_preserves_unrelated_settings_when_updating_options(tm
         }),
         encoding="utf-8",
     )
-    installed = [{"id": "powercontext@powercontext", "version": "0.1.0", "enabled": True}]
+    installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}]
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
     monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
@@ -486,6 +1260,7 @@ def test_setup_claude_code_preserves_unrelated_settings_when_updating_options(tm
         "options": {
             "server_url": "http://127.0.0.1:8000",
             "capture_prompts": False,
+            "allow_insecure_http": False,
             "other": 1,
         },
     }
@@ -978,6 +1753,7 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
         "plugin": "powercontext-dsh",
         "plugin_path": str(plugin),
         "data_dir": str(tmp_path / "data"),
+        "authorization_state": "not_configured",
     }
     assert run_dsh.call_args_list[0].args == (
         "plugin",

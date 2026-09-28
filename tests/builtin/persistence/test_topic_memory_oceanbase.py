@@ -92,7 +92,7 @@ def test_oceanbase_fts_initializes_and_queries_both_current_projection_channels(
     async def scenario() -> None:
         connection = AsyncMock(spec=AsyncConnection)
         connection.dialect = mysql.dialect()
-        connection.scalar.side_effect = (0, 0)
+        connection.scalar.side_effect = (0, 0, 0, 0, 0, 0)
         connection.execute.return_value.mappings = MagicMock(return_value=())
         index = OceanBaseTopicMemoryFTSIndex()
 
@@ -120,14 +120,16 @@ def test_oceanbase_fts_initializes_and_queries_both_current_projection_channels(
         ]
         assert "MATCH (pc_topic_memory_active_topics.searchable_text) AGAINST" in query_statements[0]
         assert "pc_topic_memory_active_topics.scope_id" in query_statements[0]
-        assert "instr(concat(" in query_statements[0].casefold()
         assert "MATCH (pc_topic_memory_active_chunks.searchable_text) AGAINST" in query_statements[1]
         assert "pc_topic_memory_active_chunks.scope_id" in query_statements[1]
-        assert "instr(concat(" in query_statements[1].casefold()
         assert "row_number() OVER" in query_statements[1]
         assert "anon_1.topic_rank" in query_statements[1]
         assert result.topic_fts == ()
         assert result.detail_fts == ()
+        assert result.topic_fts_retrieved == 0
+        assert result.detail_fts_retrieved == 0
+        assert result.topic_fts_eligible == 0
+        assert result.detail_fts_eligible == 0
 
     asyncio.run(scenario())
 

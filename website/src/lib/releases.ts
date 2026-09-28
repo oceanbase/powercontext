@@ -26,7 +26,94 @@ export interface Release {
   githubUrl: string;
 }
 
+// Only stable releases belong here; publish pre-release notes on GitHub Releases.
 export const releases: Release[] = [
+  {
+    version: 'v1.1.0',
+    date: '2026-09-20',
+    title: {
+      en: 'Expand recall on demand · Review failures and revise Experiences · Unify tag management · Improve Agent handoffs and diagnostics',
+      zh: '按需补充检索 · 复盘失败、修订经验 · 统一标签管理 · 增强 Agent 交接与诊断',
+    },
+    summary: {
+      en: 'PowerContext 1.1.0 adds an optional recall sufficiency gate, evidence-based recurring failure records, tags across all built-in Artifact families, and native MiniMax embeddings, alongside expanded Pi and OpenClaw workflows and better Source provenance.',
+      zh: 'PowerContext 1.1.0 新增可选召回充分性门控、基于证据的重复失败记录、全部内置 Artifact 类型的标签和 MiniMax 原生 Embedding，并完善 Pi 与 OpenClaw 工作流及 Source 溯源。',
+    },
+    changes: {
+      en: [
+        'Optionally expand thin recall with at most two additional searches while preserving Scopes, families, result limits, and byte budgets. The gate is disabled by default. Recognized standalone execution instructions no longer count as lexical evidence; Topic query embedding during preparation falls back to full-text search after 250 ms.',
+        'Manage Topic Memory through generic Artifact create, replace, revision, lineage, tag, and publication operations, and customize Topic Memory processing Prompts by Scope.',
+        'Organize all seven built-in Artifact families with tags, including Profile and saved Prompt Artifacts. Queries that omit families now cover every built-in family.',
+        'Record exact evidence of recurring failures and verified avoidance. Three consecutive recurrences against one Experience revision can trigger a revision proposal for review when the repair surface is Experience content; approval and execution remain explicit.',
+        'Use the Pi Full core integration profile for Memory changes, statistics, Topic Memory queries, structured Handoffs, Task Outcomes, candidate generation and inspection, and External Skill discovery and import. Durable writes require confirmation; candidate generation does not approve or install a Skill.',
+        'Use OpenClaw /pc commands and work coordination workflows, and follow aligned Agent guidance and layered Skill routing across integrations.',
+        'Inspect recalled-context token reduction in Claude Code, OpenCode, and Codex, observe DSH recall and capture status through /pc, and trace Memory writes.',
+        'Read Profiles in the personal Dashboard, export the exact rendered Handoff Markdown, and read Experiences through dedicated CLI commands.',
+        'Strengthen resource access decisions with shared authorization filters and a transaction snapshot boundary, and reduce database transactions when reading Scope statistics.',
+        'Batch SQLite vector completeness checks while detecting stale Memory heads and missing or mismatched vectors.',
+        'Use native MiniMax embeddings with separate document and query requests, batching, response validation, and timeout handling.',
+        'Preserve registered Source types and identifiers in Artifact provenance, process persisted remote Source evidence for Topic Memory, distinguish missing Memory from pending ownership, support Markdown Handoff Reports over MCP, and extend WorkBuddy prompt Hooks to 30 seconds.',
+        'Improve Windows integration setup, command encoding, service inspection, and file URI handling, including native Codex MCP authentication verification. Windows remains experimental.',
+        'Upgrade the Server, clients, and Agent integrations together. SourceTypeReference.source_type is now an open string. Back up existing databases and complete startup schema updates with one Server instance before starting other instances. Older deployments with unfinished Artifact processing migration must complete that migration first.',
+      ],
+      zh: [
+        '按需启用召回充分性门控，最多追加两轮搜索，并保留 Scope、类型、条数与字节预算；该功能默认关闭。已识别的独立执行指令不再作为词法证据，准备上下文时的 Topic 查询 Embedding 超过 250 ms 则回退全文检索。',
+        '使用通用 Artifact 创建、替换、修订历史、证据链、标签和发布操作管理 Topic Memory，并按 Scope 自定义 Topic Memory 处理 Prompt。',
+        '标签覆盖全部七类内置 Artifact，包括 Profile 和已保存的 Prompt；查询省略 families 时覆盖全部内置类型。',
+        '记录失败复发与经验证已避免的精确证据；同一 Experience 修订连续复发三次且修复面为经验内容时，可提出待审核修订，批准与执行仍需显式操作。',
+        'Pi 达到 Full 核心集成档位，支持 Memory 变更、统计、Topic Memory 查询、结构化 Handoff、Task Outcome、Candidate 生成与查看，以及 External Skill 发现与导入。持久化写入需要确认，生成 Candidate 不会自动批准或安装 Skill。',
+        '通过 OpenClaw 的 /pc 命令和工作协调流程延续任务，并在各集成中使用统一的 Agent 指引和分层 Skill 路由。',
+        '在 Claude Code、OpenCode 和 Codex 中查看召回上下文的 token 缩减信息，通过 DSH /pc 查看召回与采集状态，并追踪 Memory 写入。',
+        '在个人 Dashboard 中读取 Profile，导出与页面内容一致的 Handoff Markdown，并通过专用 CLI 命令读取 Experience。',
+        '通过共享权限过滤条件和事务快照边界增强资源访问决策，并减少读取 Scope 统计时使用的数据库事务。',
+        '合并 SQLite 向量完整性检查，并识别过期的 Memory 引用及缺失或不匹配的向量。',
+        '支持 MiniMax 原生 Embedding，区分文档与查询请求，并提供批量处理、响应校验和超时控制。',
+        '保留已注册 Source 的类型与标识，处理远程 Source 的持久化证据，区分 Memory 不存在与所有者信息待写入状态，支持 MCP Markdown Handoff Report，并将 WorkBuddy 提示 Hook 超时扩展到 30 秒。',
+        '改进 Windows 集成安装、命令编码、服务检查和文件 URI 处理，包括验证 Codex 原生 MCP 认证。Windows 仍为试验性支持。',
+        'Server、客户端和 Agent 集成需一起升级。SourceTypeReference.source_type 改为开放字符串。先备份已有数据库，由一个 Server 实例完成启动时的结构升级后再启动其他实例；尚未完成 Artifact 处理迁移的旧部署需先完成该迁移。',
+      ],
+    },
+    installCommand: 'uv tool install --force "powercontext[cli,server]==1.1.0"',
+    githubUrl: 'https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.1.0',
+  },
+  {
+    version: 'v1.0.0',
+    date: '2026-09-10',
+    title: {
+      en: 'Guided setup, Topic Memory, and reviewed learning',
+      zh: '交互式配置、Topic Memory 与审核式经验沉淀',
+    },
+    summary: {
+      en: 'PowerContext 1.0.0 connects guided onboarding with evolving Topic Memory, scoped Profiles, and a reviewed path from Memory to Experience and Skill, while preserving cross-session Memory and Handoff workflows.',
+      zh: 'PowerContext 1.0.0 将交互式配置、持续演进的 Topic Memory、按 Scope 管理的 Profile，以及经过审核的 Memory → Experience → Skill 工作流串联起来，延续跨会话记忆与工作交接。',
+    },
+    changes: {
+      en: [
+        'Configure storage, model APIs, Server access, background processing, and Agent connections through an English or Chinese wizard. Persist Agent authorization and generate matching setup commands and next steps.',
+        'Turn captured Sources into evolving Topic Memory with evidence and revision history; inspect Sources, topics, and processing state in the personal Dashboard. Automatic processing requires configured model APIs.',
+        'Maintain scoped Profiles and subject-attributed Sources, customize processing Prompts by Scope, and select how Profiles and Memory are assembled into prepared context.',
+        'Organize Artifacts and Memory entries with tags, manage versioned Prompt Artifacts, and discover Scopes and Sources through the public API.',
+        'Run durable background processing for Memory, Topic Memory, and Profiles. Use Dream to propose Experience from exact Memory citations and Skill from approved Experiences; inspect and approve Candidates before they become Artifacts. Approval does not install or execute a Skill.',
+        'Connect MiniMax through its native plugin, send Claude Code MCP authorization correctly, and inspect effective DSH configuration and recalled-context snapshots through layered diagnostics.',
+        'Start with explicit Memory operations without model credentials; use bilingual documentation search, the installation walkthrough, and guided Jupyter tutorials for further workflows.',
+        'Strengthen evidence access checks, enforce revoked Scope contributions, validate raw Skill archive paths, and support weak or multiple If-None-Match validators on Artifact reads.',
+        'Upgrade the Server, clients, and Agent integrations together and back up existing databases before startup schema changes. The Dashboard is now an opt-in personal viewer requiring static Bearer authentication; Dream and Candidate review use CLI, Client, or HTTP APIs. Server startup loads a local .env unless disabled, and remote plaintext HTTP requires explicit client consent. Windows remains experimental.',
+      ],
+      zh: [
+        '通过交互式向导配置存储、模型 API、Server 访问、后台处理与 Agent 连接，持久化 Agent 授权，并生成匹配版本的安装命令和后续操作步骤。',
+        '将采集到的 Source 整理为持续演进的 Topic Memory，保留证据和修订历史；在个人 Dashboard 中查看 Source、主题与处理状态。自动处理需要配置模型 API。',
+        '按 Scope 维护 Profile 和带主体归属的 Source，自定义处理 Prompt，并选择 Profile 与 Memory 在准备好的上下文中的组织方式。',
+        '使用标签组织 Artifact 与 Memory 条目，管理带版本的 Prompt Artifact，并通过公开 API 发现 Scope 和 Source。',
+        '通过持久化后台任务处理 Memory、Topic Memory 和 Profile；使用 Dream 从精确 Memory 引用提炼 Experience，再从已批准的 Experience 生成 Skill。检查并批准 Candidate 后才会写入 Artifact；批准不会安装或执行 Skill。',
+        '支持原生插件接入 MiniMax，修复 Claude Code 的 MCP 授权传递，并通过分层诊断检查 DSH 实际生效的配置与召回上下文快照。',
+        '无需模型凭据即可使用显式 Memory 操作；通过中英文文档搜索、安装教程和 Jupyter 示例继续学习其他工作流。',
+        '增强生成过程中的证据访问检查，执行撤销后的 Scope 写入权限，校验 Skill 压缩包原始路径，并支持 Artifact 读取中的弱 ETag 和多个 If-None-Match 值。',
+        'Server、客户端和 Agent 集成需一起升级，并在启动时的数据库结构变更前备份数据。Dashboard 改为显式启用、使用静态 Bearer 认证的个人内容查看器；Dream 与 Candidate 审核通过 CLI、Client 或 HTTP API 操作。Server 启动默认读取本地 .env，远程明文 HTTP 连接需要客户端明确同意。Windows 仍为试验性支持。',
+      ],
+    },
+    installCommand: 'uv tool install --force "powercontext[cli,server]==1.0.0"',
+    githubUrl: 'https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.0.0',
+  },
   {
     version: 'v0.2.0',
     date: '2026-09-07',
@@ -80,13 +167,13 @@ export const releases: Release[] = [
       en: [
         'Connect Hermes Agent, OpenCode, Pi Coding Agent, OpenClaw, WorkBuddy, Pydantic AI, LangChain, and LangGraph through official integrations and diagnostics.',
         'Run scheduled processing with tracing, inspect scoped Handoff Reports, and configure PowerContext from the CLI.',
-        'Use embedded seekDB or bundled sqlite-vec persistence with explicit embedding dimensions and clearer readiness failures.',
+        'Use embedded seekdb or bundled sqlite-vec persistence with explicit embedding dimensions and clearer readiness failures.',
         'Apply safer transport defaults and secret-safe persistence diagnostics.',
       ],
       zh: [
         '通过正式集成和诊断能力连接 Hermes Agent、OpenCode、Pi Coding Agent、OpenClaw、WorkBuddy、Pydantic AI、LangChain 和 LangGraph。',
         '运行带 tracing 的定时处理任务，查看按 scope 划分的 Handoff Report，并通过 CLI 配置 PowerContext。',
-        '使用嵌入式 seekDB 或内置 sqlite-vec 持久化，显式指定 embedding 维度，并获得更清晰的 readiness 故障信息。',
+        '使用嵌入式 seekdb 或内置 sqlite-vec 持久化，显式指定 embedding 维度，并获得更清晰的 readiness 故障信息。',
         '使用更安全的传输默认值，以及不泄露敏感信息的持久化诊断。',
       ],
     },

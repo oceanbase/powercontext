@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="490" viewBox="0 0 900 490" role="img" aria-labelledby="title">
+<title id="title">宿主侧</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#475569"/></marker></defs>
+<rect width="900" height="490" fill="#fff"/>
+<g font-family="Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" fill="#1e293b"><rect x="20" y="25" width="250" height="245" rx="12" fill="#f8fafc" stroke="#64748b"/><text x="145" y="65" text-anchor="middle" font-size="21">宿主侧</text>
+<rect x="40" y="90" width="210" height="55" rx="7" fill="#fff" stroke="#94a3b8"/><text x="145" y="123.5" text-anchor="middle" font-size="18">Agent / Host</text><rect x="40" y="175" width="210" height="55" rx="7" fill="#fff" stroke="#94a3b8"/><text x="145" y="208.5" text-anchor="middle" font-size="18">集成 / SDK / MCP</text><path d="M145 145V169" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="365" y="25" width="510" height="245" rx="12" fill="#f8fafc" stroke="#64748b"/><text x="620" y="65" text-anchor="middle" font-size="21">PowerContext Server</text>
+<rect x="400" y="90" width="440" height="55" rx="7" fill="#fff" stroke="#94a3b8"/><text x="620" y="123.5" text-anchor="middle" font-size="18">应用接口与访问控制</text><rect x="400" y="175" width="440" height="55" rx="7" fill="#fff" stroke="#94a3b8"/><text x="620" y="208.5" text-anchor="middle" font-size="18">后台处理 / Worker</text>
+<path d="M270 203H325V118H395" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/><text x="315" y="96" text-anchor="middle" font-size="15">HTTP</text>
+<rect x="70" y="350" width="350" height="95" rx="7" fill="#fff" stroke="#94a3b8"/><text x="245" y="413" text-anchor="middle" font-size="18">SQLite / OceanBase / SeekDB</text><text x="245" y="377" text-anchor="middle" font-size="17">持久化存储（可选后端）</text>
+<rect x="505" y="350" width="350" height="95" rx="7" fill="#fff" stroke="#94a3b8"/><text x="680" y="413" text-anchor="middle" font-size="18">生成 / Embedding</text><text x="680" y="377" text-anchor="middle" font-size="17">模型服务（按需调用）</text>
+<path d="M520 270V298H245V343" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/><path d="M735 270V303H680V343" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/></g>
+</svg>

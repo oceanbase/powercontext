@@ -39,6 +39,18 @@ The Artifact ID remains stable while approved replacements create later Revision
 and Artifact references used to produce each Revision. Reading an exact reference returns that historical snapshot,
 even after the family head advances.
 
+## Artifact families currently supported
+
+The code's write-capable families are `memory`, `experience`, `skill`, `handoff`, `profile`, and `prompt`. They share
+immutable Revisions and exact references, but expose different operations: Memory stores durable facts, Experience and
+Skill go through Candidate review, Handoff records work continuity, Profile stores Scope background, and Prompt stores
+Scope-level operational configuration.
+
+Read APIs also expose the specialized `topic-memory` family. Topic Memory is produced by background Source processing and
+is used through `flush`, `search`, and `get`; it currently has no generic create, update, delete, or retire operation. A
+Source is evidence rather than an Artifact. A Tag is metadata for Memory, Experience, Skill, and Handoff rather than an
+Artifact family.
+
 ## Memory stores durable project knowledge
 
 Memory is a revisioned Artifact family for reusable decisions, constraints, facts, state, and next steps. Entries can
@@ -70,9 +82,9 @@ review and availability model.
 
 ## PreparedContext is temporary
 
-`PreparedContext` is the final bounded value for one Agent turn. The Runtime selects active Memory and approved
-Experience heads for the request query, applies a shared byte budget, and returns either `ready` content or `empty`.
-The result is not a new durable record.
+`PreparedContext` is the final bounded value for one Agent turn. The Runtime selects active Memory and approved Experience
+heads for the request query, plus a committed Profile or Topic Memory explicitly requested through `assembly`, applies a
+shared byte budget, and returns either `ready` content or `empty`. The result is not a new durable record.
 
 Recalled content is history, not an instruction authority. The receiving Agent must still follow current user and
 system instructions, inspect live workspace state, and check its actual capabilities.

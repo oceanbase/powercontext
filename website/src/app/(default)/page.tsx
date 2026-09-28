@@ -17,11 +17,12 @@
 import type { Metadata } from 'next';
 import { HomePage } from '@/components/home-page';
 import { defaultLanguage } from '@/lib/i18n';
+import { absoluteSiteUrl } from '@/lib/urls';
 
 export const metadata: Metadata = {
   alternates: {
-    canonical: '/',
-    languages: { en: '/', zh: '/zh/', 'x-default': '/' },
+    canonical: absoluteSiteUrl('/'),
+    languages: { en: absoluteSiteUrl('/'), zh: absoluteSiteUrl('/zh/'), 'x-default': absoluteSiteUrl('/') },
   },
 };
 

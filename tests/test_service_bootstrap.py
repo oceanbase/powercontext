@@ -111,7 +111,10 @@ def test_retry_state_write_error_exits_nonzero_and_removes_token(tmp_path: Path)
 @pytest.mark.parametrize(
     "unsafe_state",
     [
-        "group-readable",
+        pytest.param(
+            "group-readable",
+            marks=pytest.mark.skipif(os.name == "nt", reason="Group permission bits are a POSIX service boundary"),
+        ),
         pytest.param(
             "symlink",
             marks=pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"), reason="O_NOFOLLOW is a POSIX service boundary"),

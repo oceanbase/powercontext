@@ -11,8 +11,10 @@ The plugin is a client of the running Server:
 
 - the `UserPromptSubmit` hook asks the Runtime for one final, bounded context value and captures the current prompt as
   independent Source evidence;
-- Codex uses Streamable HTTP MCP for explicit Memory reads and writes;
-- saying `交接`, `交接当前工作`, or `handoff this work` triggers the `project-context` Skill to inspect current facts,
+- a ten-second-bounded `Stop` hook reports scoped recall-token estimates after each completed turn;
+- Codex uses Streamable HTTP MCP for the full support profile: Memory, work continuity, Experience and managed Skill
+  reading/proposals/generation, candidate review, and exact external Skill discovery/import;
+- saying `交接`, `交接当前工作`, or `handoff this work` triggers the `powercontext-project-context` Skill to inspect current facts,
   prepare the current work, and commit the returned Handoff in one turn;
 - Server or transport failures do not block normal Codex work.
 
@@ -22,11 +24,12 @@ content unchanged; it never performs a second selection or falls back to the old
 outcomes are returned as content-free diagnostic JSON in the top-level `systemMessage` on stdout; when context is
 also available, the same response includes `hookSpecificOutput`.
 
-The installed plugin defaults to `http://127.0.0.1:8000/mcp`. The plugin configuration and Hook use only
-environment-backed values for optional credentials; they do not store tokens in the plugin configuration.
+The installed plugin defaults to `http://127.0.0.1:8000/mcp/`. Setup configures a native MCP credential helper
+that reads the same URL-bound credential as the Hook. Process authorization remains an override;
+tokens are never stored in the plugin configuration.
 
 Run the integration tests from a repository checkout:
 
 ```bash
-uv run pytest tests/codex_plugin tests/e2e/test_codex_service_chain.py tests/e2e/test_mcp_transport.py
+uv run pytest tests/codex_plugin tests/e2e/test_codex_service_chain.py tests/e2e/test_mcp_transport.py tests/e2e/test_mcp_full_profile.py
 ```

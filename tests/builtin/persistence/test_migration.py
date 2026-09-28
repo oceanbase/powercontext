@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from typing import Any, cast
 
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import func, inspect, select, text
 
 from powercontext.builtin.persistence import migration as migration_module
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -32,7 +32,11 @@ from powercontext.builtin.persistence.migration import (
 )
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
+    ARTIFACT_CANDIDATE_VERSIONS_TABLE,
+    ARTIFACTS_TABLE,
+    DREAM_RUNS_TABLE,
     MEMORY_TABLES,
+    RECURRENCE_TABLES,
     SHARED_TABLES,
     STATISTICS_TABLES,
     TOPIC_MEMORY_WORK_BUDGETS_TABLE,
@@ -83,7 +87,11 @@ def test_clean_schema_migrates_to_head_idempotently(tmp_path) -> None:
             assert await require_current_schema(profile.database) == CURRENT_SCHEMA_REVISION
             async with profile.database.transaction() as connection:
                 table_names = await connection.run_sync(lambda value: set(inspect(value).get_table_names()))
-            assert WORK_ITEMS_TABLE.name in table_names
+            assert {
+                WORK_ITEMS_TABLE.name,
+                DREAM_RUNS_TABLE.name,
+                *(table.name for table in RECURRENCE_TABLES),
+            } <= table_names
 
     asyncio.run(scenario())
 
@@ -128,15 +136,58 @@ def test_partial_unversioned_schema_is_rejected_without_blind_stamping(tmp_path)
     asyncio.run(scenario())
 
 
-def test_current_revision_with_missing_physical_table_is_rejected(tmp_path) -> None:
+@pytest.mark.parametrize("missing_table", [WORK_ITEMS_TABLE, DREAM_RUNS_TABLE, *RECURRENCE_TABLES])
+def test_current_revision_with_missing_physical_table_is_rejected(tmp_path, missing_table) -> None:
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'damaged.db'}")
         async with SQLiteProfile.open(config, tables=(), create_schema=False) as profile:
             await migrate_database(profile.database)
             async with profile.database.transaction() as connection:
-                await connection.run_sync(WORK_ITEMS_TABLE.drop)
+                await connection.run_sync(missing_table.drop)
 
             with pytest.raises(SchemaCompatibilityError, match="current revision is missing tables"):
                 await require_current_schema(profile.database)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("previous_revision", [None, "0007_processing_supervisor"])
+def test_dream_and_recurrence_upgrade_preserves_existing_artifacts(tmp_path, previous_revision) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'pre-dream.db'}")
+        async with SQLiteProfile.open(config, tables=(), create_schema=False) as profile:
+            await migrate_database(profile.database)
+            async with profile.database.transaction() as connection:
+                for table in (*RECURRENCE_TABLES, DREAM_RUNS_TABLE):
+                    await connection.run_sync(table.drop)
+                for table in (ARTIFACTS_TABLE, ARTIFACT_CANDIDATE_VERSIONS_TABLE):
+                    await connection.exec_driver_sql(f"ALTER TABLE {table.name} DROP COLUMN memory_citations")
+                await connection.execute(
+                    text(
+                        "INSERT INTO pc_artifacts (scope_id, family, artifact_id, revision, content) "
+                        "VALUES ('scope', 'memory', 'existing', 1, :content)"
+                    ),
+                    {"content": b"existing artifact"},
+                )
+                if previous_revision is None:
+                    await connection.execute(text("DELETE FROM pc_schema_revisions"))
+                else:
+                    await connection.execute(
+                        text("UPDATE pc_schema_revisions SET version_num = :revision"),
+                        {"revision": previous_revision},
+                    )
+
+            assert await migrate_database(profile.database) == CURRENT_SCHEMA_REVISION
+            assert await migrate_database(profile.database) == CURRENT_SCHEMA_REVISION
+            assert await require_current_schema(profile.database) == CURRENT_SCHEMA_REVISION
+            async with profile.database.transaction() as connection:
+                row = (
+                    await connection.execute(
+                        text("SELECT content, memory_citations FROM pc_artifacts WHERE artifact_id = 'existing'")
+                    )
+                ).one()
+                assert row == (b"existing artifact", None)
+                for table in (*RECURRENCE_TABLES, DREAM_RUNS_TABLE):
+                    assert await connection.scalar(select(func.count()).select_from(table)) == 0
 
     asyncio.run(scenario())

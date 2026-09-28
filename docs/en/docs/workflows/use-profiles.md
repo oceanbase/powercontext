@@ -9,6 +9,10 @@ A Profile is a complete Markdown snapshot derived from one Scope's evidence, not
 User scopes typically describe one person; group scopes retain speaker attribution.
 Each Scope has one singleton: `family=profile, artifact_id=profile`.
 
+Profile is a separate Artifact family in the context-management overview: Sources provide evidence, policy and background
+processing decide whether to generate it, and review or manual replacement commits a new immutable Revision. See
+[Context management architecture and responsibilities](architecture.md) for the component and governance boundaries.
+
 ## Subject Source writes
 
 Supply your business user ID as `subject_key`; `subject_type` defaults to and currently only supports `user`:

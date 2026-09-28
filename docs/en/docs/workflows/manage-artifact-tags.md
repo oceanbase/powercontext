@@ -5,16 +5,22 @@ description: Label logical Artifacts and Memory entries, then find them with exa
 
 # Organize with tags
 
-Custom tags organize Memory, Experience, Skill, and Handoff Artifacts within one Scope. A Memory Artifact and each
+Custom tags organize all built-in Artifact families within one Scope: Memory, Topic Memory, Experience, Skill, Handoff,
+Profile, and Prompt. A Memory Artifact and each
 logical entry inside it have independent tag sets. Tags follow these identities across content revisions; they do not
 change content, lineage, embeddings, or Context Versions.
 
-Prompt configurations are not tag targets. Their content and history remain available through the scoped Prompt APIs.
+The corresponding `family` values are `memory`, `topic-memory`, `experience`, `skill`, `handoff`, `profile`, and `prompt`.
+The Profile `artifact_id` is `profile`; a Prompt's `artifact_id` is its prompt key, such as `memory.extract`.
+Tags require a persisted Artifact. An unsaved built-in default Prompt has no independent tag set; save a Prompt
+Artifact before assigning tags.
 
 With access control enabled, tags follow their target's read and write permissions. A viewer of a shared target can read
-its tags but cannot edit them or run a Scope-wide tag query. Queries require `scope.read`. Tags on the entire Memory
-Artifact require `scope.read` to read and `scope.admin` to edit; individual entries use their own `artifact.read` /
-`artifact.write` permissions. Insufficient permission returns **403**, and revoking a share also revokes tag access.
+its tags but cannot edit them or run a Scope-wide tag query. Queries require `scope.read`. Tags on entire Memory and
+Topic Memory Artifacts require `scope.read` to read and `scope.admin` to edit. Prompt tags use the Prompt's read permission;
+editing requires current `scope.admin` permission, even if an Artifact owner binding remains after Scope access is revoked.
+Profile, Experience, Skill, Handoff, and individual Memory entries use their target's `artifact.read` / `artifact.write`
+permissions. Insufficient permission returns **403**, and revoking a share also revokes tag access.
 
 Manage tags through the Python Client below or the public API. The Dashboard reads saved content and does not provide tag editing or query pages.
 
@@ -98,7 +104,11 @@ use exact distance ordering over the eligible set on SQLite and OceanBase; this 
 approximate search. A backend without tag-filter support rejects the request instead of silently post-filtering.
 
 Tag queries return exact current Artifact references or Memory citations, ordered by family, target type, Artifact ID,
-and target ID. Pass `next_cursor` unchanged with the same filters, Scope, and caller. Cursors expire after one hour;
+and target ID. Omit `families` to query all seven families, or select families explicitly, for example
+`{"tags":["release"],"families":["topic-memory","profile","prompt","handoff"]}`. Every family supports tag reads, replacement,
+filtered listing, and cross-family queries. Tags survive content revisions and Server restarts.
+
+Pass `next_cursor` unchanged with the same filters, Scope, and caller. Cursors expire after one hour;
 invalid or mismatched cursors return **400**, expired cursors **410**. Each page is internally consistent, but pagination
 does not freeze a snapshot across requests.
 

@@ -29,9 +29,10 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
+from typing import cast
 from urllib.error import URLError
-from urllib.parse import unquote, urlparse
-from urllib.request import urlopen
+from urllib.parse import urlparse
+from urllib.request import url2pathname, urlopen
 from uuid import uuid4
 
 from powercontext.cli.git_source import InvalidGitHubSourceError, clone_github_source, github_clone_url
@@ -42,7 +43,8 @@ from powercontext.paths import powercontext_data_dir
 OPENCODE_PLUGIN_NAME = "powercontext-opencode"
 OPENCODE_PLUGIN_RELATIVE = Path("integrations") / "opencode" / "plugins" / "powercontext"
 OPENCODE_BUNDLE = Path("lib") / "index.js"
-OPENCODE_SKILL = Path("skills") / "project-context" / "SKILL.md"
+OPENCODE_TUI_BUNDLE = Path("lib") / "tui.js"
+OPENCODE_SKILL = Path("skills") / "powercontext-project-context" / "SKILL.md"
 SKILL_MANIFEST = ".powercontext.json"
 PLUGIN_MANIFEST = ".powercontext-opencode.json"
 MINIMUM_VERSION = (1, 18, 21)
@@ -59,6 +61,7 @@ class OpenCodeSetupResult:
     plugin_path: str
     skill_path: str
     data_dir: str
+    authorization_state: str = "not_attempted"
 
 
 def opencode_executable() -> str:
@@ -81,7 +84,7 @@ def _version() -> str:
     return value
 
 
-def install_opencode_plugin(*, source: str, ref: str) -> OpenCodeSetupResult:
+def install_opencode_plugin(*, source: str, ref: str, server_url: str = "http://127.0.0.1:8000") -> OpenCodeSetupResult:
     """Install the plugin and its owned global Skill from one checkout."""
 
     opencode_executable()
@@ -95,16 +98,35 @@ def install_opencode_plugin(*, source: str, ref: str) -> OpenCodeSetupResult:
     require_complete_plugin(plugin_dir)
     config_dir = opencode_config_dir()
     plugin_target = config_dir / "plugins" / f"{OPENCODE_PLUGIN_NAME}.js"
-    skill_target = config_dir / "skills" / "project-context"
+    tui_source = plugin_dir / OPENCODE_TUI_BUNDLE
+    legacy_tui_target = config_dir / "plugins" / f"{OPENCODE_PLUGIN_NAME}-tui.js"
+    skill_target = config_dir / "skills" / "powercontext-project-context"
     require_replaceable_plugin(plugin_target)
+    require_replaceable_plugin(legacy_tui_target)
     require_replaceable_skill(skill_target)
+    tui_config = _prepare_tui_config(config_dir, tui_source)
     _install_plugin(plugin_dir / OPENCODE_BUNDLE, plugin_target)
+    _commit_tui_config(tui_config)
     _install_skill(plugin_dir / OPENCODE_SKILL.parent, skill_target)
+    try:
+        legacy_tui_target.unlink(missing_ok=True)
+    except OSError as error:
+        raise SetupError.command_unavailable(["remove", "legacy", "OpenCode", "TUI plugin"], error) from error
+    from powercontext.cli.authorization import (
+        configure_stored_authorization,
+        setup_authorization_value,
+    )
+
     return OpenCodeSetupResult(
         plugin=OPENCODE_PLUGIN_NAME,
         plugin_path=str(plugin_dir),
         skill_path=str(skill_target),
         data_dir=str(data_dir),
+        authorization_state=configure_stored_authorization(
+            "opencode",
+            server_url=server_url,
+            value=setup_authorization_value("opencode"),
+        ),
     )
 
 
@@ -126,7 +148,11 @@ def plugin_dir_from_checkout(root: Path) -> Path:
 
 
 def require_complete_plugin(path: Path) -> None:
-    if not (path / OPENCODE_BUNDLE).is_file() or not (path / OPENCODE_SKILL).is_file():
+    if (
+        not (path / OPENCODE_BUNDLE).is_file()
+        or not (path / OPENCODE_TUI_BUNDLE).is_file()
+        or not (path / OPENCODE_SKILL).is_file()
+    ):
         raise SetupError.incomplete_opencode_plugin(path)
 
 
@@ -248,6 +274,264 @@ def _install_plugin(source: Path, target: Path) -> None:
         raise SetupError.command_unavailable(["install", "OpenCode", "plugin"], error) from error
 
 
+def _tui_config_path(config_dir: Path) -> Path:
+    for name in ("tui.json", "tui.jsonc"):
+        candidate = config_dir / name
+        if candidate.is_file():
+            return candidate
+    return config_dir / "tui.json"
+
+
+def _tui_entry_path(entry: object) -> Path | None:
+    spec = entry[0] if isinstance(entry, list) and entry else entry
+    if not isinstance(spec, str):
+        return None
+    try:
+        parsed = urlparse(spec)
+        if parsed.scheme == "file":
+            authority = f"//{parsed.netloc}" if parsed.netloc else ""
+            raw = url2pathname(f"{authority}{parsed.path}")
+        else:
+            raw = spec
+        return Path(raw).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _owns_tui_entry(entry: object, *, target: Path) -> bool:
+    """Return whether one ``tui.json`` plugin entry belongs to this installation."""
+
+    path = _tui_entry_path(entry)
+    if path is None:
+        return False
+    if path == target or path.name in {f"{OPENCODE_PLUGIN_NAME}-tui.js", f"{OPENCODE_PLUGIN_NAME}.tui.js"}:
+        return True
+    if path.name != OPENCODE_TUI_BUNDLE.name:
+        return False
+    if _is_opencode_plugin(path.parent.parent):
+        return True
+    return _is_opencode_checkout_entry(path)
+
+
+def _is_opencode_checkout_entry(path: Path) -> bool:
+    """Recognize a stale TUI bundle from a remote checkout, deleted or not."""
+
+    root = (powercontext_data_dir() / "checkouts" / "opencode").resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _read_tui_config(config_path: Path) -> tuple[dict[str, object], list[object]]:
+    if config_path.exists():
+        payload = json.loads(_strip_jsonc(config_path.read_text(encoding="utf-8")))
+    else:
+        payload = {"$schema": "https://opencode.ai/tui.json"}
+    if not isinstance(payload, dict):
+        raise TypeError
+    typed_payload = cast(dict[str, object], payload)
+    plugins_value = typed_payload.setdefault("plugin", [])
+    if not isinstance(plugins_value, list):
+        raise TypeError
+    plugins = cast(list[object], plugins_value)
+    return typed_payload, plugins
+
+
+def _copy_string(text: str, start: int) -> int:
+    length = len(text)
+    end = start + 1
+    while end < length:
+        if text[end] == "\\":
+            end += 2
+            continue
+        if text[end] == '"':
+            return end + 1
+        end += 1
+    return length
+
+
+def _skip_jsonc_space(text: str, index: int) -> int:
+    """Advance past whitespace and comments to the next significant character."""
+
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if character.isspace():
+            index += 1
+            continue
+        if character == "/" and index + 1 < length:
+            if text[index + 1] == "/":
+                newline = text.find("\n", index + 2)
+                index = length if newline == -1 else newline + 1
+                continue
+            if text[index + 1] == "*":
+                end = text.find("*/", index + 2)
+                index = length if end == -1 else end + 2
+                continue
+        break
+    return index
+
+
+def _matching_bracket(text: str, start: int) -> int | None:
+    """Return the index of the ``]`` that closes the array opened at ``start``."""
+
+    depth = 0
+    index = start
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if character == '"':
+            index = _copy_string(text, index)
+            continue
+        if character == "/" and index + 1 < length and text[index + 1] in "/*":
+            index = _skip_jsonc_space(text, index)
+            continue
+        if character in "[{":
+            depth += 1
+        elif character in "]}":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def _plugin_array_span(text: str) -> tuple[int, int] | None:
+    """Locate the top-level ``"plugin"`` array in the original JSONC text."""
+
+    index = 0
+    depth = 0
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if character == '"':
+            end = _copy_string(text, index)
+            if depth == 1 and text[index:end] == '"plugin"':
+                cursor = _skip_jsonc_space(text, end)
+                if cursor < length and text[cursor] == ":":
+                    cursor = _skip_jsonc_space(text, cursor + 1)
+                    if cursor < length and text[cursor] == "[":
+                        close = _matching_bracket(text, cursor)
+                        if close is not None:
+                            return cursor, close + 1
+            index = end
+            continue
+        if character == "/" and index + 1 < length and text[index + 1] in "/*":
+            index = _skip_jsonc_space(text, index)
+            continue
+        if character in "[{":
+            depth += 1
+        elif character in "}]":
+            depth -= 1
+        index += 1
+    return None
+
+
+def _rewrite_jsonc_plugin_array(text: str, plugins: list[object]) -> str | None:
+    """Replace only the plugin array so surrounding JSONC comments survive."""
+
+    span = _plugin_array_span(text)
+    if span is None:
+        return None
+    start, end = span
+    serialized = json.dumps(plugins, indent=2)
+    key = text.rfind('"plugin"', 0, start)
+    indent = ""
+    if key >= 0:
+        line_start = text.rfind("\n", 0, key) + 1
+        candidate = text[line_start:key]
+        if candidate and not candidate.strip():
+            indent = candidate
+    if indent:
+        serialized = serialized.replace("\n", f"\n{indent}")
+    return f"{text[:start]}{serialized}{text[end:]}"
+
+
+def _strip_jsonc(text: str) -> str:
+    # OpenCode accepts tui.jsonc, so comments and trailing commas are valid user
+    # configuration. Strings are copied verbatim so "http://..." survives.
+    without_comments: list[str] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if character == '"':
+            end = _copy_string(text, index)
+            without_comments.append(text[index:end])
+            index = end
+            continue
+        if character == "/" and index + 1 < length and text[index + 1] == "/":
+            newline = text.find("\n", index)
+            index = length if newline == -1 else newline
+            continue
+        if character == "/" and index + 1 < length and text[index + 1] == "*":
+            end = text.find("*/", index + 2)
+            without_comments.append(" ")
+            index = length if end == -1 else end + 2
+            continue
+        without_comments.append(character)
+        index += 1
+    stripped = "".join(without_comments)
+
+    without_trailing_commas: list[str] = []
+    index = 0
+    length = len(stripped)
+    while index < length:
+        character = stripped[index]
+        if character == '"':
+            end = _copy_string(stripped, index)
+            without_trailing_commas.append(stripped[index:end])
+            index = end
+            continue
+        if character == ",":
+            ahead = index + 1
+            while ahead < length and stripped[ahead] in " \t\r\n":
+                ahead += 1
+            if ahead < length and stripped[ahead] in "}]":
+                index += 1
+                continue
+        without_trailing_commas.append(character)
+        index += 1
+    return "".join(without_trailing_commas)
+
+
+def _prepare_tui_config(config_dir: Path, plugin_path: Path) -> tuple[Path, str | None]:
+    config_path = _tui_config_path(config_dir)
+    try:
+        payload, plugins = _read_tui_config(config_path)
+    except (OSError, TypeError, ValueError) as error:
+        raise SetupError.command_unavailable(["read", "OpenCode", "TUI config"], error) from error
+    target = plugin_path.resolve()
+    resolved = [entry for entry in plugins if not _owns_tui_entry(entry, target=target)]
+    if not any(_tui_entry_path(entry) == target for entry in resolved):
+        resolved.append(str(target))
+    if resolved == plugins:
+        return config_path, None
+    payload["plugin"] = resolved
+    if config_path.exists():
+        original = config_path.read_text(encoding="utf-8")
+        rewritten = _rewrite_jsonc_plugin_array(original, resolved)
+        if rewritten is not None:
+            return config_path, rewritten
+    return config_path, json.dumps(payload, indent=2) + "\n"
+
+
+def _commit_tui_config(prepared: tuple[Path, str | None]) -> None:
+    config_path, serialized = prepared
+    if serialized is None:
+        return
+    staging = config_path.with_name(f".{config_path.name}.tmp")
+    try:
+        staging.write_text(serialized, encoding="utf-8")
+        os.replace(staging, config_path)
+    except OSError as error:
+        with suppress(OSError):
+            staging.unlink()
+        raise SetupError.command_unavailable(["install", "OpenCode", "TUI plugin"], error) from error
+
+
 def _is_opencode_plugin(path: Path) -> bool:
     try:
         payload = json.loads((path / "package.json").read_text(encoding="utf-8"))
@@ -322,9 +606,8 @@ def _replace_checkout(staging: Path, target: Path) -> None:
 
 
 def _configured_plugin(output: str) -> bool:
-    try:
-        payload = json.loads(output)
-    except ValueError:
+    payload = _debug_config_payload(output)
+    if payload is None:
         return False
     plugins = payload.get("plugin") if isinstance(payload, dict) else None
     if not isinstance(plugins, list):
@@ -334,11 +617,30 @@ def _configured_plugin(output: str) -> bool:
         if not isinstance(spec, str):
             continue
         parsed = urlparse(spec)
-        raw = unquote(parsed.path) if parsed.scheme == "file" else spec
-        path = Path(raw)
+        if parsed.scheme == "file":
+            authority = f"//{parsed.netloc}" if parsed.netloc else ""
+            path = Path(url2pathname(f"{authority}{parsed.path}"))
+        else:
+            path = Path(spec)
         if _is_opencode_plugin(path) or _is_opencode_plugin(path.parent):
             return True
     return False
+
+
+def _debug_config_payload(output: str) -> dict[str, object] | None:
+    """Extract OpenCode's config when a loaded plugin writes to stdout first."""
+
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(output):
+        if character != "{":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(output, index)
+        except ValueError:
+            continue
+        if isinstance(payload, dict) and isinstance(payload.get("plugin"), list):
+            return payload
+    return None
 
 
 def run_opencode_diagnostics() -> dict[str, Diagnostic]:
@@ -363,7 +665,7 @@ def run_opencode_diagnostics() -> dict[str, Diagnostic]:
             "plugin": Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error)),
             "skill": Diagnostic(status=DiagnosticStatus.SKIPPED, detail="not checked because config is unavailable"),
         }
-    skill = config_dir / "skills" / "project-context"
+    skill = config_dir / "skills" / "powercontext-project-context"
     skill_ok = _owned_skill(skill) and (skill / "SKILL.md").is_file()
     return {
         "opencode": Diagnostic(status=DiagnosticStatus.OK, detail=f"{executable} ({actual})"),

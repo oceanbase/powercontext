@@ -14,8 +14,12 @@
 
 """Process configuration for the PowerContext LangChain middleware."""
 
+from typing import ClassVar
+
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
+
+from powercontext.client.transport_policy import ClientTransportSettings
 
 try:
     from powercontext.http import ContextAssembly
@@ -24,7 +28,7 @@ except ImportError:
     from types import NoneType as ContextAssembly
 
 
-class PowerContextLangChainSettings(BaseSettings):
+class PowerContextLangChainSettings(ClientTransportSettings):
     """PowerContext settings read from ``POWERCONTEXT_LANGCHAIN_*`` variables."""
 
     model_config = SettingsConfigDict(
@@ -35,6 +39,7 @@ class PowerContextLangChainSettings(BaseSettings):
         hide_input_in_errors=True,
     )
 
+    transport_host: ClassVar[str] = "langchain"
     base_url: str = "http://127.0.0.1:8000"
     token: SecretStr | None = Field(default=None, repr=False)
     scope_id: str | None = None

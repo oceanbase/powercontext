@@ -9,6 +9,10 @@ Prompt customization is available on current `master`. It changes operation guid
 change output schemas, tool availability, or permissions. Captured user prompts are [Source evidence](sources.md),
 which is a separate workflow.
 
+`profile.generate` customizes Profile generation during automatic or manual flushes. Custom content affects only
+future processing windows; evidence boundaries, person attribution, sensitive-attribute safeguards, and the output
+contract remain fixed by the server.
+
 ## Edit and verify
 
 1. Read current configuration, built-in instructions, and operation status through

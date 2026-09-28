@@ -16,12 +16,20 @@ limitations under the License.
 
 <div class="handoff-reading">
 {% include 'components/reading-style.html' %}
-{% from 'components/record-references.html' import record_references %}
+{% from 'components/record-references.html' import record_references with context %}
 {% from 'macros.html' import evidence_link with context %}
 {% if data.handoff %}
 <article class="reading-sheet">
   <div>
-  <header class="reading-heading"><a class="back-link d-block mb-4" href="{{ link('handoff') }}">← {{ t.back_handoffs }}</a><span class="method-type text-secondary small">{{ t.handoff }} · {{ data.title }} · {{ t.revision }} {{ data.handoff.revision }}</span><h1>{{ data.handoff.objective }}</h1>{% if data.handoff.disposition in ['complete', 'blocked'] %}<p>{{ t.complete_notice if data.handoff.disposition == 'complete' else t.blocked_notice }}</p>{% endif %}</header>
+  <header class="reading-heading">
+    <a class="back-link d-block mb-4" href="{{ return_to or link('handoff') }}">← {{ t.back_handoffs }}</a>
+    <span class="method-type text-secondary small">{{ t.handoff }} · {{ data.title }} · {{ t.revision }} {{ data.handoff.revision }}</span>
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+      <h1>{{ data.handoff.objective }}</h1>
+      <a class="btn btn-primary my-3" hx-boost="false" href="{{ link('handoff-download') }}">{{ t.export_markdown }}</a>
+    </div>
+    {% if data.handoff.disposition in ['complete', 'blocked'] %}<p>{{ t.complete_notice if data.handoff.disposition == 'complete' else t.blocked_notice }}</p>{% endif %}
+  </header>
     <div class="reading-body">
       <section><h2>{{ t.recorded_state }}</h2><ul>{% for statement in data.handoff.state %}<li>{{ statement.text }}</li>{% endfor %}</ul></section>
       <section><h2>{{ t.next_action }}</h2><p>{{ data.handoff.next_action.text if data.handoff.next_action else t.no_next_action }}</p></section>

@@ -15,7 +15,7 @@
  */
 
 import type { JsonObject, PowerContextClient } from './client.ts'
-import { ServerResponseError, UnknownOperationError } from './errors.ts'
+import { InvalidResponseError, ServerResponseError, UnknownOperationError } from './errors.ts'
 import { OPERATIONS, type OperationId } from './operations.generated.ts'
 import { containsSecret } from './secrets.ts'
 
@@ -72,6 +72,7 @@ function errorResult(error: unknown): ToolResult {
     }
   }
   if (error instanceof UnknownOperationError) return { ok: false, code: 'unknown_operation', message: error.message }
+  if (error instanceof InvalidResponseError) return { ok: false, code: 'invalid_response', message: error.message }
   return { ok: false, code: 'unavailable', message: 'PowerContext is unavailable; continue the task.' }
 }
 

@@ -25,10 +25,11 @@ import powercontext.cli.openclaw as openclaw_cli
 import powercontext.cli.opencode as opencode_cli
 import powercontext.cli.pi as pi_cli
 import powercontext.cli.system as system_cli
+import powercontext.cli.workbuddy as workbuddy_cli
 from powercontext.cli.app import create_cli
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, doctor_app
 
-FIRST_CLASS_HOSTS = ("codex", "claude-code", "dsh", "openclaw", "opencode", "pi", "hermes")
+FIRST_CLASS_HOSTS = ("codex", "claude-code", "dsh", "openclaw", "opencode", "pi", "hermes", "workbuddy")
 CLI_KEYS = {
     "codex": "codex",
     "claude-code": "claude_code",
@@ -37,6 +38,7 @@ CLI_KEYS = {
     "opencode": "opencode",
     "pi": "pi",
     "hermes": "hermes",
+    "workbuddy": "hooks",
 }
 INTEGRATION_KEYS = {
     "codex": ("plugin",),
@@ -46,6 +48,7 @@ INTEGRATION_KEYS = {
     "opencode": ("plugin", "skill"),
     "pi": ("package",),
     "hermes": ("plugin",),
+    "workbuddy": ("settings", "mcp", "skill"),
 }
 PATH_MISSING = {
     "codex": "Codex CLI is not installed or is not on PATH",
@@ -55,6 +58,7 @@ PATH_MISSING = {
     "opencode": "OpenCode CLI is not installed or is not on PATH",
     "pi": "Pi CLI is not installed or is not on PATH",
     "hermes": "Hermes CLI is not installed or is not on PATH",
+    "workbuddy": "WorkBuddy hooks are not installed",
 }
 
 
@@ -119,6 +123,7 @@ def _patch_diagnostics(monkeypatch, **replacements: Mock) -> dict[str, Mock]:
     monkeypatch.setattr(opencode_cli, "run_opencode_diagnostics", probes["opencode"])
     monkeypatch.setattr(pi_cli, "run_pi_diagnostics", probes["pi"])
     monkeypatch.setattr(hermes_cli, "run_hermes_diagnostics", probes["hermes"])
+    monkeypatch.setattr(workbuddy_cli, "run_workbuddy_diagnostics", probes["workbuddy"])
     return probes
 
 

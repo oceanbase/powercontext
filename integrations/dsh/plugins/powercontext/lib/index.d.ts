@@ -20,6 +20,7 @@ import { Context } from "@deepseek-ai/cordis";
 interface PluginConfig {
   contextAssembly?: Record<string, unknown>;
   baseUrl?: string;
+  allowInsecureHttp?: boolean;
   authorization?: string;
   scopeId?: string;
   timeoutMs?: number;

@@ -53,6 +53,12 @@ def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
             str | None,
             typer.Option(help="PowerContext Server base URL used by content commands."),
         ] = None,
+        allow_insecure_http: Annotated[
+            bool | None,
+            typer.Option(
+                "--allow-insecure-http/--no-allow-insecure-http", help="Explicitly allow unencrypted remote HTTP."
+            ),
+        ] = None,
         timeout: Annotated[
             float | None,
             typer.Option(min=0.1, help="HTTP timeout in seconds used by content commands."),
@@ -77,6 +83,7 @@ def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
             context,
             server_url=server_url,
             timeout=timeout,
+            allow_insecure_http=allow_insecure_http,
             json_output=json_output,
         )
 

@@ -33,6 +33,8 @@ from powercontext.http._generated.models import (
     CaptureContentSourceResponse,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
+    CodeQueryRequest,
+    CodeQueryResponse,
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
@@ -40,6 +42,7 @@ from powercontext.http._generated.models import (
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
     CreateArtifactRequest,
+    CreateDreamRunRequest,
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
     CreateSourceRequest,
@@ -47,6 +50,8 @@ from powercontext.http._generated.models import (
     CreateSubjectSourceResponse,
     CreateWorkContractRequest,
     DownloadRemoteSkillPackageRequest,
+    DreamRun,
+    DreamRunPage,
     EnrollRemoteSkillTargetRequest,
     ExperienceArtifact,
     ExternalSkillResolution,
@@ -65,6 +70,7 @@ from powercontext.http._generated.models import (
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
+    GetMemoryCapacityRequest,
     GetMemoryEntryRequest,
     GetSkillPackageRequest,
     GetSkillRequest,
@@ -85,6 +91,7 @@ from powercontext.http._generated.models import (
     ListArtifactCandidatesRequest,
     ListArtifactRevisionsRequest,
     ListArtifactsRequest,
+    ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListManagedSkillsRequest,
@@ -98,6 +105,7 @@ from powercontext.http._generated.models import (
     ListRemoteSkillTargetsResponse,
     ListScopesRequest,
     ListSourcesRequest,
+    MemoryCapacity,
     MemoryEntry,
     MemoryMutationResponse,
     OperationAccepted,
@@ -176,7 +184,7 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "0.2.0"
+API_VERSION = "1.1.0"
 
 RequestT = TypeVar("RequestT")
 ResponseT = TypeVar("ResponseT")
@@ -198,7 +206,7 @@ class Operation(BaseModel, Generic[RequestT, ResponseT]):
 
     @property
     def success_statuses(self) -> tuple[int, ...]:
-        return tuple(sorted(self.success_response_types))
+        return tuple(self.success_response_types)
 
     @property
     def success_status(self) -> int:
@@ -763,6 +771,34 @@ COMMIT_CONNECTOR_CHECKPOINT = Operation[CommitConnectorCheckpointRequest, Connec
     ),
 )
 
+QUERY_CODE = Operation[CodeQueryRequest, CodeQueryResponse](
+    method="POST",
+    path="/v1/scopes/{scope_id}/code/query",
+    operation_id="query_code",
+    request_type=CodeQueryRequest,
+    request_location="body",
+    path_parameters=("scope_id",),
+    success_response_types={200: CodeQueryResponse},
+    summary="Query current repository code evidence",
+    tags=("code",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "Bounded code evidence or index status.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        501: {"description": "The requested code capability is unsupported."},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
 PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
     method="POST",
     path="/v1/context/prepare",
@@ -1221,6 +1257,32 @@ SEARCH_MEMORY = Operation[SearchMemoryRequest, SearchMemoryResponse](
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
+GET_MEMORY_CAPACITY = Operation[GetMemoryCapacityRequest, MemoryCapacity](
+    method="POST",
+    path="/v1/memory/capacity",
+    operation_id="get_memory_capacity",
+    request_type=GetMemoryCapacityRequest,
+    request_location="body",
+    path_parameters=(),
+    success_response_types={200: MemoryCapacity},
+    summary="Read Memory capacity",
+    tags=("memory",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "Capacity of one exact current Memory Revision.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
 LIST_MEMORY_ENTRIES = Operation[ListMemoryEntriesRequest, ListMemoryEntriesResponse](
     method="POST",
     path="/v1/memory/entries/list",
@@ -1356,6 +1418,95 @@ LIST_MEMORY_CHANGES = Operation[ListMemoryChangesRequest, ListMemoryChangesRespo
         500: {"$ref": "#/components/responses/InternalError"},
     },
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+LIST_DREAM_RUNS = Operation[ListDreamRunsRequest, DreamRunPage](
+    method="GET",
+    path="/v1/scopes/{scope_id}/dream",
+    operation_id="list_dream_runs",
+    request_type=ListDreamRunsRequest,
+    request_location="query",
+    path_parameters=("scope_id",),
+    success_response_types={200: DreamRunPage},
+    summary="List Artifact Dreams",
+    tags=("dream",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "The requested Dream state.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
+)
+
+CREATE_DREAM_RUN = Operation[CreateDreamRunRequest, DreamRun](
+    method="POST",
+    path="/v1/scopes/{scope_id}/dream",
+    operation_id="create_dream_run",
+    request_type=CreateDreamRunRequest,
+    request_location="body",
+    path_parameters=("scope_id",),
+    success_response_types={202: DreamRun, 200: DreamRun},
+    summary="Create an asynchronous Artifact Dream",
+    tags=("dream",),
+    scope_mode="none",
+    responses={
+        202: {
+            "description": "The accepted queued or running Dream.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        200: {
+            "description": "The requested Dream state.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        429: {
+            "description": "The configured pending-work capacity was reached.",
+            "headers": {"Retry-After": {"schema": {"type": "integer", "minimum": 1.0}}},
+        },
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
+)
+
+GET_DREAM_RUN = Operation[None, DreamRun](
+    method="GET",
+    path="/v1/scopes/{scope_id}/dream/{run_id}",
+    operation_id="get_dream_run",
+    request_type=None,
+    request_location=None,
+    path_parameters=("scope_id", "run_id"),
+    success_response_types={200: DreamRun},
+    summary="Get an Artifact Dream",
+    tags=("dream",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "The requested Dream state.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
 )
 
 PROPOSE_EXPERIENCE = Operation[ProposeExperienceRequest, ArtifactCandidate](

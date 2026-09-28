@@ -26,6 +26,19 @@ type HomeAction = {
 };
 
 export type HomeContent = {
+  onboarding: {
+    title: string;
+    lead: string;
+    preview_label: string;
+    preview_note: string;
+    repository_label: string;
+    guide_label: string;
+    steps: Array<{
+      title: string;
+      description: string;
+      command?: string;
+    }>;
+  };
   continuity: {
     lead: string;
     steps: Array<{
@@ -64,7 +77,7 @@ type HomeFrontmatter = {
 
 export async function getHomeContent(lang: Language): Promise<HomeContent> {
   const sourcePath = path.resolve(process.cwd(), '..', 'docs', lang, 'index.md');
-  const source = await readFile(sourcePath, 'utf8');
+  const source = (await readFile(sourcePath, 'utf8')).replace(/\r\n/g, '\n');
   const end = source.indexOf('\n---', 4);
 
   if (!source.startsWith('---\n') || end === -1) {

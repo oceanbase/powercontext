@@ -30,8 +30,13 @@ export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="provider:model-name"
 下面；例如，兼容的 OpenAI-style endpoint 可以这样关闭 Qwen thinking：
 
 ```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="openai-chat:<served-model-name>"
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS='{"extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}'
 ```
+
+Topic Memory 也支持 `openai-chat:<model>` 使用这一精确的 `extra_body` 结构。值必须是 JSON 布尔值
+`false`；任一层的额外字段、其他 provider 前缀以及 Embedding 的 `extra_body` 仍不支持。端点必须实现
+`chat_template_kwargs.enable_thinking`；关闭 thinking 不保证推理一定在超时前完成。
 
 generation-backed pipeline、可选的 LLM reranker 和 readiness probe 共用这些 settings。PowerContext 仍保留自身的
 请求边界：readiness 使用 `max_tokens=1`，rerank 使用 `temperature=0`。credential 与 static header 应放在
@@ -88,6 +93,9 @@ timeout 和 request limit 未显式设置时继承 generation 的对应配置。
 
 Server 会拒绝不完整的 embedding profile。`embedding_model`、`embedding_profile_id` 和
 `embedding_dimension` 必须一起配置。SQLite vector search 使用这组配置，因为 index dimension 必须与持久化向量一致。
+`embedding_dimension` 默认也会作为请求参数 `dimensions` 发送，并覆盖 model settings 里的同名字段。固定输出维度、
+不接受该参数的模型把 `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_SEND_DIMENSIONS` 设为 `false`；本地维度仍然必填，
+返回向量仍按它校验。
 
 ## 直接组合 generation
 

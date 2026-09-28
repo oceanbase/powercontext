@@ -15,17 +15,18 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import struct
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import delete, func, insert, select, text, update
+from sqlalchemy import delete, event, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
-from powercontext.builtin.artifacts.search import fts_match_query
+from powercontext.builtin.artifacts.search import AdmissionFloor, fts_match_query
 from powercontext.builtin.artifacts.topic_memory import (
     MAX_TOPIC_MEMORY_QUERY_LENGTH,
     MAX_TOPIC_MEMORY_SEARCH_LIMIT,
@@ -43,8 +44,11 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryStorageInvariantError,
     prepare_topic_memory_projection,
 )
+from powercontext.builtin.persistence.artifact_readers import TopicMemoryArtifactListReader
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError
+from powercontext.builtin.persistence.family_management import FamilyManagementWriterRegistry
+from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.topic_memory_index import (
@@ -291,6 +295,89 @@ def test_current_browse_uses_stable_exclusive_keyset_order() -> None:
     asyncio.run(scenario())
 
 
+def test_standard_artifact_list_adapts_topic_memory_metadata_and_cursor() -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        sources = SourceRepository(SOURCE_ADAPTERS)
+        artifacts = ArtifactRepository((TopicMemory,), sources=sources)
+        repository = TopicMemoryRepository(artifacts=artifacts, index=index)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile:
+            records = RelationalRecordService(
+                profile.database,
+                sources,
+                artifacts,
+                FamilyManagementWriterRegistry(()),
+                cursor_secret=b"topic-memory-list-test-secret",
+                topic_memory_list_reader=TopicMemoryArtifactListReader(
+                    database=profile.database,
+                    artifacts=artifacts,
+                    topics=repository,
+                ),
+            )
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                source = await sources.add(
+                    connection,
+                    "scope-a",
+                    NoteSource(
+                        name="note-1",
+                        materialization=SourceMaterialization.CAPTURED,
+                        body="Topic evidence",
+                    ),
+                )
+                older = _content("Older", "amber")
+                newer = _content("Newer", "cobalt")
+                await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-older",
+                    _draft(older, sources=(source.ref,)),
+                    prepare_topic_memory_projection(older),
+                )
+                await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-newer",
+                    _draft(newer, sources=(source.ref,)),
+                    prepare_topic_memory_projection(newer),
+                )
+                await connection.execute(
+                    update(TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE)
+                    .where(
+                        TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.scope_id == "scope-a",
+                        TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.artifact_id == "topic-older",
+                    )
+                    .values(published_at=datetime(2026, 9, 5, 3, 4, 5, tzinfo=UTC))
+                )
+                await connection.execute(
+                    update(TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE)
+                    .where(
+                        TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.scope_id == "scope-a",
+                        TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.artifact_id == "topic-newer",
+                    )
+                    .values(published_at=datetime(2026, 9, 6, 3, 4, 5, tzinfo=UTC))
+                )
+
+            first_page = await records.query_artifacts("scope-a", TopicMemory.family, limit=1, cursor=None)
+            second_page = await records.query_artifacts(
+                "scope-a",
+                TopicMemory.family,
+                limit=1,
+                cursor=first_page.next_cursor,
+            )
+
+        assert first_page.next_cursor is not None
+        assert first_page.items[0].artifact_id == "topic-newer"
+        assert first_page.items[0].title == "Newer recovery"
+        assert first_page.items[0].summary == "Newer leader state is durable."
+        assert first_page.items[0].published_at == datetime(2026, 9, 6, 3, 4, 5, tzinfo=UTC)
+        assert first_page.items[0].source_count == 1
+        assert [item.artifact_id for item in second_page.items] == ["topic-older"]
+        assert second_page.next_cursor is None
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("term_count", [1_001, 1_100])
 def test_fts_search_rejects_queries_above_the_distinct_analyzer_term_limit(term_count: int) -> None:
     async def scenario() -> None:
@@ -378,8 +465,102 @@ def test_search_returns_the_full_public_candidate_limit() -> None:
     asyncio.run(scenario())
 
 
+def test_topic_memory_search_threads_lowered_fts_floor_into_the_backend() -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        repository = TopicMemoryRepository(index=index)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile:
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                content = _content("Single term", "alpha")
+                published = await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-1",
+                    _draft(content),
+                    prepare_topic_memory_projection(content),
+                )
+
+            async with profile.database.transaction() as connection:
+                default = await repository.search(connection, "scope-a", "alpha beta gamma", limit=10)
+                lowered = await repository.search(
+                    connection,
+                    "scope-a",
+                    "alpha beta gamma",
+                    limit=10,
+                    admission=AdmissionFloor(lexical_coverage=0.0, lexical_min_matched_terms=1),
+                )
+
+        assert default.hits == ()
+        assert default.admission is not None
+        assert default.admission.retrieved >= 1
+        assert default.admission.admitted == 0
+        assert tuple(hit.artifact_ref for hit in lowered.hits) == (published.topic.as_ref(),)
+        assert lowered.admission is not None
+        assert lowered.admission.retrieved >= lowered.admission.admitted == 1
+
+    asyncio.run(scenario())
+
+
+def test_default_topic_memory_search_preserves_eligible_candidates_before_truncating_the_pool() -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        repository = TopicMemoryRepository(index=index)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile:
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                for position in range(60):
+                    content = TopicMemoryContent(
+                        title=f"Alpha distractor {position}",
+                        summary="alpha single-term distractor",
+                        detail="unrelated detail",
+                    )
+                    await repository.publish_create(
+                        connection,
+                        "scope-a",
+                        f"topic-alpha-distractor-{position:02d}",
+                        _draft(content),
+                        prepare_topic_memory_projection(content),
+                    )
+                for position in range(60):
+                    content = TopicMemoryContent(
+                        title=f"Beta distractor {position}",
+                        summary="beta single-term distractor",
+                        detail="unrelated detail",
+                    )
+                    await repository.publish_create(
+                        connection,
+                        "scope-a",
+                        f"topic-beta-distractor-{position:02d}",
+                        _draft(content),
+                        prepare_topic_memory_projection(content),
+                    )
+                target = TopicMemoryContent(
+                    title="Target",
+                    summary="alpha beta " + ("long summary filler " * 50),
+                    detail="unrelated detail",
+                )
+                published = await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-target",
+                    _draft(target),
+                    prepare_topic_memory_projection(target),
+                )
+
+            async with profile.database.transaction() as connection:
+                result = await repository.search(connection, "scope-a", "alpha beta gamma", limit=8)
+
+        assert tuple(hit.artifact_ref for hit in result.hits) == (published.topic.as_ref(),)
+        assert result.admission is not None
+        assert result.admission.retrieved > MAX_TOPIC_MEMORY_SEARCH_LIMIT
+        assert result.admission.admitted >= 1
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("limit", [21, 25, 30, 100])
-def test_search_rejects_limits_above_the_channel_candidate_contract(limit: int) -> None:
+def test_search_rejects_limits_above_the_public_search_contract(limit: int) -> None:
     async def scenario() -> None:
         repository = TopicMemoryRepository(index=_fts_index())
         async with (
@@ -1528,5 +1709,123 @@ def test_sqlite_vector_probe_rejects_a_detail_channel_dimension_mismatch() -> No
             )
             with pytest.raises(TopicMemoryCapabilityError, match="sqlite-vec probe failed"):
                 await index.initialize(connection)
+
+    asyncio.run(scenario())
+
+
+def test_sqlite_topic_publication_without_returning_survives_revision_rollback_and_reopen(tmp_path: Path) -> None:
+    """Simulate the pre-3.35 SQL restriction without substituting the storage backend."""
+
+    def reject_returning(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if "RETURNING" in statement.upper():
+            raise sqlite3.OperationalError('near "RETURNING": syntax error')  # noqa: TRY003
+
+    async def scenario() -> None:
+        embedding_profile = EmbeddingProfile(
+            profile_id="topic-test-v1", model="test", dimension=2, distance="l2", normalization="unit"
+        )
+        index = _SwitchableIndex(
+            CompositeTopicMemoryIndex(SQLiteTopicMemoryFTSIndex(), SQLiteTopicMemoryVectorIndex(embedding_profile))
+        )
+        repository = TopicMemoryRepository(index=index)
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'topics.db'}")
+        original = TopicMemoryContent(title="Original", summary="Recovery evidence", detail="evidence " * 700)
+        revised = original.model_copy(update={"title": "Revised", "detail": "updated evidence " * 700})
+
+        def projection(content: TopicMemoryContent) -> TopicMemoryProjection:
+            base = prepare_topic_memory_projection(content)
+            assert len(base.chunks) > 1
+            return base.model_copy(
+                update={
+                    "topic_embedding": (1.0, 0.0),
+                    "chunk_embeddings": tuple((1.0, 0.0) for _chunk in base.chunks),
+                    "embedding_profile": embedding_profile,
+                }
+            )
+
+        async with SQLiteProfile.open(
+            config, tables=BUILTIN_TABLES + index.tables, load_vector_extension=True
+        ) as profile:
+            event.listen(profile.database.engine.sync_engine, "before_cursor_execute", reject_returning)
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                first = await repository.publish_create(
+                    connection, "scope-a", "topic-1", _draft(original), projection(original)
+                )
+                await repository.publish_create(
+                    connection, "scope-b", "topic-1", _draft(original), projection(original)
+                )
+
+            index.fail_replace = True
+            with pytest.raises(RuntimeError, match="injected projection failure"):
+                async with profile.database.transaction() as connection:
+                    await repository.publish_revision(
+                        connection, "scope-a", first.topic, _draft(revised), projection(revised)
+                    )
+            index.fail_replace = False
+            async with profile.database.transaction() as connection:
+                unchanged = await repository.get_exact(connection, "scope-a", first.topic.as_ref())
+                assert unchanged.is_current
+                await repository.initialize(connection)
+                second = await repository.publish_revision(
+                    connection, "scope-a", first.topic, _draft(revised), projection(revised)
+                )
+
+        async with SQLiteProfile.open(
+            config, tables=BUILTIN_TABLES + index.tables, load_vector_extension=True
+        ) as profile:
+            event.listen(profile.database.engine.sync_engine, "before_cursor_execute", reject_returning)
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                old = await repository.get_exact(connection, "scope-a", first.topic.as_ref())
+                current = await repository.get_exact(connection, "scope-a", second.topic.as_ref())
+                assert old.topic.content == original
+                assert not old.is_current
+                assert current.topic.content == revised
+                assert current.is_current
+                for scope_id, expected in (("scope-a", second.topic.as_ref()), ("scope-b", first.topic.as_ref())):
+                    for mode in ("vector", "hybrid"):
+                        result = await repository.search(
+                            connection,
+                            scope_id,
+                            "evidence",
+                            limit=10,
+                            mode=mode,
+                            query_vector=(1.0, 0.0),
+                            embedding_profile=embedding_profile,
+                        )
+                        assert tuple(hit.artifact_ref for hit in result.hits) == (expected,)
+                        assert {"topic_vector", "detail_vector"} <= set(result.hits[0].matched_by)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("table_name", ["pc_topic_memory_vector_topics", "pc_topic_memory_vector_chunks"])
+def test_sqlite_vector_probe_rejects_unwritable_metadata(table_name: str) -> None:
+    async def scenario() -> None:
+        embedding_profile = EmbeddingProfile(
+            profile_id="topic-test-v1", model="test", dimension=2, distance="l2", normalization="unit"
+        )
+        index = SQLiteTopicMemoryVectorIndex(embedding_profile)
+        async with (
+            SQLiteProfile.open(SQLiteConfig(), tables=index.tables, load_vector_extension=True) as profile,
+            profile.database.transaction() as connection,
+        ):
+            await connection.exec_driver_sql(
+                f"CREATE TRIGGER reject_metadata BEFORE INSERT ON {table_name} "
+                "BEGIN SELECT RAISE(ABORT, 'metadata writes disabled'); END"
+            )
+            with pytest.raises(TopicMemoryCapabilityError, match="metadata writes disabled"):
+                await index.initialize(connection)
+            await connection.exec_driver_sql("DROP TRIGGER reject_metadata")
+            await index.initialize(connection)
+            await index.initialize(connection)
+            for table in index.tables:
+                assert await connection.scalar(select(func.count()).select_from(table)) == 0
+            for query in (
+                "SELECT count(*) FROM pc_topic_memory_topic_vec",
+                "SELECT count(*) FROM pc_topic_memory_chunk_vec",
+            ):
+                assert (await connection.exec_driver_sql(query)).scalar_one() == 0
 
     asyncio.run(scenario())

@@ -126,10 +126,11 @@ def test_http_tags_cover_families_entries_filters_and_inactive_lifecycle(tmp_pat
     asyncio.run(exercise_tag_http(app))
 
 
-def test_prompt_configuration_is_readable_but_not_a_tag_target(tmp_path: Path) -> None:
+@pytest.mark.parametrize("family", ["profile", "prompt"])
+def test_configuration_tags_follow_revisions_and_survive_restart(tmp_path: Path, family: str) -> None:
     app = create_server_app(
         settings=ServerSettings(
-            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'prompt-tags.db'}"),
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'configuration-tags.db'}"),
             mcp=McpConfig(enabled=False),
         )
     )
@@ -147,32 +148,65 @@ def test_prompt_configuration_is_readable_but_not_a_tag_target(tmp_path: Path) -
             )
             assert created_scope.status_code == 201
             scope = created_scope.json()["scope_id"]
-            prompt = await http.post(
+            content = (
+                {"content": "# Profile\n\nUse Chinese."}
+                if family == "profile"
+                else {
+                    "schema_version": "powercontext.prompt.v1",
+                    "mode": "auto",
+                    "instructions": "",
+                    "demonstrations": [],
+                }
+            )
+            artifact_id = "profile" if family == "profile" else "memory.extract"
+            path = f"/v1/scopes/{scope}/artifacts/{family}/{artifact_id}"
+            # Defaults without a saved Artifact do not become implicit tag targets.
+            assert (await http.get(path + "/tags")).status_code == 404
+            created = await http.post(
                 f"/v1/scopes/{scope}/artifacts",
                 json={
-                    "family": "prompt",
-                    "prompt_key": "memory.extract",
-                    "content": {
-                        "schema_version": "powercontext.prompt.v1",
-                        "mode": "auto",
-                        "instructions": "",
-                        "demonstrations": [],
-                    },
+                    "family": family,
+                    "content": content,
+                    **({"prompt_key": artifact_id} if family == "prompt" else {}),
                 },
             )
-            assert prompt.status_code == 201
-            path = f"/v1/scopes/{scope}/artifacts/prompt/memory.extract/tags"
-            read = await http.get(path)
-            replace = await http.put(
-                path, json={"tags": ["test"]}, headers={"If-Match": read.headers.get("ETag", '"unused"')}
+            assert created.status_code == 201, created.text
+            read = await http.get(path + "/tags")
+            assert read.status_code == 200, read.text
+            tagged = await http.put(path + "/tags", json={"tags": ["test"]}, headers={"If-Match": read.headers["ETag"]})
+            assert tagged.status_code == 200, tagged.text
+            original = (await http.get(path)).json()
+            revised = await http.put(path, json={"content": content}, headers={"If-Match": created.headers["ETag"]})
+            assert revised.status_code == 200 and revised.json()["revision"] == 2, revised.text
+            assert (await http.get(path + "/revisions/1")).json() == original
+            assert (await http.get(path + "/tags")).headers["ETag"] == tagged.headers["ETag"]
+            destination = await http.post(
+                "/v1/scopes", json={"title": "Other", "summary": "Isolation", "idempotency_key": "other"}
             )
+            other_scope = destination.json()["scope_id"]
+            assert (await http.get(path.replace(scope, other_scope) + "/tags")).status_code == 404
+            isolated = await http.post(f"/v1/scopes/{other_scope}/artifact-tags/query", json={"tags": ["test"]})
+            assert isolated.json()["items"] == []
+
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as http,
+        ):
+            current = await http.get(path + "/tags")
+            assert current.json() == tagged.json()
+            assert current.headers["ETag"] == tagged.headers["ETag"]
+            query = await http.post(f"/v1/scopes/{scope}/artifact-tags/query", json={"tags": ["TEST"]})
+            assert query.status_code == 200, query.text
+            assert [item["reference"] for item in query.json()["items"]] == [
+                {"family": family, "artifact_id": artifact_id, "revision": 2}
+            ]
+            cleared = await http.put(path + "/tags", json={"tags": []}, headers={"If-Match": current.headers["ETag"]})
+            assert cleared.status_code == 200 and cleared.json()["tags"] == []
             query = await http.post(
-                f"/v1/scopes/{scope}/artifact-tags/query", json={"tags": ["test"], "families": ["prompt"]}
+                f"/v1/scopes/{scope}/artifact-tags/query", json={"tags": ["test"], "families": [family]}
             )
-            assert [read.status_code, replace.status_code, query.status_code] == [422, 422, 422]
-            current = await http.get(f"/v1/scopes/{scope}/prompts/memory.extract")
-            assert current.status_code == 200
-            assert current.json()["mode"] == "auto" and current.json()["artifact"]["revision"] == 1
+            assert query.status_code == 200 and query.json()["items"] == []
+            assert (await http.get(path)).json() == revised.json()
 
     asyncio.run(scenario())
 
@@ -202,6 +236,14 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
         )
         assert source.status_code == 201, source.text
         contents = {
+            "profile": {"content": "# Profile\n\nRun tests before release."},
+            "prompt": {
+                "schema_version": "powercontext.prompt.v1",
+                "mode": "auto",
+                "instructions": "",
+                "demonstrations": [],
+            },
+            "topic-memory": {"title": "Release", "summary": "Release checks", "detail": "Run tests before release."},
             "memory": {
                 "entries": [
                     {"kind": "decision", "text": "alpha compatibility check"},
@@ -249,7 +291,14 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
                     assert remembered.status_code == 200, remembered.text
                 artifact_id = remembered.json()["memory"]["artifact_id"]
             else:
-                created = await http.post(f"/v1/scopes/{scope}/artifacts", json={"family": family, "content": content})
+                created = await http.post(
+                    f"/v1/scopes/{scope}/artifacts",
+                    json={
+                        "family": family,
+                        "content": content,
+                        **({"prompt_key": "memory.extract"} if family == "prompt" else {}),
+                    },
+                )
                 assert created.status_code == 201, created.text
                 artifact_id = created.json()["artifact_id"]
             artifacts[family] = artifact_id
@@ -293,7 +342,22 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
         matches = await client.query_artifact_tags(
             scope, QueryArtifactTagsRequest.model_validate({"tags": ["RELEASE"]})
         )
-        assert len(matches.items) == 4
+        assert {item.target.root.family.value for item in matches.items} == set(contents)
+        selected = await client.query_artifact_tags(
+            scope, QueryArtifactTagsRequest.model_validate({"tags": ["release"], "families": list(contents)})
+        )
+        assert selected.items == matches.items
+        paged = []
+        cursor = None
+        while True:
+            page = await client.query_artifact_tags(
+                scope, QueryArtifactTagsRequest.model_validate({"tags": ["release"], "limit": 2, "cursor": cursor})
+            )
+            paged.extend(page.items)
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+        assert paged == matches.items
         destination = await http.post(
             "/v1/scopes",
             json={"title": "Publication target", "summary": "Independent tags", "idempotency_key": "tag-copy"},

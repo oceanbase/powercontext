@@ -28,13 +28,15 @@ import { baseOptions } from '@/lib/site';
 const labels = {
   en: {
     title: 'Changelog',
-    description: 'Tagged PowerContext releases and changes that affect users. Design proposals remain in RFCs until they ship.',
+    description: 'Stable PowerContext releases and changes that affect users.',
+    prereleases: 'For alpha, beta, and RC versions, see',
     read: 'Read more',
     github: 'GitHub release',
   },
   zh: {
     title: '更新日志',
-    description: '这里记录 PowerContext 的正式版本，以及会影响使用方式的变化。尚未交付的设计仍保留在 RFC 中。',
+    description: '这里记录 PowerContext 的正式版本，以及会影响使用方式的变化。',
+    prereleases: 'alpha、beta 和 RC 版本请查看',
     read: '阅读更多',
     github: 'GitHub Release',
   },
@@ -51,7 +53,12 @@ export default async function ChangelogPage({ params }: { params: Promise<{ lang
         <div className="max-w-3xl">
           <header>
             <DocsTitle>{text.title}</DocsTitle>
-            <DocsDescription>{text.description}</DocsDescription>
+            <DocsDescription>
+              {text.description} {text.prereleases}{' '}
+              <Link className="underline underline-offset-4" href="https://github.com/oceanbase/powercontext/releases">
+                GitHub Releases
+              </Link>
+            </DocsDescription>
           </header>
           <Cards className="grid-cols-1">
             {releases.map((release) => (

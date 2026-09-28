@@ -22,27 +22,48 @@ export const PLUGIN_NAME = 'powercontext-dsh'
 export const PLUGIN_VERSION = '0.0.2'
 export const PLUGIN_USER_AGENT = `${PLUGIN_NAME}/${PLUGIN_VERSION}`
 
+export function safeRequestId(value: string | undefined): string | undefined {
+  return value && /^[a-zA-Z0-9._:-]{1,128}$/.test(value) ? value : undefined
+}
+
 export class ClientError extends Error {
   readonly requestId: string | undefined
 
   constructor(message: string, requestId?: string) {
     super(message)
     this.name = new.target.name
-    this.requestId = requestId
+    this.requestId = safeRequestId(requestId)
   }
 }
 
 export class TransportError extends ClientError {
   readonly path: string
 
-  constructor(path: string, cause?: unknown) {
-    super(`request to ${path} failed`)
+  constructor(path: string, cause?: unknown, requestId?: string) {
+    super(`request to ${path} failed`, requestId)
     this.path = path
     this.cause = cause
   }
 }
 
 export class UnavailableError extends TransportError {}
+
+export class RequestNotSentError extends TransportError {}
+
+/** Headers were received, but the response body could not be read to completion. */
+export class ResponseReadError extends TransportError {
+  readonly statusCode: number
+
+  constructor(path: string, cause: unknown, statusCode: number, requestId?: string) {
+    super(path, cause, requestId)
+    this.statusCode = statusCode
+  }
+}
+
+export interface BodyFailureDetails {
+  failure_phase?: 'response_body'
+  response_body_error?: 'request_timeout' | 'cancelled' | 'connection_failed' | 'response_too_large'
+}
 
 export const RESPONSE_ISSUES = {
   invalid_json: 'The response body is not valid JSON.',
@@ -111,4 +132,44 @@ export class ServerResponseError extends ClientError {
     this.code = options.code
     this.serverMessage = options.message
   }
+}
+
+export function observedResponse(error: unknown): { statusCode: number; requestId?: string } | undefined {
+  if ((error instanceof ServerResponseError || error instanceof ResponseReadError || error instanceof InvalidResponseError)
+    && error.statusCode !== undefined) {
+    return { statusCode: error.statusCode, ...(error.requestId ? { requestId: error.requestId } : {}) }
+  }
+  return undefined
+}
+
+export function bodyFailureDetails(error: unknown): BodyFailureDetails {
+  if (error instanceof InvalidResponseError && error.issue === 'response_too_large') {
+    return { failure_phase: 'response_body', response_body_error: 'response_too_large' }
+  }
+  if (!(error instanceof ResponseReadError)) return {}
+  const name = error.cause instanceof Error ? error.cause.name : undefined
+  return { failure_phase: 'response_body', response_body_error: name === 'TimeoutError' ? 'request_timeout'
+    : name === 'AbortError' ? 'cancelled' : 'connection_failed' }
+}
+
+export function authenticationRejection(error: unknown): ServerResponseError | undefined {
+  const response = observedResponse(error)
+  return response && [401, 403].includes(response.statusCode) ? new ServerResponseError(response) : undefined
+}
+
+export function writeFailureConfirmation(error: unknown): 'rejected' | 'unconfirmed' | undefined {
+  if (error instanceof RequestNotSentError) return undefined
+  // Authentication/authorization refusal establishes rejection of this request, not a rollback of earlier work.
+  if (authenticationRejection(error)) return 'rejected'
+  if (error instanceof TransportError && !(error instanceof ResponseReadError)) {
+    const cause = error.cause instanceof Error ? error.cause as Error & { code?: string; cause?: { code?: string } } : undefined
+    const code = cause?.cause?.code ?? cause?.code
+    if (code && ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'CERT_HAS_EXPIRED',
+      'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'].includes(code)) return undefined
+  }
+  // Other HTTP errors, including 5xx, do not establish that a write had no effect.
+  if (error instanceof TransportError || error instanceof ServerResponseError || error instanceof InvalidResponseError) {
+    return 'unconfirmed'
+  }
+  return undefined
 }

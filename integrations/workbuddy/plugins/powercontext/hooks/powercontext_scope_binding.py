@@ -20,6 +20,6 @@ from pathlib import Path
 _SCRIPTS_ROOT = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from workspace_scope import resolve_scope_id  # noqa: E402
+from workspace_scope import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
 
-__all__ = ["resolve_scope_id"]
+__all__ = ["bind_response_deadline", "open_bounded", "resolve_scope_id"]

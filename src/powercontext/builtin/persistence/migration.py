@@ -29,12 +29,14 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.schema import CreateColumn
 
 from powercontext.builtin.persistence.coordination import CoordinationRepository, CoordinatorLease
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import PersistenceError
 from powercontext.builtin.persistence.schema import create_tables
 from powercontext.builtin.persistence.tables import (
+    ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE,
     ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
@@ -45,10 +47,13 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_PROCESSING_SCHEMA_TABLE,
     ARTIFACT_PROCESSING_SEQUENCES_TABLE,
     ARTIFACT_TAGS_TABLE,
+    ARTIFACTS_TABLE,
     COORDINATION_TABLES,
+    DREAM_RUNS_TABLE,
     MEMORY_TABLES,
     PROFILE_POLICIES_TABLE,
     RECEIPT_MIGRATION_REVIEW_TABLE,
+    RECURRENCE_TABLES,
     SCHEDULER_LEASES_TABLE,
     SCOPE_TABLES,
     SHARED_TABLES,
@@ -61,7 +66,7 @@ from powercontext.builtin.persistence.tables import (
 
 BASELINE_REVISION = "0001_baseline"
 BRIDGE_REVISION = "0003_scope_source_skill"
-CURRENT_SCHEMA_REVISION = "0007_processing_supervisor"
+CURRENT_SCHEMA_REVISION = "0008_dream_recurrence"
 SCHEMA_VERSION_TABLE = "pc_schema_revisions"
 _MIGRATION_LEASE = "schema-migration"
 _MIGRATION_LEASE_SECONDS = 600
@@ -86,7 +91,15 @@ _BASE_TABLES = tuple(
     if table not in _POST_BRIDGE_TABLES and table not in _TOPIC_PROCESSING_TABLES
 )
 _NEW_TABLES = WORK_TABLES + COORDINATION_TABLES
-_CURRENT_TABLES = SCOPE_TABLES + _BASE_TABLES + _NEW_TABLES + _POST_BRIDGE_TABLES + _TOPIC_PROCESSING_TABLES
+_CURRENT_TABLES = (
+    SCOPE_TABLES
+    + _BASE_TABLES
+    + _NEW_TABLES
+    + _POST_BRIDGE_TABLES
+    + _TOPIC_PROCESSING_TABLES
+    + RECURRENCE_TABLES
+    + (DREAM_RUNS_TABLE,)
+)
 SchemaProvisioner = Callable[[AsyncConnection], Awaitable[None]]
 
 
@@ -224,6 +237,15 @@ def _prepare_legacy_revision(
 
 def _upgrade_known_legacy_columns(connection: Connection, inspector: Inspector) -> None:
     """Apply narrowly recognized pre-baseline expansions before stamping."""
+
+    existing = set(inspector.get_table_names())
+    for table in (ARTIFACTS_TABLE, ARTIFACT_CANDIDATE_VERSIONS_TABLE):
+        if table.name not in existing:
+            continue
+        columns = {str(column["name"]) for column in inspector.get_columns(table.name)}
+        if "memory_citations" not in columns:
+            declaration = str(CreateColumn(table.c.memory_citations).compile(dialect=connection.dialect))
+            connection.exec_driver_sql(f"ALTER TABLE {table.name} ADD COLUMN {declaration}")
 
     table_name = ARTIFACT_HEADS_TABLE.name
     if table_name not in set(inspector.get_table_names()):

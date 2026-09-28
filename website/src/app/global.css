@@ -28,6 +28,187 @@
   --color-fd-primary: #68adff;
 }
 
+.pc-github {
+  position: relative;
+  display: inline-flex;
+  width: fit-content;
+  flex-shrink: 0;
+}
+
+.pc-github-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 6px;
+  border-radius: 7px;
+  color: var(--color-fd-foreground);
+  text-decoration: none;
+  cursor: default;
+  transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.pc-github-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.pc-github-count {
+  min-width: 36px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-fd-border);
+  border-radius: 6px;
+  background: var(--color-fd-muted);
+  color: var(--color-fd-muted-foreground);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pc-github-count:empty {
+  visibility: hidden;
+}
+
+.pc-github-link:focus-visible {
+  outline: 2px solid var(--color-fd-primary);
+  outline-offset: 2px;
+}
+
+.pc-github-link:active {
+  transform: scale(0.97);
+}
+
+.pc-github-click-guide {
+  display: none;
+  position: absolute;
+  z-index: 51;
+  top: 19px;
+  left: 14px;
+  pointer-events: none;
+}
+
+.pc-github-cursor {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  color: var(--color-fd-foreground);
+  fill: var(--color-fd-background);
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 14%));
+  opacity: 0;
+  transform-origin: 8px 2px;
+}
+
+.pc-github-click-ring {
+  position: absolute;
+  top: -7px;
+  left: -1px;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--color-fd-primary);
+  border-radius: 50%;
+  opacity: 0;
+}
+
+@keyframes pc-github-cursor-tap {
+  0%, 100% { opacity: 0; transform: translate(10px, 9px) rotate(8deg); }
+  14% { opacity: 1; }
+  34%, 48%, 70% { opacity: 1; transform: translate(0, 0) scale(1); }
+  41% { opacity: 1; transform: translate(0, 1px) scale(0.9); }
+  86% { opacity: 0; transform: translate(4px, 5px); }
+}
+
+@keyframes pc-github-click-ripple {
+  0%, 37% { opacity: 0; transform: scale(0.95); }
+  41% { opacity: 0.65; transform: scale(1); }
+  68%, 100% { opacity: 0; transform: scale(1.9); }
+}
+
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .pc-github[data-prompt-open='true']:not(:has(:focus-visible)) .pc-github-click-guide {
+    display: block;
+  }
+
+  .pc-github-cursor {
+    animation: pc-github-cursor-tap 2100ms cubic-bezier(0.77, 0, 0.175, 1) 2 both;
+  }
+
+  .pc-github-click-ring {
+    animation: pc-github-click-ripple 2100ms cubic-bezier(0.23, 1, 0.32, 1) 2 both;
+  }
+}
+
+.pc-github-prompt {
+  display: none;
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 6px);
+  left: 0;
+  width: max-content;
+  max-width: 220px;
+  padding: 9px 11px;
+  border: 1px solid var(--color-fd-border);
+  border-radius: 9px;
+  background: var(--color-fd-popover);
+  color: var(--color-fd-popover-foreground);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-3px);
+  transition: opacity 160ms ease, transform 160ms cubic-bezier(0.23, 1, 0.32, 1), visibility 160ms;
+}
+
+.pc-github-prompt::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  width: 100%;
+  height: 6px;
+}
+
+.pc-github[data-prompt-open='true'] .pc-github-prompt {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.pc-github:has(:focus-visible) .pc-github-prompt,
+.pc-github-link:focus-visible {
+  transition: none;
+}
+
+@media (min-width: 1024px) {
+  .pc-github-prompt {
+    display: block;
+  }
+
+  #nd-nav .pc-github-prompt {
+    right: 0;
+    left: auto;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pc-github-link:hover {
+    background: var(--color-fd-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-github-link,
+  .pc-github-prompt {
+    transition: none;
+    transform: none;
+  }
+}
+
 .pc-kv {
   background: color-mix(in srgb, var(--color-fd-primary) 3%, var(--color-fd-background));
 }

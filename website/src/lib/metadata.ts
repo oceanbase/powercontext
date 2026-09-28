@@ -15,9 +15,10 @@
  */
 
 import type { Metadata } from 'next';
+import { siteUrl } from './urls';
 
 export const siteMetadata: Metadata = {
-  metadataBase: new URL('https://powercontext.oceanbase.io'),
+  metadataBase: new URL(siteUrl),
   title: {
     default: 'PowerContext',
     template: '%s · PowerContext',

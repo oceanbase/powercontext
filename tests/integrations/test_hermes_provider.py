@@ -19,6 +19,7 @@ import importlib
 import importlib.util
 import json
 import logging
+import re
 import sys
 import threading
 import types
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import ValidationError, validate
 
 HERMES_ROOT = Path(__file__).parents[2] / "integrations" / "hermes"
 _HERMES_MODULE_NAMES = (
@@ -177,6 +179,11 @@ def provider_and_client(tmp_path, hermes_modules):
     provider.shutdown()
 
 
+def hermes_provider_module(provider):
+    """The loaded plugin module, so tests can reach its public error types."""
+    return sys.modules[type(provider).__module__]
+
+
 def test_prefetch_uses_profile_and_user_scoped_context(provider_and_client):
     provider, client = provider_and_client
 
@@ -259,7 +266,6 @@ def test_register_does_not_install_session_bound_slash_handlers(hermes_modules):
         def __init__(self):
             self.provider = None
             self.commands = {}
-            self.skills = {}
 
         def register_memory_provider(self, provider):
             self.provider = provider
@@ -267,15 +273,11 @@ def test_register_does_not_install_session_bound_slash_handlers(hermes_modules):
         def register_command(self, name, handler, **kwargs):
             self.commands[name] = (handler, kwargs)
 
-        def register_skill(self, name, path, description=None):
-            self.skills[name] = (path, description)
-
     context = Context()
     provider_module.register(context)
 
     assert context.provider is not None
     assert context.commands == {}
-    assert "powercontext" in context.skills
 
 
 def test_powercontext_subcommands_are_available_to_hermes_completer(hermes_modules, monkeypatch):
@@ -605,6 +607,63 @@ def test_pre_compress_filters_roles_and_redacts_secrets(provider_and_client):
     assert "deployment" in content
 
 
+@pytest.fixture
+def make_provider(tmp_path, hermes_modules):
+    """Build an initialized provider for a specific agent context; shut it down after the test."""
+    provider_module, _cli_module = hermes_modules
+    initialized = []
+
+    def _make(config=None, **kwargs):
+        client = FakeClient()
+        provider = provider_module.PowerContextMemoryProvider(config or {}, client_factory=lambda _config: client)
+        provider.initialize(
+            kwargs.pop("session_id", "session-1"),
+            hermes_home=str(tmp_path),
+            agent_identity="coder",
+            **kwargs,
+        )
+        initialized.append(provider)
+        return provider, client
+
+    yield _make
+    for provider in initialized:
+        provider.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("agent_context", "platform"),
+    [("cron", "cli"), ("flush", "cli"), ("subagent", "cli"), ("", "cron"), ("", "subagent")],
+)
+def test_non_primary_agent_context_skips_automatic_writes(make_provider, agent_context, platform):
+    provider, client = make_provider(agent_context=agent_context, platform=platform)
+
+    provider.sync_turn("Scheduled check.", "Everything is green.", session_id="session-1")
+    provider.on_memory_write("add", "user", "The scheduled run prefers uv.")
+    provider._wait_for_background()
+
+    assert [call[0] for call in client.calls] == []
+
+
+@pytest.mark.parametrize(("agent_context", "platform"), [("", ""), ("primary", "cli"), ("primary", "telegram")])
+def test_primary_agent_context_still_writes_turns_and_memories(make_provider, agent_context, platform):
+    provider, client = make_provider(agent_context=agent_context, platform=platform)
+
+    provider.sync_turn("Use uv for the integration.", "I will add a uv check.", session_id="session-1")
+    provider.on_memory_write("add", "user", "The user prefers uv.")
+    provider._wait_for_background()
+
+    assert [call[0] for call in client.calls] == ["capture_content", "remember_memory"]
+
+
+def test_non_primary_agent_context_keeps_recall_available(make_provider):
+    provider, client = make_provider(agent_context="cron", platform="cron")
+
+    recalled = provider.prefetch("What did we decide about the deployment?")
+
+    assert "remembered project context" in recalled
+    assert client.calls[0][0] == "prepare_context"
+
+
 def test_pre_compress_captures_only_new_overlapping_windows(provider_and_client):
     provider, client = provider_and_client
     provider._config["capture_pre_compress"] = True
@@ -638,6 +697,154 @@ def test_pre_compress_captures_only_new_overlapping_windows(provider_and_client)
     assert "Third user turn" in capture_calls[2][1][2]
     assert "Second user turn" not in capture_calls[2][1][2]
     assert len({call[1][1] for call in capture_calls}) == 3
+
+
+def test_provider_advertises_the_fail_closed_checkpoint_contract(provider_and_client):
+    provider, _client = provider_and_client
+
+    assert provider.pre_compress_checkpoint_api_version == 2
+
+
+def test_pre_compress_prefers_host_normalized_evidence(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+
+    provider.on_pre_compress(
+        [{"role": "user", "content": "raw transcript turn"}],
+        evidence_messages=[{"role": "user", "content": "normalized evidence turn"}],
+    )
+
+    content = client.calls[0][1][2]
+    assert "normalized evidence turn" in content
+    assert "raw transcript turn" not in content
+
+
+def test_required_checkpoint_raises_when_capture_is_disabled(provider_and_client):
+    provider, client = provider_and_client
+
+    with pytest.raises(hermes_provider_module(provider).PreCompressCheckpointError):
+        provider.on_pre_compress(
+            [{"role": "user", "content": "Not captured by default."}],
+            require_checkpoint=True,
+        )
+
+    assert client.calls == []
+
+
+def test_required_checkpoint_raises_when_the_transcript_cannot_be_stored(provider_and_client, monkeypatch):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    provider_module = hermes_provider_module(provider)
+    failure = provider_module.PowerContextTransportError("server unreachable")
+
+    def capture_fails(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(client, "capture_content", capture_fails)
+
+    with pytest.raises(provider_module.PreCompressCheckpointError):
+        provider.on_pre_compress(
+            [{"role": "user", "content": "Capture me before compression."}],
+            require_checkpoint=True,
+        )
+
+
+def test_optional_checkpoint_still_fails_open_when_the_transcript_cannot_be_stored(provider_and_client, monkeypatch):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+
+    failure = hermes_provider_module(provider).PowerContextTransportError("server unreachable")
+
+    def capture_fails(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(client, "capture_content", capture_fails)
+
+    assert provider.on_pre_compress([{"role": "user", "content": "Capture me."}]) == ""
+
+
+def test_required_checkpoint_succeeds_when_the_transcript_is_stored(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+
+    provider.on_pre_compress(
+        [{"role": "user", "content": "The service must stay backward compatible."}],
+        require_checkpoint=True,
+    )
+
+    assert [call[0] for call in client.calls] == ["capture_content", "get_capabilities", "flush_memory"]
+
+
+def test_required_checkpoint_raises_when_the_transcript_would_be_truncated(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    provider_module = hermes_provider_module(provider)
+
+    with pytest.raises(provider_module.PreCompressCheckpointError):
+        provider.on_pre_compress(
+            [{"role": "user", "content": "x" * 30_001}],
+            require_checkpoint=True,
+        )
+
+    assert client.calls == []
+    assert provider._precompress_snapshot == []
+
+
+def test_required_checkpoint_accepts_a_window_that_is_already_captured(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    window = [
+        {"role": "user", "content": "Only user turn."},
+        {"role": "assistant", "content": "Only assistant turn."},
+    ]
+
+    provider.on_pre_compress(window, require_checkpoint=True)
+    provider.on_pre_compress(window, require_checkpoint=True)
+
+    capture_calls = [call for call in client.calls if call[0] == "capture_content"]
+    assert len(capture_calls) == 1
+
+
+def test_required_checkpoint_raises_when_scope_changes_during_capture(provider_and_client, monkeypatch):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    provider_module = hermes_provider_module(provider)
+    capture_content = client.capture_content
+
+    def capture_switches_scope(*args, **kwargs):
+        capture_content(*args, **kwargs)
+        provider._switch_scope("scp_other_scope")
+
+    monkeypatch.setattr(client, "capture_content", capture_switches_scope)
+
+    with pytest.raises(provider_module.PreCompressCheckpointError):
+        provider.on_pre_compress(
+            [{"role": "user", "content": "Capture before the scope switch."}],
+            require_checkpoint=True,
+        )
+
+    assert [call[0] for call in client.calls] == ["capture_content"]
+    assert provider._precompress_snapshot == []
+
+
+def test_committed_checkpoint_survives_a_memory_extraction_failure(provider_and_client, monkeypatch):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+
+    failure = hermes_provider_module(provider).PowerContextTransportError("flush unavailable")
+
+    def flush_fails(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(client, "flush_memory", flush_fails)
+
+    # The transcript is already stored, so the required checkpoint is still satisfied.
+    provider.on_pre_compress(
+        [{"role": "user", "content": "Capture me before compression."}],
+        require_checkpoint=True,
+    )
+
+    assert [call[0] for call in client.calls] == ["capture_content", "get_capabilities"]
 
 
 def test_memory_write_retires_mapped_entries_for_replace_and_remove(provider_and_client):
@@ -1223,6 +1430,7 @@ def test_http_client_dispatches_operation_paths_and_get_query(hermes_modules):
     client = provider_module.PowerContextClient(
         "http://powercontext.test:8000",
         transport=transport,
+        allow_insecure_http=True,
     )
     result = client.request_operation("get_stats", {"scope_id": "hermes:test", "period": "7d"})
 
@@ -1243,6 +1451,7 @@ def test_http_client_classifies_malformed_success_response_separately(hermes_mod
 
     client = provider_module.PowerContextClient(
         "http://powercontext.test:8000",
+        allow_insecure_http=True,
         transport=lambda _request, _timeout: Response(),
     )
 
@@ -1262,6 +1471,7 @@ def test_http_client_preserves_domain_error_details(hermes_modules):
 
     client = provider_module.PowerContextClient(
         "http://powercontext.test:8000",
+        allow_insecure_http=True,
         transport=lambda _request, _timeout: Response(),
     )
 
@@ -1290,6 +1500,7 @@ def test_http_client_forwards_authorization_and_preserves_access_denial(hermes_m
 
     client = provider_module.PowerContextClient(
         "http://powercontext.test:8000",
+        allow_insecure_http=True,
         authorization="Bearer integration-token",
         transport=transport,
     )
@@ -1300,6 +1511,88 @@ def test_http_client_forwards_authorization_and_preserves_access_denial(hermes_m
     assert caught.value.status == 403
     assert caught.value.code == "access_denied"
     assert caught.value.server_message == "scope access denied"
+
+
+def test_guidance_references_available_provider_tools_without_a_skill(hermes_modules) -> None:
+    plugin, _ = hermes_modules
+    provider = plugin.PowerContextMemoryProvider({})
+    guidance = provider.system_prompt_block()
+    tools = provider.get_tool_schemas()
+    names = {tool["name"] for tool in tools}
+    references = set(re.findall(r"\bpowercontext_[a-z_]+\b", guidance))
+    assert references <= names
+    assert references
+
+
+@pytest.mark.parametrize("saved_in_native_config", [True, False])
+def test_provider_uses_endpoint_bound_persisted_transport_consent(
+    hermes_modules, monkeypatch, tmp_path, saved_in_native_config
+):
+    provider_module, _cli_module = hermes_modules
+    url = "http://memory.example:8000"
+    config_path = tmp_path / "clients.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "hosts": {"hermes": {"server_url": url, "allow_insecure_http": True}}})
+    )
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(config_path))
+    requests = []
+
+    def request(client, path, *_args, **_kwargs):
+        requests.append((client.base_url, path))
+        return {"scope_id": "scp_00000000000000000000000000"}
+
+    monkeypatch.setattr(provider_module.PowerContextClient, "_request", request)
+    config = {"flush_on_session_end": False}
+    if saved_in_native_config:
+        config.update({"base_url": url, "allow_insecure_http": True})
+        config_path.unlink()
+    provider = provider_module.PowerContextMemoryProvider(config)
+    try:
+        provider.initialize("session-transport", hermes_home=str(tmp_path))
+        assert requests[0][0] == url
+    finally:
+        provider.shutdown()
+
+    monkeypatch.setenv("POWERCONTEXT_HERMES_BASE_URL", "http://another.example:8000")
+    provider = provider_module.PowerContextMemoryProvider(config)
+    with pytest.raises(ValueError):
+        provider.initialize("session-changed", hermes_home=str(tmp_path))
+
+
+def test_provider_common_false_overrides_native_http_consent(hermes_modules, monkeypatch, tmp_path):
+    provider_module, _cli_module = hermes_modules
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP", "false")
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+    provider = provider_module.PowerContextMemoryProvider({
+        "base_url": "http://memory.example:8000",
+        "allow_insecure_http": True,
+    })
+    with pytest.raises(ValueError):
+        provider.initialize("session-transport", hermes_home=str(tmp_path))
+
+
+@pytest.mark.parametrize("change_in_setup", [True, False])
+def test_provider_endpoint_changes_clear_old_native_consent(hermes_modules, monkeypatch, tmp_path, change_in_setup):
+    provider_module, _cli_module = hermes_modules
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+    config_path = tmp_path / "powercontext" / "config.json"
+    config_path.parent.mkdir()
+    config_path.write_text(
+        json.dumps({"base_url": "http://old.example", "allow_insecure_http": True, "flush_on_session_end": False})
+    )
+    monkeypatch.setattr(
+        provider_module.PowerContextClient,
+        "_request",
+        lambda *_args, **_kwargs: {"scope_id": "scp_00000000000000000000000000"},
+    )
+    provider = provider_module.PowerContextMemoryProvider({} if change_in_setup else {"base_url": "http://new.example"})
+    if change_in_setup:
+        provider.save_config({"base_url": "http://new.example"}, str(tmp_path))
+    try:
+        with pytest.raises(ValueError):
+            provider.initialize("session-changed", hermes_home=str(tmp_path))
+    finally:
+        provider.shutdown()
 
 
 @pytest.mark.parametrize("assembly", [{"sections": []}, {"sections": [{"family": "memory", "limit": 3}]}])
@@ -1379,3 +1672,28 @@ def test_text_assembly_rejects_malformed_or_oversized_responses(provider_and_cli
     response.update(change)
     monkeypatch.setattr(client, "prepare_context", lambda *args, **kwargs: response)
     assert provider.prefetch("query") == ""
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"disposition": "in_progress"},
+        {"next_action": {"text": "Review examples", "citations": []}},
+    ],
+)
+def test_registered_handoff_schema_explains_valid_work_arguments(hermes_modules, invalid) -> None:
+    plugin, _ = hermes_modules
+    tools = plugin.PowerContextMemoryProvider({}).get_tool_schemas()
+    schema = next(tool["parameters"] for tool in tools if tool["name"] == "powercontext_handoff_current_work")
+    handoff = {
+        "schema": "powercontext.current-work-handoff.v1",
+        "trust": "untrusted_input",
+        "objective": "Document Aurora",
+        "disposition": "continuable",
+        "state": [{"text": "README complete", "basis": "declared", "evidence": []}],
+        "next_action": {"text": "Review examples", "basis": "declared", "evidence": []},
+        "omissions": [],
+    }
+    validate({"source_id": "aurora-boundary", "handoff": handoff}, schema)
+    with pytest.raises(ValidationError):
+        validate({"source_id": "aurora-boundary", "handoff": {**handoff, **invalid}}, schema)

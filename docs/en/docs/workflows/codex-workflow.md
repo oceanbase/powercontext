@@ -79,7 +79,7 @@ terminal, and repeat these two checks.
 Still in **Terminal B**, run:
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext setup codex
 ```
 
 Setup performs three operations:
@@ -240,7 +240,7 @@ Confirm that Codex reports a modified `README.md` and a passing `git diff --chec
 > Handoff this work.
 
 `Handoff this work` is explicit authorization to create one durable Handoff milestone. In the same turn, the
-PowerContext `project-context` Skill:
+PowerContext `powercontext-project-context` Skill:
 
 1. selects or confirms the current Workstream and scope;
 2. inspects the objective, branch, worktree, changed files, and observed checks;

@@ -40,6 +40,8 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     topic_memory_stage_budget,
     validate_topic_memory_stage_capacity,
 )
+from powercontext.builtin.code.models import CodeConfig
+from powercontext.builtin.dream.models import DreamBudget
 from powercontext.builtin.inference import character_token_estimator
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
@@ -47,6 +49,14 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime._scope_cache import DEFAULT_SCOPE_CACHE_SIZE
 
 _HTTP_FIELD_NAME_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+_RECALL_GATE_BASE_MIN_SEMANTIC_SIMILARITY = 0.3
+_RECALL_GATE_ROUND1_ORDER_ERROR = (
+    "recall_gate_round1_min_semantic_similarity must be less than or equal to the round-zero floor"
+)
+_RECALL_GATE_ROUND2_ORDER_ERROR = (
+    "recall_gate_round2_min_semantic_similarity must be less than or equal to "
+    "recall_gate_round1_min_semantic_similarity"
+)
 
 
 def _equal_numeric_aliases(left: Any, right: Any) -> bool:
@@ -113,6 +123,7 @@ class RuntimeConfig(BaseModel):
         "memory_max_workers",
         "topic_memory_max_workers",
         "experience_max_workers",
+        "skill_max_workers",
         "profile_max_workers",
         "profile_max_concurrency",
         "artifact_processing_max_workers",
@@ -130,6 +141,29 @@ class RuntimeConfig(BaseModel):
     memory_extraction_profile: MemoryExtractionProfile = MemoryExtractionProfile.CODING
     memory_rerank_enabled: bool = False
     memory_rerank_candidate_limit: int = Field(default=30, ge=1, le=100)
+    decision_assistance_enabled: bool = False
+    memory_max_active_entries: int = Field(default=5_000, ge=1, le=100_000)
+    memory_max_manifest_entries: int = Field(default=10_000, ge=1, le=200_000)
+    memory_max_manifest_bytes: int = Field(default=4_194_304, ge=1_024, le=67_108_864)
+    memory_compaction_enabled: bool = False
+    memory_compaction_min_tombstone_revisions: int = Field(default=10, ge=0)
+    memory_max_history_revisions: int = Field(default=100, ge=1)
+
+    @model_validator(mode="after")
+    def validate_memory_capacity_order(self) -> RuntimeConfig:
+        if self.memory_max_active_entries > self.memory_max_manifest_entries:
+            raise ValueError("memory_max_active_entries cannot exceed memory_max_manifest_entries")  # noqa: TRY003
+        return self
+
+    recall_gate_enabled: bool = False
+    recall_gate_max_rounds: int = Field(default=2, ge=0, le=2)
+    recall_gate_min_candidates: int = Field(default=2, ge=1)
+    recall_gate_min_top_score: float = Field(default=0.35, ge=0.0, le=1.0)
+    recall_gate_min_top_gap: float = Field(default=0.02, ge=0.0, le=1.0)
+    recall_gate_min_lexical_overlap: float = Field(default=0.5, ge=0.0, le=1.0)
+    recall_gate_round1_min_semantic_similarity: float = Field(default=0.15, ge=0.0, le=1.0)
+    recall_gate_round2_min_semantic_similarity: float = Field(default=0.10, ge=0.0, le=1.0)
+    recall_gate_allow_with_rerank: bool = False
     profile_schedule_enabled: bool = False
     profile_cron: str = "0 2 * * *"
     profile_timezone: str = "Asia/Shanghai"
@@ -148,9 +182,23 @@ class RuntimeConfig(BaseModel):
             raise ValueError("invalid Profile schedule timezone") from error  # noqa: TRY003
         return self
 
+    @model_validator(mode="after")
+    def validate_recall_gate_threshold_order(self):
+        if not self.recall_gate_enabled:
+            return self
+        if self.recall_gate_round1_min_semantic_similarity > _RECALL_GATE_BASE_MIN_SEMANTIC_SIMILARITY:
+            raise ValueError(_RECALL_GATE_ROUND1_ORDER_ERROR)
+        if self.recall_gate_round2_min_semantic_similarity > self.recall_gate_round1_min_semantic_similarity:
+            raise ValueError(_RECALL_GATE_ROUND2_ORDER_ERROR)
+        return self
+
     schedule_seconds: float | None = Field(default=None, gt=0)
     memory_schedule_seconds: float | None = Field(default=None, gt=0)
     experience_schedule_seconds: float | None = Field(default=None, gt=0)
+    dream_enabled: bool = True
+    dream_max_pending_per_scope: int = Field(default=32, ge=1, le=1000)
+    generation_concurrency: int = Field(default=4, ge=1, le=64)
+    dream_budget: DreamBudget = Field(default_factory=DreamBudget)
     topic_memory_schedule_seconds: float | None = Field(default=None, gt=0)
     topic_memory_source_window_limit: int = Field(default=10, ge=1)
     topic_memory_history_max_candidates: int = Field(default=20, ge=1, le=MAX_TOPIC_MEMORY_SEARCH_LIMIT)
@@ -164,10 +212,12 @@ class RuntimeConfig(BaseModel):
     memory_max_workers: int = Field(default=1, ge=1)
     topic_memory_max_workers: int = Field(default=10, ge=1)
     experience_max_workers: int = Field(default=1, ge=1)
+    skill_max_workers: int = Field(default=1, ge=1)
     profile_max_workers: int = Field(default=4, ge=1)
     memory_worker_timeout_seconds: float = Field(default=600, gt=0)
     topic_memory_worker_timeout_seconds: float = Field(default=600, gt=0)
     experience_worker_timeout_seconds: float = Field(default=600, gt=0)
+    skill_worker_timeout_seconds: float = Field(default=600, gt=0)
     profile_worker_timeout_seconds: float = Field(default=600, gt=0)
 
     @model_validator(mode="after")
@@ -297,6 +347,7 @@ class InferenceConfig(BaseModel):
     embedding_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     embedding_profile_id: str | None = None
     embedding_dimension: int | None = Field(default=None, ge=1)
+    embedding_send_dimensions: bool = True
     embedding_normalization: Literal["none", "unit"] = "unit"
     embedding_timeout_seconds: float = Field(default=30.0, gt=0)
     embedding_batch_size: int = Field(default=10, ge=1)
@@ -306,8 +357,14 @@ class InferenceConfig(BaseModel):
     rerank_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     rerank_timeout_seconds: float | None = Field(default=None, gt=0)
     rerank_max_requests: int | None = Field(default=None, ge=1)
+    decision_model: str | None = None
+    decision_base_url: AnyHttpUrl | None = None
+    decision_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
+    decision_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
+    decision_timeout_seconds: float | None = Field(default=None, gt=0)
+    decision_max_requests: int | None = Field(default=None, ge=1)
 
-    @field_validator("generation_model", "embedding_model", "embedding_profile_id", "rerank_model")
+    @field_validator("generation_model", "embedding_model", "embedding_profile_id", "rerank_model", "decision_model")
     @classmethod
     def validate_optional_identifier(cls, value: str | None) -> str | None:
         if value is None:
@@ -327,7 +384,7 @@ class InferenceConfig(BaseModel):
             raise ValueError("embedding normalization must be 'none' or 'unit'")  # noqa: TRY003
         return normalized
 
-    @field_validator("generation_headers", "embedding_headers", "rerank_headers")
+    @field_validator("generation_headers", "embedding_headers", "rerank_headers", "decision_headers")
     @classmethod
     def validate_headers(cls, value: dict[str, SecretStr]) -> dict[str, SecretStr]:
         normalized_names: set[str] = set()
@@ -342,7 +399,12 @@ class InferenceConfig(BaseModel):
             normalized_names.add(normalized_name)
         return value
 
-    @field_validator("generation_model_settings", "embedding_model_settings", "rerank_model_settings")
+    @field_validator(
+        "generation_model_settings",
+        "embedding_model_settings",
+        "rerank_model_settings",
+        "decision_model_settings",
+    )
     @classmethod
     def reserve_headers_field(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
         if "extra_headers" in value:
@@ -378,6 +440,7 @@ class InferenceConfig(BaseModel):
             and (self.rerank_headers or self.rerank_model_settings)
         ):
             raise ValueError("rerank overrides require rerank_model or generation_model")  # noqa: TRY003
+        self._validate_decision_overrides()
         max_tokens = self.generation_model_settings.get("max_tokens")
         if max_tokens is not None and (
             not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or max_tokens < 1
@@ -396,6 +459,18 @@ class InferenceConfig(BaseModel):
                     f"Topic Memory generation budget is invalid: {error.error_code}"
                 ) from error
         return self
+
+    def _validate_decision_overrides(self) -> None:
+        """Keep the decision workload's endpoint overrides consistent with its model."""
+
+        if self.decision_base_url is not None and self.decision_model is None:
+            raise ValueError("decision_base_url requires decision_model")  # noqa: TRY003
+        if (
+            self.decision_model is None
+            and self.generation_model is None
+            and (self.decision_headers or self.decision_model_settings)
+        ):
+            raise ValueError("decision overrides require decision_model or generation_model")  # noqa: TRY003
 
 
 class ExternalSkillsConfig(BaseModel):
@@ -450,6 +525,7 @@ def normalize_database_discriminator(value: Any) -> Any:
 class BuiltinConfig(BaseModel):
     """Configuration for one built-in runtime and its database."""
 
+    code: CodeConfig = Field(default_factory=CodeConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteConfig, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
@@ -486,7 +562,7 @@ class BuiltinConfig(BaseModel):
                 )
         if not isinstance(self.database, OceanBaseConfig) and self.runtime.artifact_processing_role != "all":
             raise ValueError(  # noqa: TRY003
-                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekDB"
+                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekdb"
             )
         return self
 

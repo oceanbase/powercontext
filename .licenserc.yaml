@@ -43,6 +43,7 @@ header:
     - '**/.gitignore'
     - '**/.dockerignore'
     - '**/.env.example'
+    - '**/*.example.env'
     - '**/LICENSE'
     - 'NOTICE'
     - '**/LICENSE.oceanbase-design'
@@ -51,6 +52,7 @@ header:
     - '**/*.lockb'
     - 'benchmark/locomo/dataset/**'
     - 'benchmark/locomo/results/**'
+    - 'benchmark/locomo_plus/results/**'
     - 'tox.ini'
     - 'Makefile'
     - 'zensical.toml'
@@ -69,6 +71,8 @@ header:
     - '**/*.jsonl'
     # license-eye cannot determine the comment style of patch files.
     - '**/*.patch'
+    # license-eye cannot determine the comment style of Mermaid diagrams.
+    - '**/*.mermaid'
     # license-eye cannot determine the comment style of uv requirements files.
     - 'e2e/bub/source-overrides.txt'
 

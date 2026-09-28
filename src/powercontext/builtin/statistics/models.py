@@ -22,6 +22,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.inference import TokenEstimatorProfile
 from powercontext.builtin.scope.models import ScopeSelection
 
@@ -232,6 +233,29 @@ class RecallTokenStatistics(BaseModel):
     daily: tuple[RecallTokenDay, ...]
 
 
+MAX_RECURRENCE_TOP_REVISIONS = 20
+
+
+class RecurrenceStreak(BaseModel):
+    """One Experience revision's terminal ``recurred`` streak since its last ``avoided``."""
+
+    artifact_ref: ArtifactRef
+    signature_key: str
+    terminal_recurred_streak: int = Field(ge=0)
+
+
+class RecurrenceStatistics(BaseModel):
+    """Derived recurrence readings for one Scope, read from an append-only ledger."""
+
+    selected: int = Field(ge=0)
+    recurred: int = Field(ge=0)
+    avoided: int = Field(ge=0)
+    unknown: int = Field(ge=0)
+    unlinked_handoff_citations: int = Field(ge=0)
+    needing_review: int = Field(ge=0)
+    top_revisions: tuple[RecurrenceStreak, ...] = Field(max_length=MAX_RECURRENCE_TOP_REVISIONS)
+
+
 class ScopeStatistics(BaseModel):
     """Statistics retained for one Scope inside a resolved selection."""
 
@@ -239,6 +263,7 @@ class ScopeStatistics(BaseModel):
     inventory: InventoryStatistics
     usage: UsageStatistics
     recall: RecallTokenStatistics
+    recurrence: RecurrenceStatistics
 
 
 class Statistics(BaseModel):
@@ -260,6 +285,7 @@ class Statistics(BaseModel):
 
 
 __all__ = [
+    "MAX_RECURRENCE_TOP_REVISIONS",
     "ArtifactInventoryStatistics",
     "CandidateFamilyCount",
     "CandidateInventoryStatistics",
@@ -278,6 +304,8 @@ __all__ = [
     "RecallTokenMeasurement",
     "RecallTokenStatistics",
     "RecallTokenValue",
+    "RecurrenceStatistics",
+    "RecurrenceStreak",
     "ResolvedUsagePeriod",
     "ScopeStatistics",
     "SourceInventoryStatistics",

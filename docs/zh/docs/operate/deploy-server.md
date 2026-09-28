@@ -5,6 +5,9 @@ description: 使用持久化数据、健康检查、鉴权和安全网络边界�
 
 # 部署 Server
 
+远程 Agent 的地址配置与 `--allow-insecure-http` 确认见[连接远程 Server](connect-remote-server.md)。
+这是客户端选项，不会修改 Server 的监听地址或鉴权设置。
+
 Windows 支持为 `experimental`。
 
 `powercontext server run` 是前台进程。在个人 macOS、Linux 或 Windows 工作站上，PowerContext 可以把同一个 Server runner 注册到原生当前用户服务管理器。托管部署仍应使用容器平台或管理员拥有的服务管理器。
@@ -21,6 +24,10 @@ powercontext service status
 Linux 使用 `systemd --user`，日志进入 user journal；macOS 使用当前用户 LaunchAgent；Windows 使用当前用户的 Task Scheduler task。macOS 和 Windows 的 stdout、stderr 写入 PowerContext 用户数据目录。
 
 `service status` 会返回精确的日志 selector 或路径。
+
+个人服务仅支持 loopback 地址；即使已启用鉴权，把 `POWERCONTEXT_SERVER_HTTP_HOST` 配置为非 loopback 地址也会导致
+`service install` 拒绝安装。需要从其他机器访问时，请使用容器或管理员拥有的服务管理器，或者由同机反向代理转发到
+loopback Server。
 
 在 Windows 上，如果没有提供 `--start-on-login` 或 `--no-start-on-login`，命令会询问是否在当前用户下次登录时
 自动启动；直接按 Enter 的默认选择是不启用。需要非交互选择时，请提供其中一个选项。
@@ -41,6 +48,8 @@ powercontext service install --env-file /path/to/powercontext.env
 ```powershell
 icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "${env:USERNAME}:(F)" "SYSTEM:(F)" "Administrators:(F)"
 ```
+
+该 `icacls` 命令只调整 ACL，不会更改文件 owner；如果 owner 不是当前用户，需要先修正 owner。
 
 原生定义只记录环境文件的绝对路径和不含内容的文件 identity metadata；在 Windows 上还记录当前用户的 owner SID，
 launcher 每次启动都会重新校验它。不复制 credential 或调用者的 shell environment。
@@ -86,7 +95,8 @@ powercontext server run --env-file /etc/powercontext/powercontext.env
 
 文件可能包含 Provider 凭据或 Bearer token，因此只能允许 Server 运维者读取。对于 `server run`，进程环境变量会覆盖
 文件中的同名值。`config init` 生成的是不含模型的基础配置；需要启用完整
-推理能力时，请阅读[启用提取与向量搜索](../get-started/configure-models.md)并补充模型配置。
+推理能力时，请阅读[启用提取与向量搜索](../get-started/configure-models.md)并补充模型配置。全量配置参数及默认值可参考
+[配置选项](configuration.md)。
 
 无论使用前台进程、Docker 还是个人服务安装，只要 generation 或 embedding model 未配置，启动或安装输出都会提示
 缺少 model 可能影响部分制品功能，具体影响范围及配置方式请参考
@@ -202,7 +212,13 @@ curl --fail http://127.0.0.1:8000/health/ready
 ```
 
 必需的 Runtime 或数据库绑定不可用时，readiness 返回 HTTP 503。可选推理服务故障时可能返回 HTTP 200 和
-`degraded`，数据库操作仍然可用。
+`degraded`，数据库操作仍然可用。因此 `curl --fail` 只能判断 HTTP 状态，不能把 `degraded` 判定为失败。如果部署依赖
+推理能力，应进一步要求响应中的 `status` 为 `ready`：
+
+```bash
+curl --fail --silent --show-error http://127.0.0.1:8000/health/ready \
+  | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data["status"]); sys.exit(data["status"] != "ready")'
+```
 
 启用鉴权后，还应检查一个受保护的 endpoint：
 

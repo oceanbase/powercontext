@@ -200,6 +200,7 @@ ARTIFACTS_TABLE = Table(
     Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, primary_key=True),
     Column("content", _canonical_payload_type(), nullable=False),
+    Column("memory_citations", _canonical_payload_type(), nullable=True),
 )
 
 ARTIFACT_HEADS_TABLE = Table(
@@ -345,6 +346,7 @@ ARTIFACT_CANDIDATE_VERSIONS_TABLE = Table(
     Column("proposal", _canonical_payload_type(), nullable=False),
     Column("source_refs", _canonical_payload_type(), nullable=False),
     Column("artifact_refs", _canonical_payload_type(), nullable=False),
+    Column("memory_citations", _canonical_payload_type(), nullable=True),
     Column("target_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH)),
     Column("target_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
     Column("target_revision", Integer),
@@ -1203,7 +1205,6 @@ ARTIFACT_TAGS_TABLE = Table(
         ("pc_artifact_heads.scope_id", "pc_artifact_heads.family", "pc_artifact_heads.artifact_id"),
         ondelete="CASCADE",
     ),
-    CheckConstraint("family IN ('memory', 'experience', 'skill', 'handoff')", name="ck_pc_artifact_tags_family"),
     CheckConstraint(
         "(target_type = 'artifact' AND target_id = artifact_id) OR "
         "(target_type = 'memory_entry' AND family = 'memory')",
@@ -1223,6 +1224,27 @@ ARTIFACT_TAGS_TABLE = Table(
 
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
+DREAM_RUNS_TABLE = Table(
+    "pc_dream_runs",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("run_id", identity_string(64), primary_key=True),
+    Column("principal_key", identity_string(64), nullable=False),
+    Column("idempotency_key", identity_string(128), nullable=False),
+    Column("request_digest", identity_string(71), nullable=False),
+    Column("operation", identity_string(32), nullable=False),
+    Column("status", identity_string(16), nullable=False),
+    Column("accepted_at", BigInteger, nullable=False),
+    Column("generation", Integer, nullable=False),
+    Column("request_generation", BigInteger, nullable=False),
+    Column("payload", _canonical_payload_type(), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
+    UniqueConstraint("scope_id", "principal_key", "idempotency_key", name="uq_pc_dream_idempotency"),
+    Index("ix_pc_dream_dispatch", "scope_id", "operation", "status", "request_generation"),
+    Index("ix_pc_dream_list", "scope_id", "accepted_at", "run_id"),
+    CheckConstraint("generation >= 0", name="ck_pc_dream_generation"),
+)
+
 RECEIPT_MIGRATION_REVIEW_TABLE = Table(
     "pc_receipt_migration_review",
     SHARED_METADATA,
@@ -1230,6 +1252,96 @@ RECEIPT_MIGRATION_REVIEW_TABLE = Table(
     Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
     Column("reason", String(64), nullable=False),
 )
+
+# The recurrence ledger is append-only: every correction is a new row, and the
+# only write path is the existing task-outcome incubation window.
+RECURRENCE_MATCH_TABLE = Table(
+    "pc_recurrence_match",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("match_key", identity_string(71), primary_key=True),
+    Column("task_outcome_source_type", identity_string(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    Column("task_outcome_source_id", identity_string(MAX_SOURCE_ID_LENGTH), nullable=False),
+    Column("task_outcome_position", BigInteger, nullable=False),
+    Column("failure_item_kind", String(16), nullable=False),
+    Column("failure_item_index", Integer, nullable=False),
+    Column("failure_item_digest", identity_string(71), nullable=False),
+    Column("candidate_set_mode", String(32), nullable=False),
+    Column("candidate_set_digest", identity_string(71), nullable=False),
+    Column("result", String(16), nullable=False),
+    Column("target_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH)),
+    Column("target_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
+    Column("target_revision", Integer),
+    Column("signature_key", _entry_text_type()),
+    Column("payload", _canonical_payload_type(), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
+    UniqueConstraint(
+        "scope_id",
+        "task_outcome_source_type",
+        "task_outcome_source_id",
+        "failure_item_kind",
+        "failure_item_index",
+        name="uq_pc_recurrence_match_identity",
+    ),
+    CheckConstraint(
+        "result IN ('matched', 'unmatched', 'ambiguous')",
+        name="ck_pc_recurrence_match_result",
+    ),
+    CheckConstraint(
+        "candidate_set_mode IN ('handoff_citations', 'scope_heads')",
+        name="ck_pc_recurrence_match_candidate_set_mode",
+    ),
+    CheckConstraint(
+        "failure_item_kind IN ('observation', 'check')",
+        name="ck_pc_recurrence_match_failure_item_kind",
+    ),
+    CheckConstraint("task_outcome_position > 0", name="ck_pc_recurrence_match_position_positive"),
+    CheckConstraint("failure_item_index >= 0", name="ck_pc_recurrence_match_item_index_nonnegative"),
+)
+
+RECURRENCE_OBSERVATION_TABLE = Table(
+    "pc_recurrence_observation",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("observation_id", identity_string(71), primary_key=True),
+    Column("selection_key", identity_string(71), nullable=False),
+    Column("verdict_key", identity_string(71), nullable=False),
+    Column("event", String(16), nullable=False),
+    Column("match_basis", String(8), nullable=False),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), nullable=False),
+    Column("revision", Integer, nullable=False),
+    # A normalized cue is unbounded text, so only its 32-byte fingerprint is indexed.
+    Column("signature_key", _entry_text_type(), nullable=False),
+    Column("signature_key_hash", LargeBinary(32).with_variant(BINARY(32), "mysql"), nullable=False),
+    Column("task_outcome_source_type", identity_string(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    Column("task_outcome_source_id", identity_string(MAX_SOURCE_ID_LENGTH), nullable=False),
+    Column("task_outcome_position", BigInteger, nullable=False),
+    Column("payload", _canonical_payload_type(), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
+    UniqueConstraint("scope_id", "selection_key", name="uq_pc_recurrence_observation_selection"),
+    UniqueConstraint("scope_id", "verdict_key", name="uq_pc_recurrence_observation_verdict"),
+    Index("ix_pc_recurrence_observation_revision", "scope_id", "family", "artifact_id", "revision"),
+    Index(
+        "ix_pc_recurrence_observation_outcome",
+        "scope_id",
+        "task_outcome_source_type",
+        "task_outcome_source_id",
+        "task_outcome_position",
+    ),
+    Index("ix_pc_recurrence_observation_key", "scope_id", "signature_key_hash"),
+    CheckConstraint(
+        "event IN ('selected', 'recurred', 'avoided')",
+        name="ck_pc_recurrence_observation_event",
+    ),
+    CheckConstraint("revision > 0", name="ck_pc_recurrence_observation_revision_positive"),
+    CheckConstraint(
+        "task_outcome_position > 0",
+        name="ck_pc_recurrence_observation_position_positive",
+    ),
+)
+
+RECURRENCE_TABLES = (RECURRENCE_MATCH_TABLE, RECURRENCE_OBSERVATION_TABLE)
 
 BUILTIN_TABLES = (
     SCOPE_TABLES
@@ -1239,5 +1351,6 @@ BUILTIN_TABLES = (
     + STATISTICS_TABLES
     + WORK_TABLES
     + COORDINATION_TABLES
-    + (ARTIFACT_TAGS_TABLE, RECEIPT_MIGRATION_REVIEW_TABLE)
+    + RECURRENCE_TABLES
+    + (ARTIFACT_TAGS_TABLE, DREAM_RUNS_TABLE, RECEIPT_MIGRATION_REVIEW_TABLE)
 )

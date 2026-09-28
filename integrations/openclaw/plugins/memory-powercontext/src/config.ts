@@ -18,9 +18,11 @@
 import { createHash } from "node:crypto";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/plugin-entry";
 import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { resolveTransport } from "./transport.js";
 
 export type PowerContextConfig = {
   endpoint?: string;
+  allowInsecureHttp: boolean;
   scopeId?: string;
   tokenEnv: string;
   timeoutMs: number;
@@ -32,6 +34,7 @@ export type PowerContextConfig = {
 };
 
 const DEFAULT_CONFIG: PowerContextConfig = {
+  allowInsecureHttp: false,
   tokenEnv: "POWERCONTEXT_CLIENT_API_TOKEN",
   timeoutMs: 2500,
   prepareMaxBytes: 8000,
@@ -53,28 +56,14 @@ function boundedInteger(value: unknown, fallback: number, min: number, max: numb
     : fallback;
 }
 
-function normalizeEndpoint(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const endpoint = value.trim().replace(/\/+$/u, "");
-  if (!/^https?:\/\//iu.test(endpoint)) {
-    return undefined;
-  }
-  try {
-    const parsed = new URL(endpoint);
-    return parsed.username || parsed.password ? undefined : endpoint;
-  } catch {
-    return undefined;
-  }
-}
-
 export function resolvePowerContextConfig(
   config: OpenClawConfig | undefined,
   fallback?: unknown,
+  env: NodeJS.ProcessEnv = process.env,
 ): PowerContextConfig {
   const raw = readPluginConfig(config, fallback);
-  const endpoint = normalizeEndpoint(raw.endpoint);
+  const transport = resolveTransport("openclaw", env, raw.endpoint, raw.allowInsecureHttp);
+  const endpoint = transport.baseUrl;
   const assembly = raw.contextAssembly;
   if (assembly !== undefined && (!assembly || typeof assembly !== "object" || Array.isArray(assembly))) {
     throw new Error("PowerContext contextAssembly must be an object");
@@ -86,6 +75,7 @@ export function resolvePowerContextConfig(
   const scopeId = typeof raw.scopeId === "string" && raw.scopeId.trim() ? raw.scopeId.trim() : undefined;
   return {
     ...DEFAULT_CONFIG,
+    allowInsecureHttp: transport.allowInsecureHttp,
     ...(endpoint ? { endpoint } : {}),
     ...(scopeId ? { scopeId } : {}),
     tokenEnv,

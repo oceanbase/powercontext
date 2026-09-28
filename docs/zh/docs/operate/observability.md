@@ -19,8 +19,23 @@ description: 通过日志定位请求，并查看 Server 指标与 Trace。
 
 ## 指标与就绪状态
 
-默认在 `/metrics` 提供指标。在 enforced 模式下，指标请求需要以有权限的 Principal 认证。
+默认在 `/metrics` 提供指标。在 `enforced` 模式下，`/metrics` 和 `capabilities` 请求需要以具备
+`server.observe` 权限的 Principal 认证。具体认证和权限配置请参见[诊断与恢复](troubleshoot.md)。
 `/health/live` 存活检查和 `/health/ready` 就绪检查保持公开。
+
+`/metrics` 输出 Prometheus 格式的指标。常用指标包括：
+
+| 指标 | 用途 |
+| --- | --- |
+| `powercontext_server_transport_requests_total` | 按传输方式、操作和结果统计请求量 |
+| `powercontext_server_transport_request_duration_seconds` | 观察请求耗时 |
+| `powercontext_server_application_operations_total` | 观察应用操作的成功与失败 |
+| `powercontext_server_runtime_ready` | 判断 Runtime 是否可以接收操作 |
+
+`powercontext_server_runtime_ready=1` 只表示 Runtime 可以接收操作。即使 Server 处于 `degraded` 状态，该指标也可能为
+`1`，不能据此判断模型能力完整可用。请结合 `/health/ready` 返回的 `status` 和 `powercontext capabilities` 一起判断。
+
+如需关闭 `/metrics`，请设置 `POWERCONTEXT_SERVER_METRICS_ENABLED=false`，具体配置方式见[配置选项](configuration.md)。
 
 通过 `powercontext ready` 与 `powercontext capabilities` 区分数据库不可用和可选模型 Provider 降级。
 状态定义与恢复步骤见[诊断与恢复](troubleshoot.md)。

@@ -22,6 +22,9 @@ importers:
 
   .:
     devDependencies:
+      '@earendil-works/pi-ai':
+        specifier: ^0.82.1
+        version: 0.82.1(ws@8.21.3)(zod@4.4.3)
       '@earendil-works/pi-coding-agent':
         specifier: ^0.82.0
         version: 0.82.1(ws@8.21.3)(zod@4.4.3)

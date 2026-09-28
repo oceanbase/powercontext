@@ -14,7 +14,10 @@ PowerContext は、会話をまたいでもコンテキストを作業ととも�
 
 ![あなたと Agent が作業を引き継ぎ、保存されたコンテキストから継続する流れ](docs/assets/readme-workflow.svg)
 
-[公式サイト](https://powercontext.oceanbase.io/en/) · [ドキュメントを読む](https://powercontext.oceanbase.io/en/docs/)
+[Web サイト](https://powercontext.oceanbase.io/en/) · [インストール手順](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
+
+PowerContext 1.1.0 には対話式セットアップが含まれています。
+以下のコマンドで正式リリースと同じバージョンの Agent 連携をインストールします。
 
 ## 作業の続きをそのまま引き継ぐ
 
@@ -24,29 +27,36 @@ PowerContext は、会話をまたいでもコンテキストを作業ととも�
 
 ## 利用中の Agent と接続する
 
-最新リリースの [PowerContext](https://pypi.org/project/powercontext/) をインストールします：
+Git、uv、Agent CLI を用意して、1.1.0 をインストールします：
 
 ```bash
-uv tool install "powercontext[cli,server]==0.2.0"
+uv tool install --force "powercontext[cli,server]==1.1.0"
+mkdir -p powercontext-config
+cd powercontext-config
+powercontext config init --language en --output .env
 ```
 
-別のターミナルでローカル Server を起動します：
+ウィザードは英語と中国語に対応しています。自動 Memory と Topic Memory を試すには Full memory を選択し、
+Generation と Embedding の API 接続を設定してください。Agent のサブスクリプションとは別の認証情報が必要です。
+Basic memory は追加のモデル API なしで明示的な保存・検索を利用できます。
+
+生成された設定で Server を起動します：
 
 ```bash
-powercontext server run
+powercontext server run --env-file .env
 ```
 
-Server はデフォルトで、コンテキストをローカルの SQLite データベースに保存します。
-
-次に同じリリースから Agent との連携を設定します。例：
+Server を起動したまま、別のターミナルで同じ設定ディレクトリに移動し、`.env.next-steps.md` に従って
+クライアント環境の読み込み、Scope の作成・紐付け、同じバージョンの Agent プラグインのインストールを行います。例：
 
 ```bash
-powercontext setup codex --ref powercontext-v0.2.0
+powercontext setup codex --ref powercontext-v1.1.0
+powercontext doctor codex
 ```
 
-PowerContext ツールと Agent 連携には、常に同じ Git ref を使用してください。`master` のインストール、他の Agent、
-個人用サービスの設定は [Quick Start](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) と
-[インストールガイド](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/)を参照してください。
+PowerContext ツールと Agent 連携には、常に同じ Git ref を使用してください。
+[Quick Start](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) で Dashboard、SSH、HTTPS、
+Source から Topic 生成・更新、新しいセッションでの検索まで確認できます。
 Python 3.11+ が必要です。macOS と Linux をサポートし、Windows のサポートは `experimental` です。
 
 Codex は `official`、他のホストと Python Agent フレームワークは `community`、Bub は評価専用の `evaluation` です。
@@ -55,20 +65,20 @@ Codex は `official`、他のホストと Python Agent フレームワークは 
 
 <table>
 <tr>
-<td align="center" width="120"><a href="docs/en/docs/integrations/codex.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/codex-color.png?size=120" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/claude-code.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/claudecode-color.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/dsh.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/deepseek-color.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/hermes/README.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/hermesagent.png?raw=true&size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/hermesagent.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /></picture><br /><sub><b>Hermes Agent</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/pi.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/pi.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/pi.png?size=120" alt="Pi Coding Agent" width="48" height="48" /></picture><br /><sub><b>Pi Coding Agent</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/openclaw.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/openclaw-color.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/codex.md"><img src="assets/codex.png" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/claude-code.md"><img src="assets/claude-code.png" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/dsh.md"><img src="assets/deepseek.png" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
+<td align="center" width="120"><a href="integrations/hermes/README.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/hermes-dark.png"><img src="assets/hermes.png" alt="Hermes Agent" width="48" height="48" /></picture><br /><sub><b>Hermes Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/pi.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/pi-dark.png"><img src="assets/pi.png" alt="Pi Coding Agent" width="48" height="48" /></picture><br /><sub><b>Pi Coding Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/openclaw.md"><img src="assets/openclaw.png" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
 </tr>
 <tr>
-<td align="center" width="120"><a href="docs/en/docs/integrations/opencode.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/opencode.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/opencode.png?size=120" alt="OpenCode" width="48" height="48" /></picture><br /><sub><b>OpenCode</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/opencode.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/opencode-dark.png"><img src="assets/opencode.png" alt="OpenCode" width="48" height="48" /></picture><br /><sub><b>OpenCode</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="https://thesvg.org/icons/workbuddy/default.svg?size=120" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/bub/README.md"><img src="https://github.com/bubbuild.png?size=120" alt="Bub" width="48" height="48" /><br /><sub><b>Bub</b></sub></a></td>
 <td align="center" width="120"><a href="docs/en/docs/integrations/pydantic-ai.md"><img src="https://thesvg.org/icons/pydantic/default.svg?size=120" alt="Pydantic AI" width="48" height="48" /><br /><sub><b>Pydantic AI</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/langchain.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langchain-color.png?size=120" alt="LangChain" width="48" height="48" /><br /><sub><b>LangChain</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/langgraph.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/langgraph.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langgraph.png?size=120" alt="LangGraph" width="48" height="48" /></picture><br /><sub><b>LangGraph</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/langchain.md"><img src="assets/langchain.png" alt="LangChain" width="48" height="48" /><br /><sub><b>LangChain</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/integrations/langgraph.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/langgraph-dark.png"><img src="assets/langgraph.png" alt="LangGraph" width="48" height="48" /></picture><br /><sub><b>LangGraph</b></sub></a></td>
 </tr>
 </table>
 
@@ -94,13 +104,24 @@ make test
 
 ## さらに詳しく
 
-- [はじめる](https://powercontext.oceanbase.io/en/docs/get-started/)
+- [はじめる](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 - [Agent と接続する](https://powercontext.oceanbase.io/en/docs/integrations/)
 - [コンテキストの管理](https://powercontext.oceanbase.io/en/docs/workflows/)
 - [デプロイと運用](https://powercontext.oceanbase.io/en/docs/operate/)
 - [開発と API](https://powercontext.oceanbase.io/en/docs/develop/)
 
 PowerContext は [PowerMem](https://www.powermem.ai/) の後継プロジェクトです。
+
+## コントリビューター
+
+PowerContext に貢献してくださる皆さまに感謝します。❤️
+
+<a href="https://github.com/oceanbase/powercontext/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=oceanbase/powercontext&amp;max=100&amp;columns=12" alt="PowerContext のコントリビューター" />
+</a>
+
+[すべてのコントリビューターを見る](https://github.com/oceanbase/powercontext/graphs/contributors) ·
+[開発に参加する](CONTRIBUTING.md)
 
 ## ライセンス
 

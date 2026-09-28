@@ -15,25 +15,38 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TypedDict, cast
 
 import pytest
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceSearchHit
-from powercontext.builtin.artifacts.memory import MemoryHit
+from powercontext.builtin.artifacts.memory import MemoryCitation, MemoryHit
 from powercontext.builtin.artifacts.profile.models import Profile, ProfileContent, ProfileGeneration
 from powercontext.builtin.artifacts.topic_memory import TopicMemorySearchHit
+from powercontext.builtin.code.capture import digest_bytes
+from powercontext.builtin.code.models import CodeQueryResult
 from powercontext.builtin.runtime import ContextAssembly, PrepareContextRequest
+from powercontext.builtin.runtime.application import (
+    _limit_expanded_experience_candidates,
+    _limit_expanded_memory_candidates,
+)
 from powercontext.builtin.runtime.errors import PreparedContextInvariantError
+from powercontext.builtin.runtime.prepared_code import CodeEvidenceRef, PreparedCodeCandidate, code_candidates
 from powercontext.builtin.runtime.prepared_context import (
+    _MIN_TRUNCATED_CONTENT_BYTES,
+    PreparedContextBuild,
     PreparedContextBuilder,
+    PreparedContextOmissions,
     PreparedExperienceCandidates,
     PreparedMemoryCandidates,
     PreparedProfileCandidate,
 )
+from powercontext.builtin.runtime.prepared_text import ContextTextItem, fit_context_text_item, render_context_text
+from powercontext.builtin.runtime.recall_sufficiency import RecallBudgetView
 
 MEMORY_REF = ArtifactRef(family="memory", artifact_id="memory", revision=3)
 
@@ -581,3 +594,406 @@ def test_empty_context_has_no_source_specific_status_or_content() -> None:
     assert prepared.status == "empty"
     assert prepared.content is None
     assert prepared.content_bytes == 0
+
+
+def test_prepared_context_build_defaults_omit_nothing_and_carry_no_effort() -> None:
+    build = PreparedContextBuild(context=PreparedContextBuilder().empty(), origins=())
+
+    assert build.omissions == PreparedContextOmissions(truncated_items=0, dropped_items=0)
+    # RFC 1560: the recall trace is delivered through the Runtime's sink, never as a field of
+    # the build — `_prepare` returns `build.context` and discards the rest.
+    assert not hasattr(build, "recall_effort")
+
+
+def test_non_assembly_counts_a_whole_drop_below_the_minimum_truncation() -> None:
+    short_source = "hi"
+    assert len(short_source.encode("utf-8")) < _MIN_TRUNCATED_CONTENT_BYTES
+    build = PreparedContextBuilder().build_scopes_result(
+        current_scope_id="current",
+        request=PrepareContextRequest(query="entry", max_bytes=512),
+        memory_candidates=(
+            PreparedMemoryCandidates(
+                scope_id="current",
+                memory_ref=MEMORY_REF,
+                hits=(_hit("a" * 400, short_source),),
+            ),
+        ),
+    )
+
+    assert build.context.status == "empty"
+    assert build.origins == ()
+    assert build.omissions.dropped_items == 1
+    assert build.omissions.truncated_items == 0
+    assert build.omissions.dropped_below_min_bytes == 1
+    assert build.omissions.dropped_no_fitting_truncation == 0
+
+
+def test_non_assembly_counts_a_whole_drop_when_no_truncation_fits() -> None:
+    build = PreparedContextBuilder().build_scopes_result(
+        current_scope_id="current",
+        request=PrepareContextRequest(query="entry", max_bytes=620),
+        memory_candidates=(
+            PreparedMemoryCandidates(
+                scope_id="current",
+                memory_ref=MEMORY_REF,
+                hits=(_hit("a" * 128, "long content " * 200), _hit("short", "small")),
+            ),
+        ),
+    )
+
+    assert build.context.status == "ready"
+    assert len(build.origins) == 1
+    assert build.omissions.dropped_items == 1
+    assert build.omissions.truncated_items == 0
+    assert build.omissions.dropped_below_min_bytes == 0
+    assert build.omissions.dropped_no_fitting_truncation == 1
+
+
+def test_non_assembly_counts_a_truncated_entry() -> None:
+    build = PreparedContextBuilder().build_scopes_result(
+        current_scope_id="current",
+        request=PrepareContextRequest(query="记忆", max_bytes=800),
+        memory_candidates=(
+            PreparedMemoryCandidates(
+                scope_id="current",
+                memory_ref=MEMORY_REF,
+                hits=(_hit("unicode", "记忆🙂" * 400),),
+            ),
+        ),
+    )
+
+    assert build.context.status == "ready"
+    assert build.omissions.truncated_items == 1
+    assert build.omissions.dropped_items == 0
+
+
+def test_entry_limit_truncation_is_not_counted_as_an_omission() -> None:
+    hits = tuple(_hit(f"entry-{index}", f"content {index}") for index in range(10))
+    build = PreparedContextBuilder().build_scopes_result(
+        current_scope_id="current",
+        request=PrepareContextRequest(query="content", max_bytes=32768),
+        memory_candidates=(PreparedMemoryCandidates(scope_id="current", memory_ref=MEMORY_REF, hits=hits),),
+    )
+
+    assert len(build.origins) == 8
+    assert build.omissions == PreparedContextOmissions(truncated_items=0, dropped_items=0)
+
+
+def test_assembly_counts_a_dropped_item_and_a_truncated_item() -> None:
+    assembly = ContextAssembly.model_validate({"sections": [{"family": "memory", "limit": 8}]})
+    dropped = PreparedContextBuilder().build_scopes_result(
+        current_scope_id="current",
+        request=PrepareContextRequest(query="budget", max_bytes=620, assembly=assembly),
+        memory_candidates=(
+            PreparedMemoryCandidates(
+                scope_id="current",
+                memory_ref=MEMORY_REF,
+                hits=(_hit("x" * 128, "Long historical content " * 200), _hit("short", "small")),
+            ),
+        ),
+    )
+    truncated = PreparedContextBuilder().build_scopes_result(
+        current_scope_id="current",
+        request=PrepareContextRequest(query="budget", max_bytes=760, assembly=ContextAssembly()),
+        memory_candidates=(
+            PreparedMemoryCandidates(
+                scope_id="current",
+                memory_ref=MEMORY_REF,
+                hits=(_hit("unicode", "记忆🙂\u202e" * 500),),
+            ),
+        ),
+    )
+
+    assert dropped.context.status == "ready"
+    assert dropped.omissions.dropped_items == 1
+    assert dropped.omissions.truncated_items == 0
+    assert dropped.omissions.dropped_no_fitting_truncation == 1
+    assert dropped.omissions.dropped_below_min_bytes == 0
+    assert truncated.context.status == "ready"
+    assert truncated.omissions.truncated_items == 1
+    assert truncated.omissions.dropped_items == 0
+
+
+def test_assembly_fit_distinguishes_the_two_drop_reasons() -> None:
+    assembly = ContextAssembly.model_validate({"sections": [{"family": "memory", "limit": 8}]})
+    item = ContextTextItem(
+        artifact=ArtifactAddress(scope_id="current", artifact=MEMORY_REF),
+        content="Long historical content " * 40,
+        recall_rank=1,
+    )
+    empty_render_bytes = len(render_context_text((replace(item, content=""),), assembly).encode("utf-8"))
+
+    # Just enough room for a truncation shorter than the minimum honest body.
+    too_short = fit_context_text_item((), item, assembly, empty_render_bytes + 10)
+    assert too_short.item is None
+    assert too_short.dropped_below_min_bytes is True
+    assert too_short.dropped_no_fitting_truncation is False
+
+    # Not enough room for even the ellipsis-only rendering.
+    no_fit = fit_context_text_item((), item, assembly, empty_render_bytes - 10)
+    assert no_fit.item is None
+    assert no_fit.dropped_below_min_bytes is False
+    assert no_fit.dropped_no_fitting_truncation is True
+
+
+def test_probe_budget_reports_the_counters_of_one_pure_selection_pass() -> None:
+    request = PrepareContextRequest(query="entry", max_bytes=32768)
+    hits = (_hit("first", "First constraint"), _hit("second", "Second constraint"))
+    builder = PreparedContextBuilder()
+    candidates = (PreparedMemoryCandidates(scope_id="current", memory_ref=MEMORY_REF, hits=hits),)
+    view = builder.probe_budget(request=request, current_scope_id="current", memory_candidates=candidates)
+
+    assert view.max_bytes == 32768
+    assert view.delivered_items == 2
+    assert view.truncated_items == 0
+    assert view.dropped_items == 0
+    assert 0 < view.unused_bytes < request.max_bytes
+    assert view.budget_bounded is False
+
+
+def test_probe_budget_agrees_with_the_build_it_describes() -> None:
+    request = PrepareContextRequest(query="entry", max_bytes=32768)
+    hits = (_hit("first", "First constraint"), _hit("second", "Second constraint"))
+    builder = PreparedContextBuilder()
+    candidates = (PreparedMemoryCandidates(scope_id="current", memory_ref=MEMORY_REF, hits=hits),)
+    view = builder.probe_budget(request=request, current_scope_id="current", memory_candidates=candidates)
+    build = builder.build_scopes_result(request=request, current_scope_id="current", memory_candidates=candidates)
+
+    assert view.delivered_items == len(build.origins)
+    assert view.truncated_items == build.omissions.truncated_items
+    assert view.dropped_items == build.omissions.dropped_items
+    assert view.unused_bytes == request.max_bytes - build.context.content_bytes
+
+
+def test_probe_budget_is_budget_bound_at_the_byte_floor() -> None:
+    view = RecallBudgetView(max_bytes=512)
+    assert view.budget_bounded is False
+
+    full_view = RecallBudgetView(max_bytes=512, delivered_items=1, unused_bytes=0)
+    assert full_view.budget_bounded is True
+
+
+def test_probe_budget_is_budget_bound_when_the_fit_drops_items_and_leaves_no_headroom() -> None:
+    assert RecallBudgetView(max_bytes=8000, dropped_items=2, unused_bytes=0).budget_bounded is True
+    assert RecallBudgetView(max_bytes=8000, dropped_items=2, unused_bytes=1).budget_bounded is False
+    assert RecallBudgetView(max_bytes=8000, dropped_items=0, unused_bytes=0).budget_bounded is False
+    assert RecallBudgetView(max_bytes=8000, truncated_items=1, dropped_items=0, unused_bytes=0).budget_bounded is True
+
+
+def test_expanded_memory_cap_preserves_the_round_zero_prefix() -> None:
+    round_zero = [
+        PreparedMemoryCandidates(
+            scope_id="current", memory_ref=MEMORY_REF, hits=tuple(_hit(str(i), "x") for i in range(4))
+        ),
+        PreparedMemoryCandidates(scope_id="reference", memory_ref=MEMORY_REF, hits=()),
+    ]
+    expanded = [
+        PreparedMemoryCandidates(scope_id="current", memory_ref=MEMORY_REF, hits=round_zero[0].hits),
+        PreparedMemoryCandidates(
+            scope_id="reference",
+            memory_ref=MEMORY_REF,
+            hits=tuple(_hit(f"ref-{i}", "x") for i in range(4)),
+        ),
+    ]
+
+    limited = _limit_expanded_memory_candidates(expanded, round_zero, 4)
+
+    assert [hit.entry_id for hit in limited[0].hits] == ["0", "1", "2", "3"]
+    assert limited[1].hits == ()
+
+
+def test_expanded_experience_cap_preserves_the_round_zero_prefix() -> None:
+    round_zero = [
+        PreparedExperienceCandidates(scope_id="current", hits=tuple(_experience_hit(str(i)) for i in range(4))),
+        PreparedExperienceCandidates(scope_id="reference", hits=()),
+    ]
+    expanded = [
+        PreparedExperienceCandidates(scope_id="current", hits=round_zero[0].hits),
+        PreparedExperienceCandidates(scope_id="reference", hits=tuple(_experience_hit(f"ref-{i}") for i in range(4))),
+    ]
+
+    limited = _limit_expanded_experience_candidates(expanded, round_zero, 4)
+
+    assert [hit.artifact_ref.artifact_id for hit in limited[0].hits] == ["0", "1", "2", "3"]
+    assert limited[1].hits == ()
+
+
+def test_omission_counting_leaves_rendered_content_and_origins_unchanged() -> None:
+    request = PrepareContextRequest(query="entry")
+    hits = (_hit("first", "First constraint"), _hit("second", "Second constraint"))
+    build = PreparedContextBuilder().build_scopes_result(
+        current_scope_id="current",
+        request=request,
+        memory_candidates=(PreparedMemoryCandidates(scope_id="current", memory_ref=MEMORY_REF, hits=hits),),
+    )
+    plain = PreparedContextBuilder().build(scope_id="current", memory_ref=MEMORY_REF, hits=hits, request=request)
+
+    assert build.context.content == plain.content
+    assert build.omissions == PreparedContextOmissions(truncated_items=0, dropped_items=0)
+    assert build.origins == (
+        MemoryCitation(memory_ref=MEMORY_REF, entry_id="first", entry_version_id="first-v1"),
+        MemoryCitation(memory_ref=MEMORY_REF, entry_id="second", entry_version_id="second-v1"),
+    )
+
+
+def _code_candidates(count: int = 5) -> tuple[PreparedCodeCandidate, ...]:
+    content = "def budget():\n    return '预算'\n"
+    return tuple(
+        PreparedCodeCandidate(
+            origin=CodeEvidenceRef(
+                "scope", "a" * 64, f"module{number}.py", "b" * 64, 1, 2, digest_bytes(content.encode())
+            ),
+            content=content,
+            checked_at="2026-09-21T00:00:00Z",
+        )
+        for number in range(count)
+    )
+
+
+def test_code_context_uses_same_budget_and_separate_origins() -> None:
+    result = PreparedContextBuilder().build_scopes_result(
+        request=PrepareContextRequest(query="budget", include_code=True, max_bytes=8000),
+        current_scope_id="scope",
+        code_candidates=_code_candidates(),
+        memory_candidates=(
+            PreparedMemoryCandidates("scope", MEMORY_REF, tuple(_hit(str(i), f"History {i}") for i in range(8))),
+        ),
+    )
+    assert 0 < len(result.code_origins) <= 4
+    assert len(result.origins) + len(result.code_origins) <= 8
+    assert all(not isinstance(origin, CodeEvidenceRef) for origin in result.origins)
+    assert result.context.content_bytes <= 8000
+    assert result.context.content is not None
+    assert "History" in result.context.content
+    assert "snippet_sha256" in result.context.content
+    assert result.context.content.count("BEGIN_POWERCONTEXT_CODE_V1") == 1
+
+
+def test_code_only_prepare_and_unavailable_code_preserve_empty_contract() -> None:
+    request = PrepareContextRequest(query="budget", include_code=True, assembly=ContextAssembly(sections=()))
+    builder = PreparedContextBuilder()
+    result = builder.build_scopes_result(request=request, current_scope_id="scope", code_candidates=_code_candidates())
+    assert result.context.status == "ready"
+    assert not result.origins
+    assert len(result.code_origins) == 4
+    empty = builder.build_scopes_result(request=request, current_scope_id="scope")
+    assert empty.context.status == "empty"
+    assert empty.context.content is None
+    assert empty.context.content_bytes == 0
+
+
+@pytest.mark.parametrize("memory_count", [0, 1, 3, 6])
+def test_code_context_counts_selected_history_instead_of_section_capacity(memory_count: int) -> None:
+    result = PreparedContextBuilder().build_scopes_result(
+        request=PrepareContextRequest(query="client", include_code=True, max_bytes=32768, assembly=ContextAssembly()),
+        current_scope_id="scope",
+        code_candidates=_code_candidates(4),
+        memory_candidates=(
+            PreparedMemoryCandidates(
+                "scope", MEMORY_REF, tuple(_hit(str(i), f"History {i}") for i in range(memory_count))
+            ),
+        ),
+        experience_candidates=(PreparedExperienceCandidates("scope", (_experience_hit(), _experience_hit("second"))),),
+    )
+    assert len(result.code_origins) == 4
+    assert len(result.origins) == min(memory_count + 2, 4)
+    assert result.context.content is not None
+    assert ("## Experience" in result.context.content) is (memory_count < 4)
+    assert result.context.content_bytes <= 32768
+
+
+def test_code_off_is_identical_and_degradation_returns_history_budget() -> None:
+    builder = PreparedContextBuilder()
+    memory = (PreparedMemoryCandidates("scope", MEMORY_REF, (_hit("history", "Important constraint " * 80),)),)
+    request = PrepareContextRequest(query="budget", max_bytes=1800)
+    baseline = builder.build_scopes_result(request=request, current_scope_id="scope", memory_candidates=memory)
+    disabled = builder.build_scopes_result(
+        request=request, current_scope_id="scope", memory_candidates=memory, code_candidates=_code_candidates()
+    )
+    degraded = builder.build_scopes_result(
+        request=request.model_copy(update={"include_code": True}), current_scope_id="scope", memory_candidates=memory
+    )
+    assert baseline == disabled == degraded
+
+
+def test_unavailable_code_preserves_explicit_history_section_limits() -> None:
+    builder = PreparedContextBuilder()
+    request = PrepareContextRequest(
+        query="client",
+        max_bytes=32768,
+        assembly=ContextAssembly.model_validate({
+            "sections": [{"family": "memory", "limit": 8}, {"family": "experience", "limit": 2}]
+        }),
+    )
+    memory = (PreparedMemoryCandidates("scope", MEMORY_REF, tuple(_hit(str(i), "History") for i in range(8))),)
+    experiences = (PreparedExperienceCandidates("scope", (_experience_hit(), _experience_hit("second"))),)
+    baseline = builder.build_scopes_result(
+        request=request, current_scope_id="scope", memory_candidates=memory, experience_candidates=experiences
+    )
+    degraded = builder.build_scopes_result(
+        request=request.model_copy(update={"include_code": True}),
+        current_scope_id="scope",
+        memory_candidates=memory,
+        experience_candidates=experiences,
+    )
+    assert len(baseline.origins) == 10
+    assert degraded == baseline
+
+
+@pytest.mark.parametrize("value", ["true", 1, None])
+def test_include_code_requires_a_json_boolean(value) -> None:
+    with pytest.raises(ValidationError):
+        PrepareContextRequest.model_validate({"query": "budget", "include_code": value})
+
+
+def test_code_evidence_merges_overlapping_ranges_without_losing_source() -> None:
+    content = 'def outer():\r\n    def inner():\r\n        return "before\u2028after"\r\n    return inner()\r\n'
+    lines = content.split("\n")
+    items: list[dict[str, JsonValue]] = []
+    for start, end in ((2, 3), (1, 4)):
+        excerpt = "\n".join(lines[start - 1 : end]) + "\n"
+        items.append({
+            "path": "module.py",
+            "start_line": start,
+            "end_line": end,
+            "content": excerpt,
+            "file_sha256": digest_bytes(content.encode()),
+            "snippet_sha256": digest_bytes(excerpt.encode()),
+        })
+    result = CodeQueryResult(
+        scope_id="scope",
+        fingerprint="a" * 64,
+        commit="b" * 40,
+        git_object_format="sha1",
+        dirty=False,
+        checked_at="2026-09-21T00:00:00Z",
+        operation="explore",
+        items=items,
+        coverage={},
+        limitations=[],
+    )
+    candidates = code_candidates(result)
+    assert len(candidates) == 1
+    assert candidates[0].content == content
+    assert (candidates[0].origin.start_line, candidates[0].origin.end_line) == (1, 4)
+    assert candidates[0].origin.snippet_sha256 == digest_bytes(content.encode())
+
+
+@pytest.mark.parametrize(
+    "assembly,expect_topic", [(None, True), (ContextAssembly(), False), (ContextAssembly(sections=()), False)]
+)
+def test_code_opt_in_preserves_topic_assembly_selection(assembly, expect_topic) -> None:
+    request = (
+        PrepareContextRequest(query="topic", include_code=True)
+        if assembly is None
+        else PrepareContextRequest(query="topic", include_code=True, assembly=assembly)
+    )
+    result = PreparedContextBuilder().build_scopes_result(
+        request=request,
+        current_scope_id="scope",
+        topic_memory_hits=(_topic_hit(),),
+        code_candidates=_code_candidates(1),
+    )
+    assert result.context.content is not None
+    assert ("Title topic-1" in result.context.content) is expect_topic
+    assert "BEGIN_POWERCONTEXT_CODE_V1" in result.context.content

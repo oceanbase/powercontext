@@ -42,7 +42,7 @@ describe("PowerContext tools", () => {
     } as OpenClawPluginToolContext;
     const deps = {
       client,
-      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" }),
+      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" }),
       isPrivateSession: () => true,
     };
 
@@ -60,7 +60,7 @@ describe("PowerContext tools", () => {
     } as OpenClawPluginToolContext;
     const deps = {
       client,
-      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" }),
+      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" }),
       isPrivateSession: () => true,
     };
 
@@ -84,7 +84,7 @@ describe("PowerContext tools", () => {
     const manager = {} as never;
     const deps = {
       client,
-      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" }),
+      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" }),
       isPrivateSession: () => true,
       managerFor: () => manager,
     };
@@ -107,7 +107,7 @@ describe("PowerContext tools", () => {
     } as OpenClawPluginToolContext;
     const deps = {
       client,
-      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" }),
+      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" }),
       isPrivateSession: () => true,
     };
     const tool = createMemorySearchTool(context, deps);
@@ -130,7 +130,7 @@ describe("PowerContext tools", () => {
     } as OpenClawPluginToolContext;
     const deps = {
       client,
-      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" }),
+      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" }),
       isPrivateSession: () => true,
     };
     const tool = createMemoryGetTool(context, deps);
@@ -150,7 +150,7 @@ describe("PowerContext tools", () => {
       entry_id: "entry-1",
       entry_version_id: "version-1",
     });
-    const config = () => resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" });
+    const config = () => resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" });
     const domainClient = (status: number) => ({
       async post() {
         throw new PowerContextRequestError("/v1/memory/entries/get", "domain error", status);
@@ -201,7 +201,7 @@ describe("PowerContext tools", () => {
     } as OpenClawPluginToolContext;
     const deps = {
       client,
-      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" }),
+      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" }),
       isPrivateSession: () => true,
     };
 

@@ -20,6 +20,8 @@ const withMDX = createMDX();
 
 /** @type {import('next').NextConfig} */
 const config = {
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH?.replace(/\/$/, '') || '',
+  images: { unoptimized: true },
   output: 'export',
   reactStrictMode: true,
   serverExternalPackages: ['@takumi-rs/core'],

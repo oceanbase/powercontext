@@ -1,0 +1,13 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 7f7c39e1c4443755733de35d03f98dda8456514c..39dec48a5701f07d71000c4edf16fb4fe3975bfb 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -261,7 +261,7 @@ async function scanURLs$5(options = {}) {
+ 		fallbackUrls: []
+ 	};
+ 	const files = await getFiles();
+-	for (const file of files) populateToScanResult(file.length === 0 ? [] : file.split(path.sep), options, result);
++	for (const file of files) populateToScanResult(file.length === 0 ? [] : file.split(/[/\\]/), options, result);
+ 	return result;
+ }
+ //#endregion

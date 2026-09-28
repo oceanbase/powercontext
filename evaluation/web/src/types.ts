@@ -233,6 +233,7 @@ export interface TreatmentEvidence {
   plugin_installed: boolean;
   plugin_version: string;
   scope_id: string;
+  scope_key: string | null;
   server_ready: boolean;
 }
 

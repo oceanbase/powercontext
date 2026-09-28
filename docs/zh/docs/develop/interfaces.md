@@ -28,7 +28,7 @@ description: 在 Agent 集成、CLI、Python SDK、HTTP 和 MCP 之间选择。
 
 ## Codex 插件
 
-project-context skill 指导 Codex 何时检索、记忆、修订、停用、委托、交接、回执或记录结果。Prompt Hook 会恢复相关
+powercontext-project-context skill 指导 Codex 何时检索、记忆、修订、停用、委托、交接、回执或记录结果。Prompt Hook 会恢复相关
 条目，并把用户输入采集为 Source 证据；MCP 工具执行显式操作。插件不会启动或内嵌 Server。
 
 ## 工作连续性
@@ -72,7 +72,7 @@ selection。报告 API 见[使用 Handoff Report](../workflows/use-handoff-repor
 
 ## DeepSeek Harness 插件
 
-project-context skill 指导 DeepSeek Harness 何时检索、记忆、修订或停用 Memory。每轮模型开口前，插件会恢复相关
+powercontext-project-context skill 指导 DeepSeek Harness 何时检索、记忆、修订或停用 Memory。每轮模型开口前，插件会恢复相关
 条目，并把用户输入采集为 Source 证据；具名 `pc_*` 工具执行显式 HTTP 操作。插件不会启动或内嵌 Server。
 
 ## Pydantic AI 适配器
@@ -107,7 +107,7 @@ LangGraph 适配器仍是单独的节点与工具集成。
 
 ## Pi package
 
-原生 Pi package 提供 `project-context` skill、具名 `pc_*` Memory/Handoff 工具和 `/pc` 诊断命令。每次普通 agent
+原生 Pi package 提供 `powercontext-project-context` skill、具名 `pc_*` Memory/Handoff 工具和 `/pc` 诊断命令。每次普通 agent
 启动前，它请求一个严格校验且有界的 PreparedContext，并独立采集符合条件的用户提示词作为 Source 证据。它不会同步
 Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久化写入必须在交互式环境中确认。
 
@@ -116,8 +116,8 @@ Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久
 运行带 Scope 的内容命令前，将 `POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID。
 
 ```text
-powercontext setup <host> --source oceanbase/powercontext --ref master
-powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref master
+powercontext setup <host>
+powercontext setup select --host codex --host dsh
 powercontext config init --output .env
 powercontext config show --env-file .env
 powercontext config validate --env-file .env
@@ -129,6 +129,8 @@ powercontext server run --env-file .env
 powercontext ready
 powercontext capabilities
 powercontext experience generate --scope-id "$POWERCONTEXT_SCOPE_ID" --source-ref content/SOURCE_ID
+powercontext experience list --scope-id "$POWERCONTEXT_SCOPE_ID"
+powercontext experience show --scope-id "$POWERCONTEXT_SCOPE_ID" --revision 1 EXPERIENCE_ID
 powercontext skill generate --scope-id "$POWERCONTEXT_SCOPE_ID" --origin experience \
   --artifact-ref experience/EXPERIENCE_ID@REVISION
 powercontext skill show --scope-id "$POWERCONTEXT_SCOPE_ID" --revision 1 SKILL_ID
@@ -216,8 +218,9 @@ Experience 孵化使用独立于 Memory extraction 的持久化 Source cursor。
 Source 或 Artifact lineage。在 reviewer 批准精确 Candidate version 之前，它始终只是 Candidate。
 
 批准会创建不可变的 Skill Revision，但不会安装 Skill，也不会授予执行权限。要让 Codex 或 Claude Code 使用某个
-已批准 Revision，必须把它显式发布到配置好的代码库级、用户级或插件级 Skill target。projection 会生成
-`SKILL.md` 和 `powercontext.json`；manifest 会记录 Agent kind、精确 Artifact 引用和渲染内容哈希。目标目录已存在时会
+已批准 Revision，必须把它显式发布到配置好的代码库级、用户级或插件级 Skill target。projection 会物化批准 Revision
+中的标准 Skill package 文件（至少包含 `SKILL.md`，也可能包含 `scripts/`、`references/` 等目录）；当前导出不保证额外的
+`powercontext.json` sidecar。精确 Artifact 引用和 package digest 应从命令输出与 `skill show` 保存。目标目录已存在时会
 拒绝覆盖，更新必须是一次明确的新导出，不能静默替换。
 
 Codex 可以发现 `.agents/skills/<name>/SKILL.md` 下的代码库级导出。Artifact Revision 始终是内容权威，目录
@@ -233,17 +236,20 @@ Codex 可以发现 `.agents/skills/<name>/SKILL.md` 下的代码库级导出。A
 安装 package，也不会回退到其他版本。
 
 Discovery 不进入 Review。显式调用 `import_external_skill` 并提供精确 identity 与 fingerprint 后，Runtime
-才会把有界 `SKILL.md` 快照采集为 Source evidence，并让已配置模型提出新的 managed Skill Candidate。
-`mode=import` 与 `mode=fork` 记录调用方意图；两者都必须经 Review 批准后才产生新的 managed identity，且不会
-修改 external registration。package 中的脚本和 assets 不会复制进 managed Artifact。
+会捕获经过校验的完整包，并为该快照记录 Source 证据。`mode=import` 直接根据捕获的包提出候选，保留文件路径和字节内容，
+包括脚本和资源，不调用生成模型。`mode=fork` 则由配置好的生成器以快照为依据提出新的 managed Skill 建议，也可能返回
+`no_op` 而不产生 Candidate。捕获了完整原包，不代表生成的提案一定保留其中的脚本或资源。
+
+两种模式返回的 Candidate 都要先保持 pending，经过 Review 批准后才创建新的 managed Skill identity。两者都不修改
+外部原包。后续修改若改变了包的 fingerprint，旧 fingerprint 将无法用于解析或导入，但不会替换已经批准的 managed Revision。
 
 ## Authority 与门禁
 
 | Surface | 内容权威 | 模型门禁 | Review 门禁 | 当前可用方式 |
 | --- | --- | --- | --- | --- |
-| 外部 Agent-native Skill | 原始 package | scan/list/resolve 不需要；import/fork 需要 | discovery 不需要；import/fork 后需要 | host-local Registry 和 exact resolve |
+| 外部 Agent-native Skill | 原始 package | scan/list/resolve/import 不需要；fork 需要 | discovery 不需要；import/fork 的 Candidate 需要 | host-local Registry 和 exact resolve |
 | Experience | 精确 approved Artifact Revision | generate/evolve 需要；类型化 `propose` 不需要 | 需要 | exact read 与 PreparedContext approved-head FTS recall |
-| managed Skill | 精确 approved Artifact Revision | generate/evolve/import/fork 需要；类型化 `propose` 不需要 | 需要 | exact read 与显式 Agent projection |
+| managed Skill | 精确 approved Artifact Revision | generate/evolve/fork 需要；import 与类型化 `propose` 不需要 | 需要 | exact read 与显式 Agent projection |
 | Agent projection | 对应的 managed Skill Revision | 不需要 | 不增加额外 Review | 可重建的 Codex 或 Claude Code host-local copy |
 
 ## Core SDK

@@ -22,14 +22,17 @@ Python package 和插件应使用同一个 PowerContext 仓库 ref。Hook 会校
 
 ## 安装或更新插件
 
-执行：
+先按[快速开始](../get-started/quickstart.md)生成配置并启动 Server。在运行 Claude Code 的机器加载客户端文件：
 
 ```bash
-powercontext setup claude-code --source oceanbase/powercontext --ref master
+set -a
+. ./.env
+set +a
+powercontext setup claude-code --server-url "$POWERCONTEXT_CLAUDE_SERVER_URL"
 ```
 
 修改 Claude Code 设置前，setup 会报告设置项、插件缓存、持久化数据位置、所需权限和准确的回滚命令。
-之后命令会注册 Marketplace、以 user scope 安装插件，并通过 Claude Code 的 JSON 输出确认插件已启用。
+之后命令会注册或刷新 Marketplace、以 user scope 更新或安装插件，并通过 Claude Code 的 JSON 输出确认插件已启用。
 
 Marketplace registry、按版本保存的插件缓存和插件数据目录由 Claude Code 管理。Claude 2.1.133 的
 `plugin install` 不支持配置参数，因此 setup 会在安装成功后，把 `server_url` 和 `capture_prompts`
@@ -42,14 +45,26 @@ Marketplace registry、按版本保存的插件缓存和插件数据目录由 Cl
 powercontext setup claude-code --source ./powercontext
 ```
 
-安装完成后启动 Server，再开启新的 Claude Code 会话：
+安装完成并确认 Server 正在运行后，检查安装并开启新的 Claude Code 会话：
 
 ```bash
-powercontext server run
+powercontext doctor claude-code
 claude
 ```
 
 使用 `/hooks` 确认 `UserPromptSubmit` Hook，使用 `/mcp` 确认 `powercontext` Server。
+两者分别负责采集/召回和显式工具调用，必须都连接成功。`doctor claude-code` 主要检查安装状态，
+完整记忆还需完成[Source 与主题验收](../get-started/quickstart.md#4-用普通对话验收-topic-memory)。
+
+为新 Scope 执行 `.env.next-steps.md` 中的创建请求，把返回的真实 `scope_id` 写入
+`.env` 的 `POWERCONTEXT_CLAUDE_SCOPE_ID`，然后重新加载并开启新会话。
+`claude-code-xxxxxxxx` 是标题，不是 ID；不同 Agent 不会仅因名称或目录不同就自动隔离。
+客户端加载 `.env` 即可；该文件包含完整安装配置，只应复制到可信机器。
+
+MCP endpoint 来自 setup 保存的 `server_url`，Hook 可被 `POWERCONTEXT_CLAUDE_SERVER_URL` 覆盖。
+修改环境地址后也要用同源 setup 的 `--server-url` 更新持久配置，保证两条路径一致。
+认证使用客户端文件的 `POWERCONTEXT_CLAUDE_AUTHORIZATION`，Hook 与 MCP headersHelper 都需要它。
+桌面或其他启动方式可能不继承终端环境，改文件后要重启实际使用的 Claude 进程。
 
 再次执行 setup 会更新插件配置并验证已安装版本，不会删除已有的 PowerContext Server 数据。
 
@@ -143,7 +158,9 @@ claude
 Hook 会直接读取该进程环境变量，MCP 配置则把它展开到 `Authorization` header。变量不存在时，MCP header
 使用空值。不要把 token 放入 Server URL、插件选项、`.mcp.json`、Source metadata 或日志。
 
-明文 HTTP 只允许连接 `127.0.0.1`、`localhost` 或 `::1`。Claude Code 连接远程 Server 时必须使用 HTTPS。
+环回地址默认允许明文 HTTP。连接非环回 Server 时，使用 HTTPS，或显式设置
+`POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP=true`。引导安装可以保存该同意，并同时配置 Hook 与原生 MCP 地址；
+宿主自身的 MCP 策略仍然生效。参见[连接远程 Server](../operate/connect-remote-server.md)。
 
 ## 理解失败行为
 
@@ -187,12 +204,13 @@ claude plugin marketplace remove powercontext
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `POWERCONTEXT_CLAUDE_SERVER_URL` | `http://127.0.0.1:8000` | Hook 使用的 Server base URL |
+| `POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP` | `false` | 显式允许 PowerContext 请求使用非环回明文 HTTP |
 | `POWERCONTEXT_CLAUDE_SCOPE_ID` | 未设置 | 覆盖持久 binding 和 Server 默认 Scope |
 | `POWERCONTEXT_CLAUDE_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
 | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | 把用户 prompt 采集为普通 Source 证据 |
 | `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
-| `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |
-| `POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS` | `4` | 召回、采集和可选 flush 共用的 Hook HTTP 时间预算 |
+| `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `3` | Hook 单次请求超时 |
+| `POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS` | `6` | 召回、采集和可选 flush 共用的 Hook HTTP 时间预算 |
 | `POWERCONTEXT_CLAUDE_FLUSH_MAX_CALLS` | `4` | 每个 prompt 最多执行的 flush 次数；有效值为 1 到 16 |
 
 `powercontext setup claude-code` 会把 `server_url` 和 `capture_prompts` 保存为非敏感的 Claude Code 插件
@@ -200,4 +218,4 @@ claude plugin marketplace remove powercontext
 Authorization 只能来自环境变量，不能加入 Server URL 或插件选项。
 
 `UserPromptSubmit` Hook 的外层超时为十秒。召回与采集共用一个 wall-clock 时间预算，但会独立降级。
-明文 HTTP 只允许连接 loopback endpoint；远程 Server 必须使用 HTTPS。修改环境变量后需要重启 Claude Code。
+显式允许 HTTP 不会关闭 HTTPS 证书校验。修改环境变量后需要重启 Claude Code。

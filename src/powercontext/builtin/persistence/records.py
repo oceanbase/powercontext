@@ -37,7 +37,10 @@ from powercontext.builtin.persistence.errors import (
     RepositoryNotFoundError,
     StoredPayloadConflictError,
 )
-from powercontext.builtin.persistence.family_management import FamilyManagementWriterRegistry
+from powercontext.builtin.persistence.family_management import (
+    FamilyManagementWriterRegistry,
+    PreparingFamilyManagementWriter,
+)
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
@@ -52,6 +55,7 @@ from powercontext.builtin.persistence.tags import RelationalTagService, tag_pred
 from powercontext.builtin.records import (
     ArtifactCollectionItem,
     ArtifactCreated,
+    ArtifactListReader,
     ArtifactRecord,
     ArtifactRecordPage,
     ArtifactRevisionPage,
@@ -114,6 +118,7 @@ class RelationalRecordService:
         cursor_ttl_seconds: int = _DEFAULT_CURSOR_TTL_SECONDS,
         processing_pending: ArtifactProcessingPendingRepository | None = None,
         source_processing_bindings: tuple[str, ...] = (),
+        topic_memory_list_reader: ArtifactListReader | None = None,
     ) -> None:
         self._database = database
         self._sources = sources
@@ -129,6 +134,7 @@ class RelationalRecordService:
         self._cursor_secret = self._cursor_codec.secret
         self._processing_pending = processing_pending
         self._source_processing_bindings = source_processing_bindings
+        self._topic_memory_list_reader = topic_memory_list_reader
         self._tags = RelationalTagService(
             database,
             artifacts,
@@ -321,10 +327,15 @@ class RelationalRecordService:
                 ),
             ),
         )
+        prepared = (
+            await writer.prepare(command, usage_scope_id=scope_id)
+            if isinstance(writer, PreparingFamilyManagementWriter)
+            else command
+        )
         try:
             async with self._database.transaction() as connection:
                 stored = await self._sources.add(connection, scope_id, source)
-                artifact = await writer.create(connection, scope_id, artifact_id, command, stored.ref)
+                artifact = await writer.create(connection, scope_id, artifact_id, prepared, stored.ref)
         except (StoredPayloadConflictError, RevisionConflictError) as error:
             raise BaseValueConflictError("artifact", (scope_id, family, artifact_id)) from error
         return _artifact_created(scope_id, artifact)
@@ -480,6 +491,15 @@ class RelationalRecordService:
     ) -> ArtifactRecordPage:
         self._require_family(family)
         _require_limit(limit)
+        reader = self._topic_memory_list_reader
+        if reader is not None and family == reader.family:
+            return await reader.query(
+                scope_id,
+                limit=limit,
+                cursor=cursor,
+                tag_filter=tag_filter,
+                cursor_codec=self._cursor_codec,
+            )
         expected_cursor = {
             "version": 1,
             "endpoint": "list_artifacts",
@@ -553,6 +573,12 @@ class RelationalRecordService:
             raise InvalidBaseAccessRequestError("prompt_key", "is not accepted for replacement")
         writer = self._family_writers.get(family)
         command = writer.validate_replace(write.content)
+        prepared = command
+        if isinstance(writer, PreparingFamilyManagementWriter):
+            current_record = await self.get_artifact(scope_id, family, artifact_id)
+            if expected_etag != _artifact_etag(current_record.revision):
+                raise ArtifactRevisionPreconditionError(expected_etag, _artifact_etag(current_record.revision))
+            prepared = await writer.prepare(command, usage_scope_id=scope_id)
         async with self._database.transaction() as connection:
             try:
                 current = await self._artifacts.latest(connection, scope_id, family, artifact_id)
@@ -585,7 +611,7 @@ class RelationalRecordService:
             )
             try:
                 stored = await self._sources.add(connection, scope_id, source)
-                revised = await writer.replace(connection, scope_id, current, command, stored.ref)
+                revised = await writer.replace(connection, scope_id, current, prepared, stored.ref)
             except StoredPayloadConflictError as error:
                 raise BaseValueConflictError("source", (scope_id, CONTENT_SOURCE_NAME, source.name)) from error
             except RevisionConflictError:
@@ -702,6 +728,7 @@ def _artifact_record(
         content=content,
         sources=artifact.lineage.sources,
         artifacts=artifact.lineage.artifacts,
+        memory_citations=artifact.lineage.memory_citations,
         content_digest=_content_digest(content),
     )
 

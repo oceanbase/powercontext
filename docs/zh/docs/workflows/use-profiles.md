@@ -8,6 +8,9 @@ description: 通过普通 Scope、主体双写与现有 Artifact/Candidate API �
 Profile 是当前 Scope 证据的完整 Markdown 快照，不是事实源。用户 Scope 通常保存一个人的特征；
 群聊 Scope 描述整体情况并保留人物归属。每个 Scope 的身份固定为 `family=profile, artifact_id=profile`。
 
+Profile 属于管理上下文全景中的独立 Artifact family：Source 提供证据，策略和后台处理决定是否生成，审核或人工替换
+才会提交新的不可变 Revision。架构角色和数据治理边界见[管理上下文的架构与职责](architecture.md)。
+
 ## 主体双写
 
 业务系统提供 `subject_key`（例如业务 user_id），首期 `subject_type` 仅支持 `user`。

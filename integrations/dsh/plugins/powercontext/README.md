@@ -5,8 +5,8 @@ This plugin is a thin DeepSeek Harness integration for a running PowerContext Se
 Install the released Server and plugin together:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==0.2.0"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v0.2.0
+uv tool install --force "powercontext[cli,server]==1.1.0"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.1.0
 ```
 
 `setup dsh` calls `dsh plugin --profile web add`. The plugin talks HTTP only. It does not use MCP.
@@ -23,8 +23,7 @@ reuses the cached checkout without fetching; update a local checkout and reinsta
 Use [the DSH setup guide](../../../../docs/en/docs/integrations/dsh.md) for generation/processing configuration.
 Run `powercontext server run --env-file powercontext.env` in one terminal, then set
 `POWERCONTEXT_DSH_BASE_URL` in another terminal and run `dsh web`. Restart DSH after changing installation or environment.
-Release 0.2.0 includes direct-operation Scope failure handling; the layered Doctor and snapshot behavior below
-require the current development checkout.
+Release 1.1.0 includes direct-operation Scope failure handling and the layered Doctor and snapshot behavior below.
 
 Before each model step it:
 
@@ -40,6 +39,12 @@ report does not prove capture or processing: write routes are declared by OpenAP
 Standalone `powercontext doctor dsh` verifies Web-profile registration and explicitly cannot observe the running
 host's overrides. A healthy Server with extraction disabled may return valid empty recall.
 
+`get_readiness`, including `/pc doctor`, uses `max(requestTimeoutMs, 40000)` milliseconds. This covers the
+default cold inference probe budget (30 seconds), subsequent access checks (up to 5 seconds), and transport
+headroom. Doctor reports both `request_timeout_ms` and `readiness_request_timeout_ms`. For custom Server
+probe budgets above these defaults, increase `requestTimeoutMs` accordingly. Other requests retain their
+configured deadline (1000 ms by default), and caller cancellation still stops readiness immediately.
+
 The operations table in `src/operations.generated.ts` is generated from the repository `openapi/powercontext.yaml`. From the PowerContext root:
 
 ```bash
@@ -51,6 +56,18 @@ The plugin resolves an explicit Scope, a durable workspace binding, or the Serve
 the `POWERCONTEXT_DSH_` prefix for `BASE_URL`, `AUTHORIZATION`, `SCOPE_ID`, `CAPTURE_PROMPTS`, and `FLUSH_ON_CAPTURE`.
 `timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Context returned by recall
 is labelled as untrusted history. An unavailable Server never blocks normal Harness work.
+
+Remote HTTP is rejected by default. For an explicitly trusted plaintext connection, set
+`POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true` or the plugin setting `allowInsecureHttp: true`.
+The common `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP` flag applies when the host flag is absent; a host flag of
+`false` overrides it. Environment flags accept only `true/false`, `1/0`, `yes/no`, or `on/off`.
+HTTPS certificate validation and redirect rejection remain enabled.
+
+Setup-saved URLs and endpoint-specific consent are read from `~/.config/powercontext/clients.json`
+(override with `POWERCONTEXT_CLIENT_CONFIG_FILE`). URL environment overrides, including
+`POWERCONTEXT_CLIENT_SERVER_URL`, take precedence over explicit plugin URLs, then saved URLs and the loopback default.
+Changing the endpoint does not reuse saved or native HTTP consent. Native `allowInsecureHttp: true` must accompany
+the matching `baseUrl`; an environment URL override needs its own matching or explicit environment consent.
 
 Automatic failures are reported through the native `powercontext.dsh` logger with a stage, a safe outcome, and an
 optional public error code. They do not become model messages. Scope failure stops that step's PowerContext work;

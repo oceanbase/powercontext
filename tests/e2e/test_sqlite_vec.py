@@ -15,13 +15,16 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
 
-from powercontext.builtin.artifacts.memory import (
-    EmbeddingProfile,
-    MemoryEntryInput,
-)
+import pytest
+from sqlalchemy import Engine, event, select, update
+
+from powercontext.builtin.artifacts.memory import CapabilityNotSupportedError, EmbeddingProfile, MemoryEntryInput
 from powercontext.builtin.inference import EmbeddingResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.sqlite.memory_index import SQLITE_MEMORY_VECTOR_ENTRIES_TABLE
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 
 PROFILE = EmbeddingProfile(
@@ -50,6 +53,27 @@ class _KeywordEmbeddingModel:
 
         vectors = tuple(vector(text) for text in texts)
         return EmbeddingResult(vectors=vectors)
+
+
+@contextmanager
+def _sql_counter() -> Iterator[list[str]]:
+    statements: list[str] = []
+
+    def record(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(Engine, "before_cursor_execute", record)
 
 
 def test_sqlite_vec_supports_vector_and_hybrid_search(tmp_path) -> None:
@@ -83,6 +107,70 @@ def test_sqlite_vec_supports_vector_and_hybrid_search(tmp_path) -> None:
             assert vector.hits[0].text == "Alpha semantic record."
             assert hybrid.hits[0].matched_by == ("fts", "vector")
             assert gamma.hits[0].text == "Gamma semantic record."
+
+    asyncio.run(scenario())
+
+
+def test_sqlite_vector_completeness_uses_a_fixed_sql_budget(tmp_path) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sql-budget.db'}")
+        async with open_builtin_contexts(
+            BuiltinConfig(database=config), embedding_model=_KeywordEmbeddingModel()
+        ) as contexts:
+            memory_service = (await contexts.get("project")).artifacts.memory
+            memory = await memory_service.remember(
+                memory=None,
+                entries=tuple(MemoryEntryInput(kind="fact", text=f"Alpha record {index}.") for index in range(100)),
+                mode="append",
+            )
+            assert memory is not None
+
+            with _sql_counter() as statements:
+                result = await memory_service.search("alpha", memories=(memory,), mode="vector")
+
+            assert result.hits
+            assert len(statements) < 40
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["missing-vector", "wrong-entry-content-hash", "wrong-embedding-hash", "wrong-revision"],
+)
+def test_sqlite_vector_completeness_rejects_corrupt_projection(tmp_path, corruption: str) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / f'{corruption}.db'}")
+        async with open_builtin_contexts(
+            BuiltinConfig(database=config), embedding_model=_KeywordEmbeddingModel()
+        ) as contexts:
+            memory_service = (await contexts.get("project")).artifacts.memory
+            memory = await memory_service.remember(
+                memory=None,
+                entries=(MemoryEntryInput(kind="fact", text="Alpha semantic record."),),
+                mode="append",
+            )
+            assert memory is not None
+            async with contexts.database.transaction() as connection:
+                vector_id = (
+                    await connection.execute(select(SQLITE_MEMORY_VECTOR_ENTRIES_TABLE.c.vector_id))
+                ).scalar_one()
+                if corruption == "missing-vector":
+                    await connection.exec_driver_sql("DELETE FROM pc_memory_entry_vec WHERE rowid = ?", (vector_id,))
+                else:
+                    values = (
+                        {"entry_content_hash": "0" * 64}
+                        if corruption == "wrong-entry-content-hash"
+                        else (
+                            {"embedding_content_hash": "0" * 64}
+                            if corruption == "wrong-embedding-hash"
+                            else {"head_revision": memory.revision + 1}
+                        )
+                    )
+                    await connection.execute(update(SQLITE_MEMORY_VECTOR_ENTRIES_TABLE).values(**values))
+
+            with pytest.raises(CapabilityNotSupportedError):
+                await memory_service.search("alpha", memories=(memory,), mode="vector")
 
     asyncio.run(scenario())
 

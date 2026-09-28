@@ -22,9 +22,13 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.artifacts.experience import Experience, ExperienceSearchHit, experience_searchable_text
+from powercontext.builtin.artifacts.experience import (
+    Experience,
+    ExperienceSearchOutcome,
+    experience_searchable_text,
+)
 from powercontext.builtin.artifacts.memory import CapabilityNotSupportedError
-from powercontext.builtin.artifacts.search import fts_match_query
+from powercontext.builtin.artifacts.search import AdmissionFloor, fts_match_query
 from powercontext.builtin.artifacts.skill import Skill, SkillPackageSnapshot, SkillSearchHit, skill_searchable_text
 from powercontext.builtin.persistence.experience_index import (
     ensure_artifact_head_searchable_text,
@@ -142,10 +146,12 @@ class SQLiteExperienceFTSIndex:
         query: str,
         limit: int,
         /,
-    ) -> tuple[ExperienceSearchHit, ...]:
+        *,
+        admission: AdmissionFloor | None = None,
+    ) -> ExperienceSearchOutcome:
         match_query = fts_match_query(query)
         if match_query is None:
-            return ()
+            return ExperienceSearchOutcome()
         rows = (
             await connection.execute(
                 _SEARCH_FTS_SQL,
@@ -157,7 +163,7 @@ class SQLiteExperienceFTSIndex:
                 },
             )
         ).mappings()
-        return experience_search_hits(rows, query, limit)
+        return experience_search_hits(rows, query, limit, scope_id, admission=admission)
 
     async def replace_skill(
         self,

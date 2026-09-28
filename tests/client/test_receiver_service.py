@@ -27,7 +27,8 @@ from powercontext.client.skill_receiver import RemoteSkillReceiverConfig
 
 
 @pytest.fixture(autouse=True)
-def _linux_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+def linux_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise mocked systemd operations independently of the host OS."""
     monkeypatch.setattr(service_module.sys, "platform", "linux")
 
 

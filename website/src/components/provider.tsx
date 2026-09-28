@@ -55,7 +55,7 @@ export function Provider({ children, lang }: { children: ReactNode; lang: Langua
   return (
     <RootProvider
       i18n={{ ...provider, onLocaleChange }}
-      search={{ options: { type: 'static', api: '/search-index.json' } }}
+      search={{ options: { type: 'static', api: `/${lang}/search-index.json` } }}
     >
       {children}
     </RootProvider>

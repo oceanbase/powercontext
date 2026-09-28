@@ -18,6 +18,9 @@ import { copyFile, cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'n
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fetchRepositoryInfo } from 'fumadocs-ui/components/github-info';
+import { githubRepository } from '../src/lib/github-stars';
+import { repositoryUrl } from '../src/lib/urls';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const websiteDir = path.resolve(scriptDir, '..');
@@ -63,8 +66,9 @@ async function prepareRfcContent(locale: string) {
       .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
       .map(async (entry) => {
         const filePath = path.join(rfcDir, entry.name);
-        const content = await readFile(filePath, 'utf8');
-        if (content.startsWith('---\n')) return;
+        const content = (await readFile(filePath, 'utf8'))
+          .replace(/(!\[[^\]]*\]\()\.\.\/\.\.\/assets\//g, '$1/docs-assets/');
+        if (/^---\r?\n/.test(content)) return;
 
         const title = formatRfcTitle(entry.name, content);
         await writeFile(filePath, `---\ntitle: ${JSON.stringify(title)}\n---\n\n${content}`);
@@ -82,7 +86,7 @@ async function prepareDevelopmentContent(locale: string) {
       .map(async (entry) => {
         const filePath = path.join(developmentDir, entry.name);
         const content = await readFile(filePath, 'utf8');
-        if (content.startsWith('---\n')) return;
+        if (/^---\r?\n/.test(content)) return;
 
         const title = content.match(/^#\s+(.+)$/m)?.[1];
         if (!title) throw new Error(`Development document ${filePath} has no title`);
@@ -100,6 +104,23 @@ await Promise.all([
   mkdir(pythonDir, { recursive: true }),
   mkdir(publicDir, { recursive: true }),
 ]);
+
+const repository = githubRepository(repositoryUrl);
+let starCount: number | null = null;
+if (repository) {
+  try {
+    const [owner, repo] = repository.split('/');
+    const { stars } = await fetchRepositoryInfo({
+      owner, repo, token: process.env.GITHUB_TOKEN,
+      fetchOptions: { signal: AbortSignal.timeout(10_000) },
+    });
+    if (!Number.isSafeInteger(stars) || stars < 0) throw new Error('Invalid Star count');
+    starCount = stars;
+  } catch {
+    console.warn('GitHub Star count unavailable at build time; the browser can still load it from Shields.');
+  }
+}
+await writeFile(path.join(generatedDir, 'github-stars.json'), `${JSON.stringify({ repository, count: starCount })}\n`);
 
 await Promise.all([
   cp(path.join(repositoryDir, 'docs', 'en', 'docs'), path.join(generatedDocsDir, 'en', 'docs'), {
@@ -127,6 +148,10 @@ await Promise.all([
     force: true,
   }),
   cp(path.join(repositoryDir, 'docs', 'assets'), path.join(generatedDocsDir, 'assets'), {
+    recursive: true,
+    force: true,
+  }),
+  cp(path.join(repositoryDir, 'docs', 'assets'), path.join(publicDir, 'docs-assets'), {
     recursive: true,
     force: true,
   }),

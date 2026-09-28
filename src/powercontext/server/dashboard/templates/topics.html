@@ -1,0 +1,46 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% from 'components/page-heading.html' import page_heading %}
+{% from 'components/pagination.html' import pagination %}
+{{ page_heading(t.topic_memory, t.topics_subtitle) }}
+
+<form class="mb-4" action="/dashboard/topics" method="get" role="search" aria-label="{{ t.search_topic_memory }}">
+  <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="period" value="{{ period }}">
+  <div class="input-group"><input class="form-control" name="topic_q" value="{{ artifact_query or '' }}" placeholder="{{ t.search_topic_memory }}">
+    <button class="btn btn-primary" type="submit">{{ t.search }}</button></div>
+</form>
+
+<div class="row row-cards">
+  <section class="col-lg-5" aria-labelledby="topic-list-heading"><div class="card"><div class="card-header"><h2 class="card-title" id="topic-list-heading">{{ t.topic_inventory }}</h2></div>
+    {% if errors.get('topic_memory') %}{{ read_error(errors.topic_memory, t.topic_memory) }}
+    {% elif data.topic_memory %}<div class="list-group list-group-flush">{% for item in data.topic_memory %}
+      <a class="list-group-item list-group-item-action" href="{{ link('topics', topic_artifact=item.artifact.artifact_id, topic_revision=item.artifact.revision) }}">
+        <div class="d-flex justify-content-between gap-2"><strong>{{ item.title }}</strong><code>@{{ item.artifact.revision }}</code></div><p class="text-secondary mb-0 mt-1">{{ item.summary|truncate(140, true) }}</p>
+      </a>{% endfor %}</div>
+    {% else %}<div class="card-body"><h3>{{ t.topic_memory_empty }}</h3><p class="text-secondary mb-0">{{ t.topic_memory_empty_body }}</p></div>{% endif %}
+  </div>
+  {{ pagination(topic_memory_pager, t) }}
+  </section>
+  <section class="col-lg-7" aria-labelledby="topic-detail-heading"><div class="card"><div class="card-body">
+    {% if errors.get('topic_memory_selected') %}{{ read_error(errors.topic_memory_selected, t.topic_memory) }}
+    {% elif data.topic_memory_selected %}{% set topic = data.topic_memory_selected %}
+      <div class="d-flex justify-content-between gap-3"><div><h2 class="card-title mb-1" id="topic-detail-heading">{{ topic.title }}</h2><code>topic-memory/{{ topic.artifact.artifact_id }}@{{ topic.artifact.revision }}</code></div><span class="badge {{ 'bg-green-lt' if topic.is_current else 'bg-yellow-lt' }}">{{ t.current_revision if topic.is_current else t.historical_revision }}</span></div>
+      {% if not topic.is_current %}<p class="mt-2"><a href="{{ link('topics', topic_artifact=topic.current_artifact.artifact_id, topic_revision=topic.current_artifact.revision, topic_cursor=none, topic_history=none) }}">{{ t.view_current_revision }}</a></p>{% endif %}
+      <p class="text-secondary mt-3">{{ topic.summary }}</p><h3>{{ t.full_detail }}</h3><pre class="page-body-pre text-break">{{ topic.detail }}</pre>
+      <hr><h3>{{ t.source_references }}</h3>{% if topic.source_refs %}<ul>{% for source in topic.source_refs %}<li><code>{{ source.name }}/{{ source.source_id }}</code></li>{% endfor %}</ul>{% else %}<p class="text-secondary">{{ t.no_sources }}</p>{% endif %}
+    {% else %}<div class="empty"><h2>{{ t.select_topic }}</h2><p class="empty-subtitle text-secondary">{{ t.select_topic_hint }}</p></div>{% endif %}
+  </div></div></section>
+</div>

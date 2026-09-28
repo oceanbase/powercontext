@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import Mock
@@ -68,6 +70,7 @@ def test_configure_openclaw_preserves_existing_tools_and_adds_missing_tools(monk
     openclaw_cli.configure_openclaw(
         executable="openclaw",
         server_url="http://127.0.0.1:8765",
+        allow_insecure_http=False,
     )
 
     allowlist_call = run_openclaw.call_args_list[1]
@@ -101,6 +104,7 @@ def test_configure_openclaw_initializes_local_gateway_when_mode_is_missing(
     openclaw_cli.configure_openclaw(
         executable="openclaw",
         server_url="http://127.0.0.1:8765",
+        allow_insecure_http=False,
     )
 
     settings = json.loads(run_openclaw.call_args_list[0].args[4])
@@ -144,6 +148,7 @@ def test_install_openclaw_plugin_builds_installs_and_configures(
     configure.assert_called_once_with(
         executable="/usr/bin/openclaw",
         server_url="http://127.0.0.1:8765",
+        allow_insecure_http=False,
     )
 
 
@@ -169,8 +174,13 @@ if "build" in sys.argv:
     output.write_text("export {};\\n", encoding="utf-8")
 """,
         encoding="utf-8",
+        newline="\n",
     )
     fake_pnpm.chmod(0o755)
+    if os.name == "nt":
+        launcher = tmp_path / "pnpm.cmd"
+        launcher.write_text(f'@"{sys.executable}" "{fake_pnpm}" %*\n', encoding="utf-8")
+        fake_pnpm = launcher
     monkeypatch.setattr(openclaw_cli, "pnpm_executable", lambda: str(fake_pnpm))
     monkeypatch.setenv("CI", "false")
 
@@ -213,6 +223,7 @@ def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pyte
         source="oceanbase/powercontext",
         ref="tested-ref",
         server_url="http://127.0.0.1:8765",
+        allow_insecure_http=False,
     )
 
 
@@ -360,6 +371,7 @@ def test_doctor_openclaw_reports_an_installed_plugin_as_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("POWERCONTEXT_OPENCLAW_BASE_URL", "http://127.0.0.1:8000")
     run_process = Mock(
         return_value=CompletedProcess(_OPENCLAW_PLUGIN_LIST_COMMAND, 0, _openclaw_plugin_list_output(), "")
     )

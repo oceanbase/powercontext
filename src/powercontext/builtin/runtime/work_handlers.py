@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -51,6 +52,7 @@ from powercontext.builtin.persistence.work import (
 from powercontext.builtin.runtime.cron import CronSchedule
 from powercontext.builtin.runtime.durable_scheduler import DiscoveryPage
 from powercontext.builtin.runtime.models import ExperienceIncubationResult, MemoryFlushResult
+from powercontext.builtin.runtime.protocols import RuntimeTracing
 from powercontext.builtin.runtime.relational import RelationalContexts, _validate_experience_plans
 from powercontext.builtin.runtime.worker import PreparedWork, WorkExecutionError
 from powercontext.builtin.sources import SourceCursor, validate_scope_id
@@ -272,8 +274,9 @@ class MemoryWorkHandler:
     kind = MEMORY_WORK_KIND
     supported_versions = frozenset({CURRENT_WORK_PAYLOAD_VERSION})
 
-    def __init__(self, contexts: RelationalContexts) -> None:
+    def __init__(self, contexts: RelationalContexts, *, tracing: RuntimeTracing | None = None) -> None:
         self._contexts = contexts
+        self._tracing = tracing
 
     async def prepare(self, claim: WorkClaim, /) -> PreparedWork:
         payload = _payload(claim)
@@ -332,31 +335,46 @@ class MemoryWorkHandler:
             )
 
         async def commit(connection: AsyncConnection) -> WorkResult:
-            locked = await services.repositories.cursors.load(
-                connection,
-                claim.scope_id,
-                SOURCE_WINDOW_TRIGGER_NAME,
-                for_update=True,
+            memory_commit = None if plan is None else plan.commit
+            stage = (
+                nullcontext()
+                if self._tracing is None
+                else self._tracing.stage(
+                    "memory.commit",
+                    attributes={
+                        "powercontext.memory.commit.memory_changed": memory_commit is not None,
+                        "powercontext.memory.commit.entry_version_count": 0
+                        if memory_commit is None
+                        else len(memory_commit.entry_versions),
+                    },
+                )
             )
-            sequence, generation = _cursor_position(locked)
-            _require_exact_cursor(payload, sequence, generation)
-            _, bound_catalog = services.sources(connection)
-            updated = None if plan is None else await services.memory(bound_catalog, connection).apply(plan)
-            await services.repositories.cursors.save(
-                connection,
-                claim.scope_id,
-                SOURCE_WINDOW_TRIGGER_NAME,
-                SourceCursor(sequence=payload.through),
-                expected_generation=None if payload.cursor_generation == 0 else payload.cursor_generation,
-            )
-            return _memory_result(
-                previous=payload.after,
-                current=payload.through,
-                high_watermark=payload.high_watermark,
-                source_count=len(eligible_rows),
-                memory_ref=None if updated is None else updated.as_ref().model_dump(mode="json"),
-                code="processed",
-            )
+            with stage:
+                locked = await services.repositories.cursors.load(
+                    connection,
+                    claim.scope_id,
+                    SOURCE_WINDOW_TRIGGER_NAME,
+                    for_update=True,
+                )
+                sequence, generation = _cursor_position(locked)
+                _require_exact_cursor(payload, sequence, generation)
+                _, bound_catalog = services.sources(connection)
+                updated = None if plan is None else await services.memory(bound_catalog, connection).apply(plan)
+                await services.repositories.cursors.save(
+                    connection,
+                    claim.scope_id,
+                    SOURCE_WINDOW_TRIGGER_NAME,
+                    SourceCursor(sequence=payload.through),
+                    expected_generation=None if payload.cursor_generation == 0 else payload.cursor_generation,
+                )
+                return _memory_result(
+                    previous=payload.after,
+                    current=payload.through,
+                    high_watermark=payload.high_watermark,
+                    source_count=len(eligible_rows),
+                    memory_ref=None if updated is None else updated.as_ref().model_dump(mode="json"),
+                    code="processed",
+                )
 
         return PreparedWork(result=None, commit=commit)
 
@@ -436,6 +454,20 @@ class ExperienceWorkHandler:
                     reason=plan.reason,
                 )
                 candidate_ids.append(candidate.candidate_id)
+            for proposal in await services.recurrence_ledger().record_window(connection, eligible_rows):
+                target_content = await services.repositories.artifacts.get(
+                    connection,
+                    claim.scope_id,
+                    proposal.target,
+                )
+                candidate = await review.propose_experience(
+                    proposal.proposal,
+                    sources=proposal.sources,
+                    artifacts=(target_content.as_ref(),),
+                    target=proposal.target,
+                    reason=proposal.reason,
+                )
+                candidate_ids.append(candidate.candidate_id)
             await services.repositories.cursors.save(
                 connection,
                 claim.scope_id,
@@ -446,7 +478,7 @@ class ExperienceWorkHandler:
             return _experience_result(
                 payload,
                 source_count=len(eligible_rows),
-                candidate_count=len(plans),
+                candidate_count=len(candidate_ids),
                 candidate_ids=tuple(candidate_ids),
                 code="processed",
             )

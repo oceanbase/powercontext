@@ -106,8 +106,9 @@ HTTP `200` 返回已经完成的 `FlushMemoryResponse`；HTTP `202` 返回 opera
 
 ## Scope 内的操作提示词
 
-操作提示词使用 `family=prompt`，遵循 Artifact 的 Scope 权限边界。启用 Access 后，创建提示词和生成示例需要
-`scope.contribute`；读取当前内容、指定版本或版本历史需要 `artifact.read`；替换提示词需要 `artifact.write`。
+操作提示词使用 `family=prompt`，遵循 Artifact 的 Scope 权限边界。由于 Prompt 会影响整个 Scope 的运行行为，启用
+Access 后，创建、替换、切换 Auto 和恢复历史版本都需要 `scope.admin`；读取当前内容、指定版本或版本历史需要
+`artifact.read`。Prompt 不提供直接分享角色；拥有 Prompt Artifact 不会绕过当前的 `scope.admin` 检查。
 Scope 的读取角色继承提示词的读取和使用权限，创建者拥有该逻辑 Prompt。当前不提供直接分享 Prompt 的可授予角色。
 
 `GET /v1/scopes/{scope_id}/prompts/{prompt_key}` 读取当前配置，不保存版本，也不调用推理服务。
@@ -222,6 +223,26 @@ Principal，并注入 Authorization Provider。HTTP 与 MCP 使用同一个策�
   }
 }
 ```
+
+`/v1/memory/remember` 和 `/v1/memory/entries/revise` 的正文在 Unicode NFC 规范化并去掉首尾空白后，
+最多为 8192 个 UTF-8 字节。这是字节数限制，不是字符数限制。正文超限时返回 HTTP `422`，
+顶层错误码仍为 `invalid_request`：
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "The request is invalid.",
+    "details": {
+      "code": "text-too-long",
+      "message": "memory entry text must not exceed 8192 UTF-8 bytes"
+    }
+  }
+}
+```
+
+客户端可通过 `error.details.code` 识别具体的规范化校验错误。其他错误的详情仍可能为 `null`；
+没有结构化错误码的 Memory 错误不会向客户端返回内部异常文本。
 
 常见状态码：
 

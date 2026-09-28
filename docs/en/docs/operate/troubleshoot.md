@@ -35,7 +35,7 @@ when that CLI is missing.
 Confirm that Git can read the repository:
 
 ```bash
-git ls-remote https://github.com/oceanbase/powercontext.git HEAD
+git ls-remote https://github.com/oceanbase/powercontext.git refs/heads/master
 ```
 
 If this fails, configure the credential helper or SSH key used by Git, then rerun `uv tool install`. `uv` uses Git's
@@ -76,7 +76,7 @@ powercontext doctor pi
 Reinstall it from the same ref as the tool:
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref <ref>
+powercontext setup codex
 codex plugin list --json
 ```
 
@@ -86,7 +86,7 @@ For Claude Code, run:
 
 ```bash
 powercontext doctor claude-code
-powercontext setup claude-code --source oceanbase/powercontext --ref <ref>
+powercontext setup claude-code
 claude plugin list --json
 ```
 
@@ -101,7 +101,7 @@ For DeepSeek Harness, run:
 
 ```bash
 powercontext doctor dsh
-powercontext setup dsh --source oceanbase/powercontext --ref <ref>
+powercontext setup dsh
 dsh --profile web --dump-config
 ```
 
@@ -112,7 +112,7 @@ For Pi, run:
 
 ```bash
 powercontext doctor pi
-powercontext setup pi --source oceanbase/powercontext --ref <ref>
+powercontext setup pi
 pi list
 ```
 
@@ -138,6 +138,76 @@ The bundled Codex and Claude Code plugins and Pi package use port 8000 by defaul
 cannot answer health requests, so readiness is not checked. `not_ready` with HTTP 503 means the Runtime or database cannot accept work.
 `degraded` with HTTP 200 means a configured inference capability failed while database-backed operations remain
 available. Human and JSON output retain the Server's individual check statuses.
+
+Automation should not check only the exit code of `powercontext ready`: when the Server returns HTTP 200 with
+`degraded`, the `ready` command can still exit 0. Check the top-level JSON `status` instead:
+
+```bash
+powercontext --json ready | jq -e '.status == "ready"' >/dev/null
+```
+
+The command exits nonzero when `status` is `degraded`. To have PowerContext itself fail on a degraded result, use
+`powercontext doctor --json`; it exits nonzero unless the complete diagnostic result is `ok`.
+
+### Permissions for metrics and capabilities
+
+In `enforced` mode, the Authentication Provider builds a Principal from the request credentials. A valid Bearer token
+only authenticates the request; it does not automatically grant every permission.
+
+Both `/metrics` and `/v1/capabilities` require the Server-level `server.observe` permission. Requests therefore return:
+
+- HTTP 401 when no valid authentication credentials are supplied;
+- HTTP 403 when the Principal is authenticated but lacks `server.observe`.
+
+With the built-in static Bearer token, check metrics with:
+
+```bash
+export POWERCONTEXT_DEPLOYMENT_TOKEN="your-token"
+
+curl --fail \
+  --header "Authorization: Bearer ${POWERCONTEXT_DEPLOYMENT_TOKEN}" \
+  http://127.0.0.1:8000/metrics
+```
+
+You can check the Server's advertised capabilities in the same way:
+
+```bash
+curl --fail \
+  --header "Authorization: Bearer ${POWERCONTEXT_DEPLOYMENT_TOKEN}" \
+  http://127.0.0.1:8000/v1/capabilities
+```
+
+See [Server authentication and permissions](configuration.md#server) for Principal, access-control, and Bearer token configuration.
+
+## Local tracing examples and existing Server configuration
+
+The local Phoenix and Langfuse tracing examples are written for an isolated test instance and default to loopback
+addresses. Whether the Dashboard is enabled depends on the installed version and effective configuration. In newer
+versions, a personal Dashboard requires `ACCESS_MODE=enforced` and a valid `AUTH_TOKEN`; if startup reports
+`DASHBOARD_ENABLED requires ACCESS_MODE=enforced and AUTH_TOKEN`, complete the authentication configuration or disable
+the Dashboard in the isolated local test instance.
+
+When an existing Server already uses static Bearer authentication, keep its authentication configuration while adding
+tracing. If you also enable the Dashboard, use the same static Bearer configuration:
+
+```dotenv
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+POWERCONTEXT_SERVER_AUTH_TOKEN=<valid-token>
+```
+
+Do not clear authentication variables to bypass a startup error.
+
+If you need an isolated unauthenticated test instance, use a separate environment configuration such as:
+
+```dotenv
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false
+POWERCONTEXT_SERVER_ACCESS_MODE=disabled
+POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1
+```
+
+Unauthenticated mode is suitable only for a local test environment bound to loopback. Configure a remote or existing
+Server according to [Deploy the Server](deploy-server.md).
 
 ## The Server cannot open its database
 
@@ -210,7 +280,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
+     --table 'pc_dream_runs,pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
      -f <export-directory>
    ```
 
@@ -218,7 +288,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_artifact_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags' \
+      --table 'pc_artifact_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
      -f <export-directory>
    ```
 

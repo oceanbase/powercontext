@@ -47,6 +47,7 @@ from powercontext.builtin.persistence.errors import (
 )
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
 from powercontext.builtin.persistence.rate_limit import RateLimitDecision, RateLimitRepository
+from powercontext.builtin.persistence.recurrence import RecurrenceRepository
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.skill_publications import (
     SkillPublication,
@@ -112,6 +113,7 @@ __all__ = (
     "PersistenceError",
     "RateLimitDecision",
     "RateLimitRepository",
+    "RecurrenceRepository",
     "RemoteAgentSkillTarget",
     "RemoteAgentSkillTargetRepository",
     "RemoteAgentSkillTargetState",

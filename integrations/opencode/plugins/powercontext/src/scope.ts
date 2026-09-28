@@ -34,17 +34,24 @@ export function workspaceBindingKey(cwd: string): ScopeBindingKey {
 
 export async function resolveScopeId(
   client: PowerContextClient,
-  input: { cwd: string; sessionID: string; configuredScopeId?: string; persistSession?: boolean },
+  input: { cwd?: string; sessionID?: string; configuredScopeId?: string; persistSession?: boolean },
+  signal?: AbortSignal,
 ): Promise<string> {
+  const sessionID = input.sessionID?.trim()
+  const cwd = input.cwd?.trim()
+  const bindingKeys: ScopeBindingKey[] = []
+  if (sessionID) bindingKeys.push(sessionBindingKey(sessionID))
+  if (cwd) bindingKeys.push(workspaceBindingKey(cwd))
   const response = await client.request('resolve_scope_binding', {
     explicit_scope_id: input.configuredScopeId,
-    binding_keys: [sessionBindingKey(input.sessionID), workspaceBindingKey(input.cwd)],
-  })
+    binding_keys: bindingKeys,
+  }, signal)
   const value = response.value
   const scopeId = value && typeof value === 'object' ? (value as { scope_id?: unknown }).scope_id : undefined
   if (typeof scopeId !== 'string' || !scopeId.trim()) throw new Error('PowerContext returned an invalid Scope')
-  if (input.persistSession && !input.configuredScopeId) {
-    await client.request('set_scope_binding', { key: sessionBindingKey(input.sessionID), scope_id: scopeId })
+  const resolved = scopeId.trim()
+  if (input.persistSession && !input.configuredScopeId && sessionID) {
+    await client.request('set_scope_binding', { key: sessionBindingKey(sessionID), scope_id: resolved }, signal)
   }
-  return scopeId
+  return resolved
 }

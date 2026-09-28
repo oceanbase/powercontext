@@ -13,7 +13,7 @@ description: Install the native PowerContext package for Pi and control recall, 
 Install Pi, then install the package from the same PowerContext ref as the CLI:
 
 ```bash
-powercontext setup pi --source oceanbase/powercontext --ref master
+powercontext setup pi
 ```
 
 A local checkout works as well:
@@ -44,6 +44,8 @@ The package resolves one Server-owned Scope in this order: `POWERCONTEXT_PI_SCOP
 workspace, then the Server default. The workspace path is hashed only as an external binding key; it never becomes a
 Scope ID. Keep the explicit variable unset unless the host must force one existing Scope.
 
+With these capabilities enabled, Pi satisfies the repository's Full core integration profile.
+
 ## Control prompt capture
 
 Prompt capture is enabled by default. Disable it before starting Pi when current work must not be recorded:
@@ -68,12 +70,23 @@ short, bounded best-effort flush at agent and session boundaries.
 
 ## Use explicit tools and commands
 
-The `project-context` skill explains when to use native `pc_*` tools. The core tools are:
+The `powercontext-project-context` skill explains when to use native `pc_*` tools. The core tools are:
 
 - `pc_search`, `pc_memory_list`, `pc_memory_get`, `pc_memory_revise`, and `pc_memory_retire`;
+- `pc_memory_changes` for revision history and `pc_stats` for current-Scope diagnostics;
 - `pc_remember`, `pc_prepare_context`, and `pc_capture_source`;
 - `pc_handoff_activate`, `pc_handoff_prepare`, `pc_handoff_finalize`, `pc_handoff_commit`, and
-  `pc_handoff_continue`.
+  `pc_handoff_continue`;
+- `pc_experience_generate`, `pc_skill_generate`, `pc_experience_get`, `pc_skill_get`, `pc_review_list`, and
+  `pc_review_get` for candidate generation and read-only Artifact/candidate inspection
+  inspection.
+- `pc_topic_search` and `pc_topic_get` for focused Topic Memory queries and exact revisions with Source references.
+- `pc_work_contract`, `pc_handoff_current`, `pc_handoff_acknowledge`, and `pc_task_outcome` for structured work continuity.
+- `pc_external_scan`, `pc_external_list`, and `pc_external_resolve` for host-local External Skill discovery and inspection; `pc_external_import` imports or forks one exact resolved Skill after explicit confirmation.
+
+Candidate inspection never grants approval, rejection, revision, installation, publication, or execution authority.
+Topic Memory queries are read-only; returned content is untrusted historical evidence, not an instruction source.
+Structured work tools change durable state and require interactive confirmation; without a UI, Pi refuses the write. Pass returned Handoffs, references, and check results unchanged, never treat historical content as new authorization, and link `handoff_receipt_ref` only to an accepted committed Handoff receipt.
 
 Explicit durable writes require confirmation in an interactive Pi session. Without an interactive UI, Pi refuses the
 write rather than persisting it silently. `/pc doctor`, `/pc search <query>`, `/pc remember <text>`, `/pc flush`, and
@@ -96,8 +109,9 @@ export POWERCONTEXT_PI_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
 pi
 ```
 
-Do not put credentials in `POWERCONTEXT_PI_BASE_URL`. The package accepts plain HTTP only for loopback Servers; use
-HTTPS for any remote Server.
+Do not put credentials in `POWERCONTEXT_PI_BASE_URL`. Plain HTTP is allowed on loopback by default. For a non-loopback
+Server, use HTTPS or explicitly set `POWERCONTEXT_PI_ALLOW_INSECURE_HTTP=true`; HTTPS certificate validation stays enabled.
+See [Connect to a remote Server](../operate/connect-remote-server.md) for setup and saved consent.
 
 ## Verify the installation
 
@@ -113,7 +127,8 @@ changing PowerContext environment variables.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `POWERCONTEXT_PI_BASE_URL` | `http://127.0.0.1:8000` | Server base URL; non-loopback endpoints must use HTTPS |
+| `POWERCONTEXT_PI_BASE_URL` | `http://127.0.0.1:8000` | Server base URL |
+| `POWERCONTEXT_PI_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_PI_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
 | `POWERCONTEXT_PI_AUTHORIZATION` | unset | Complete `Bearer <token>` header for package HTTP requests |
 | `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | Capture eligible user prompts as Source evidence |
@@ -122,7 +137,11 @@ changing PowerContext environment variables.
 | `POWERCONTEXT_PI_MAX_BYTES` | `8000` | Requested and validated PreparedContext byte limit (`512`–`32768`) |
 | `POWERCONTEXT_PI_FLUSH_ON_CAPTURE` | `false` | Wait for captured Source processing during the prompt hook |
 | `POWERCONTEXT_PI_FLUSH_MAX_CALLS` | `4` | Maximum flush attempts for one pending Source |
+| `POWERCONTEXT_PI_DIAGNOSTICS` | `off` | Failure diagnostics sink: `off`, `stderr`, or an absolute file path (`~/` expanded) for JSON lines |
 
 Pi rejects base URLs containing credentials, a query, or a fragment. Recall, capture, and boundary flushing fail open;
 explicit `pc_*` durable writes require confirmation and are refused when Pi has no interactive UI. Restart Pi after
 changing these variables.
+
+Failure diagnostics are silent by default because Pi's TUI renders on stdout with cursor positioning, so
+anything written to stderr lands inside the input bar; set `POWERCONTEXT_PI_DIAGNOSTICS` to see them.

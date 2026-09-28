@@ -21,15 +21,15 @@ from __future__ import annotations
 
 import unicodedata
 from hashlib import sha256
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 import rfc8785
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.records import BaseAccessError, InvalidBaseAccessRequestError
+from powercontext.builtin.records import ArtifactReadFamily, BaseAccessError, InvalidBaseAccessRequestError
 
-TaggableArtifactFamily = Literal["memory", "experience", "skill", "handoff"]
+TaggableArtifactFamily = ArtifactReadFamily
 TagMatch = Literal["all", "any"]
 TagTargetType = Literal["artifact", "memory_entry"]
 
@@ -126,7 +126,7 @@ class TagPreconditionError(BaseAccessError):
 class TagQuery(TagFilter):
     """A bounded exact query within one authorized Scope."""
 
-    families: tuple[TaggableArtifactFamily, ...] = ("memory", "experience", "skill", "handoff")
+    families: tuple[TaggableArtifactFamily, ...] = get_args(TaggableArtifactFamily)
     target_types: tuple[TagTargetType, ...] = ("artifact", "memory_entry")
     include_inactive: bool = False
     limit: int = Field(default=50, ge=1, le=100)

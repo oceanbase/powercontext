@@ -10,10 +10,14 @@ description: Install the PowerContext Codex plugin and control its local behavio
 
 ## Install or refresh the plugin
 
-Run:
+First follow [Quick Start](../get-started/quickstart.md) to install this branch, generate configuration, and start the Server.
+On the Codex machine, load the client settings and install the matching plugin:
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref master
+set -a
+. ./.env
+set +a
+powercontext setup codex
 powercontext doctor codex
 ```
 
@@ -39,7 +43,7 @@ In a Codex session with the plugin installed and the PowerContext Server availab
 handoff this work
 ```
 
-The `project-context` Skill treats that imperative as explicit authorization to create one durable Handoff milestone.
+The `powercontext-project-context` Skill treats that imperative as explicit authorization to create one durable Handoff milestone.
 Codex inspects the current conversation and repository, assembles the objective, branch and worktree state, changed
 files, observed checks, blockers, omissions, and next action, then calls `handoff_current_work` followed by
 `commit_handoff` in the current Session Scope. After a successful commit, Codex reports the exact Handoff Revision; the
@@ -55,6 +59,24 @@ Repository and directory identities are lookup inputs only; they never generate 
 binding for recall and capture, while `PreToolUse` injects it into data-plane tools so Agent input cannot redirect a
 read or write. The host must create or bind a different Scope when the Session changes work boundaries.
 
+To keep later sessions in one Git root on an existing Scope, bind that checkout:
+
+```bash
+uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/scope_binding.py" \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
+```
+
+`$PLUGIN_ROOT` is the installed Codex plugin root, the same value the hooks use. In an ordinary terminal, replace it
+with that directory, such as `powercontext/powercontext/<version>` in the plugin cache or
+`integrations/codex/plugins/powercontext` in this repository. The command stores a binding with
+`integration=codex` and `kind=workspace`. Its external id is the SHA-256 of the Git root path. It does not create a
+Scope, and it does not derive a `scope_id` from the path, remote, or branch. Run the script again without
+`--bind-scope` to print the Scope resolved for that directory. `--clear-scope` removes only that workspace binding.
+
+`POWERCONTEXT_CODEX_SCOPE_ID` still takes precedence. A Session that already started keeps the Session binding written
+at startup. A new Session in that Git root uses the workspace binding when no explicit variable and no earlier Session
+binding apply. The MCP `set_scope_binding` tool changes only the current Session and does not replace this command.
+
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The Runtime labels
 Memory-derived items as untrusted history, preserves exact citations, and owns final selection and rendering. Explicit
@@ -66,6 +88,37 @@ Memory stores durable, reusable decisions, constraints, and state. A Handoff tem
 another task, session, or model. It must be explicitly prepared, inspected, and delivered, rather than substituted with
 a few Memory entries. Read [Memory and Handoff](../workflows/memory-and-handoff.md) for the boundary and
 [Hand off work in Codex](../workflows/handoff-with-codex.md) for the procedure.
+
+## Experience and Skill
+
+Alongside Memory, Source capture, context injection,
+Work Contracts, Handoffs, acknowledgements, Task Outcomes and candidate review, MCP exposes:
+
+| Capability | Tools |
+| --- | --- |
+| Experience | `get_experience`, `generate_experience`, `propose_experience` |
+| Managed Skill | `list_managed_skills`, `get_skill`, `generate_skill`, `propose_skill` |
+| External Skill | `scan_external_skills`, `list_external_skills`, `resolve_external_skill`, `import_external_skill` |
+
+For example, ask Codex to “generate an Experience candidate from these exact Source references” or “list the approved
+Skills in this Scope.” Generation requires the corresponding Server model configuration; caller-authored proposals
+do not. Generated and proposed content enters review as a pending candidate. A `no_op` result means no candidate was
+created. Only an explicit review decision produces an approved Artifact; reading or importing does not install or
+execute a Skill.
+
+External Skill discovery uses configured roots on the **Server host**. Configure `POWERCONTEXT_SERVER_EXTERNAL_SKILLS`
+for custom roots and host identity; see [Agent Skill targets](../workflows/configure-agent-skill-targets.md).
+A remote Server cannot scan the Codex workstation. Under enforced access control, scanning requires `server.admin`,
+listing and resolving require
+`server.observe`, and import requires contribution access to the bound Scope. Select an exact external Skill ID and
+fingerprint from the scan/list result before resolving or importing it. Changed content makes the old fingerprint
+unavailable. `mode: import` captures the exact package into review without generation; `mode: fork` requires a Skill
+generation model. See [Experience and Skill lifecycle](../workflows/experience-and-skill-lifecycle.md).
+
+Upgrade the Server and refresh the plugin together, then open a new Codex session to discover the tools. These MCP
+operations share the existing Session Scope binding and Server authorization checks. The shared MCP surface also
+provides these capabilities to Claude Code and WorkBuddy; `full` describes the capability profile, not automatic
+approval or guaranteed model availability.
 
 ## Choose standard context text
 
@@ -95,6 +148,9 @@ This adds inference latency to each prompt and is not the normal interactive set
 
 ## Connect to an authenticated local Server
 
+Local Server authentication is disabled by default. Enable it when needed; enabling Dashboard also requires
+authenticated access. A fresh local configuration wizard leaves Dashboard off unless you select it.
+
 Load one token from your local secret manager, then start the Server with authentication enabled:
 
 ```bash
@@ -103,20 +159,49 @@ export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```
 
-Start Codex from an environment that contains the matching complete Authorization header:
+Run setup once from an environment that contains the matching complete Authorization header:
 
 ```bash
 export POWERCONTEXT_CODEX_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
-codex
+powercontext setup codex
+powercontext doctor codex
 ```
 
-Restart Codex after changing the variable. The plugin's MCP configuration reads this optional header from the
-environment, and the prompt Hook reads the same value. Do not put the token in `.mcp.json`, the Server URL, or a
-static MCP header.
+On Windows PowerShell, set the value for the setup process like this:
 
-When the variable is absent or empty and Server authentication is disabled, the plugin behaves exactly as it does by
-default. When Server authentication is enabled but the header is missing or incorrect, the Hook fails open and emits
-an `authentication_failed` diagnostic; MCP tools remain unavailable without blocking the Codex session.
+```powershell
+$env:POWERCONTEXT_CODEX_AUTHORIZATION = "Bearer $env:POWERCONTEXT_LOCAL_TOKEN"
+powercontext setup codex
+powercontext doctor codex
+```
+
+Setup stores a URL-bound credential under `$CODEX_HOME/powercontext/credentials.json` (by default,
+`~/.codex/powercontext/credentials.json`) and configures a native MCP `http_headers_helper` to read that same record.
+New Codex sessions on Linux, macOS, and Windows do not need an authorization export. Use a Codex build supporting
+`http_headers_helper`; this path is verified with Codex CLI 0.153.4. The helper command contains only local paths,
+and saved credentials are rejected for a different endpoint, malformed storage, or unsafe POSIX permissions.
+The prompt Hook reads the same record. An explicit `POWERCONTEXT_CODEX_AUTHORIZATION` value overrides saved
+authorization without changing it. Do not put the token in `.mcp.json`, the Server URL, or a static MCP header.
+
+On Windows, setup also maintains the current user's authorization environment for Desktop compatibility. Existing
+processes do not receive environment changes. Restart Codex after setup to load the updated plugin configuration.
+Rerunning setup without a token preserves the saved credential; supplying a new token rotates it.
+
+To verify a new session without a process override on Linux or macOS:
+
+```bash
+unset POWERCONTEXT_CODEX_AUTHORIZATION
+powercontext doctor codex
+```
+
+Doctor must report native MCP tool discovery. If it reports a saved credential unavailable to the host, upgrade
+Codex and rerun setup with the matching PowerContext plugin, then restart Codex. For an older host, start Codex from
+a process containing the complete `POWERCONTEXT_CODEX_AUTHORIZATION` header.
+
+When no stored credential or process override is configured and Server authentication is disabled, the plugin behaves
+exactly as it does by default. When Server authentication is enabled but the effective credential is missing or
+incorrect, the Hook fails open and emits an `authentication_failed` diagnostic; MCP tools remain unavailable without
+blocking the Codex session.
 
 If the Server is unavailable, hook recall and capture fail open. Codex work continues, and explicit Memory tools
 report that the service is unavailable.
@@ -129,33 +214,75 @@ authorization value.
 
 ## Use a generated environment file
 
-If you generated `.env` with [Enable extraction and vector search](../get-started/configure-models.md), install the plugin
-using the command printed by Config Generator, then load the file in the terminal that starts Codex:
+After generating configuration with the wizard, load `.env` before running setup.
+It supplies the URL, Authorization, and selected Scope without exposing the Server's model API keys:
 
 ```bash
 set -a
 . ./.env
 set +a
-codex
+powercontext setup codex
 ```
 
-Leave `POWERCONTEXT_CODEX_SCOPE_ID` unset for normal sessions; set it only to select a known existing Scope explicitly.
+For a planned new Scope, run the creation request in `.env.next-steps.md`, put the returned real `scope_id` in
+`POWERCONTEXT_CODEX_SCOPE_ID` in the client file, reload it, and open a new session. The planned title is not an ID.
+Without an explicit binding, Agents may share the Server default; changing project directories does not create isolation.
 After an ordinary prompt, the plugin recalls from the bound Scope and captures the prompt as Source evidence.
 The Server Scheduler processes new Sources at the configured interval.
+
+## Check both Hook and MCP connections
+
+The Hook derives its Server URL from the installed plugin's `.mcp.json`, which MCP also reads.
+Both default to `http://127.0.0.1:8000`. For a custom port, SSH forwarding, or HTTPS, update that shared file.
+It takes precedence over `POWERCONTEXT_CODEX_SERVER_URL`; exporting that variable alone does not change the endpoint.
+`setup codex` updates the installed MCP URL and adds a credential helper with absolute paths for that installation.
+Keep the environment override in the base configuration:
+
+```json
+{
+  "mcpServers": {
+    "powercontext": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp/",
+      "required": false,
+      "env_http_headers": {
+        "Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"
+      }
+    }
+  }
+}
+```
+
+Use `powercontext setup codex --server-url <server-url>` to update the endpoint and helper together. If editing the
+installed file, preserve its generated `http_headers_helper`; the example above is only the base configuration.
+The token is never hard-coded in JSON. The
+Hook binds the Scope and injects it into MCP data operations; a planned title or directory name is not a Scope ID.
+
+Desktop apps do not inherit changes made inside an already running terminal. On Windows, setup persists the value in
+the current user's environment, but an already running Desktop instance must still be restarted. Run `powercontext
+doctor codex`, then check Hook capture and MCP separately. An MCP connected status does not prove Source capture.
+Complete the [Source, topic evolution, and cross-session recall check](../get-started/quickstart.md#4-verify-topic-memory-with-ordinary-conversation).
 
 ## Environment variables
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP for hooks |
 | `POWERCONTEXT_CODEX_SCOPE_ID` | unset | Explicitly select an existing Scope instead of resolving bindings and the Server default |
-| `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
+| `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` runtime override; setup saves it for subsequent Hook and native MCP connections |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
-| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request hook timeout |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Shared hook HTTP budget |
+| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Per-request hook timeout |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Shared hook HTTP budget |
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt |
+
+Hooks allow loopback HTTP by default; remote HTTP requires explicit consent, and HTTPS certificate validation stays
+enabled. Setup saves consent and updates the installed plugin's `.mcp.json`, which supplies the URL for both hooks
+and native MCP. Changing only a Hook URL variable does not change that native endpoint; rerun setup if an upgrade
+replaces `.mcp.json`. Codex's own MCP policy still applies. See
+[Connect to a remote Server](../operate/connect-remote-server.md).
 
 The outer Codex hook timeout is ten seconds. Recall, capture, and flush fail independently and never block Codex when
 the Server is unavailable or rejects authentication. Without an explicit Scope, the plugin resolves the Session
-binding, workspace binding, then Server default. Configuration variables must be present in the environment that
-starts Codex; restart Codex after changing them.
+binding, workspace binding, then Server default. Process-level settings must be present in the environment that starts
+Codex. Windows setup writes authorization to the user environment, but Desktop must be restarted to inherit it.

@@ -537,7 +537,7 @@ table；需要完整标签变更账本的 deployment 必须禁用该能力，或
 实现分为两个可评审的 vertical slice：
 
 1. 增加 target model、normalization、共享表和 repository、ETag-guarded read/replace 与 query、OpenAPI generated
-   contract，以及 SQLite 与 OceanBase/seekDB 的确定性行为测试。
+   contract，以及 SQLite 与 OceanBase/seekdb 的确定性行为测试。
 2. 增加 current Artifact 与 Memory-entry list filter、pre-top-k Memory search filtering，以及最小 Dashboard 标签
    editor 与精确筛选。
 

@@ -5,7 +5,7 @@
 `plugins/memory-powercontext` contains the PowerContext memory plugin for
 [OpenClaw](https://github.com/openclaw/openclaw). The plugin registers a `memory` capability backed by a running
 PowerContext Server: bounded recall before each prompt, capture of eligible user prompts as Source evidence, and
-explicit `powercontext_memory_*` tools for durable Memory operations.
+explicit `powercontext_memory_*` tools for durable Memory operations, Work Contracts, and Handoffs.
 
 The plugin talks HTTP only. It never starts or embeds a PowerContext Server, and an unavailable Server never blocks
 normal OpenClaw work.
@@ -71,6 +71,13 @@ The plugin exposes five tools: `powercontext_memory_search`, `powercontext_memor
 `powercontext_memory_store`, `powercontext_memory_revise`, and `powercontext_memory_retire`. Mutating tools
 (`store`, `revise`, `retire`) are marked side-effecting in the plugin manifest.
 
+It also registers the `/pc` command for WebUI and other OpenClaw command surfaces. `/pc` and `/pc help` show the
+available controls; `/pc status` checks Server readiness and capabilities. The agent tools add a high-level Work
+Contract and Handoff flow: create a contract, prepare the current work boundary, explicitly commit or continue a
+Handoff, acknowledge the receiver checks, and record the Task Outcome. Work Contract and Handoff content remains
+untrusted input or history. Preparing a current-work Handoff records its boundary evidence; committing the Handoff,
+acknowledging receipt, and recording the outcome are explicit durable workflow steps.
+
 ## Memory scope
 
 The plugin asks the Server to resolve one existing Scope before every operation. Resolution uses an explicit
@@ -114,9 +121,17 @@ chmod 600 ~/.openclaw/.env
 openclaw gateway restart
 ```
 
-Do not put credentials in the endpoint. The current configuration accepts both HTTP and HTTPS URLs; use plain HTTP
-only for a trusted loopback Server and use HTTPS for every remote Server. This is an operator security requirement,
-not a restriction currently enforced by the CLI or plugin.
+Do not put credentials in the endpoint. Remote HTTP is rejected by default. For an explicitly trusted plaintext
+connection, set `POWERCONTEXT_OPENCLAW_ALLOW_INSECURE_HTTP=true` or the plugin setting `allowInsecureHttp: true`.
+The common `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP` flag applies when the host flag is absent; a host flag of
+`false` overrides it. Flags accept only `true/false`, `1/0`, `yes/no`, or `on/off`.
+HTTPS certificate validation remains enabled, and the plugin rejects redirects.
+
+Setup-saved URLs and endpoint-specific consent are read from `~/.config/powercontext/clients.json`
+(override with `POWERCONTEXT_CLIENT_CONFIG_FILE`). `POWERCONTEXT_OPENCLAW_BASE_URL`, then
+`POWERCONTEXT_CLIENT_SERVER_URL`, take precedence over an explicit plugin endpoint and the saved URL.
+Changing the endpoint does not reuse saved or native HTTP consent. Native `allowInsecureHttp: true` must accompany
+the matching `endpoint`; an environment URL override needs its own matching or explicit environment consent.
 
 ## Verify the installation
 
@@ -143,3 +158,10 @@ Run the plugin unit tests and the CLI tests:
 pnpm --dir integrations/openclaw/plugins/memory-powercontext test
 uv run pytest tests/test_openclaw_cli.py
 ```
+
+## Optional workflow Skill
+
+The package includes `powercontext-project-context`, discovered through the plugin manifest's `skills` directory.
+Its English/Chinese description routes Memory and work-transfer requests to local reference files. Read details only
+when needed; ordinary coding requires no Skill detour. The Skill does not enable unavailable tools, Memory inventory,
+candidate Review, or writes outside the host's private-session and permission boundaries.

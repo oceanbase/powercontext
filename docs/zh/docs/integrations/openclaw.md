@@ -14,10 +14,10 @@ description: 为 OpenClaw 安装 PowerContext memory 插件，并控制召回、
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-powercontext setup openclaw --source oceanbase/powercontext --ref master
+powercontext setup openclaw
 ```
 
-未指定 `--server-url` 时，setup 会把插件 endpoint 配置为 Server 默认地址 `http://127.0.0.1:8000`。
+未显式指定地址时，setup 会读取环境变量和已保存的客户端配置；均未配置时使用 `http://127.0.0.1:8000`。
 
 也可以使用本地 checkout：
 
@@ -96,8 +96,9 @@ chmod 600 ~/.openclaw/.env
 openclaw gateway restart
 ```
 
-不要把凭据放进 endpoint。当前配置同时接受 HTTP 和 HTTPS URL；仅对可信的 loopback Server 使用明文 HTTP，所有远程
-Server 都应使用 HTTPS。这是运维安全要求，目前 CLI 和插件不会强制拒绝非 loopback HTTP URL。
+不要把凭据放进 endpoint。CLI 和插件默认拒绝非环回明文 HTTP；使用 HTTPS，或显式设置
+`POWERCONTEXT_OPENCLAW_ALLOW_INSECURE_HTTP=true`（也可使用插件的 `allowInsecureHttp` 配置）。
+HTTPS 证书校验仍然启用。安装与持久化同意见[连接远程 Server](../operate/connect-remote-server.md)。
 
 ## 验证安装
 

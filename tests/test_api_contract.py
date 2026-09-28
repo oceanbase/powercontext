@@ -40,6 +40,7 @@ from powercontext.http import (
     CreateMemoryArtifactRequest,
     CreateSourceRequest,
     CreateWorkContractRequest,
+    EntryChangeOperation,
     ExternalSkillResolution,
     FinalizeHandoffRequest,
     FlushMemoryResponse,
@@ -48,6 +49,7 @@ from powercontext.http import (
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GenerateSkillRequest,
+    GetMemoryCapacityRequest,
     GetMemoryEntryRequest,
     GetStatsRequest,
     GetTopicMemoryRequest,
@@ -61,6 +63,7 @@ from powercontext.http import (
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListMemoryEntriesRequest,
+    MemoryCapacity,
     OperationAccepted,
     PrepareContextRequest,
     PreparedContext,
@@ -94,6 +97,7 @@ from powercontext.http._generated.operations import (
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_ARTIFACT,
+    CREATE_DREAM_RUN,
     CREATE_REMOTE_SKILL_TARGET,
     CREATE_SOURCE,
     CREATE_WORK_CONTRACT,
@@ -109,6 +113,7 @@ from powercontext.http._generated.operations import (
     GET_ARTIFACT_CANDIDATE,
     GET_ARTIFACT_REVISION,
     GET_EXPERIENCE,
+    GET_MEMORY_CAPACITY,
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
@@ -272,6 +277,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
     properties = schemas["Capabilities"]["properties"]
 
     assert set(properties) == {
+        "artifact_dreaming",
         "source_types",
         "artifact_families",
         "memory_extraction",
@@ -479,7 +485,13 @@ def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_to
 
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]
-    assert set(schemas["PrepareContextRequest"]["properties"]) == {"scope_id", "query", "max_bytes", "assembly"}
+    assert set(schemas["PrepareContextRequest"]["properties"]) == {
+        "scope_id",
+        "query",
+        "max_bytes",
+        "assembly",
+        "include_code",
+    }
     assert set(schemas["PreparedContext"]["properties"]) == {"schema", "status", "content", "content_bytes"}
     assert not {"memory", "mode", "selection"} & set(schemas["PreparedContext"]["properties"])
 
@@ -516,7 +528,7 @@ def test_experience_skill_and_review_operations_are_typed_and_family_routed() ->
 
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]
-    assert set(schemas["ExperienceProposal"]["properties"]) == {"situation", "action", "outcome", "lesson"}
+    assert set(schemas["ExperienceProposal"]["properties"]) == {"situation", "action", "outcome", "lesson", "failure"}
     assert set(schemas["SkillProposal"]["properties"]) == {
         "name",
         "description",
@@ -806,7 +818,7 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
     assert source["properties"]["source_type"]["default"] == "content"
 
     artifact = schemas["CreateArtifactRequest"]
-    assert len(artifact["oneOf"]) == 6
+    assert len(artifact["oneOf"]) == 7
     assert artifact["discriminator"]["propertyName"] == "family"
     prompt_request = schemas["CreatePromptArtifactRequest"]
     assert prompt_request["required"] == ["family", "prompt_key", "content"]
@@ -869,6 +881,38 @@ def test_artifact_collection_accepts_pagination_and_exact_tag_filters() -> None:
     assert ListArtifactsRequest().model_dump() == {"limit": 50, "cursor": None, "tag": None, "tag_match": None}
 
 
+def test_standard_artifact_reads_share_topic_memory_family_and_display_metadata() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    paths = contract["paths"]
+    read_paths = (
+        "/v1/scopes/{scope_id}/artifacts/{family}",
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions",
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
+    )
+    for path in read_paths:
+        family = next(parameter for parameter in paths[path]["get"]["parameters"] if parameter["name"] == "family")
+        assert family["schema"] == {"$ref": "#/components/schemas/ArtifactReadFamily"}
+    assert "topic-memory" in contract["components"]["schemas"]["ArtifactReadFamily"]["enum"]
+    assert "topic-memory" in contract["components"]["schemas"]["BaseArtifactFamily"]["enum"]
+    item = http_models.ArtifactCollectionItem.model_validate({
+        "scope_id": "scope-a",
+        "family": "topic-memory",
+        "artifact_id": "topic-1",
+        "revision": 2,
+        "sources": [],
+        "artifacts": [],
+        "content_digest": f"sha256:{'0' * 64}",
+        "title": "A topic",
+        "summary": "A summary",
+        "published_at": "2026-09-10T00:00:00Z",
+        "source_count": 2,
+    })
+    assert item.family.value == "topic-memory"
+    assert item.title == "A topic"
+    assert item.source_count == 2
+
+
 def test_base_access_uses_a_dedicated_source_type_reference() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]
@@ -892,7 +936,10 @@ def test_base_access_uses_a_dedicated_source_type_reference() -> None:
         "ReplaceHandoffArtifactRequest",
     ):
         assert "sources" not in schemas[request_name]["properties"]
-    assert SourceTypeReference(source_type=SourceType.CONTENT, source_id="source").source_type is SourceType.CONTENT
+    for source_type in ("content", "note"):
+        for source_id in ("source", "用户偏好", "release notes"):
+            reference = SourceTypeReference(source_type=source_type, source_id=source_id)
+            assert reference.model_dump() == {"source_type": source_type, "source_id": source_id}
 
 
 def test_base_access_operations_describe_create_and_conditional_get() -> None:
@@ -942,3 +989,18 @@ def test_server_publishes_the_canonical_openapi_schema() -> None:
         create_server_app(settings=ServerSettings(handoff_report=HandoffReportConfig(enabled=True))).openapi()
         == contract
     )
+
+
+def test_memory_capacity_contract_and_compact_change_are_public():
+    assert GET_MEMORY_CAPACITY.path == "/v1/memory/capacity"
+    assert GET_MEMORY_CAPACITY.request_type is GetMemoryCapacityRequest
+    assert GET_MEMORY_CAPACITY.response_type is MemoryCapacity
+    assert GET_MEMORY_CAPACITY.access == LIST_MEMORY_ENTRIES.access
+    assert EntryChangeOperation.COMPACT.value == "compact"
+    with pytest.raises(ValidationError):
+        GetMemoryCapacityRequest.model_validate({"scope_id": "scope", "budget": {}})
+
+
+def test_dream_operation_keeps_accepted_as_default_with_terminal_success() -> None:
+    assert CREATE_DREAM_RUN.success_status == 202
+    assert CREATE_DREAM_RUN.success_response_types == {202: http_models.DreamRun, 200: http_models.DreamRun}

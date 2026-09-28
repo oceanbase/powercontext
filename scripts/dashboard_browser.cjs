@@ -30,8 +30,8 @@ async function checkReadingBounds(page, route) {
       if (!node.textContent.trim() || element.closest('script, style, svg, [aria-hidden="true"]')) continue;
       const style = getComputedStyle(element);
       if (style.visibility !== 'visible' || !element.getClientRects().length) continue;
-      // Tabler tables intentionally scroll within their own accessible region.
-      const scroll = element.closest('.table-responsive');
+      // Tables and Profile code blocks scroll inside their own reading regions.
+      const scroll = element.closest('.table-responsive, .profile-content pre');
       const card = element.closest('.card');
       const bounds = scroll ? { left: 0, right: scroll.scrollWidth } : card?.getBoundingClientRect();
       const range = document.createRange();
@@ -296,6 +296,82 @@ async function checkSourceRecovery(page) {
   await page.waitForFunction(() => !document.body.classList.contains('modal-open'));
 }
 
+async function checkProfileAndHandoff(page, base, scope, api, browser, token, output) {
+  const profileURL = `${base}/dashboard/profile?scope=${encodeURIComponent(scope)}&lang=en`;
+  await page.goto(profileURL);
+  const history = page.getByRole('link', { name: 'Version history', exact: true });
+  if (await history.count()) {
+    await history.click();
+    await page.waitForURL(url => url.searchParams.get('view') === 'history');
+    const following = page.getByRole('link', { name: 'Next page', exact: true });
+    if (await following.count()) {
+      const destination = await following.getAttribute('href');
+      await following.click();
+      await page.waitForURL(base + destination);
+    }
+    const revision = page.locator('.list-group a[href*="revision="]').first();
+    if (await revision.count()) {
+      const detailURL = new URL(await revision.getAttribute('href'), base);
+      const returnURL = detailURL.searchParams.get('return_to');
+      await revision.press('Enter');
+      await page.waitForURL(detailURL.href);
+      await page.reload();
+      assert(await page.getByRole('heading', { name: 'Historical profile', exact: true }).isVisible());
+      const back = page.getByRole('link', { name: 'Version history', exact: true });
+      assert.equal(await back.getAttribute('href'), returnURL);
+      await back.click();
+      await page.waitForURL(base + returnURL);
+    }
+  }
+  await page.goto(`${base}/dashboard/handoff?scope=${encodeURIComponent(scope)}&lang=en`);
+  const following = page.getByRole('link', { name: 'Next page', exact: true });
+  if (await following.count()) {
+    const destination = await following.getAttribute('href');
+    await following.click();
+    await page.waitForURL(base + destination);
+  }
+  const downloadLink = page.locator('a[href*="/handoff-download?"]').first();
+  if (!await downloadLink.count()) return;
+  const downloadURL = new URL(await downloadLink.getAttribute('href'), base);
+  const query = downloadURL.searchParams;
+  const expected = await api(`/v1/scopes/${encodeURIComponent(scope)}/artifacts/handoff/${encodeURIComponent(query.get('artifact'))}/revisions/${query.get('revision')}`);
+  assert.equal(await downloadLink.getAttribute('hx-boost'), 'false');
+  const [download] = await Promise.all([page.waitForEvent('download'), downloadLink.click()]);
+  assert.equal(download.suggestedFilename(), `handoff-r${query.get('revision')}.md`);
+  assert.equal(await download.failure(), null);
+  const bytes = fs.readFileSync(await download.path());
+  assert(bytes.toString('utf8').includes(expected.content_digest));
+  await download.saveAs(path.join(output, download.suggestedFilename()));
+  const detailURL = new URL(downloadURL);
+  detailURL.pathname = '/dashboard/handoff-detail';
+  await page.goto(detailURL.href);
+  await page.reload();
+  assert.equal(await page.locator('.back-link').getAttribute('href'), query.get('return_to'));
+  const [detailDownload] = await Promise.all([
+    page.waitForEvent('download'), page.getByRole('link', { name: 'Export Markdown', exact: true }).click(),
+  ]);
+  assert.deepEqual(fs.readFileSync(await detailDownload.path()), bytes);
+  if (token) {
+    const session = await browser.newContext();
+    const login = await session.newPage();
+    const response = await login.goto(downloadURL.href);
+    assert.equal(response.status(), 401);
+    const destination = await login.locator('input[name="next"]').inputValue();
+    assert.equal(new URL(destination, base).pathname, '/dashboard/handoff-detail');
+    await login.locator('#token').fill(token);
+    await login.locator('button[type="submit"]').click();
+    await login.waitForURL(base + destination);
+    assert.equal(await login.locator('.back-link').getAttribute('href'), query.get('return_to'));
+    const [resumed] = await Promise.all([
+      login.waitForEvent('download'), login.getByRole('link', { name: 'Export Markdown', exact: true }).click(),
+    ]);
+    assert.deepEqual(fs.readFileSync(await resumed.path()), bytes);
+    await session.close();
+  }
+  await page.locator('.back-link').click();
+  await page.waitForURL(base + query.get('return_to'));
+}
+
 async function main() {
   const base = process.env.POWERCONTEXT_BROWSER_URL || 'http://127.0.0.1:8765';
   const output = process.env.POWERCONTEXT_BROWSER_OUTPUT;
@@ -320,7 +396,7 @@ async function main() {
     await page.setViewportSize({ width, height: 1024 });
     let contentTop;
     for (const scope of scopes) {
-      for (const name of ['home', 'handoff', 'notes', 'methods', 'usage']) {
+      for (const name of ['home', 'handoff', 'notes', 'methods', 'profile', 'usage']) {
         const response = await page.goto(`${base}/dashboard/${name}?scope=${encodeURIComponent(scope.scope_id)}`);
         assert.equal(response.status(), 200);
         assert.equal(await page.locator('#scope').inputValue(), scope.scope_id);
@@ -380,7 +456,7 @@ async function main() {
     }
   }
   const readingScope = process.env.POWERCONTEXT_BROWSER_SCOPE || defaultScope;
-  let routes = ['home', 'handoff', 'notes', 'methods', 'methods?kind=skill', 'usage'];
+  let routes = ['home', 'handoff', 'notes', 'methods', 'methods?kind=skill', 'profile', 'profile?view=history', 'usage'];
   for (const family of ['handoff', 'experience', 'skill']) {
     let collection;
     if (family === 'skill') {
@@ -394,6 +470,7 @@ async function main() {
     }
   }
   routes = routes.map(route => `${route}${route.includes('?') ? '&' : '?'}scope=${encodeURIComponent(readingScope)}`);
+  await checkProfileAndHandoff(page, base, readingScope, api, browser, token, output);
   const otherScope = scopes.find(scope => scope.scope_id !== readingScope);
   if (otherScope) {
     for (const route of routes) {
@@ -488,7 +565,7 @@ async function main() {
         assert(await page.getByText(`${family}/${reference.get('artifact')}@${reference.get('revision')}`, { exact: true }).isVisible());
       }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${route}, ${width}px`);
-      await page.screenshot({ path: path.join(output, `${(route.startsWith('methods?kind=skill') ? 'skills' : route.split('?')[0].replaceAll('/', '-'))}-${width}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(output, `${(route.startsWith('methods?kind=skill') ? 'skills' : (route.startsWith('profile?view=history') ? 'profile-history' : route.split('?')[0].replaceAll('/', '-')))}-${width}.png`), fullPage: true });
     }
   }
   const localizedLayouts = new Map();
@@ -518,7 +595,7 @@ async function main() {
             assert(await logo.evaluate(image => image.complete && image.naturalWidth > 0 && Math.abs(image.width / image.height - image.naturalWidth / image.naturalHeight) < 0.1));
           }
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${route}, ${language}, ${theme}, ${width}`);
-          await page.screenshot({ path: path.join(output, `${(route.startsWith('methods?kind=skill') ? 'skills' : route.split('?')[0].replaceAll('/', '-'))}-${language}-${theme}-${width}.png`), fullPage: true });
+          await page.screenshot({ path: path.join(output, `${(route.startsWith('methods?kind=skill') ? 'skills' : (route.startsWith('profile?view=history') ? 'profile-history' : route.split('?')[0].replaceAll('/', '-')))}-${language}-${theme}-${width}.png`), fullPage: true });
         }
       }
     }

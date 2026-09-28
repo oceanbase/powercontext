@@ -54,10 +54,26 @@ describe('Pi native tool invocation', () => {
     await expect(invokeOperation(client, 'remember_memory', {
       kind: 'agent-note',
       text: 'api_key=secret',
-    }, 'scp_resolved')).resolves.toMatchObject({
-      ok: false,
-      code: 'secret_rejected',
-    })
+    }, 'scp_resolved')).resolves.toMatchObject({ ok: false, code: 'secret_rejected' })
+
+    const structuredWrites = [
+      ['create_work_contract', { contract: { objective: 'api_key=secret' } }],
+      ['handoff_current_work', { handoff: { objective: 'api_key=secret' } }],
+      ['acknowledge_handoff', { receiver: 'api_key=secret' }],
+      ['record_task_outcome', { outcome: { summary: 'api_key=secret' } }],
+      ['generate_experience', { reason: 'api_key=secret' }],
+      ['generate_skill', { reason: 'api_key=secret' }],
+      ['approve_artifact_candidate', { candidate_id: 'api_key=secret', expected_version: 1 }],
+      ['reject_artifact_candidate', { reason: 'api_key=secret', candidate_id: 'candidate-1', expected_version: 1 }],
+      ['revise_artifact_candidate', { proposal: { lesson: 'api_key=secret' } }],
+      ['import_external_skill', { external_skill_id: 'skill-1', fingerprint: 'api_key=secret', mode: 'import' }],
+    ] as const
+    for (const [operationId, payload] of structuredWrites) {
+      await expect(invokeOperation(client, operationId, payload, 'scp_resolved')).resolves.toMatchObject({
+        ok: false,
+        code: 'secret_rejected',
+      })
+    }
   })
 
   it('limits observation requests to the derived Scope', async () => {

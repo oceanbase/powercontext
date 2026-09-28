@@ -35,10 +35,10 @@ Without an override, the default is:
 - macOS: `~/Library/Application Support/powercontext`;
 - Windows: `%LOCALAPPDATA%\\powercontext`.
 
-The default SQLite database is `powercontext.db` in this directory. The four built-in background processors persist
-intents and scheduling checkpoints there, alongside distributed Work Ledger leases and operation state. The former
-`scheduler.db` sidecar is no longer part of execution. Existing installations require
-[offline migration](artifact-processing-migration.md).
+The default SQLite database is `powercontext.db` in this directory. Background processors persist intents and
+scheduling checkpoints in the configured database. In distributed mode, the shared OceanBase database also stores
+Work Ledger leases and operation state. The former `scheduler.db` sidecar is no longer part of execution. Existing
+installations require [offline migration](artifact-processing-migration.md).
 
 ## Server
 
@@ -47,7 +47,7 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | Listener address |
-| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | Listener port |
+| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | Listener port; the configuration wizard suggests `17429` for new setups |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP path |
@@ -69,8 +69,8 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | Enable span recording and OTLP export |
 | `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET` | local persisted key | Shared secret of at least 32 bytes for signing REST pagination cursors |
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | Storage backend: `sqlite`, `seekdb`, or `oceanbase` |
-| `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekDB |
-| `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekDB path; used only when `DATABASE_KIND=seekdb` |
+| `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekdb |
+| `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekdb path; used only when `DATABASE_KIND=seekdb` |
 | `POWERCONTEXT_SERVER_DEPLOYMENT_MODE` | `single_node` | `single_node` or `distributed` process topology |
 | `POWERCONTEXT_SERVER_DEPLOYMENT_ROLE` | `all` | `all`, `api`, `scheduler`, or `worker`; distributed mode forbids `all` |
 | `POWERCONTEXT_SERVER_DEPLOYMENT_ID` | `local` | Non-secret operator instance label; boot ownership remains unique |
@@ -104,6 +104,15 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory selection policy: `coding` or `conversation` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | Apply listwise reranking after coarse Memory retrieval |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | Coarse candidate pool supplied to the reranker |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ENABLED` | `false` | Enable the optional recall-sufficiency gate; disabling it keeps recall identical to a deployment without the feature |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MAX_ROUNDS` | `2` | Most expansion rounds after the first recall; `0` to `2`, where `0` assesses without expanding |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_CANDIDATES` | `2` | Fewest candidates a recall needs to count as sufficient |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_TOP_SCORE` | `0.35` | Lowest top-candidate score still accepted as sufficient |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_TOP_GAP` | `0.02` | Smallest family-local top-minus-mean score gap required; the gate uses the maximum across scoring families |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_LEXICAL_OVERLAP` | `0.5` | Lowest lexical coverage still accepted as sufficient |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND1_MIN_SEMANTIC_SIMILARITY` | `0.15` | Semantic-similarity admission floor for the first expansion round; must not exceed the round-zero `0.3` |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND2_MIN_SEMANTIC_SIMILARITY` | `0.10` | Semantic-similarity admission floor for the second expansion round; must not exceed the first round's value |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | Whether expansion may still run when `MEMORY_RERANK_ENABLED` is set; by default reranking ends the expansion |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | unset | Memory automatic admission interval; `SCHEDULE_SECONDS` remains a compatibility alias |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Topic Memory automatic admission interval; unset disables new automatic admission |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources per Topic Memory Window, capped at 100; one Scope invocation can finish several Windows |
@@ -117,6 +126,12 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES` | inferred from models | JSON Family list; API-only instances can declare capabilities without model credentials |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS` | `1` | Independent Memory Worker quota |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_MAX_WORKERS` | `1` | Independent Experience Worker quota |
+| `POWERCONTEXT_SERVER_RUNTIME_SKILL_MAX_WORKERS` | `1` | Skill Worker quota for Dream derivation |
+| `POWERCONTEXT_SERVER_RUNTIME_SKILL_WORKER_TIMEOUT_SECONDS` | `600` | Total Skill Scope invocation timeout |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_ENABLED` | `true` | Accept explicit Dream requests for declared Experience/Skill Families; no automatic artifact selection |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_MAX_PENDING_PER_SCOPE` | `32` | Combined queued and running DreamRun limit per Scope |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_BUDGET` | `{}` | JSON budget; may tighten evidence limits, at most 2 model calls and 120 seconds from first execution |
+| `POWERCONTEXT_SERVER_RUNTIME_GENERATION_CONCURRENCY` | `4` | Foreground Runtime generation concurrency; background Workers use per-Family quotas |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_WORKERS` | `4` | Independent Profile Worker quota; alias `PROFILE_MAX_CONCURRENCY` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Total Memory Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Total Experience Scope timeout |
@@ -133,7 +148,8 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | JSON object of static embedding client headers; values are secrets |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL_SETTINGS` | `{}` | JSON object of Pydantic AI embedding model settings |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID` | unset | Stable identity for the model, dimension, and normalization used by the vector index |
-| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION` | unset | Positive output dimension requested from and validated against the embedding model |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION` | unset | Positive output dimension stored and validated. Also sent as the `dimensions` request field by default |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_SEND_DIMENSIONS` | `true` | Whether embedding requests include `dimensions`. When false, returned vectors are still checked against the configured dimension. Set false for fixed-dimension models such as SiliconFlow `BAAI/bge-m3` |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` | `unit` | Vector normalization: `unit` or `none` |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS` | `30` | Timeout in seconds for one embedding request |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | Maximum texts sent in one embedding request |
@@ -146,6 +162,14 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | unset | Experience automatic admission interval; unset preserves accepted work and stops new automatic admission |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | automatic local project targets | JSON override containing the host identity and explicit Agent Skill targets |
 
+The recall-sufficiency gate is disabled by default. When enabled, the Runtime assesses the first recall's candidate
+count, family coverage, top-candidate score, and lexical coverage during `prepare_context`; when it judges the result
+insufficient, it may expand up to two more rounds and relaxes the semantic-similarity admission floor each round. The
+assessment calls no model, and expansion reuses the same request's Scope, families, limits, and context budget along
+with the query vectors already produced. The round-one and round-two similarity floors must stay in decreasing order, or
+startup fails. Enabling the gate can add search rounds and latency, so evaluate retrieval results and latency on your own
+data.
+
 Topic Workers enforce a durable allowance per unadvanced Scope Cursor: 3 attempts, 512 reserved provider requests,
 and 64,000,000 estimated token-capacity units across all retries. A Window admits at most 4,194,304 canonical evidence
 characters including metadata; nested input is also bounded. Exhaustion preserves Sources, Cursor, Pending, and the
@@ -155,7 +179,9 @@ same-Scope tail, and stops further provider calls. Flush and restart do not rese
 Topic generation accepts `max_tokens`, `temperature`, `top_p`, `top_k`, `seed`, `presence_penalty`, `frequency_penalty`,
 `timeout`, `openai_reasoning_effort`, `openai_text_verbosity`, `service_tier`, `openai_service_tier`,
 `anthropic_service_tier`, and `anthropic_effort` as bounded scalar settings. Topic Embedding accepts only `dimensions`
-and `truncate`. Background/hidden-history/native-tool settings and `extra_body` disable Topic processing while ordinary
+and `truncate`. For generation with `openai-chat:<model>`, the sole `extra_body` exception is
+`{"chat_template_kwargs":{"enable_thinking":false}}`, with a strict boolean and no extra keys at either level.
+Background/hidden-history/native-tool settings and all other `extra_body` forms disable Topic processing while ordinary
 inference continues; explicitly configured automatic Topic scheduling fails startup instead. Supported
 provider prefixes are `openai`, `openai-chat`, `openai-responses`, `anthropic`, `azure`, `azure-responses`, `deepseek`,
 and `openrouter`, plus the local `test` model; Embedding must also be supported by its SDK adapter. Topic SDK transport
@@ -190,7 +216,7 @@ built-in static token always represents one service Principal, so it cannot dist
 compatibility token materializes explicit Server and per-scope roles for that Principal. Inject the deployment
 Authentication Provider and corresponding AccessControlService when different users or groups need different access.
 
-Background Memory, Topic Memory, Experience, and Profile processing use the service Principal selected by
+Source-driven background Memory, Topic Memory, Experience, and Profile processing use the service Principal selected by
 `ACCESS_BACKGROUND_PRINCIPAL_ID`, falling back to the fixed static Principal. That Principal must have
 `scope.contribute` for each processed scope and write permission on existing Artifacts it changes. New entries,
 Artifacts, and Candidates retain its ownership or owner attestation in the same transaction as processing completion.
@@ -198,6 +224,13 @@ An enforced deployment with background capabilities fails startup if its identit
 be reconstructed in a child process, even when automatic schedules are disabled: accepted work still needs recovery.
 The built-in provider supports this reconstruction. Injected providers and model objects remain usable by synchronous
 SDK/Server operations with background capabilities disabled (`ARTIFACT_PROCESSING_FAMILIES=[]`).
+
+Dream reconstructs the original requester's current permissions inside Experience/Skill Workers, and Candidate ownership
+remains with that requester. Background service Principal permissions do not replace that identity. An OceanBase split
+deployment can declare `ARTIFACT_PROCESSING_FAMILIES=["experience","skill"]` on a model-free API process and declare the same
+capabilities with model configuration on the background process; automatic schedules may reference only declared Families.
+SQLite uses `all`. Dream pins its model identity on first execution, and disabling automatic schedules does not prevent
+accepted explicit Dream requests from completing.
 
 SDK workers without a Server identity do not require Server authorization dependencies. Built-in background workers
 use the built-in Source definitions. A custom Source registry requires custom processing bindings for every enabled
@@ -215,7 +248,7 @@ Provider batch/list/relationship capabilities and Artifact Family profiles. Mana
 not introduce separate Access actions: the recipient first needs `artifact.read` on the logical Skill identity, then
 chooses whether and how to install an exact Revision.
 
-The built-in Access schema uses the configured SQLite, seekDB, or OceanBase backend, but remains Server-owned rather
+The built-in Access schema uses the configured SQLite, seekdb, or OceanBase backend, but remains Server-owned rather
 than becoming a Runtime domain. A custom deployment can inject an `AccessControlService` into `create_server_app`.
 `CasbinAuthorizationProvider` is the included writable external adapter: it evaluates the fixed action vocabulary in
 embedded Casbin while using the canonical Binding Store as its persistent adapter, so it supports point/batch checks,
@@ -283,7 +316,7 @@ candidates use the database Lease to elect one active Leader. This split is dist
 
 In single-node mode, Memory, Topic Memory, Experience, and Profile use the Supervisor. In distributed mode, Memory,
 Experience, and Profile use the Work Ledger instead; Topic Memory processing is not supported in distributed v1 and a
-configured Topic Memory schedule is rejected at startup. SQLite and embedded seekDB support only the single-process
+configured Topic Memory schedule is rejected at startup. SQLite and embedded seekdb support only the single-process
 `all` role. Automatic Topic Memory waves remain disabled until a positive interval is set; explicit flush work remains
 recoverable regardless of that interval. Topic workers need file-backed SQLite: configuring a generation model with an
 in-memory SQLite database is rejected before processing is advertised. Use a persistent

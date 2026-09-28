@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { InvalidResponseError, ServerResponseError, TransportError } from './errors.ts'
 
 export interface DiagnosticEvent {
@@ -71,6 +73,44 @@ export function failureEvent(event: string, error: unknown): DiagnosticEvent | u
   }
   if (error instanceof InvalidResponseError) return { event, outcome: 'invalid_response' }
   return { event, outcome: 'invalid_response' }
+}
+
+/**
+ * Pi's ExtensionContext has no logger, and its TUI renders on stdout with cursor
+ * positioning, so anything written to stderr lands inside the input bar. Keep
+ * diagnostics silent unless the user routes them to stderr or a JSON-lines file.
+ */
+export function diagnosticWriter(
+  sink: string,
+  append: (path: string, line: string) => void = (path, line) => appendFileSync(path, line),
+  warn: (line: string) => void = (line) => console.warn(line),
+  ensureDirectory: (path: string) => void = (path) => mkdirSync(dirname(path), { recursive: true }),
+): (line: string) => void {
+  if (sink === 'off') return () => {}
+  // Diagnostics are best effort and must never break the extension, whichever sink is used.
+  if (sink === 'stderr') {
+    return (line) => {
+      try {
+        warn(line)
+      } catch {
+        // ignore
+      }
+    }
+  }
+  // `~/.powercontext/pi-diagnostics.jsonl` is the natural choice and that directory
+  // rarely exists yet; create it once so the first line is not silently lost.
+  try {
+    ensureDirectory(sink)
+  } catch {
+    // ignore: the append below fails the same silent way
+  }
+  return (line) => {
+    try {
+      append(sink, `${line}\n`)
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function createDiagnosticEmitter(

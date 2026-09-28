@@ -1609,7 +1609,7 @@ def run_e3(  # noqa: C901
 
 
 def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]:  # noqa: C901
-    """Run the full product chain on one real embedded seekDB all-role runtime."""
+    """Run the full product chain on one real embedded seekdb all-role runtime."""
 
     directory.mkdir(parents=True, exist_ok=True)
     runtime_directory = Path(tempfile.mkdtemp(prefix=".runtime-", dir=directory))
@@ -1668,7 +1668,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
                 scope_id=scope_id,
                 query=E4_CANARY,
                 source_id="r8-seekdb-source",
-                source_content=f"Synthetic seekDB release decision: use {E4_CANARY} for the R8 E4 chain.",
+                source_content=f"Synthetic seekdb release decision: use {E4_CANARY} for the R8 E4 chain.",
                 expected_detail_marker=fake.detail_marker,
                 timeline=timeline,
                 generation=fake,
@@ -1676,7 +1676,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
             )
         )
         if chain.search_mode != "hybrid":
-            raise ProductChainError(f"E4 seekDB vector path used {chain.search_mode}, not hybrid")
+            raise ProductChainError(f"E4 seekdb vector path used {chain.search_mode}, not hybrid")
         server.stop()
         hybrid_closed = server.port_is_closed()
         server = None
@@ -1711,7 +1711,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
         )
         fts_ref = ArtifactIdentity.from_mapping(cast(Mapping[str, object], fts_search["artifact"]))
         if fts_search["mode"] != "fts" or fts_ref != chain.exact_ref:
-            raise ProductChainError("E4 seekDB FTS restart did not preserve the exact ref")
+            raise ProductChainError("E4 seekdb FTS restart did not preserve the exact ref")
         fts_server.stop()
         fts_closed = fts_server.port_is_closed()
         fts_server = None
@@ -1721,7 +1721,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
             "schema": "powercontext.topic-memory-r8.e4.v1",
             "status": "PASS",
             "environment": {
-                "database": "real embedded seekDB in an isolated temporary path",
+                "database": "real embedded seekdb in an isolated temporary path",
                 "runtime_role": "all",
                 "generation_and_embedding": "deterministic loopback provider",
             },
@@ -1762,7 +1762,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
     }
     cleanup = cast(dict[str, object], result["cleanup"])
     if not all(value is True for value in cleanup.values()):
-        raise ProductChainError("E4 cleanup left a listener or temporary seekDB behind")
+        raise ProductChainError("E4 cleanup left a listener or temporary seekdb behind")
     _write_json(directory / "e4-report.json", result)
     return result
 

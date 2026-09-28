@@ -16,10 +16,13 @@
 
 import asyncio
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import Request
 
-from powercontext.server.dashboard.api import DashboardAPI, ReadError
+from powercontext.server.dashboard.api import DashboardAPI, ReadError, segment
+from powercontext.server.dashboard.markdown import profile_html
+from powercontext.server.dashboard.navigation import positive_revision
 from powercontext.server.dashboard.pagination import PAGE_SIZE, cursor_links, list_links, list_page
 from powercontext.server.dashboard.presenters import memory_view, usage_view
 
@@ -159,5 +162,104 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         await load_collection(api, request, ctx, ctx["method_kind"])
     elif page == "usage":
         await load_stats(api, ctx)
+    else:
+        await load_additional_page(api, request, ctx)
+
+
+async def load_additional_page(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:
+    page = ctx["page"]
+    if page == "topics":
+        await load_topics(api, request, ctx)
+    elif page == "profile":
+        await load_profile(api, request, ctx)
+    elif page == "prompts":
+        await load_prompts(api, ctx)
     elif page in RECORDS:
         await load_record(api, request, ctx)
+
+
+async def load_topics(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:
+    """Load Topic Memory browse/search results and an exact selected revision."""
+    query = ctx["artifact_query"]
+    if query:
+        try:
+            result = await api.topic_memory_search(ctx["scope"], query)
+            for hit in result["hits"]:
+                try:
+                    record = await api.topic_memory_get(ctx["scope"], hit["artifact"])
+                    ctx["data"]["topic_memory"].append({**hit, **record, "is_current": record["is_current"]})
+                except ReadError as error:
+                    ctx["errors"].setdefault("topic_memory", error)
+        except ReadError as error:
+            ctx["errors"]["topic_memory"] = error
+    else:
+        try:
+            page = await api.topic_memory_browse(ctx["scope"], cursor=ctx["topic_cursor"])
+            ctx["data"]["topic_memory"] = page["items"]
+            ctx["topic_memory_pager"] = cursor_links(request, ctx, "topic", page["next_cursor"])
+        except ReadError as error:
+            ctx["errors"]["topic_memory"] = error
+    if ctx["topic_artifact"] and ctx["topic_revision"]:
+        try:
+            ctx["data"]["topic_memory_selected"] = await api.topic_memory_get(
+                ctx["scope"],
+                {
+                    "family": "topic-memory",
+                    "artifact_id": ctx["topic_artifact"],
+                    "revision": int(ctx["topic_revision"]),
+                },
+            )
+        except ValueError:
+            ctx["errors"]["topic_memory_selected"] = ReadError(422, "invalid_request")
+        except ReadError as error:
+            ctx["errors"]["topic_memory_selected"] = error
+
+
+async def load_prompts(api: DashboardAPI, ctx: dict[str, Any]) -> None:
+    """Load the scoped Prompt configurations exposed by the Prompt Dashboard."""
+    keys = (
+        "memory.extract",
+        "memory.rerank",
+        "experience.incubate",
+        "experience.generate",
+        "skill.generate",
+        "handoff.generate",
+    )
+    for key in keys:
+        try:
+            value = await api.prompt_configuration(ctx["scope"], key)
+            ctx["data"]["prompts"].append(value)
+        except ReadError as error:
+            ctx["errors"].setdefault("prompts", error)
+
+
+async def load_profile(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:
+    query = request.query_params
+    revision = query.get("revision")
+    view = query.get("view")
+    if view is not None and (view != "history" or revision is not None):
+        raise ReadError(422, "invalid_request")
+    scope = ctx["scope"]
+    base = f"/v1/scopes/{segment(scope)}/artifacts/profile/profile"
+    ctx["profile_history_view"] = view == "history"
+    selected_revision = revision
+    if revision is None:
+        # An absent artifact has no owner; the scope-authorized collection is the
+        # only reliable empty-state discovery under enforced access control.
+        heads = await api.read(f"/v1/scopes/{segment(scope)}/artifacts/profile?limit=1")
+        if not heads["items"]:
+            return
+        selected_revision = str(heads["items"][0]["revision"])
+    if view == "history":
+        params = {"limit": str(PAGE_SIZE)}
+        if "profile_cursor" in query:
+            params["cursor"] = query["profile_cursor"]
+        result = await api.read(base + "/revisions?" + urlencode(params))
+        ctx["profile_revisions"] = result["items"]
+        ctx["profile_pager"] = cursor_links(request, ctx, "profile", result["next_cursor"])
+        return
+    record = await api.record(scope, "profile", "profile", positive_revision(selected_revision))
+    ctx["data"]["profile"] = record
+    ctx["profile_html"] = profile_html(record["content"])
+    ctx["source_record"] = record
+    ctx["related_sources"] = [source for source in record["sources"] if source["source_type"] == "content"]

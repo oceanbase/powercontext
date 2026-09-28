@@ -13,15 +13,14 @@ description: Install the PowerContext DeepSeek Harness plugin and control its lo
 Install DeepSeek Harness and make sure its Web profile is available. The real-host acceptance suite pins DSH
 0.1.2-rc.1. Choose one PowerContext installation path and keep the Server and plugin together.
 
-For released PowerContext 0.2.0:
+For this guided-setup build:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==0.2.0"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v0.2.0
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup dsh
 ```
 
-Release 0.2.0 includes the direct-operation Scope error boundary. The layered Doctor and automatic snapshot
-presentation described below require the current development checkout; do not expect them in that release.
+Keep the Server package and the plugin on this same source branch when following this website's walkthrough.
 
 For development, install both components from one checkout and record its commit:
 
@@ -104,6 +103,55 @@ Standalone `powercontext doctor dsh` checks Web-profile registration only and re
 configuration and Server checks were not observed. Exit success means registration checks passed.
 `powercontext doctor` uses its own `--server-url` / `POWERCONTEXT_CLIENT_SERVER_URL`; use it for the existing
 service/health diagnostics after aligning that URL, without assuming it observes DSH overrides.
+
+## Inspect the last automatic attempt
+
+Run `/pc` in the affected conversation. In addition to Scope and Server origin, the `automatic` object shows
+the latest pre-step attempt for that session and workspace. Its stages are recorded independently of debug logs
+and diagnostic rate limiting. This view describes observed work; `/pc doctor` checks current service/configuration health.
+
+| Stage | Meaning |
+| --- | --- |
+| `scope` | `resolved`, or the exact resolution failure/skip reason. |
+| `prepare` | `ready` with the validated byte count, `empty` for a normal empty result, or a failure/skip. |
+| `capture` | `accepted` means the Server accepted the Source request. It does not prove Memory was produced. |
+| `flush` | `completed` / `cursor_reached` means processing reached that Source position. `incomplete` / `flush_budget_exhausted` means the bounded calls did not observe it. Neither proves a Memory entry was created. |
+| `injection` | `appended` means the plugin added a snapshot to the returned pre-step messages. It does not prove the model consumed or followed it. A rejected downstream step or failed message wrapper is reported separately. |
+
+Every stage starts as `not_yet_observed`; `running` identifies an in-progress stage. `skipped` includes a specific
+reason such as `capture_disabled`, `no_user_text`, `sensitive_content`, `source_too_long`, `scope_unresolved`,
+`cancelled`, or `deadline_exceeded`. `unavailable` includes the operation, safe code/message, and HTTP status,
+protocol issue or validated request ID when observed. Transport failures distinguish known timeout, cancellation,
+connection-refusal, DNS and TLS causes; an unidentified transport failure does not guess a cause.
+
+For example, `prepare: empty` and `capture: accepted` is a valid combination. A capture or flush failure does not
+erase a successful prepare. A timed-out or otherwise unconfirmed write carries `confirmation: unconfirmed`:
+the request may have taken effect. This includes incomplete successful responses and HTTP failures that do not
+establish whether a write took effect. Do not interpret it as proof that nothing was written or blindly retry it.
+
+An observed HTTP 401/403 instead carries `confirmation: rejected`: that request was refused for authentication
+or authorization. It does not undo an earlier capture or earlier calls in a bounded flush sequence. Capture
+rejection skips flush with `capture_rejected`; unknown capture outcomes use `capture_not_confirmed`. A failure
+known to occur before sending the request does not carry an unconfirmed-write marker.
+
+If headers arrive but the body cannot be read, status retains `http_status` and a validated `request_id`, with
+`failure_phase: response_body` and `response_body_error` (`request_timeout`, `cancelled`, `connection_failed`, or
+`response_too_large`). For example, a stalled 401 body still reports `authentication_failed` and `rejected`,
+alongside the body timeout; fix credentials first and use the request ID to locate the request. A stalled 202
+body remains unconfirmed and does not start flush. An unread 404 body cannot establish a missing route.
+
+`attempt`, `turn`, `started_at`, per-stage `observed_at`, and `age_ms` identify the observation. `freshness: current`
+means the attempt is less than five minutes old and its observed Scope still matches the resolved Scope.
+`stale` identifies `age_limit`, `scope_unverified`, `scope_not_observed`, or `scope_changed`. This is the age and
+applicability of local observations, not a guarantee of Server Memory freshness. A failed current Scope check
+leaves the old observation visible with a stale marker; it never presents that success as verified current work.
+
+The plugin retains only the latest attempt for up to 64 session/workspace pairs in memory. New attempts replace
+older observations, including prior successes; late completion of an older attempt cannot overwrite the newer one.
+Old sessions are evicted when the limit is reached. Restart or eviction returns `not_yet_observed`. No prompt,
+prepared content, credentials, or raw exception text is stored in this status. Status reads may resolve the Scope
+read-only, but never trigger prepare, capture, flush, or binding changes. Doctor probes and manual operations do not
+overwrite the automatic record.
 
 ## Verify capture, processing and fresh-session recall
 
@@ -252,9 +300,22 @@ powercontext doctor dsh
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `POWERCONTEXT_DSH_BASE_URL` | `http://127.0.0.1:8000` | Server base URL used by the plugin |
+| `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_DSH_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
 | `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for plugin HTTP requests |
 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 
 `timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Server unavailability fails open for recall and capture; restart `dsh web` after changing these variables.
+
+`get_readiness`, including `/pc doctor`, uses `max(requestTimeoutMs, 40000)` milliseconds so cold readiness
+can finish the default 30-second inference probe and subsequent access checks (up to 5 seconds), with
+transport headroom. Doctor reports this as `configuration.readiness_request_timeout_ms`, alongside the
+ordinary `request_timeout_ms` (1000 ms by default). For larger custom Server probe budgets, increase
+`requestTimeoutMs` accordingly. Other requests retain their configured deadline; caller cancellation
+still stops readiness immediately.
+
+Plain HTTP is allowed on loopback by default. For remote HTTP, explicitly set
+`POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`; HTTPS certificate validation stays enabled. The host URL aliases are
+checked in the order `BASE_URL`, `SERVER_URL`, then `ENDPOINT`, before `POWERCONTEXT_CLIENT_SERVER_URL`.
+See [Connect to a remote Server](../operate/connect-remote-server.md) for setup and saved consent.

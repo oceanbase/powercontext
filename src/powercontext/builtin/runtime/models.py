@@ -108,6 +108,7 @@ class RuntimeCapabilities(BaseModel):
     memory_extraction: bool
     experience_generation: bool = False
     managed_skill_generation: bool = False
+    artifact_dreaming: bool = False
     external_skill_registry: bool = False
     memory_search_modes: tuple[MemorySearchMode, ...]
     handoff_generation: bool = False
@@ -226,6 +227,7 @@ class PrepareContextRequest(_PreparedContextModel):
     query: Annotated[str, Field(min_length=1, max_length=8192)]
     max_bytes: Annotated[int, Field(ge=512, le=32768)] = 8000
     assembly: ContextAssembly | None = None
+    include_code: bool = Field(default=False, strict=True)
 
     @model_validator(mode="before")
     @classmethod
@@ -319,6 +321,7 @@ class ProposeExperienceRequest(BaseModel):
     proposal: ExperienceContent
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+    memory_citations: tuple[MemoryCitation, ...] = ()
     target: ArtifactRef | None = None
     reason: str | None = None
 
@@ -426,6 +429,7 @@ class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
     proposal: ExperienceContent | SkillContent | ProfileWriteContent
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+    memory_citations: tuple[MemoryCitation, ...] | None = None
     target: ArtifactRef | None = None
     reason: str | None = None
 

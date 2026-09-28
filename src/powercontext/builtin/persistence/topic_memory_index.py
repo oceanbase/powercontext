@@ -165,6 +165,26 @@ class CompositeTopicMemoryIndex:
                 topic_vector=channels.topic_vector + result.topic_vector,
                 detail_fts=channels.detail_fts + result.detail_fts,
                 detail_vector=channels.detail_vector + result.detail_vector,
+                topic_fts_retrieved=_combine_retrieved(channels.topic_fts_retrieved, result.topic_fts_retrieved),
+                topic_vector_retrieved=_combine_retrieved(
+                    channels.topic_vector_retrieved,
+                    result.topic_vector_retrieved,
+                ),
+                detail_fts_retrieved=_combine_retrieved(channels.detail_fts_retrieved, result.detail_fts_retrieved),
+                detail_vector_retrieved=_combine_retrieved(
+                    channels.detail_vector_retrieved,
+                    result.detail_vector_retrieved,
+                ),
+                topic_fts_eligible=_combine_retrieved(channels.topic_fts_eligible, result.topic_fts_eligible),
+                topic_vector_eligible=_combine_retrieved(
+                    channels.topic_vector_eligible,
+                    result.topic_vector_eligible,
+                ),
+                detail_fts_eligible=_combine_retrieved(channels.detail_fts_eligible, result.detail_fts_eligible),
+                detail_vector_eligible=_combine_retrieved(
+                    channels.detail_vector_eligible,
+                    result.detail_vector_eligible,
+                ),
             )
         return channels
 
@@ -182,6 +202,12 @@ class CompositeTopicMemoryIndex:
             if not await index.vector_complete(connection, scope_id, topic_ref):
                 return False
         return True
+
+
+def _combine_retrieved(left: int | None, right: int | None) -> int | None:
+    if left is None and right is None:
+        return None
+    return (left or 0) + (right or 0)
 
 
 async def validate_current_topic_vectors(

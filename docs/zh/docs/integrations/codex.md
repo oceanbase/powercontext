@@ -10,10 +10,14 @@ description: 安装 PowerContext Codex 插件并控制其本地行为。
 
 ## 安装或刷新插件
 
-执行：
+先按[快速开始](../get-started/quickstart.md)安装此分支、生成配置并启动 Server。
+在运行 Codex 的机器上加载客户端配置后安装匹配插件：
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref master
+set -a
+. ./.env
+set +a
+powercontext setup codex
 powercontext doctor codex
 ```
 
@@ -39,7 +43,7 @@ powercontext doctor codex
 交接
 ```
 
-`project-context` Skill 会把这句话视为创建持久交接里程碑的明确授权。Codex 在同一轮中检查当前对话和仓库，整理目标、
+`powercontext-project-context` Skill 会把这句话视为创建持久交接里程碑的明确授权。Codex 在同一轮中检查当前对话和仓库，整理目标、
 分支与工作区状态、改动文件、已执行检查、阻塞项、缺失项和下一步，然后在当前 Session Scope 中依次调用
 `handoff_current_work` 和 `commit_handoff`。提交成功后，Codex 返回 exact Handoff Revision；用户不需要再填写交接
 内容或重复确认提交。
@@ -53,6 +57,17 @@ host 管理的 workspace binding、Server 默认 Scope。解析出的 Scope 会�
 binding，不生成 Scope ID。Prompt Hook 使用该 binding 完成召回和采集；`PreToolUse` 将同一 binding 注入 data-plane
 工具，Agent 输入不能把读写重定向到其他 Scope。Session 切换工作边界时，应由 host 创建或绑定另一个 Scope。
 
+已有 `scope_id` 时，把当前 Git 根登记到这个 Scope，供之后的新会话使用：
+
+```bash
+uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/scope_binding.py" \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
+```
+
+`$PLUGIN_ROOT` 是已安装 Codex 插件的根目录，与 Hook 使用的变量相同。在普通终端里把它换成实际目录，例如插件缓存中的 `powercontext/powercontext/<version>`，或本仓库的 `integrations/codex/plugins/powercontext`。命令写入 `integration=codex`、`kind=workspace` 的绑定，外部身份是 Git 根路径的 SHA-256。它不创建 Scope，也不从路径、远程地址或分支生成 `scope_id`。去掉 `--bind-scope` 再执行一次，可以打印该目录当前解析到的编号。`--clear-scope` 只删除这条 workspace binding，不删除 Scope 里的内容。
+
+`POWERCONTEXT_CODEX_SCOPE_ID` 仍然优先于这条登记。已经开着的会话保持启动时写下的 Session binding；在该 Git 根新开一场会话后，没有显式变量、也没有更早的 Session binding 时，会使用这条 workspace binding。MCP 的 `set_scope_binding` 只改当前会话，不能代替这条命令。
+
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
 `powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为不可信历史、保留
 精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。自动注入的
@@ -60,6 +75,32 @@ Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`
 
 Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于临时移交当前任务，不能用几条 Memory 替代。概念边界见
 [理解 Memory 和 Handoff](../workflows/memory-and-handoff.md)，操作步骤见[在 Codex 中交接工作](../workflows/handoff-with-codex.md)。
+
+## Experience 和 Skill 能力
+
+除 Memory、Source 采集、上下文注入、Work Contract、Handoff、确认、Task Outcome 和候选审查外，MCP 还提供以下工具：
+
+| 能力 | 工具 |
+| --- | --- |
+| Experience | `get_experience`、`generate_experience`、`propose_experience` |
+| 受管 Skill | `list_managed_skills`、`get_skill`、`generate_skill`、`propose_skill` |
+| 外部 Skill | `scan_external_skills`、`list_external_skills`、`resolve_external_skill`、`import_external_skill` |
+
+例如，可以要求 Codex“根据这些精确 Source 引用生成一个 Experience 候选”或“列出当前 Scope 已批准的 Skill”。
+生成需要在 Server 配置对应模型；直接提交完整内容的 proposal 不需要模型。生成和提案的结果都进入待审候选，
+`no_op` 表示没有创建候选。只有明确的审查决定才会产生已批准 Artifact；读取或导入不会安装或执行 Skill。
+
+外部 Skill 扫描读取 **Server 所在主机** 配置的目录，远程 Server 不能扫描 Codex 工作站的文件系统。
+通过 `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` 配置自定义目录和主机身份，详见
+[Agent Skill 目标](../workflows/configure-agent-skill-targets.md)。
+启用访问控制时，扫描需要 `server.admin`，列出和解析需要 `server.observe`，导入需要绑定 Scope 的贡献权限。
+从扫描或列表结果选择精确外部 Skill ID 和 fingerprint，再进行解析或导入。文件内容变化会使旧 fingerprint 失效。
+`mode: import` 将精确包快照提交为待审候选，不需要生成模型；`mode: fork` 需要 Skill 生成模型。
+详见 [Experience 与 Skill 生命周期](../workflows/experience-and-skill-lifecycle.md)。
+
+同时升级 Server 并刷新插件，然后开启新 Codex 会话以发现这些工具。新增 MCP 操作沿用 Session Scope 绑定和
+Server 权限检查。Claude Code、WorkBuddy 共用该 MCP 工具集，因此也获得这些能力；full 描述能力覆盖范围，
+不代表自动批准或保证模型已经配置。
 
 ## 选择标准上下文文本
 
@@ -88,6 +129,8 @@ export POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true
 
 ## 连接启用鉴权的本地 Server
 
+本地 Server 默认关闭认证，需要时再开启；启用 Dashboard 时需要同时开启认证。首次本地配置向导默认不启用 Dashboard。
+
 从本地 secret manager 加载一个 token，然后启用鉴权并启动 Server：
 
 ```bash
@@ -96,19 +139,46 @@ export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```
 
-在包含匹配 Authorization header 的环境中启动 Codex：
+在包含匹配 Authorization header 的环境中执行一次 setup：
 
 ```bash
 export POWERCONTEXT_CODEX_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
-codex
+powercontext setup codex
+powercontext doctor codex
 ```
 
-修改该变量后需要重启 Codex。插件的 MCP 配置从环境读取这个可选 header，Prompt Hook 读取同一个值。不要把
-token 写入 `.mcp.json`、Server URL 或静态 MCP header。
+Windows PowerShell 中，通过以下方式为 setup 进程设置该值：
 
-没有设置该变量或值为空，并且 Server 未启用鉴权时，插件行为与默认状态完全一致。如果 Server 已启用鉴权，
-但 header 缺失或错误，Hook 会正常降级并写出 `authentication_failed` 诊断；MCP tools 不可用，但不会阻塞
-Codex 会话。
+```powershell
+$env:POWERCONTEXT_CODEX_AUTHORIZATION = "Bearer $env:POWERCONTEXT_LOCAL_TOKEN"
+powercontext setup codex
+powercontext doctor codex
+```
+
+setup 会把 URL 绑定的凭据保存到 `$CODEX_HOME/powercontext/credentials.json`，默认位置为
+`~/.codex/powercontext/credentials.json`，并配置原生 MCP 的 `http_headers_helper` 读取同一份记录。
+Linux、macOS 和 Windows 上的新 Codex 会话无需每次导出授权变量。Codex 需支持 `http_headers_helper`，
+该路径已在 Codex CLI 0.153.4 上验证。helper 命令只包含本地路径；地址不匹配、存储格式错误或 POSIX 文件权限
+不安全时，不会转发保存的凭据。Prompt Hook 读取同一记录，显式 `POWERCONTEXT_CODEX_AUTHORIZATION` 优先，
+但不会修改保存的凭据。不要把 token 写入 `.mcp.json`、Server URL 或静态 MCP header。
+
+Windows setup 还会维护当前用户的授权环境，以兼容 Desktop。环境变更不会传给已经运行的进程。
+setup 后重启 Codex，让新进程加载更新后的插件配置。再次 setup 不提供 token 时保留凭据，提供新 token 时轮换凭据。
+
+在 Linux 或 macOS 上可这样验证不依赖进程授权变量的新会话：
+
+```bash
+unset POWERCONTEXT_CODEX_AUTHORIZATION
+powercontext doctor codex
+```
+
+doctor 应报告原生 MCP 工具发现成功。如果仍提示保存的凭据无法供宿主使用，升级 Codex，使用匹配的
+PowerContext 插件重新 setup，再重启 Codex。旧版宿主可暂时从包含完整 `POWERCONTEXT_CODEX_AUTHORIZATION`
+header 的进程启动。
+
+没有保存凭据或配置进程级覆盖，并且 Server 未启用鉴权时，插件行为与默认状态完全一致。如果 Server 已启用
+鉴权，但有效凭据缺失或错误，Hook 会正常降级并写出 `authentication_failed` 诊断；MCP tools 不可用，但
+不会阻塞 Codex 会话。
 
 Server 不可用时，Hook 的恢复和采集会正常降级，不会阻塞 Codex。显式 Memory 工具会报告服务不可用。
 
@@ -119,31 +189,70 @@ Server 不可用时，Hook 的恢复和采集会正常降级，不会阻塞 Code
 
 ## 使用生成的环境文件
 
-如果已按[启用提取与向量搜索](../get-started/configure-models.md)生成 `.env`，使用 Config Generator 输出的插件安装命令，
-再在启动 Codex 的终端中加载该文件：
+如果已通过向导生成配置，在执行 setup 前加载 `.env`。
+它提供 URL、Authorization 和选定的 Scope，不需要把 Server `.env` 中的模型 API key 传给 Agent：
 
 ```bash
 set -a
 . ./.env
 set +a
-codex
+powercontext setup codex
 ```
 
-普通会话无需设置 `POWERCONTEXT_CODEX_SCOPE_ID`；只有需要显式选择已存在的 Scope 时才设置。
+首次规划新 Scope 时，先执行 `.env.next-steps.md` 的创建请求，把响应的真实 `scope_id` 写入客户端文件的
+`POWERCONTEXT_CODEX_SCOPE_ID`，再重新加载文件并开启新会话。规划标题不是 ID。未显式绑定时可能共用 Server 默认 Scope，
+切换项目目录本身不会隔离数据。
 发送普通 prompt 后，插件从绑定的 Scope 召回上下文，并将 prompt 采集为 Source。Server 的 Scheduler 按配置间隔处理新 Sources。
+
+## 核对 Hook 和 MCP 连接
+
+Hook 的 Server 地址从已安装插件 `.mcp.json` 派生，MCP 也读取同一文件。
+本机默认是 `http://127.0.0.1:8000`；自定义端口、SSH 转发或 HTTPS 时，修改该文件使两条路径使用同一地址。
+该配置优先于 `POWERCONTEXT_CODEX_SERVER_URL`，不能只靠导出此环境变量改变连接地址。
+`setup codex` 会更新已安装插件的 MCP URL，并添加使用本次安装绝对路径的凭据 helper。
+基础配置保留以下进程环境覆盖入口：
+
+```json
+{
+  "mcpServers": {
+    "powercontext": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp/",
+      "required": false,
+      "env_http_headers": {
+        "Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"
+      }
+    }
+  }
+}
+```
+
+使用 `powercontext setup codex --server-url <server-url>` 同时更新地址和 helper。手工编辑已安装文件时，
+保留自动生成的 `http_headers_helper`；上面只展示基础配置。Token 不会被写死在 JSON 中。Scope 由 Hook 绑定，并注入 MCP 数据操作；不要把
+规划标题或目录名当成 Scope ID。
+
+桌面 App 不会继承已经运行的终端内部发生的环境变化。在 Windows 上，setup 会把值持久化到当前用户环境，但已
+运行的 Desktop 仍需重启才能继承。运行 `powercontext doctor codex`，再分别确认 Hook 采集成功与 MCP 可用。
+MCP 显示 connected 也不等于 Source 已采集。
+最后完成[Source、主题演进与新会话召回验收](../get-started/quickstart.md#4-用普通对话验收-topic-memory)。
 
 ## 环境变量
 
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
+| `POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP` | `false` | 显式允许 Hook 使用非环回明文 HTTP |
 | `POWERCONTEXT_CODEX_SCOPE_ID` | 未设置 | 显式选择一个已存在 Scope，不再解析 binding 和 Server 默认 Scope |
-| `POWERCONTEXT_CODEX_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
+| `POWERCONTEXT_CODEX_AUTHORIZATION` | 未设置 | 完整 `Bearer <token>` 运行时覆盖；setup 保存后供后续 Hook 和原生 MCP 连接使用 |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
-| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Hook 共享 HTTP 时间预算 |
+| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Hook 单次请求超时 |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Hook 共享 HTTP 时间预算 |
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | 每个提示词最多执行的 flush 次数 |
 
+Hook 默认允许环回 HTTP，远程 HTTP 需要显式同意，HTTPS 证书校验仍然启用。setup 会保存同意并更新已安装插件的
+`.mcp.json`，Hook 和原生 MCP 都从该文件读取地址。只修改 Hook 的 URL 环境变量不会改变原生地址；升级覆盖
+`.mcp.json` 后需重新运行 setup。Codex 自身的 MCP 策略仍然生效。参见[连接远程 Server](../operate/connect-remote-server.md)。
+
 Codex Hook 外层超时为十秒。Server 不可用或拒绝鉴权时，恢复、采集和 flush 独立降级，不会阻塞 Codex。未显式指定
-Scope 时，插件依次解析 Session binding、workspace binding 和 Server 默认 Scope。配置变量必须存在于启动 Codex 的
-进程环境中；修改后需要重启 Codex。
+Scope 时，插件依次解析 Session binding、workspace binding 和 Server 默认 Scope。进程级配置必须存在于启动
+Codex 的环境中；Windows setup 会把鉴权写入用户环境，但 Desktop 仍需重启才能继承。

@@ -82,6 +82,19 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.operation.outcome",
         "powercontext.scope.lock.contended",
     },
+    "memory.capture": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.memory.capture.source_count",
+    },
+    "memory.commit": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.memory.commit.memory_changed",
+        "powercontext.memory.commit.entry_version_count",
+    },
     "memory.search": {
         "powercontext.operation.name",
         "powercontext.operation.unit",
@@ -127,7 +140,11 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.context.build.topic_memory_candidate_count",
         "powercontext.context.build.experience_candidate_count",
         "powercontext.context.build.profile_candidate_count",
+        "powercontext.context.build.code_candidate_count",
         "powercontext.context.build.selected_count",
+        "powercontext.context.build.code_selected_count",
+        "powercontext.context.build.code_injected_count",
+        "powercontext.context.build.code_omitted_count",
         "powercontext.context.build.status",
         "powercontext.context.build.content_bytes",
     },
@@ -236,6 +253,26 @@ class _VectorMemoryIndex:
         pass
 
     async def replace(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _memory_ref: ArtifactRef,
+        _projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> None:
+        pass
+
+    async def delete(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _memory_ref: ArtifactRef,
+        _entry_ids: tuple[str, ...],
+        /,
+    ) -> None:
+        pass
+
+    async def upsert(
         self,
         _connection: AsyncConnection,
         _scope_id: str,
@@ -416,7 +453,9 @@ def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeyp
     # Pydantic AI also resolves already-constructed models through `infer_model`, so pass those through.
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda model: model if isinstance(model, Model) else TestModel(custom_output_text='{"candidates":[]}'),
+        lambda model, **_kwargs: (
+            model if isinstance(model, Model) else TestModel(custom_output_text='{"candidates":[]}')
+        ),
     )
 
     instrumented = _flush_memory_spans(tmp_path / "instrumented.db", instrumented=True)
@@ -445,11 +484,244 @@ def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeyp
     assert not any(_is_inference_span(span) for span in uninstrumented)
 
 
+def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -> None:
+    private_source_content = "Private captured source sentinel."
+    private_memory_content = "Keep write-path traces bounded."
+    model_output = json.dumps({
+        "candidates": [
+            {
+                "intent": "add",
+                "kind": "decision",
+                "text": private_memory_content,
+                "evidence_ids": ["source:0"],
+                "reason": "private extraction reason",
+            }
+        ]
+    })
+    monkeypatch.setattr(
+        "pydantic_ai.models.infer_model",
+        lambda model: model if isinstance(model, Model) else TestModel(custom_output_text=model_output),
+    )
+    monkeypatch.setattr(
+        "pydantic_ai.embeddings.infer_embedding_model",
+        lambda _model, **_kwargs: TestEmbeddingModel(dimensions=3),
+    )
+    monkeypatch.setattr(
+        "powercontext.builtin.runtime.composition.SQLiteMemoryVectorIndex",
+        lambda _profile: _VectorMemoryIndex(),
+    )
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'memory-write-tracing.db'}"),
+            inference=InferenceConfig(
+                generation_model="test",
+                embedding_model="test",
+                embedding_profile_id=_VECTOR_PROFILE.profile_id,
+                embedding_dimension=_VECTOR_PROFILE.dimension,
+            ),
+            mcp=McpConfig(enabled=False),
+        ),
+        tracing=ServerTracing(provider, instrumented=True),
+    )
+    source_id = "private-source-id"
+
+    with TestClient(app) as client:
+        scope_id = _create_scope(client, title="Memory write trace", idempotency_key="memory-write-trace")
+        captured = client.post(
+            "/v1/sources/content",
+            json={"scope_id": scope_id, "source_id": source_id, "content": private_source_content},
+        )
+        flushed = client.post("/v1/memory/flush", json={"scope_id": scope_id})
+        no_op = client.post("/v1/memory/flush", json={"scope_id": scope_id})
+
+    assert captured.status_code == 202
+    assert flushed.status_code == 200
+    assert flushed.json()["memory"] is not None
+    assert no_op.status_code == 200
+    assert no_op.json()["processed_source_count"] == 0
+
+    spans = list(exporter.get_finished_spans())
+    capture_application = next(
+        span
+        for span in spans
+        if span.name == "powercontext capture_content_source" and _children(spans, span, "memory.capture")
+    )
+    assert _only_child(spans, capture_application, "scope.lock")
+    capture = _only_child(spans, capture_application, "memory.capture")
+    assert dict(capture.attributes or {}) == {
+        "powercontext.operation.name": "memory.capture",
+        "powercontext.operation.unit": "stage",
+        "powercontext.memory.capture.source_count": 1,
+        "powercontext.operation.outcome": "success",
+    }
+
+    flush_applications = [span for span in spans if span.name == "powercontext flush_memory"]
+    assert len(flush_applications) == 2
+    enqueues = [_only_child(spans, application, "work.enqueue") for application in flush_applications]
+    assert {(span.attributes or {})["powercontext.operation.outcome"] for span in enqueues} == {"created", "idle"}
+    execute = _work_span(spans, "work.execute", MEMORY_WORK_KIND, outcome="succeeded")
+    assert execute.parent is None
+    assert (
+        len([
+            span
+            for span in spans
+            if span.name == "work.execute" and (span.attributes or {}).get("powercontext.work.kind") == MEMORY_WORK_KIND
+        ])
+        == 1
+    )
+    invoke_agent = _only_child(spans, execute, "invoke_agent memory_extraction")
+    chat = _only_child_with_prefix(spans, invoke_agent, "chat ")
+    embedding = _only_child_with_prefix(spans, execute, "embeddings ")
+    work_commit = _only_child(spans, execute, "work.commit")
+    commit = _only_child(spans, work_commit, "memory.commit")
+    assert embedding.name == "embeddings test"
+    assert dict(commit.attributes or {}) == {
+        "powercontext.operation.name": "memory.commit",
+        "powercontext.operation.unit": "stage",
+        "powercontext.memory.commit.memory_changed": True,
+        "powercontext.memory.commit.entry_version_count": 1,
+        "powercontext.operation.outcome": "success",
+    }
+    assert {span.context.trace_id for span in (execute, invoke_agent, chat, embedding, work_commit, commit)} == {
+        execute.context.trace_id
+    }
+    assert execute.context.trace_id not in {span.context.trace_id for span in flush_applications}
+
+    for span in spans:
+        allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
+        if allowed_keys is None:
+            continue
+        if span.name == "work.execute":
+            allowed_keys = allowed_keys | {_MEMORY_EXTRACT_PROMPT_PREFIX + key for key in _PROMPT_SELECTION_ATTRIBUTES}
+        attributes = dict(span.attributes or {})
+        if span.name == "work.execute":
+            _pop_prompt_attributes(attributes.copy(), _MEMORY_EXTRACT_PROMPT_PREFIX)
+        assert attributes.keys() <= allowed_keys
+        assert all(isinstance(value, str | bool | int | float) for value in attributes.values())
+
+    exported = _exported_span_data(spans)
+    assert scope_id not in exported
+    assert source_id not in exported
+    assert private_source_content not in exported
+    assert private_memory_content not in exported
+    assert "private extraction reason" not in exported
+
+
+def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
+    database_path = tmp_path / "memory-commit-failure.db"
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    source_content = "Private Source content for a failed commit."
+    memory_content = "Private Memory content for a failed commit."
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        candidate_pipeline=_FixedCandidatePipeline(memory_content),
+        tracing=ServerTracing(provider),
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        scope_id = _create_scope(client, title="Commit failure trace", idempotency_key="commit-failure-trace")
+        captured = client.post(
+            "/v1/sources/content",
+            json={"scope_id": scope_id, "source_id": "failed-commit-source", "content": source_content},
+        )
+        assert captured.status_code == 202
+        with sqlite3.connect(database_path) as connection:
+            connection.executescript("""
+                CREATE TRIGGER reject_memory_insert
+                BEFORE INSERT ON pc_memory_entry_versions
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced Memory commit failure');
+                END;
+            """)
+        failed = client.post("/v1/memory/flush", json={"scope_id": scope_id}, headers={"Prefer": "respond-async"})
+        assert failed.status_code == 202
+        failed_execute = _wait_for_named_span(exporter, "work.execute", outcome="retry_wait")
+        failed_spans = list(exporter.get_finished_spans())
+        operation_id = failed.json()["operation_id"]
+        operation = client.get(f"/v1/operations/{operation_id}")
+        assert operation.status_code == 200
+        assert operation.json()["status"] == "retry_wait"
+        entries = client.post("/v1/memory/entries/list", json={"scope_id": scope_id})
+        assert entries.status_code == 200
+        assert entries.json()["entries"] == []
+
+        with sqlite3.connect(database_path) as connection:
+            connection.execute("DROP TRIGGER reject_memory_insert")
+        retried = client.post("/v1/memory/flush", json={"scope_id": scope_id})
+        completed = client.get(f"/v1/operations/{operation_id}")
+
+    failed_work_commit = _only_child(failed_spans, failed_execute, "work.commit")
+    failed_commit = _only_child(failed_spans, failed_work_commit, "memory.commit")
+    assert dict(failed_commit.attributes or {}) == {
+        "powercontext.operation.name": "memory.commit",
+        "powercontext.operation.unit": "stage",
+        "powercontext.memory.commit.memory_changed": True,
+        "powercontext.memory.commit.entry_version_count": 1,
+        "powercontext.operation.outcome": "failure",
+        "error.type": "IntegrityError",
+    }
+    exported = _exported_span_data(failed_spans)
+    assert source_content not in exported
+    assert memory_content not in exported
+    assert "forced Memory commit failure" not in exported
+
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "succeeded"
+    assert retried.status_code == 200
+    assert retried.json()["processed_source_count"] == 1
+    assert retried.json()["memory"] is not None
+
+
+def test_process_memory_preserves_commit_tracing(tmp_path) -> None:
+    from powercontext.builtin.runtime.composition import open_builtin_contexts
+    from powercontext.builtin.sources import ContentCapture
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    scope_id = "project:process-memory-tracing"
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'process-memory.db'}")),
+            candidate_pipeline=_EmptyCandidatePipeline(),
+            tracing=ServerTracing(provider),
+        ) as contexts:
+            context = await contexts.get(scope_id)
+            await context.sources.capture(ContentCapture(source_id="process-source", content="process evidence"))
+            result = await contexts.process_memory(scope_id, 10)
+            assert result.source_count == 1
+            assert result.memory_ref is None
+
+    asyncio.run(scenario())
+
+    commits = [span for span in exporter.get_finished_spans() if span.name == "memory.commit"]
+    assert len(commits) == 1
+    assert dict(commits[0].attributes or {}) == {
+        "powercontext.operation.name": "memory.commit",
+        "powercontext.operation.unit": "stage",
+        "powercontext.memory.commit.memory_changed": False,
+        "powercontext.memory.commit.entry_version_count": 0,
+        "powercontext.operation.outcome": "success",
+    }
+
+
 def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -> None:
     # Resolve the configured test model without consulting the environment or a real provider.
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda model: model if isinstance(model, Model) else TestModel(custom_output_text='{"selected_ranks":[99,1]}'),
+        lambda model, **_kwargs: (
+            model if isinstance(model, Model) else TestModel(custom_output_text='{"selected_ranks":[99,1]}')
+        ),
     )
 
     exporter = InMemorySpanExporter()
@@ -664,6 +936,13 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert (empty_context.attributes or {})["powercontext.context.build.status"] == "empty"
     assert (empty_context.attributes or {})["powercontext.context.build.content_bytes"] == 0
 
+    for context in (ready_context, empty_context):
+        attributes = dict(context.attributes or {})
+        assert attributes["powercontext.context.build.code_candidate_count"] == 0
+        assert attributes["powercontext.context.build.code_selected_count"] == 0
+        assert attributes["powercontext.context.build.code_injected_count"] == 0
+        assert attributes["powercontext.context.build.code_omitted_count"] == 0
+
     for span in spans:
         allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
         if allowed_keys is None:
@@ -775,6 +1054,14 @@ class _EmptyCandidatePipeline:
     async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
         del request
         return ()
+
+
+class _FixedCandidatePipeline:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
+        return (MemoryEntryInput(kind="fact", text=self._text, sources=request.sources),)
 
 
 class _EmptyExperiencePipeline:
@@ -1139,6 +1426,31 @@ def _create_scope(client: TestClient, *, title: str, idempotency_key: str) -> st
     )
     assert response.status_code == 201
     return response.json()["scope_id"]
+
+
+_MEMORY_EXTRACT_PROMPT_PREFIX = "powercontext.prompt.memory.extract."
+_PROMPT_SELECTION_ATTRIBUTES = (
+    "selection",
+    "version",
+    "definition_version",
+    "builtin_version",
+    "compiled_digest",
+    "demonstration_count",
+)
+
+
+def _pop_prompt_attributes(attributes: dict[str, object], prefix: str, /) -> dict[str, object]:
+    """Remove one span's prompt-selection attributes so the remainder compares exactly.
+
+    The span carries either all six bounded prompt attributes or none; rejecting any other name keeps
+    prompt metadata from smuggling unbounded values onto the stage span.
+    """
+
+    prompt_names = {key.removeprefix(prefix) for key in attributes if key.startswith(prefix)}
+    assert prompt_names == set() or prompt_names == set(_PROMPT_SELECTION_ATTRIBUTES)
+    for key in [key for key in attributes if key.startswith(prefix)]:
+        del attributes[key]
+    return attributes
 
 
 def _is_inference_span(span: ReadableSpan) -> bool:

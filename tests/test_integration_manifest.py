@@ -48,6 +48,60 @@ def test_manifest_matches_setup_catalog_evidence_and_actual_tool_surfaces() -> N
     assert tool_surface_errors(manifest) == ()
 
 
+def test_pi_declares_full_profile_after_external_skill_support_is_merged() -> None:
+    manifest = load_integration_manifest()
+    pi = next(integration for integration in manifest.integrations if integration.id == "pi")
+    pi_tools = next(toolset for toolset in manifest.toolsets if toolset.id == "pi-tools")
+    external_tools = {
+        "pc_external_scan:scan_external_skills",
+        "pc_external_list:list_external_skills",
+        "pc_external_resolve:resolve_external_skill",
+        "pc_external_import:import_external_skill",
+    }
+
+    assert "full" in pi.profiles
+    assert "external_skill" in pi.capabilities
+    assert {tool.id for tool in pi_tools.tools if tool.id in external_tools} == external_tools
+    assert all(tool.capabilities == ("external_skill",) for tool in pi_tools.tools if tool.id in external_tools)
+
+
+def test_codex_full_profile_includes_managed_and_external_skill_operations() -> None:
+    manifest = load_integration_manifest()
+    codex = next(integration for integration in manifest.integrations if integration.id == "codex")
+    assert "full" in codex.profiles
+    assert {"experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill"} <= set(
+        codex.capabilities
+    )
+
+
+@pytest.mark.parametrize("missing_operation", [False, True])
+def test_tool_surface_probe_handles_long_descriptions_without_borrowing_operations(
+    tmp_path: Path,
+    missing_operation: bool,
+) -> None:
+    source_root = MANIFEST_PATH.parent.parent
+    source = source_root / "integrations/dsh/plugins/powercontext/src/tools.ts"
+    target = tmp_path / source.relative_to(source_root)
+    target.parent.mkdir(parents=True)
+    content = source.read_text(encoding="utf-8").replace(
+        "name: 'pc_skill_generate',",
+        "name: 'pc_skill_generate',\n      /* " + "long guidance " * 200 + " */",
+    )
+    if missing_operation:
+        content = content.replace("run(runtime, exec, 'generate_skill',", "unbound(runtime, exec, 'generate_skill',")
+    target.write_text(content, encoding="utf-8")
+    manifest = load_integration_manifest()
+    toolset = next(item for item in manifest.toolsets if item.id == "dsh-tools")
+    isolated = manifest.model_copy(update={"toolsets": (toolset,), "integrations": ()})
+    errors = tool_surface_errors(isolated, tmp_path)
+    if missing_operation:
+        assert errors == (
+            "dsh-tools: tool surface drift (missing ['pc_skill_generate:generate_skill']; unexpected [])",
+        )
+    else:
+        assert errors == ()
+
+
 def test_manifest_defines_each_availability_state() -> None:
     manifest = load_integration_manifest()
 

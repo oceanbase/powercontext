@@ -78,6 +78,80 @@ async def _scope(client):
     return result.json()["scope_id"]
 
 
+@pytest.mark.parametrize("backend", ["builtin", "casbin"])
+def test_topic_memory_generic_writes_and_publication_use_scope_authority(tmp_path, backend):
+    async def scenario():
+        async with _server(tmp_path, backend) as (_, client, _):
+            scope = await _scope(client)
+            target_response = await client.post(
+                "/v1/scopes", json={"title": "Target", "summary": "Target", "idempotency_key": "target"}
+            )
+            target = target_response.json()["scope_id"]
+            await _grant(client, scope, "reader", "scope.viewer")
+            await _grant(client, scope, "writer", "scope.contributor")
+            content = {"title": "Topic", "summary": "Scope knowledge", "detail": "Shared recovery procedures."}
+            create_path = f"/v1/scopes/{scope}/artifacts"
+            reader = {"Authorization": "Bearer reader"}
+            writer = {"Authorization": "Bearer writer"}
+            assert (
+                await client.post(create_path, headers=reader, json={"family": "topic-memory", "content": content})
+            ).status_code == 403
+            created = await client.post(
+                create_path, headers=writer, json={"family": "topic-memory", "content": content}
+            )
+            assert created.status_code == 201, created.text
+            path = created.headers["Location"]
+            assert (await client.get(path, headers=reader)).status_code == 200
+            assert (await client.get(create_path + "/topic-memory", headers=reader)).status_code == 200
+            tags = await client.get(path + "/tags", headers=reader)
+            assert tags.status_code == 200, tags.text
+            for principal in (reader, writer):
+                replacement = await client.put(
+                    path, headers=principal | {"If-Match": created.headers["ETag"]}, json={"content": content}
+                )
+                assert replacement.status_code == 403, replacement.text
+                retag = await client.put(
+                    path + "/tags", headers=principal | {"If-Match": tags.headers["ETag"]}, json={"tags": ["shared"]}
+                )
+                assert retag.status_code == 403, retag.text
+            updated = await client.put(path, headers={"If-Match": created.headers["ETag"]}, json={"content": content})
+            assert updated.status_code == 200, updated.text
+            tagged = await client.put(
+                path + "/tags", headers={"If-Match": tags.headers["ETag"]}, json={"tags": ["shared"]}
+            )
+            assert tagged.status_code == 200, tagged.text
+            found = await client.post(
+                f"/v1/scopes/{scope}/artifact-tags/query", headers=reader, json={"tags": ["shared"]}
+            )
+            assert found.status_code == 200 and len(found.json()["items"]) == 1, found.text
+            ref = {key: created.json()[key] for key in ("family", "artifact_id", "revision")}
+            request = {
+                "source": {"scope_id": scope, "artifact": ref},
+                "target_scope_id": target,
+                "idempotency_key": "topic-publication",
+            }
+            await _grant(client, target, "reader", "scope.admin")
+            assert (await client.post("/v1/artifact-publications", headers=reader, json=request)).status_code == 403
+            source_grant = await _grant(client, scope, "reader", "scope.admin")
+            published = await client.post("/v1/artifact-publications", headers=reader, json=request)
+            assert published.status_code == 201, published.text
+            await _grant(client, target, "reader", "scope.viewer")
+            assert (await client.get(f"/v1/scopes/{target}/artifacts/topic-memory", headers=reader)).status_code == 200
+            revoked = await client.post(
+                "/v1/access/bindings/revoke",
+                json={
+                    "binding_id": source_grant["binding_id"],
+                    "expected_version": source_grant["version"],
+                    "idempotency_key": "revoke-topic-admin",
+                },
+            )
+            assert revoked.status_code == 200
+            assert (await client.post("/v1/artifact-publications", headers=reader, json=request)).status_code == 403
+            assert (await client.get(path, headers={"Authorization": "Bearer outsider"})).status_code == 403
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("assembly", [None, {}, {"sections": [{"family": "profile", "limit": 2}]}])
 def test_prepare_requires_read_access_to_every_referenced_scope(tmp_path, assembly):
     async def scenario():
@@ -222,9 +296,59 @@ def test_unprivileged_requests_cannot_distinguish_missing_owner(tmp_path, backen
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("backend", ["builtin", "casbin"])
+def test_missing_memory_in_readable_scope_is_not_owner_pending(tmp_path, backend):
+    async def scenario():
+        async with _server(tmp_path, backend) as (_, client, _):
+            source_scope = await _scope(client)
+            target = await client.post(
+                "/v1/scopes", json={"title": "Empty", "summary": "Empty", "idempotency_key": "empty"}
+            )
+            assert target.status_code == 201, target.text
+            empty_scope = target.json()["scope_id"]
+            for scope in (source_scope, empty_scope):
+                await _grant(client, scope, "reader", "scope.viewer")
+            remembered = await client.post(
+                "/v1/memory/remember",
+                json={"scope_id": source_scope, "kind": "fact", "text": "PRIVATE_SCOPE_FACT"},
+            )
+            assert remembered.status_code == 200, remembered.text
+            entries = await client.post("/v1/memory/entries/list", json={"scope_id": source_scope})
+            citation = entries.json()["entries"][0]["citation"]
+            reader = {"Authorization": "Bearer reader"}
+            correct = await client.post(
+                "/v1/memory/entries/get", headers=reader, json={"scope_id": source_scope, "citation": citation}
+            )
+            assert correct.status_code == 200, correct.text
+            for _ in range(2):
+                missing = await client.post(
+                    "/v1/memory/entries/get", headers=reader, json={"scope_id": empty_scope, "citation": citation}
+                )
+                assert missing.status_code == 404, missing.text
+                assert missing.json()["error"]["code"] == "memory_not_found"
+                assert "PRIVATE_SCOPE_FACT" not in missing.text
+            unknown = {**citation, "entry_id": "absent-entry"}
+            missing = await client.post(
+                "/v1/memory/entries/get", headers=reader, json={"scope_id": source_scope, "citation": unknown}
+            )
+            assert missing.status_code == 404, missing.text
+            denied = [
+                await client.post(
+                    "/v1/memory/entries/get",
+                    headers={"Authorization": "Bearer stranger"},
+                    json={"scope_id": scope, "citation": citation},
+                )
+                for scope in (source_scope, empty_scope, "absent-scope")
+            ]
+            assert [response.status_code for response in denied] == [403, 403, 403]
+            assert denied[0].json()["error"] == denied[1].json()["error"] == denied[2].json()["error"]
+
+    asyncio.run(scenario())
+
+
 def test_owner_failure_blocks_collections_and_context_before_content(tmp_path, monkeypatch):
     async def scenario():
-        async with _server(tmp_path) as (_, client, access):
+        async with _server(tmp_path) as (app, client, access):
             scope_id = await _scope(client)
 
             async def unavailable(*args, **kwargs):
@@ -241,6 +365,15 @@ def test_owner_failure_blocks_collections_and_context_before_content(tmp_path, m
                 )
                 assert created.status_code == 503, created.text
             # The content is durably committed, but the owner did not commit.
+            records = app.state.application.records.for_scope(scope_id)
+            identities = await records.logical_artifacts()
+            stored = await records.get_artifact("memory", identities[0].artifact_id)
+            entry = stored.content["manifest"]["entries"][0]
+            citation = {
+                "memory_ref": {"family": "memory", "artifact_id": stored.artifact_id, "revision": stored.revision},
+                "entry_id": entry["entry_id"],
+                "entry_version_id": entry["entry_version_id"],
+            }
             referencing = await client.post(
                 "/v1/scopes",
                 json={
@@ -253,6 +386,7 @@ def test_owner_failure_blocks_collections_and_context_before_content(tmp_path, m
             assert referencing.status_code == 201
             current = referencing.json()["scope_id"]
             requests = [
+                ("POST", "/v1/memory/entries/get", {"scope_id": scope_id, "citation": citation}),
                 ("POST", "/v1/context/prepare", {"scope_id": current, "query": "PRIVATE"}),
                 ("POST", "/v1/context/prepare", {"scope_id": current, "query": "PRIVATE", "assembly": {}}),
                 ("POST", "/v1/memory/entries/list", {"scope_id": scope_id}),
@@ -696,11 +830,21 @@ def test_prompt_management_respects_scope_and_artifact_permissions(tmp_path: Pat
             assert configuration.status_code == 200
             assert configuration.json()["artifact"]["revision"] == 1
             assert (await client.get(configuration_path, headers=outsider)).status_code == 403
-            for suffix in ("", "/revisions/1", "/revisions"):
+            for suffix in ("", "/revisions/1", "/revisions", "/tags"):
                 allowed = await client.get(path + suffix, headers=reader)
                 assert allowed.status_code == 200, allowed.text
                 denied = await client.get(path + suffix, headers=outsider)
                 assert denied.status_code == 403, denied.text
+            tags = await client.get(path + "/tags", headers=reader)
+            for headers in (contributor, reader, outsider):
+                denied = await client.put(
+                    path + "/tags", headers=headers | {"If-Match": tags.headers["ETag"]}, json={"tags": ["release"]}
+                )
+                assert denied.status_code == 403, denied.text
+            tagged = await client.put(
+                path + "/tags", headers=author | {"If-Match": tags.headers["ETag"]}, json={"tags": ["release"]}
+            )
+            assert tagged.status_code == 200, tagged.text
             for headers in (contributor, reader, outsider):
                 denied = await client.put(
                     path, headers={**headers, "If-Match": '"revision:1"'}, json={"content": content}
@@ -749,6 +893,8 @@ def test_prompt_owner_cannot_mutate_after_scope_role_revocation(
                 [administrator, contributor] if revoked_role == "scope.contributor" else [contributor, administrator]
             )
             path = f"/v1/scopes/{scope}/artifacts/prompt/memory.extract"
+            tags = await client.get(path + "/tags", headers=author)
+            assert tags.status_code == 200, tags.text
             for binding in bindings:
                 revoked = await client.post(
                     "/v1/access/bindings/revoke",
@@ -759,6 +905,13 @@ def test_prompt_owner_cannot_mutate_after_scope_role_revocation(
                     },
                 )
                 assert revoked.status_code == 200, revoked.text
+                if binding == administrator:
+                    denied = await client.put(
+                        path + "/tags",
+                        headers=author | {"If-Match": tags.headers["ETag"]},
+                        json={"tags": ["unauthorized"]},
+                    )
+                    assert denied.status_code == 403, denied.text
                 if binding == administrator and revoked_role == "scope.contributor":
                     denied = await client.put(
                         path, headers={**author, "If-Match": '"revision:1"'}, json={"content": content}
@@ -786,6 +939,12 @@ def test_prompt_owner_cannot_mutate_after_scope_role_revocation(
             assert configuration.json()["effective"]["instructions"] == content["instructions"]
             # Scope administration remains sufficient even when a revoked user owns the Artifact.
             await _grant(client, scope, "manager", "scope.admin")
+            tagged = await client.put(
+                path + "/tags",
+                headers={"Authorization": "Bearer manager", "If-Match": tags.headers["ETag"]},
+                json={"tags": ["release"]},
+            )
+            assert tagged.status_code == 200, tagged.text
             replaced = await client.put(
                 path,
                 headers={"Authorization": "Bearer manager", "If-Match": '"revision:1"'},

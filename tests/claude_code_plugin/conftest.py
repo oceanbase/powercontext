@@ -31,6 +31,8 @@ _PLUGIN_MODULE_NAMES = (
     "hooks.prepared_context",
     "scripts",
     "scripts.workspace_scope",
+    "workspace_scope",
+    "powercontext_claude_code_statusline",
 )
 
 
@@ -91,4 +93,12 @@ def settings_module(plugin_imports: None) -> ModuleType:
     return _load_module(
         "claude_code_settings",
         PLUGIN_ROOT / "claude_code_settings.py",
+    )
+
+
+@pytest.fixture
+def statusline_module(plugin_imports: None) -> ModuleType:
+    return _load_module(
+        "powercontext_claude_code_statusline",
+        PLUGIN_ROOT / "scripts" / "statusline.py",
     )

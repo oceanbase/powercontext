@@ -81,13 +81,26 @@ def _definition(tmp_path: Path, **overrides: object) -> ServiceDefinition:
 def _secure_windows_file(path: Path) -> None:
     if os.name != "nt":
         return
-    account = subprocess.run(
-        ["whoami.exe"],  # noqa: S607
+    account = (
+        subprocess
+        .run(
+            ["whoami.exe"],  # noqa: S607
+            capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=10,
+            check=True,
+        )
+        .stdout.decode("oem")
+        .strip()
+    )
+    # An elevated shell — what hosted Windows runners use — creates files owned
+    # by Administrators rather than by the account itself, which the loader rejects.
+    subprocess.run(
+        ["icacls.exe", str(path), "/setowner", account],  # noqa: S607
         capture_output=True,
-        text=True,
         timeout=10,
         check=True,
-    ).stdout.strip()
+    )
     subprocess.run(
         [  # noqa: S607
             "icacls.exe",
@@ -99,10 +112,35 @@ def _secure_windows_file(path: Path) -> None:
             "Administrators:(F)",
         ],
         capture_output=True,
-        text=True,
         timeout=10,
         check=True,
     )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Task Scheduler command decoding")
+def test_windows_support_preserves_native_command_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    message = "Access denied: café"
+    try:
+        output = message.encode("oem")
+    except UnicodeEncodeError:
+        pytest.skip("The system OEM code page cannot represent this diagnostic")
+    identity = b'"test\\user","S-1-5-21-1000"\r\n'
+    adapter = WindowsTaskSchedulerAdapter(home=tmp_path, user_account="test\\user", user_sid="S-1-5-21-1000")
+
+    def run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        # ``support`` resolves the current user before it queries the task, so
+        # whoami must succeed for this to exercise the scheduler command.
+        if command[0] == "whoami.exe":
+            return subprocess.CompletedProcess(command, 0, identity, b"")
+        return subprocess.CompletedProcess(command, 5, b"", output)
+
+    monkeypatch.setattr(subprocess, "run", run)
+
+    support, detail = adapter.support()
+
+    assert support is SupportState.UNSUPPORTED
+    assert "Task Scheduler is unavailable" in detail
+    assert message in detail
 
 
 class FakeAdapter:
@@ -334,6 +372,112 @@ def test_service_controller_installs_and_starts_one_native_registration(tmp_path
     assert adapter.events == ["write", "reload", "enable", "start:True"]
 
 
+def test_service_controller_allows_slow_native_startup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = FakeAdapter(tmp_path)
+    clock = 0.0
+
+    def monotonic() -> float:
+        return clock
+
+    def sleep(delay: float) -> None:
+        nonlocal clock
+        clock += delay
+
+    def probe(endpoint: str) -> ProbeResult:
+        if clock >= 45.0:
+            return ProbeResult(ProbeState.LIVE, f"{endpoint} status=ok")
+        return ProbeResult(ProbeState.UNREACHABLE, f"cannot reach {endpoint}")
+
+    monkeypatch.setattr("powercontext.service.controller.time.monotonic", monotonic)
+
+    status = ServiceController(adapter, probe=probe, sleep=sleep).install()
+
+    assert status.ok
+    assert clock >= 45.0
+
+
+def test_service_controller_keeps_waiting_while_the_native_job_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = FakeAdapter(tmp_path)
+    clock = 0.0
+
+    def monotonic() -> float:
+        return clock
+
+    def sleep(delay: float) -> None:
+        nonlocal clock
+        clock += delay
+
+    def probe(endpoint: str) -> ProbeResult:
+        # A first start with a cold bytecode cache: the port opens well after the
+        # wall-clock budget, but the native job never stopped making progress.
+        if clock >= 90.0:
+            return ProbeResult(ProbeState.LIVE, f"{endpoint} status=ok")
+        return ProbeResult(ProbeState.UNREACHABLE, f"cannot reach {endpoint}")
+
+    monkeypatch.setattr("powercontext.service.controller.time.monotonic", monotonic)
+
+    status = ServiceController(adapter, probe=probe, sleep=sleep).install()
+
+    assert status.ok
+    assert clock >= 90.0
+
+
+def test_service_controller_stops_waiting_once_the_native_job_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = FakeAdapter(tmp_path)
+    clock = 0.0
+
+    def monotonic() -> float:
+        return clock
+
+    def sleep(delay: float) -> None:
+        nonlocal clock
+        clock += delay
+
+    def probe(endpoint: str) -> ProbeResult:
+        return ProbeResult(ProbeState.UNREACHABLE, f"cannot reach {endpoint}")
+
+    def start(*, reload_definition: bool) -> None:
+        adapter.events.append(f"start:{reload_definition}")
+        adapter.manager = ManagerState.FAILED
+
+    monkeypatch.setattr("powercontext.service.controller.time.monotonic", monotonic)
+    monkeypatch.setattr(adapter, "start", start)
+
+    with pytest.raises(ServiceError, match="did not become live"):
+        ServiceController(adapter, probe=probe, sleep=sleep).install()
+
+    # The job is gone, so the grace period must not be entered at all.
+    assert 60.0 <= clock < 62.0
+
+
+def test_service_controller_gives_up_after_the_grace_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = FakeAdapter(tmp_path)
+    clock = 0.0
+
+    def monotonic() -> float:
+        return clock
+
+    def sleep(delay: float) -> None:
+        nonlocal clock
+        clock += delay
+
+    def probe(endpoint: str) -> ProbeResult:
+        return ProbeResult(ProbeState.UNREACHABLE, f"cannot reach {endpoint}")
+
+    monkeypatch.setattr("powercontext.service.controller.time.monotonic", monotonic)
+
+    # FakeAdapter.start() leaves the manager ACTIVE, so the port is the only thing missing.
+    with pytest.raises(ServiceError, match="did not become live"):
+        ServiceController(adapter, probe=probe, sleep=sleep).install()
+
+    # A running job earns a bounded extension, never an unbounded wait.
+    assert 180.0 <= clock < 182.0
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="login auto-start opt-out is Windows-specific")
 def test_service_controller_can_install_without_login_autostart(tmp_path: Path) -> None:
     adapter = FakeAdapter(tmp_path)
@@ -356,6 +500,28 @@ def test_service_install_is_idempotent_when_definition_is_current(tmp_path: Path
     status = controller.install()
 
     assert status.ok
+    assert adapter.events == ["enable"]
+
+
+def test_service_install_reconciles_native_settings_with_unchanged_metadata(tmp_path: Path) -> None:
+    adapter = FakeAdapter(tmp_path)
+    controller = ServiceController(adapter, probe=_manager_probe(adapter), sleep=lambda _: None)
+    controller.install()
+    assert adapter.definition is not None
+    definition = adapter.definition
+    # Native scheduling settings are not part of ServiceDefinition metadata.
+    adapter.content = b"previous native settings"
+    adapter.events.clear()
+
+    status = controller.install()
+
+    assert status.ok
+    assert adapter.definition == definition
+    assert adapter.content == adapter.render(definition)
+    assert adapter.events == ["write", "reload", "enable", "start:True"]
+
+    adapter.events.clear()
+    assert controller.install().ok
     assert adapter.events == ["enable"]
 
 
@@ -642,7 +808,6 @@ def test_service_install_rejects_a_group_readable_environment_file(tmp_path: Pat
         subprocess.run(
             ["icacls.exe", str(environment), "/grant", "*S-1-5-32-545:(R)"],  # noqa: S607
             capture_output=True,
-            text=True,
             timeout=10,
             check=True,
         )
@@ -727,6 +892,7 @@ def test_launchd_definition_round_trips_with_argument_array_and_logs(
     assert installed.state is RegistrationState.INSTALLED
     assert installed.definition == definition
     assert payload["ProgramArguments"][0] == executable
+    assert payload["ProcessType"] == "Standard"
     assert payload["StandardOutPath"].replace("\\", "/").endswith("logs/server.stdout.log")
     retry_token = Path(definition.data_dir) / "logs" / "launchd-retry.enabled"
     assert payload["KeepAlive"] == {"PathState": {str(retry_token): True}}
@@ -883,29 +1049,87 @@ def test_windows_loaded_registration_rejects_extra_task_elements(
 
 
 @pytest.mark.parametrize(
-    ("payload", "expected"),
+    ("status", "last_result", "expected"),
     [
-        ({"State": "Running", "LastTaskResult": 0}, ManagerState.ACTIVE),
-        ({"State": "Ready", "LastTaskResult": 0x41303}, ManagerState.INACTIVE),
-        ({"State": "Ready", "LastTaskResult": 1}, ManagerState.FAILED),
-        ({"State": "Disabled", "LastTaskResult": 0}, ManagerState.INACTIVE),
-        ({"State": "Running", "LastTaskResult": 0, "状态": "正在运行"}, ManagerState.ACTIVE),
+        ("Running", "0", ManagerState.ACTIVE),
+        ("Running", "267009", ManagerState.ACTIVE),
+        ("Ready", "267011", ManagerState.INACTIVE),
+        ("Ready", "1", ManagerState.FAILED),
+        ("Disabled", "0", ManagerState.INACTIVE),
+        # The status text is localized, but the running result code is stable.
+        ("正在运行", "267009", ManagerState.ACTIVE),
+        ("准备就绪", "0", ManagerState.INACTIVE),
+        ("unknown", "not-a-result", ManagerState.UNKNOWN),
     ],
 )
-def test_windows_manager_state_uses_locale_independent_task_info(
+def test_windows_manager_state_uses_schtasks_task_info(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    payload: dict[str, object],
+    status: str,
+    last_result: str,
     expected: ManagerState,
+) -> None:
+    adapter = WindowsTaskSchedulerAdapter(config_home=tmp_path)
+    output = f'"HOST","{adapter.identifier}","N/A","{status}","Interactive only","Never","{last_result}"\n'
+    monkeypatch.setattr(
+        adapter,
+        "_run_task_info",
+        Mock(return_value=subprocess.CompletedProcess(["schtasks.exe"], 0, output, "")),
+    )
+
+    assert adapter.manager_state() is expected
+
+
+def test_windows_manager_state_accepts_schtasks_csv_without_a_host_column(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = WindowsTaskSchedulerAdapter(config_home=tmp_path)
+    output = f'"{adapter.identifier}","N/A","Running","Interactive only","Never","0"\n'
+    monkeypatch.setattr(
+        adapter,
+        "_run_task_info",
+        Mock(return_value=subprocess.CompletedProcess(["schtasks.exe"], 0, output, "")),
+    )
+
+    assert adapter.manager_state() is ManagerState.ACTIVE
+
+
+def test_windows_manager_state_treats_a_missing_task_as_inactive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     adapter = WindowsTaskSchedulerAdapter(config_home=tmp_path)
     monkeypatch.setattr(
         adapter,
         "_run_task_info",
-        Mock(return_value=subprocess.CompletedProcess(["powershell.exe"], 0, json.dumps(payload), "")),
+        Mock(return_value=subprocess.CompletedProcess(["schtasks.exe"], -2147024894, "", "")),
     )
 
-    assert adapter.manager_state() is expected
+    assert adapter.manager_state() is ManagerState.INACTIVE
+
+
+def test_windows_task_info_uses_schtasks_instead_of_powershell(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = WindowsTaskSchedulerAdapter(config_home=tmp_path)
+    run = Mock(return_value=subprocess.CompletedProcess(["schtasks.exe"], 0, "", ""))
+    monkeypatch.setattr(adapter, "_run", run)
+
+    adapter._run_task_info(check=False)
+
+    run.assert_called_once_with(
+        "/Query",
+        "/TN",
+        adapter.identifier,
+        "/FO",
+        "CSV",
+        "/NH",
+        "/V",
+        "/HRESULT",
+        check=False,
+    )
 
 
 def test_windows_uninstall_recovery_uses_scoped_task_commands(tmp_path: Path) -> None:
@@ -917,6 +1141,28 @@ def test_windows_uninstall_recovery_uses_scoped_task_commands(tmp_path: Path) ->
     assert adapter.uninstall_recovery("stop") == 'schtasks.exe /End /TN "\\PowerContext Test" /HRESULT'
     assert adapter.uninstall_recovery("disable") == 'schtasks.exe /Change /TN "\\PowerContext Test" /DISABLE /HRESULT'
     assert adapter.uninstall_recovery("remove") == 'schtasks.exe /Delete /TN "\\PowerContext Test" /F /HRESULT'
+
+
+@pytest.mark.parametrize("changed_field", ["ProcessType", "ThrottleInterval", "ProgramArguments"])
+def test_launchd_inspect_accepts_only_an_intact_background_definition(tmp_path: Path, changed_field: str) -> None:
+    adapter = LaunchdUserAdapter(home=tmp_path, uid=501)
+    definition = _definition(tmp_path)
+    payload = plistlib.loads(adapter.render(definition))
+    payload["ProcessType"] = "Background"
+    adapter.write(plistlib.dumps(payload))
+
+    registration = adapter.inspect()
+
+    assert registration.state is RegistrationState.INSTALLED
+    assert registration.definition == definition
+
+    payload[changed_field] = {
+        "ProcessType": "Interactive",
+        "ThrottleInterval": 1,
+        "ProgramArguments": ["/bin/sleep", "30"],
+    }[changed_field]
+    adapter.artifact_path.write_bytes(plistlib.dumps(payload))
+    assert adapter.inspect().state is RegistrationState.INVALID
 
 
 def test_launchd_inspect_accepts_only_an_intact_legacy_owned_definition(tmp_path: Path) -> None:
@@ -934,6 +1180,7 @@ def test_launchd_inspect_accepts_only_an_intact_legacy_owned_definition(tmp_path
         "60",
     ]
     payload["KeepAlive"] = {"SuccessfulExit": False}
+    payload["ProcessType"] = "Background"
     adapter.artifact_path.parent.mkdir(parents=True)
     adapter.artifact_path.write_bytes(plistlib.dumps(payload, fmt=plistlib.FMT_XML, sort_keys=True))
 
@@ -1494,6 +1741,8 @@ def test_service_install_cli_expands_the_environment_file_home_directory(
     controller.install.return_value = status
     monkeypatch.setattr(service_cli, "_controller", lambda: controller)
     monkeypatch.setenv("HOME", str(tmp_path))
+    # Windows expanduser reads USERPROFILE rather than HOME.
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     environment = tmp_path / "powercontext.env"
     environment.write_text("POWERCONTEXT_SERVER_ACCESS_MODE=disabled\n", encoding="utf-8")
 

@@ -100,6 +100,7 @@ Environment variables override file values:
 | --- | --- |
 | `POWERCONTEXT_HERMES_CONFIG` | Path to a JSON config file (defaults to `$HERMES_HOME/powercontext/config.json`). |
 | `POWERCONTEXT_HERMES_BASE_URL` | PowerContext server URL |
+| `POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP` | Explicit non-loopback HTTP consent; overrides common and saved consent, including `false`. |
 | `POWERCONTEXT_HERMES_AUTHORIZATION` | Complete authorization header, e.g. `Bearer <token>` |
 | `POWERCONTEXT_HERMES_TOKEN` | Token shorthand; used when `AUTHORIZATION` is absent |
 | `POWERCONTEXT_HERMES_SCOPE_ID` | Explicit server-owned Scope ID |
@@ -110,6 +111,32 @@ Environment variables override file values:
 | `POWERCONTEXT_HERMES_CAPTURE_PRE_COMPRESS` | Capture filtered new user/assistant turns before compression; disabled by default |
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE` | Record recalled context in per-session local JSONL files; disabled by default |
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE_PATH` | Override the evaluation trace directory |
+
+The client accepts HTTPS and loopback HTTP by default. To configure a
+non-loopback HTTP endpoint explicitly:
+
+```bash
+powercontext setup hermes --server-url http://memory.example:8000 --allow-insecure-http
+```
+
+Setup stores nonsecret settings under `hosts.hermes` in
+`~/.config/powercontext/clients.json` (`POWERCONTEXT_CLIENT_CONFIG_FILE` overrides
+the path). Hermes' native `base_url` configuration remains supported; when it
+is absent, the provider also checks `POWERCONTEXT_CLIENT_SERVER_URL` and saved
+client settings before the loopback default. The host URL environment overrides
+native configuration.
+
+A direct client `allow_insecure_http` argument overrides
+`POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP`, then
+`POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP`, then saved consent. Native Hermes
+configuration can store `allow_insecure_http` with `base_url`; this pair takes
+precedence over shared saved settings. Saved consent belongs only to the
+matching endpoint after stripping trailing slashes and `/mcp`. Changing an
+endpoint through the setup wizard or a session override clears inherited
+consent. Invalid boolean values are rejected.
+
+HTTP sends request content and authorization headers without encryption. This
+opt-in does not change HTTPS certificate verification.
 
 Hermes asks the Server to resolve an explicit Scope, durable session and
 workspace bindings, or the Server default, in that order. Workspace paths are
@@ -127,9 +154,17 @@ profiles, users, repositories, or directories.
 - `on_session_end()` waits for queued writes and calls `/v1/memory/flush`.
 - `on_pre_compress()` optionally persists only filtered new user/assistant turns
   and flushes them before Hermes discards old messages. It is disabled by
-  default and uses stable source IDs for overlapping compression windows.
+  default and uses stable source IDs for overlapping compression windows. The
+  provider advertises the pre-compress checkpoint API v2 contract: it captures
+  the host-normalized evidence list when Hermes supplies one, and a checkpoint
+  that cannot be committed raises, so `compression.checkpoint_required` keeps the
+  uncompressed transcript instead of discarding it behind a failed capture.
 - `on_memory_write()` mirrors built-in Hermes memory additions as explicit
   entries and retires the mapped PowerContext entry for replacements/removals.
+- Automatic writes stay off outside a primary agent context: an `agent_context` of
+  `cron`, `flush` or `subagent`, or a `cron`/`subagent` session platform, disables
+  turn capture and memory mirroring so scheduled runs and delegated children do
+  not write into the user's own memory. Recall is unaffected.
 - Agent tools expose the complete PowerContext operation groups: Memory
   search/list/read/write/change tracking, Work Contract and Handoff flows,
   Experience/Skill proposal and generation, External Skills discovery/import,

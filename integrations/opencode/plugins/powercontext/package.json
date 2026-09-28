@@ -10,12 +10,22 @@
     ".": {
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
+    },
+    "./server": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./tui": {
+      "types": "./lib/tui.d.ts",
+      "default": "./lib/tui.js"
     }
   },
   "files": [
     "lib/index.js",
     "lib/index.d.ts",
-    "skills/project-context/SKILL.md"
+    "lib/tui.js",
+    "lib/tui.d.ts",
+    "skills/powercontext-project-context"
   ],
   "scripts": {
     "build": "tsdown",
@@ -23,11 +33,33 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.18.21 <2"
+    "@opencode-ai/plugin": ">=1.18.21 <2",
+    "@opentui/core": ">=0.4.5",
+    "@opentui/keymap": ">=0.4.5",
+    "@opentui/solid": ">=0.4.5",
+    "solid-js": ">=1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/keymap": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@opencode-ai/plugin": "1.18.21",
+    "@opentui/core": "0.4.5",
+    "@opentui/keymap": "0.4.5",
+    "@opentui/solid": "0.4.5",
     "@types/node": "^24.3.0",
+    "solid-js": "^1.9.9",
     "tsdown": "^0.16.2",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

@@ -28,7 +28,7 @@ All remote interfaces operate on the same Server and persistent Artifact storage
 
 ## Codex plugin
 
-The project-context skill tells Codex when to search, remember, revise, retire, delegate, hand off, acknowledge, or
+The powercontext-project-context skill tells Codex when to search, remember, revise, retire, delegate, hand off, acknowledge, or
 record an outcome. The prompt hook recalls relevant entries and captures user input as Source evidence. MCP tools
 perform explicit operations. The plugin never starts or embeds the Server.
 
@@ -80,7 +80,7 @@ See [Use Handoff Report](../workflows/use-handoff-report.md) for the report API.
 
 ## DeepSeek Harness plugin
 
-The project-context skill tells DeepSeek Harness when to search, remember, revise, or retire Memory. Before each model
+The powercontext-project-context skill tells DeepSeek Harness when to search, remember, revise, or retire Memory. Before each model
 step the plugin recalls relevant entries and captures user input as Source evidence. Named `pc_*` tools perform explicit
 HTTP operations. The plugin never starts or embeds the Server.
 
@@ -121,7 +121,7 @@ published on PyPI. The LangGraph adapter remains a separate node-and-tool integr
 
 ## Pi package
 
-The native Pi package supplies the `project-context` skill, named `pc_*` Memory and Handoff tools, and `/pc`
+The native Pi package supplies the `powercontext-project-context` skill, named `pc_*` Memory and Handoff tools, and `/pc`
 diagnostics. Before each normal agent start, it requests one strict, bounded PreparedContext value and independently
 captures an eligible user prompt as Source evidence. It does not synchronize Pi transcripts. Recall, capture, and
 boundary flushing fail open; explicit durable writes require interactive confirmation.
@@ -131,8 +131,8 @@ boundary flushing fail open; explicit durable writes require interactive confirm
 Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned by `create_scope` before running scoped content commands.
 
 ```text
-powercontext setup <host> --source oceanbase/powercontext --ref master
-powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref master
+powercontext setup <host>
+powercontext setup select --host codex --host dsh
 powercontext config init --output .env
 powercontext config show --env-file .env
 powercontext config validate --env-file .env
@@ -144,6 +144,8 @@ powercontext server run --env-file .env
 powercontext ready
 powercontext capabilities
 powercontext experience generate --scope-id "$POWERCONTEXT_SCOPE_ID" --source-ref content/SOURCE_ID
+powercontext experience list --scope-id "$POWERCONTEXT_SCOPE_ID"
+powercontext experience show --scope-id "$POWERCONTEXT_SCOPE_ID" --revision 1 EXPERIENCE_ID
 powercontext skill generate --scope-id "$POWERCONTEXT_SCOPE_ID" --origin experience \
   --artifact-ref experience/EXPERIENCE_ID@REVISION
 powercontext skill show --scope-id "$POWERCONTEXT_SCOPE_ID" --revision 1 SKILL_ID
@@ -255,18 +257,23 @@ readable on the configured host and its fingerprint still matches. It never inst
 different version.
 
 Discovery does not enter Review. An explicit `import_external_skill` request with the exact identity and fingerprint
-captures a bounded `SKILL.md` snapshot as Source evidence and asks the configured model for a new managed Skill
-Candidate. `mode=import` and `mode=fork` record the caller's intent; both create a new managed identity only after
-Review approval and leave the external registration unchanged. Package scripts and assets are not copied into the
-managed Artifact.
+captures the validated whole package and records Source evidence for that snapshot. With `mode=import`, the Runtime
+proposes the captured package directly, preserving its file paths and bytes, including scripts and resources, without
+calling a generation model. With `mode=fork`, a configured generator uses the snapshot as evidence for a new managed
+Skill proposal and may return `no_op` without a Candidate. Capturing the original package does not guarantee that the
+generated proposal retains its scripts or resources.
+
+When either mode returns a Candidate, it remains pending until Review approval creates a new managed Skill identity.
+Neither mode edits the original external package. Later changes that alter the package fingerprint make the old
+fingerprint unavailable for resolution or import; they do not replace an already approved managed Revision.
 
 ## Authority and gates
 
 | Surface | Content authority | Model gate | Review gate | Current availability |
 | --- | --- | --- | --- | --- |
-| External Agent-native Skill | Original package | No for scan/list/resolve; yes for import/fork | No for discovery; yes after import/fork | Host-local Registry and exact resolve |
+| External Agent-native Skill | Original package | No for scan/list/resolve/import; yes for fork | No for discovery; yes for import/fork Candidates | Host-local Registry and exact resolve |
 | Experience | Exact approved Artifact Revision | Yes for generate/evolve; no for typed `propose` | Yes | Exact read and approved-head FTS recall in PreparedContext |
-| Managed Skill | Exact approved Artifact Revision | Yes for generate/evolve/import/fork; no for typed `propose` | Yes | Exact read and explicit Agent projection |
+| Managed Skill | Exact approved Artifact Revision | Yes for generate/evolve/fork; no for import or typed `propose` | Yes | Exact read and explicit Agent projection |
 | Agent projection | Its source managed Skill Revision | No | No additional review | Rebuildable Codex or Claude Code host-local copy |
 
 ## Core SDK

@@ -19,6 +19,7 @@ import { requireService } from './dsh-service.ts'
 import { diagnoseServer } from './doctor.ts'
 import { invokeOperation, reportDirectFailure, type PluginRuntime, type ToolResult } from './invoke.ts'
 import { UNSCOPED_MESSAGE } from './scope.ts'
+import { RuntimeStatus } from './status.ts'
 
 export interface CommandResult {
   kind: 'success' | 'error'
@@ -80,7 +81,8 @@ async function handleReview(
   return { kind: 'error', text: 'Usage: /pc review [approve|reject] ...' }
 }
 
-function statusResult(runtime: PluginRuntime, scopeId?: string, failure?: ToolResult): CommandResult {
+function statusResult(runtime: PluginRuntime, scopeId?: string, failure?: ToolResult,
+  sessionId?: string, cwd?: string): CommandResult {
   let endpoint = '(invalid URL)'
   try {
     // Display the origin only: credentials, paths, query strings and fragments can contain secrets.
@@ -89,7 +91,8 @@ function statusResult(runtime: PluginRuntime, scopeId?: string, failure?: ToolRe
   return {
     kind: failure ? 'error' : 'success',
     text: `scope=${scopeId ?? 'unresolved'}\nbaseUrl=${endpoint}\nUse /pc doctor to check Server readiness.`
-      + (failure ? `\n${formatResult(failure)}` : ''),
+      + (failure ? `\nCurrent Scope check (resolve_scope_binding):\n${formatResult(failure)}` : '')
+      + `\nautomatic=${JSON.stringify((runtime.status ?? new RuntimeStatus()).read(sessionId, cwd, scopeId), null, 2)}`,
   }
 }
 
@@ -98,6 +101,7 @@ export async function handlePcCommand(
   runtime: PluginRuntime,
   cwd?: string,
   signal?: AbortSignal,
+  sessionId?: string,
 ): Promise<CommandResult> {
   const tokens = rawInput.trim().split(/\s+/).filter(Boolean)
   const command = tokens[0]
@@ -105,9 +109,9 @@ export async function handlePcCommand(
     try {
       const scopeId = await runtime.resolveScope(cwd, signal)
       return statusResult(runtime, scopeId,
-        scopeId ? undefined : { ok: false, code: 'unscoped', message: UNSCOPED_MESSAGE })
+        scopeId ? undefined : { ok: false, code: 'unscoped', message: UNSCOPED_MESSAGE }, sessionId, cwd)
     } catch (error) {
-      return statusResult(runtime, undefined, await reportDirectFailure(runtime, 'command', error))
+      return statusResult(runtime, undefined, await reportDirectFailure(runtime, 'command', error), sessionId, cwd)
     }
   }
   if (command === 'doctor') {
@@ -147,7 +151,7 @@ export function registerCommands(
       name: string
       description: string
       input: { hint: string }
-      handler: (invocation: { rawInput: string; signal: AbortSignal; agent: { session: { header: { cwd?: string } } } }) => Promise<CommandResult>
+      handler: (invocation: { rawInput: string; signal: AbortSignal; agent: { session: { header: { id?: string; cwd?: string } } } }) => Promise<CommandResult>
     }) => unknown
   }>(ctx, 'commands')
   commands.register({
@@ -155,7 +159,7 @@ export function registerCommands(
     description: 'PowerContext status, search, review, and diagnostics',
     input: { hint: 'doctor | capabilities | search <query> | remember <text> | flush | review | stats | skills scan' },
     handler: async (invocation) => handlePcCommand(
-      invocation.rawInput, runtime, invocation.agent.session.header.cwd, invocation.signal,
+      invocation.rawInput, runtime, invocation.agent.session.header.cwd, invocation.signal, invocation.agent.session.header.id,
     ),
   })
 }

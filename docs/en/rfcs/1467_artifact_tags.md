@@ -565,7 +565,7 @@ ledger through a follow-up design before claiming that guarantee.
 The implementation is split into two reviewable vertical slices:
 
 1. Add target models, normalization, the shared table and repository, ETag-guarded read/replace plus query,
-   OpenAPI-generated contracts, and deterministic SQLite and OceanBase/seekDB behavior tests.
+   OpenAPI-generated contracts, and deterministic SQLite and OceanBase/seekdb behavior tests.
 2. Add current Artifact and Memory-entry list filters, pre-top-k Memory search filtering, and the minimal Dashboard tag
    editor and exact filter.
 

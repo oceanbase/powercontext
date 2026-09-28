@@ -1,9 +1,12 @@
 ---
 title: 安装和运行
-description: 从 Git 安装 PowerContext，并运行本地 Server。
+description: 安装 PowerContext 1.1.0，并运行本地 Server。
 ---
 
 # 安装和运行
+
+跨机器连接 Agent 时，请阅读[连接远程 Server](../operate/connect-remote-server.md)，了解地址引导确认、
+非交互安装及绑定地址的明文 HTTP 同意设置。
 
 首次使用请从 [Quick Start](quickstart.md)开始。本页说明版本选择、平台要求、安装角色、启动、诊断和更新。
 
@@ -19,29 +22,37 @@ Windows 的 CLI、Server 和个人服务支持为试验性；各 Agent Host 仍�
 
 ## 选择版本
 
-发布版与集成使用相同 tag。例如安装 `0.2.0`：
+本页使用 PowerContext 1.1.0 正式版本。包与 Agent 集成保持版本一致：
+Python 包版本为 `1.1.0`，对应 Git tag 为 `powercontext-v1.1.0`。
 
 ```bash
-uv tool install "powercontext[cli,server]==0.2.0"
+uv tool install --force "powercontext[cli,server]==1.1.0"
+powercontext setup codex --ref powercontext-v1.1.0
 ```
 
-后续示例使用 `master`，包含尚未发布的能力。核对[能力矩阵](../integrations/capabilities.md)，
-不要将 `master_only` 或 `experimental` 能力当作发布版承诺。
+宿主支持范围和维护状态见[能力矩阵](../integrations/capabilities.md)。
+标为 `experimental` 的能力在此正式版本中仍属于试验性能力。
 
 ## 安装应用
 
 需要在 macOS、Linux 或 Windows 上准备 Python 3.11 或更新版本、Git 和
-[`uv`](https://docs.astral.sh/uv/)，然后从指定 Git ref 直接安装 PowerContext：
+[`uv`](https://docs.astral.sh/uv/)，然后从 PyPI 安装 PowerContext：
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server]==1.1.0"
 ```
 
-该命令不会留下需要自行管理的仓库工作副本。Git 会沿用本机的凭据配置，包括 credential helper 和 SSH 设置。
+如需从源码安装同一版本：
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.1.0"
+```
+
+Git 安装命令不会留下需要自行管理的仓库工作副本。Git 会沿用本机的凭据配置，包括 credential helper 和 SSH 设置。
 如需使用 SSH，请把 HTTPS URL 换成当前环境允许的 Git URL。`--force` 还会从所选 Git ref 当前指向的 commit
 刷新已安装工具；如果不加该参数，`uv` 可能只提示相同 requirement 已安装，而不会获取更新后的 `master`。
 
-安装指定分支或 tag 时，替换最后一个 `@` 后的 `master`。
+安装其他分支或 tag 时，替换最后一个 `@` 后的 ref。`master` 分支可能包含尚未发布的改动。
 Agent 的安装、连接参数和验证步骤见[各自的集成文档](../integrations/index.md)，并使用与 Server 相同的 ref。
 
 ## 运行本地 Server
@@ -50,7 +61,7 @@ Agent 的安装、连接参数和验证步骤见[各自的集成文档](../integ
 powercontext server run
 ```
 
-未设置环境变量时，Server 会：
+没有环境变量或环境文件时，Server 会：
 
 - 监听 `127.0.0.1:8000`；
 - 在 `/mcp` 启用 Streamable HTTP MCP；
@@ -82,6 +93,10 @@ powercontext server run --env-file /path/to/powercontext.env
 再刷新同一 Scope 的记忆页即可查看。经验、技能、交接和用量也来自实际保存记录；页面不采集会话、不运行生成，
 也不批准候选。Dashboard 和 Agent 必须连接同一个 Server、使用同一个 Scope。
 
+打开**画像**查看已保存内容，通过**版本历史**阅读历史修订或核对来源；阅读旧版本不会改变当前画像。
+在**交接**目录条目或详情页点击**导出 Markdown**，可下载该精确版本的完整正文、遗漏和引用。
+若登录失效，重新登录后会返回所选详情，再次点击导出即可。
+
 所有 token 持有者使用同一个身份。多成员 RBAC 部署应保持 Dashboard 关闭，通过 API、MCP 或宿主集成访问内容。
 网络与凭据配置见[部署 Server](../operate/deploy-server.md)。
 
@@ -94,7 +109,7 @@ powercontext server run --env-file /path/to/powercontext.env
 后端。安装或替换工具时加入可选的 seekDB extra：
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server,seekdb]==1.1.0"
 ```
 
 从 SQLite 切换时，需要从 Server 进程环境中删除 `POWERCONTEXT_SERVER_DATABASE_URL`；seekDB 不接受显式的
@@ -139,7 +154,20 @@ Agent 诊断见[各自的集成文档](../integrations/index.md)；Server 状态
 
 ## 更新或替换安装
 
-使用指定 ref 替换现有工具：
+升级已有部署前，先备份数据库和配置。1.1.0 会在 Server 启动时升级旧标签表约束，以支持 Topic Memory 标签。
+先停止旧 Server 实例，再启动一个升级后的实例，待结构升级完成后再启动其他实例。对于 1.0.0 之前的数据库，
+如果尚未完成[Artifact 处理迁移](../operate/artifact-processing-migration.md)，还需要先执行该迁移。
+Server、客户端和 Agent 集成需一起升级。Dashboard 需要显式启用并配置静态 Bearer 认证，
+见[部署 Server](../operate/deploy-server.md)；远程明文 HTTP 连接需要客户端明确同意，
+见[连接远程 Server](../operate/connect-remote-server.md)。
+
+升级到 1.1.0：
+
+```bash
+uv tool install --force "powercontext[cli,server]==1.1.0"
+```
+
+使用其他 Git ref 替换现有工具：
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
@@ -153,7 +181,7 @@ uv tool install --force "powercontext[cli,server] @ git+https://github.com/ocean
 如果应用需要导入异步 Client SDK，应把它加入该应用自己的环境：
 
 ```bash
-uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv add "powercontext[client]==1.1.0"
 ```
 
 进程内 Python 组合使用 `builtin`，服务使用 `server`，Python SDK 使用 `client`，基于 Server 的命令行使用

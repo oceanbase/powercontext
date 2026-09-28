@@ -21,15 +21,24 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.datastructures import Headers
 from starlette.types import Scope
 
+from powercontext.server.dashboard.navigation import reading_return, request_reading_return
+
 COOKIE_NAME = "powercontext_dashboard_token"
 
 
-def login_response(status: int = 401, *, rejected: bool = False, request: Request | None = None) -> HTMLResponse:
+def login_response(
+    status: int = 401, *, rejected: bool = False, request: Request | None = None, next_url: str | None = None
+) -> HTMLResponse:
     from powercontext.server.dashboard.preferences import presentation, remember_language
     from powercontext.server.dashboard.routes import ENV
 
     response = HTMLResponse(
-        ENV.get_template("login.html").render(**presentation(request), status=status, rejected=rejected),
+        ENV.get_template("login.html").render(
+            **presentation(request),
+            status=status,
+            rejected=rejected,
+            next_url=reading_return(next_url) or (request_reading_return(request) if request is not None else None),
+        ),
         status_code=status,
         headers={"Cache-Control": "no-store", "X-Dashboard-HTML": "1"},
     )
@@ -56,20 +65,24 @@ async def save_session(request: Request) -> HTMLResponse | RedirectResponse:
     ):
         return HTMLResponse(status_code=403)
     length = request.headers.get("content-length", "0")
-    if not length.isdecimal() or len(length) > 6 or int(length) > 8192:
+    if not length.isdecimal() or len(length) > 6 or int(length) > 32768:
         return HTMLResponse(status_code=413)
     body = bytearray()
     async for chunk in request.stream():
         body.extend(chunk)
-        if len(body) > 8192:
+        if len(body) > 32768:
             return HTMLResponse(status_code=413)
     try:
-        token = parse_qs(body.decode(), max_num_fields=1).get("token", [""])[0].strip()
+        fields = parse_qs(body.decode(), keep_blank_values=True, max_num_fields=2)
+        if fields.keys() - {"token", "next"} or any(len(values) != 1 for values in fields.values()):
+            return login_response(request=request)
+        token = fields.get("token", [""])[0].strip()
+        next_url = reading_return(fields.get("next", [""])[0])
     except (ValueError, UnicodeDecodeError):
         return login_response(request=request)
     if len(token) > 4096 or any(ord(char) < 33 or ord(char) > 126 for char in token):
-        return login_response(rejected=True, request=request)
-    response = RedirectResponse("/dashboard/home", status_code=303, headers={"Cache-Control": "no-store"})
+        return login_response(rejected=True, request=request, next_url=next_url)
+    response = RedirectResponse(next_url or "/dashboard/home", status_code=303, headers={"Cache-Control": "no-store"})
     if token:
         response.set_cookie(
             COOKIE_NAME,

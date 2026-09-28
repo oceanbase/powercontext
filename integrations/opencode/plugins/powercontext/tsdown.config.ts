@@ -39,23 +39,37 @@ async function normalizeGeneratedFile(path: URL): Promise<void> {
   await writeFile(path, `${content.trimEnd()}\n`, 'utf8')
 }
 
-export default defineConfig({
-  entry: { index: 'src/index.ts' },
+const commonConfig = {
   outDir: 'lib',
   format: ['esm'],
   dts: true,
-  clean: true,
   platform: 'node',
   target: 'es2022',
   fixedExtension: false,
-  external: [/^@opencode-ai\//, /^node:/],
+  external: [/^@opencode-ai\//, /^@opentui\//, /^solid-js(?:\/|$)/, /^node:/],
   banner: LICENSE_HEADER,
-  hooks: {
-    'build:done': async () => {
-      await Promise.all([
-        normalizeGeneratedFile(new URL('./lib/index.js', import.meta.url)),
-        normalizeGeneratedFile(new URL('./lib/index.d.ts', import.meta.url)),
-      ])
-    },
+} as const
+
+function normalizeEntry(entry: 'index' | 'tui') {
+  return async () => {
+    await Promise.all([
+      normalizeGeneratedFile(new URL(`./lib/${entry}.js`, import.meta.url)),
+      normalizeGeneratedFile(new URL(`./lib/${entry}.d.ts`, import.meta.url)),
+    ])
+  }
+}
+
+export default defineConfig([
+  {
+    ...commonConfig,
+    entry: { index: 'src/index.ts' },
+    clean: ['lib/index.js', 'lib/index.d.ts'],
+    hooks: { 'build:done': normalizeEntry('index') },
   },
-})
+  {
+    ...commonConfig,
+    entry: { tui: 'src/tui.tsx' },
+    clean: false,
+    hooks: { 'build:done': normalizeEntry('tui') },
+  },
+])

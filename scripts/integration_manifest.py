@@ -62,6 +62,7 @@ class IntegrationCapability(StrEnum):
     EXPERIENCE_READ_OR_GENERATE = "experience_read_or_generate"
     SKILL_READ_OR_GENERATE = "skill_read_or_generate"
     CANDIDATE_REVIEW = "candidate_review"
+    TOPIC_MEMORY_READ = "topic_memory_read"
     EXTERNAL_SKILL = "external_skill"
     PRE_COMPACTION_CAPTURE = "pre_compaction_capture"
     SLASH_COMMAND = "slash_command"
@@ -501,14 +502,19 @@ def _read(root: Path, relative_path: str) -> str:
 
 def _typescript_operation_tools(path: Path, helper: str) -> set[str]:
     source = path.read_text(encoding="utf-8")
-    expression = (
-        rf"(?:name:\s*'(?P<name>pc_[a-z_]+)'|(?P<key>pc_[a-z_]+):\s*{helper})"
-        rf"[\s\S]{{0,900}}?(?:operationId:\s*'|run\(runtime, exec, ')(?P<operation>[a-z_]+)'"
+    registrations = list(
+        re.finditer(
+            rf"(?:name:\s*'(?P<name>pc_[a-z_]+)'|(?P<key>pc_[a-z_]+):\s*{helper})",
+            source,
+        )
     )
-    pairs = {
-        f"{match.group('name') or match.group('key')}:{match.group('operation')}"
-        for match in re.finditer(expression, source)
-    }
+    pairs = set()
+    for index, registration in enumerate(registrations):
+        end = registrations[index + 1].start() if index + 1 < len(registrations) else len(source)
+        # Descriptions have no fixed length; never borrow the following tool's operation.
+        operation = re.search(r"(?:operationId:\s*'|run\(runtime, exec, ')([a-z_]+)'", source[registration.end() : end])
+        if operation:
+            pairs.add(f"{registration.group('name') or registration.group('key')}:{operation[1]}")
     if not pairs:
         raise ValueError(f"could not extract {helper} registrations")
     return pairs
@@ -582,6 +588,7 @@ def _is_complete_hook(integration_id: str, event: str, scripts: set[Path]) -> bo
     expected_script = {
         ("codex", "SessionStart"): "session_binding.py",
         ("codex", "PreToolUse"): "bind_tools.py",
+        ("codex", "Stop"): "token_savings.py",
     }.get((integration_id, event))
     return expected_script is not None and any(
         script.is_file() and script.name == expected_script for script in scripts

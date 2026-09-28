@@ -34,7 +34,7 @@ powercontext doctor hermes
 确认 Git 能够读取仓库：
 
 ```bash
-git ls-remote https://github.com/oceanbase/powercontext.git HEAD
+git ls-remote https://github.com/oceanbase/powercontext.git refs/heads/master
 ```
 
 如果失败，请配置 Git 使用的 credential helper 或 SSH key，再重新运行 `uv tool install`。`uv` 使用 Git
@@ -75,7 +75,7 @@ powercontext doctor pi
 使用与工具一致的 ref 重新安装：
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref <ref>
+powercontext setup codex
 codex plugin list --json
 ```
 
@@ -85,7 +85,7 @@ codex plugin list --json
 
 ```bash
 powercontext doctor claude-code
-powercontext setup claude-code --source oceanbase/powercontext --ref <ref>
+powercontext setup claude-code
 claude plugin list --json
 ```
 
@@ -99,7 +99,7 @@ setup 前已有的对象会保留。修正命令报告的 Claude CLI 或仓库�
 
 ```bash
 powercontext doctor dsh
-powercontext setup dsh --source oceanbase/powercontext --ref <ref>
+powercontext setup dsh
 dsh --profile web --dump-config
 ```
 
@@ -110,7 +110,7 @@ dsh --profile web --dump-config
 
 ```bash
 powercontext doctor pi
-powercontext setup pi --source oceanbase/powercontext --ref <ref>
+powercontext setup pi
 pi list
 ```
 
@@ -134,6 +134,74 @@ powercontext --server-url http://127.0.0.1:9000 ready
 随附的 Codex 和 Claude Code 插件以及 Pi package 默认使用 8000 端口。liveness 失败表示进程无法响应健康请求，此时不会继续检查
 readiness。HTTP 503 的 `not_ready` 表示 Runtime 或数据库无法接受工作；HTTP 200 的 `degraded` 表示已配置的
 推理能力异常，但数据库操作仍然可用。Human 与 JSON 输出都会保留 Server 返回的各项检查状态。
+
+自动化部署不能只检查 `powercontext ready` 的进程退出码：Server 返回 HTTP 200 的 `degraded` 时，`ready` 命令仍可能以
+状态码 0 退出。请使用 JSON 输出检查顶层 `status` 是否为 `ready`：
+
+```bash
+powercontext --json ready | jq -e '.status == "ready"' >/dev/null
+```
+
+上面的命令在 `status` 为 `degraded` 时会以非零状态退出。若希望由 PowerContext 直接把降级状态判为失败，可以使用
+`powercontext doctor --json`；该命令会在检查结果不是完整 `ok` 时以非零状态退出。
+
+### 指标和能力检查的权限
+
+在 `enforced` 模式下，Principal 是 Authentication Provider 根据请求凭据建立的访问身份。
+有效的 Bearer token 只能完成认证，不代表该身份自动拥有所有操作权限。
+
+`/metrics` 和 `capabilities` 都需要 Server 级别的 `server.observe` 权限。因此，请求返回：
+
+- HTTP 401：未提供有效的认证凭据；
+- HTTP 403：Principal 已认证，但没有 `server.observe` 权限。
+
+使用内置静态 Bearer token 时，可以这样检查指标：
+
+```bash
+export POWERCONTEXT_DEPLOYMENT_TOKEN="your-token"
+
+curl --fail \
+  --header "Authorization: Bearer ${POWERCONTEXT_DEPLOYMENT_TOKEN}" \
+  http://127.0.0.1:8000/metrics
+```
+
+也可以检查 Server 当前提供的能力：
+
+```bash
+curl --fail \
+  --header "Authorization: Bearer ${POWERCONTEXT_DEPLOYMENT_TOKEN}" \
+  http://127.0.0.1:8000/v1/capabilities
+```
+
+Principal、Access Control 和 Bearer token 的配置方式见[Server 鉴权与权限配置](configuration.md#server)。
+
+## 本地 tracing 示例与已有 Server 配置冲突
+
+Phoenix 和 Langfuse 文档中的本地 tracing 示例按独立测试实例编写，默认使用 loopback 地址。
+实际是否启用 Dashboard 以所安装版本和生效配置为准。新版本的个人 Dashboard 要求 `ACCESS_MODE=enforced` 和有效
+`AUTH_TOKEN`；如果启动报 `DASHBOARD_ENABLED requires ACCESS_MODE=enforced and AUTH_TOKEN`，请补齐鉴权配置，
+或在独立的本机测试实例中关闭 Dashboard。
+
+已有 Server 启用了静态 Bearer 鉴权时，应保留对应配置。下面是同时启用 Dashboard 的示例：
+
+```dotenv
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+POWERCONTEXT_SERVER_AUTH_TOKEN=<有效 token>
+```
+
+已有 Server 接入 Phoenix 或 Langfuse 时，应继续使用该 Server 原有的鉴权配置，不要通过清除鉴权环境变量来绕过
+启动错误。
+
+如果需要运行独立的无鉴权测试实例，应使用单独的环境配置，并确保：
+
+```dotenv
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false
+POWERCONTEXT_SERVER_ACCESS_MODE=disabled
+POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1
+```
+
+无鉴权模式只适合绑定 loopback 的本机测试环境。远程或已有 Server 应按照[部署 Server](deploy-server.md)中的鉴权要求配置。
 
 ## Server 无法打开数据库
 
@@ -202,7 +270,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
+     --table 'pc_dream_runs,pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
      -f <export-directory>
    ```
 
@@ -210,7 +278,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_artifact_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags' \
+      --table 'pc_artifact_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
      -f <export-directory>
    ```
 

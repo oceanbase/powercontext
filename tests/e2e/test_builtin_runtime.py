@@ -299,6 +299,29 @@ class _ConcurrentReranker:
         )
 
 
+def test_prepare_build_reports_no_recall_effort_while_the_gate_is_disabled() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Gate off", summary="Disabled gate", idempotency_key="gate-off")
+            )
+            await runtime.memory.for_scope(scope.scope_id).remember(
+                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Disabled gate evidence."),))
+            )
+            request = PrepareContextRequest(query="disabled gate evidence")
+            application = runtime.context.for_scope(scope.scope_id)
+            async with runtime._scope_operation(scope.scope_id) as descriptor:
+                build, effort = await application._prepare_build(request, descriptor)
+            prepared = await runtime.context.for_scope(scope.scope_id).prepare(request)
+
+            assert effort is None
+            assert build.context.status == "ready"
+            assert prepared.content == build.context.content
+
+    asyncio.run(scenario())
+
+
 def test_same_scope_read_only_searches_do_not_serialize_reranking() -> None:
     async def scenario() -> None:
         reranker = _ConcurrentReranker()

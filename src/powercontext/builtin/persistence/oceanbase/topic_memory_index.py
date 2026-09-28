@@ -173,12 +173,29 @@ class OceanBaseTopicMemoryFTSIndex:
     ) -> TopicMemorySearchChannels:
         if request.mode not in {"fts", "hybrid"} or not request.analyzed_query:
             return TopicMemorySearchChannels()
-        query_terms, coverage_required = fts_query_requirements(request.query)
+        query_terms, coverage_required = fts_query_requirements(request.query, floor=request.admission)
         topic_score = match(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.searchable_text, against=request.analyzed_query)
         topic_coverage = _coverage_expression(
             TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.searchable_text,
             query_terms,
             coverage_required,
+        )
+        topic_retrieved = await connection.scalar(
+            select(func.count())
+            .select_from(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE)
+            .where(
+                TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.scope_id == scope_id,
+                topic_score,
+            )
+        )
+        topic_eligible = await connection.scalar(
+            select(func.count())
+            .select_from(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE)
+            .where(
+                TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.scope_id == scope_id,
+                topic_score,
+                topic_coverage,
+            )
         )
         topic_rows = (
             await connection.execute(
@@ -217,6 +234,7 @@ class OceanBaseTopicMemoryFTSIndex:
                 TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.start_offset.label("start_offset"),
                 TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_text.label("chunk_text"),
                 chunk_score.label("score"),
+                chunk_coverage.label("coverage"),
                 func
                 .row_number()
                 .over(
@@ -224,7 +242,11 @@ class OceanBaseTopicMemoryFTSIndex:
                         TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id,
                         TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision,
                     ),
-                    order_by=(chunk_score.desc(), TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_ordinal),
+                    order_by=(
+                        chunk_coverage.desc(),
+                        chunk_score.desc(),
+                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_ordinal,
+                    ),
                 )
                 .label("topic_rank"),
             )
@@ -237,9 +259,16 @@ class OceanBaseTopicMemoryFTSIndex:
             .where(
                 TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == scope_id,
                 chunk_score,
-                chunk_coverage,
             )
             .subquery()
+        )
+        detail_retrieved = await connection.scalar(
+            select(func.count()).select_from(chunk_candidates).where(chunk_candidates.c.topic_rank == 1)
+        )
+        detail_eligible = await connection.scalar(
+            select(func.count())
+            .select_from(chunk_candidates)
+            .where(chunk_candidates.c.topic_rank == 1, chunk_candidates.c.coverage)
         )
         chunk_rows = (
             await connection.execute(
@@ -252,7 +281,7 @@ class OceanBaseTopicMemoryFTSIndex:
                     chunk_candidates.c.start_offset,
                     chunk_candidates.c.chunk_text,
                 )
-                .where(chunk_candidates.c.topic_rank == 1)
+                .where(chunk_candidates.c.topic_rank == 1, chunk_candidates.c.coverage)
                 .order_by(
                     chunk_candidates.c.score.desc(),
                     chunk_candidates.c.artifact_id,
@@ -265,6 +294,10 @@ class OceanBaseTopicMemoryFTSIndex:
         return TopicMemorySearchChannels(
             topic_fts=tuple(_channel_hit(row, "topic_fts") for row in topic_rows),
             detail_fts=tuple(_channel_hit(row, "detail_fts") for row in chunk_rows),
+            topic_fts_retrieved=int(topic_retrieved or 0),
+            detail_fts_retrieved=int(detail_retrieved or 0),
+            topic_fts_eligible=int(topic_eligible or 0),
+            detail_fts_eligible=int(detail_eligible or 0),
         )
 
     async def vector_complete(

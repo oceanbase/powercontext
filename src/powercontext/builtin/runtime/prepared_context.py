@@ -29,12 +29,18 @@ from powercontext.builtin.artifacts.profile.models import Profile
 from powercontext.builtin.artifacts.topic_memory import TopicMemory, TopicMemorySearchHit
 from powercontext.builtin.runtime.errors import PreparedContextInvariantError
 from powercontext.builtin.runtime.models import PrepareContextRequest, PreparedContext
+from powercontext.builtin.runtime.prepared_code import (
+    CodeEvidenceRef,
+    PreparedCodeCandidate,
+    assemble_code,
+)
 from powercontext.builtin.runtime.prepared_text import (
     TRUST_POLICY,
     ContextTextItem,
     fit_context_text_item,
     render_context_text,
 )
+from powercontext.builtin.runtime.recall_sufficiency import RecallBudgetView
 
 _MIN_TRUNCATED_CONTENT_BYTES = 64
 _ELLIPSIS = "…"
@@ -53,11 +59,53 @@ class _PreparedContextEntry:
 
 
 @dataclass(frozen=True)
+class _EntryFit:
+    """One fit attempt on the non-assembly path: the entry that fitted, or why none did.
+
+    The two drop reasons are disjoint and mirror the assembly path's
+    :class:`~powercontext.builtin.runtime.prepared_text.FitOutcome`. An entry is dropped
+    *below the minimum truncated content* when a shorter rendering exists and fits but is too
+    short to be an honest delivery; it is dropped *with no fitting truncation* when no
+    shortened rendering fits at all.
+    """
+
+    entry: _PreparedContextEntry | None = None
+    dropped_below_min_bytes: bool = False
+    dropped_no_fitting_truncation: bool = False
+
+
+@dataclass(frozen=True)
+class PreparedContextOmissions:
+    """Aggregate counts of the items the byte budget omitted in one build.
+
+    Every count is a per-call aggregate, never per-entry attribution and never a verdict about
+    an entry: an entry losing to the budget is not a negative result about that entry.
+
+    ``dropped_items`` is the sum of its two sub-counts, so "the budget could not fit this
+    item" can be told apart from "this item was too short to truncate into the remaining
+    space". A single merged counter would misreport the second cause as the first.
+    """
+
+    truncated_items: int = 0
+    dropped_items: int = 0
+    dropped_below_min_bytes: int = 0
+    dropped_no_fitting_truncation: int = 0
+
+
+@dataclass(frozen=True)
 class PreparedContextBuild:
-    """Final public context and the exact origins selected to produce it."""
+    """Final public context and the exact origins selected to produce it.
+
+    ``omissions`` is always filled by the Builder. The RFC 1560 recall trace is deliberately
+    **not** a field here: ``ScopedContextApplication._prepare`` returns ``build.context`` and
+    discards the rest, so such a field would have no production observer. The trace is
+    delivered through the Runtime's optional ``RecallEffortSink`` instead.
+    """
 
     context: PreparedContext
     origins: tuple[PreparedContextOrigin, ...]
+    omissions: PreparedContextOmissions = PreparedContextOmissions()
+    code_origins: tuple[CodeEvidenceRef, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -108,6 +156,7 @@ class PreparedContextBuilder:
     topic_memory_entry_limit = 8
     experience_entry_limit = 2
     max_entry_content_bytes = 2000
+    _text_entry_limit: int | None = None
 
     def empty(self) -> PreparedContext:
         return PreparedContext(status="empty", content=None, content_bytes=0)
@@ -160,7 +209,25 @@ class PreparedContextBuilder:
         topic_memory_hits: Sequence[TopicMemorySearchHit] = (),
         experience_candidates: Sequence[PreparedExperienceCandidates] = (),
         profile_candidates: Sequence[PreparedProfileCandidate] = (),
+        code_candidates: Sequence[PreparedCodeCandidate] = (),
     ) -> PreparedContextBuild:
+        if request.include_code:
+
+            def historical(history_request: PrepareContextRequest, entries: int) -> PreparedContextBuild:
+                builder = PreparedContextBuilder()
+                builder.entry_limit = entries
+                builder._text_entry_limit = entries if entries < self.entry_limit else None
+                return builder.build_scopes_result(
+                    request=history_request.model_copy(update={"include_code": False}),
+                    current_scope_id=current_scope_id,
+                    memory_candidates=memory_candidates,
+                    topic_memory_hits=topic_memory_hits,
+                    experience_candidates=experience_candidates,
+                    profile_candidates=profile_candidates,
+                )
+
+            return assemble_code(request, code_candidates, self.entry_limit, historical)
+
         if sum(len(candidates.hits) for candidates in memory_candidates) > self.memory_candidate_limit:
             raise PreparedContextInvariantError("memory-candidate-limit")
         if len(topic_memory_hits) > self.topic_memory_candidate_limit:
@@ -168,8 +235,85 @@ class PreparedContextBuilder:
         if sum(len(candidates.hits) for candidates in experience_candidates) > self.experience_candidate_limit:
             raise PreparedContextInvariantError("experience-candidate-limit")
 
+        content, origins, omissions = self._select_entries(
+            request=request,
+            current_scope_id=current_scope_id,
+            memory_candidates=memory_candidates,
+            experience_candidates=experience_candidates,
+            profile_candidates=profile_candidates,
+            topic_memory_hits=topic_memory_hits,
+        )
+        if content is None:
+            return PreparedContextBuild(context=self.empty(), origins=(), omissions=omissions)
+        content_bytes = len(content.encode("utf-8"))
+        # The assembly path is bounded by construction (every fitted item is measured against
+        # `max_bytes`), so the ceiling check belongs to the non-assembly renderer only.
+        if request.assembly is None and content_bytes > request.max_bytes:
+            raise PreparedContextInvariantError("output-budget")
+        return PreparedContextBuild(
+            context=PreparedContext(status="ready", content=content, content_bytes=content_bytes),
+            origins=origins,
+            omissions=omissions,
+        )
+
+    def probe_budget(
+        self,
+        *,
+        request: PrepareContextRequest,
+        current_scope_id: str | None,
+        memory_candidates: Sequence[PreparedMemoryCandidates] = (),
+        topic_memory_hits: Sequence[TopicMemorySearchHit] = (),
+        experience_candidates: Sequence[PreparedExperienceCandidates] = (),
+        profile_candidates: Sequence[PreparedProfileCandidate] = (),
+    ) -> RecallBudgetView:
+        """Report what the byte budget does to one candidate set, without delivering it.
+
+        This is the RFC 1560 *budget probe*: one pass of this Builder's own pure selection and
+        rendering code, keeping only the counters and discarding the rendered output. It lets
+        the gate tell budget-limited thinness from recall-limited thinness.
+
+        Pure and side-effect free: no I/O, no persistence, nothing reported to any sink, and
+        the same inputs as :meth:`build_scopes_result` are guaranteed to yield the same
+        counters because both go through :meth:`_select_entries`.
+        """
+
+        content, origins, omissions = self._select_entries(
+            request=request,
+            current_scope_id=current_scope_id,
+            memory_candidates=memory_candidates,
+            experience_candidates=experience_candidates,
+            profile_candidates=profile_candidates,
+            topic_memory_hits=topic_memory_hits,
+        )
+        content_bytes = 0 if content is None else len(content.encode("utf-8"))
+        return RecallBudgetView(
+            max_bytes=request.max_bytes,
+            delivered_items=len(origins),
+            truncated_items=omissions.truncated_items,
+            dropped_items=omissions.dropped_items,
+            unused_bytes=max(0, request.max_bytes - content_bytes),
+        )
+
+    def _select_entries(
+        self,
+        *,
+        request: PrepareContextRequest,
+        current_scope_id: str | None,
+        memory_candidates: Sequence[PreparedMemoryCandidates],
+        topic_memory_hits: Sequence[TopicMemorySearchHit],
+        experience_candidates: Sequence[PreparedExperienceCandidates],
+        profile_candidates: Sequence[PreparedProfileCandidate],
+    ) -> tuple[str | None, tuple[PreparedContextOrigin, ...], PreparedContextOmissions]:
+        """Run one complete pure selection pass and render it.
+
+        Returns ``(content, origins, omissions)``; ``content`` is ``None`` exactly when nothing
+        was selected, which is the empty-result case for both paths. This is the single
+        selection path shared by :meth:`build_scopes_result` and :meth:`probe_budget`, so the
+        probe's counters always describe the selection the build would actually perform.
+        """
+
         if request.assembly is not None:
-            return self._build_text(
+            return self._select_text(
                 request,
                 current_scope_id=current_scope_id,
                 memory_candidates=memory_candidates,
@@ -198,20 +342,12 @@ class PreparedContextBuilder:
                 for candidates in experience_candidates
             )
         )[: self.experience_entry_limit]
-        entries = self._fit_entries(request, memory_entries, topic_memory_entries, experience_entries)
-
+        entries, omissions = self._fit_entries(request, memory_entries, topic_memory_entries, experience_entries)
         if not entries:
-            return PreparedContextBuild(context=self.empty(), origins=())
-        content = _render(entries)
-        content_bytes = len(content.encode("utf-8"))
-        if content_bytes > request.max_bytes:
-            raise PreparedContextInvariantError("output-budget")
-        return PreparedContextBuild(
-            context=PreparedContext(status="ready", content=content, content_bytes=content_bytes),
-            origins=tuple(entry.origin for entry in entries),
-        )
+            return None, (), omissions
+        return _render(entries), tuple(entry.origin for entry in entries), omissions
 
-    def _build_text(
+    def _select_text(
         self,
         request: PrepareContextRequest,
         *,
@@ -220,13 +356,22 @@ class PreparedContextBuilder:
         experience_candidates: Sequence[PreparedExperienceCandidates],
         profile_candidates: Sequence[PreparedProfileCandidate],
         topic_memory_hits: Sequence[TopicMemorySearchHit],
-    ) -> PreparedContextBuild:
+    ) -> tuple[str | None, tuple[PreparedContextOrigin, ...], PreparedContextOmissions]:
         assembly = request.assembly
         if assembly is None:
             raise PreparedContextInvariantError("text-assembly-missing")
         included: list[ContextTextItem] = []
         origins: list[PreparedContextOrigin] = []
+        truncated_items = 0
+        dropped_below_min_bytes = 0
+        dropped_no_fitting_truncation = 0
         for section in assembly.sections:
+            # Unfilled earlier sections leave their capacity available to later ones.
+            limit = (
+                section.limit
+                if self._text_entry_limit is None
+                else min(section.limit, self._text_entry_limit - len(included))
+            )
             if section.family == "profile":
                 entries = self._profile_entries(profile_candidates)
             elif section.family == "topic-memory":
@@ -251,6 +396,8 @@ class PreparedContextBuilder:
             rank = 0
             selected_count = 0
             for entry in entries:
+                if selected_count >= limit:
+                    break
                 item = _text_item(entry)
                 artifact = item.artifact
                 identity = (
@@ -265,20 +412,26 @@ class PreparedContextBuilder:
                     continue
                 seen.add(identity)
                 rank += 1
-                fitted = fit_context_text_item(included, replace(item, recall_rank=rank), assembly, request.max_bytes)
-                if fitted is not None:
-                    included.append(fitted)
-                    origins.append(entry.origin)
-                    selected_count += 1
-                if selected_count >= section.limit:
-                    break
-        if not included:
-            return PreparedContextBuild(context=self.empty(), origins=())
-        content = render_context_text(included, assembly)
-        return PreparedContextBuild(
-            context=PreparedContext(status="ready", content=content, content_bytes=len(content.encode("utf-8"))),
-            origins=tuple(origins),
+                outcome = fit_context_text_item(included, replace(item, recall_rank=rank), assembly, request.max_bytes)
+                if outcome.item is None:
+                    dropped_below_min_bytes += int(outcome.dropped_below_min_bytes)
+                    dropped_no_fitting_truncation += int(outcome.dropped_no_fitting_truncation)
+                    continue
+                fitted = outcome.item
+                included.append(fitted)
+                origins.append(entry.origin)
+                selected_count += 1
+                truncated_items += int(fitted.truncated)
+        omissions = PreparedContextOmissions(
+            truncated_items=truncated_items,
+            dropped_items=dropped_below_min_bytes + dropped_no_fitting_truncation,
+            dropped_below_min_bytes=dropped_below_min_bytes,
+            dropped_no_fitting_truncation=dropped_no_fitting_truncation,
         )
+        if not included:
+            return None, (), omissions
+        content = render_context_text(included, assembly)
+        return content, tuple(origins), omissions
 
     def _profile_entries(self, candidates: Sequence[PreparedProfileCandidate]) -> tuple[_PreparedContextEntry, ...]:
         entries = []
@@ -421,12 +574,15 @@ class PreparedContextBuilder:
         memory_entries: Sequence[_PreparedContextEntry],
         topic_memory_entries: Sequence[_PreparedContextEntry],
         experience_entries: Sequence[_PreparedContextEntry],
-    ) -> tuple[_PreparedContextEntry, ...]:
+    ) -> tuple[tuple[_PreparedContextEntry, ...], PreparedContextOmissions]:
         entries: list[_PreparedContextEntry] = []
+        truncated_items = 0
+        dropped_below_min_bytes = 0
+        dropped_no_fitting_truncation = 0
         for candidate in _interleave(memory_entries, topic_memory_entries, experience_entries):
             if len(entries) >= self.entry_limit:
                 break
-            fitted = self._fit_entry(
+            fit = self._fit_entry(
                 entries,
                 origin=candidate.origin,
                 kind=candidate.kind,
@@ -434,9 +590,19 @@ class PreparedContextBuilder:
                 text=candidate.content,
                 max_bytes=request.max_bytes,
             )
-            if fitted is not None:
-                entries.append(fitted)
-        return tuple(entries)
+            if fit.entry is None:
+                dropped_below_min_bytes += int(fit.dropped_below_min_bytes)
+                dropped_no_fitting_truncation += int(fit.dropped_no_fitting_truncation)
+                continue
+            entries.append(fit.entry)
+            if fit.entry.truncated:
+                truncated_items += 1
+        return tuple(entries), PreparedContextOmissions(
+            truncated_items=truncated_items,
+            dropped_items=dropped_below_min_bytes + dropped_no_fitting_truncation,
+            dropped_below_min_bytes=dropped_below_min_bytes,
+            dropped_no_fitting_truncation=dropped_no_fitting_truncation,
+        )
 
     def _fit_entry(
         self,
@@ -447,7 +613,14 @@ class PreparedContextBuilder:
         citation: dict[str, object],
         text: str,
         max_bytes: int,
-    ) -> _PreparedContextEntry | None:
+    ) -> _EntryFit:
+        """Fit one entry into the remaining budget, reporting why it was dropped if it was.
+
+        The two ``None`` paths of the original code are kept apart: ``below-min-bytes`` means a
+        shorter rendering exists and fits but is too short to deliver honestly, while
+        ``no-fitting-truncation`` means no shortened rendering fitted at all.
+        """
+
         source_bytes = len(text.encode("utf-8"))
         entry_budget = min(source_bytes, self.max_entry_content_bytes)
         candidate = _PreparedContextEntry(
@@ -458,9 +631,9 @@ class PreparedContextBuilder:
             truncated=source_bytes > entry_budget,
         )
         if _rendered_bytes((*entries, candidate)) <= max_bytes:
-            return candidate
+            return _EntryFit(entry=candidate)
         if source_bytes < _MIN_TRUNCATED_CONTENT_BYTES:
-            return None
+            return _EntryFit(dropped_below_min_bytes=True)
 
         lower = _MIN_TRUNCATED_CONTENT_BYTES
         upper = min(entry_budget, source_bytes - 1)
@@ -482,7 +655,9 @@ class PreparedContextBuilder:
                 lower = byte_budget + 1
             else:
                 upper = byte_budget - 1
-        return best
+        if best is None:
+            return _EntryFit(dropped_no_fitting_truncation=True)
+        return _EntryFit(entry=best)
 
 
 def _interleave(

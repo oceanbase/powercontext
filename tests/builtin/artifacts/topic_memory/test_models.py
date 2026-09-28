@@ -16,8 +16,8 @@ import pytest
 from pydantic import ValidationError
 
 from powercontext.builtin.artifacts.topic_memory import (
+    MAX_TOPIC_MEMORY_CHANNEL_CANDIDATES,
     MAX_TOPIC_MEMORY_QUERY_LENGTH,
-    MAX_TOPIC_MEMORY_SEARCH_LIMIT,
     TopicMemory,
     TopicMemoryContent,
     TopicMemoryDraft,
@@ -59,7 +59,7 @@ def test_topic_memory_types_use_the_topic_memory_family() -> None:
     assert TopicMemoryDraft(content=content).family == "topic-memory"
 
 
-def test_topic_memory_search_request_enforces_public_query_and_candidate_bounds() -> None:
+def test_topic_memory_search_request_enforces_query_and_internal_candidate_bounds() -> None:
     with pytest.raises(ValidationError):
         TopicMemorySearchRequest(
             query="x" * (MAX_TOPIC_MEMORY_QUERY_LENGTH + 1),
@@ -69,6 +69,6 @@ def test_topic_memory_search_request_enforces_public_query_and_candidate_bounds(
     with pytest.raises(ValidationError):
         TopicMemorySearchRequest(
             query="bounded",
-            candidate_limit=MAX_TOPIC_MEMORY_SEARCH_LIMIT + 1,
+            candidate_limit=MAX_TOPIC_MEMORY_CHANNEL_CANDIDATES + 1,
             mode="fts",
         )

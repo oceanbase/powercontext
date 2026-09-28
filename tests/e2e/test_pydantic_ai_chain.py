@@ -128,9 +128,16 @@ def test_pydantic_ai_capture_checkpoint_recall_and_search_chain(
                     *,
                     token: str | None = None,
                     timeout: float = 10,
+                    allow_insecure_http: bool | None = None,
                 ) -> None:
                     del timeout
-                    super().__init__(base_url, token=token, http_client=transport, trust_transport_security=True)
+                    super().__init__(
+                        base_url,
+                        token=token,
+                        http_client=transport,
+                        trust_transport_security=True,
+                        allow_insecure_http=allow_insecure_http,
+                    )
 
             monkeypatch.setattr(toolset_module, "PowerContextClient", AsgiPowerContextClient)
             settings = PowerContextSettings(
@@ -226,9 +233,16 @@ def test_pydantic_ai_final_flush_catches_up_across_more_than_ten_source_windows(
                     *,
                     token: str | None = None,
                     timeout: float = 10,
+                    allow_insecure_http: bool | None = None,
                 ) -> None:
                     del timeout
-                    super().__init__(base_url, token=token, http_client=transport, trust_transport_security=True)
+                    super().__init__(
+                        base_url,
+                        token=token,
+                        http_client=transport,
+                        trust_transport_security=True,
+                        allow_insecure_http=allow_insecure_http,
+                    )
 
             monkeypatch.setattr(toolset_module, "PowerContextClient", AsgiPowerContextClient)
             capture_settings = PowerContextSettings(

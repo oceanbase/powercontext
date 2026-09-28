@@ -9,12 +9,31 @@ home:
       - across sessions.
     lead: PowerContext keeps decisions, constraints, evidence, and current progress with the project. When a person or agent takes over, they can verify the state and continue without reconstructing the last conversation.
     actions:
-      - label: Get started
-        href: en/docs/tutorials/agent-quickstart/
+      - label: Install and get started
+        href: en/docs/get-started/quickstart/
         kind: primary
       - label: How it works
-        href: en/docs/explanation/core-concepts/
+        href: en/docs/get-started/core-concepts/
         kind: secondary
+  onboarding:
+    title: From installation to your first memory
+    lead: Start with a Server, configure the capabilities you need, then connect your Agent. The guide covers local use and access from another device.
+    preview_label: Guided setup preview.
+    preview_note: These instructions use the official oceanbase/powercontext master branch.
+    repository_label: View this source branch
+    guide_label: Follow the complete guide
+    steps:
+      - title: Install PowerContext
+        description: Use Python 3.11 or later, Git, and uv. Install this branch on the machine that will run the Server.
+        command: uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+      - title: Follow the configuration wizard
+        description: Choose your storage, access scenario, memory capabilities, Dashboard, and Agents. It writes configuration files and tailored next steps.
+        command: powercontext config init
+      - title: Start the Server
+        description: Run from the directory containing your generated .env. Open the Dashboard URL and use the token shown by the wizard, if enabled.
+        command: powercontext server run --env-file .env
+      - title: Connect your Agent and verify memory
+        description: Follow .env.next-steps.md to create or select a Scope and connect your Agent. Verify that a real conversation becomes a Source, then check memory processing if enabled.
   continuity:
     title: The session ends before the work does.
     lead: You make a decision, change the code, and stop before the task is complete. PowerContext keeps the useful context with the project so the next session can continue from the current state.

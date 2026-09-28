@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { withBasePath } from '@/lib/urls';
+
 type BrandLogoProps = {
   className?: string;
   priority?: boolean;
@@ -28,7 +30,7 @@ export function BrandLogo({ className, priority = false }: BrandLogoProps) {
         decoding="async"
         fetchPriority={priority ? 'high' : 'auto'}
         height={240}
-        src="/powercontext-color.png"
+        src={withBasePath('/powercontext-color.png')}
         width={1696}
       />
       <img
@@ -37,7 +39,7 @@ export function BrandLogo({ className, priority = false }: BrandLogoProps) {
         decoding="async"
         fetchPriority={priority ? 'high' : 'auto'}
         height={240}
-        src="/powercontext-reverse.png"
+        src={withBasePath('/powercontext-reverse.png')}
         width={1696}
       />
     </span>

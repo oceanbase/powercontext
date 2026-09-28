@@ -30,9 +30,13 @@ class InferenceConfigurationError(InferenceError, RuntimeError):
 class InferenceUnavailableError(InferenceError, RuntimeError):
     """Raised when a transient provider failure prevents inference."""
 
-    def __init__(self, operation: str) -> None:
+    def __init__(self, operation: str, detail: str | None = None) -> None:
         self.operation = operation
-        super().__init__(f"inference is temporarily unavailable for {operation}")
+        self.detail = detail
+        message = f"inference is temporarily unavailable for {operation}"
+        if detail is not None:
+            message = f"{message}: {detail}"
+        super().__init__(message)
 
 
 class InferenceTimeoutError(InferenceError, TimeoutError):

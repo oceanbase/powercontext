@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import re
 import socket
 import subprocess
 import sys
@@ -70,9 +71,9 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
         try:
             installed = controller.install(env_file=environment)
         except ServiceError as error:
-            pytest.fail(f"{error}\n{_server_error_tail(tmp_path)}")
+            pytest.fail(f"{error}\n\n{_failure_diagnostics(adapter, tmp_path)}")
 
-        assert installed.ok
+        assert installed.ok, f"{installed}\n\n{_failure_diagnostics(adapter, tmp_path)}"
         assert installed.manager_ownership is ManagerOwnershipState.OWNED
         loaded = adapter.loaded_registration()
         assert loaded.state is ManagerOwnershipState.OWNED
@@ -91,7 +92,7 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
             time.sleep(_TEST_MEMBER_TTL_SECONDS + 1)
         adapter.start(reload_definition=False)
         restarted = _wait_for_status(controller)
-        assert restarted.ok, f"{restarted}\n{_server_error_tail(tmp_path)}"
+        assert restarted.ok, f"{restarted}\n\n{_failure_diagnostics(adapter, tmp_path)}"
 
         removed = controller.uninstall()
 
@@ -99,7 +100,45 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
         assert adapter.loaded_registration().state is ManagerOwnershipState.NOT_LOADED
         assert not adapter.artifact_path.exists()
     finally:
+        _capture_native_failure(adapter, tmp_path)
         _cleanup(adapter)
+
+
+def test_failure_diagnostics_reports_an_absent_service(tmp_path: Path) -> None:
+    """The report must survive the state it exists to describe: nothing there.
+
+    It runs on the failure path, so every probe is read-only and independent.
+    If one of them raises, the report replaces the failure it was meant to
+    explain and the run says nothing about either (#1571).
+    """
+    adapter = _native_adapter(suffix="diagnostics")
+    environment = _environment_file(tmp_path)
+    port = _service_port(tmp_path)
+    assert port is not None, f"the environment file records no port: {environment.read_text()}"
+
+    report = _failure_diagnostics(adapter, tmp_path)
+
+    assert adapter.identifier in report
+    assert "loaded_registration:" in report
+    assert "manager_state:" in report
+    assert "inspect:" in report
+    assert f"artifact {adapter.artifact_path}: exists=False" in report
+    assert f"port {port}: reachable=False" in report
+    # The logs never existed, and saying so is the point: the issue's failure
+    # reported an empty stderr tail with no way to tell absent from silent.
+    assert "server.stdout.log: not created" in report
+    assert "server.stderr.log: not created" in report
+    # The platform's own service manager was asked, and its answer is quoted.
+    # Annotated: without it the key type is inferred as the union of the three
+    # concrete classes, which `type(adapter)` (a `type[NativeServiceAdapter]`)
+    # cannot index.
+    expected_managers: dict[type[NativeServiceAdapter], str] = {
+        LaunchdUserAdapter: "launchctl",
+        SystemdUserAdapter: "systemctl",
+        WindowsTaskSchedulerAdapter: "schtasks",
+    }
+    expected_manager = expected_managers[type(adapter)]
+    assert expected_manager in report
 
 
 def test_native_service_definition_matches_running_process(tmp_path: Path) -> None:
@@ -122,6 +161,7 @@ def test_native_service_definition_matches_running_process(tmp_path: Path) -> No
             assert payload["ProgramArguments"][0] == os.path.abspath(sys.executable)
             assert payload["ProgramArguments"][1:3] == ["-m", "powercontext_service_bootstrap"]
             assert payload["RunAtLoad"] is True
+            assert payload["ProcessType"] == "Standard"
             assert "PathState" in payload["KeepAlive"]
             assert payload["StandardOutPath"].endswith("logs/server.stdout.log")
             assert payload["StandardErrorPath"].endswith("logs/server.stderr.log")
@@ -150,8 +190,42 @@ def test_native_service_definition_matches_running_process(tmp_path: Path) -> No
             assert "StartLimitBurst=3" in unit
             assert f"journalctl --user --unit {adapter.identifier}" == adapter.log_location(registration.definition)
     finally:
+        _capture_native_failure(adapter, tmp_path)
         with suppress(Exception):
             controller.uninstall()
+        _cleanup(adapter)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="LaunchAgent scheduling is macOS-specific")
+def test_native_service_upgrades_background_scheduling(tmp_path: Path) -> None:
+    adapter = _native_adapter(suffix="upgrade")
+    environment = _environment_file(tmp_path)
+    controller = ServiceController(adapter)
+    target = f"gui/{_current_uid()}/{adapter.identifier}"
+
+    try:
+        assert controller.install(env_file=environment).ok
+        original_pid = re.search(r"^\s*pid = (\d+)\s*$", _run("launchctl", "print", target).stdout, re.MULTILINE)
+        assert original_pid is not None
+        original_definition = adapter.inspect().definition
+        # Represent an existing registration from before the scheduling fix,
+        # retaining its metadata and the live process until install reconciles it.
+        payload = plistlib.loads(adapter.artifact_path.read_bytes())
+        payload["ProcessType"] = "Background"
+        adapter.artifact_path.write_bytes(plistlib.dumps(payload))
+
+        assert controller.install(env_file=environment).ok
+
+        assert adapter.inspect().definition == original_definition
+        assert plistlib.loads(adapter.artifact_path.read_bytes())["ProcessType"] == "Standard"
+        upgraded_pid = re.search(r"^\s*pid = (\d+)\s*$", _run("launchctl", "print", target).stdout, re.MULTILINE)
+        assert upgraded_pid is not None and upgraded_pid.group(1) != original_pid.group(1)
+
+        assert controller.install(env_file=environment).ok
+        repeated_pid = re.search(r"^\s*pid = (\d+)\s*$", _run("launchctl", "print", target).stdout, re.MULTILINE)
+        assert repeated_pid is not None and repeated_pid.group(1) == upgraded_pid.group(1)
+    finally:
+        _capture_native_failure(adapter, tmp_path)
         _cleanup(adapter)
 
 
@@ -173,6 +247,7 @@ def test_native_windows_service_can_disable_login_trigger(tmp_path: Path) -> Non
         assert payload.find(f"{namespace}Triggers/{namespace}LogonTrigger") is None
         assert adapter.manager_state() is ManagerState.ACTIVE
     finally:
+        _capture_native_failure(adapter, tmp_path)
         with suppress(Exception):
             controller.uninstall()
         _cleanup(adapter)
@@ -317,13 +392,166 @@ def _unused_loopback_port() -> int:
         return int(listener.getsockname()[1])
 
 
-def _server_error_tail(tmp_path: Path) -> str:
-    path = tmp_path / "data" / "logs" / "server.stderr.log"
+def _log_tail(tmp_path: Path, name: str, limit: int = 4000) -> str:
+    path = tmp_path / "data" / "logs" / name
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
-        return "server.stderr.log was not created"
-    return f"server.stderr.log tail:\n{content[-8000:]}"
+        return f"{name}: not created"
+    if not content.strip():
+        return f"{name}: empty ({path.stat().st_size} bytes)"
+    return f"{name} tail:\n{content[-limit:]}"
+
+
+def _command_output(argv: list[str], *, timeout: float = 10) -> str:
+    """Run a read-only diagnostic command and render whatever it said."""
+    try:
+        completed = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return f"$ {' '.join(argv)}\n(command not available)"
+    except subprocess.TimeoutExpired:
+        return f"$ {' '.join(argv)}\n(timed out after {timeout}s)"
+    except OSError as error:  # pragma: no cover - platform dependent
+        return f"$ {' '.join(argv)}\n(failed: {error})"
+    body = (completed.stdout + completed.stderr).strip() or "(no output)"
+    return f"$ {' '.join(argv)} -> exit {completed.returncode}\n{body[-4000:]}"
+
+
+def _service_port(tmp_path: Path) -> int | None:
+    environment = tmp_path / "powercontext.env"
+    try:
+        lines = environment.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        key, _, value = line.partition("=")
+        if key.strip() == "POWERCONTEXT_SERVER_HTTP_PORT":
+            with suppress(ValueError):
+                return int(value.strip().strip('"'))
+    return None
+
+
+def _platform_diagnostics(adapter: NativeServiceAdapter) -> list[str]:
+    """Ask the platform's own service manager what it thinks the state is."""
+    identifier = adapter.identifier
+    if isinstance(adapter, LaunchdUserAdapter):
+        uid = os.getuid() if hasattr(os, "getuid") else 0
+        return [
+            _command_output(["launchctl", "print", f"gui/{uid}/{identifier}"]),
+            _command_output(["launchctl", "list", identifier]),
+        ]
+    if isinstance(adapter, SystemdUserAdapter):
+        return [
+            _command_output(["systemctl", "--user", "status", identifier, "--no-pager"]),
+            _command_output(["journalctl", "--user", "--unit", identifier, "--no-pager", "-n", "50"]),
+        ]
+    if isinstance(adapter, WindowsTaskSchedulerAdapter):
+        return [_command_output(["schtasks.exe", "/Query", "/TN", identifier, "/V", "/FO", "LIST"])]
+    return ["(no platform diagnostics for this adapter)"]
+
+
+def _failure_diagnostics(adapter: NativeServiceAdapter, tmp_path: Path) -> str:
+    """Everything about a failed start, collected BEFORE the test cleans up.
+
+    The `finally` block stops, disables and removes the registration, so a CI
+    step that inspects the service afterwards finds nothing and reports "could
+    not be found" whatever the failure was (#1571). Each probe is independent
+    and swallows its own errors: a report that raises replaces the failure it
+    was meant to explain.
+
+    Every probe is read-only and scoped to this service: its own label, its own
+    port, its own entry point. Nothing here dumps a global process table or a
+    log this test did not create, because the report lands in a public CI log.
+    """
+    sections: list[str] = [f"identifier: {adapter.identifier}"]
+
+    for label, probe in (
+        ("loaded_registration", adapter.loaded_registration),
+        ("manager_state", adapter.manager_state),
+        ("inspect", adapter.inspect),
+    ):
+        try:
+            sections.append(f"{label}: {probe()}")
+        except Exception as error:
+            sections.append(f"{label}: probe failed: {error!r}")
+
+    try:
+        artifact = adapter.artifact_path
+        sections.append(
+            f"artifact {artifact}: exists={artifact.exists()}"
+            + (f" size={artifact.stat().st_size}" if artifact.exists() else "")
+        )
+    except Exception as error:
+        sections.append(f"artifact: probe failed: {error!r}")
+
+    port = _service_port(tmp_path)
+    if port is None:
+        sections.append("port: not recorded in the environment file")
+    else:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe_socket:
+            probe_socket.settimeout(2)
+            reachable = probe_socket.connect_ex(("127.0.0.1", port)) == 0
+        sections.append(f"port {port}: reachable={reachable}")
+        if sys.platform != "win32":
+            sections.append(_command_output(["lsof", "-nP", f"-iTCP:{port}"]))
+
+    # Matched on the service's own entry point rather than dumped whole: a CI
+    # log is public, and a full process table carries other people's command
+    # lines, tokens and paths with it.
+    if sys.platform == "win32":
+        sections.append(_command_output(["tasklist.exe", "/FI", "IMAGENAME eq pythonw.exe", "/FO", "LIST"]))
+    else:
+        sections.append(_command_output(["pgrep", "-fl", "powercontext_service_bootstrap"]))
+
+    sections.extend(_platform_diagnostics(adapter))
+    sections.append(_log_tail(tmp_path, "server.stdout.log"))
+    sections.append(_log_tail(tmp_path, "server.stderr.log", limit=8000))
+
+    return "\n\n".join(sections)
+
+
+def _capture_native_failure(adapter: NativeServiceAdapter, tmp_path: Path) -> None:
+    if sys.exception() is None or not isinstance(adapter, LaunchdUserAdapter):
+        return
+    # Cleanup unloads the job and removes its retry state, so workflow-level
+    # diagnostics cannot recover the startup failure afterwards.
+    log_dir = tmp_path / "data" / "logs"
+    with suppress(Exception):
+        log_dir.mkdir(parents=True, exist_ok=True)
+        retry_state = log_dir / "launchd-retry-state.json"
+        snapshot = {
+            "retry_token_present": (log_dir / "launchd-retry.enabled").exists(),
+            "retry_state": retry_state.read_text(encoding="utf-8") if retry_state.exists() else None,
+        }
+        (log_dir / "launchd-failure-snapshot.json").write_text(json.dumps(snapshot), encoding="utf-8")
+    with suppress(Exception):
+        result = subprocess.run(
+            ["launchctl", "print", f"gui/{_current_uid()}/{adapter.identifier}"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        report = f"exit_code={result.returncode}\n{result.stdout}\n{result.stderr}"
+        (log_dir / "launchd-before-cleanup.log").write_text(report, encoding="utf-8")
+        print(f"LaunchAgent state before cleanup:\n{report}")
+        pid = re.search(r"^\s*pid = (\d+)\s*$", result.stdout, re.MULTILINE)
+        if result.returncode == 0 and pid is not None:
+            # A running process with empty logs may still be blocked before
+            # Server initialization. Sample only this test's launchd job.
+            subprocess.run(
+                ["/usr/bin/sample", pid.group(1), "1", "-file", str(log_dir / "launchd-process-sample.log")],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
 
 
 def _cleanup(adapter: NativeServiceAdapter) -> None:

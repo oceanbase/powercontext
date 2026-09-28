@@ -63,13 +63,20 @@ from powercontext.http import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
+    ArtifactPage,
     ArtifactReference,
     CandidateFamily,
     CandidateStatus,
     Capabilities,
+    CreateDreamRunRequest,
     CreateRemoteSkillTargetRequest,
+    DreamOperation,
+    DreamRun,
+    DreamRunPage,
+    DreamStatus,
     EnrollRemoteSkillTargetRequest,
     ExactScopeSelection,
+    ExperienceArtifact,
     ExperienceProposal,
     ExternalSkillImportMode,
     ExternalSkillResolution,
@@ -78,12 +85,15 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetExperienceRequest,
     GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
     HealthResponse,
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
+    ListArtifactsRequest,
+    ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListRemoteSkillTargetsRequest,
@@ -118,8 +128,12 @@ from powercontext.http import (
 HELP_OPTION_NAMES = ("-h", "--help")
 _ClientResponse: TypeAlias = (
     ArtifactCandidate
+    | DreamRun
+    | DreamRunPage
     | ArtifactCandidatePage
+    | ArtifactPage
     | Capabilities
+    | ExperienceArtifact
     | ExternalSkillResolution
     | GeneratedCandidateResponse
     | HealthResponse
@@ -133,6 +147,65 @@ _ClientResponse: TypeAlias = (
     | ScopedStats
 )
 _ClientOperation: TypeAlias = Callable[[PowerContextClient], Awaitable[_ClientResponse]]
+
+dream_app = typer.Typer(
+    name="dream",
+    context_settings={"help_option_names": HELP_OPTION_NAMES},
+    help="Create and inspect asynchronous Artifact Dreams.",
+    no_args_is_help=True,
+)
+
+
+@dream_app.command("run")
+def run_dream(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Scope containing every selected reference.")],
+    request_file: Annotated[
+        Path,
+        typer.Option(
+            help="JSON CreateDreamRunRequest with exact references and an idempotency_key.",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
+) -> None:
+    """Accept one bounded Dream and return its durable run ID."""
+
+    try:
+        request = CreateDreamRunRequest.model_validate_json(request_file.read_text(encoding="utf-8"))
+    except ValidationError as error:
+        _raise_invalid_request("Dream", error)
+    except (OSError, UnicodeError) as error:
+        _raise_bad_parameter("cannot read a UTF-8 Dream request", parameter="--request-file", cause=error)
+    asyncio.run(_execute(context, lambda client: client.create_dream_run(scope_id, request)))
+
+
+@dream_app.command("show")
+def show_dream(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Scope containing the Dream.")],
+    run_id: Annotated[str, typer.Argument(help="Exact Dream run ID.")],
+) -> None:
+    """Read current state, evidence manifest, and candidate reference."""
+
+    asyncio.run(_execute(context, lambda client: client.get_dream_run(scope_id, run_id)))
+
+
+@dream_app.command("list")
+def list_dreams(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Scope whose Dream history is requested.")],
+    status: Annotated[DreamStatus | None, typer.Option()] = None,
+    operation: Annotated[DreamOperation | None, typer.Option()] = None,
+    cursor: Annotated[str | None, typer.Option()] = None,
+    limit: Annotated[int, typer.Option(min=1, max=100)] = 20,
+) -> None:
+    """List a bounded page of Dream history, newest first."""
+
+    request = ListDreamRunsRequest(status=status, operation=operation, cursor=cursor, limit=limit)
+    asyncio.run(_execute(context, lambda client: client.list_dream_runs(scope_id, request)))
+
 
 candidate_app = typer.Typer(
     name="candidate",
@@ -149,7 +222,7 @@ candidate_revise_app = typer.Typer(
 experience_app = typer.Typer(
     name="experience",
     context_settings={"help_option_names": HELP_OPTION_NAMES},
-    help="Generate reviewed Experience Candidates.",
+    help="Read approved Experience and generate reviewed Experience Candidates.",
     no_args_is_help=True,
 )
 skill_app = typer.Typer(
@@ -173,6 +246,7 @@ class _ClientOptions:
     api_token: SecretStr | None
     timeout: float
     json_output: bool
+    allow_insecure_http: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +254,7 @@ class _ClientOverrides:
     server_url: str | None = None
     timeout: float | None = None
     json_output: bool = False
+    allow_insecure_http: bool | None = None
 
 
 def configure_client(
@@ -188,6 +263,7 @@ def configure_client(
     server_url: str | None,
     timeout: float | None,
     json_output: bool,
+    allow_insecure_http: bool | None = None,
 ) -> None:
     """Store lazy Server connection overrides for content commands."""
 
@@ -195,6 +271,7 @@ def configure_client(
         server_url=server_url,
         timeout=timeout,
         json_output=json_output,
+        allow_insecure_http=allow_insecure_http,
     )
 
 
@@ -434,6 +511,35 @@ def show_skill(
         artifact=ArtifactReference(family="skill", artifact_id=artifact_id, revision=revision),
     )
     asyncio.run(_execute(context, lambda client: client.get_skill(request)))
+
+
+@experience_app.command("list")
+def list_experiences(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing approved Experience.")],
+    cursor: Annotated[str | None, typer.Option(help="Opaque cursor from the previous page.")] = None,
+    limit: Annotated[int, typer.Option(min=1, max=100, help="Maximum Experience heads to return.")] = 50,
+) -> None:
+    """List current approved Experience heads."""
+
+    request = ListArtifactsRequest(cursor=cursor, limit=limit)
+    asyncio.run(_execute(context, lambda client: client.list_artifacts(scope_id, "experience", request)))
+
+
+@experience_app.command("show")
+def show_experience(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the approved Experience.")],
+    artifact_id: Annotated[str, typer.Argument(help="Experience Artifact identity.")],
+    revision: Annotated[int, typer.Option(min=1, help="Exact approved Experience Revision.")],
+) -> None:
+    """Read one exact approved Experience Revision."""
+
+    request = GetExperienceRequest(
+        scope_id=scope_id,
+        artifact=ArtifactReference(family="experience", artifact_id=artifact_id, revision=revision),
+    )
+    asyncio.run(_execute(context, lambda client: client.get_experience(request)))
 
 
 @experience_app.command("generate")
@@ -822,7 +928,9 @@ async def _create_remote_skill_target(
     options = _options(context)
     token = None if options.api_token is None else options.api_token.get_secret_value()
     try:
-        async with PowerContextClient(options.server_url, token=token, timeout=options.timeout) as client:
+        async with PowerContextClient(
+            options.server_url, token=token, timeout=options.timeout, allow_insecure_http=options.allow_insecure_http
+        ) as client:
             enrollment = await client.create_remote_skill_target(
                 CreateRemoteSkillTargetRequest(scope_id=scope_id, agent_kind=agent_kind, display_name=name)
             )
@@ -976,7 +1084,9 @@ async def _enroll_remote_skill_target(
     watch_interval: float,
     allow_insecure_http: bool,
 ) -> None:
-    options = _options(context)
+    # Enrollment applies its own endpoint-bound consent check below before it
+    # sends an enrollment code or creates a Receiver configuration.
+    options = _options(context, allow_insecure_http=True)
     try:
         insecure_http = require_remote_skill_server_url(
             options.server_url,
@@ -1237,14 +1347,20 @@ def _read_receiver_config(path: Path) -> RemoteSkillReceiverConfig:
     return RemoteSkillReceiverConfig.model_validate(value)
 
 
-def _options(context: typer.Context) -> _ClientOptions:
+def _options(context: typer.Context, *, allow_insecure_http: bool | None = None) -> _ClientOptions:
     overrides = context.meta.get("powercontext.client.overrides", _ClientOverrides())
-    settings = ClientSettings()
+    if allow_insecure_http is None:
+        allow_insecure_http = overrides.allow_insecure_http
+    settings = ClientSettings(
+        **({} if overrides.server_url is None else {"server_url": overrides.server_url}),
+        **({} if allow_insecure_http is None else {"allow_insecure_http": allow_insecure_http}),
+    )
     return _ClientOptions(
-        server_url=settings.server_url if overrides.server_url is None else overrides.server_url,
+        server_url=settings.server_url,
         api_token=settings.api_token,
         timeout=settings.timeout if overrides.timeout is None else overrides.timeout,
         json_output=overrides.json_output,
+        allow_insecure_http=settings.allow_insecure_http,
     )
 
 
@@ -1252,7 +1368,9 @@ async def _execute(context: typer.Context, operation: _ClientOperation) -> None:
     options = _options(context)
     try:
         token = None if options.api_token is None else options.api_token.get_secret_value()
-        async with PowerContextClient(options.server_url, token=token, timeout=options.timeout) as client:
+        async with PowerContextClient(
+            options.server_url, token=token, timeout=options.timeout, allow_insecure_http=options.allow_insecure_http
+        ) as client:
             response = await operation(client)
     except ClientError as exc:
         typer.echo(_error_message(exc), err=True)
@@ -1402,7 +1520,9 @@ async def _export_managed_skill(
     options = _options(context)
     try:
         token = None if options.api_token is None else options.api_token.get_secret_value()
-        async with PowerContextClient(options.server_url, token=token, timeout=options.timeout) as client:
+        async with PowerContextClient(
+            options.server_url, token=token, timeout=options.timeout, allow_insecure_http=options.allow_insecure_http
+        ) as client:
             response = await client.get_skill(request)
             if response.content.package is None:
                 exported = export_skill(
@@ -1468,9 +1588,56 @@ def _error_message(error: ClientError) -> str:
     return f"{error} (request ID: {error.request_id})"
 
 
+def _print_dream_response(response: DreamRun | DreamRunPage) -> None:
+    if isinstance(response, DreamRun):
+        outcome = response.error or (None if response.outcome is None else response.outcome.value)
+        typer.echo(f"{response.run_id}: {response.status.value}" + ("" if outcome is None else f" ({outcome})"))
+        if response.candidate is not None:
+            typer.echo(f"Candidate: {response.candidate.candidate_id}@{response.candidate.version}")
+        if response.reason:
+            typer.echo(response.reason)
+        return
+    if isinstance(response, DreamRunPage):
+        for run in response.runs:
+            _print_dream_response(run)
+        if response.next_cursor:
+            typer.echo(f"Next cursor: {response.next_cursor}")
+        return
+
+
+def _print_artifact_page(response: ArtifactPage) -> None:
+    if not response.items:
+        typer.echo("No Experience artifacts found.")
+    for item in response.items:
+        title = "" if item.title is None else f"  {item.title}"
+        typer.echo(f"{item.artifact_id}@{item.revision}{title}")
+        if item.summary:
+            typer.echo(f"  {item.summary}")
+    if response.next_cursor:
+        typer.echo(f"Next cursor: {response.next_cursor}")
+
+
 def _print_human_response(response: _ClientResponse) -> None:
+    if isinstance(response, (DreamRun, DreamRunPage)):
+        _print_dream_response(response)
+        return
     if isinstance(response, (ListRemoteSkillTargetsResponse, RemoteSkillPublication, RemoteSkillTarget)):
         _print_remote_response(response)
+        return
+    if isinstance(
+        response,
+        (
+            ArtifactCandidate,
+            ArtifactCandidatePage,
+            ExperienceArtifact,
+            ExternalSkillResolution,
+            GeneratedCandidateResponse,
+            ListExternalSkillsResponse,
+            ScanExternalSkillsResponse,
+            SkillArtifact,
+        ),
+    ):
+        typer.echo(response.model_dump_json(indent=2))
         return
     match response:
         case Capabilities():
@@ -1491,17 +1658,8 @@ def _print_human_response(response: _ClientResponse) -> None:
             typer.echo(f"Status: {response.status}")
         case ScopedStats():
             _print_stats(response)
-        case (
-            ArtifactCandidate()
-            | ArtifactCandidatePage()
-            | ExternalSkillResolution()
-            | GeneratedCandidateResponse()
-            | ListExternalSkillsResponse()
-            | ScanExternalSkillsResponse()
-        ):
-            typer.echo(response.model_dump_json(indent=2))
-        case SkillArtifact():
-            typer.echo(response.model_dump_json(indent=2))
+        case ArtifactPage():
+            _print_artifact_page(response)
 
 
 def _print_remote_response(
@@ -1633,11 +1791,12 @@ def register_commands(cli: typer.Typer) -> set[str]:
     cli.command()(stats)
     cli.command()(live)
     cli.command()(ready)
+    cli.add_typer(dream_app, name="dream")
     cli.add_typer(candidate_app, name="candidate")
     cli.add_typer(experience_app, name="experience")
     cli.add_typer(skill_app, name="skill")
     cli.add_typer(external_skill_app, name="external-skill")
-    return {"capabilities", "stats", "live", "ready", "candidate", "experience", "skill", "external-skill"}
+    return {"capabilities", "stats", "live", "ready", "dream", "candidate", "experience", "skill", "external-skill"}
 
 
 __all__ = ["configure_client", "register_commands"]

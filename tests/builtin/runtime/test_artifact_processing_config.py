@@ -181,7 +181,7 @@ def test_server_cli_routes_background_role_without_starting_http(monkeypatch) ->
     monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)
     monkeypatch.setattr("powercontext.server.cli.configure_server_tracing", lambda _config: tracing)
 
-    result = CliRunner().invoke(create_cli([server_app]), ["server", "run", "--role", "background"])
+    result = CliRunner().invoke(create_cli([server_app]), ["server", "run", "--no-env-file", "--role", "background"])
 
     assert result.exit_code == 0, result.output
     assert "Inference capability notice" in result.output

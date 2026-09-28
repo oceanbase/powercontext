@@ -32,6 +32,7 @@ limitations under the License.
   <p>{{ record.state[0].text|truncate(160, true) }}</p>
   <h3>{{ t.next_action }}</h3><p>{{ record.next_action.text|truncate(160, true) if record.next_action else t.no_next_action }}</p>
   <a href="{{ link('handoff-detail', artifact=record.artifact_id, revision=record.revision) }}">{{ t.read_handoff }}</a>
+  <a class="btn ms-3" hx-boost="false" href="{{ link('handoff-download', artifact=record.artifact_id, revision=record.revision) }}">{{ t.export_markdown }}</a>
 </div></section>
 {% endif %}
 {% else %}

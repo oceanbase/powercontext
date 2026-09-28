@@ -31,8 +31,13 @@ Additional Pydantic AI model settings can be supplied as JSON. Provider-specific
 `extra_body`; for example, a compatible OpenAI-style endpoint can disable Qwen thinking with:
 
 ```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="openai-chat:<served-model-name>"
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS='{"extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}'
 ```
+
+Topic Memory also accepts this exact `extra_body` shape for `openai-chat:<model>`. The value must be the JSON boolean
+`false`; additional keys at either level, other provider prefixes, and Embedding `extra_body` remain unsupported.
+Use an endpoint that implements `chat_template_kwargs.enable_thinking`; this flag does not guarantee a timeout-free run.
 
 These settings are shared by the generation-backed pipelines, the optional LLM reranker, and the readiness probe.
 PowerContext retains its own request bounds: readiness uses `max_tokens=1`, and reranking uses `temperature=0`.
@@ -92,7 +97,10 @@ the selected Pydantic AI provider.
 
 The Server rejects a partial embedding profile. `embedding_model`, `embedding_profile_id`, and `embedding_dimension`
 must be configured together. SQLite vector search uses that embedding configuration because the index dimension and
-stored vectors must agree.
+stored vectors must agree. `embedding_dimension` is also sent as the `dimensions` request field by default, and it
+overrides a `dimensions` value in model settings. For a fixed-dimension model that rejects the field, set
+`POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_SEND_DIMENSIONS` to `false`. The local dimension stays required, and returned
+vectors are still validated against it.
 
 ## Compose generation directly
 

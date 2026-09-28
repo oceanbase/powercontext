@@ -5,14 +5,19 @@ description: 为逻辑制品和记忆条目设置标签，并通过精确标签�
 
 # 使用标签整理内容
 
-Memory、Experience、Skill 和 Handoff 都可以在各自 Scope 内设置标签。一个 Memory 制品与其中的每条逻辑记忆分别拥有独立的标签集合。
+所有内置制品类型都可以在各自 Scope 内设置标签：Memory、Topic Memory、Experience、Skill、Handoff、Profile 和 Prompt。
+一个 Memory 制品与其中的每条逻辑记忆分别拥有独立的标签集合。
 标签跟随逻辑 ID，不会修改内容 Revision、条目版本、血缘、向量或 Context Version。
 
-Prompt 配置不属于标签对象，其内容和历史版本仍通过 Scope 下的提示词接口查看。
+对应的 `family` 值为 `memory`、`topic-memory`、`experience`、`skill`、`handoff`、`profile`、`prompt`。
+Profile 的 `artifact_id` 为 `profile`，Prompt 的 `artifact_id` 为提示词 key（例如 `memory.extract`）。
+标签要求对象已经保存为制品；尚未保存的内置默认 Prompt 没有独立标签，需要先保存 Prompt 制品，再设置标签。
 
 开启访问控制时，标签遵循所属对象的读取与修改权限。只读分享者可以读取该对象的标签，不能修改标签或执行 Scope 级标签查询。
-跨对象查询需要 `scope.read`；Memory 制品整体标签需要 `scope.read` 才能读取、`scope.admin` 才能修改，
-单条记忆的标签则使用该条目的 `artifact.read` / `artifact.write` 权限。权限不足返回 **403**，撤销分享后立即失去相应标签访问权限。
+跨对象查询需要 `scope.read`；Memory、Topic Memory 整体标签使用 `scope.read` 读取、`scope.admin` 修改。
+Prompt 标签沿用 Prompt 的读取权限，修改需要当前 `scope.admin` 权限；撤销 Scope 管理权限后不能凭保留的制品所有权继续修改标签。
+Profile、Experience、Skill、Handoff 和单条记忆的标签使用对应对象的 `artifact.read` / `artifact.write` 权限。
+权限不足返回 **403**，撤销分享后立即失去相应标签访问权限。
 
 标签通过下文的 Python Client 或公开 API 管理。Dashboard 用于阅读已保存内容，不提供标签编辑和查询页面。
 
@@ -95,6 +100,8 @@ SQLite 和 OceanBase 的带标签向量查询会对符合条件的集合进行�
 不支持标签过滤的后端会明确拒绝请求，不会静默改成先截断再过滤。
 
 标签查询返回当前的精确 Artifact 引用或 Memory citation，按制品类型、对象类型、制品 ID、对象 ID 排序。
+不传 `families` 时查询所有七种制品类型；例如 `{"tags":["release"],"families":["topic-memory","profile","prompt","handoff"]}`
+只查找所选类型。所有制品类型都支持上述标签读写、列表过滤和跨类型查询，标签会在内容更新和服务重启后保留。
 翻页时原样传回 `next_cursor`，并保持 Scope、过滤条件和调用方一致。游标有效期是一小时；无效或不匹配返回 **400**，
 过期返回 **410**。单页内部保持一致，但跨页不固定数据库快照。
 

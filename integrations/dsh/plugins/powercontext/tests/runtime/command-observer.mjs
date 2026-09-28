@@ -23,10 +23,11 @@ export const inject = ['agents', 'commands']
 export async function apply(ctx, config) {
   const server = createServer(async (req, res) => {
     try {
-      const sessionId = new URL(req.url, 'http://localhost').searchParams.get('session')
+      const query = new URL(req.url, 'http://localhost').searchParams
+      const sessionId = query.get('session')
       const agent = ctx.agents.get(sessionId)
       if (!agent) throw new Error('test session is unavailable')
-      const execution = await ctx.commands.execute(agent, '/pc doctor', [], AbortSignal.timeout(30000))
+      const execution = await ctx.commands.execute(agent, query.get('view') === 'status' ? '/pc' : '/pc doctor', [], AbortSignal.timeout(30000))
       if (!execution) throw new Error('installed /pc command is unavailable')
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(execution.result))

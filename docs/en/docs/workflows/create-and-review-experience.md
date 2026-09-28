@@ -74,8 +74,9 @@ powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 The approved current head is now eligible for same-scope `PreparedContext` recall. Eligibility does not guarantee
-selection because the Runtime applies the query and shared output budget. Exact Experience reads are available through
-the Python Client and HTTP API.
+selection because the Runtime applies the query and shared output budget. `powercontext experience list` browses
+current heads; `powercontext experience show --revision REVISION EXPERIENCE_ID`, the Python Client, and the HTTP API
+support exact Experience reads.
 
 ## Replace an existing Experience
 

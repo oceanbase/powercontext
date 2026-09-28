@@ -1,0 +1,106 @@
+%% 4.1 写路径：归整窗口 → 冻结/重放 match → 判定 → 事务提交
+
+sequenceDiagram
+    autonumber
+    participant App as ScopedExperienceApplication.incubate
+    participant Inc as _RelationalExperienceIncubator.flush<br/>(runtime/relational.py)
+    participant Led as RelationalRecurrenceLedger<br/>(runtime/recurrence.py · 唯一持有 conn)
+    participant Pure as experience.recurrence<br/>(纯函数 · 零 IO)
+    participant Src as SourceRepository
+    participant Art as ArtifactRepository
+    participant Repo as RecurrenceRepository
+    participant DB as AsyncDatabase.transaction
+
+    App->>Inc: incubate(limit=None)
+    Inc->>DB: begin (scope lock + _scoped_operation)
+    Inc->>Src: list_window_for_generation(after, through)
+    Src-->>Inc: tuple[StoredSource] {ref, value, journal_position}
+    Inc->>Inc: eligible_rows = filter(is_generation_eligible)
+    Inc->>Inc: plans = await pipeline.incubate(eligible_rows)
+
+    Note over Inc,Led: 账本钩子（同一事务、同一 scope 锁）
+    Inc->>Led: record_window(connection, eligible_rows)
+
+    loop 每个 ContentSource 且 metadata.kind == "task-outcome"
+        Led->>Pure: TaskOutcome.model_validate_json(source.content)
+        Led->>Pure: failure_refs(outcome)
+        Pure-->>Led: tuple[TaskOutcomeItemRef]（可能为空 → 不写任何事件）
+    end
+
+    alt 该 Outcome 有 handoff_receipt_ref
+        Led->>Src: get(receipt_ref) → HandoffReceipt
+        alt receipt.status == accepted 且 selection == exact 且 selected_revision 非空
+            Led->>Art: get(handoff_ref) → HandoffContent
+            Led->>Pure: 收集 family=="experience" 的 HandoffArtifactCitation
+            Led->>Art: get(每个 experience ref) → ExperienceContent
+            Led->>Pure: signature_key(content.failure.signature.recall_cue)
+            Led->>Repo: append(RecurrenceObservation(event="selected", ...))
+            Note over Led,Repo: selection_key 唯一约束保证同一 Outcome 只写一条 selected
+            Led->>Pure: avoided 四闸门（condition_ref / check_ref / passed / 同 Outcome 无 recurred）
+            alt 四闸门全通过
+                Led->>Repo: append(RecurrenceObservation(event="avoided", ...))
+            else 任一闸门不满足
+                Led->>Led: 不写事件（C3：unknown 是派生判定，不是账本行）
+            end
+        else receipt 缺失 / 非 accepted-exact
+            Led->>Led: 记为 provenance 覆盖缺口，不写 selected
+        end
+    end
+
+    loop 每个 failure_ref
+        Led->>Repo: load_match(scope, task_outcome_ref, failure_ref)
+        alt 已存在 match（重放）
+            Repo-->>Led: 既有 RecurrenceMatch（不得再次调用生成器）
+        else 首次
+            Led->>Pure: freeze_candidate_set(mode, refs)
+            Note over Led,Pure: mode = handoff_citations（有完整链路）<br/>否则 scope_heads（scope 内 Experience head，按 ArtifactRef 排序）
+            Led->>Pure: eligible_candidates(failure_text, contents)
+            Led->>Pure: match_result(len(eligible))
+            Led->>Repo: append(RecurrenceMatch(...))
+        end
+        alt result == matched 且 同 Outcome 无 terminal verdict
+            Led->>Repo: append(RecurrenceObservation(event="recurred",<br/>recurrence_match_digest=...))
+            Led->>Pure: terminal_streak(该 revision 的全部 verdict)
+            alt streak >= 3 且 repair_surface == experience_content
+                Led-->>Inc: RecurrenceRevisionProposal(target, proposal, sources, reason)
+            else 其他 surface
+                Led->>Led: 不提制品候选，只留统计可见（RFC L402-406）
+            end
+        else unmatched / ambiguous
+            Led->>Led: 不写 verdict；ambiguous 向外暴露冲突（RFC L300）
+        end
+    end
+
+    Led-->>Inc: tuple[RecurrenceRevisionProposal]
+    Inc->>Inc: review.propose_experience(..., target=proposal.target)
+    Inc->>DB: 保存 cursor + processing.complete → COMMIT（match 与 events 同事务）
+    Inc-->>App: ExperienceIncubationResult
+
+%% 4.2 统计读取面（只读，绝不写库）
+
+sequenceDiagram
+    autonumber
+    participant Cli as HTTP / Client
+    participant Srv as server/app.py → mapping.statistics_response
+    participant Agg as aggregate_statistics<br/>(statistics/aggregation.py)
+    participant Rss as RelationalScopedStatistics.overview<br/>(runtime/statistics.py)
+    participant Repo as RecurrenceRepository（只读）
+    participant DB as AsyncDatabase.transaction
+
+    Cli->>Srv: POST /stats (GetStatsRequest)
+    Srv->>Rss: overview(period, as_of) 逐 scope
+    Rss->>DB: begin（只读事务）
+    Rss->>Repo: observations(scope_id)
+    Repo-->>Rss: tuple[RecurrenceObservation]（按 position 升序）
+    Rss->>Repo: unlinked_handoff_citations(scope_id, linked_keys)
+    Repo-->>Rss: int（provenance 覆盖缺口，非 selected）
+    Rss->>Rss: selected / recurred / avoided = 按 event 计数
+    Rss->>Rss: unknown = 有链路 selected − 同 Outcome 已得 terminal verdict
+    Rss->>Rss: 逐 (artifact_ref, signature_key) 调 recurrence.terminal_streak
+    Rss->>Rss: needing_review = streak >= 3 的 revision 数
+    Rss->>Rss: top_revisions = 先 streak 降序，再 (family, artifact_id, revision, signature_key) 升序，<br/>排序后再按 MAX_RECURRENCE_TOP_REVISIONS 截断
+    Rss-->>Srv: Statistics(by_scope=(ScopeStatistics(recurrence=...),))
+    Srv->>Agg: aggregate_statistics(...)
+    Note over Agg: by_scope 逐条透传 recurrence；<br/>多个独立 scope 绝不合并成一条 streak
+    Agg-->>Srv: Statistics
+    Srv->>Cli: ScopedStats.model_validate(value.model_dump(mode="json"))

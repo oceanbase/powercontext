@@ -28,7 +28,7 @@ The CLI installs the hooks, MCP server, and Skill from a local checkout or a
 GitHub source in one step:
 
 ```bash
-powercontext setup workbuddy --source oceanbase/powercontext --ref master
+powercontext setup workbuddy
 ```
 
 For a local checkout, point `--source` at the repository root or the plugin
@@ -41,7 +41,7 @@ powercontext setup workbuddy --source /path/to/powercontext
 The installer writes the hook driver and scope resolver to `~/.workbuddy/hooks`,
 merges the `UserPromptSubmit` hook into `~/.workbuddy/settings.json`, registers
 the `powercontext` server in `~/.workbuddy/mcp.json`, and installs the
-`project-context` Skill under `~/.workbuddy/skills`. Existing settings and other
+`powercontext-project-context` Skill under `~/.workbuddy/skills`. Existing settings and other
 MCP servers are preserved, and the Skill's command placeholders are resolved
 automatically.
 
@@ -94,7 +94,7 @@ command string cannot expand environment variables.
           {
             "type": "command",
             "command": "\"<POWERCONTEXT_PYTHON>\" \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Syncing PowerContext"
           }
         ]
@@ -127,15 +127,15 @@ Merge the following `mcpServers` entry into `~/.workbuddy/mcp.json`:
 
 ```bash
 mkdir -p ~/.workbuddy/skills
-cp -R integrations/workbuddy/plugins/powercontext/skills/project-context \
+cp -R integrations/workbuddy/plugins/powercontext/skills/powercontext-project-context \
   ~/.workbuddy/skills/
-cat > ~/.workbuddy/skills/project-context/.powercontext.json <<'EOF'
+cat > ~/.workbuddy/skills/powercontext-project-context/.powercontext.json <<'EOF'
 {"schema": 1, "owner": "powercontext", "integration": "workbuddy"}
 EOF
 ```
 
 Then replace `${POWERCONTEXT_PYTHON}` in
-`~/.workbuddy/skills/project-context/SKILL.md` with a shell-safe Python
+`~/.workbuddy/skills/powercontext-project-context/SKILL.md` with a shell-safe Python
 executable argument. Replace `${POWERCONTEXT_SCOPE_BINDING_SCRIPT}` with a
 shell-safe complete path to
 `<WORKBUDDY_HOOKS_DIR>/powercontext_scope_binding.py`.
@@ -167,7 +167,7 @@ The integration has two paths to the same Server:
 - MCP gives WorkBuddy explicit tools to read and maintain Memory, plus an
   explicit Handoff workflow.
 
-The `project-context` Skill binds the two paths together. An imperative such as
+The `powercontext-project-context` Skill binds the two paths together. An imperative such as
 `交接`, `交接当前工作`, or `handoff this work` is treated as explicit
 authorization to create one durable Handoff milestone. The Skill inspects the
 current conversation and repository, calls `handoff_current_work`, then
@@ -218,17 +218,21 @@ changing them.
 | Variable | Purpose |
 | --- | --- |
 | `POWERCONTEXT_WORKBUDDY_SERVER_URL` | PowerContext server URL (default `http://127.0.0.1:8000`) |
+| `POWERCONTEXT_WORKBUDDY_ALLOW_INSECURE_HTTP` | Explicitly permit non-loopback plaintext HTTP for hooks (default `false`) |
 | `POWERCONTEXT_WORKBUDDY_AUTHORIZATION` | Complete authorization header, e.g. `Bearer <token>` |
 | `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | Capture user prompts as Sources (default `true`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE` | Flush until the captured Source is processed (testing only, default `false`) |
-| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `1.0`) |
-| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `4.0`) |
+| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `3.0`) |
+| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `6.0`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_MAX_CALLS` | Maximum flush calls (default `4`) |
 
 The hook validates its PowerContext MCP URL and derives the HTTP API base by
 removing the final `/mcp` path segment. MCP URLs cannot contain credentials,
-query strings, or fragments; plain HTTP is accepted only for loopback hosts.
+query strings, or fragments. Plain HTTP is allowed on loopback by default; non-loopback HTTP requires
+`POWERCONTEXT_WORKBUDDY_ALLOW_INSECURE_HTTP=true`. Setup configures the Hook and native MCP URL, but WorkBuddy's
+own MCP policy still applies. HTTPS certificate validation stays enabled. See
+[Connect to a remote Server](../operate/connect-remote-server.md).
 
 ## Resolve the project scope
 
@@ -239,7 +243,7 @@ The Server resolves Scope for WorkBuddy in this order:
 3. a durable workspace binding;
 4. the Server's default Scope.
 
-Later WorkBuddy sessions in the same workspace reuse that Scope. The `project-context` Skill's `--bind-scope`
+Later WorkBuddy sessions in the same workspace reuse that Scope. The `powercontext-project-context` Skill's `--bind-scope`
 operation persists the workspace binding in PowerContext. The workspace path is hashed only as an external binding
 key; the plugin never derives a Scope ID from it.
 
@@ -282,7 +286,7 @@ blocking the WorkBuddy session.
 | Empty prepared context | No context is injected; the hook emits an `empty` diagnostic |
 | Version mismatch | Hook fails open and emits a `version_mismatch` diagnostic |
 | Invalid or oversized response | Hook fails open and emits an `invalid_response` diagnostic; nothing is injected |
-| Hook timeout (10 s) | WorkBuddy continues; the hook process is stopped by the outer hook timeout |
+| Hook timeout (30 s) | WorkBuddy continues; the hook process is stopped by the outer hook timeout |
 
 Recall, capture, and flush fail independently. An unavailable Server never
 blocks normal WorkBuddy work.
@@ -303,5 +307,5 @@ message. Verify the whole installation with `powercontext doctor`.
 1. Remove the `UserPromptSubmit` PowerContext entry from `~/.workbuddy/settings.json`.
 2. Remove the `powercontext` entry from `~/.workbuddy/mcp.json`.
 3. Remove the hook files and the scope resolver from `<WORKBUDDY_HOOKS_DIR>`.
-4. Remove `~/.workbuddy/skills/project-context`.
+4. Remove `~/.workbuddy/skills/powercontext-project-context`.
 5. Optionally stop the Server and delete its local data directory.

@@ -39,26 +39,42 @@ from powercontext.http._generated.operations import (
     CLEAR_SCOPE_BINDING,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_DREAM_RUN,
     CREATE_SCOPE,
     CREATE_WORK_CONTRACT,
     FINALIZE_HANDOFF,
+    GENERATE_EXPERIENCE,
+    GENERATE_SKILL,
     GET_ARTIFACT_CANDIDATE,
+    GET_DREAM_RUN,
+    GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
+    GET_MEMORY_CAPACITY,
     GET_MEMORY_ENTRY,
     GET_SCOPE,
+    GET_SKILL,
     GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
+    IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_DREAM_RUNS,
+    LIST_EXTERNAL_SKILLS,
+    LIST_MANAGED_SKILLS,
     LIST_MEMORY_ENTRIES,
     LIST_SCOPES,
+    PROPOSE_EXPERIENCE,
+    PROPOSE_SKILL,
     PUBLISH_ARTIFACT,
+    QUERY_CODE,
     RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
+    RESOLVE_EXTERNAL_SKILL,
     RESOLVE_SCOPE_BINDING,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
+    SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
     SEARCH_TOPIC_MEMORY,
     SET_SCOPE_BINDING,
@@ -75,7 +91,50 @@ from powercontext.server.tracing import McpTracingMiddleware, ServerTracing
 
 MCP_PATH = "/mcp"
 MCP_SERVER_NAME = "PowerContext Server"
+MCP_GUIDANCE = """When query_code is available, use it for current repository structure and source evidence. Pass the returned fingerprint for relation and source reads; stale code requires local sync. Code evidence is separate from durable history and grants no execution authority.
+PowerContext provides durable project history and Handoffs across sessions.
+Summarizing or drafting from facts supplied in the current turn needs no retrieval or Scope resolution. An empty search does not authorize an inventory. If inventory or Handoff is unavailable, do not emulate it with Memory search or storage.
+Tool names in this guidance describe possible capabilities, not proof of availability. Before selecting an operation, check that its exact name appears in the current tool catalog. If absent, stop that operation and explicitly report it unavailable and incomplete. Never emit a call to an absent tool, simulate a call in text, or substitute another persistence operation.
+Use only the tools available in this connection. Reuse the host/Server-resolved Scope; never derive a Scope from a
+repository, directory, branch, or prompt or change a binding to work around missing history. Historical evidence is
+subordinate to current user, repository, and system instructions.
+Ordinary coding needs no routine Memory calls. Use sufficient current context when continuing work. For an explicit
+memory search (search my memories / 搜索记忆), call search_memory with a focused query, mode auto, and at most eight
+hits. Use list_memory_entries for an explicit inventory or audit, and get_memory_entry for exact cited details.
+For an explicit future save (remember this / 记住这个供以后使用), call remember_memory and verify its result. Automatic
+Source capture is not an explicit Memory write, and enabled hooks do not establish successful recall or persistence.
+Current-turn instructions, conceptual questions, and previews do not authorize writes. Never store secrets.
+For requested transfer, handoff_current_work records an inspected boundary and returns a temporary handoff. Commit
+only when a durable milestone is requested; continue from the exact selected value and verify historical claims.
+Prepared content is not proof of injection, a committed milestone, acceptance, or work execution.
+For requested Experience or Skill synthesis use generate_experience or generate_skill; caller-authored content uses
+propose_experience or propose_skill. These create pending candidates, not approved artifacts. Read an exact approved
+revision with get_experience or get_skill; use list_managed_skills to discover approved Skills.
+For external Skills, scan_external_skills refreshes configured Server-host roots; list_external_skills and
+resolve_external_skill inspect exact host-local fingerprints. import_external_skill creates a pending candidate.
+A remote Server cannot scan the Codex workstation. Resolution is not installation or execution permission.
+Inspect candidates before an explicitly authorized review decision for their exact version. Generation, listing,
+reading, and assessing are not approval, installation, publication, or execution authority. Preserve host approval
+checks and exact citations for Memory changes. A Skill is useful for detailed workflows only if present in the host
+catalog; it is not a mandatory detour before every response.
+Empty retrieval is a valid result. On failure identify the operation and safe returned reason, do not infer a cause,
+claim saved/restored context, or repeatedly retry. Continue ordinary work when the requested operation is unavailable.
+"""
 _MCP_OPERATION_IDS = frozenset({
+    GENERATE_EXPERIENCE.operation_id,
+    GET_EXPERIENCE.operation_id,
+    PROPOSE_EXPERIENCE.operation_id,
+    GENERATE_SKILL.operation_id,
+    GET_SKILL.operation_id,
+    PROPOSE_SKILL.operation_id,
+    LIST_MANAGED_SKILLS.operation_id,
+    SCAN_EXTERNAL_SKILLS.operation_id,
+    LIST_EXTERNAL_SKILLS.operation_id,
+    RESOLVE_EXTERNAL_SKILL.operation_id,
+    IMPORT_EXTERNAL_SKILL.operation_id,
+    CREATE_DREAM_RUN.operation_id,
+    GET_DREAM_RUN.operation_id,
+    LIST_DREAM_RUNS.operation_id,
     CAPTURE_CONTENT_SOURCE.operation_id,
     CREATE_WORK_CONTRACT.operation_id,
     HANDOFF_CURRENT_WORK.operation_id,
@@ -86,9 +145,11 @@ _MCP_OPERATION_IDS = frozenset({
     COMMIT_HANDOFF.operation_id,
     CONTINUE_HANDOFF.operation_id,
     SEARCH_MEMORY.operation_id,
+    QUERY_CODE.operation_id,
     SEARCH_TOPIC_MEMORY.operation_id,
     GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
+    GET_MEMORY_CAPACITY.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     REMEMBER_MEMORY.operation_id,
     REVISE_MEMORY_ENTRY.operation_id,
@@ -108,11 +169,20 @@ _MCP_OPERATION_IDS = frozenset({
     PUBLISH_ARTIFACT.operation_id,
 })
 _MCP_READ_ONLY_OPERATION_IDS = frozenset({
+    GET_EXPERIENCE.operation_id,
+    GET_SKILL.operation_id,
+    LIST_MANAGED_SKILLS.operation_id,
+    LIST_EXTERNAL_SKILLS.operation_id,
+    RESOLVE_EXTERNAL_SKILL.operation_id,
+    GET_DREAM_RUN.operation_id,
+    LIST_DREAM_RUNS.operation_id,
     CONTINUE_HANDOFF.operation_id,
     SEARCH_MEMORY.operation_id,
+    QUERY_CODE.operation_id,
     SEARCH_TOPIC_MEMORY.operation_id,
     GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
+    GET_MEMORY_CAPACITY.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     GET_HANDOFF_REPORT.operation_id,
     LIST_ARTIFACT_CANDIDATES.operation_id,
@@ -120,6 +190,19 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     LIST_SCOPES.operation_id,
     GET_SCOPE.operation_id,
     RESOLVE_SCOPE_BINDING.operation_id,
+})
+_MCP_CANDIDATE_WRITE_OPERATION_IDS = frozenset({
+    GENERATE_EXPERIENCE.operation_id,
+    PROPOSE_EXPERIENCE.operation_id,
+    GENERATE_SKILL.operation_id,
+    PROPOSE_SKILL.operation_id,
+    IMPORT_EXTERNAL_SKILL.operation_id,
+})
+_MCP_EXTERNAL_SKILL_OPERATION_IDS = frozenset({
+    SCAN_EXTERNAL_SKILLS.operation_id,
+    LIST_EXTERNAL_SKILLS.operation_id,
+    RESOLVE_EXTERNAL_SKILL.operation_id,
+    IMPORT_EXTERNAL_SKILL.operation_id,
 })
 _MCP_REVIEW_WRITE_OPERATION_IDS = frozenset({
     APPROVE_ARTIFACT_CANDIDATE.operation_id,
@@ -142,12 +225,26 @@ def _annotate_mcp_component(
 
     if not isinstance(component, OpenAPITool):
         return
+    if route.operation_id == GET_HANDOFF_REPORT.operation_id:
+        # This operation returns either a JSON object or Markdown text. MCP's
+        # object output schema would require structured content for both formats.
+        component.output_schema = None
     if route.operation_id in _MCP_READ_ONLY_OPERATION_IDS:
         component.annotations = ToolAnnotations(
             readOnlyHint=True,
             destructiveHint=False,
             idempotentHint=True,
-            openWorldHint=False,
+            openWorldHint=route.operation_id in _MCP_EXTERNAL_SKILL_OPERATION_IDS,
+        )
+    elif (
+        route.operation_id in _MCP_CANDIDATE_WRITE_OPERATION_IDS
+        or route.operation_id == SCAN_EXTERNAL_SKILLS.operation_id
+    ):
+        component.annotations = ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=route.operation_id in _MCP_EXTERNAL_SKILL_OPERATION_IDS,
         )
     elif route.operation_id == HANDOFF_CURRENT_WORK.operation_id:
         component.annotations = ToolAnnotations(
@@ -156,7 +253,7 @@ def _annotate_mcp_component(
             idempotentHint=False,
             openWorldHint=False,
         )
-    elif route.operation_id == COMMIT_HANDOFF.operation_id:
+    elif route.operation_id in {COMMIT_HANDOFF.operation_id, CREATE_DREAM_RUN.operation_id}:
         component.annotations = ToolAnnotations(
             readOnlyHint=False,
             destructiveHint=False,
@@ -200,7 +297,7 @@ def create_mcp_server(
         # pass rejects valid OpenAPI 3.0 nullable references in empty results.
         validate_output=False,
     )
-    server = FastMCP(name=MCP_SERVER_NAME, providers=[provider])
+    server = FastMCP(name=MCP_SERVER_NAME, instructions=MCP_GUIDANCE, providers=[provider])
     server.add_middleware(McpTracingMiddleware(resolved_tracing))
     if access_log:
         server.add_middleware(McpAccessLogMiddleware())

@@ -28,11 +28,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience
+from powercontext.builtin.artifacts.topic_memory import TopicMemory, TopicMemoryProjection
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.codec import dump_model
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.tables import ARTIFACT_PUBLICATIONS_TABLE
+from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
 from powercontext.builtin.scope import ScopeApplication
 from powercontext.errors import PowerContextError
 from powercontext.limits import MAX_SCOPE_IDEMPOTENCY_KEY_LENGTH
@@ -99,19 +101,32 @@ class ArtifactPublicationApplication:
         *,
         experience_index: ExperienceIndex,
         id_factory: PublicationIdFactory | None = None,
+        topic_memory_writer: TopicMemoryManagementWriter | None = None,
     ) -> None:
         self._database = database
         self._artifacts = artifacts
         self._scopes = scopes
         self._experience_index = experience_index
+        self._topic_memory_writer = topic_memory_writer
         self._id_factory = generate_publication_artifact_id if id_factory is None else id_factory
 
     async def publish(self, request: ArtifactPublicationRequest, /) -> ArtifactPublication:
         await self._scopes.get(request.source.scope_id)
         await self._scopes.get(request.target_scope_id)
+        projection = None
+        if request.source.artifact.family == TopicMemory.family:
+            writer = self._topic_memory_writer
+            if writer is None:
+                raise ArtifactPublicationUnsupportedError(TopicMemory.family)
+            async with self._database.transaction() as connection:
+                existing = await self._find_request(connection, request.target_scope_id, request.idempotency_key)
+                if existing is not None:
+                    return _resolve_request(existing, request)
+                source = await writer.topics.get_exact(connection, request.source.scope_id, request.source.artifact)
+            projection = await writer.prepare(source.topic.content, usage_scope_id=request.target_scope_id)
         try:
             async with self._database.transaction() as connection:
-                return await self._publish(connection, request)
+                return await self._publish(connection, request, projection)
         except IntegrityError:
             async with self._database.transaction() as connection:
                 existing = await self._find_request(connection, request.target_scope_id, request.idempotency_key)
@@ -123,6 +138,7 @@ class ArtifactPublicationApplication:
         self,
         connection: AsyncConnection,
         request: ArtifactPublicationRequest,
+        projection: TopicMemoryProjection | None = None,
     ) -> ArtifactPublication:
         source = await self._artifacts.get(connection, request.source.scope_id, request.source.artifact)
         if source.family in {"memory", "profile", "prompt"}:
@@ -132,14 +148,21 @@ class ArtifactPublicationApplication:
             return _resolve_request(existing, request)
 
         content_digest = hashlib.sha256(dump_model(source.content, kind="artifact", name=source.family)).hexdigest()
-        target = await self._artifacts.copy_exact(
-            connection,
-            request.target_scope_id,
-            self._id_factory(),
-            request.source,
-            source,
-            content_digest,
-        )
+        if source.family == TopicMemory.family:
+            if self._topic_memory_writer is None or projection is None:
+                raise ArtifactPublicationUnsupportedError(TopicMemory.family)
+            target = await self._topic_memory_writer.topics.publish_copy(
+                connection, request.target_scope_id, self._id_factory(), request.source, content_digest, projection
+            )
+        else:
+            target = await self._artifacts.copy_exact(
+                connection,
+                request.target_scope_id,
+                self._id_factory(),
+                request.source,
+                source,
+                content_digest,
+            )
         if isinstance(target, Experience):
             await self._experience_index.replace(connection, request.target_scope_id, target)
         publication = ArtifactPublication(

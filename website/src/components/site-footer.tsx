@@ -17,6 +17,7 @@
 import Link from 'next/link';
 import { BrandLogo } from './brand-logo';
 import { defaultLanguage, type Language } from '@/lib/i18n';
+import { repositoryUrl } from '@/lib/urls';
 
 const copy = {
   en: {
@@ -74,7 +75,7 @@ export function SiteFooter({ lang }: { lang: Language }) {
           <ul className="mt-4 space-y-3 text-sm text-fd-muted-foreground">
             <li><Link className="hover:text-fd-foreground" href={`/${lang}/modules`}>{text.python}</Link></li>
             <li><Link className="hover:text-fd-foreground" href="/api">{text.http}</Link></li>
-            <li><a className="hover:text-fd-foreground" href="https://github.com/oceanbase/powercontext" rel="noreferrer" target="_blank">GitHub</a></li>
+            <li><a className="hover:text-fd-foreground" href={repositoryUrl} rel="noreferrer" target="_blank">GitHub</a></li>
           </ul>
         </nav>
       </div>

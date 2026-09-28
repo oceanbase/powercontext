@@ -34,8 +34,10 @@ from powercontext.http import (
     CreateScopeRequest,
     CreateSourceRequest,
     FlushMemoryRequest,
+    FlushProfileRequest,
     GeneratePromptDemonstrationsRequest,
     ListArtifactRevisionsRequest,
+    PutProfilePolicyRequest,
     ReplaceArtifactRequest,
 )
 from powercontext.server.factory import create_server_app
@@ -195,12 +197,22 @@ def test_prompt_http_history_generation_and_scoped_inference(
             if isinstance(part, UserPromptPart) and isinstance(part.content, str)
         )
         if "demonstration_count" in request:
-            value = {
-                "demonstrations": [
-                    {"input": {"evidence": [], "current_entries": []}, "expected_output": {"candidates": []}}
-                    for _ in range(request["demonstration_count"])
-                ]
-            }
+            if "Each probe cites" in info.instructions:
+                demonstration = {
+                    "input": {
+                        "evidence": [{"evidence_id": "e1", "source_type": "content", "content": "Ports are checked."}]
+                    },
+                    "expected_output": {"probes": [{"query": "port checks", "evidence_ids": ["e1"]}]},
+                }
+            else:
+                demonstration = {
+                    "input": {"evidence": [], "current_entries": []},
+                    "expected_output": {"candidates": []},
+                }
+            value = {"demonstrations": [demonstration for _ in range(request["demonstration_count"])]}
+        elif "sources" in request:
+            assert "PROFILE_ALPHA_RULE" in info.instructions
+            value = {"content": "# Profile\n\n- Custom profile guidance applied."}
         else:
             text = "Scope Alpha preference." if "Alpha rule." in info.instructions else "Scope Beta preference."
             value = {
@@ -256,7 +268,8 @@ def test_prompt_http_history_generation_and_scoped_inference(
                 for label in ("Alpha", "Beta")
             ]
             capabilities = (await transport.get("/v1/capabilities")).json()
-            assert len(capabilities["prompts"]) == 6
+            assert len(capabilities["prompts"]) == 14
+            assert capabilities["prompts"]["profile.generate"]["status"] == "supported"
             assert capabilities["prompts"]["memory.extract"]["status"] == "supported"
             scope = scopes[0]
             initial = await client.get_prompt_configuration(scope, "memory.extract")
@@ -290,6 +303,13 @@ def test_prompt_http_history_generation_and_scoped_inference(
             )
             assert len(generated.demonstrations) == 2
             assert await client.get_artifact(scope, "prompt", "memory.extract") == before
+            assert capabilities["prompts"]["topic_memory.probe"]["status"] == "supported"
+            topic_generated = await client.generate_prompt_demonstrations(
+                scope,
+                "topic_memory.probe",
+                GeneratePromptDemonstrationsRequest(instructions="Keep durable topic probes.", demonstration_count=1),
+            )
+            assert len(topic_generated.demonstrations) == 1
             with pytest.raises(ServerResponseError) as duplicate:
                 await client.create_artifact(
                     scope,
@@ -308,6 +328,31 @@ def test_prompt_http_history_generation_and_scoped_inference(
                 memory = await client.get_artifact(scoped, "memory", flushed.memory.artifact_id)
                 assert memory is not None
                 assert any(ref.family == "prompt" and ref.revision == 1 for ref in memory.artifacts)
+
+            profile_prompt = await client.create_artifact(
+                scope,
+                CreateArtifactRequest.model_validate({
+                    "family": "prompt",
+                    "prompt_key": "profile.generate",
+                    "content": _content("PROFILE_ALPHA_RULE: Keep only lasting preferences.", mode="custom"),
+                }),
+            )
+            assert profile_prompt.artifact_id == "profile.generate"
+            await client.put_profile_policy(
+                scope,
+                PutProfilePolicyRequest(generation_enabled=True, expected_version=0),
+            )
+            profile_flush = await client.flush_profile(FlushProfileRequest(scope_id=scope))
+            assert profile_flush.status == "updated"
+            profile_artifact = await client.get_artifact(scope, "profile", "profile")
+            assert profile_artifact is not None
+            assert profile_artifact.content["content"] == "# Profile\n\n- Custom profile guidance applied.\n"
+            assert any(
+                ref.family == "prompt"
+                and ref.artifact_id == profile_prompt.artifact_id
+                and ref.revision == profile_prompt.revision
+                for ref in profile_artifact.artifacts
+            )
 
             auto = await client.replace_artifact(
                 scope,

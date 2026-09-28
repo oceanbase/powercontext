@@ -52,6 +52,7 @@ class ResolvedConfig:
     timeout: float
     max_bytes: int
     context_assembly: ContextAssembly | None = None
+    allow_insecure_http: bool = False
 
 
 def resolve_config(
@@ -66,13 +67,17 @@ def resolve_config(
     # The scope token is a plain str; the settings token is a SecretStr. Unwrap to a plain str at this boundary so the
     # client can compose the ``Authorization`` header, while the stored settings/scope fields stay repr-safe.
     token = scope.token if scope.token is not None else _secret_value(resolved_settings.token)
+    base_url, allow_insecure_http = resolved_settings.resolve_transport(
+        server_url=scope.base_url, allow_insecure_http=scope.allow_insecure_http
+    )
     return ResolvedConfig(
-        base_url=(scope.base_url or resolved_settings.base_url).strip(),
+        base_url=base_url,
         scope_id=_explicit_scope_id(scope.scope_id or resolved_settings.scope_id),
         token=token,
         timeout=scope.timeout if scope.timeout is not None else resolved_settings.timeout,
         max_bytes=resolved_settings.max_bytes,
         context_assembly=resolved_settings.context_assembly,
+        allow_insecure_http=allow_insecure_http,
     )
 
 
@@ -112,8 +117,11 @@ def open_client(config: ResolvedConfig) -> PowerContextClient:
             token=config.token,
             http_client=client,
             trust_transport_security=trust_transport_security,
+            allow_insecure_http=config.allow_insecure_http,
         )
-    return PowerContextClient(config.base_url, token=config.token, timeout=config.timeout)
+    return PowerContextClient(
+        config.base_url, token=config.token, timeout=config.timeout, allow_insecure_http=config.allow_insecure_http
+    )
 
 
 @contextmanager

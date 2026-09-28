@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Generic, TypeVar
 
-from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 from powercontext.errors import InvalidArtifactReferenceError
 from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH, MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
@@ -44,6 +44,25 @@ class ArtifactRef(BaseModel):
         return value
 
 
+class _ArtifactValue(BaseModel):
+    """Shared immutable configuration for artifact-family content values.
+
+    ``strict=True`` is deliberately omitted: Experience values are produced by
+    generators and HTTP mapping through the lenient coercion path today, and
+    tightening them is a behavior change outside this family's contract.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class MemoryCitation(BaseModel):
+    """An exact entry version anchored in its owning Memory Revision."""
+
+    memory_ref: ArtifactRef
+    entry_id: str
+    entry_version_id: str
+
+
 class ArtifactAddress(BaseModel):
     """A complete address for one exact Artifact revision across Scope boundaries."""
 
@@ -67,6 +86,7 @@ class ArtifactLineage(BaseModel):
 
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+    memory_citations: tuple[MemoryCitation, ...] = ()
     publication_source: ArtifactAddress | None = None
     publication_digest: str | None = None
 
@@ -85,10 +105,13 @@ class ArtifactDraft(BaseModel, Generic[ContentT]):
     content: ContentT
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+    memory_citations: tuple[MemoryCitation, ...] = ()
 
     @model_validator(mode="after")
     def validate_family(self):
         _validate_reference_part("family", self.family)
+        if self.memory_citations and self.family != "experience":
+            raise ValueError("only Experience accepts direct Memory citations")  # noqa: TRY003
         return self
 
 
@@ -101,6 +124,12 @@ class Artifact(BaseModel, Generic[ContentT]):
     revision: StrictInt = Field(ge=1)
     content: ContentT
     lineage: ArtifactLineage = Field(default_factory=ArtifactLineage)
+
+    @model_validator(mode="after")
+    def validate_entry_lineage(self):
+        if self.lineage.memory_citations and self.family != "experience":
+            raise ValueError("only Experience accepts direct Memory citations")  # noqa: TRY003
+        return self
 
     @field_validator("artifact_id")
     @classmethod

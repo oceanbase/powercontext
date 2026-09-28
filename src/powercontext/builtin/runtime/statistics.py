@@ -17,22 +17,42 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.experience.models import ExperienceContent
+from powercontext.builtin.artifacts.experience.recurrence import (
+    MAX_RECURRENCE_HANDOFF_SCAN,
+    RECURRENCE_REVIEW_STREAK_THRESHOLD,
+    RecurrenceObservation,
+    signature_key,
+    terminal_streak,
+)
+from powercontext.builtin.artifacts.handoff import Handoff
+from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.memory import MemoryService
 from powercontext.builtin.inference import InferenceUsage, TokenEstimatorProfile
-from powercontext.builtin.persistence.cursors import SourceCursorRepository
+from powercontext.builtin.persistence.artifacts import ArtifactRepository
+from powercontext.builtin.persistence.cursors import SourceCursorRepository, StoredSourceCursor
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.errors import RepositoryNotFoundError
+from powercontext.builtin.persistence.recurrence import RecurrenceRepository
 from powercontext.builtin.persistence.statistics import (
     StatisticsRepository,
+    StoredInventoryCounts,
     StoredModelUsage,
     StoredRecallTokenUsage,
 )
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
+from powercontext.builtin.runtime.recurrence import handoff_experience_citations
 from powercontext.builtin.scope import ScopeSelection
 from powercontext.builtin.statistics import (
+    MAX_RECURRENCE_TOP_REVISIONS,
     ArtifactInventoryStatistics,
     CandidateFamilyCount,
     CandidateInventoryStatistics,
@@ -51,6 +71,8 @@ from powercontext.builtin.statistics import (
     RecallTokenMeasurement,
     RecallTokenStatistics,
     RecallTokenValue,
+    RecurrenceStatistics,
+    RecurrenceStreak,
     ResolvedUsagePeriod,
     ScopeStatistics,
     SourceInventoryStatistics,
@@ -70,6 +92,19 @@ _PERIOD_DAYS = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class _ScopeReads:
+    """One Scope's raw statistics rows, before projection into the contract."""
+
+    inventory: StoredInventoryCounts
+    processed_sources: int
+    memory_entries: tuple[tuple[str, str], ...]
+    usage: tuple[StoredModelUsage, ...]
+    recall: tuple[StoredRecallTokenUsage, ...]
+    observations: tuple[RecurrenceObservation, ...]
+    unlinked_handoff_citations: int
+
+
 class RelationalScopedStatistics:
     """Assemble one scope's inventory and usage in explicit transactions."""
 
@@ -82,6 +117,8 @@ class RelationalScopedStatistics:
         memory_service: MemoryServiceFactory,
         cursors: SourceCursorRepository,
         repository: StatisticsRepository,
+        recurrence: RecurrenceRepository,
+        artifacts: ArtifactRepository,
         token_estimator: TokenEstimatorProfile | None,
     ) -> None:
         self._database = database
@@ -90,56 +127,70 @@ class RelationalScopedStatistics:
         self._memory_service = memory_service
         self._cursors = cursors
         self._repository = repository
+        self._recurrence = recurrence
+        self._artifacts = artifacts
         self._token_estimator = token_estimator
 
     async def overview(self, period: StatisticsPeriod, as_of: datetime, /) -> Statistics:
         captured_at = _as_utc(as_of)
         resolved_period = _resolve_period(period, captured_at.date())
         async with self._database.transaction() as connection:
-            stored_inventory = await self._repository.inventory(connection, self._scope_id)
-            cursor = await self._cursors.load(
-                connection,
-                self._scope_id,
-                SOURCE_WINDOW_TRIGGER_NAME,
-            )
-            memory_entries = await self._memory_entries(connection)
-            usage_rows = await self._repository.usage(
-                connection,
-                self._scope_id,
-                resolved_period.start_date,
-                resolved_period.end_date,
-            )
-            recall_rows = (
+            reads = await self._read(connection, resolved_period)
+        return self._assemble(reads, resolved_period, captured_at)
+
+    async def _read(self, connection: AsyncConnection, period: ResolvedUsagePeriod, /) -> _ScopeReads:
+        """Read one Scope's raw statistics rows on an already-open connection."""
+
+        cursor = await self._cursors.load(connection, self._scope_id, SOURCE_WINDOW_TRIGGER_NAME)
+        return _ScopeReads(
+            inventory=await self._repository.inventory(connection, self._scope_id),
+            processed_sources=_processed_sources(cursor),
+            memory_entries=await self._memory_entries(connection),
+            usage=await self._repository.usage(connection, self._scope_id, period.start_date, period.end_date),
+            recall=(
                 ()
                 if self._token_estimator is None
                 else await self._repository.recall_usage(
                     connection,
                     self._scope_id,
-                    resolved_period.start_date,
-                    resolved_period.end_date,
+                    period.start_date,
+                    period.end_date,
                     estimator_id=self._token_estimator.estimator_id,
                     estimator_version=self._token_estimator.version,
                 )
-            )
+            ),
+            observations=await self._recurrence.observations(connection, self._scope_id),
+            unlinked_handoff_citations=await self._recurrence.unlinked_handoff_citations(
+                connection,
+                self._scope_id,
+                await self._cited_keys(connection),
+            ),
+        )
 
-        processed = 0 if cursor is None else cursor.cursor.sequence
-        artifacts = tuple(FamilyCount(family=family, total=total) for family, total in stored_inventory.artifacts)
-        candidates = _candidate_inventory(stored_inventory.candidates)
+    def _assemble(self, reads: _ScopeReads, period: ResolvedUsagePeriod, captured_at: datetime, /) -> Statistics:
+        """Project one Scope's raw rows into the statistics contract."""
+
+        artifacts = tuple(FamilyCount(family=family, total=total) for family, total in reads.inventory.artifacts)
+        candidates = _candidate_inventory(reads.inventory.candidates)
         inventory = InventoryStatistics(
             sources=SourceInventoryStatistics(
-                total=stored_inventory.sources,
-                memory_processed=processed,
-                memory_pending=max(stored_inventory.sources - processed, 0),
+                total=reads.inventory.sources,
+                memory_processed=reads.processed_sources,
+                memory_pending=max(reads.inventory.sources - reads.processed_sources, 0),
             ),
             artifacts=ArtifactInventoryStatistics(
                 total=sum(item.total for item in artifacts),
                 by_family=artifacts,
             ),
             candidates=candidates,
-            memory=MemoryInventoryStatistics(entries=_memory_inventory(memory_entries)),
+            memory=MemoryInventoryStatistics(entries=_memory_inventory(reads.memory_entries)),
         )
-        usage = _usage_statistics(resolved_period, usage_rows)
-        recall = _recall_statistics(resolved_period, self._token_estimator, recall_rows)
+        usage = _usage_statistics(period, reads.usage)
+        recall = _recall_statistics(period, self._token_estimator, reads.recall)
+        recurrence = _recurrence_statistics(
+            reads.observations,
+            unlinked_handoff_citations=reads.unlinked_handoff_citations,
+        )
         return Statistics(
             selection=ScopeSelection(mode="exact", scope_ids=(self._scope_id,)),
             scope_ids=(self._scope_id,),
@@ -153,6 +204,7 @@ class RelationalScopedStatistics:
                     inventory=inventory,
                     usage=usage,
                     recall=recall,
+                    recurrence=recurrence,
                 ),
             ),
         )
@@ -186,15 +238,250 @@ class RelationalScopedStatistics:
                 measurement,
             )
 
+    async def _cited_keys(self, connection: AsyncConnection) -> tuple[tuple[str, str, int, str], ...]:
+        """Return the Experience signature keys this scope's Handoffs currently cite.
+
+        The scan is bounded and read-only: it only reports the provenance coverage
+        gap between citations the ledger can see and Observations it could attach.
+        """
+
+        rows = (
+            await connection.execute(
+                select(
+                    ARTIFACT_HEADS_TABLE.c.artifact_id,
+                    ARTIFACT_HEADS_TABLE.c.revision,
+                )
+                .where(
+                    ARTIFACT_HEADS_TABLE.c.scope_id == self._scope_id,
+                    ARTIFACT_HEADS_TABLE.c.family == Handoff.family,
+                    ARTIFACT_HEADS_TABLE.c.lifecycle_state == "active",
+                )
+                .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id, ARTIFACT_HEADS_TABLE.c.revision)
+                .limit(MAX_RECURRENCE_HANDOFF_SCAN)
+            )
+        ).all()
+        if not rows:
+            return ()
+        handoffs = await self._artifacts.get_many(
+            connection,
+            self._scope_id,
+            tuple(ArtifactRef(family=Handoff.family, artifact_id=str(row[0]), revision=int(row[1])) for row in rows),
+        )
+        cited: list[ArtifactRef] = []
+        for handoff in handoffs:
+            if isinstance(handoff.content, HandoffContent):
+                cited.extend(handoff_experience_citations(handoff.content))
+        if not cited:
+            return ()
+        experiences = []
+        for ref in cited:
+            try:
+                experiences.append(await self._artifacts.get(connection, self._scope_id, ref))
+            except RepositoryNotFoundError:
+                continue
+        keys: set[tuple[str, str, int, str]] = set()
+        for experience in experiences:
+            content = experience.content
+            if not isinstance(content, ExperienceContent) or content.failure is None:
+                continue
+            ref = experience.as_ref()
+            keys.add((
+                ref.family,
+                ref.artifact_id,
+                ref.revision,
+                signature_key(content.failure.signature.recall_cue),
+            ))
+        return tuple(sorted(keys))
+
     async def _memory_entries(self, connection: AsyncConnection) -> tuple[tuple[str, str], ...]:
         service = self._memory_service(connection)
         try:
-            memory = await service.head(self._memory_artifact_id)
+            memory, entries = await service.head_entries(self._memory_artifact_id)
         except ArtifactNotFoundError:
             return ()
-        entries = await service.entries(memory)
         states = {item.entry_id: item.state for item in memory.content.manifest.entries}
         return tuple((entry.kind, states[entry.entry_id]) for entry in entries)
+
+
+def _recurrence_statistics(
+    observations: tuple[RecurrenceObservation, ...],
+    /,
+    *,
+    unlinked_handoff_citations: int,
+) -> RecurrenceStatistics:
+    """Derive every recurrence reading from positive evidence already in the ledger.
+
+    ``unknown`` is reported alongside the counters but is never a ledger row: it
+    counts linked selections whose Task Outcome never received a terminal verdict.
+    """
+
+    selected = tuple(item for item in observations if item.event == "selected")
+    recurred = tuple(item for item in observations if item.event == "recurred")
+    avoided = tuple(item for item in observations if item.event == "avoided")
+    verdicted = {
+        (
+            verdict.artifact_ref.family,
+            verdict.artifact_ref.artifact_id,
+            verdict.artifact_ref.revision,
+            verdict.signature_key,
+            verdict.task_outcome_ref.source_type,
+            verdict.task_outcome_ref.source_id,
+        )
+        for verdict in (*recurred, *avoided)
+    }
+    unknown = sum(
+        1
+        for item in selected
+        if (
+            item.artifact_ref.family,
+            item.artifact_ref.artifact_id,
+            item.artifact_ref.revision,
+            item.signature_key,
+            item.task_outcome_ref.source_type,
+            item.task_outcome_ref.source_id,
+        )
+        not in verdicted
+    )
+    return RecurrenceStatistics(
+        selected=len(selected),
+        recurred=len(recurred),
+        avoided=len(avoided),
+        unknown=unknown,
+        unlinked_handoff_citations=unlinked_handoff_citations,
+        needing_review=_needing_review(observations),
+        top_revisions=_top_revisions(observations),
+    )
+
+
+def _streaks(observations: tuple[RecurrenceObservation, ...], /) -> tuple[RecurrenceStreak, ...]:
+    groups: dict[tuple[str, str, int, str], list[RecurrenceObservation]] = defaultdict(list)
+    for item in observations:
+        if item.event == "selected":
+            continue
+        groups[
+            (
+                item.artifact_ref.family,
+                item.artifact_ref.artifact_id,
+                item.artifact_ref.revision,
+                item.signature_key,
+            )
+        ].append(item)
+    return tuple(
+        RecurrenceStreak(
+            artifact_ref=ArtifactRef(family=family, artifact_id=artifact_id, revision=revision),
+            signature_key=key,
+            terminal_recurred_streak=terminal_streak(tuple(verdicts)),
+        )
+        for (family, artifact_id, revision, key), verdicts in sorted(groups.items())
+    )
+
+
+def _needing_review(observations: tuple[RecurrenceObservation, ...], /) -> int:
+    return sum(
+        1 for streak in _streaks(observations) if streak.terminal_recurred_streak >= RECURRENCE_REVIEW_STREAK_THRESHOLD
+    )
+
+
+def _top_revisions(observations: tuple[RecurrenceObservation, ...], /) -> tuple[RecurrenceStreak, ...]:
+    """Order by streak descending, then identity ascending, and only then truncate."""
+
+    ordered = sorted(
+        _streaks(observations),
+        key=lambda streak: (
+            -streak.terminal_recurred_streak,
+            streak.artifact_ref.family,
+            streak.artifact_ref.artifact_id,
+            streak.artifact_ref.revision,
+            streak.signature_key,
+        ),
+    )
+    return tuple(ordered[:MAX_RECURRENCE_TOP_REVISIONS])
+
+
+async def overview_selection(
+    services: Sequence[RelationalScopedStatistics],
+    period: StatisticsPeriod,
+    as_of: datetime,
+    /,
+) -> tuple[Statistics, ...]:
+    """Read a whole Scope selection in one transaction, one query per table instead of per Scope.
+
+    The per-Scope reads answer the same question for every Scope, so issuing them once per
+    Scope makes a selection cost ``scopes x queries`` round trips and one transaction each.
+    Reading them together keeps the cost of a selection close to the cost of one Scope, and
+    the shared transaction gives every Scope the same snapshot. Services must belong to one
+    Runtime, which is what ``StatisticsApplication`` hands over.
+    """
+
+    if not services:
+        return ()
+    captured_at = _as_utc(as_of)
+    resolved_period = _resolve_period(period, captured_at.date())
+    shared = services[0]
+    scope_ids = tuple(service._scope_id for service in services)
+    async with shared._database.transaction() as connection:
+        inventories = await shared._repository.inventory_many(connection, scope_ids)
+        cursors = await shared._cursors.load_many(connection, scope_ids, SOURCE_WINDOW_TRIGGER_NAME)
+        usage = await shared._repository.usage_many(
+            connection,
+            scope_ids,
+            resolved_period.start_date,
+            resolved_period.end_date,
+        )
+        recall = await _recall_by_scope(connection, shared._repository, services, resolved_period)
+        reads = [
+            _ScopeReads(
+                inventory=inventories[service._scope_id],
+                processed_sources=_processed_sources(cursors.get(service._scope_id)),
+                memory_entries=await service._memory_entries(connection),
+                usage=usage[service._scope_id],
+                recall=recall.get(service._scope_id, ()),
+                observations=await service._recurrence.observations(connection, service._scope_id),
+                unlinked_handoff_citations=await service._recurrence.unlinked_handoff_citations(
+                    connection,
+                    service._scope_id,
+                    await service._cited_keys(connection),
+                ),
+            )
+            for service in services
+        ]
+    return tuple(
+        service._assemble(scope_reads, resolved_period, captured_at)
+        for service, scope_reads in zip(services, reads, strict=True)
+    )
+
+
+async def _recall_by_scope(
+    connection: AsyncConnection,
+    repository: StatisticsRepository,
+    services: Sequence[RelationalScopedStatistics],
+    period: ResolvedUsagePeriod,
+    /,
+) -> dict[str, tuple[StoredRecallTokenUsage, ...]]:
+    """Read recall aggregates once per estimator profile present in the selection."""
+
+    grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for service in services:
+        estimator = service._token_estimator
+        if estimator is not None:
+            grouped[estimator.estimator_id, estimator.version].append(service._scope_id)
+    recall: dict[str, tuple[StoredRecallTokenUsage, ...]] = {}
+    for (estimator_id, estimator_version), scope_ids in grouped.items():
+        recall.update(
+            await repository.recall_usage_many(
+                connection,
+                tuple(scope_ids),
+                period.start_date,
+                period.end_date,
+                estimator_id=estimator_id,
+                estimator_version=estimator_version,
+            )
+        )
+    return recall
+
+
+def _processed_sources(cursor: StoredSourceCursor | None, /) -> int:
+    return 0 if cursor is None else cursor.cursor.sequence
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -389,4 +676,4 @@ def _usage_total(values: tuple[ModelUsageValue, ...]) -> ModelUsageValue:
     )
 
 
-__all__ = ["RelationalScopedStatistics"]
+__all__ = ["RelationalScopedStatistics", "overview_selection"]

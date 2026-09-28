@@ -37,9 +37,14 @@ from powercontext.builtin.artifacts.experience.incubation import (
 )
 from powercontext.builtin.artifacts.experience.models import (
     MAX_EXPERIENCE_FIELD_LENGTH,
+    MAX_FAILURE_CUE_LENGTH,
     Experience,
     ExperienceContent,
     ExperienceDraft,
+    FailureRecord,
+    FailureSignature,
+    FailureVerification,
+    RepairSurface,
 )
 from powercontext.builtin.artifacts.experience.prompts import (
     EXPERIENCE_GENERATION_INSTRUCTIONS,
@@ -49,6 +54,7 @@ from powercontext.builtin.artifacts.experience.prompts import (
 )
 from powercontext.builtin.artifacts.experience.search import (
     ExperienceSearchHit,
+    ExperienceSearchOutcome,
     experience_search_text,
     experience_searchable_text,
     render_experience,
@@ -66,6 +72,7 @@ __all__ = [
     "MAX_EXPERIENCE_FIELD_LENGTH",
     "MAX_EXPERIENCE_INCUBATION_SOURCES",
     "MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS",
+    "MAX_FAILURE_CUE_LENGTH",
     "TASK_OUTCOME_SOURCE_KIND",
     "Experience",
     "ExperienceCandidateInput",
@@ -79,8 +86,13 @@ __all__ = [
     "ExperienceIncubationInput",
     "ExperienceIncubationOutput",
     "ExperienceSearchHit",
+    "ExperienceSearchOutcome",
+    "FailureRecord",
+    "FailureSignature",
+    "FailureVerification",
     "LLMExperienceCandidatePipeline",
     "LLMExperienceGenerator",
+    "RepairSurface",
     "experience_search_text",
     "experience_searchable_text",
     "render_experience",

@@ -418,7 +418,11 @@ describe("EvaluationApi HTTP", () => {
         elapsed_seconds: { off: 1.5, on: 1, delta: -0.5, percent: -33.333 },
         patch_bytes: { off: 0, on: 100, delta: 100, percent: null },
       },
-      evidence: { off: evidence, on: evidence },
+      evidence: {
+        // Evidence recorded before arms registered their own Scope, and evidence for a registered Scope.
+        off: { ...evidence, scope_key: null },
+        on: { ...evidence, scope_id: "scp_on", scope_key: "eval:task-1:on" },
+      },
       revisions: { powercontext: "abc" },
       configuration: { model: "gpt-5.6-sol" },
       generated_at: "2026-07-29T00:02:00Z",

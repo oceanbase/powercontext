@@ -21,18 +21,39 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
+from pydantic import ValidationError
 
 from powercontext.server.dashboard.api import DashboardAPI, ReadError, segment
 from powercontext.server.dashboard.content import RECORDS, load_content
+from powercontext.server.dashboard.markdown import handoff_markdown
+from powercontext.server.dashboard.navigation import (
+    collection_return,
+    directory_context,
+    positive_revision,
+    request_reading_return,
+)
 from powercontext.server.dashboard.preferences import CATALOGS, presentation, remember_language
 from powercontext.server.dashboard.presenters import source_view
+from powercontext.server.dashboard.session import login_response
 
 ROOT = Path(__file__).parent
 LABELS = CATALOGS["zh"]
-PARENTS = {"handoff-detail": "handoff", "experience": "methods", "skill": "methods"}
-PAGES = {"home", "handoff", "notes", "methods", "usage", "entry", *RECORDS}
+PARENTS = {"handoff-detail": "handoff", "experience": "methods", "skill": "methods", "handoff-download": "handoff"}
+PAGES = {
+    "home",
+    "handoff",
+    "notes",
+    "methods",
+    "topics",
+    "prompts",
+    "profile",
+    "handoff-download",
+    "usage",
+    "entry",
+    *RECORDS,
+}
 ENV = Environment(
     loader=FileSystemLoader(ROOT / "templates"), autoescape=select_autoescape(), undefined=StrictUndefined
 )
@@ -80,6 +101,16 @@ def links(request: Request, ctx: dict[str, Any]):
                     "experience_cursor",
                     "skill_cursor",
                     "q",
+                    "topic_q",
+                    "topic_artifact",
+                    "topic_revision",
+                    "topic_cursor",
+                    "topic_history",
+                    "view",
+                    "profile_cursor",
+                    "profile_history",
+                    "return_to",
+                    "lang",
                     "notes_page",
                     "skill_page",
                     "experience_history",
@@ -93,6 +124,8 @@ def links(request: Request, ctx: dict[str, Any]):
             if destination.startswith("evidence/")
             else ctx["data"].get(RECORDS.get(destination, ""))
         )
+        if destination == "handoff-download":
+            record = ctx["data"].get("handoff")
         if record:
             query.update(artifact=record["artifact_id"], revision=record["revision"])
         if destination == "notes" and "entry" in params:
@@ -103,6 +136,7 @@ def links(request: Request, ctx: dict[str, Any]):
                     memory_revision=note["memory_ref"]["revision"],
                     entry_version=note["entry_version_id"],
                 )
+        reading_link_context(request, ctx, destination, params, query)
         if "scope" in params and params["scope"] != ctx["scope"]:
             query = {"scope": params["scope"], "period": ctx["period"]}
         else:
@@ -117,6 +151,28 @@ def links(request: Request, ctx: dict[str, Any]):
     return link
 
 
+def reading_link_context(
+    request: Request, ctx: dict[str, Any], destination: str, params: dict[str, Any], query: dict[str, Any]
+) -> None:
+    if destination.startswith("evidence/") and ctx["page"] in {"profile", "handoff-detail"} and ctx.get("return_to"):
+        query["return_to"] = ctx["return_to"]
+    if destination in {"handoff-detail", "handoff-download"}:
+        source_return = (
+            directory_context(request, ctx["scope"], "handoff", ctx["language"])
+            if ctx["page"] == "handoff"
+            else ctx.get("return_to")
+        )
+        if source_return:
+            query["return_to"] = source_return
+        query["lang"] = ctx["language"]
+    if destination == "profile" and "revision" in params and params["revision"] is not None:
+        query.pop("view", None)
+        query.pop("profile_cursor", None)
+        query.pop("profile_history", None)
+        if ctx.get("profile_history_view"):
+            query["return_to"] = directory_context(request, ctx["scope"], "profile", ctx["language"])
+
+
 def initial_context(request: Request, page: str) -> dict[str, Any]:
     method_kind = request.query_params.get("kind", "experience")
     if method_kind == "all":
@@ -129,6 +185,10 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "period": request.query_params.get("period", "7d"),
         "method_kind": method_kind,
         "search_query": request.query_params.get("q", "").strip() or None,
+        "artifact_query": request.query_params.get("topic_q", "").strip() or None,
+        "topic_artifact": request.query_params.get("topic_artifact"),
+        "topic_revision": request.query_params.get("topic_revision"),
+        "topic_cursor": request.query_params.get("topic_cursor"),
         "search_limited": False,
         "data": {
             "title": "PowerContext",
@@ -137,6 +197,10 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
             "handoff": None,
             "experience": None,
             "skill": None,
+            "topic_memory": [],
+            "topic_memory_selected": None,
+            "prompts": [],
+            "profile": None,
         },
         "scopes": [],
         "scope_descriptor": None,
@@ -154,6 +218,18 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "related_sources": [],
         "source_record": None,
         "source": None,
+        "topic_memory_pager": None,
+        "request_revision": request.query_params.get("revision"),
+        "profile_history_view": request.query_params.get("view") == "history",
+        "profile_revisions": [],
+        "profile_pager": None,
+        "profile_html": "",
+        "return_to": collection_return(
+            request.query_params.get("return_to"),
+            request.query_params.get("scope", ""),
+            page="profile" if page == "profile" else "handoff",
+        ),
+        "reading_return": request_reading_return(request),
     }
     ctx["link"] = links(request, ctx)
     return ctx
@@ -179,7 +255,7 @@ async def scope_context(api: DashboardAPI, ctx: dict[str, Any]) -> None:
     try:
         descriptor = await api.read(f"/v1/scopes/{segment(ctx['scope'])}")
     except ReadError as error:
-        if ctx["page"] in RECORDS and error.status in {403, 404}:
+        if (ctx["page"] in RECORDS or ctx["page"] == "handoff-download") and error.status in {403, 404}:
             ctx["record_only"] = True
             return
         raise
@@ -233,7 +309,7 @@ async def index(request: Request) -> RedirectResponse:
 @router.get("/evidence/{source_id:path}")
 async def evidence(request: Request, source_id: str) -> HTMLResponse:
     origin = request.query_params.get("origin", "experience")
-    ctx = initial_context(request, origin if origin in RECORDS else "experience")
+    ctx = initial_context(request, origin if origin in RECORDS or origin == "profile" else "experience")
     api = DashboardAPI(request)
     ctx.update(source_id=source_id, origin=ctx["page"], source_type=request.query_params.get("source_type", ""))
     try:
@@ -250,10 +326,55 @@ async def evidence(request: Request, source_id: str) -> HTMLResponse:
         )
         ctx["source"] = source_view(value)
     except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
         ctx.update(page_error=error, status=error.status)
     finally:
         await api.client.aclose()
     return render(request, ctx, "evidence.html", "source.html")
+
+
+def validate_download(request: Request, scope: str, artifact: str) -> None:
+    query = request.query_params
+    if (
+        not scope.strip()
+        or len(scope) > 256
+        or not 1 <= len(artifact) <= 128
+        or any(not 33 <= ord(char) <= 126 for char in artifact)
+        or len(query) != len(query.multi_items())
+    ):
+        raise ReadError(422, "invalid_request")
+
+
+@router.get("/handoff-download")
+async def download_handoff(request: Request) -> Response:
+    ctx = initial_context(request, "handoff-download")
+    api = DashboardAPI(request)
+    try:
+        query = request.query_params
+        scope, artifact = query.get("scope", ""), query.get("artifact", "")
+        validate_download(request, scope, artifact)
+        revision = positive_revision(query.get("revision"))
+        raw = await api.artifact_revision(scope, "handoff", artifact, revision)
+        result = handoff_markdown(raw, ctx["language"])
+        return Response(
+            result,
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="handoff-r{revision}.md"',
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except ValidationError:
+        ctx.update(page_error=ReadError(422, "unsupported_content"), status=422)
+    except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
+        ctx.update(page_error=error, status=error.status)
+    finally:
+        await api.client.aclose()
+    return render(request, ctx)
 
 
 @router.get("/{page}")
@@ -268,6 +389,8 @@ async def screen(request: Request, page: str) -> HTMLResponse:
         if ctx["errors"] and not ctx["scope_descriptor"] and not ctx["record_only"]:
             raise next(iter(ctx["errors"].values()))
     except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
         ctx.update(page_error=error, status=error.status)
     finally:
         await api.client.aclose()

@@ -20,3 +20,4 @@ allowBuilds:
 
 patchedDependencies:
   next-themes@0.4.6: patches/next-themes@0.4.6.patch
+  next-validate-link@1.6.7: patches/next-validate-link@1.6.7.patch

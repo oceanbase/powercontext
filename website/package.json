@@ -4,10 +4,12 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm generate && next dev",
-    "build": "pnpm check:links && next build && tsx scripts/redirect-docs.ts && pnpm verify:export",
-    "check:links": "pnpm generate && tsx scripts/validate-links.ts",
+    "build": "pnpm test && pnpm check:links && next build && tsx scripts/redirect-docs.ts && pnpm verify:export",
+    "check:links": "pnpm test:links && pnpm generate && tsx scripts/validate-links.ts",
+    "test:links": "tsx --test tests/link-validation.test.ts",
     "generate": "tsx scripts/generate-content.ts",
     "preview": "serve out",
+    "test": "node --import tsx --test tests/*.test.ts",
     "types:check": "next typegen && tsc --noEmit",
     "verify:export": "tsx scripts/verify-static-export.ts",
     "lint": "oxlint"

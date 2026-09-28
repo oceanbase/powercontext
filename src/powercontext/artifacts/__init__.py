@@ -14,7 +14,14 @@
 
 """Immutable artifacts and their read-only catalog contract."""
 
-from powercontext.artifacts.models import Artifact, ArtifactAddress, ArtifactDraft, ArtifactLineage, ArtifactRef
+from powercontext.artifacts.models import (
+    Artifact,
+    ArtifactAddress,
+    ArtifactDraft,
+    ArtifactLineage,
+    ArtifactRef,
+    MemoryCitation,
+)
 from powercontext.artifacts.protocols import ArtifactCatalog, ArtifactStore
 
 __all__ = [
@@ -25,4 +32,5 @@ __all__ = [
     "ArtifactLineage",
     "ArtifactRef",
     "ArtifactStore",
+    "MemoryCitation",
 ]

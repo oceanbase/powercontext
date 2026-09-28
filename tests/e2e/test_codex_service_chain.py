@@ -33,8 +33,10 @@ from fastmcp.client.transports import StreamableHttpTransport
 from pydantic import SecretStr
 from pydantic_ai.models.test import TestModel
 
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig
+from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
 from powercontext.client import PowerContextClient
 from powercontext.http import (
     ListMemoryEntriesRequest,
@@ -49,6 +51,174 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CODEX_PLUGIN = PROJECT_ROOT / "integrations" / "codex" / "plugins" / "powercontext"
 AUTH_TOKEN = "codex-e2e-token"  # noqa: S105 - non-secret test credential.
 AUTHORIZATION = f"Bearer {AUTH_TOKEN}"
+
+
+@pytest.mark.parametrize("recall_gate_enabled", [False, True], ids=["default", "gate-enabled"])
+def test_execution_constraints_preserve_fts_facts_through_codex_hook(tmp_path, recall_gate_enabled):
+    app = create_server_app(
+        settings=ServerSettings(
+            auth=BearerAuthConfig(token=SecretStr(AUTH_TOKEN)),
+            access=AccessControlConfig(mode="enforced"),
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'recall.db'}"),
+            runtime=RuntimeConfig(artifact_processing_families=(), recall_gate_enabled=recall_gate_enabled),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "scheduler.db",
+    )
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    host, port = listener.getsockname()
+    base_url = f"http://{host}:{port}"
+    server = uvicorn.Server(uvicorn.Config(app, log_level="critical"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+    thread.start()
+    facts = {
+        "The synthetic Quartz application has deployment codename QUARTZ-8413.",
+        "The validation command for the synthetic Quartz application is `python -m pytest -q`.",
+    }
+    unrelated = "PostgreSQL advisory locks coordinate leader election."
+    instruction_only = (
+        "Use only supplied context. Do not call tools, read files, inspect old sessions, or delegate.",
+        "Use only the context already supplied to you. If the facts are absent, say unknown.",
+        *(
+            f"Execution guideline {index}. Do not call tools, read files, inspect old sessions, or delegate."
+            for index in range(36)
+        ),
+    )
+    question = "For the synthetic Quartz application, what are the deployment codename and validation command?"
+    suffix = (
+        " Use only the context already supplied to you. Do not call tools, read files, inspect old sessions, or delegate."
+        " If the facts are absent, say unknown."
+    )
+    try:
+        _wait_until_started(server, thread)
+        scope_id = _create_scope(base_url, authorization=AUTHORIZATION)
+        plugin = tmp_path / "plugin"
+        shutil.copytree(CODEX_PLUGIN, plugin, ignore=shutil.ignore_patterns("__pycache__", ".venv"))
+        config = json.loads((plugin / ".mcp.json").read_text())
+        config["mcpServers"]["powercontext"]["url"] = f"{base_url}/mcp"
+        (plugin / ".mcp.json").write_text(json.dumps(config))
+        with httpx.Client(base_url=base_url, headers={"Authorization": AUTHORIZATION}, timeout=10) as client:
+            for text in (*sorted(facts), unrelated, *instruction_only):
+                remembered = client.post(
+                    "/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": text}
+                )
+                remembered.raise_for_status()
+            for repeat in range(2):
+                for index, query in enumerate((question, question + suffix)):
+                    found = client.post("/v1/memory/search", json={"scope_id": scope_id, "query": query, "mode": "fts"})
+                    found.raise_for_status()
+                    assert {hit["text"] for hit in found.json()["hits"]} == facts
+                    prepared = client.post(
+                        "/v1/context/prepare", json={"scope_id": scope_id, "query": query, "max_bytes": 8000}
+                    )
+                    prepared.raise_for_status()
+                    assert prepared.json()["status"] == "ready"
+                    recalled = _run_hook(
+                        plugin,
+                        prompt=query,
+                        turn_id=f"recall-{repeat}-{index}",
+                        authorization=AUTHORIZATION,
+                        scope_id=scope_id,
+                        flush_on_capture=False,
+                    )
+                    context = json.loads(recalled.stdout)["hookSpecificOutput"]["additionalContext"]
+                    for content in (prepared.json()["content"], context):
+                        assert all(fact in content for fact in facts)
+                        assert unrelated not in content
+                        assert all(text not in content for text in instruction_only)
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        listener.close()
+    assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("with_topic", [False, True], ids=["empty-topics", "existing-topic"])
+@pytest.mark.parametrize("recall_gate_enabled", [False, True], ids=["default", "gate-enabled"])
+def test_codex_hook_injects_fts_memory_while_optional_embedding_is_stalled(
+    tmp_path: Path, with_topic: bool, recall_gate_enabled: bool
+) -> None:
+    class StalledEmbedding:
+        profile = EmbeddingProfile(profile_id="stalled", model="stalled", dimension=2)
+        stalled = False
+        available = False
+
+        async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+            if self.stalled:
+                await asyncio.sleep(20)
+            if self.available:
+                return EmbeddingResult(vectors=tuple((1.0, 0.0) for _ in texts))
+            raise InferenceUnavailableError("embed")
+
+    embedding = StalledEmbedding()
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'stalled.db'}"),
+            auth=BearerAuthConfig(token=SecretStr(AUTH_TOKEN)),
+            access=AccessControlConfig(mode="enforced"),
+            runtime=RuntimeConfig(recall_gate_enabled=recall_gate_enabled),
+        ),
+        embedding_model=embedding,
+    )
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    base_url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+    server = uvicorn.Server(uvicorn.Config(app, log_level="critical", timeout_graceful_shutdown=1))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+    thread.start()
+    try:
+        _wait_until_started(server, thread)
+        plugin = _copy_plugin(tmp_path, base_url)
+        scope_id = _create_scope(base_url, authorization=AUTHORIZATION)
+        text = "For ORCHID the release codename is ORCHID-728 and the required validation command is pytest -q."
+        with httpx.Client(base_url=base_url, headers={"Authorization": AUTHORIZATION}) as http:
+            http.post(
+                "/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": text}
+            ).raise_for_status()
+            if with_topic:
+                embedding.available = True
+                http.post(
+                    f"/v1/scopes/{scope_id}/artifacts",
+                    json={
+                        "family": "topic-memory",
+                        "content": {"title": "ORCHID release TOPIC-1665", "summary": text, "detail": text},
+                    },
+                ).raise_for_status()
+                embedding.available = False
+        embedding.stalled = True
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("POWERCONTEXT_")}
+        environment.update(
+            POWERCONTEXT_CODEX_SCOPE_ID=scope_id,
+            POWERCONTEXT_CODEX_AUTHORIZATION=AUTHORIZATION,
+            POWERCONTEXT_CLIENT_CONFIG_FILE=str(tmp_path / "client.json"),
+            POWERCONTEXT_DIAGNOSTIC_STATE_FILE=str(tmp_path / "diagnostics.json"),
+            POWERCONTEXT_HOME=str(tmp_path / "home"),
+        )
+        recalled = subprocess.run(
+            [sys.executable, str(plugin / "hooks" / "recall.py")],
+            env=environment,
+            input=json.dumps({
+                "hook_event_name": "UserPromptSubmit",
+                "cwd": str(tmp_path),
+                "prompt": "What are the ORCHID release codename and required validation command?",
+                "session_id": "stalled-embedding",
+            }),
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        output = json.loads(recalled.stdout)
+        assert "ORCHID-728" in output["hookSpecificOutput"]["additionalContext"]
+        assert "pytest -q" in output["hookSpecificOutput"]["additionalContext"]
+        if with_topic:
+            assert "TOPIC-1665" in output["hookSpecificOutput"]["additionalContext"]
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        listener.close()
+        assert not thread.is_alive()
 
 
 @pytest.mark.parametrize("authentication_enabled", [False, True], ids=["public", "authenticated"])
@@ -336,6 +506,109 @@ def test_codex_session_binding_switch_resume_and_child_scope_flow(tmp_path: Path
         assert not thread.is_alive()
 
 
+def test_codex_workspace_cli_preserves_session_and_repository_boundaries(tmp_path: Path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'workspace-flow.db'}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "workspace-scheduler.db",
+    )
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    host, port = listener.getsockname()
+    base_url = f"http://{host}:{port}"
+    server = uvicorn.Server(uvicorn.Config(app, log_level="critical", lifespan="on"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+    thread.start()
+    try:
+        _wait_until_started(server, thread)
+        plugin = _copy_plugin(tmp_path, base_url)
+        checkout = tmp_path / "checkout"
+        other = tmp_path / "other"
+        git = shutil.which("git")
+        assert git is not None
+        for directory in (checkout, other):
+            directory.mkdir()
+            subprocess.run([git, "init", str(directory)], check=True, capture_output=True, timeout=10)
+        nested = checkout / "nested"
+        nested.mkdir()
+        environment: dict[str, str] = {
+            **os.environ,
+            "CODEX_HOME": str(tmp_path / "codex-home"),
+            "NO_PROXY": "127.0.0.1,localhost,::1",
+            "POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS": "10",
+            "POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS": "5",
+        }
+        environment.pop("POWERCONTEXT_CODEX_SCOPE_ID", None)
+        environment.pop("POWERCONTEXT_CODEX_AUTHORIZATION", None)
+
+        def cli(directory: Path, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [sys.executable, str(plugin / "scripts" / "scope_binding.py"), "--cwd", str(directory), *arguments],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=check,
+                timeout=15,
+            )
+
+        def session_scope(session_id: str, directory: Path = nested) -> str:
+            payload: dict[str, object] = {"session_id": session_id, "cwd": str(directory)}
+            for script in ("session_binding.py", "bind_tools.py"):
+                if script == "bind_tools.py":
+                    payload.update({
+                        "tool_name": "mcp__powercontext__search_memory",
+                        "tool_input": {"query": "current state"},
+                    })
+                result = subprocess.run(
+                    [sys.executable, str(plugin / "hooks" / script)],
+                    input=json.dumps(payload),
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=15,
+                )
+            return json.loads(result.stdout)["hookSpecificOutput"]["updatedInput"]["scope_id"]
+
+        default_id = cli(checkout).stdout.strip()
+        assert session_scope("old") == default_id
+        project_id = _create_named_scope(base_url, title="Project", key="workspace-project")
+        override_id = _create_named_scope(base_url, title="Override", key="workspace-override")
+        scopes_before = httpx.get(f"{base_url}/v1/scopes", timeout=5).json()
+        assert cli(nested, "--bind-scope", project_id).stdout.strip() == project_id
+        assert cli(checkout).stdout.strip() == project_id
+        assert cli(nested).stdout.strip() == project_id
+        assert cli(other).stdout.strip() == default_id
+        assert session_scope("old") == default_id
+        assert session_scope("new") == project_id
+        assert session_scope("other", other) == default_id
+
+        environment["POWERCONTEXT_CODEX_SCOPE_ID"] = override_id
+        assert cli(nested).stdout.strip() == override_id
+        assert session_scope("new") == override_id
+        environment.pop("POWERCONTEXT_CODEX_SCOPE_ID")
+        assert session_scope("new") == project_id
+
+        rejected = cli(nested, "--bind-scope", "scp_00000000000000000000000000", check=False)
+        assert rejected.returncode != 0
+        assert cli(nested).stdout.strip() == project_id
+        conflicting = cli(nested, "--bind-scope", project_id, "--clear-scope", check=False)
+        assert conflicting.returncode == 2
+        assert cli(nested).stdout.strip() == project_id
+        assert cli(nested, "--clear-scope").stdout.strip() == default_id
+        assert cli(checkout, "--clear-scope").stdout.strip() == default_id
+        assert session_scope("new") == project_id
+        assert session_scope("after-clear") == default_id
+        assert httpx.get(f"{base_url}/v1/scopes", timeout=5).json() == scopes_before
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        listener.close()
+        assert not thread.is_alive()
+
+
 def _run_hook(
     plugin: Path,
     *,
@@ -343,10 +616,11 @@ def _run_hook(
     turn_id: str,
     authorization: str | None,
     scope_id: str,
+    flush_on_capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     environment: dict[str, str] = {
         **os.environ,
-        "POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE": "true",
+        "POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE": "true" if flush_on_capture else "false",
         "POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS": "10",
         "POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS": "5",
         "POWERCONTEXT_CODEX_SCOPE_ID": scope_id,

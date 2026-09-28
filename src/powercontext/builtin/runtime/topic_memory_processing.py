@@ -35,6 +35,7 @@ from typing_extensions import override
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.prompt.service import current_prompt
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.topic_memory import (
     MAX_TOPIC_MEMORY_QUERY_LENGTH,
@@ -87,6 +88,7 @@ from powercontext.builtin.inference import (
     StructuredGenerator,
     TokenEstimator,
     character_token_estimator,
+    embed_query,
 )
 from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
@@ -122,6 +124,7 @@ from powercontext.builtin.sources import (
 )
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
 from powercontext.errors import RevisionConflictError
+from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, SourceObservation, TextEvidence
 
 logger = logging.getLogger(__name__)
 
@@ -442,6 +445,7 @@ class TopicMemoryProcessor:
         history_rrf_threshold: int = 70,
         history_min_candidates: int = 5,
         id_factory: Callable[[], str] | None = None,
+        prompt_refs: Mapping[str, ArtifactRef] | None = None,
     ) -> None:
         self._database = database
         self._sources = sources
@@ -470,6 +474,21 @@ class TopicMemoryProcessor:
         self._history_threshold = history_rrf_threshold
         self._history_min = history_min_candidates
         self._id_factory = (lambda: str(uuid4())) if id_factory is None else id_factory
+        self._prompt_refs: Mapping[str, ArtifactRef] = prompt_refs or {}
+        self._used_stages: set[str] = set()
+
+    def _used_prompt_refs(self) -> tuple[ArtifactRef, ...]:
+        """Custom Prompt revisions of the stages this run actually invoked, in a stable order."""
+
+        refs: list[ArtifactRef] = []
+        for stage in ("probe", "global", "planner", "evolve", "temporary", "reduce", "reconcile"):
+            if (
+                stage in self._used_stages
+                and (reference := self._prompt_refs.get(stage)) is not None
+                and all(reference != existing for existing in refs)
+            ):
+                refs.append(reference)
+        return tuple(refs)
 
     async def process(
         self,
@@ -493,6 +512,7 @@ class TopicMemoryProcessor:
             fence=assignment.fence,
         )
         token = self._work_budget.set(budget)
+        self._used_stages.clear()
         try:
             await budget.begin()
             try:
@@ -519,6 +539,7 @@ class TopicMemoryProcessor:
         return ArtifactProcessingWorkerCompletion()
 
     async def _reserve_stage(self, value: BaseModel, stage: str) -> None:
+        self._used_stages.add(stage)
         if not self._stages.fits(value, stage):
             raise TopicMemoryGenerationError("input_budget_exceeded")
         # Reserve every structured retry's entire input + output/transcript
@@ -552,6 +573,15 @@ class TopicMemoryProcessor:
             requests=max(1, len(texts)), tokens=max(1, sum(self._stages.estimator.estimate(text) for text in texts))
         )
         return await self._embedding_model.embed(texts)
+
+    async def _embed_query(self, texts: tuple[str, ...]):
+        if self._embedding_model is None:
+            raise TopicMemoryGenerationError("embedding_unavailable")
+        # At most one provider request per text (the adapter may batch them).
+        await self._reserve(
+            requests=max(1, len(texts)), tokens=max(1, sum(self._stages.estimator.estimate(text) for text in texts))
+        )
+        return await embed_query(self._embedding_model, texts)
 
     async def _read_window(self, assignment: TopicMemoryWindowAssignment) -> tuple[StoredSource, ...]:
         if assignment.source_through - assignment.source_after > MAX_TOPIC_MEMORY_WINDOW_SOURCES:
@@ -817,7 +847,7 @@ class TopicMemoryProcessor:
         profile = None
         if self._embedding_model is not None:
             with self._usage(ModelUsagePurpose.TOPIC_MEMORY_RECALL, embedding=True):
-                embedded = await self._embed((query if semantic_query is None else semantic_query,))
+                embedded = await self._embed_query((query if semantic_query is None else semantic_query,))
             query_vector = embedded.vectors[0]
             profile = self._embedding_model.profile
         async with self._database.transaction() as connection:
@@ -1065,7 +1095,7 @@ class TopicMemoryProcessor:
             draft = TopicMemoryDraft(
                 content=content,
                 sources=source_refs,
-                artifacts=artifact_lineage,
+                artifacts=artifact_lineage + self._used_prompt_refs(),
             )
             projection = await self._projection(content)
             operations.append(
@@ -1215,7 +1245,9 @@ async def _project_evidence(
     stored: StoredSource,
     sources: SourceRepository,
 ) -> TopicMemoryEvidence:
-    materialized = await sources.read_value(stored.value)
+    materialized = (
+        stored.value if isinstance(stored.value, SourceObservation) else await sources.read_value(stored.value)
+    )
     content = await asyncio.to_thread(
         _canonical_source_content,
         stored.ref.source_type,
@@ -1235,6 +1267,18 @@ def _canonical_source_content(source_type: str, materialized: object) -> str:
         if not materialized.strip():
             raise TopicMemoryGenerationError("unsupported_evidence")
         return materialized
+    payload = _source_evidence_payload(source_type, materialized)
+    _require_bounded_source_payload(payload)
+    content = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if len(content) > MAX_TOPIC_MEMORY_SOURCE_CHARACTERS:
+        raise TopicMemoryGenerationError("source_complexity_limit")
+    if not content.strip():
+        raise TopicMemoryGenerationError("unsupported_evidence")
+    return content
+
+
+def _source_evidence_payload(source_type: str, materialized: object) -> dict[str, object]:
+    payload: dict[str, object]
     if source_type == CONTENT_SOURCE_NAME and isinstance(materialized, ContentCapture):
         payload = {
             "content": materialized.content,
@@ -1259,15 +1303,25 @@ def _canonical_source_content(source_type: str, materialized: object) -> str:
         }
     elif source_type == SKILL_PACKAGE_UPLOAD_SOURCE_NAME and isinstance(materialized, SkillPackageUploadCapture):
         payload = {"name": materialized.name, "description": materialized.description}
+    elif isinstance(materialized, SourceObservation):
+        payload = _observation_evidence_payload(materialized)
     else:
         raise TopicMemoryGenerationError("unsupported_evidence")
-    _require_bounded_source_payload(payload)
-    content = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    if len(content) > MAX_TOPIC_MEMORY_SOURCE_CHARACTERS:
-        raise TopicMemoryGenerationError("source_complexity_limit")
-    if not content.strip():
-        raise TopicMemoryGenerationError("unsupported_evidence")
-    return content
+    return payload
+
+
+def _observation_evidence_payload(source: SourceObservation) -> dict[str, object]:
+    for projection in source.projections:
+        if projection.key == TEXT_EVIDENCE_PROJECTION_KEY:
+            evidence = TextEvidence.model_validate(projection.value)
+            return {"content": evidence.content, "metadata": evidence.metadata}
+    # Legacy adapters can submit captured payloads without a named projection.
+    # Keep the envelope identity in lineage, as for native Source evidence.
+    return {
+        key: value
+        for key, value in source.payload.items()
+        if key not in {"name", "definition_version", "materialization"}
+    }
 
 
 def _require_bounded_source_payload(payload: object) -> None:
@@ -1452,12 +1506,34 @@ def validate_topic_memory_provider_settings(inference: InferenceConfig) -> None:
         "deepseek",
         "openrouter",
     }
-    for name, settings, allowed in (
-        (inference.generation_model, inference.generation_model_settings, generation),
-        (inference.embedding_model, inference.embedding_model_settings, {"dimensions", "truncate"}),
+    embedding_providers = providers | {"minimax"}
+    generation_settings = dict(inference.generation_model_settings)
+    if "extra_body" in generation_settings:
+        body = generation_settings.pop("extra_body")
+        template = body.get("chat_template_kwargs") if isinstance(body, dict) else None
+        # Only this Chat Completions flag is allowed; extra_body can otherwise
+        # override SDK output limits, messages, or tools after budget validation.
+        if not (
+            inference.generation_model is not None
+            and inference.generation_model.startswith("openai-chat:")
+            and isinstance(body, dict)
+            and set(body) == {"chat_template_kwargs"}
+            and isinstance(template, dict)
+            and set(template) == {"enable_thinking"}
+            and template["enable_thinking"] is False
+        ):
+            raise BuiltinConfigurationError("topic-memory-provider-budget")
+    for name, settings, allowed, provider_names in (
+        (inference.generation_model, generation_settings, generation, providers),
+        (
+            inference.embedding_model,
+            inference.embedding_model_settings,
+            {"dimensions", "truncate"},
+            embedding_providers,
+        ),
     ):
         # The built-in test model has no external I/O; retain hermetic workers.
-        if name is not None and name != "test" and name.split(":", 1)[0] not in providers:
+        if name is not None and name != "test" and name.split(":", 1)[0] not in provider_names:
             raise BuiltinConfigurationError("topic-memory-provider-budget")
         if set(settings) - allowed or any(
             value is not None
@@ -1491,6 +1567,8 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
 
     from pydantic_ai.settings import ModelSettings
 
+    from powercontext.builtin.artifacts.prompt import PromptRegistry
+    from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
     from powercontext.builtin.artifacts.topic_memory.generation import (
         TOPIC_MEMORY_EVOLVE_INSTRUCTIONS,
         TOPIC_MEMORY_GLOBAL_INSTRUCTIONS,
@@ -1544,10 +1622,25 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
         raw_embedding, _ = await _embedding_models(inference, resources, None, disable_provider_retries=True)
         embedding = None if raw_embedding is None else UsageReportingEmbeddingModel(raw_embedding)
         contexts = await resources.enter_async_context(
-            open_builtin_contexts(config, embedding_model=embedding, _topic_memory_worker=True)
+            open_builtin_contexts(
+                config,
+                embedding_model=embedding,
+                _topic_memory_worker=True,
+                prompt_registry=PromptRegistry(
+                    builtin_prompt_definitions(config.runtime.memory_extraction_profile),
+                    supported=frozenset(
+                        f"topic_memory.{stage}"
+                        for stage in ("probe", "global", "planner", "evolve", "temporary", "reduce", "reconcile")
+                    ),
+                ),
+            )
         )
 
+        for stage_name in ("probe", "global", "planner", "evolve", "temporary", "reduce", "reconcile"):
+            await resources.enter_async_context(contexts.prompts.bind(scope_id, f"topic_memory.{stage_name}"))
+
         fixed_prompts: dict[str, str] = {}
+        prompt_refs: dict[str, ArtifactRef] = {}
 
         def stage(
             input_type: type[BaseModel],
@@ -1556,16 +1649,22 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             name: str,
             stage_name: str,
         ):
-            fixed_prompt = topic_memory_stage_fixed_prompt(instructions, input_type, output_type)
+            prompt_key = f"topic_memory.{stage_name}"
+            selection = current_prompt(prompt_key)
+            if selection is not None and selection.artifact is not None:
+                prompt_refs[stage_name] = selection.artifact
+            selected_instructions = instructions if selection is None else selection.compiled_instructions
+            fixed_prompt = topic_memory_stage_fixed_prompt(selected_instructions, input_type, output_type)
             fixed_prompts[stage_name] = fixed_prompt
             raw = PydanticAIStructuredGenerator(
                 model=model,
-                instructions=instructions,
+                instructions=selected_instructions,
                 input_type=input_type,
                 output_type=output_type,
                 limits=limits,
                 model_settings=settings,
                 name=name,
+                prompt_key=prompt_key,
             )
             bounded = BudgetedTopicMemoryGenerator(
                 raw,
@@ -1672,6 +1771,7 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             history_max_candidates=config.runtime.topic_memory_history_max_candidates,
             history_rrf_threshold=config.runtime.topic_memory_history_rrf_threshold,
             history_min_candidates=config.runtime.topic_memory_history_min_candidates,
+            prompt_refs=prompt_refs,
         )
         yield TopicMemoryScopeProcessor(
             contexts.database,

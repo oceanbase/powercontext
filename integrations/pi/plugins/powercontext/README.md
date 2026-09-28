@@ -12,8 +12,25 @@ powercontext setup pi --source /path/to/powercontext
 ```
 
 Start `powercontext server run`, then open a new Pi session in the project. The package supplies the
-`project-context` skill, `pc_*` Memory and Handoff tools, and `/pc` diagnostics.
+`powercontext-project-context` skill, `pc_*` Memory, Handoff, structured work-continuity, Experience, Skill, Topic Memory, and candidate-inspection tools, and `/pc`
+diagnostics. Candidate inspection is read-only; candidate approve, reject, and revise require explicit user confirmation and never install, publish, activate, or execute artifacts. External Skill discovery is read-only; importing or forking an exact resolved Skill requires explicit confirmation and does not execute or publish it.
 
 The package resolves an explicit Scope, a durable workspace binding, or the Server default. Use
 `POWERCONTEXT_PI_BASE_URL`, `POWERCONTEXT_PI_SCOPE_ID`, and `POWERCONTEXT_PI_CAPTURE_PROMPTS` to adjust the connection,
 explicit override, and automatic prompt capture.
+
+Failure diagnostics (for example `server_unavailable` after a 503) are silent by default: Pi's TUI renders on
+stdout with cursor positioning, so anything written to stderr corrupts the input bar. Set
+`POWERCONTEXT_PI_DIAGNOSTICS=stderr` to print them, or point it at an absolute path (`~/` is expanded; the
+parent directory is created) to append them as JSON lines. The keywords are case-insensitive; any other value
+keeps diagnostics off. `/pc` shows the current status either way.
+
+Remote HTTP is rejected by default. Explicitly allow it with `POWERCONTEXT_PI_ALLOW_INSECURE_HTTP=true`,
+or use `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP=true` as the common fallback. A host flag of `false` overrides
+the common flag. Flags accept only `true/false`, `1/0`, `yes/no`, or `on/off`; HTTPS certificate validation and
+redirect rejection remain enabled.
+
+Setup-saved URLs and endpoint-specific consent are read from `~/.config/powercontext/clients.json`
+(override with `POWERCONTEXT_CLIENT_CONFIG_FILE`). The host URL environment variable, then
+`POWERCONTEXT_CLIENT_SERVER_URL`, override the saved URL and loopback default. Changing the endpoint does not
+reuse saved HTTP consent.

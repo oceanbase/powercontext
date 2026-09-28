@@ -28,7 +28,7 @@ powercontext server run
 在另一个终端从同一 revision 安装或刷新两个插件：
 
 ```bash
-powercontext setup hermes --source oceanbase/powercontext --ref master
+powercontext setup hermes
 powercontext doctor hermes
 ```
 
@@ -70,6 +70,7 @@ binding 和默认 Scope。Hermes 只把 workspace 路径哈希用作外部 bindi
 | --- | --- |
 | `POWERCONTEXT_HERMES_CONFIG` | 配置文件路径；默认为 `$HERMES_HOME/powercontext/config.json` |
 | `POWERCONTEXT_HERMES_BASE_URL` | PowerContext Server URL |
+| `POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP` | 显式允许非环回明文 HTTP；默认为 `false` |
 | `POWERCONTEXT_HERMES_AUTHORIZATION` | 完整 authorization header，例如 `Bearer <token>` |
 | `POWERCONTEXT_HERMES_TOKEN` | 未设置 `AUTHORIZATION` 时使用的裸 token 简写 |
 | `POWERCONTEXT_HERMES_SCOPE_ID` | 显式的服务端 Scope ID |
@@ -81,9 +82,10 @@ binding 和默认 Scope。Hermes 只把 workspace 路径哈希用作外部 bindi
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE` | 把召回上下文记录到敏感的本地 JSONL trace；默认关闭 |
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE_PATH` | 覆盖 evaluation trace 目录 |
 
-应由 Hermes 向导把 authorization 保存到受保护的 `.env` secret store，不要把 token 写入 `config.json`。明文 HTTP
-只用于 loopback Server；连接远程部署前请阅读[部署 Server](../operate/deploy-server.md)。Evaluation trace 包含 prompt 和
-召回上下文，应保留在本机并按敏感数据保护。
+应由 Hermes 向导把 authorization 保存到受保护的 `.env` secret store，不要把 token 写入 `config.json`。环回地址默认
+允许明文 HTTP；远程连接推荐 HTTPS，也可显式设置 `POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP=true`，
+该选项不会关闭 HTTPS 证书校验。引导安装和绑定地址的持久化同意见[连接远程 Server](../operate/connect-remote-server.md)。
+Evaluation trace 包含 prompt 和召回上下文，应保留在本机并按敏感数据保护。
 
 ## 只在需要时启用自动提取
 

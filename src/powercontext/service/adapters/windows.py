@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 import os
 import shutil
 import subprocess
@@ -28,6 +27,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from pathlib import Path
 
+from powercontext.service._windows_command import run_windows_command
 from powercontext.service.adapters.base import (
     atomic_write,
     decode_metadata,
@@ -58,6 +58,9 @@ _RESTART_COUNT = "3"
 _COMMAND_TIMEOUT_SECONDS = 30
 _TASK_TIMEOUT_SECONDS = 10.0
 _MAX_TASK_XML_BYTES = 1024 * 1024
+_TASK_INFO_STATUS_OFFSET = 2
+_TASK_INFO_LAST_RESULT_OFFSET = 5
+_TASK_RUNNING_RESULT = 0x41301
 _TASK_NOT_FOUND_HRESULT = 0x80070002
 _TASK_HAS_NOT_RUN_RESULT = 0x41303
 _TASK_STATUS_RESULT_RANGE = range(0x41300, 0x41400)
@@ -96,8 +99,6 @@ class WindowsTaskSchedulerAdapter:
             return SupportState.UNSUPPORTED, "Task Scheduler personal services are available only on Windows"
         if shutil.which("schtasks.exe") is None:
             return SupportState.UNSUPPORTED, "schtasks.exe is not installed or is not on PATH"
-        if shutil.which("powershell.exe") is None:
-            return SupportState.UNSUPPORTED, "powershell.exe is not installed or is not on PATH"
         try:
             account, sid = self._user_identity()
         except ServiceError as error:
@@ -297,26 +298,12 @@ class WindowsTaskSchedulerAdapter:
 
     def manager_state(self) -> ManagerState:
         result = self._run_task_info(check=False)
+        if _is_task_not_found(result):
+            return ManagerState.INACTIVE
         if result.returncode != 0:
             return ManagerState.UNKNOWN
-        try:
-            values = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            return ManagerState.UNKNOWN
-        if not isinstance(values, dict):
-            return ManagerState.UNKNOWN
-        status = values.get("State")
-        if not isinstance(status, str):
-            return ManagerState.UNKNOWN
-        status = status.casefold()
-        if status == "notfound":
-            return ManagerState.INACTIVE
-        if status == "running":
-            return ManagerState.ACTIVE
-        if status in {"ready", "disabled", "queued"}:
-            last_result = _last_result(values.get("LastTaskResult"))
-            return ManagerState.FAILED if last_result not in {None, 0} else ManagerState.INACTIVE
-        return ManagerState.UNKNOWN
+        row = _task_info_row(result.stdout)
+        return _manager_state_from_task_info(row, self.identifier) if row is not None else ManagerState.UNKNOWN
 
     def log_location(self, definition: ServiceDefinition | None) -> str | None:
         if definition is None:
@@ -395,13 +382,7 @@ class WindowsTaskSchedulerAdapter:
     def _run(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         command = ["schtasks.exe", *arguments]
         try:
-            result = subprocess.run(  # noqa: S603
-                command,
-                capture_output=True,
-                text=True,
-                timeout=_COMMAND_TIMEOUT_SECONDS,
-                check=False,
-            )
+            result = run_windows_command(command, timeout=_COMMAND_TIMEOUT_SECONDS)
         except (OSError, subprocess.SubprocessError) as error:
             raise ServiceError(f"failed to execute schtasks.exe: {error}") from error  # noqa: TRY003
         if check and result.returncode != 0:
@@ -410,37 +391,17 @@ class WindowsTaskSchedulerAdapter:
         return result
 
     def _run_task_info(self, *, check: bool = True) -> subprocess.CompletedProcess[str]:
-        task_path, task_name = _task_path_and_name(self.identifier)
-        environment = os.environ.copy()
-        environment["POWERCONTEXT_TASK_PATH"] = task_path
-        environment["POWERCONTEXT_TASK_NAME"] = task_name
-        script = (
-            "$taskPath = $env:POWERCONTEXT_TASK_PATH; "
-            "$taskName = $env:POWERCONTEXT_TASK_NAME; "
-            "$task = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue; "
-            "if ($null -eq $task) { "
-            "[pscustomobject]@{ State = 'NotFound'; LastTaskResult = 0 } | ConvertTo-Json -Compress; exit 0 "
-            "}; "
-            "$info = Get-ScheduledTaskInfo -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue; "
-            "if ($null -eq $info) { [Console]::Error.WriteLine('Task Scheduler info unavailable'); exit 1 }; "
-            "[pscustomobject]@{ State = [string]$task.State; LastTaskResult = [int64]$info.LastTaskResult } "
-            "| ConvertTo-Json -Compress"
+        return self._run(
+            "/Query",
+            "/TN",
+            self.identifier,
+            "/FO",
+            "CSV",
+            "/NH",
+            "/V",
+            "/HRESULT",
+            check=check,
         )
-        try:
-            result = subprocess.run(  # noqa: S603
-                ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],  # noqa: S607
-                capture_output=True,
-                text=True,
-                timeout=_COMMAND_TIMEOUT_SECONDS,
-                check=False,
-                env=environment,
-            )
-        except (OSError, subprocess.SubprocessError) as error:
-            raise ServiceError(f"failed to execute powershell.exe: {error}") from error  # noqa: TRY003
-        if check and result.returncode != 0:
-            detail = _command_detail(result.stderr or result.stdout)
-            raise ServiceError(f"powershell.exe Task Scheduler state query failed{detail}")  # noqa: TRY003
-        return result
 
 
 def _launcher_arguments(definition: ServiceDefinition) -> list[str]:
@@ -587,11 +548,40 @@ def _normalize_identifier(identifier: str) -> str:
     return value
 
 
-def _task_path_and_name(identifier: str) -> tuple[str, str]:
-    parent, separator, name = identifier.rpartition("\\")
-    if not separator or not name:
-        raise ValueError("Task Scheduler task identifier is invalid")  # noqa: TRY003
-    return (parent + "\\") if parent else "\\", name
+def _task_info_row(output: str) -> list[str] | None:
+    """Return the first non-empty verbose CSV row from ``schtasks.exe``."""
+    try:
+        for row in csv.reader(io.StringIO(output), strict=True):
+            if any(value.strip() for value in row):
+                return row
+    except csv.Error:
+        return None
+    return None
+
+
+def _manager_state_from_task_info(row: Sequence[str], identifier: str) -> ManagerState:
+    # Some Windows versions include HostName as the first CSV column and some
+    # omit it. Anchor the documented fields to the task name instead of relying
+    # on either layout. The status text itself is localized; the scheduler's
+    # numeric running result is stable and is used whenever it is available.
+    task_index = next(
+        (index for index, value in enumerate(row) if value.strip().casefold() == identifier.casefold()),
+        None,
+    )
+    if task_index is None or task_index + _TASK_INFO_LAST_RESULT_OFFSET >= len(row):
+        return ManagerState.UNKNOWN
+
+    status = row[task_index + _TASK_INFO_STATUS_OFFSET].strip().casefold()
+    raw_last_result = _task_result(row[task_index + _TASK_INFO_LAST_RESULT_OFFSET])
+    if status == "running" or raw_last_result == _TASK_RUNNING_RESULT:
+        return ManagerState.ACTIVE
+
+    last_result = _last_result(raw_last_result)
+    if status in {"ready", "disabled", "queued"}:
+        return ManagerState.FAILED if last_result not in {None, 0} else ManagerState.INACTIVE
+    if raw_last_result is not None:
+        return ManagerState.FAILED if last_result not in {None, 0} else ManagerState.INACTIVE
+    return ManagerState.UNKNOWN
 
 
 def _same_path(actual: str, expected: str) -> bool:
@@ -608,12 +598,9 @@ def _is_service_account(account: str, sid: str) -> bool:
 
 def _current_user_identity() -> tuple[str, str]:
     try:
-        result = subprocess.run(
-            ["whoami.exe", "/user", "/fo", "csv", "/nh"],  # noqa: S607
-            capture_output=True,
-            text=True,
+        result = run_windows_command(
+            ["whoami.exe", "/user", "/fo", "csv", "/nh"],
             timeout=10,
-            check=False,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise ServiceError(f"cannot determine the current Windows user: {error}") from error  # noqa: TRY003
@@ -636,18 +623,29 @@ def _is_task_not_found(result: subprocess.CompletedProcess[str]) -> bool:
 
 
 def _last_result(value: object) -> int | None:
+    result = _task_result(value)
+    if result is None:
+        return None
+    return None if result in _TASK_STATUS_RESULT_RANGE or result == _TASK_HAS_NOT_RUN_RESULT else result
+
+
+def _task_result(value: object) -> int | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
-        result = value
-    elif isinstance(value, str):
+        return value
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        return int(value, 0)
+    except ValueError:
         try:
-            result = int(value.strip(), 0)
+            return int(value, 10)
         except ValueError:
             return None
-    else:
-        return None
-    return None if result in _TASK_STATUS_RESULT_RANGE or result == _TASK_HAS_NOT_RUN_RESULT else result
 
 
 def _command_detail(output: str) -> str:

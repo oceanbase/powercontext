@@ -109,12 +109,13 @@ powercontext skill export \
 
 ```text
 .agents/skills/backend-validation/
-├── SKILL.md
-└── powercontext.json
+└── SKILL.md
 ```
 
-`powercontext.json` 记录精确 Artifact 引用和渲染内容哈希。目标目录已存在时，命令会拒绝覆盖。Managed Skill
-Revision 始终是内容权威，目录只是 host-local projection。
+如果 Revision 包含标准包中的 `scripts/`、`references/` 等文件，它们也会按包内路径导出；不要依赖额外的
+`powercontext.json` sidecar。请保存命令输出中的精确 Artifact ID 和 Revision，并在需要审计时重新执行 `skill show`
+核对 package digest。目标目录已存在时，命令会拒绝覆盖。Managed Skill Revision 始终是内容权威，目录只是 host-local
+projection。
 
 Codex 会自动检测导出的代码库级 Skill。如果没有出现，再重启 Codex。
 

@@ -20,12 +20,13 @@ import json
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 
 if TYPE_CHECKING:
     from powercontext.cli.system import Diagnostic
+    from powercontext.cli.transport import SetupTransport
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,10 +45,11 @@ FIRST_CLASS_HOSTS: tuple[HostSpec, ...] = (
     HostSpec("opencode", "OpenCode"),
     HostSpec("pi", "Pi"),
     HostSpec("hermes", "Hermes"),
+    HostSpec("workbuddy", "WorkBuddy"),
 )
 HOST_NAMES: tuple[str, ...] = tuple(host.name for host in FIRST_CLASS_HOSTS)
 _HOST_INDEX: dict[str, str] = {str(index): host.name for index, host in enumerate(FIRST_CLASS_HOSTS, start=1)}
-_INTEGRATION_KEYS = frozenset({"plugin", "package", "skill"})
+_INTEGRATION_KEYS = frozenset({"plugin", "package", "skill", "settings", "mcp"})
 _PATH_MISSING = "is not installed or is not on PATH"
 
 
@@ -188,6 +190,7 @@ def run_setup_select(
     server_url: str | None,
     capture_prompts: bool,
     json_output: bool,
+    allow_insecure_http: bool | None = None,
 ) -> None:
     """Resolve a selection, install those hosts, and print the matrix."""
 
@@ -204,6 +207,8 @@ def run_setup_select(
         ref=ref,
         server_url=server_url,
         capture_prompts=capture_prompts,
+        allow_insecure_http=allow_insecure_http,
+        json_output=json_output,
     )
     write_setup_select_report(report, json_output=json_output)
     if report.has_failure:
@@ -223,6 +228,46 @@ def resolve_selected_hosts(*, requested: Sequence[str] | None, json_output: bool
     return parse_host_selection(sys.stdin.readline())
 
 
+@dataclass(frozen=True, slots=True)
+class HostInstallation:
+    """Return an adapter's native result alongside its persisted connection policy."""
+
+    result: Any
+    transport: SetupTransport
+
+
+def setup_host(
+    name: str,
+    *,
+    source: str,
+    ref: str,
+    server_url: str | None = None,
+    capture_prompts: bool = True,
+    allow_insecure_http: bool | None = None,
+    json_output: bool = False,
+) -> HostInstallation:
+    """Resolve, install, and persist one Agent using the common connection policy.
+
+    Resolution fails before installation side effects. Persistence happens only after
+    the adapter succeeds and before callers run their host-specific diagnostics.
+    """
+    from powercontext.cli.transport import prepare_setup_transport, save_setup_transport
+
+    transport = prepare_setup_transport(
+        name, server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
+    )
+    result = install_host(
+        name,
+        source=source,
+        ref=ref,
+        server_url=transport.server_url,
+        capture_prompts=capture_prompts,
+        allow_insecure_http=transport.allow_insecure_http,
+    )
+    save_setup_transport(transport)
+    return HostInstallation(result, transport)
+
+
 def setup_selected_hosts(
     *,
     selected: Sequence[str],
@@ -230,6 +275,8 @@ def setup_selected_hosts(
     ref: str,
     server_url: str | None,
     capture_prompts: bool,
+    allow_insecure_http: bool | None = None,
+    json_output: bool = False,
 ) -> SetupSelectReport:
     """Install selected hosts and isolate failures from sibling hosts."""
 
@@ -242,12 +289,14 @@ def setup_selected_hosts(
             rows.append(HostSetupRow(host=host.name, status="skipped"))
             continue
         try:
-            install_host(
+            setup_host(
                 host.name,
                 source=source,
                 ref=ref,
                 server_url=server_url,
                 capture_prompts=capture_prompts,
+                allow_insecure_http=allow_insecure_http,
+                json_output=json_output,
             )
             verify_host(host.name)
         except SetupError as error:
@@ -264,13 +313,14 @@ def install_host(
     ref: str,
     server_url: str | None,
     capture_prompts: bool,
+    allow_insecure_http: bool = False,
 ) -> object:
     """Call the existing installer for one first-class host."""
 
     if name == "codex":
         from powercontext.cli.system import install_codex_plugin
 
-        return install_codex_plugin(source=source, ref=ref)
+        return install_codex_plugin(source=source, ref=ref, server_url=server_url)
     if name == "claude-code":
         from powercontext.cli.system import DEFAULT_CLAUDE_CODE_SERVER_URL, install_claude_code_plugin
 
@@ -279,11 +329,12 @@ def install_host(
             ref=ref,
             server_url=server_url if server_url is not None else DEFAULT_CLAUDE_CODE_SERVER_URL,
             capture_prompts=capture_prompts,
+            allow_insecure_http=allow_insecure_http,
         )
     if name == "dsh":
         from powercontext.cli.dsh import install_dsh_plugin
 
-        return install_dsh_plugin(source=source, ref=ref)
+        return install_dsh_plugin(source=source, ref=ref, server_url=server_url or "http://127.0.0.1:8000")
     if name == "openclaw":
         from powercontext.cli.openclaw import install_openclaw_plugin
         from powercontext.cli.system import DEFAULT_OPENCLAW_SERVER_URL
@@ -292,19 +343,24 @@ def install_host(
             source=source,
             ref=ref,
             server_url=server_url if server_url is not None else DEFAULT_OPENCLAW_SERVER_URL,
+            allow_insecure_http=allow_insecure_http,
         )
     if name == "opencode":
         from powercontext.cli.opencode import install_opencode_plugin
 
-        return install_opencode_plugin(source=source, ref=ref)
+        return install_opencode_plugin(source=source, ref=ref, server_url=server_url or "http://127.0.0.1:8000")
     if name == "pi":
         from powercontext.cli.pi import install_pi_plugin
 
-        return install_pi_plugin(source=source, ref=ref)
+        return install_pi_plugin(source=source, ref=ref, server_url=server_url or "http://127.0.0.1:8000")
     if name == "hermes":
         from powercontext.cli.hermes import install_hermes_plugin
 
         return install_hermes_plugin(source=source, ref=ref)
+    if name == "workbuddy":
+        from powercontext.cli.workbuddy import install_workbuddy_plugin
+
+        return install_workbuddy_plugin(source=source, ref=ref, server_url=server_url)
     raise SetupSelectError.unknown_host(name)
 
 
@@ -329,6 +385,10 @@ def verify_host(name: str) -> None:
         from powercontext.cli.hermes import run_hermes_diagnostics
 
         diagnostics = run_hermes_diagnostics()
+    elif name == "workbuddy":
+        from powercontext.cli.workbuddy import run_workbuddy_diagnostics
+
+        diagnostics = run_workbuddy_diagnostics()
     elif name == "opencode":
         from powercontext.cli.opencode import run_opencode_diagnostics
 
@@ -405,6 +465,10 @@ def diagnose_host(name: str) -> dict[str, Diagnostic]:
         from powercontext.cli.hermes import run_hermes_diagnostics
 
         return run_hermes_diagnostics()
+    if name == "workbuddy":
+        from powercontext.cli.workbuddy import run_workbuddy_diagnostics
+
+        return run_workbuddy_diagnostics()
     raise SetupSelectError.unknown_host(name)
 
 
@@ -421,7 +485,8 @@ def split_host_diagnostics(
 def classify_host_presence(cli: Diagnostic, integrations: tuple[tuple[str, Diagnostic], ...]) -> str:
     """Mark a host missing only when PATH lookup failed and the integration was skipped."""
 
-    if _PATH_MISSING in cli.detail and all(diagnostic.status.value == "skipped" for _, diagnostic in integrations):
+    missing_cli = _PATH_MISSING in cli.detail or "WorkBuddy hooks are not installed" in cli.detail
+    if missing_cli and all(diagnostic.status.value == "skipped" for _, diagnostic in integrations):
         return "missing"
     return "present"
 
@@ -430,9 +495,16 @@ def build_integration_row(name: str, diagnostics: dict[str, Diagnostic]) -> Inte
     """Classify one host diagnostic pair without deciding the command exit code."""
 
     cli_key, cli, integrations = split_host_diagnostics(diagnostics)
+    presence = classify_host_presence(cli, integrations)
+    if presence == "present":
+        from powercontext.cli.transport import transport_diagnostic
+
+        transport = transport_diagnostic(name)
+        if not transport.ok:
+            integrations = (*integrations, ("transport", transport))
     return IntegrationRow(
         host=name,
-        presence=classify_host_presence(cli, integrations),
+        presence=presence,
         cli_key=cli_key,
         cli=cli,
         integrations=integrations,

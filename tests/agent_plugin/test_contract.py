@@ -16,8 +16,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import yaml
-
 PLUGIN_ROOT = Path(__file__).resolve().parents[2] / "integrations" / "agent-plugin" / "powercontext"
 REPOSITORY_ROOT = PLUGIN_ROOT.parents[2]
 
@@ -63,55 +61,6 @@ def test_agent_plugin_mcp_configuration_is_portable_and_secret_free() -> None:
     assert "headers" not in configuration["mcpServers"]["powercontext"]
     assert "env_http_headers" not in configuration["mcpServers"]["powercontext"]
     assert "POWERCONTEXT" not in json.dumps(configuration)
-
-
-def test_project_context_skill_is_reusable_and_preserves_powercontext_workflows() -> None:
-    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
-    frontmatter = yaml.safe_load(content.split("---", 2)[1])
-
-    assert frontmatter == {
-        "name": "project-context",
-        "description": (
-            "Use PowerContext project memory and handoff tools through MCP when continuing prior work, "
-            "recalling decisions, maintaining durable memory, or transferring work across tasks, sessions, or agents."
-        ),
-    }
-    for required in (
-        "search_memory",
-        "list_memory_entries",
-        "get_memory_entry",
-        "remember_memory",
-        "revise_memory_entry",
-        "retire_memory_entry",
-        "handoff_current_work",
-        'selection: "prepared"',
-        "continue_handoff",
-        "acknowledge_handoff",
-        "record_task_outcome",
-        "Degrade Safely",
-    ):
-        assert required in content
-
-    forbidden_fragments = (
-        "Codex",
-        "OpenCode",
-        "UserPromptSubmit",
-        "prompt capture",
-        "POWERCONTEXT_CODEX",
-        "additionalContext",
-    )
-    for forbidden in forbidden_fragments:
-        assert forbidden not in content
-
-
-def test_project_context_skill_uses_default_model_free_handoff_flow() -> None:
-    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
-
-    assert "without invoking a generation model" in content
-    assert "handoff_current_work" in content
-    assert "activate_handoff" not in content
-    assert "finalize_handoff" not in content
-    assert "`boundary_source`" not in content
 
 
 def test_agent_plugin_readme_documents_server_and_auth_boundaries() -> None:

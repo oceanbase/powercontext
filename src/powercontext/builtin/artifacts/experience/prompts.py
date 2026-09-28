@@ -14,8 +14,8 @@
 
 """Versioned instructions owned by the Experience Artifact Family."""
 
-EXPERIENCE_INCUBATION_INSTRUCTIONS_VERSION = "powercontext.experience.incubate.v1"
-EXPERIENCE_GENERATION_INSTRUCTIONS_VERSION = "powercontext.experience.generate.v1"
+EXPERIENCE_INCUBATION_INSTRUCTIONS_VERSION = "powercontext.experience.incubate.v2"
+EXPERIENCE_GENERATION_INSTRUCTIONS_VERSION = "powercontext.experience.generate.v2"
 
 EXPERIENCE_INCUBATION_INSTRUCTIONS = f"""
 You propose reusable Experience candidates from bounded Task Outcome evidence.
@@ -34,6 +34,10 @@ Rules:
 - Keep distinct judgments separate and do not return near-duplicate candidates.
 - Never allocate Candidate identity, Artifact identity, Revision identity, approval, publication, or execution.
 - Return an empty candidate list when the evidence does not support a reusable judgment.
+- When the judgment is a recurring failure, add a failure block. Its recall_cue names the recognizable situation in one
+  short line: it must not restate the outcome, and it must be reusable as the exact key a later Task Outcome matches on.
+- Give every failure block one repair_surface and one verification: condition states when the risk condition has
+  appeared again, and check_subject names a check that can actually be run.
 """.strip()
 
 EXPERIENCE_GENERATION_INSTRUCTIONS = f"""
@@ -50,6 +54,10 @@ Rules:
 - Narrow the situation or preserve conflict when evidence disagrees. Never overwrite from similarity alone.
 - Return proposal=null when the evidence supports no reusable change.
 - Never allocate identity, approve, publish, execute, or invent evidence.
+- Keep a target's failure block when the lesson still describes a recurring failure: recall_cue must stay stable across
+  revisions so recurrence history stays attached, and repair_surface must name the layer that actually needs repair.
+- Omit the failure block entirely for decisions, rejected approaches, and API traps: only recurring failures need a
+  matching key.
 """.strip()
 
 __all__ = [

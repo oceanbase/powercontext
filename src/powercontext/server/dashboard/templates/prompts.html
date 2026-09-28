@@ -1,0 +1,35 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% from 'components/page-heading.html' import page_heading %}
+{{ page_heading(t.prompts, t.prompts_subtitle) }}
+
+{% if errors.get('prompts') %}
+  {{ read_error(errors.prompts, t.prompts) }}
+{% elif not data.prompts %}
+  <section class="card"><div class="empty"><h2>{{ t.prompt_empty }}</h2><p class="empty-subtitle text-secondary">{{ t.prompt_empty_body }}</p></div></section>
+{% else %}
+  <div class="row row-cards">
+  {% for prompt in data.prompts %}
+    <section class="col-12 col-xl-6"><article class="card h-100">
+      <div class="card-header"><div><h2 class="card-title mb-1">{{ prompt.prompt_key }}</h2><div class="text-secondary small">{{ t.prompt_status }}: {{ prompt.status }}</div></div><span class="badge bg-blue-lt">{{ t.prompt_mode }}: {{ t.prompt_custom if prompt.mode == 'custom' else t.prompt_auto }}</span></div>
+      <div class="card-body">
+        <dl class="row mb-3"><dt class="col-sm-4">{{ t.prompt_revision }}</dt><dd class="col-sm-8">{{ prompt.artifact.revision if prompt.artifact else t.prompt_auto }}</dd><dt class="col-sm-4">{{ t.prompt_demonstrations }}</dt><dd class="col-sm-8">{{ prompt.effective.demonstrations|length if prompt.effective else 0 }}</dd></dl>
+        {% if prompt.effective %}<h3 class="h4">{{ t.prompt_instructions }}</h3><pre class="page-body-pre text-break">{{ prompt.effective.instructions }}</pre>{% elif prompt.builtin %}<h3 class="h4">{{ t.prompt_instructions }}</h3><pre class="page-body-pre text-break">{{ prompt.builtin.instructions }}</pre>{% endif %}
+      </div>
+    </article></section>
+  {% endfor %}
+  </div>
+{% endif %}

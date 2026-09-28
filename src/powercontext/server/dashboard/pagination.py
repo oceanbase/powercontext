@@ -67,7 +67,11 @@ def cursor_links(request: Request, ctx: dict[str, Any], family: str, following: 
     if not isinstance(history, list) or any(item is not None and not isinstance(item, str) for item in history):
         raise ReadError(422, "invalid_request")
     current = request.query_params.get(cursor_key)
-    params = {"kind": family} if family != "handoff" else {}
+    params = (
+        {"view": "history", "revision": None, "return_to": None}
+        if family == "profile"
+        else ({"kind": family} if family != "handoff" else {})
+    )
     previous = (
         ctx["link"](**params, **{cursor_key: history[-1], history_key: json.dumps(history[:-1])}) if history else None
     )

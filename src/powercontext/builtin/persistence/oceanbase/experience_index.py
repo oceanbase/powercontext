@@ -20,9 +20,9 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.mysql import match
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.artifacts.experience import Experience, ExperienceSearchHit
+from powercontext.builtin.artifacts.experience import Experience, ExperienceSearchOutcome
 from powercontext.builtin.artifacts.memory import CapabilityNotSupportedError
-from powercontext.builtin.artifacts.search import analyze_text
+from powercontext.builtin.artifacts.search import AdmissionFloor, analyze_fts_query
 from powercontext.builtin.artifacts.skill import Skill, SkillPackageSnapshot, SkillSearchHit
 from powercontext.builtin.persistence.experience_index import (
     ensure_artifact_head_searchable_text,
@@ -115,10 +115,12 @@ class OceanBaseExperienceFTSIndex:
         query: str,
         limit: int,
         /,
-    ) -> tuple[ExperienceSearchHit, ...]:
-        analyzed = analyze_text(query)
+        *,
+        admission: AdmissionFloor | None = None,
+    ) -> ExperienceSearchOutcome:
+        analyzed = analyze_fts_query(query)
         if not analyzed:
-            return ()
+            return ExperienceSearchOutcome()
         score = match(ARTIFACT_HEADS_TABLE.c.searchable_text, against=analyzed)
         rows = (
             await connection.execute(
@@ -144,7 +146,7 @@ class OceanBaseExperienceFTSIndex:
                 .limit(limit * 4)
             )
         ).mappings()
-        return experience_search_hits(rows, query, limit)
+        return experience_search_hits(rows, query, limit, scope_id, admission=admission)
 
     async def replace_skill(
         self,
@@ -164,7 +166,7 @@ class OceanBaseExperienceFTSIndex:
         limit: int,
         /,
     ) -> tuple[SkillSearchHit, ...]:
-        analyzed = analyze_text(query)
+        analyzed = analyze_fts_query(query)
         if not analyzed:
             return ()
         score = match(ARTIFACT_HEADS_TABLE.c.searchable_text, against=analyzed)

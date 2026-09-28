@@ -32,6 +32,7 @@ limitations under the License.
   <div class="d-flex justify-content-end mb-3">{% include 'components/preferences.html' %}</div>
   <div class="mb-4">{% include 'components/brand.html' %}</div>
   <form class="card card-md" action="/dashboard/session" method="post" hx-boost="false"><div class="card-body">
+    {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
     <h2>{{ t.login }}</h2><p>{{ t.login_body }}</p>
     <label class="form-label" for="token">{{ t.token }}</label>
     <input class="form-control" type="password" name="token" id="token" autocomplete="current-password" required>

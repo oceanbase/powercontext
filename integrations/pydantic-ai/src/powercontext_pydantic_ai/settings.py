@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import Field, HttpUrl, SecretStr, TypeAdapter, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 
+from powercontext.client.transport_policy import ClientTransportSettings
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
 
 try:
@@ -32,7 +34,7 @@ except ImportError:
 _HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
 
 
-class PowerContextSettings(BaseSettings):
+class PowerContextSettings(ClientTransportSettings):
     """PowerContext settings loaded from constructor values or the environment."""
 
     model_config = SettingsConfigDict(
@@ -43,6 +45,7 @@ class PowerContextSettings(BaseSettings):
         hide_input_in_errors=True,
     )
 
+    transport_host: ClassVar[str] = "pydantic-ai"
     base_url: str = "http://127.0.0.1:8000"
     token: SecretStr | None = Field(default=None, repr=False)
     scope_id: str | None = Field(default=None, min_length=1, max_length=MAX_SCOPE_ID_LENGTH)

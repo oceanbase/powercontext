@@ -64,6 +64,7 @@ export POWERCONTEXT_PYDANTIC_AI_TOKEN=opaque-server-token
 | 变量 | 默认值 | 校验与行为 |
 | --- | --- | --- |
 | `POWERCONTEXT_PYDANTIC_AI_BASE_URL` | `http://127.0.0.1:8000` | HTTP(S)，不能含凭证、query 或 fragment |
+| `POWERCONTEXT_PYDANTIC_AI_ALLOW_INSECURE_HTTP` | `false` | 显式允许非环回明文 HTTP |
 | `POWERCONTEXT_PYDANTIC_AI_TOKEN` | 未设置 | 以 `SecretStr` 保存的裸可打印 Token |
 | `POWERCONTEXT_PYDANTIC_AI_SCOPE_ID` | 未设置 | 最多 256 个字符的已有 Server Scope；未设置时选择 Server 默认 Scope |
 | `POWERCONTEXT_PYDANTIC_AI_TIMEOUT` | `10` | 正秒数 |
@@ -74,6 +75,10 @@ export POWERCONTEXT_PYDANTIC_AI_TOKEN=opaque-server-token
 
 Codex 与 Claude Code 插件的相关设置接收完整 authorization 值，而本适配器只接收裸 Token。不要带
 `Bearer `，也不要传完整 `Authorization` Header；公共 Client 会补上 scheme。
+
+环回 HTTP 默认可用；非环回 HTTP 需要通过上表环境变量或 `PowerContextSettings(allow_insecure_http=True)`
+显式同意。HTTPS 证书校验仍然启用。通用环境变量和绑定地址的持久化同意见
+[连接远程 Server](../operate/connect-remote-server.md)。框架适配器没有对应的 setup 安装命令。
 
 `PowerContext` 与 `PowerContextToolset` 都接受 `PowerContextSettings`、稳定的 `id`（默认 `powercontext`），
 以及固定或回调形式的 `scope_id`：

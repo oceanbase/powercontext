@@ -16,7 +16,7 @@ The integration has three capability layers:
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives WorkBuddy explicit
   Memory and work-continuity tools (`search_memory`, `list_memory_entries`,
   `handoff_current_work`, `commit_handoff`, and so on);
-- the `project-context` Skill turns an imperative such as `交接`,
+- the `powercontext-project-context` Skill turns an imperative such as `交接`,
   `交接当前工作`, or `handoff this work` into one durable, committed Handoff,
   and restores project memory for continued work.
 
@@ -43,7 +43,7 @@ powercontext setup workbuddy --source /path/to/powercontext
 The installer copies the hook driver, its settings modules, and the scope
 resolver into `~/.workbuddy/hooks`, merges the `UserPromptSubmit` hook into
 `~/.workbuddy/settings.json`, registers the `powercontext` server in
-`~/.workbuddy/mcp.json`, and installs the `project-context` Skill under
+`~/.workbuddy/mcp.json`, and installs the `powercontext-project-context` Skill under
 `~/.workbuddy/skills`. Existing settings and other MCP servers are preserved,
 and the Skill's command placeholders are resolved automatically.
 Verify the result with `powercontext doctor workbuddy`.
@@ -72,6 +72,7 @@ WORKBUDDY_HOOKS_DIR="${WORKBUDDY_HOOKS_DIR:-$HOME/.workbuddy/hooks}"
 mkdir -p "$WORKBUDDY_HOOKS_DIR"
 cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/workbuddy_settings.py \
+   "$PLUGIN"/hooks/powercontext_client_config.py \
    "$PLUGIN"/hooks/prepared_context.py \
    "$WORKBUDDY_HOOKS_DIR"/
 cp "$PLUGIN/scripts/workspace_scope.py" \
@@ -84,6 +85,7 @@ The resulting layout is:
 <WORKBUDDY_HOOKS_DIR>/
   workbuddy_powercontext_hook.py
   workbuddy_settings.py
+  powercontext_client_config.py
   prepared_context.py
   powercontext_scope_binding.py
 ```
@@ -105,7 +107,7 @@ environment variables, so literal paths are required here.
           {
             "type": "command",
             "command": "\"<POWERCONTEXT_PYTHON>\" \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Syncing PowerContext"
           }
         ]
@@ -139,18 +141,18 @@ Merge the following `mcpServers` entry into `~/.workbuddy/mcp.json`:
 
 #### 4. Install the Skill
 
-Copy the `project-context` Skill into the WorkBuddy skills directory:
+Copy the `powercontext-project-context` Skill into the WorkBuddy skills directory:
 
 ```bash
 mkdir -p ~/.workbuddy/skills
-cp -R integrations/workbuddy/plugins/powercontext/skills/project-context \
+cp -R integrations/workbuddy/plugins/powercontext/skills/powercontext-project-context \
   ~/.workbuddy/skills/
-cat > ~/.workbuddy/skills/project-context/.powercontext.json <<'EOF'
+cat > ~/.workbuddy/skills/powercontext-project-context/.powercontext.json <<'EOF'
 {"schema": 1, "owner": "powercontext", "integration": "workbuddy"}
 EOF
 ```
 
-Then open `~/.workbuddy/skills/project-context/SKILL.md`. Replace
+Then open `~/.workbuddy/skills/powercontext-project-context/SKILL.md`. Replace
 `${POWERCONTEXT_PYTHON}` with a shell-safe Python executable argument and
 `${POWERCONTEXT_SCOPE_BINDING_SCRIPT}` with a shell-safe complete path to
 `<WORKBUDDY_HOOKS_DIR>/powercontext_scope_binding.py`.
@@ -184,33 +186,58 @@ override the defaults; restart WorkBuddy after changing them.
 | Variable | Purpose |
 | --- | --- |
 | `POWERCONTEXT_WORKBUDDY_SERVER_URL` | PowerContext server URL (default `http://127.0.0.1:8000`). |
+| `POWERCONTEXT_WORKBUDDY_ALLOW_INSECURE_HTTP` | Explicit non-loopback HTTP consent; overrides common and saved consent, including `false`. |
 | `POWERCONTEXT_WORKBUDDY_AUTHORIZATION` | Complete authorization header, e.g. `Bearer <token>` |
 | `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | Capture user prompts as Sources (default `true`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE` | Flush until the captured Source is processed (testing only, default `false`) |
-| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `1.0`) |
-| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `4.0`) |
+| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `3.0`) |
+| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `6.0`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_MAX_CALLS` | Maximum flush calls (default `4`) |
 
-The hook validates its PowerContext MCP URL and derives the HTTP API base by
-removing the final `/mcp` path segment. Change `plugins/powercontext/.mcp.json`
-before installing when the loopback default is not appropriate. MCP URLs cannot
-contain credentials, query strings, or fragments; plain HTTP is accepted only
-for loopback hosts.
+The hook selects its URL from `POWERCONTEXT_WORKBUDDY_SERVER_URL`,
+`POWERCONTEXT_CLIENT_SERVER_URL`, saved settings, then the loopback default.
+It removes a final `/mcp` suffix and rejects credentials, query strings, and
+fragments. HTTPS and loopback HTTP work by default. To persist a non-loopback
+HTTP endpoint and configure the native MCP URL consistently:
+
+```bash
+powercontext setup workbuddy --server-url http://memory.example:8000 --allow-insecure-http
+```
+
+Nonsecret settings are stored under `hosts.workbuddy` in
+`~/.config/powercontext/clients.json`; `POWERCONTEXT_CLIENT_CONFIG_FILE` overrides
+the location. Saved consent applies only to the same normalized endpoint.
+An explicit settings constructor argument overrides the host environment,
+then `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP`, then saved consent. Boolean
+misspellings are rejected, and explicit `false` disables inherited consent.
+
+The guard applies to the PowerContext hook; WorkBuddy owns native MCP transport
+policy. HTTP sends request content and authorization headers without encryption.
+HTTPS certificate verification remains enabled.
 
 ## Runtime behavior
 
 - Recall calls `POST /v1/context/prepare` once per prompt, requests an
   8000-byte total budget, strictly validates `powercontext.prepared-context.v1`,
   and injects the returned content unchanged as untrusted history.
+- The query is a reduction of the joined prompt. WorkBuddy submits every user
+  message of the session joined into one prompt, so Recall reads the most recent
+  `<user_query>` element the host wrapped and falls back to the bounded prompt
+  when no element carries the host's wrapper boundaries. An opening tag is a
+  candidate only where it starts a line and its own closing tag ends at a message
+  boundary; a pair the turn quotes itself is enclosed by the turn, which is then
+  the element read. A reduction is reported on stderr as a `query_reduction`
+  event.
 - Capture independently posts the prompt to `POST /v1/sources/content` with
   stable, content-addressed `source_id` values.
 - Recall, capture, and flush fail independently. An unavailable Server never
   blocks normal WorkBuddy work.
 - For an empty result, authentication failure, version mismatch, unavailable
   Server, or invalid response, the hook writes one diagnostic JSON line to
-  stderr. Diagnostics contain status and byte counts only—never the query,
-  scope, content, citation, response body, or authorization value.
+  stderr. Diagnostics carry status codes, byte and character counts, and which
+  query source produced them—never the query, scope, content, citation, response
+  body, or authorization value.
 
 ## Authentication
 
@@ -226,5 +253,5 @@ values preserve the default unauthenticated flow. Never put the token itself in
 1. Remove the `UserPromptSubmit` PowerContext entry from `~/.workbuddy/settings.json`.
 2. Remove the `powercontext` entry from `~/.workbuddy/mcp.json`.
 3. Remove the hook files and the scope resolver from `<WORKBUDDY_HOOKS_DIR>`.
-4. Remove `~/.workbuddy/skills/project-context`.
+4. Remove `~/.workbuddy/skills/powercontext-project-context`.
 5. Optionally stop the Server and delete its local data directory.

@@ -16,7 +16,11 @@
 
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { BrandLogo } from '@/components/brand-logo';
+import { GitHubStars } from '@/components/github-stars';
 import { defaultLanguage, type Language } from './i18n';
+import { repositoryUrl } from './urls';
+import { githubRepository } from './github-stars';
+import githubStars from '../../.generated/github-stars.json';
 
 const labels = {
   en: {
@@ -43,7 +47,15 @@ export function baseOptions(lang: Language): BaseLayoutProps {
       { text: label.docs, url: `/${lang}/docs` },
       { text: label.benchmarks, url: `/${lang}/benchmarks` },
       { text: label.changelog, url: `/${lang}/changelog` },
-      { text: 'GitHub', url: 'https://github.com/oceanbase/powercontext', external: true },
+      {
+        type: 'custom',
+        secondary: true,
+        children: <GitHubStars
+          lang={lang}
+          url={repositoryUrl}
+          initialCount={githubStars.repository === githubRepository(repositoryUrl) ? githubStars.count : null}
+        />,
+      },
     ],
   };
 }

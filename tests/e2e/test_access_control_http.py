@@ -701,7 +701,7 @@ def test_server_administrators_discover_managed_resources_without_content_access
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("family", ["memory", "experience", "skill", "handoff"])
+@pytest.mark.parametrize("family", ["memory", "experience", "skill", "handoff", "profile"])
 def test_tag_owners_and_exact_viewers_preserve_scope_boundaries(tmp_path: Path, family: str) -> None:
     async def scenario() -> None:
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'tags.db'}")
@@ -727,6 +727,7 @@ def test_tag_owners_and_exact_viewers_preserve_scope_boundaries(tmp_path: Path, 
             ) as owner:
                 source = await owner.create_source(scope.scope_id, CreateSourceRequest(content="Tag access evidence"))
                 content = {
+                    "profile": {"content": "# Profile\n\nTest before release."},
                     "memory": {"entries": [{"kind": "fact", "text": "Private release rule"}]},
                     "experience": {
                         "situation": "Release",

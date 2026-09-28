@@ -35,6 +35,16 @@ FAMILY/ARTIFACT_ID@REVISION
 Artifact ID 保持稳定，approved replacement 会创建后续 Revision。Lineage 记录生成每个 Revision 时使用的精确 Source
 和 Artifact 引用。即使 family head 已经前进，读取精确引用仍会返回对应的历史快照。
 
+## 当前 Artifact family
+
+代码中的写入型 family 是 `memory`、`experience`、`skill`、`handoff`、`profile` 和 `prompt`。它们共享
+不可变 Revision 和精确引用，但可用操作不同：Memory 用于长期事实，Experience 和 Skill 经过 Candidate 审核，
+Handoff 记录工作连续性，Profile 保存 Scope 背景，Prompt 保存 Scope 级操作配置。
+
+读取接口还提供专用的 `topic-memory` family。Topic Memory 由 Source 后台处理产生，只能通过 `flush`、`search` 和
+`get` 这组主题接口使用，目前没有通用的 create、update、delete 或 retire 操作。Source 是生成依据而不是 Artifact；
+Tag 是 Memory、Experience、Skill 和 Handoff 的元数据，也不是 Artifact family。
+
 ## Memory 保存长期项目知识
 
 Memory 是带 Revision 的 Artifact family，用于保存可复用的决定、约束、事实、状态和下一步。Entry 可以是 active 或
@@ -63,8 +73,9 @@ Managed Skill 包含名称、用于发现的描述、instructions、validation c
 
 ## PreparedContext 是临时值
 
-`PreparedContext` 是一次 Agent turn 使用的最终有界值。Runtime 根据请求 query 选择 active Memory 和 approved
-Experience head，应用共享字节预算，并返回 `ready` content 或 `empty`。该结果不是新的长期记录。
+`PreparedContext` 是一次 Agent turn 使用的最终有界值。Runtime 根据请求 query 选择 active Memory、approved
+Experience head，以及在 assembly 中显式请求的 committed Profile 或 Topic Memory，应用共享字节预算，并返回 `ready`
+content 或 `empty`。该结果不是新的长期记录。
 
 召回内容属于历史信息，不是指令权威。接收它的 Agent 仍需遵循当前用户和系统指令，检查实时工作区状态，并核对自身实际
 能力。

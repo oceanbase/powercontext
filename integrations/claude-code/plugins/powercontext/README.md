@@ -1,7 +1,16 @@
 # PowerContext for Claude Code
 
 This plugin adds automatic project-context recall, ordinary user-prompt Source
-capture, explicit Memory operations, and inspectable Handoffs to Claude Code.
+capture, explicit Memory operations, inspectable Handoffs, and a scoped token-savings
+status line to Claude Code.
+
+`powercontext setup claude-code` configures Claude Code's native `statusLine.command`
+when that setting is empty or already belongs to PowerContext. It preserves an
+unrelated custom status line. The display refreshes every 30 seconds and reports
+`saved 1.2k today · saved 12k in 30d`, or `cost` when recall used more tokens.
+These values come from the recall-token estimator and are a per-call compression
+proxy, not provider-verified or billable savings. The status line fails open as
+`PC offline`; it never blocks a Claude Code turn.
 
 Automatic recall and prompt capture run on `UserPromptSubmit`. The plugin never
 reads the Claude Code transcript or captures Claude's final response in v1.
@@ -15,6 +24,32 @@ The plugin defaults to `http://127.0.0.1:8000`. Its Hook and MCP transport share
 `POWERCONTEXT_CLAUDE_AUTHORIZATION` when optional bearer authentication is
 enabled. Prompt capture can be disabled through the plugin's `capture_prompts`
 option or by setting `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS=false`.
+
+HTTPS and loopback HTTP work by default. To persist an explicit non-loopback
+HTTP endpoint for this host:
+
+```bash
+powercontext setup claude-code --server-url http://memory.example:8000 --allow-insecure-http
+```
+
+Setup configures the native MCP URL and stores nonsecret settings under
+`hosts.claude-code` in `~/.config/powercontext/clients.json` (override with
+`POWERCONTEXT_CLIENT_CONFIG_FILE`). The hook selects its URL from
+`POWERCONTEXT_CLAUDE_SERVER_URL`, the `server_url` plugin option,
+`POWERCONTEXT_CLIENT_SERVER_URL`, saved settings, then the loopback default.
+Keep the native MCP URL and hook URL aligned when making manual changes.
+
+For HTTP consent, an explicit settings constructor argument takes precedence,
+then `POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP`,
+`POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP`, the optional `allow_insecure_http`
+plugin option, and saved consent. Explicit `false` overrides lower-priority
+consent, and invalid booleans are rejected. Plugin-option and saved consent
+apply only to their configured endpoint after removing trailing slashes and
+`/mcp`; an environment URL change does not authorize another server.
+
+This setting governs the PowerContext hook. Claude Code owns native MCP
+transport policy. HTTP exposes request content and authorization headers on
+the network; the opt-in never disables HTTPS certificate verification.
 
 The Hook fails open on transport, authentication, contract, and capture errors.
 MCP remains available for explicit Memory maintenance and the inspected

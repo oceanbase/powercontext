@@ -148,10 +148,12 @@ class PowerContextToolset(FunctionToolset[AgentDepsT], Generic[AgentDepsT]):
         if state.client is not None:
             return self
         token = self.settings.token.get_secret_value() if self.settings.token is not None else None
+        server_url, allow_insecure_http = self.settings.resolve_transport()
         client = PowerContextClient(
-            self.settings.base_url,
+            server_url,
             token=token,
             timeout=self.settings.timeout,
+            allow_insecure_http=allow_insecure_http,
         )
         await client.__aenter__()
         try:

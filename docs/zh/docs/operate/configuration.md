@@ -31,8 +31,9 @@ export POWERCONTEXT_HOME=/srv/powercontext
 - macOS：`~/Library/Application Support/powercontext`；
 - Windows：`%LOCALAPPDATA%\\powercontext`。
 
-默认 SQLite 数据库是该目录下的 `powercontext.db`。四类后台处理器的意图与调度检查点保存在同一数据库中。
-分布式 Work Ledger 的租约与 operation 状态也保存在这里；执行路径不再使用旧的 `scheduler.db` sidecar。
+默认 SQLite 数据库是该目录下的 `powercontext.db`。后台处理器的意图与调度检查点保存在配置的数据库中。
+分布式模式下，共享 OceanBase 数据库还保存 Work Ledger 的租约与 operation 状态；
+执行路径不再使用旧的 `scheduler.db` sidecar。
 已有部署须先完成[停机迁移](artifact-processing-migration.md)。
 
 ## Server
@@ -42,7 +43,7 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | 监听地址 |
-| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | 监听端口 |
+| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | 监听端口；配置向导在首次设置时建议使用 `17429` |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | 启用 Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP 路径 |
@@ -64,8 +65,8 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | 启用 span recording 和 OTLP export |
 | `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET` | 本地持久化密钥 | 用于签名 REST 分页 cursor 的共享密钥，至少 32 字节 |
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | 存储后端：`sqlite`、`seekdb` 或 `oceanbase` |
-| `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekDB 不设置 |
-| `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekDB 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
+| `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekdb 不设置 |
+| `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekdb 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
 | `POWERCONTEXT_SERVER_DEPLOYMENT_MODE` | `single_node` | `single_node` 或 `distributed` 进程拓扑 |
 | `POWERCONTEXT_SERVER_DEPLOYMENT_ROLE` | `all` | `all`、`api`、`scheduler` 或 `worker`；分布式模式禁止 `all` |
 | `POWERCONTEXT_SERVER_DEPLOYMENT_ID` | `local` | 非敏感运维实例标签；启动 owner identity 仍然唯一 |
@@ -99,6 +100,15 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory 选择策略：`coding` 或 `conversation` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | 在 Memory 粗召回后应用 listwise rerank |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ENABLED` | `false` | 启用可选的召回充分性门控；关闭时召回行为与不启用该功能时一致 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MAX_ROUNDS` | `2` | 首轮召回之后最多追加的搜索轮数；取值 `0`–`2`，`0` 表示只评估、不追加 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_CANDIDATES` | `2` | 判定召回充分所需的最少候选数量 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_TOP_SCORE` | `0.35` | 判定充分所要求的最优候选分数下限 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_TOP_GAP` | `0.02` | 每个评分家族内“最优分数减该家族均值”所需的最小差值；门控取各评分家族中的最大值 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_LEXICAL_OVERLAP` | `0.5` | 判定充分所要求的词法覆盖率下限 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND1_MIN_SEMANTIC_SIMILARITY` | `0.15` | 第一轮追加搜索使用的语义相似度准入下限；启用时不得高于首轮的 `0.3` |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND2_MIN_SEMANTIC_SIMILARITY` | `0.10` | 第二轮追加搜索使用的语义相似度准入下限；启用时不得高于第一轮的值 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | 已启用 `MEMORY_RERANK_ENABLED` 时是否仍允许追加搜索；默认在 rerank 之后不再追加 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | 未设置 | Memory 自动准入间隔；`SCHEDULE_SECONDS` 保留为兼容别名 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 自动准入间隔；未设置时不接纳新的自动调用 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 每个 Topic Memory Window 的 Source 数量上限，硬上限为 100；一次 Scope 调用可完成多个 Window |
@@ -112,6 +122,12 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES` | 根据模型推导 | JSON Family 列表；API 端可无模型凭据地声明处理能力 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS` | `1` | Memory 独立 Worker 额度 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_MAX_WORKERS` | `1` | Experience 独立 Worker 额度 |
+| `POWERCONTEXT_SERVER_RUNTIME_SKILL_MAX_WORKERS` | `1` | Skill Worker 并发额度，用于 Dream 派生 |
+| `POWERCONTEXT_SERVER_RUNTIME_SKILL_WORKER_TIMEOUT_SECONDS` | `600` | 一次 Skill Scope 调用的总超时 |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_ENABLED` | `true` | 接受已声明 Experience/Skill Family 的显式 Dream 请求；不自动挑选制品 |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_MAX_PENDING_PER_SCOPE` | `32` | 同 Scope 排队和执行中的 DreamRun 总上限 |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_BUDGET` | `{}` | JSON 预算，可收紧证据上限、最多 2 次模型调用和首次执行起 120 秒总时间 |
+| `POWERCONTEXT_SERVER_RUNTIME_GENERATION_CONCURRENCY` | `4` | Runtime 前台同步生成并发；后台 Worker 使用各 Family 额度 |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_WORKERS` | `4` | Profile 独立 Worker 额度；别名 `PROFILE_MAX_CONCURRENCY` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Memory Scope 总超时 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Experience Scope 总超时 |
@@ -128,7 +144,8 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | embedding client 静态 header JSON object；value 按 secret 处理 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL_SETTINGS` | `{}` | Pydantic AI embedding model settings JSON object |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID` | 未设置 | vector index 使用的模型、dimension 和 normalization 的稳定标识 |
-| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION` | 未设置 | 向 embedding model 请求并校验的正整数输出维度 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION` | 未设置 | 持久化并校验的正整数输出维度。默认也作为请求参数 `dimensions` 发送 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_SEND_DIMENSIONS` | `true` | 是否在 embedding 请求中发送 `dimensions`。关闭后仍用上面的维度校验返回向量。固定维度模型（例如硅基流动 `BAAI/bge-m3`）设为 `false` |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` | `unit` | vector normalization：`unit` 或 `none` |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS` | `30` | 单次 embedding 请求的超时秒数 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | 单次 embedding 请求最多发送的文本数量 |
@@ -141,6 +158,11 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 自动准入间隔；未设置时保留已接受工作，停止新的自动准入 |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 自动生成本机项目 target | 覆盖默认值的 host identity 和显式 Agent Skill targets JSON object |
 
+召回充分性门控默认关闭。启用后，Runtime 在 `prepare_context` 阶段评估首轮候选的数量、来源家族覆盖、最优候选分数和词法
+覆盖；判定为不足时最多追加两轮搜索，并在每轮放宽候选准入的语义相似度下限。门控判断本身不调用模型，追加轮次沿用同一请求的
+Scope、家族、条数限制和上下文预算，并复用已经生成的查询向量。第一轮和第二轮的语义相似度下限必须保持递减顺序，违反该顺序
+会导致启动失败。启用后可能增加检索次数和延迟，请在自己的数据上评估召回结果和延迟变化。
+
 Topic Worker 对尚未推进的 Scope Cursor 强制使用持久额度：跨全部重试最多 3 次尝试、512 次预留 provider 请求和
 64,000,000 个估算 token 容量单位。Window 的 canonical evidence（包含 metadata）最多 4,194,304 个字符，并限制
 嵌套复杂度。耗尽后保留 Source、Cursor、Pending 和同 Scope 尾部，停止后续 provider 调用；flush 和重启均不重置。
@@ -149,7 +171,9 @@ Topic Worker 对尚未推进的 Scope Cursor 强制使用持久额度：跨全�
 Topic generation 只允许有界标量设置：`max_tokens`、`temperature`、`top_p`、`top_k`、`seed`、`presence_penalty`、
 `frequency_penalty`、`timeout`、`openai_reasoning_effort`、`openai_text_verbosity`、`service_tier`、
 `openai_service_tier`、`anthropic_service_tier`、`anthropic_effort`；Topic Embedding 只允许 `dimensions` 和 `truncate`。
-background、隐藏历史、native tools 和 `extra_body` 会使 Topic 处理不可用，普通推理仍可继续；显式配置自动 Topic 调度时
+对于 `openai-chat:<model>` 生成，`extra_body` 唯一允许的例外为
+`{"chat_template_kwargs":{"enable_thinking":false}}`，要求严格的布尔值，且两层均不能包含其他字段。
+background、隐藏历史、native tools 和其他形式的 `extra_body` 会使 Topic 处理不可用，普通推理仍可继续；显式配置自动 Topic 调度时
 则启动失败。支持的 provider 前缀为 `openai`、`openai-chat`、
 `openai-responses`、`anthropic`、`azure`、`azure-responses`、`deepseek`、`openrouter`，以及本地 `test` 模型；Embedding
 还必须受其 SDK adapter 支持。Topic 禁用 SDK transport 重试和自动 continuation，非 Topic 推理保留既有设置行为。
@@ -178,12 +202,17 @@ Authentication 负责建立 Principal，Access Control 负责判断该 Principal
 用户 A 和用户 B。兼容静态 token 会为这个 Principal 显式写入 Server 与各 scope 所需的 role。需要让不同用户或 group
 获得不同权限时，应注入部署侧 Authentication Provider 与相应的 AccessControlService。
 
-Memory、Topic Memory、Experience、Profile 四类后台优先使用 `ACCESS_BACKGROUND_PRINCIPAL_ID` 指定的 service Principal，
+Memory、Topic Memory、Experience、Profile 的 Source 后台处理优先使用 `ACCESS_BACKGROUND_PRINCIPAL_ID` 指定的 service Principal，
 缺省时回退到固定静态 Principal。该身份须在每个被处理的 scope 上拥有 `scope.contribute`，并拥有被修改的现有 Artifact 的写权限。
 新 Entry、Artifact 与 Candidate 的 owner 或 owner attestation 和处理完成确认同事务提交。
 enforced 部署启用后台能力时，若身份或授权 provider 无法在子进程重建，启动会失败；关闭自动 schedule 仍需恢复已接受的工作，
 因此不能免除此检查。内置 provider 支持重建；注入的 provider 和模型对象仍可用于关闭后台能力
 （`ARTIFACT_PROCESSING_FAMILIES=[]`）的同步 SDK/Server 操作。
+
+Dream 在 Experience/Skill Worker 内重建原请求者的当前权限，Candidate 的归属仍是原请求者。
+后台 service Principal 的权限不会替代该身份。OceanBase 分离部署可在无模型的 API 进程声明
+`ARTIFACT_PROCESSING_FAMILIES=["experience","skill"]`，后台声明相同能力并配置模型；各进程的自动周期只能引用已声明的 Family。
+SQLite 使用 `all`。Dream 的模型标识在首次执行时固定，关闭自动周期不会阻止已接受的显式 Dream 请求完成。
 
 未配置 Server 身份的 SDK Worker 不需要 Server 授权依赖。内置后台 Worker 使用内置 Source Definition。
 自定义 Source Registry 须为每个启用的 Family 提供自定义 processing binding，或通过
@@ -199,7 +228,7 @@ Supervisor 实例重建而重置。
 导出和安装不再引入单独的 Access action：接收者先获得逻辑 Skill identity 上的 `artifact.read`，再自行决定是否以及如何
 安装一个精确 Revision。
 
-内置 Access schema 使用配置好的 SQLite、seekDB 或 OceanBase，但由 Server 独立持有，不进入 Runtime 领域。自定义部署
+内置 Access schema 使用配置好的 SQLite、seekdb 或 OceanBase，但由 Server 独立持有，不进入 Runtime 领域。自定义部署
 可以向 `create_server_app` 注入 `AccessControlService`。内置的可写外部 adapter `CasbinAuthorizationProvider` 使用
 embedded Casbin 判定固定 action vocabulary，并把 canonical Binding Store 作为持久化 adapter，因此在不维护第二份影子
 策略的前提下支持 point/batch check、safe resource filter、create/revoke、过期和 CAS。组装时将它同时作为 decision
@@ -260,7 +289,7 @@ Dashboard listener，多个后台候选者通过数据库 Lease 自动选出一�
 
 单机模式下 Memory、Topic Memory、Experience、Profile 使用统一 Supervisor；分布式模式下 Memory、Experience、
 Profile 改由 Work Ledger 执行。分布式 v1 不支持 Topic Memory processing，配置其周期会在启动时被拒绝。SQLite 与
-嵌入式 seekDB 只支持单进程 `all`。未设置正数间隔时，Topic Memory 自动波次保持关闭；显式 flush 工作的恢复不依赖
+嵌入式 seekdb 只支持单进程 `all`。未设置正数间隔时，Topic Memory 自动波次保持关闭；显式 flush 工作的恢复不依赖
 该间隔。Topic Worker 要求使用文件 SQLite；内存 SQLite 配合 generation model 的配置会在声明处理能力之前被拒绝。
 请通过 `POWERCONTEXT_SERVER_DATABASE_URL` 指定持久数据库路径，例如
 `sqlite+aiosqlite:////srv/powercontext/runtime.db`。Supervisor 的每个 Family 保留独立额度和总超时，不借用其他 Family

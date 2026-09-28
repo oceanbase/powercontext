@@ -33,10 +33,13 @@ The 8 Agent Hosts use `official` for PowerContext project maintenance and `commu
 
 Each integration connects to a separately running Server. Follow its guide in the table for installation, connection settings, authentication, and diagnostics.
 
+For remote endpoints, see [Connect to a remote Server](../operate/connect-remote-server.md): PowerContext clients
+allow loopback HTTP by default and require explicit consent for non-loopback HTTP. Host-native MCP policies remain separate.
+
 To select multiple hosts interactively, run:
 
 ```bash
-powercontext setup select --source oceanbase/powercontext --ref master
+powercontext setup select
 ```
 
 Use the same ref as the Server. The selector lists hosts in the CLI catalog; consult each Agent guide for its supported installation path.

@@ -19,11 +19,13 @@ import {
   MAX_RESPONSE_BYTES,
   PLUGIN_USER_AGENT,
   REQUEST_ID_HEADER,
+  RequestTimeoutError,
   ServerResponseError,
   UnavailableError,
   UnknownOperationError,
 } from './errors.ts'
 import { OPERATIONS, type OperationId, type OperationSpec } from './operations.generated.ts'
+import { normalizeServerUrl } from './transport.ts'
 
 export type JsonObject = Record<string, unknown>
 export type FetchFn = (input: string, init: RequestInit) => Promise<Response>
@@ -32,6 +34,7 @@ export type ClientSuccess = { kind: 'json'; value: unknown; status: number; requ
 
 export interface ClientOptions {
   baseUrl: string
+  allowInsecureHttp?: boolean
   authorization?: string
   requestTimeoutMs: number
   fetch?: FetchFn
@@ -189,19 +192,22 @@ export class PowerContextClient {
   private readonly fetchImpl: FetchFn
 
   constructor(options: ClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '')
+    this.baseUrl = normalizeServerUrl(options.baseUrl, options.allowInsecureHttp)
     this.authorization = options.authorization
     this.requestTimeoutMs = options.requestTimeoutMs
     this.fetchImpl = options.fetch ?? fetch
   }
 
-  async request(id: string, payload?: JsonObject, signal?: AbortSignal): Promise<ClientSuccess> {
+  async request(id: string, payload?: JsonObject, signal?: AbortSignal, timeoutMs = this.requestTimeoutMs): Promise<ClientSuccess> {
     if (!(id in OPERATIONS)) throw new UnknownOperationError(id)
     const spec = OPERATIONS[id as OperationId]
     const prepared = prepareRequest(spec, payload)
     const url = this.buildUrl(prepared)
+    const timeoutSignal = createTimeoutSignal(timeoutMs)
+    const signals = [timeoutSignal]
+    if (signal) signals.push(signal)
     try {
-      const response = await this.fetchImpl(url, this.buildInit(spec, prepared, signal))
+      const response = await this.fetchImpl(url, this.buildInit(spec, prepared, combineSignals(signals)))
       return await this.parseResponse(spec, response)
     } catch (error) {
       if (
@@ -211,6 +217,7 @@ export class PowerContextClient {
       ) {
         throw error
       }
+      if (timeoutSignal.aborted) throw new RequestTimeoutError(prepared.path, error)
       throw new UnavailableError(prepared.path, error)
     }
   }
@@ -226,13 +233,11 @@ export class PowerContextClient {
       ...request.headers,
     }
     if (this.authorization) headers.Authorization = this.authorization
-    const signals = [createTimeoutSignal(this.requestTimeoutMs)]
-    if (signal) signals.push(signal)
     const init: RequestInit = {
       method: spec.method,
       headers,
       redirect: 'manual',
-      signal: combineSignals(signals),
+      signal,
     }
     if (spec.location === 'body') {
       headers['Content-Type'] = 'application/json'

@@ -29,7 +29,7 @@ powercontext server run
 In another terminal, install or refresh both plugins from the matching revision:
 
 ```bash
-powercontext setup hermes --source oceanbase/powercontext --ref master
+powercontext setup hermes
 powercontext doctor hermes
 ```
 
@@ -72,6 +72,7 @@ the file:
 | --- | --- |
 | `POWERCONTEXT_HERMES_CONFIG` | Config file path; defaults to `$HERMES_HOME/powercontext/config.json` |
 | `POWERCONTEXT_HERMES_BASE_URL` | PowerContext Server URL |
+| `POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP` | Explicitly permit non-loopback plaintext HTTP; defaults to `false` |
 | `POWERCONTEXT_HERMES_AUTHORIZATION` | Complete authorization header, such as `Bearer <token>` |
 | `POWERCONTEXT_HERMES_TOKEN` | Bare-token shorthand used when `AUTHORIZATION` is absent |
 | `POWERCONTEXT_HERMES_SCOPE_ID` | Explicit server-owned Scope ID |
@@ -84,9 +85,10 @@ the file:
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE_PATH` | Override the evaluation trace directory |
 
 Let the Hermes wizard store authorization in its protected `.env` secret store; do not put the token in
-`config.json`. Use plain HTTP only for a loopback Server. See [Deploy the Server](../operate/deploy-server.md) before connecting
-to a remote deployment. Evaluation traces contain prompts and recalled context; keep them local and protect them as
-sensitive data.
+`config.json`. Plain HTTP is allowed on loopback by default; use HTTPS for remote access or explicitly set
+`POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP=true`. This does not disable HTTPS certificate validation. See
+[Connect to a remote Server](../operate/connect-remote-server.md) for guided setup and endpoint-bound saved consent.
+Evaluation traces contain prompts and recalled context; keep them local and protect them as sensitive data.
 
 ## Enable automatic extraction only when needed
 

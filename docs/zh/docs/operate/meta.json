@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "deploy-server",
+    "connect-remote-server",
     "artifact-processing-migration",
     "observability",
     "trace-with-phoenix",

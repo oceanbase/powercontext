@@ -16,13 +16,15 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, ClassVar, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
 
 from powercontext.artifacts import Artifact, ArtifactDraft, ArtifactRef
-from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.artifacts.memory import EmbeddingProfile, MemoryQueryEmbedding
+from powercontext.builtin.artifacts.search import AdmissionCounts, AdmissionFloor
 from powercontext.builtin.inference import EmbeddingVector
 
 MAX_TOPIC_MEMORY_TITLE_LENGTH = 512
@@ -31,6 +33,7 @@ MAX_TOPIC_MEMORY_DETAIL_LENGTH = 125_000
 MAX_TOPIC_MEMORY_QUERY_LENGTH = 8_192
 MAX_TOPIC_MEMORY_QUERY_TERMS = 64
 MAX_TOPIC_MEMORY_SEARCH_LIMIT = 20
+MAX_TOPIC_MEMORY_CHANNEL_CANDIDATES = 100
 
 TopicMemoryTitle = Annotated[str, Field(min_length=1, max_length=MAX_TOPIC_MEMORY_TITLE_LENGTH)]
 TopicMemorySummary = Annotated[str, Field(min_length=1, max_length=MAX_TOPIC_MEMORY_SUMMARY_LENGTH)]
@@ -92,7 +95,10 @@ class TopicMemoryProjection(BaseModel):
 
     content: TopicMemoryContent
     chunks: tuple[TopicMemoryChunk, ...]
-    topic_searchable_text: str = Field(min_length=1)
+    # A valid non-blank title/summary may contain no Analyzer v1 terms (for
+    # example, emoji or punctuation only).  Empty lexical text is a complete
+    # projection; it simply contributes no full-text matches.
+    topic_searchable_text: str = Field(min_length=0)
     topic_embedding: EmbeddingVector | None = None
     chunk_embeddings: tuple[EmbeddingVector, ...] = ()
     embedding_profile: EmbeddingProfile | None = None
@@ -131,10 +137,11 @@ class TopicMemorySearchRequest(BaseModel):
 
     query: str = Field(min_length=1, max_length=MAX_TOPIC_MEMORY_QUERY_LENGTH)
     analyzed_query: str = ""
-    candidate_limit: StrictInt = Field(ge=1, le=MAX_TOPIC_MEMORY_SEARCH_LIMIT)
+    candidate_limit: StrictInt = Field(ge=1, le=MAX_TOPIC_MEMORY_CHANNEL_CANDIDATES)
     mode: TopicMemoryUsedSearchMode
     query_vector: EmbeddingVector | None = None
     embedding_profile: EmbeddingProfile | None = None
+    admission: AdmissionFloor | None = Field(default=None, exclude=True)
 
 
 class TopicMemoryChannelHit(BaseModel):
@@ -157,6 +164,14 @@ class TopicMemorySearchChannels(BaseModel):
     topic_vector: tuple[TopicMemoryChannelHit, ...] = ()
     detail_fts: tuple[TopicMemoryChannelHit, ...] = ()
     detail_vector: tuple[TopicMemoryChannelHit, ...] = ()
+    topic_fts_retrieved: StrictInt | None = Field(default=None, ge=0)
+    topic_vector_retrieved: StrictInt | None = Field(default=None, ge=0)
+    detail_fts_retrieved: StrictInt | None = Field(default=None, ge=0)
+    detail_vector_retrieved: StrictInt | None = Field(default=None, ge=0)
+    topic_fts_eligible: StrictInt | None = Field(default=None, ge=0)
+    topic_vector_eligible: StrictInt | None = Field(default=None, ge=0)
+    detail_fts_eligible: StrictInt | None = Field(default=None, ge=0)
+    detail_vector_eligible: StrictInt | None = Field(default=None, ge=0)
 
 
 class TopicMemorySearchHit(BaseModel):
@@ -170,11 +185,35 @@ class TopicMemorySearchHit(BaseModel):
     matched_by: tuple[TopicMemoryMatchedBy, ...]
 
 
+@dataclass(frozen=True)
+class TopicMemoryFusionOutcome:
+    """Topic Memory hits plus the admission accounting measured around their channels.
+
+    ``retrieved`` sums the channel hits for the channels the resolved mode actually enabled;
+    ``admitted`` sums the survivors of ``_admit_fts`` / ``_admit_vector``. ``rejected`` counts
+    same-search admission-floor rejections separately from channel candidate truncation. These
+    values are aggregates over channels, not per-topic attribution.
+    """
+
+    hits: tuple[TopicMemorySearchHit, ...] = ()
+    retrieved: int = 0
+    admitted: int = 0
+    rejected: int = 0
+
+
 class TopicMemorySearchResult(BaseModel):
-    """Fused Topic hits and the deployment mode actually used."""
+    """Fused Topic hits and the deployment mode actually used.
+
+    ``admission`` is **in-process only**: it exists so the Runtime's recall gate can report
+    what this search retrieved and admitted. It is ``exclude=True`` as defence-in-depth; the
+    HTTP projection is independently safe because the response is built field by field.
+    """
 
     mode: TopicMemoryUsedSearchMode
     hits: tuple[TopicMemorySearchHit, ...] = ()
+    admission: AdmissionCounts | None = Field(default=None, exclude=True)
+    query_embedding: MemoryQueryEmbedding | None = Field(default=None, exclude=True)
+    embedding_calls: int = Field(default=0, exclude=True)
 
 
 class PublishedTopicMemory(BaseModel):

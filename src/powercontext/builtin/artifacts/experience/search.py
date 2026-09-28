@@ -16,11 +16,30 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from pydantic import BaseModel
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience.models import ExperienceContent
-from powercontext.builtin.artifacts.search import analyze_text
+from powercontext.builtin.artifacts.search import AdmissionCounts, analyze_text
+
+
+@dataclass(frozen=True)
+class ExperienceSearchOutcome:
+    """Experience hits plus the admission accounting for the search that produced them.
+
+    It replaces the bare ``tuple[ExperienceSearchHit, ...]`` the ``experience_recall`` callback
+    used to return, because the Runtime's recall gate needs the retrieved/admitted pair and the
+    callback signature is part of the Runtime's construction surface.
+
+    ``admission`` is ``None`` when the search did not measure — for example a configured index
+    with nothing to report — rather than a fabricated ``(0, 0)``. The counters are aggregates
+    with no hit identity, so carrying them costs nothing the callback did not already compute.
+    """
+
+    hits: tuple[ExperienceSearchHit, ...] = ()
+    admission: AdmissionCounts | None = None
 
 
 class ExperienceSearchHit(BaseModel):
@@ -33,12 +52,20 @@ class ExperienceSearchHit(BaseModel):
 def render_experience(content: ExperienceContent, /) -> str:
     """Render complete typed Experience content for bounded context delivery."""
 
-    return "\n".join((
+    lines = [
         f"Situation: {content.situation}",
         f"Action: {content.action}",
         f"Outcome: {content.outcome}",
         f"Lesson: {content.lesson}",
-    ))
+    ]
+    if content.failure is not None:
+        lines.append(f"Failure cue: {content.failure.signature.recall_cue}")
+        if content.failure.signature.symptom is not None:
+            lines.append(f"Symptom: {content.failure.signature.symptom}")
+        lines.append(f"Repair surface: {content.failure.repair_surface}")
+        lines.append(f"Verification condition: {content.failure.verification.condition}")
+        lines.append(f"Verification check: {content.failure.verification.check_subject}")
+    return "\n".join(lines)
 
 
 def experience_searchable_text(content: ExperienceContent, /) -> str:
@@ -50,7 +77,18 @@ def experience_searchable_text(content: ExperienceContent, /) -> str:
 def experience_search_text(content: ExperienceContent, /) -> str:
     """Return only user-authored fields so renderer labels cannot cause matches."""
 
-    return "\n".join((content.situation, content.action, content.outcome, content.lesson))
+    fields = [content.situation, content.action, content.outcome, content.lesson]
+    if content.failure is not None:
+        fields.append(content.failure.signature.recall_cue)
+        if content.failure.signature.symptom is not None:
+            fields.append(content.failure.signature.symptom)
+    return "\n".join(fields)
 
 
-__all__ = ["ExperienceSearchHit", "experience_search_text", "experience_searchable_text", "render_experience"]
+__all__ = [
+    "ExperienceSearchHit",
+    "ExperienceSearchOutcome",
+    "experience_search_text",
+    "experience_searchable_text",
+    "render_experience",
+]

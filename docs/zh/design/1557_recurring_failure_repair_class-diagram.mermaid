@@ -1,0 +1,177 @@
+classDiagram
+    class _ArtifactValue {
+        <<BaseModel>>
+        +model_config: extra=forbid, frozen=True
+    }
+    class _ExperienceValue {
+        <<BaseModel>>
+    }
+    class ExperienceText {
+        <<Annotated str>>
+        min_length=1
+        max_length=8000
+    }
+
+    class ExperienceContent {
+        +situation: ExperienceText
+        +action: ExperienceText
+        +outcome: ExperienceText
+        +lesson: ExperienceText
+        +failure: FailureRecord | None
+        +reject_blank_text()
+    }
+    class FailureRecord {
+        +signature: FailureSignature
+        +repair_surface: RepairSurface
+        +verification: FailureVerification
+        +reject_blank_cue()
+    }
+    class FailureSignature {
+        +recall_cue: str (1..512)
+        +symptom: ExperienceText | None
+    }
+    class FailureVerification {
+        +condition: ExperienceText
+        +check_subject: str (1..512)
+    }
+    class RepairSurface {
+        <<Literal>>
+        experience_content
+        working_state
+        recall_policy
+        acceptance_check
+    }
+
+    class TaskOutcomeItemRef {
+        +task_outcome_ref: SourceRef
+        +item_kind: observation | check
+        +item_index: int (ge=0)
+        +item_digest: str
+    }
+    class RecurrenceMatch {
+        +scope_id: str
+        +task_outcome_ref: SourceRef
+        +task_outcome_position: int (ge=1)
+        +failure_ref: TaskOutcomeItemRef
+        +candidate_set_mode: handoff_citations | scope_heads
+        +candidate_refs: tuple[ArtifactRef, ...]
+        +candidate_set_digest: str
+        +result: matched | unmatched | ambiguous
+        +artifact_ref: ArtifactRef | None
+        +signature_key: str | None
+    }
+    class RecurrenceObservation {
+        +observation_id: str
+        +scope_id: str
+        +artifact_ref: ArtifactRef
+        +signature_key: str
+        +event: selected | recurred | avoided
+        +match_basis: exact
+        +task_outcome_ref: SourceRef
+        +task_outcome_position: int (ge=1)
+        +handoff_receipt_ref: SourceRef | None
+        +handoff_ref: ArtifactRef | None
+        +condition_ref: TaskOutcomeItemRef | None
+        +check_ref: TaskOutcomeItemRef | None
+        +failure_ref: TaskOutcomeItemRef | None
+        +recurrence_match_digest: str | None
+    }
+    class RecurrenceRevisionProposal {
+        +target: ArtifactRef
+        +proposal: ExperienceContent
+        +sources: tuple[SourceRef, ...]
+        +reason: str
+    }
+
+    class RecurrenceStreak {
+        +artifact_ref: ArtifactRef
+        +signature_key: str
+        +terminal_recurred_streak: int (ge=0)
+    }
+    class RecurrenceStatistics {
+        +selected: int
+        +recurred: int
+        +avoided: int
+        +unknown: int
+        +unlinked_handoff_citations: int
+        +needing_review: int
+        +top_revisions: tuple[RecurrenceStreak, ...]
+    }
+    class ScopeStatistics {
+        +scope_id: str
+        +inventory: InventoryStatistics
+        +usage: UsageStatistics
+        +recall: RecallTokenStatistics
+        +recurrence: RecurrenceStatistics
+    }
+
+    class ArtifactRef {
+        +family: str
+        +artifact_id: str
+        +revision: int (ge=1)
+    }
+    class SourceRef {
+        +source_type: str
+        +source_id: str
+    }
+    class TaskOutcome {
+        +status: TaskOutcomeStatus
+        +handoff_receipt_ref: SourceRef | None
+        +observations: tuple[WorkClaim, ...]
+        +checks: tuple[TaskCheck, ...]
+    }
+    class WorkClaim {
+        +text: str
+        +basis: declared | verified
+        +evidence: tuple[HandoffCitation, ...]
+    }
+    class TaskCheck {
+        +name: str
+        +status: TaskCheckStatus
+        +basis: declared | verified
+        +evidence: tuple[HandoffCitation, ...]
+    }
+    class HandoffReceipt {
+        +status: accepted | needs_clarification | declined
+        +selection: prepared | exact | latest
+        +selected_revision: ArtifactRef | None
+        +evidence_status: available | unavailable
+    }
+
+    _ArtifactValue <|-- _ExperienceValue
+    _ExperienceValue <|-- ExperienceContent
+    _ExperienceValue <|-- FailureRecord
+    _ExperienceValue <|-- FailureSignature
+    _ExperienceValue <|-- FailureVerification
+    _ArtifactValue <|-- TaskOutcomeItemRef
+    _ArtifactValue <|-- RecurrenceMatch
+    _ArtifactValue <|-- RecurrenceObservation
+    _ArtifactValue <|-- RecurrenceRevisionProposal
+
+    ExperienceContent *-- FailureRecord : failure (0..1)
+    FailureRecord *-- FailureSignature : signature
+    FailureRecord --> RepairSurface : repair_surface
+    FailureRecord *-- FailureVerification : verification
+
+    RecurrenceMatch *-- TaskOutcomeItemRef : failure_ref
+    RecurrenceMatch --> SourceRef : task_outcome_ref
+    RecurrenceMatch --> ArtifactRef : artifact_ref (matched)
+
+    RecurrenceObservation --> ArtifactRef : artifact_ref
+    RecurrenceObservation --> SourceRef : task_outcome_ref / handoff_receipt_ref
+    RecurrenceObservation o-- TaskOutcomeItemRef : condition_ref / check_ref / failure_ref
+    RecurrenceObservation ..> RecurrenceMatch : recurrence_match_digest
+
+    RecurrenceRevisionProposal --> ExperienceContent : proposal
+    RecurrenceRevisionProposal --> ArtifactRef : target
+
+    ScopeStatistics *-- RecurrenceStatistics : recurrence
+    RecurrenceStatistics *-- RecurrenceStreak : top_revisions
+    RecurrenceStreak --> ArtifactRef : artifact_ref
+
+    TaskOutcome *-- WorkClaim : observations
+    TaskOutcome *-- TaskCheck : checks
+    TaskOutcome --> SourceRef : handoff_receipt_ref
+    TaskOutcomeItemRef ..> WorkClaim : item_kind=observation
+    TaskOutcomeItemRef ..> TaskCheck : item_kind=check
+    HandoffReceipt --> ArtifactRef : selected_revision

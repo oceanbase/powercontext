@@ -74,6 +74,9 @@ def aggregate_statistics(
                 inventory=snapshot.inventory,
                 usage=snapshot.usage,
                 recall=snapshot.recall,
+                # Recurrence is reported per Scope and never merged: one scope's
+                # streak must not be added to another's.
+                recurrence=snapshot.by_scope[0].recurrence,
             )
             for scope_id, snapshot in zip(scope_ids, snapshots, strict=True)
         ),

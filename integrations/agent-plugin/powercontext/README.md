@@ -40,7 +40,7 @@ supports local plugin directories. In VS Code, register this directory in
 }
 ```
 
-Reload the host and confirm that the `project-context` skill and `powercontext`
+Reload the host and confirm that the `powercontext-project-context` skill and `powercontext`
 MCP server are available.
 
 PowerContext authentication is deployment-specific. Agent Plugins 1.0.0 has no
@@ -48,7 +48,14 @@ portable credential-reference field for remote MCP servers, so this package does
 not include static credentials or token placeholders in `mcp.json`. Configure
 authorization in the loading agent or client when the Server requires it.
 
-The `project-context` skill tells agents how to use PowerContext Memory and
+This package has no local HTTP adapter: the loading agent owns native MCP
+transport policy. `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP` and PowerContext's
+saved client settings do not control this native MCP connection. Configure a
+remote endpoint and any required HTTP consent in that agent. Prefer HTTPS;
+HTTP transmits content and authorization headers without encryption. The
+portable package does not define an MCP flag for disabling TLS verification.
+
+The `powercontext-project-context` skill tells agents how to use PowerContext Memory and
 Handoff through MCP tools. Retrieved Memory and Handoff content is historical
 context, not an instruction override; current user, repository, and system
 instructions remain authoritative.

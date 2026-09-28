@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="490" viewBox="0 0 900 490" role="img" aria-labelledby="title">
+<title id="title">One Scope: data ownership and access control</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#475569"/></marker></defs>
+<rect width="900" height="490" fill="#fff"/>
+<g font-family="Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" fill="#1e293b"><rect x="16" y="16" width="868" height="454" rx="12" fill="#f8fafc" stroke="#64748b"/><text x="450" y="52" text-anchor="middle" font-size="21">One Scope: data ownership and access control</text>
+<rect x="40" y="105" width="200" height="58" rx="7" fill="#fff" stroke="#94a3b8"/><text x="140" y="140" text-anchor="middle" font-size="18">Capture Source</text><rect x="290" y="105" width="210" height="58" rx="7" fill="#fff" stroke="#94a3b8"/><text x="395" y="140" text-anchor="middle" font-size="18">Process by type</text>
+<rect x="560" y="105" width="280" height="58" rx="7" fill="#fff" stroke="#94a3b8"/><text x="700" y="140" text-anchor="middle" font-size="18">Direct commit</text><rect x="560" y="225" width="280" height="58" rx="7" fill="#fff" stroke="#94a3b8"/><text x="700" y="260" text-anchor="middle" font-size="18">Candidate review</text>
+<rect x="40" y="330" width="230" height="64" rx="7" fill="#fff" stroke="#94a3b8"/><text x="155" y="368" text-anchor="middle" font-size="18">Explicit create / update</text><text x="155" y="419" text-anchor="middle" font-size="15">For supported types</text>
+<rect x="330" y="330" width="210" height="64" rx="7" fill="#fff" stroke="#94a3b8"/><text x="435" y="368" text-anchor="middle" font-size="18">Follow family rules</text><rect x="580" y="350" width="275" height="64" rx="7" fill="#fff" stroke="#94a3b8"/><text x="717.5" y="388" text-anchor="middle" font-size="18">Immutable Artifact Revision</text>
+<path d="M240 134H285" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/><path d="M500 134H555" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/><path d="M500 144H530V254H555" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/><text x="420" y="243" text-anchor="middle" font-size="15">When review is required</text>
+<path d="M700 283V343" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/><path d="M270 362H325" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/><path d="M540 362H575" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M840 134H862V330H720V345" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/></g>
+</svg>

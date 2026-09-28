@@ -19,9 +19,11 @@ import pytest
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryChannelHit,
+    TopicMemoryMatchedBy,
     TopicMemorySearchChannels,
     fuse_topic_memory_rankings,
 )
+from powercontext.builtin.artifacts.topic_memory.fusion import _fuse_topic_memory_rankings
 
 
 @pytest.mark.parametrize("match_offset", [20, 720, 1_500])
@@ -181,3 +183,52 @@ def test_rrf_scores_are_normalized_against_the_enabled_first_place_channels() ->
     assert single[0].score == pytest.approx(25.0)
     assert fts_only[0].score == pytest.approx(100.0)
     assert all_channels[0].score == pytest.approx(100.0)
+
+
+def test_fusion_outcome_counts_retrieved_and_admitted_over_enabled_channels() -> None:
+    def hit(
+        channel: TopicMemoryMatchedBy,
+        *,
+        text: str,
+        distance: float | None = None,
+    ) -> TopicMemoryChannelHit:
+        return TopicMemoryChannelHit(
+            artifact_ref=ArtifactRef(family="topic-memory", artifact_id="topic-1", revision=1),
+            title="Needle topic",
+            summary="Summary carrying the needle.",
+            channel=channel,
+            chunk_ordinal=0,
+            chunk_start=0,
+            chunk_text=text,
+            distance=distance,
+        )
+
+    channels = TopicMemorySearchChannels(
+        topic_fts=(hit("topic_fts", text="needle"), hit("topic_fts", text="unrelated nothing here")),
+        topic_vector=(hit("topic_vector", text="needle", distance=0.1),),
+        detail_fts=(hit("detail_fts", text="needle"),),
+        detail_vector=(hit("detail_vector", text="needle", distance=0.1),),
+    )
+    outcome = _fuse_topic_memory_rankings("needle", channels, 4)
+    assert outcome.hits
+    assert outcome.admitted <= outcome.retrieved
+    # The default admission floor keeps the unrelated lexical candidate out.
+    assert outcome.admitted < outcome.retrieved
+
+    fts_only = _fuse_topic_memory_rankings("needle", channels, 4, mode="fts")
+    assert fts_only.retrieved == len(channels.topic_fts) + len(channels.detail_fts)
+    assert fts_only.admitted <= fts_only.retrieved
+
+
+def test_public_fusion_helper_preserves_the_historical_tuple_contract() -> None:
+    hit = TopicMemoryChannelHit(
+        artifact_ref=ArtifactRef(family="topic-memory", artifact_id="topic-1", revision=1),
+        title="Needle topic",
+        summary="needle",
+        channel="topic_fts",
+    )
+
+    result = fuse_topic_memory_rankings("needle", TopicMemorySearchChannels(topic_fts=(hit,)), 1)
+
+    assert isinstance(result, tuple)
+    assert result[0].artifact_ref == hit.artifact_ref

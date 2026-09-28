@@ -1,143 +1,194 @@
 ---
-title: 启用 Memory 提取与向量搜索
-description: 配置模型、启动 Server，并验证完整 Memory 闭环。
+title: 配置模型与完整记忆
+description: 理解 Generation、Embedding、后台调度及各制品的触发条件，验证模型驱动的记忆处理。
 ---
 
-# 启用 Memory 提取与向量搜索
+# 配置模型与完整记忆
 
-以下步骤使用 `master` 和 Bash。Windows 支持为 `experimental`，平台要求见[安装与运行](install-and-run.md)。
+[快速开始](quickstart.md)默认通过向导配置完整记忆。本页解释要准备哪些 API、哪些能力需要模型，
+以及保存配置后仍要完成的策略和业务检查。
 
-`powercontext server run` 不配置模型也可以运行，但依赖模型的提取和向量检索不会启用。`config init` 只负责生成可启动的
-基础环境文件，不在部署过程中索要 provider、credential 或 model；需要完整能力时，再显式补充模型配置。
+完整记忆流程使用默认的 `single_node` 部署。分布式 v1 支持 Memory、Experience 和 Profile 处理，
+不支持 Topic Memory processing，必须保持其调度周期未设置。该拓扑见
+[运行分布式角色](../operate/deploy-server.md#运行分布式角色)。
 
-| 能力 | 最小 Server | 已配置 Runtime |
+## 模型连接怎么选
+
+运行 `powercontext config init --language zh --output .env`，选择完整记忆或自定义能力。
+向导根据所选能力询问需要的连接；API 协议描述的是模型服务的接口，不是你正在使用哪个 Coding Agent。
+
+| 连接 | 用途 | 需要准备 |
 | --- | --- | --- |
-| Source capture | 启用 | 启用 |
-| Memory extraction | 关闭 | 启用 |
-| Search mode | `auto, fts` | `auto, fts, vector, hybrid` |
-| Dashboard | 单独启用，要求静态 token | 单独启用，要求静态 token |
-| MCP endpoint | `/mcp` | `/mcp` |
+| Generation | Memory 提取、Topic Memory、Profile、Experience 和 Skill 生成 | 服务支持的协议、完整 Base URL、API key、生成模型名 |
+| Embedding | 语义检索与向量索引 | Embedding API 地址、凭据、模型名、模型实际支持的维度 |
+| Rerank（可选） | 对检索候选进一步排序 | 按向导选择复用生成连接或单独配置重排连接 |
 
-Server 首次启动时创建一个使用不透明 ID 的默认 Scope。Integration 可以把 Session 或 workspace 绑定到默认 Scope，
-也可以绑定到其他已经存在的 Scope。
+后台能力默认共用配置的 Generation Provider，不会自动复用 Codex/Claude 的订阅会话或登录凭据。
+基础记忆不要求独立 Generation API：Agent 可以通过 MCP 显式保存自己整理的内容，但 Server 不会因此自动处理普通 Source。
 
-## 1. 安装并生成配置
+“OpenAI-compatible Chat Completions”“OpenAI Responses”“Anthropic-compatible Messages”是不同协议；
+按模型服务商实际提供的接口选择。OpenAI-compatible 也可以指第三方服务，不表示必须购买某个 Agent 订阅。
+向导不会验证 API key、额度、模型可用性或远程连通性；启动后的 `ready` 和真实处理才会检验这些条件。
 
-```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-powercontext config init --output .env
-```
-
-该命令不会询问模型或 credential。要启用完整能力，请编辑 `.env`，至少补充下面这些值，并按 provider 要求补充 credential
-和 Base URL：
+例如使用 OpenAI provider 时，模型标识由 provider 前缀和模型名组成：
 
 ```dotenv
-POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:generation-model
-POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=provider:embedding-model
-POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=provider-embedding-model-1536-unit-v1
-POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1536
-POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=60
+OPENAI_API_KEY=<从受保护的环境或 secret manager 提供>
+POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai:gpt-4.1-mini
 ```
 
-其中 `generation-model` 负责自动抽取和生成，`embedding-model` 负责向量检索；定时 Source 处理也需要 generation model。
-本地 provider 忽略鉴权时，使用该 provider 接受的非秘密占位值。
+实际可用模型仍取决于 provider 账户和区域；其他 provider 也使用 `provider:model-name` 形式，请使用该 provider
+支持的模型名，不要直接复制上面的 provider 配置。
 
-在不打印 credential 的情况下检查并校验配置：
+Embedding 连接可以与 Generation 共用地址和凭据，但通常使用不同模型。
+向量维度必须是所选 Embedding 模型实际支持的输出维度。Embedding Profile ID 是标识这套模型、维度和向量约定的名称，
+不是额外 API key。首次使用可接受向导建议；复用已有向量数据时，必须保持其对应关系，不能随意改 ID 或维度来消除报错。
+
+## 完整能力不等于每条对话都会生成所有制品
+
+| 能力 | 自动产生内容的条件 |
+| --- | --- |
+| Memory | 普通 Source 已采集、Generation 可用、Memory 处理调度启用 |
+| Topic Memory | 有可归纳的 Source、Generation 满足 Topic 的配置要求、Topic 调度启用 |
+| Profile | Generation 和 Profile 调度启用，且目标 Scope 的生成策略已启用 |
+| Experience | 具有任务结果语义的 `task-outcome` Source；产生待审候选，不自动批准 |
+| Skill | 按需触发生成；没有“聊一句就自动生成 Skill”的固定调度 |
+| 语义检索 | Embedding 可用、模型与已有向量 Profile/维度一致 |
+
+Memory、Topic Memory 和 Experience 各有独立检查周期；Profile 使用独立 cron。
+向导给出的推荐值会写入本次配置，不是每种制品都固定每 60 秒完成一次。
+Generation 单次请求超时、Worker 总超时和检查间隔分别控制不同事情，修改其中一项不会替代另外两项。
+
+配置了完整能力之后，也不要把普通闲聊当作 Experience/Skill 的充分输入。
+需要这些能力时，按[经验工作流](../workflows/create-and-review-experience.md)提供任务结果并完成相应审核。
+Profile 审核行为见[Scope 画像](../workflows/use-profiles.md)。
+
+## 启动后检查
+
+在 Server 终端执行：
 
 ```bash
-powercontext config show --env-file .env
 powercontext config validate --env-file .env
-```
-
-生成文件包含 Server、数据库和 integration transport 设置；模型配置由你显式补充后才会启用 Scheduler。Scope identity 由运行中的
-Server 管理，Config Generator 不会凭空生成 Scope ID。
-
-## 2. 启动并检查 Server
-
-```bash
 powercontext server run --env-file .env
 ```
 
-在另一个终端执行：
+另一个终端只加载客户端文件：
 
 ```bash
 set -a
 . ./.env
 set +a
-powercontext doctor
 powercontext ready
 powercontext capabilities
 ```
 
-Readiness 为 `ready`、Memory extraction 已启用，并且 search mode 包含 `vector` 和 `hybrid` 时，完整 Runtime 可用。
-如果只有 `auto, fts`，检查 Embedding model、profile ID、dimension、credential 和 Base URL。
+Readiness 的数据库/Runtime 状态与已配置模型依赖都需要检查。`degraded` 不代表模型提取正常；
+只有 `auto, fts` 检索而没有 `vector, hybrid` 时，检查 Embedding 连接、Profile 和维度。
+不要在 Agent 终端加载包含模型凭据的 Server `.env`；客户端文件已经包含所需连接设置。
 
-获取默认 Scope 的不透明 ID，供后续 API 检查使用：
+## 为 Scope 启用 Profile 策略
+
+先按[快速开始](quickstart.md#3-创建-scope-并安装-codex-插件)创建并绑定真实 Scope，重新加载客户端环境。
+以下例子为 Codex 的 Scope 启用“生成后人工审核”；使用 Claude Code 时，将第一行变量换成
+`POWERCONTEXT_CLAUDE_SCOPE_ID`。先读取现有策略版本；仅在策略不存在（404）时使用版本 0：
 
 ```bash
-SCOPE_ID="$(curl -fsS http://127.0.0.1:8000/v1/scopes/default \
-  | python -c 'import json, sys; print(json.load(sys.stdin)["scope_id"])')"
-export SCOPE_ID
+export POWERCONTEXT_TEST_SCOPE_ID="$POWERCONTEXT_CODEX_SCOPE_ID"
+python3 - <<'PY'
+import json
+import os
+from urllib.error import HTTPError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+
+base = os.environ["POWERCONTEXT_CLIENT_SERVER_URL"].rstrip("/")
+scope = quote(os.environ["POWERCONTEXT_TEST_SCOPE_ID"], safe="")
+url = f"{base}/v1/scopes/{scope}/profile-policy"
+headers = {
+    "Authorization": "Bearer " + os.environ["POWERCONTEXT_CLIENT_API_TOKEN"],
+    "Content-Type": "application/json",
+}
+try:
+    with urlopen(Request(url, headers=headers), timeout=30) as response:
+        version = json.load(response)["version"]
+except HTTPError as error:
+    if error.code != 404:
+        raise
+    version = 0
+payload = json.dumps({
+    "generation_enabled": True,
+    "activation_mode": "review_required",
+    "expected_version": version,
+}).encode()
+with urlopen(Request(url, data=payload, headers=headers, method="PUT"), timeout=30) as response:
+    print(json.dumps(json.load(response), indent=2))
+PY
 ```
 
-## 3. 验证 Memory 闭环
+如果其他操作同时修改了策略，版本冲突时重新读取后再更新。不要把 `expected_version: 0` 作为每次更新的固定值。
+启用后按配置的 cron 处理有新 Source 的 Scope。审核模式先产生 Candidate，批准前不会替换正式 Profile；
+启用策略本身不会立即生成内容。若需立即验证已有输入，可按[Scope 画像](../workflows/use-profiles.md)调用 Profile flush。
 
-使用唯一 ID 捕获 Source：
+## 验证真实提取与召回
+
+主验收按[快速开始](quickstart.md#4-用普通对话验收-topic-memory)完成：
+
+1. Agent 普通输入进入绑定 Scope 的 Source。
+2. Topic Memory 出现对应主题和证据。
+3. 第二条相关输入进入 Source 后，检查主题内容或修订是否反映更新。
+4. 新会话使用同一 Scope 召回并返回 citation。
+
+如果需要单独诊断 Memory 自动提取，可在真实 Source 已入库后，对同一 Scope 调用：
+
+```bash
+curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/flush" \
+  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\"}"
+```
+
+HTTP `200` 返回已完成的 flush 结果；HTTP `202` 返回持久 operation 句柄。使用相同认证轮询返回的
+`status_url`，完成后检查 `result`；轮询与恢复说明见 [HTTP API](../develop/http-api.md)。
+核对已完成结果中的游标是否推进，并查看该 Scope 的 Memory 与 Source 引用。`idle` 可能表示后台已处理，
+不代表没有记忆；Memory flush 也不等于 Topic/Profile/Experience 的全部处理完成。
+查看用量可运行 `powercontext stats --scope-id "$POWERCONTEXT_CODEX_SCOPE_ID"`。
+
+为了让验收记录可复现，采集一条带独立标识的测试 Source，并保留返回的 `position`：
 
 ```bash
 SOURCE_ID="quickstart-$(date +%s)-$$"
-curl -fsS -X POST http://127.0.0.1:8000/v1/sources/content \
-  -H 'content-type: application/json' \
-  -d "{\"scope_id\":\"${SCOPE_ID}\",\"source_id\":\"${SOURCE_ID}\",\"content\":\"PowerContext quick start check: prefer small, verifiable steps.\"}"
+curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/sources/content" \
+  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\",\"source_id\":\"$SOURCE_ID\",\"content\":\"PowerContext acceptance check: prefer small, verifiable steps.\"}"
 ```
 
-保留响应中的 `position`，再 flush 同一 Scope：
+使用上方命令 flush 同一 Scope。处理完成后，`current_cursor` 必须不小于 capture `position`。
+再检查该 Scope 的条目：
 
 ```bash
-curl -fsS -X POST http://127.0.0.1:8000/v1/memory/flush \
-  -H 'content-type: application/json' \
-  -d "{\"scope_id\":\"${SCOPE_ID}\"}"
+curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/entries/list" \
+  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\"}"
 ```
 
-返回的 `current_cursor` 必须不小于 capture `position`。Scheduler 已经处理 Source 时，`status: "idle"` 也是有效结果。
-
-列出 Memory entry：
-
-```bash
-curl -fsS -X POST http://127.0.0.1:8000/v1/memory/entries/list \
-  -H 'content-type: application/json' \
-  -d "{\"scope_id\":\"${SCOPE_ID}\"}"
-```
-
-找到 `source_refs` 包含已捕获 Source 的 entry，记录其 `citation.entry_id`，再验证向量检索：
-
-```bash
-curl -fsS -X POST http://127.0.0.1:8000/v1/memory/search \
-  -H 'content-type: application/json' \
-  -d "{\"scope_id\":\"${SCOPE_ID}\",\"query\":\"verifiable steps\",\"mode\":\"vector\",\"limit\":50}"
-```
-
-响应包含 `mode: "vector"`、已记录的 `entry_id`，且 `matched_by` 包含 `vector` 时，该闭环验证通过。检查模型用量：
-
-```bash
-powercontext stats --scope-id "$SCOPE_ID"
-```
-
-## 4. 接入 Agent
-
-Server 验证通过后，按[对应 Agent 的文档](../integrations/index.md)配置连接、认证和采集行为。
+找到 `source_refs` 包含已采集 Source 的条目，保留其 `citation.entry_id`。列表响应返回条目与 citation；
+采集位置与处理游标分别来自 Source 采集和 flush 结果。验证语义召回时，按
+[配置向量检索](../workflows/configure-vector-search.md)使用 `mode: "vector"` 搜索，
+确认结果包含同一条目，且其 `matched_by` 包含 `vector`。
 
 ## 数据与重启
 
-生成的配置不指定数据库位置，因此 Server 把数据保存在用户数据目录，而不是项目内文件。在未设置
-`POWERCONTEXT_HOME` 时，SQLite 的 `powercontext.db`（包含持久调度与 operation 状态）位于：
+SQLite 向导默认建议用户数据目录，并将选中的文件位置保存到 `POWERCONTEXT_SERVER_DATABASE_URL`。
+未覆盖数据库位置且未设置 `POWERCONTEXT_HOME` 时，默认的 `powercontext.db`（包含持久调度与 operation 状态）位于：
 
 - Linux：`$XDG_DATA_HOME/powercontext`，或 `~/.local/share/powercontext`；
 - macOS：`~/Library/Application Support/powercontext`；
 - Windows（`experimental`）：`%LOCALAPPDATA%\\powercontext`。
 
-如需迁移，在启动 Server 前设置 `POWERCONTEXT_HOME` 即可。之后再修改数据库 URL 会把 Server 指向另一个（可能是
-空的）数据库；需要旧数据时请保留原来的值。
+在生成配置前设置 `POWERCONTEXT_HOME` 可以改变建议位置；已显式保存的数据库 URL 优先于该目录设置。
+修改数据库 URL 会把 Server 指向另一个（可能是空的）数据库；需要旧数据时请保留原来的值。
 
 ## 停止与恢复
 
@@ -147,13 +198,12 @@ Server 验证通过后，按[对应 Agent 的文档](../integrations/index.md)�
 
 ## 快速排障
 
-| 现象 | 处理方式 |
+| 现象 | 优先检查 |
 | --- | --- |
-| Readiness 为 `degraded` | 检查模型标识、credential 和 Base URL |
-| 没有 `vector` 或 `hybrid` | 同时配置 Embedding model、profile ID 和 dimension |
-| Source 一直 pending | 启用 Scheduler，或调用 `/v1/memory/flush` |
-| 已有数据消失 | 恢复原数据库 URL 或 `POWERCONTEXT_HOME` |
+| Source 为空 | Hook 是否加载、采集是否启用、URL/Token/Scope 是否一致 |
+| Source 有内容但主题不更新 | Topic 调度、模型错误、Worker 状态及内容是否值得更新 |
+| 请求超时 | 模型连接与响应时间、单次请求及 Worker 超时，避免只改检查周期 |
+| Dashboard 与 Agent 内容不同 | 两者的 Server 地址和真实 Scope ID |
+| 新会话找不到内容 | Scope 绑定、上下文组装/显式搜索、保存记录及 citation |
 
-更多信息见[故障排查](../operate/troubleshoot.md)和[配置](../operate/configuration.md)。
-
-需要分类和检索制品或单条记忆时，参见[自定义标签](../workflows/manage-artifact-tags.md)。
+更多检查见[故障排查](../operate/troubleshoot.md)与[完整配置参考](../operate/configuration.md)。

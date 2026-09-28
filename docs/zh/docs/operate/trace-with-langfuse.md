@@ -11,9 +11,30 @@ generation 与 embedding 调用也会被 trace，因此一条 trace 里可以同
 本文把这些 span 通过 OTLP 端点发送到 [Langfuse](https://langfuse.com)。整个过程不需要改动 PowerContext 代码，也不需要
 Langfuse SDK：只是把 [用 Phoenix 查看 trace](trace-with-phoenix.md) 中的标准 OpenTelemetry 变量改为指向 Langfuse。
 
+## 前置要求
+
+准备一台能够运行 PowerContext Server 的 Linux 或 macOS 开发机，并确保：
+
+- 已安装 Git。
+- 已安装并启动 Docker 与 Docker Compose；macOS 使用 Docker Desktop。
+- 已安装 `uv`、Bash、`curl` 和 `python3`（用于提取 API 响应中的 Scope ID）。
+- 本机端口 `3000` 和 PowerContext Server 使用的端口（默认 `8000`）未被占用。
+
+开始前可以运行以下命令确认工具可用：
+
+```bash
+git --version
+docker info
+docker compose version
+uv --version
+```
+
 ## 启动 Langfuse
 
 Langfuse 自托管通过 Docker Compose 运行多个服务（web、worker、PostgreSQL、ClickHouse、Redis 和 MinIO）：
+
+Langfuse 仓库中的 Compose 文件包含默认数据库密码、Redis 密码、MinIO 密钥和应用密钥，以下命令沿用这些默认值，
+只适合单机临时体验。如果主机可能被其他人访问或用于长期运行，请先替换 Compose 文件中标有 `CHANGEME` 的值。
 
 ```bash
 git clone https://github.com/langfuse/langfuse.git
@@ -40,10 +61,31 @@ uv tool install --force "powercontext[cli,server,tracing-otlp] @ git+https://git
 
 缺少该 extra 时，启用 tracing 会在启动阶段直接报错，而不是静默丢弃 span。
 
+这条命令面向新部署，也会强制重建已有的 `uv tool` 工具环境并替换其中的 PowerContext。执行前请确认现有 Server 的
+安装方式和配置文件位置；命令从 `master` 安装当前最新代码，结果会随仓库更新而变化。
+
+如果要让已运行的 PowerContext Server 支持 tracing，需要在**该 Server 实际使用的 Python 环境**中安装完整的
+`cli`、`server` 和 `tracing-otlp` extras，然后重启旧进程。对于由 `uv tool` 安装并以前台运行的 Server，先在旧 Server
+所在终端按 `Ctrl+C` 停止进程，再执行：
+
+```bash
+command -v powercontext
+uv tool install --force "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext server run --env-file /path/to/powercontext.env
+```
+
+请把示例中的配置文件路径替换为现有 Server 的实际路径。如果 Server 由 systemd、Supervisor 或其他进程管理器启动，
+请确认服务指向更新后的 `powercontext` 可执行文件，再通过对应的管理器重启服务；只在另一个环境中安装 exporter 不会让
+正在运行的 Server 获得 tracing 能力。
+
 ## 配置并启动 Server
 
-Langfuse 用 project key 组成的 HTTP Basic 认证来鉴权 OTLP 请求。启用 tracing、把 exporter 指向 Langfuse，并配置一个
-generation model，让推理 span 有内容可记录：
+`provider:model-name` 只是占位值，不能直接用于运行。请先根据[启用 Memory 提取与向量搜索](../get-started/configure-models.md)
+配置一个受支持的 generation model、provider 凭据；仅使用代理或自定义端点时设置 Base URL。下面使用 `openai:gpt-4.1-mini` 作为具体模型标识示例；
+实际可用模型仍取决于 provider 账户和区域。
+
+Langfuse 用 project key 组成的 HTTP Basic 认证来鉴权 OTLP 请求。在终端 A 中启用 tracing、把 exporter 指向 Langfuse，并配置
+generation model，让 `flush_memory` 触发实际模型调用 span：
 
 ```bash
 export LANGFUSE_PUBLIC_KEY=pk-lf-replace-me
@@ -54,9 +96,11 @@ export POWERCONTEXT_SERVER_TRACING_ENABLED=true
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:3000/api/public/otel
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic ${LANGFUSE_AUTH},x-langfuse-ingestion-version=4"
 export OTEL_SERVICE_NAME=powercontext-server
-export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai:gpt-4.1-mini
 powercontext server run
 ```
+
+`powercontext server run` 会在前台持续运行。保持终端 A 打开，后续检查和请求在终端 B 中执行。
 
 OpenTelemetry SDK 会在 `OTEL_EXPORTER_OTLP_ENDPOINT` 后追加 `/v1/traces`，因此 span 最终发往
 `http://localhost:3000/api/public/otel/v1/traces`，正是 Langfuse 期望的 traces 端点。Langfuse 只接受 OTLP over HTTP，
@@ -64,18 +108,67 @@ OpenTelemetry SDK 会在 `OTEL_EXPORTER_OTLP_ENDPOINT` 后追加 `/v1/traces`，
 span；Langfuse 文档指出，缺少该头时摄入最多可能延迟十分钟。按所选 generation model 的要求设置 provider 凭据；
 PowerContext 既不会记录凭据，也不会记录 exporter 的请求头。
 
-## 触发一次推理请求
-
-将 `POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID，先捕获一个 Source，再把它转成 Memory：
+在终端 B 中先设置连接地址；如果 Server 使用自定义端口，请替换默认地址。已启用鉴权时，需在该终端提供有效的
+`POWERCONTEXT_CLIENT_API_TOKEN`（不要写入文档或版本库）。能力检查还需要 `server.observe` 权限。
 
 ```bash
-curl -X POST http://localhost:8000/v1/sources/content \
+export POWERCONTEXT_BASE_URL="${POWERCONTEXT_BASE_URL:-http://127.0.0.1:8000}"
+export POWERCONTEXT_CLIENT_SERVER_URL="$POWERCONTEXT_BASE_URL"
+```
+
+随后按以下顺序检查：
+
+1. 使用 `powercontext --json ready` 或直接读取 `/health/ready`，检查返回的 `status` 和 `checks`；自动化场景必须确认
+   `status` 为 `ready`，不能只检查命令退出码；
+2. 使用 `powercontext capabilities` 确认输出包含 `Memory extraction: enabled`；
+3. 执行下面的 `flush_memory` 请求，并在 Langfuse 的 **Traces** 视图中确认对应 Trace 包含 `chat <model>` observation。
+
+只有第 3 步完成，才能确认实际推理和 tracing 链路可用。仅启动 Server 或 `/health/ready` 返回成功，不能证明 Memory extraction 可用。
+
+## 触发一次推理请求
+
+在终端 B 中执行以下命令。API 示例使用 Bash，并默认访问本机无鉴权实例。如果 Server 已启用鉴权，请先提供客户端 token；下面的请求会统一添加
+`Authorization: Bearer` header。创建 Scope 需要 `server.admin` 权限，写入 Source 和 flush 需要对该 Scope 具有
+`scope.contribute` 权限。
+
+```bash
+export POWERCONTEXT_BASE_URL="${POWERCONTEXT_BASE_URL:-http://127.0.0.1:8000}"
+export POWERCONTEXT_IDEMPOTENCY_KEY="tracing-example-$(date +%s)-$"
+
+if [[ -n "${POWERCONTEXT_CLIENT_API_TOKEN:-}" ]]; then
+  POWERCONTEXT_AUTH_ARGS=(--header "Authorization: Bearer ${POWERCONTEXT_CLIENT_API_TOKEN}")
+else
+  POWERCONTEXT_AUTH_ARGS=()
+fi
+
+POWERCONTEXT_SCOPE_ID="$(
+  set -o pipefail
+  curl --fail --silent --show-error \
+    "${POWERCONTEXT_AUTH_ARGS[@]}" \
+    --header 'content-type: application/json' \
+    --data "{\"title\":\"Langfuse tracing example\",\"summary\":\"Scope for tracing verification\",\"idempotency_key\":\"${POWERCONTEXT_IDEMPOTENCY_KEY}\"}" \
+    "${POWERCONTEXT_BASE_URL}/v1/scopes" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["scope_id"])'
+)"
+: "${POWERCONTEXT_SCOPE_ID:?创建 Scope 失败，请检查响应和鉴权后重试}"
+export POWERCONTEXT_SCOPE_ID
+```
+
+上面的命令会把 `create_scope` 返回的 `scope_id` 保存到 `POWERCONTEXT_SCOPE_ID`。如果需要查看创建请求的 HTTP 状态和
+`X-PowerContext-Request-ID`，请用 `curl -i` 单独重跑该请求。然后先捕获一个 Source，再把它转成 Memory：
+
+```bash
+export POWERCONTEXT_SOURCE_ID="tracing-example-$(date +%s)-$"
+
+curl --fail --show-error -i -X POST "${POWERCONTEXT_BASE_URL}/v1/sources/content" \
+  "${POWERCONTEXT_AUTH_ARGS[@]}" \
   -H 'content-type: application/json' \
-  -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\",\"source_id\":\"task-1\",\"content\":\"I always book aisle seats.\"}"
+  -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\",\"source_id\":\"${POWERCONTEXT_SOURCE_ID}\",\"content\":\"I always book aisle seats.\"}"
 ```
 
 ```bash
-curl -X POST http://localhost:8000/v1/memory/flush \
+curl --fail --show-error -i -X POST "${POWERCONTEXT_BASE_URL}/v1/memory/flush" \
+  "${POWERCONTEXT_AUTH_ARGS[@]}" \
   -H 'content-type: application/json' \
   -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\"}"
 ```
