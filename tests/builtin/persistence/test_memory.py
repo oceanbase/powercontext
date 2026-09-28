@@ -32,6 +32,7 @@ from powercontext.builtin.persistence.tables import (
 )
 from powercontext.builtin.records import InvalidCursorError
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
+from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.builtin.sources import ContentCapture, ContentSource
 from powercontext.builtin.tags import MemoryEntryTagTarget, TagFilter
 
@@ -93,7 +94,11 @@ def test_memory_schema_is_mysql_compilable_and_respects_key_and_payload_limits()
 
 def test_sqlite_memory_directory_records_only_changed_revision_intervals() -> None:
     async def scenario() -> None:
-        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+        config = BuiltinConfig(
+            database=SQLiteConfig(),
+            runtime=RuntimeConfig(memory_compaction_enabled=True, memory_compaction_min_tombstone_revisions=0),
+        )
+        async with open_builtin_contexts(config) as contexts:
             context = await contexts.get("project")
             service = context.artifacts.memory
             first = await service.remember(
@@ -105,7 +110,7 @@ def test_sqlite_memory_directory_records_only_changed_revision_intervals() -> No
                 mode="append",
             )
             assert first is not None
-            stable, changing = await service.entries(first)
+            stable, changing = sorted(await service.entries(first), key=lambda entry: entry.entry_id)
             second = await service.remember(
                 memory=first,
                 entries=(
@@ -154,6 +159,29 @@ def test_sqlite_memory_directory_records_only_changed_revision_intervals() -> No
             ]
             assert third.revision == 3
             assert generation == 0
+
+            page = await service.query_directory(
+                first.artifact_id, MemoryDirectoryQuery(include_inactive=True, limit=1)
+            )
+            assert page.memory_ref == third.as_ref()
+            assert page.items[0].citation.entry_id == stable.entry_id
+            assert page.next_cursor is not None
+            compacted = await service.compact(third)
+            assert compacted.entry_ids == (changing.entry_id,)
+
+            # Compaction removes current membership, not the pinned historical view.
+            historical = await service.query_directory(
+                first.artifact_id,
+                MemoryDirectoryQuery(include_inactive=True, limit=1, cursor=page.next_cursor),
+            )
+            assert historical.memory_ref == third.as_ref()
+            assert historical.items[0].citation.entry_id == changing.entry_id
+            assert historical.items[0].citation.entry_version_id == revised.entry_version_id
+            assert historical.items[0].state == "inactive"
+            assert historical.next_cursor is None
+            current = await service.query_directory(first.artifact_id, MemoryDirectoryQuery(include_inactive=True))
+            assert current.memory_ref == compacted.memory.as_ref()
+            assert [item.citation.entry_id for item in current.items] == [stable.entry_id]
 
     asyncio.run(scenario())
 

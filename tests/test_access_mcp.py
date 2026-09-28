@@ -144,6 +144,10 @@ def test_mcp_internal_bridge_preserves_principal_and_audits_mcp_transport() -> N
                     raise_on_error=False,
                 )
                 assert denied_query.is_error is True
+                for operation in ("scan_external_skills", "list_external_skills"):
+                    denied = await client.call_tool(operation, {"scope_id": "scope-a"}, raise_on_error=False)
+                    assert denied.is_error
+                    assert "403" in denied.content[0].text
 
             audit = await repository.list_audit(resource=ResourceRef.server())
             decision = next(event for event in audit if event.operation == "list_memory_entries")
@@ -162,5 +166,10 @@ def test_mcp_internal_bridge_preserves_principal_and_audits_mcp_transport() -> N
             assert denied_decision.transport == "mcp"
             assert denied_decision.principal == BOB
             assert denied_decision.allowed is False
+            for operation in ("scan_external_skills", "list_external_skills"):
+                denied_decision = next(event for event in audit if event.operation == operation)
+                assert denied_decision.principal == BOB
+                assert denied_decision.transport == "mcp"
+                assert denied_decision.allowed is False
 
     asyncio.run(scenario())

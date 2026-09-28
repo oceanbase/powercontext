@@ -43,27 +43,39 @@ from powercontext.http._generated.operations import (
     CREATE_SCOPE,
     CREATE_WORK_CONTRACT,
     FINALIZE_HANDOFF,
+    GENERATE_EXPERIENCE,
+    GENERATE_SKILL,
     GET_ARTIFACT_CANDIDATE,
     GET_DREAM_RUN,
+    GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
+    GET_MEMORY_CAPACITY,
     GET_MEMORY_ENTRY,
     GET_SCOPE,
+    GET_SKILL,
     GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
+    IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_DREAM_RUNS,
+    LIST_EXTERNAL_SKILLS,
+    LIST_MANAGED_SKILLS,
     LIST_MEMORY_ENTRIES,
     LIST_SCOPES,
+    PROPOSE_EXPERIENCE,
+    PROPOSE_SKILL,
     PUBLISH_ARTIFACT,
     QUERY_CODE,
     QUERY_MEMORY_ENTRIES,
     RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
+    RESOLVE_EXTERNAL_SKILL,
     RESOLVE_SCOPE_BINDING,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
+    SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
     SEARCH_TOPIC_MEMORY,
     SET_SCOPE_BINDING,
@@ -96,6 +108,12 @@ Current-turn instructions, conceptual questions, and previews do not authorize w
 For requested transfer, handoff_current_work records an inspected boundary and returns a temporary handoff. Commit
 only when a durable milestone is requested; continue from the exact selected value and verify historical claims.
 Prepared content is not proof of injection, a committed milestone, acceptance, or work execution.
+For requested Experience or Skill synthesis use generate_experience or generate_skill; caller-authored content uses
+propose_experience or propose_skill. These create pending candidates, not approved artifacts. Read an exact approved
+revision with get_experience or get_skill; use list_managed_skills to discover approved Skills.
+For external Skills, scan_external_skills refreshes configured Server-host roots; list_external_skills and
+resolve_external_skill inspect exact host-local fingerprints. import_external_skill creates a pending candidate.
+A remote Server cannot scan the Codex workstation. Resolution is not installation or execution permission.
 Inspect candidates before an explicitly authorized review decision for their exact version. Generation, listing,
 reading, and assessing are not approval, installation, publication, or execution authority. Preserve host approval
 checks and exact citations for Memory changes. A Skill is useful for detailed workflows only if present in the host
@@ -104,6 +122,17 @@ Empty retrieval is a valid result. On failure identify the operation and safe re
 claim saved/restored context, or repeatedly retry. Continue ordinary work when the requested operation is unavailable.
 """
 _MCP_OPERATION_IDS = frozenset({
+    GENERATE_EXPERIENCE.operation_id,
+    GET_EXPERIENCE.operation_id,
+    PROPOSE_EXPERIENCE.operation_id,
+    GENERATE_SKILL.operation_id,
+    GET_SKILL.operation_id,
+    PROPOSE_SKILL.operation_id,
+    LIST_MANAGED_SKILLS.operation_id,
+    SCAN_EXTERNAL_SKILLS.operation_id,
+    LIST_EXTERNAL_SKILLS.operation_id,
+    RESOLVE_EXTERNAL_SKILL.operation_id,
+    IMPORT_EXTERNAL_SKILL.operation_id,
     CREATE_DREAM_RUN.operation_id,
     GET_DREAM_RUN.operation_id,
     LIST_DREAM_RUNS.operation_id,
@@ -122,6 +151,7 @@ _MCP_OPERATION_IDS = frozenset({
     GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
     QUERY_MEMORY_ENTRIES.operation_id,
+    GET_MEMORY_CAPACITY.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     REMEMBER_MEMORY.operation_id,
     REVISE_MEMORY_ENTRY.operation_id,
@@ -141,6 +171,11 @@ _MCP_OPERATION_IDS = frozenset({
     PUBLISH_ARTIFACT.operation_id,
 })
 _MCP_READ_ONLY_OPERATION_IDS = frozenset({
+    GET_EXPERIENCE.operation_id,
+    GET_SKILL.operation_id,
+    LIST_MANAGED_SKILLS.operation_id,
+    LIST_EXTERNAL_SKILLS.operation_id,
+    RESOLVE_EXTERNAL_SKILL.operation_id,
     GET_DREAM_RUN.operation_id,
     LIST_DREAM_RUNS.operation_id,
     CONTINUE_HANDOFF.operation_id,
@@ -150,6 +185,7 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
     QUERY_MEMORY_ENTRIES.operation_id,
+    GET_MEMORY_CAPACITY.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     GET_HANDOFF_REPORT.operation_id,
     LIST_ARTIFACT_CANDIDATES.operation_id,
@@ -157,6 +193,19 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     LIST_SCOPES.operation_id,
     GET_SCOPE.operation_id,
     RESOLVE_SCOPE_BINDING.operation_id,
+})
+_MCP_CANDIDATE_WRITE_OPERATION_IDS = frozenset({
+    GENERATE_EXPERIENCE.operation_id,
+    PROPOSE_EXPERIENCE.operation_id,
+    GENERATE_SKILL.operation_id,
+    PROPOSE_SKILL.operation_id,
+    IMPORT_EXTERNAL_SKILL.operation_id,
+})
+_MCP_EXTERNAL_SKILL_OPERATION_IDS = frozenset({
+    SCAN_EXTERNAL_SKILLS.operation_id,
+    LIST_EXTERNAL_SKILLS.operation_id,
+    RESOLVE_EXTERNAL_SKILL.operation_id,
+    IMPORT_EXTERNAL_SKILL.operation_id,
 })
 _MCP_REVIEW_WRITE_OPERATION_IDS = frozenset({
     APPROVE_ARTIFACT_CANDIDATE.operation_id,
@@ -188,7 +237,17 @@ def _annotate_mcp_component(
             readOnlyHint=True,
             destructiveHint=False,
             idempotentHint=True,
-            openWorldHint=False,
+            openWorldHint=route.operation_id in _MCP_EXTERNAL_SKILL_OPERATION_IDS,
+        )
+    elif (
+        route.operation_id in _MCP_CANDIDATE_WRITE_OPERATION_IDS
+        or route.operation_id == SCAN_EXTERNAL_SKILLS.operation_id
+    ):
+        component.annotations = ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=route.operation_id in _MCP_EXTERNAL_SKILL_OPERATION_IDS,
         )
     elif route.operation_id == HANDOFF_CURRENT_WORK.operation_id:
         component.annotations = ToolAnnotations(

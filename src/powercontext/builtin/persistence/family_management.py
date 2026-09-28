@@ -30,6 +30,8 @@ from powercontext.builtin.artifacts.experience import Experience, ExperienceCont
 from powercontext.builtin.artifacts.handoff import Handoff, HandoffContent, HandoffService, PreparedHandoff
 from powercontext.builtin.artifacts.memory import (
     Memory,
+    MemoryCapacityBudget,
+    MemoryCapacityExceededError,
     MemoryEntryInput,
     MemoryEntryNotFoundError,
     MemoryLayerError,
@@ -387,12 +389,14 @@ class MemoryManagementWriter:
         index: MemoryIndex,
         embedding_model: EmbeddingModel | None,
         id_factory: IdFactory,
+        capacity_budget: MemoryCapacityBudget | None = None,
     ) -> None:
         self._database = database
         self._artifacts = artifacts
         self._index = index
         self._embedding_model = embedding_model
         self._id_factory = id_factory
+        self._capacity_budget = capacity_budget
 
     def artifact_id_for_create(self, generated: str, /) -> str:
         return generated
@@ -416,6 +420,7 @@ class MemoryManagementWriter:
                 connection=connection,
             ),
             embedding_model=self._embedding_model,
+            capacity_budget=self._capacity_budget,
             id_factory=id_factory,
         )
 
@@ -460,6 +465,8 @@ class MemoryManagementWriter:
             inputs.append(MemoryEntryInput(kind=item.kind, text=item.text, entry=existing))
         try:
             plan = await service.plan_remember(memory=memory, entries=tuple(inputs), mode="append")
+        except MemoryCapacityExceededError:
+            raise
         except (MemoryEntryNotFoundError, MemoryLayerError) as error:
             raise InvalidBaseAccessRequestError("content.entries", "cannot be applied to the current Memory") from error
         return await _apply_memory_plan(service, plan, direct_source)

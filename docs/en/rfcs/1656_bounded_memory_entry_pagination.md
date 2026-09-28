@@ -177,7 +177,8 @@ authoritative; or support mixed old/new writers during the offline migration win
 ```text
 OpenAPI query_memory_entries
   -> Server authentication and Scope authorization
-  -> ScopedMemoryApplication.query_directory
+  -> ScopedMemoryApplication.query
+  -> MemoryService.query_directory
   -> relational directory authority
        -> readiness and pinned-revision validation
        -> optional tag-generation validation
@@ -217,8 +218,10 @@ A derived directory table stores `entry_id`, exact `entry_version_id`, lifecycle
 join to the authoritative entry-version row; body JSON is not selected or decoded.
 
 At revision `R`, a changed entry closes its previous row with `valid_to_revision = R` and inserts its new pointer/state
-with `valid_from_revision = R`. New entries only insert; unchanged entries do nothing. This preserves historical
-membership without copying a complete manifest per revision.
+with `valid_from_revision = R`. New entries only insert; unchanged entries do nothing. An entry removed from the
+manifest by compaction only closes its prior row: a new traversal excludes it, while a cursor pinned before compaction
+still reads its exact historical identity. This preserves historical membership without copying a complete manifest
+per revision.
 
 The signed cursor contains exactly the schema/order version, endpoint, Scope, normalized filters, limit, pinned Memory
 Artifact ID/revision, optional tag generation, exclusive `after_entry_id`, and expiry.
@@ -242,7 +245,7 @@ complete. Existing databases remain incomplete until offline verification confir
 | Obligation | Owning layer | Test |
 |---|---|---|
 | Public compatibility | OpenAPI | schema/generation and SDK tests |
-| Revision-valid selection | directory persistence | SQLite/OceanBase keyset tests |
+| Revision-valid selection | directory persistence | SQLite/OceanBase keyset tests; pinned traversal across compaction |
 | Atomic delta maintenance | Memory commit | rollback and row-delta tests |
 | Tag generation | tag persistence | effective/no-op/concurrent mutation tests |
 | Cursor binding | cursor/query seam | mismatch, tamper, and expiry tests |

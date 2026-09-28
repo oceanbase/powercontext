@@ -57,6 +57,9 @@ capabilities = ["memory_read"]
 id = "get_memory_entry"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
+id = "get_memory_capacity"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "remember_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
@@ -143,6 +146,40 @@ non_profile_reason = "Candidate decision authority is outside this capability co
 [[toolsets.tools]]
 id = "query_code"
 non_profile_reason = "Experimental repository code queries require an explicit local repository binding and are disabled by default."
+
+[[toolsets.tools]]
+id = "generate_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "get_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "propose_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "generate_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "get_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "propose_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "list_managed_skills"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "scan_external_skills"
+capabilities = ["external_skill"]
+[[toolsets.tools]]
+id = "list_external_skills"
+capabilities = ["external_skill"]
+[[toolsets.tools]]
+id = "resolve_external_skill"
+capabilities = ["external_skill"]
+[[toolsets.tools]]
+id = "import_external_skill"
+capabilities = ["external_skill"]
 
 [[toolsets]]
 id = "prompt-hooks"
@@ -617,20 +654,20 @@ capabilities = ["flush_or_checkpoint"]
 id = "codex"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "scope_organization", "artifact_publication", "persistent_scope_binding"]
-profiles = ["minimal", "recommended"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
+profiles = ["minimal", "recommended", "full"]
 toolsets = ["server-mcp", "prompt-hooks"]
 [integrations.evidence]
 implementation = ["integrations/codex/plugins/powercontext/.mcp.json", "integrations/codex/plugins/powercontext/hooks/recall.py"]
 documentation = ["docs/en/docs/integrations/codex.md", "docs/zh/docs/integrations/codex.md"]
-tests = ["tests/codex_plugin/test_contract.py", "tests/e2e/test_codex_service_chain.py"]
+tests = ["tests/codex_plugin/test_contract.py", "tests/e2e/test_codex_service_chain.py", "tests/e2e/test_mcp_full_profile.py"]
 
 [[integrations]]
 id = "claude-code"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "scope_organization", "artifact_publication", "persistent_scope_binding"]
-profiles = ["minimal", "recommended"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
+profiles = ["minimal", "recommended", "full"]
 toolsets = ["server-mcp", "prompt-hooks"]
 [integrations.evidence]
 implementation = ["integrations/claude-code/plugins/powercontext/.mcp.json", "integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py"]
@@ -701,8 +738,8 @@ tests = ["integrations/pi/plugins/powercontext/tests/extension.spec.ts", "integr
 id = "workbuddy"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "scope_organization", "artifact_publication", "persistent_scope_binding"]
-profiles = ["minimal", "recommended"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
+profiles = ["minimal", "recommended", "full"]
 toolsets = ["server-mcp", "prompt-hooks"]
 [integrations.evidence]
 implementation = ["integrations/workbuddy/plugins/powercontext/.mcp.json", "integrations/workbuddy/plugins/powercontext/hooks/workbuddy_powercontext_hook.py"]

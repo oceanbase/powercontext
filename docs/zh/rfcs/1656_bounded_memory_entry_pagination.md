@@ -154,7 +154,8 @@ executemany write 避免 per-entry 数据库往返，但不声称任意大 manif
 ```text
 OpenAPI query_memory_entries
   -> Server 认证和 Scope 授权
-  -> ScopedMemoryApplication.query_directory
+  -> ScopedMemoryApplication.query
+  -> MemoryService.query_directory
   -> relational directory authority
        -> readiness 和 pinned revision 验证
        -> 可选 tag generation 验证
@@ -190,7 +191,8 @@ Server 不重新实现 pagination，runtime 不推断 authorization，cursor cod
 `entry_id` keyset 遍历。`version`/`kind` 从权威 entry-version row 索引 join，不选择或解码 body JSON。
 
 在 revision `R`，changed entry 以 `valid_to_revision = R` 关闭前一行，并以 `valid_from_revision = R`
-插入新 pointer/state；new entry 只插入；unchanged entry 不写。
+插入新 pointer/state；new entry 只插入；unchanged entry 不写。Compaction 从 manifest 移除 entry 时只关闭前一行：
+新遍历不再包含它，固定在 compaction 前 revision 的 cursor 仍读取其精确历史身份，不复制完整 manifest。
 
 签名 cursor 仅包含 schema/order version、endpoint、Scope、规范化 filter、limit、pinned Memory Artifact ID/revision、
 可选 tag generation、exclusive `after_entry_id` 和 expiry。
@@ -214,7 +216,7 @@ verify 确认派生覆盖率和精确身份前保持 incomplete。
 | 义务 | 拥有层 | 测试 |
 |---|---|---|
 | 公开兼容性 | OpenAPI | schema/generation 和 SDK 测试 |
-| revision-valid selection | directory persistence | SQLite/OceanBase keyset 测试 |
+| revision-valid selection | directory persistence | SQLite/OceanBase keyset 测试、跨 compaction 的 pinned traversal |
 | 原子 delta maintenance | Memory commit | rollback 和 row-delta 测试 |
 | tag generation | tag persistence | effective/no-op/concurrent mutation 测试 |
 | cursor binding | cursor/query seam | mismatch/tamper/expiry 测试 |

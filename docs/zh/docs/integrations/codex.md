@@ -65,6 +65,32 @@ Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`
 Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于临时移交当前任务，不能用几条 Memory 替代。概念边界见
 [理解 Memory 和 Handoff](../workflows/memory-and-handoff.md)，操作步骤见[在 Codex 中交接工作](../workflows/handoff-with-codex.md)。
 
+## Experience 和 Skill 能力
+
+除 Memory、Source 采集、上下文注入、Work Contract、Handoff、确认、Task Outcome 和候选审查外，MCP 还提供以下工具：
+
+| 能力 | 工具 |
+| --- | --- |
+| Experience | `get_experience`、`generate_experience`、`propose_experience` |
+| 受管 Skill | `list_managed_skills`、`get_skill`、`generate_skill`、`propose_skill` |
+| 外部 Skill | `scan_external_skills`、`list_external_skills`、`resolve_external_skill`、`import_external_skill` |
+
+例如，可以要求 Codex“根据这些精确 Source 引用生成一个 Experience 候选”或“列出当前 Scope 已批准的 Skill”。
+生成需要在 Server 配置对应模型；直接提交完整内容的 proposal 不需要模型。生成和提案的结果都进入待审候选，
+`no_op` 表示没有创建候选。只有明确的审查决定才会产生已批准 Artifact；读取或导入不会安装或执行 Skill。
+
+外部 Skill 扫描读取 **Server 所在主机** 配置的目录，远程 Server 不能扫描 Codex 工作站的文件系统。
+通过 `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` 配置自定义目录和主机身份，详见
+[Agent Skill 目标](../workflows/configure-agent-skill-targets.md)。
+启用访问控制时，扫描需要 `server.admin`，列出和解析需要 `server.observe`，导入需要绑定 Scope 的贡献权限。
+从扫描或列表结果选择精确外部 Skill ID 和 fingerprint，再进行解析或导入。文件内容变化会使旧 fingerprint 失效。
+`mode: import` 将精确包快照提交为待审候选，不需要生成模型；`mode: fork` 需要 Skill 生成模型。
+详见 [Experience 与 Skill 生命周期](../workflows/experience-and-skill-lifecycle.md)。
+
+同时升级 Server 并刷新插件，然后开启新 Codex 会话以发现这些工具。新增 MCP 操作沿用 Session Scope 绑定和
+Server 权限检查。Claude Code、WorkBuddy 共用该 MCP 工具集，因此也获得这些能力；full 描述能力覆盖范围，
+不代表自动批准或保证模型已经配置。
+
 ## 选择标准上下文文本
 
 在启动 Codex 前，将 `POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY` 设置为 JSON 组装对象，即可选择 Memory/Experience

@@ -71,6 +71,37 @@ another task, session, or model. It must be explicitly prepared, inspected, and 
 a few Memory entries. Read [Memory and Handoff](../workflows/memory-and-handoff.md) for the boundary and
 [Hand off work in Codex](../workflows/handoff-with-codex.md) for the procedure.
 
+## Experience and Skill
+
+Alongside Memory, Source capture, context injection,
+Work Contracts, Handoffs, acknowledgements, Task Outcomes and candidate review, MCP exposes:
+
+| Capability | Tools |
+| --- | --- |
+| Experience | `get_experience`, `generate_experience`, `propose_experience` |
+| Managed Skill | `list_managed_skills`, `get_skill`, `generate_skill`, `propose_skill` |
+| External Skill | `scan_external_skills`, `list_external_skills`, `resolve_external_skill`, `import_external_skill` |
+
+For example, ask Codex to “generate an Experience candidate from these exact Source references” or “list the approved
+Skills in this Scope.” Generation requires the corresponding Server model configuration; caller-authored proposals
+do not. Generated and proposed content enters review as a pending candidate. A `no_op` result means no candidate was
+created. Only an explicit review decision produces an approved Artifact; reading or importing does not install or
+execute a Skill.
+
+External Skill discovery uses configured roots on the **Server host**. Configure `POWERCONTEXT_SERVER_EXTERNAL_SKILLS`
+for custom roots and host identity; see [Agent Skill targets](../workflows/configure-agent-skill-targets.md).
+A remote Server cannot scan the Codex workstation. Under enforced access control, scanning requires `server.admin`,
+listing and resolving require
+`server.observe`, and import requires contribution access to the bound Scope. Select an exact external Skill ID and
+fingerprint from the scan/list result before resolving or importing it. Changed content makes the old fingerprint
+unavailable. `mode: import` captures the exact package into review without generation; `mode: fork` requires a Skill
+generation model. See [Experience and Skill lifecycle](../workflows/experience-and-skill-lifecycle.md).
+
+Upgrade the Server and refresh the plugin together, then open a new Codex session to discover the tools. These MCP
+operations share the existing Session Scope binding and Server authorization checks. The shared MCP surface also
+provides these capabilities to Claude Code and WorkBuddy; `full` describes the capability profile, not automatic
+approval or guaranteed model availability.
+
 ## Choose standard context text
 
 Set `POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY` to a JSON assembly object before starting Codex. This opts into
