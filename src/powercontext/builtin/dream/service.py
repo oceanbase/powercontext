@@ -30,7 +30,11 @@ from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.memory.models import MemoryDreamCandidateProposal, MemoryDreamWrite
-from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
+from powercontext.builtin.artifacts.profile.models import (
+    ProfileCandidateProposal,
+    ProfileDreamPolicy,
+    ProfileWriteContent,
+)
 from powercontext.builtin.artifacts.prompt.models import PromptContent
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
@@ -226,7 +230,7 @@ class DreamService:
                 request=request,
                 principal_id=principal_id,
                 request_generation=intent.requested_generation,
-                profile_policy=profile_policy,
+                profile_policy=None if profile_policy is None else ProfileDreamPolicy.from_policy(profile_policy),
             )
             return (await self.repository.create(connection, record)).run
 
@@ -463,7 +467,7 @@ class DreamService:
         policy = await ProfilePolicyRepository().get(connection, record.run.scope_id, for_update=True)
         if record.profile_policy is None or policy is None:
             raise DreamError("capability_unavailable")
-        if policy.version != record.profile_policy.version:
+        if ProfileDreamPolicy.from_policy(policy).digest != record.profile_policy.digest:
             raise DreamError("policy_changed")
 
     async def _propose(  # noqa: C901 - operation-specific Candidate adapters share one atomic Run commit
@@ -530,7 +534,8 @@ class DreamService:
             proposal = ProfileCandidateProposal(
                 content=plan.proposal.content,
                 dream_run_id=record.run.run_id,
-                policy_version=policy.version,
+                policy_snapshot=policy,
+                policy_digest=policy.digest,
                 generator_id=self.generator.config_id,
                 generator_version=DREAM_PROMPT_VERSION,
                 created_at=await database_now(connection),

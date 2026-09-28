@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from datetime import date as date_aliased
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Annotated, Any, Literal
 
 from pydantic import (
@@ -97,6 +97,18 @@ class ProfileSourceWindow(BaseModel):
     through: Annotated[StrictInt, Field(ge=0)]
 
 
+class FormatVersion(IntEnum):
+    INTEGER_1 = 1
+
+
+class ProfileDreamPolicy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    format_version: FormatVersion
+    generation_enabled: StrictBool
+
+
 class Schema(StrEnum):
     POWERCONTEXT_PROFILE_CANDIDATE_V1 = "powercontext.profile-candidate.v1"
 
@@ -109,7 +121,8 @@ class ProfileCandidateProposal(BaseModel):
     content: Annotated[StrictStr, Field(min_length=1)]
     source_window: ProfileSourceWindow | None = None
     dream_run_id: StrictStr | None = None
-    policy_version: Annotated[StrictInt | None, Field(ge=1)] = None
+    policy_snapshot: ProfileDreamPolicy | None = None
+    policy_digest: StrictStr | None = None
     generator_id: Annotated[StrictStr, Field(min_length=1)]
     generator_version: Annotated[StrictStr, Field(min_length=1)]
     created_at: AwareDatetime

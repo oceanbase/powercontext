@@ -62,7 +62,8 @@ def _legacy_profile(result: dict[str, Any]) -> None:
         if result.get("dream_run_id") is not None:
             raise DreamError("client_upgrade_required")
         result.pop("dream_run_id", None)
-        result.pop("policy_version", None)
+        result.pop("policy_snapshot", None)
+        result.pop("policy_digest", None)
 
 
 def _legacy_candidate(result: dict[str, Any]) -> None:

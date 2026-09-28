@@ -4665,6 +4665,17 @@ components:
         through:
           type: "integer"
           minimum: 0
+    ProfileDreamPolicy:
+      type: "object"
+      additionalProperties: false
+      required: ["format_version","generation_enabled"]
+      properties:
+        format_version:
+          type: "integer"
+          enum: [1]
+          default: 1
+        generation_enabled:
+          type: "boolean"
     ProfileCandidateProposal:
       type: "object"
       additionalProperties: false
@@ -4682,9 +4693,11 @@ components:
         dream_run_id:
           type: "string"
           nullable: true
-        policy_version:
-          type: "integer"
-          minimum: 1
+        policy_snapshot:
+          $ref: "#/components/schemas/ProfileDreamPolicy"
+          nullable: true
+        policy_digest:
+          type: "string"
           nullable: true
         generator_id:
           type: "string"

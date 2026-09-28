@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import unicodedata
 from datetime import UTC, datetime
 from typing import ClassVar, Literal
@@ -115,6 +117,22 @@ class ProfileContent(_ProfileValue):
         return normalize_profile_markdown(value)
 
 
+class ProfileDreamPolicy(_ProfileValue):
+    """Generation settings only; Source processing state cannot invalidate Dream."""
+
+    format_version: Literal[1] = 1
+    generation_enabled: bool
+
+    @classmethod
+    def from_policy(cls, policy: ProfilePolicy) -> ProfileDreamPolicy:
+        return cls(generation_enabled=policy.generation_enabled)
+
+    @property
+    def digest(self) -> str:
+        payload = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
+
+
 class ProfileCandidateProposal(_ProfileValue):
     schema_: Literal["powercontext.profile-candidate.v1"] = Field(
         default="powercontext.profile-candidate.v1", alias="schema"
@@ -122,7 +140,8 @@ class ProfileCandidateProposal(_ProfileValue):
     content: str
     source_window: SourceWindow | None = None
     dream_run_id: str | None = None
-    policy_version: int | None = Field(default=None, ge=1)
+    policy_snapshot: ProfileDreamPolicy | None = None
+    policy_digest: str | None = None
     generator_id: str = Field(min_length=1)
     generator_version: str = Field(min_length=1)
     created_at: datetime
@@ -141,8 +160,11 @@ class ProfileCandidateProposal(_ProfileValue):
     def valid_origin(self):
         if (self.source_window is None) == (self.dream_run_id is None):
             raise ValueError("Profile Candidate requires exactly one generation origin")  # noqa: TRY003
-        if (self.dream_run_id is None) != (self.policy_version is None):
-            raise ValueError("Dream Profile Candidate requires a Policy version")  # noqa: TRY003
+        if self.dream_run_id is None:
+            if self.policy_snapshot is not None or self.policy_digest is not None:
+                raise ValueError("Source-window Candidate cannot contain Dream policy settings")  # noqa: TRY003
+        elif self.policy_snapshot is None or self.policy_digest != self.policy_snapshot.digest:
+            raise ValueError("Dream Profile Candidate requires matching policy settings and digest")  # noqa: TRY003
         return self
 
 

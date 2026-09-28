@@ -18,7 +18,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field
 
-from powercontext.builtin.artifacts.profile.models import ProfilePolicy
+from powercontext.builtin.artifacts.profile.models import ProfileDreamPolicy
 from powercontext.builtin.catalog_changes.models import TagDreamTarget
 from powercontext.builtin.dream.models import DreamOperation, DreamPlan
 from powercontext.builtin.evidence.models import EvidenceProjection
@@ -85,7 +85,7 @@ class DreamGenerationInput(BaseModel):
         description="Exact evidence ID of the Artifact being replaced; null when creating a new Artifact."
     )
     evidence: EvidenceProjection
-    profile_policy: ProfilePolicy | None = None
+    profile_policy: ProfileDreamPolicy | None = None
     prompt_definition: dict[str, object] | None = None
     tag_target: TagDreamTarget | None = None
     before_tags: tuple[str, ...] = ()

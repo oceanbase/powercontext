@@ -9,6 +9,16 @@ Use a coordinated Client supporting **Dream contract 2**. The Python Client and 
 
 Dream selects exact evidence and creates a pending Candidate. Generation does not approve, install, execute, or publish anything. Existing automatic generation retains its own policy. Approval is an explicit human decision against the exact current Candidate version.
 
+## Profile and Handoff boundaries
+
+Profile Dream freezes generation-affecting policy settings at admission. Ordinary Source processing, pending-candidate changes, and Source-only activation settings do not invalidate the proposal. Changing generation settings requires a new Dream run; changing the Profile head independently causes a target conflict. Approval does not consume the Source cursor or clear the ordinary pending candidate.
+
+Handoff approval publishes the new revision immediately. A subsequent explicit Continue can select it under the existing latest-read rules; approval itself does not call Continue, execute work, or record receiver acceptance. Receiver checks of live state, capability, and authorization remain separate. `ActivateHandoff` generates a draft and is not required to activate an approved revision.
+
+## Coordinated upgrade
+
+The unified Candidate routes and physical table rename ship together, including for A0/A1-only deployments with Tag disabled. Back up the database, stop old Servers and Workers, allow startup migration to finish, and upgrade Client/SDK/CLI/MCP/integrations before resuming traffic. The removed `/v1/artifact-candidates/*` routes have no aliases or compatibility filtering; automatic data migration does not preserve old clients. Tag enablement does not require another Candidate table rename.
+
 ## Prompt configuration
 
 Read the current Prompt Artifact revision for a registered custom-capable key, such as `memory.extract`, and choose an exact Source describing an observed error and its expected output. The same `/v1/scopes/{scope_id}/dream` route handles the request:

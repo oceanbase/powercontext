@@ -175,6 +175,170 @@ def config(database: DatabaseConfig) -> BuiltinConfig:
     return BuiltinConfig(database=database, runtime=RuntimeConfig())
 
 
+@pytest.mark.parametrize(
+    "processing", ["noop_queued", "noop_generation", "noop_review", "pending", "activation", "head"]
+)
+def test_profile_dream_isolated_from_source_processing(  # noqa: C901 - exercise independent processing interleavings
+    database: DatabaseConfig, processing: str
+) -> None:
+    import httpx
+
+    from powercontext.client import PowerContextClient
+    from powercontext.http import GetCandidateRequest as TransportGetCandidateRequest
+    from powercontext.http import ProfileCandidateProposal as TransportProfileCandidateProposal
+    from powercontext.server.app import create_app
+
+    class OrdinaryGenerator:
+        async def generate(self, value):
+            return "# Profile\n\nOrdinary Source update." if processing in {"pending", "head"} else None
+
+    class DreamGenerator:
+        config_id = "profile-isolation"
+
+        async def generate(self, value):
+            assert value.profile_policy.model_dump() == {"format_version": 1, "generation_enabled": True}
+            if processing == "noop_generation":
+                await process_source()
+            return GenerationResult(
+                output=DreamPlan(
+                    outcome="proposed",
+                    reason="An explicit relocation corrects the previous location.",
+                    intent="correct",
+                    proposal=ProfileWriteContent(content="# Profile\n\nBased in Shenzhen."),
+                    evidence_ids=tuple(item.evidence_id for item in value.evidence.evidence if item.kind == "source"),
+                ),
+                usage=InferenceUsage(requests=1),
+            )
+
+    async def process_source():
+        assert runtime is not None
+        before = await runtime.profiles.get_policy(sid)
+        if processing == "activation":
+            await runtime.profiles.put_policy(
+                sid, generation_enabled=True, activation_mode="review_required", expected_version=before.version
+            )
+        else:
+            result = await runtime.profiles.flush(sid)
+            assert result.status == (
+                "review_pending" if processing == "pending" else "updated" if processing == "head" else "noop"
+            )
+        after = await runtime.profiles.get_policy(sid)
+        assert after.version > before.version
+        assert after.generation_enabled == before.generation_enabled
+
+    runtime = None
+    sid = ""
+
+    async def scenario():
+        nonlocal runtime, sid
+        async with open_builtin_runtime(
+            config(database), profile_generator=OrdinaryGenerator(), dream_generator=DreamGenerator()
+        ) as runtime:
+            sid = (
+                await runtime.scopes.create(
+                    ScopeDraft(
+                        title="Profile isolation", summary="Independent Source processing", idempotency_key="isolation"
+                    )
+                )
+            ).scope_id
+            await runtime.profiles.put_policy(
+                sid,
+                generation_enabled=True,
+                activation_mode="review_required" if processing == "pending" else "automatic",
+                expected_version=0,
+            )
+            async with runtime.profiles.database.transaction() as connection:
+                initial = await runtime.profiles.artifacts.create(
+                    connection,
+                    sid,
+                    "profile",
+                    ProfileDraft(
+                        content=ProfileContent(
+                            content="# Profile\n\nBased in Shanghai.",
+                            generation=ProfileGeneration(mode="manual_create", created_at=datetime.now(UTC)),
+                        )
+                    ),
+                )
+            source = await runtime.sources.for_scope(sid).capture(
+                CaptureSource(source_id="move", content="I moved to Shenzhen permanently.", metadata={})
+            )
+            request = CreateDreamRunRequest(
+                operation="revise_profile",
+                target=initial.as_ref(),
+                artifacts=(initial.as_ref(),),
+                sources=(source.source_ref,),
+                idempotency_key="first",
+            )
+            dream = runtime.dream.for_scope(sid)
+            review = runtime.review.for_scope(sid)
+            run = await dream.create(request)
+            if processing == "noop_queued":
+                await process_source()
+            await process_pending(runtime)
+            completed = await dream.get(GetDreamRunRequest(run_id=run.run_id))
+            assert completed.outcome == "proposed", completed.error
+            assert completed.candidate is not None
+            if processing in {"noop_review", "pending", "activation", "head"}:
+                await process_source()
+            policy_before = await runtime.profiles.get_policy(sid)
+            async with runtime.profiles.database.transaction() as connection:
+                cursor_before = await runtime.profiles.cursors.load(connection, sid, "profile-source-window")
+            if processing != "head":
+                second = await dream.create(request.model_copy(update={"idempotency_key": "second"}))
+                await process_pending(runtime)
+                reused = await dream.get(GetDreamRunRequest(run_id=second.run_id))
+                assert reused.reused and reused.candidate == completed.candidate
+                assert reused.usage.model_calls == 0
+            approval = ApproveCandidateRequest(
+                candidate_id=completed.candidate.candidate_id, expected_version=completed.candidate.version
+            )
+            if processing == "head":
+                with pytest.raises(BaseValueConflictError):
+                    await review.approve(approval)
+                return
+            # Candidate readback and edits preserve the frozen settings and their digest.
+            candidate = await review.get(GetCandidateRequest(candidate_id=completed.candidate.candidate_id))
+            assert candidate.proposal.policy_digest == candidate.proposal.policy_snapshot.digest
+            app = create_app(application=cast(ServerApplication, runtime))
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+            ) as transport:
+                client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+                received = await client.get_candidate(
+                    TransportGetCandidateRequest(scope_id=sid, candidate_id=candidate.candidate_id)
+                )
+                assert isinstance(received.proposal, TransportProfileCandidateProposal)
+                assert received.proposal.policy_snapshot is not None
+                assert received.proposal.policy_snapshot.model_dump(
+                    mode="json"
+                ) == candidate.proposal.policy_snapshot.model_dump(mode="json")
+                assert received.proposal.policy_digest == candidate.proposal.policy_digest
+            revised = await review.revise(
+                ReviseCandidateRequest(
+                    candidate_id=candidate.candidate_id,
+                    expected_version=candidate.version,
+                    proposal=ProfileWriteContent(content="# Profile\n\nBased in Shenzhen, China."),
+                    sources=candidate.sources,
+                    artifacts=candidate.artifacts,
+                    target=candidate.target,
+                    reason="Clarify the location.",
+                )
+            )
+            assert revised.proposal.policy_snapshot == candidate.proposal.policy_snapshot
+            assert revised.proposal.policy_digest == candidate.proposal.policy_digest
+            approved = await review.approve(approval.model_copy(update={"expected_version": revised.version}))
+            assert approved.result_artifact.revision == initial.revision + 1
+            assert await runtime.profiles.get_policy(sid) == policy_before
+            async with runtime.profiles.database.transaction() as connection:
+                assert await runtime.profiles.cursors.load(connection, sid, "profile-source-window") == cursor_before
+            if processing == "pending":
+                assert policy_before.pending_candidate_id is not None
+                ordinary = await review.get(GetCandidateRequest(candidate_id=policy_before.pending_candidate_id))
+                assert ordinary.status == "pending"
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("policy_change", [None, "queued", "generation", "review", "memory"])
 def test_profile_dream_requires_review_and_preserves_source_cursor(
     database: DatabaseConfig, policy_change: str | None
@@ -184,7 +348,8 @@ def test_profile_dream_requires_review_and_preserves_source_cursor(
 
         async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
             assert value.operation == "revise_profile"
-            assert value.profile_policy is not None and value.profile_policy.version == 1
+            assert value.profile_policy is not None
+            assert value.profile_policy.model_dump() == {"format_version": 1, "generation_enabled": False}
             if policy_change == "generation":
                 await change_policy()
             assert any(item.kind == "profile" for item in value.evidence.evidence)
@@ -579,7 +744,7 @@ def test_topic_memory_dream_publishes_complete_revision_after_review(
 
 
 @pytest.mark.parametrize("change_objective", [False, True])
-def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig, change_objective: bool) -> None:
+def test_handoff_dream_publishes_for_explicit_continue(database: DatabaseConfig, change_objective: bool) -> None:
     class HandoffDreamGenerator:
         config_id = "handoff-dream-test"
 
@@ -613,7 +778,7 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
         async with open_builtin_runtime(config(database), dream_generator=generator) as runtime:
             assert runtime.scopes is not None
             scope = await runtime.scopes.create(
-                ScopeDraft(title="Handoff Dream", summary="Review without activation", idempotency_key="handoff-dream")
+                ScopeDraft(title="Handoff Dream", summary="Review before publication", idempotency_key="handoff-dream")
             )
             scope_id = scope.scope_id
             original_source = await runtime.sources.for_scope(scope_id).capture(
@@ -660,6 +825,7 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
                 completed.error,
             )
             assert (await handoffs.latest()).revision == 1
+            assert (await handoffs.continue_latest()).selected_revision == current.as_ref()
             from powercontext.builtin.review.errors import CandidateConflictError, InvalidCandidateError
 
             candidate = await runtime.review.for_scope(scope_id).get(
@@ -702,6 +868,9 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
             assert updated is not None and updated.revision == 2
             assert updated.content.generation is None
             assert updated.content.state[0].text == "The replacement has been issued."
+            resolution = await handoffs.continue_latest()
+            assert resolution.selected_revision == updated.as_ref()
+            assert resolution.content == updated.content
 
     asyncio.run(scenario())
 

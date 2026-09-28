@@ -9,6 +9,16 @@ description: 使用现有 v1 Dream 接口提出、检查和审核 Prompt 配置�
 
 Dream 使用精确目标与证据生成待审 Candidate。生成不会批准、安装、执行或发布内容；已有自动生成流程保持原有策略。审批须由用户明确决定，并携带实际检查过的候选版本。
 
+## Profile 与 Handoff 生效边界
+
+Profile Dream 在接收请求时冻结影响生成的策略配置。普通 Source 处理、待审候选指针变化和仅控制 Source 的激活配置不会使提案失效。生成配置改变需要重新发起 Dream；Profile head 改变则独立触发目标冲突。批准不消费 Source 游标，也不清除普通待审候选。
+
+Handoff 批准即发布新版本，后续显式 Continue 按既有 latest 规则可选中新版本；批准本身不会调用 Continue、执行任务或记录接收确认。接收方仍须核验 live state、capability 和 authorization。`ActivateHandoff` 用于生成草稿，不需要用它激活已经批准的版本。
+
+## 协调升级
+
+统一 Candidate 接口与物理表改名一起发布，仅启用 A0/A1、关闭 Tag 的部署也需升级。先备份数据库，停止旧 Server 和 Worker，完成启动迁移，再在恢复流量前同步升级 Client、SDK、CLI、MCP 和集成。移除的 `/v1/artifact-candidates/*` 不保留别名或兼容过滤；自动迁移数据不等于兼容旧客户端。后续启用 Tag 不需要再次改名候选表。
+
 ## Prompt 配置
 
 先读取已注册、支持 custom 模式的 Prompt key（如 `memory.extract`）的当前 ArtifactRef，再选取包含已观察错误及可信预期结果的精确 Source。通过原有 Dream 接口提交：

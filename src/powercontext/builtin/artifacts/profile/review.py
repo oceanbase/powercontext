@@ -23,6 +23,7 @@ from powercontext.builtin.artifacts.profile.models import (
     ProfileCandidateProposal,
     ProfileContent,
     ProfileDraft,
+    ProfileDreamPolicy,
     ProfileGeneration,
     ProfileWriteContent,
 )
@@ -112,7 +113,7 @@ async def _decide_dream_profile(service, connection, candidate, policy, *, reaso
             connection, service._scope_id, candidate.candidate_id, candidate.version, reason
         )
     await service._validate_candidate_audit(connection, candidate)
-    if proposal.policy_version != (None if policy is None else policy.version):
+    if policy is None or proposal.policy_digest != ProfileDreamPolicy.from_policy(policy).digest:
         raise BaseValueConflictError("profile_policy", (service._scope_id,))
     await service._validate_evidence(
         connection, candidate.sources, candidate.artifacts, candidate.memory_citations, target=candidate.target

@@ -25,7 +25,7 @@ from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.memory.models import MemoryDreamWrite
-from powercontext.builtin.artifacts.profile.models import ProfilePolicy, ProfileWriteContent
+from powercontext.builtin.artifacts.profile.models import ProfileDreamPolicy, ProfileWriteContent
 from powercontext.builtin.artifacts.prompt.models import PROMPT_KEYS, PromptContent
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
@@ -244,7 +244,7 @@ class DreamRecord(BaseModel):
     generation: int = 0
     request_generation: int = 0
     deadline_at: datetime | None = None
-    profile_policy: ProfilePolicy | None = None
+    profile_policy: ProfileDreamPolicy | None = None
     proposal_fingerprint: str | None = None
 
 

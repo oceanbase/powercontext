@@ -609,7 +609,7 @@ class HandoffManagementWriter:
         content: HandoffContent,
         sources: tuple[SourceRef, ...],
     ) -> Handoff:
-        """Commit an approved Handoff without activating or acknowledging it."""
+        """Publish the approved revision for later Continue, without acknowledging it."""
 
         if current.artifact_id != self._handoff_artifact_id or content.generation is not None:
             raise InvalidBaseAccessRequestError("handoff", "reviewed replacement must target the local singleton")

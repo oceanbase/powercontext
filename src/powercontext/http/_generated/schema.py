@@ -4655,13 +4655,23 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["after", "through"],
             },
+            "ProfileDreamPolicy": {
+                "properties": {
+                    "format_version": {"type": "integer", "enum": [1], "default": 1},
+                    "generation_enabled": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["format_version", "generation_enabled"],
+            },
             "ProfileCandidateProposal": {
                 "properties": {
                     "schema": {"type": "string", "enum": ["powercontext.profile-candidate.v1"]},
                     "content": {"type": "string", "minLength": 1},
                     "source_window": {"$ref": "#/components/schemas/ProfileSourceWindow", "nullable": True},
                     "dream_run_id": {"type": "string", "nullable": True},
-                    "policy_version": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "policy_snapshot": {"$ref": "#/components/schemas/ProfileDreamPolicy", "nullable": True},
+                    "policy_digest": {"type": "string", "nullable": True},
                     "generator_id": {"type": "string", "minLength": 1},
                     "generator_version": {"type": "string", "minLength": 1},
                     "created_at": {"type": "string", "format": "date-time"},
