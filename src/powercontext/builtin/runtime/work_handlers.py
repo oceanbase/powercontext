@@ -19,10 +19,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import logging
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -36,7 +35,6 @@ from powercontext.builtin.artifacts.profile.models import (
 )
 from powercontext.builtin.artifacts.profile.service import RelationalProfileService
 from powercontext.builtin.artifacts.prompt.service import current_prompt
-from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.persistence.cursors import StoredSourceCursor
 from powercontext.builtin.persistence.database import database_now
@@ -56,7 +54,7 @@ from powercontext.builtin.runtime.protocols import RuntimeTracing
 from powercontext.builtin.runtime.relational import RelationalContexts, _validate_experience_plans
 from powercontext.builtin.runtime.worker import PreparedWork, WorkExecutionError
 from powercontext.builtin.sources import SourceCursor, validate_scope_id
-from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
+from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME, SourceHighWatermark, SourceWindowTrigger
 from powercontext.errors import ArtifactNotFoundError
 
@@ -68,8 +66,6 @@ CURRENT_WORK_PAYLOAD_VERSION = 1
 _PROFILE_WINDOW_LIMIT = 100
 
 ProfileWorkRunner = Callable[[str, int, RelationalProfileService], Awaitable[ProfileFlushResult]]
-
-logger = logging.getLogger(__name__)
 
 
 class WorkRequester(BaseModel):
@@ -319,20 +315,25 @@ class MemoryWorkHandler:
             current = await memory.head(services.memory_artifact_id)
         except ArtifactNotFoundError:
             current = None
-        with bind_usage_reporter(
-            _usage_reporter(self._contexts, claim.scope_id),
-            generation_purpose=ModelUsagePurpose.MEMORY_EXTRACTION,
-            embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
-        ):
-            plan = (
-                None
-                if not eligible_rows
-                else await memory.plan_remember(
-                    memory=current,
-                    sources=tuple(row.value for row in eligible_rows),
-                    mode="extract",
+        try:
+            with bind_usage_reporter(
+                self._contexts.model_usage_reporter(claim.scope_id),
+                generation_purpose=ModelUsagePurpose.MEMORY_EXTRACTION,
+                embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
+            ):
+                plan = (
+                    None
+                    if not eligible_rows
+                    else await memory.plan_remember(
+                        memory=current,
+                        sources=tuple(row.value for row in eligible_rows),
+                        mode="extract",
+                    )
                 )
-            )
+        finally:
+            # Drain accepted usage after the model deadline and before the fenced
+            # commit opens its transaction; accounting keeps its own bounded budget.
+            await self._contexts.flush_model_usage()
 
         async def commit(connection: AsyncConnection) -> WorkResult:
             memory_commit = None if plan is None else plan.commit
@@ -424,14 +425,19 @@ class ExperienceWorkHandler:
                 through=payload.through,
             )
         _require_complete_window(rows, payload)
-        async with services.prompts.bind(claim.scope_id, "experience.incubate"):
-            with bind_usage_reporter(
-                _usage_reporter(self._contexts, claim.scope_id),
-                generation_purpose=ModelUsagePurpose.EXPERIENCE_GENERATION,
-            ):
-                plans = () if not eligible_rows else await pipeline.incubate(tuple(row.value for row in eligible_rows))
-            selection = current_prompt("experience.incubate")
-            prompt_refs = () if selection is None or selection.artifact is None else (selection.artifact,)
+        try:
+            async with services.prompts.bind(claim.scope_id, "experience.incubate"):
+                with bind_usage_reporter(
+                    self._contexts.model_usage_reporter(claim.scope_id),
+                    generation_purpose=ModelUsagePurpose.EXPERIENCE_GENERATION,
+                ):
+                    plans = (
+                        () if not eligible_rows else await pipeline.incubate(tuple(row.value for row in eligible_rows))
+                    )
+                selection = current_prompt("experience.incubate")
+                prompt_refs = () if selection is None or selection.artifact is None else (selection.artifact,)
+        finally:
+            await self._contexts.flush_model_usage()
         _validate_experience_plans(plans, eligible_rows)
 
         async def commit(connection: AsyncConnection) -> WorkResult:
@@ -534,38 +540,6 @@ class ProfileWorkHandler:
             ):
                 return result
         return result
-
-
-def _usage_reporter(
-    contexts: RelationalContexts,
-    scope_id: str,
-) -> Callable[[ModelUsagePurpose, ModelUsageOperation, InferenceUsage], Awaitable[None]]:
-    async def report(
-        purpose: ModelUsagePurpose,
-        operation: ModelUsageOperation,
-        usage: InferenceUsage,
-    ) -> None:
-        try:
-            await contexts.statistics(scope_id).record(
-                purpose,
-                operation,
-                usage,
-                datetime.now(UTC).date(),
-            )
-        except Exception as error:
-            # Statistics are best effort and raw exception text may contain
-            # provider payloads. Record only a bounded event and type name.
-            logger.warning(
-                "Work model usage recording failed",
-                extra={
-                    "event": "statistics.model_usage.failed",
-                    "operation": operation.value,
-                    "outcome": "failure",
-                    "error_type": type(error).__name__,
-                },
-            )
-
-    return report
 
 
 class OperationMaintenanceHandler:
