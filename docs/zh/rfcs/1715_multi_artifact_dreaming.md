@@ -22,7 +22,7 @@ Dream 负责提出可解释的变化，Family adapter 负责语义校验和提�
 | Memory 正文位于 Entry Version，Artifact 保存 manifest | 不能通过替换 manifest JSON 绕过条目写入、hash 与索引维护 |
 | Profile 已有 Candidate 审核，但绑定 Source window、Policy pending 指针和游标推进 | Dream 选取离散证据，不能冒充连续消费窗口 |
 | Topic Memory 有自身生成、融合和检索投影 | 手动修订不能被旧后台结果覆盖，旧 chunk 不得与新 head 混用 |
-| Handoff 有 prepare、commit/activate、接收方核验等语义 | 生成文本不能替代交接激活或接收确认 |
+| Handoff 提交即发布，显式 Continue 可选择最新版本，接收方仍需核验 | 候选生成不发布；批准发布不代替 Continue、接收确认或任务执行 |
 | Prompt 是运行配置，正式 head 会影响后续推理选择 | 发布不是纯内容编辑，需要确定性校验、人工审核、明确权限及回滚 |
 | Tag 使用独立的可变集合和 ETag | 标签变化不应创建 Artifact Revision |
 | Candidate 的 MemoryCitation 当前限制为 Experience | 新 family 必须显式增加合法引用与审核校验，不能全局取消约束 |
@@ -67,7 +67,7 @@ DreamRun：解析来源、冻结证据、生成与类型校验
 | `revise_memory`，新增 | 一个 Memory Artifact 内指定条目的修订候选 | 事实校正、时效表述、偏好和约束冲突 | 新 Entry Version 与 Memory Revision 原子提交 |
 | `revise_profile`，新增 | 当前 Profile 的完整快照候选 | 主体归属、稳定偏好、临时安排与明确变更 | 人工审核后替换 head，不消费 Source window |
 | `revise_topic_memory`，新增 | 一个 Topic Memory 的完整内容候选 | 新进展、已排除假设、未决问题及来源 | 保持 topic identity，提交新版本与检索更新意图 |
-| `refresh_handoff`，新增 | 当前 Handoff 的完整修订候选 | 目标、已完成事项、阻塞、下一步 | 批准只形成正式版本，仍需现有显式激活与接收核验 |
+| `refresh_handoff`，新增 | 当前 Handoff 的完整修订候选 | 目标、已完成事项、阻塞、下一步 | 批准即发布，后续显式 Continue 可选择新版本；接收核验保持独立 |
 | `revise_skill`，新增 | 当前 managed Skill 的替换候选 | 使用反例、步骤、前置条件与检查方法 | 通过内容校验和人工审核后发布，安装执行仍独立 |
 | `revise_prompt`，新增 | 已注册 Prompt key 的完整配置候选 | instructions、demonstrations 的失败模式 | 内容校验、人工审核与配置写权限通过后发布，后续推理解析新 head |
 | `revise_tags`，新增 | 单一逻辑 target 的标签集合变更候选 | 错误分类、同义重复、缺失分类 | ETag 条件替换，不创建 Artifact Revision |
@@ -107,7 +107,7 @@ DreamRun：解析来源、冻结证据、生成与类型校验
 | Prompt，S_U1 | 把短期出差提取成常驻变更 | 加入临时安排反例和明确搬家的正例 | 覆盖服务端 trust rules 或增加工具权限 |
 | Tag，工单主题 | `[物流, 门卫代收]` | `[物流, 投递错误, 单号待回传]` | 标签等于根因证明或资源授权 |
 
-操作彼此独立。Memory 修订后不会暗中重写 Profile，Topic 更新后也不会自动激活 Handoff。若需要协调，应用在前一步正式发布后读取精确结果，另行提交下一步 Dream，并承担协调与失败处理。
+操作彼此独立。Memory 修订后不会暗中重写 Profile，Topic 更新后也不会自动提交或继续 Handoff。若需要协调，应用在前一步正式发布后读取精确结果，另行提交下一步 Dream，并承担协调与失败处理。
 
 ## 4. 触发与结果
 新增能力先使用显式触发：用户点击复盘，或 integration 在有授权的任务结束、明确纠正、使用反馈到达时提交请求。事件只是触发理由，不是事实证据，必须携带可核验引用。
@@ -172,7 +172,7 @@ Candidate 统一表示待审核的变更提案。现有候选接口去掉 artifa
 }
 ```
 
-幂等唯一范围沿用现有 `(scope_id, principal_id, idempotency_key)`，数据库以 principal_key 保存请求者身份摘要。同一范围内规范化请求相同则返回原 Run，请求不同则冲突；不同请求者不复用彼此的 Run。服务端在首次执行时固定 adapter、policy、模型与提示词版本，重试不静默切换。
+幂等唯一范围沿用现有 `(scope_id, principal_id, idempotency_key)`，数据库以 principal_key 保存请求者身份摘要。同一范围内规范化请求相同则返回原 Run，请求不同则冲突；不同请求者不复用彼此的 Run。Profile 在接收请求时固定第 5 节定义的生成策略配置快照；服务端在首次执行时固定 adapter、模型与提示词版本，重试不静默切换。
 
 ## 3. 证据角色与来源准入
 Dream manifest 为每项输入指定 `target_content`、`supporting_evidence`、`counter_evidence`、`configuration_under_review` 或 `lineage_only` 等服务端确定的角色。模型只能引用已分配的 evidence ID，不能创建身份、版本、用户绑定、成功次数或伪造证据。
@@ -197,9 +197,11 @@ proposal 类型为 `MemoryRevisionProposal`，包含固定的 base Memory Ref，
 “信息陈旧”需要显式新证据或可验证的事件时间，不以最后访问时间、模型置信度或重复次数自动改写事实。过期计划的首期表达是保留历史时间及当前有效性说明，不增加自动删除或新的全局 TTL 契约。`forget()` 的显式授权路径保持独立。
 
 ## 5. Profile 修订契约
-沿用一个 Scope 一个 Profile 的身份与 Markdown 快照。模型输出完整 content，同时生成逐段变化理由、主体依据和证据引用。保持当前生成策略对范围、主体和允许信息的限制，接收请求时固定 Policy，生成输入携带该快照；排队、生成或审核期间 Policy 改变应阻止发布并要求重新生成。失效候选仍可拒绝以结束审核。
+沿用一个 Scope 一个 Profile 的身份与 Markdown 快照。模型输出完整 content，同时生成逐段变化理由、主体依据和证据引用。保持当前生成策略对范围、主体和允许信息的限制，接收请求时固定影响 Dream 生成的策略配置，生成输入携带该快照；排队、生成或审核期间相关配置摘要改变应阻止发布并要求重新生成。普通处理状态变化不使快照失效；失效候选仍可拒绝以结束审核。
 
-新增 `ProfileDreamCandidateProposal` 和可区分的 `generation.mode=dream_review_approved`，附精确 dream_run_id 和 policy revision/digest。Dream 模式不允许 `source_window`，也不伪造 after/through。
+新增 `ProfileDreamCandidateProposal` 和可区分的 `generation.mode=dream_review_approved`，附精确 dream_run_id 和生成策略配置快照及其 digest。Dream 模式不允许 `source_window`，也不伪造 after/through。
+
+策略快照是带格式版本、规范化序列化的配置投影，不是整个 `ProfilePolicy` 对象或其 `version`。当前模型纳入 `generation_enabled`；未来新增配置仅在约束 Dream 生成时纳入，例如主体、范围或允许信息限制。排除 `pending_candidate_id`、处理状态 `version`、时间戳、Source cursor/dirty 状态以及仅控制 Source 流程的 `activation_mode`。投影和摘要保存在既有 Run/Candidate 载荷中；生成输入、有效性校验和候选 fingerprint 共用同一配置投影。若表达 policy revision，它必须标识这份配置投影，不能复用处理状态计数器，不新增表。生成前、候选落库前和批准时，在既有 Policy 锁保护下重新计算并比较摘要。Source no-op pass 或普通 pending 指针变化不能使 Dream 失效；相关配置变化应使其失效。Profile head 改变仍独立触发目标 CAS 冲突。
 
 当前 `decide_profile()` 依赖 Policy.pending_candidate_id，并在批准或拒绝时推进 Source Cursor。新路径必须按 candidate origin 分派，只有 Source-window 候选继续走原逻辑；Dream 候选不读取或修改该 pending 指针，不推进游标、不清除普通 Source dirty。两种候选都按同一 Profile head CAS 提交。任一先发布，另一候选保持 pending 并显示冲突，不能覆盖新 head。
 
@@ -219,9 +221,9 @@ Dream 不推进 Topic Source Cursor。后续正常融合以新 head 作为基准
 ## 7. Handoff 刷新契约
 只针对精确 Handoff Revision，保持 work identity、目标任务与原有结构化内容约束。生成输出、候选修订及最终提交均要求 objective 与目标版本一致；改变任务应走独立的显式操作。对已完成、未完成、阻塞和下一步的每一项变更提供结果来源。没有新的状态证据时返回 no_change 或 needs_evidence，不能仅凭时间流逝宣称任务完成。
 
-候选生成不改变当前激活交接，不写 accepted acknowledgement，不变更任务授权。批准形成正式 Handoff Revision，应用随后按现有接口显式激活该版本，接收方仍核对 live state、capability 和 authorization。
+候选生成不改变正式 Handoff 或 latest 选择结果。批准在同一事务内提交并发布新 Handoff Revision 和 Candidate 审核结果；新版本立即进入既有 latest 读取规则，后续显式调用 `continue_latest()` 时，只要没有更新的合格版本，就会选中它。不存在“已批准但未激活”的中间状态，也不要求再激活该已提交版本。现有 `ActivateHandoff` 根据 `boundary_source` 和 `objective` 生成新草稿，不是激活某个已提交 Revision 的接口；Dream 批准不调用它。
 
-当前 prepare/commit 已校验的 token、basis、引用和激活条件不能因增加 Candidate 被旁路。实现需把可复用的内容校验和非激活提交提取到事务内 writer，再由 Dream 审核 adapter 调用；不得伪造接收方核验记录。已被接收的历史 Revision 保持不变，新版本不改写旧接收记录。
+将可复用的内容、basis、引用与条件提交校验提取到事务内 writer。既有 prepare/commit 入口保留其 token 校验；Dream adapter 通过精确候选版本、当前目标、证据与 Reviewer 权限授权发布。批准本身不调用 Continue、不写 accepted acknowledgement、不授予任务权限、不执行业务动作。接手任务仍须显式 Continue，并按既有流程核验 live state、capability 和 authorization。已被接收的历史 Revision 及其接收记录保持不变，旧版本的 accepted 不代表新版本已被接收。本期不增加激活 API、激活表或新的 latest 过滤规则。
 
 ## 8. Skill 修订与审核契约
 `derive_skill` 保持原语义，`revise_skill` 明确指向一个已有 managed Skill。首期支持 instruction-only Skill，按包内实际文件判断支持范围，不以 package 字段是否存在判断。现有纯指令内容也会规范化为仅含根目录 SKILL.md 的标准包；这种单文件包属于支持范围。对于尚无 package 的旧纯指令内容，沿用既有规范化流程生成单文件标准包。
@@ -349,6 +351,9 @@ Tag 不是 Artifact Family。统一 Candidate 使用 `candidate_kind=tag`，复�
 批准约束按 candidate_kind 分支：artifact 必须具有真实的 result revision 且无 Tag 结果；tag 必须具有有效 result_payload 且三个 Artifact 结果列均为空。pending/rejected 不保存成功结果，拒绝仍须保存理由。Tag 的正文基准使用真实引用及服务端类型校验，不使用 0、-1 或默认 1 伪造 revision。候选身份仍为 (scope_id, candidate_id)，版本身份仍为 (scope_id, candidate_id, version)。仅为筛选和事务校验增加必要索引。
 
 ### 升级时自动处理已有数据
+
+物理表改名与接口替换是 A0 的明确发布决策，不是 Tag 本身要求的技术前提。保留 Artifact 命名的物理表、到 C 阶段再改名是可行替代方案，可以延后迁移工作；本方案选择在一次协调升级中确定最终 Candidate 命名、结构与客户端，避免后续为改名再安排一次 schema 升级，以及统一 API 与 Artifact 命名存储暂时不一致。接受的代价包括备份、停止旧 Server/Worker 的维护窗口、启动迁移校验，以及恢复流量前同步升级 Client、SDK、CLI、MCP 和集成。数据库迁移不能兼容旧路由。仅启用 A0/A1、尚未启用 Tag 的部署也承担这次升级成本；C 阶段不再改名候选表。发布说明必须明确此边界及配套的服务端、客户端版本。
+
 自动迁移属于本功能的必交付实现：安装新包本身不修改数据库；新版 Runtime/Server 首次初始化持久化时，在候选表 create_all、读取候选、开放请求及启动 Worker 之前执行专用 schema migration。仅修改 SQLAlchemy 表名或调用 create_all 不能迁移已有表。
 
 1. 部署先停止旧 Server 和 Worker，备份数据库，再启动新版；不支持新旧二进制混跑或滚动跨越此次 schema/API 变更。部署级互斥保证仅一个迁移执行者，其他新版实例等待迁移完成。
@@ -396,9 +401,9 @@ idempotency_key 按第 2 节包含请求者身份的唯一范围处理相同请�
 ## 15. 实现阶段与验收
 | 阶段 | 交付 | 启用条件 |
 | --- | --- | --- |
-| A0 | Operation registry、现有 v1 契约扩展、证据角色、typed target、共用审核扩展；复用现有 Run/Candidate 表 | Client 与 Server 协调升级，旧操作回归、请求者幂等隔离与统一锁顺序通过，未注册操作关闭 |
+| A0 | Operation registry、证据角色、typed target、统一 Candidate 表迁移与接口替换、共用审核扩展；复用现有 Run/Candidate 表 | 维护窗口内迁移与 Client/Server 协调升级通过，旧操作回归、请求者幂等隔离与统一锁顺序通过，未注册操作关闭 |
 | A1 | Memory、Profile、Topic Memory 显式复盘；不依赖 Tag 或可信评测存储 | 条目原子提交、Profile 游标隔离、Topic 完整投影原子发布及启动一致性通过 |
-| B1 | Handoff 刷新、仅含 SKILL.md 的纯指令 Skill 包修订 | 激活边界、包内容准入、证据校验与人工审核链路通过，真实任务端到端验证完成 |
+| B1 | Handoff 刷新、仅含 SKILL.md 的纯指令 Skill 包修订 | Handoff 发布/latest 选择、显式 Continue 与接收核验、包内容准入、证据校验与人工审核链路通过，真实任务端到端验证完成 |
 | B2 | Prompt 改进 | 同 key schema、证据校验、人工审核、配置发布权限及回滚通过 |
 | C | Tag 单 target 分类治理，复用统一 Candidate 接口、表与 Inbox | ETag/正文双基准、类型化结果、历史记录、幂等批准和权限校验通过 |
 
@@ -413,10 +418,16 @@ idempotency_key 按第 2 节包含请求者身份的唯一范围处理相同请�
 | 只修订一个 Memory 条目 | 未选中条目保持不变，旧 citation 仍指向旧内容 |
 | Memory 在生成/审核时被修订或停用 | CAS 或证据校验失败，不覆盖、不复活 |
 | Profile Dream 与 Source-window 候选并发 | 只有当前基准可批准，Dream 不推进游标或清除 pending 指针 |
+| Profile Source no-op、普通候选创建/决策但 head 未变、时间戳更新或仅 activation_mode 改变 | 配置摘要不变，不因处理状态 version 或 pending 指针变化使 Dream 失效；fingerprint 使用同一配置摘要 |
+| 排队、生成或批准期间 generation_enabled 或其他影响生成的配置改变 | 阻止发布并要求重新生成；失效候选仍可拒绝 |
+| 普通 Source 处理发布新 Profile | 即使配置摘要不变，仍因目标 head 改变触发 CAS 冲突 |
 | Topic Dream 与 fusion 并发 | 只对当前 head 原子发布完整投影；竞争失败不改变正式状态 |
 | Topic embedding 失败、准备期间候选被修订、发布事务失败 | Candidate 保持 pending，旧 head 与完整投影继续可用，无部分发布 |
 | Topic 批准提交前后服务重启 | 读取到完整旧版本或完整新版本，既有启动一致性检查通过 |
 | Handoff 只有计划，没有执行结果 | 不把计划改成完成，不产生 accepted |
+| Handoff 候选待审或被拒绝 | 正式 head 与 latest 选择结果不变 |
+| Handoff revision 2 获批，且无更新的合格版本 | 不调用 ActivateHandoff，下一次显式 continue_latest() 即选中 revision 2；批准本身不调用 Continue、不执行任务、不写 accepted 或修改历史接收记录 |
+| Handoff 批准后显式 Continue 与接收核验 | 继续执行既有 live state、capability 和 authorization 校验，不因候选获批而跳过 |
 | Skill 仅含 SKILL.md 的标准包（含现有纯指令生成结果） | 可以生成修订候选，审核通过后提交新的合法标准包 |
 | Skill 包含额外文件 | 明确拒绝，不能悄悄删附件、脚本或依赖文件 |
 | 候选编辑后使用旧 expected_version 批准 | 版本冲突；新版本重新完成确定性校验与人工审核 |
@@ -431,25 +442,25 @@ idempotency_key 按第 2 节包含请求者身份的唯一范围处理相同请�
 | 同 Scope 不同请求者使用相同 idempotency_key 或相同证据 | 不误报幂等冲突，不复用对方 Run/Candidate，归属与执行身份各自保持 |
 | Profile Dream admission 与 Source-window approve/reject、Policy 更新并发 | 有界完成，无 Intent/Policy 循环等待；仅普通审批按原逻辑推进 Source Cursor |
 | HTTP/SDK 并发审核同一 Source-window Profile 候选 | 各入口使用一致的 Policy 优先锁顺序，按版本条件完成或返回冲突，不产生反向锁等待 |
-| A0/A1 部署未配置 B1/C 存储与接口 | 可以启动并启用已完成的首期操作，后续阶段能力保持关闭 |
+| A0/A1 部署未启用 B1/C 操作 | 仍须完成统一 Candidate 表迁移与客户端协调升级；首期操作可用，Tag 等后续能力保持关闭 |
 | 缺证据、无变化、执行失败 | 三者可区分，不产生虚构正式制品 |
 | 连续 Dream 请求与普通 Source 工作 | 两类工作均取得进展，普通游标仅由自身流程推进 |
-| 旧 Client 与扩展后的 v1 Server | 未升级时收到明确升级提示或只读取其可解析类型；升级后可读取新增 Run 与 Candidate |
+| 旧 Client 与替换路由后的 v1 Server | 旧候选路由不可用，无别名或兼容过滤；恢复流量前升级 Client，升级后可读取新增 Run 与 Candidate |
 
 SQLite 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复验收。使用隔离数据完成一条真实链路：原始会话写入、生成初始制品、追加纠正证据、Dream 提案、人工审核、后续任务使用、结果回查。工程测试验证公开行为、约束和事务正确性，不构成产品运行时的可信评测依赖，也不将模型提案或人工批准视为质量提升证明。
 
 # Drawbacks
-+ 每种 Family 都需要专门 writer 和校验，统一入口不能消除条目、游标、激活和配置发布的语义差异。
++ 每种 Family 都需要专门 writer 和校验，统一入口不能消除条目、游标、交接发布与接收核验、配置发布的语义差异。
 + 全量 Memory head CAS 在活跃 Scope 中可能频繁冲突；采用更细粒度 CAS 会增加 manifest 合并复杂度，本期选择可解释的保守冲突。
 + 完整 Profile/Topic 快照增加上下文和输出成本，预算可能使大型目标暂不可处理。
 + 人工审核增加等待和运营负担；模型提案与人工批准本身不能证明实际任务质量提升。
 + 扩展现有 v1 封闭枚举与 Profile generation 需要协调升级 Client；静默伪装成旧类型会更危险。
-+ 统一候选需要按类型校验结果约束和提交逻辑；表改名及旧路径移除需要协调升级，不能依赖旧 Client 继续工作。
++ 统一候选需要按类型校验结果约束和提交逻辑；从 A0 起，表改名及旧路径移除就需要维护窗口和协调升级，即使尚未启用 Tag，也不能依赖旧 Client 继续工作。
 
 # Rationale and alternatives
 | 方案 | 优点 | 不采用的原因 |
 | --- | --- | --- |
-| 所有制品直接调用通用 replace | 改动小 | 绕过 Memory manifest、Profile 游标、Handoff 激活及 Tag ETag |
+| 所有制品直接调用通用 replace | 改动小 | 绕过 Memory manifest、Profile 游标、Handoff 发布与接收校验及 Tag ETag |
 | 所有复盘结果都先转成 Experience | 可复用当前 Dream | 无法实际纠正画像、主题和操作配置，会留下错误的正式状态 |
 | 每个 Family 单独实现一套 Dream 服务 | 局部实现直观 | 幂等、预算、证据与故障恢复重复，难以保持一致 |
 | 统一外层 Run，内部注册 Family adapter | 共用运行能力，保留语义边界 | 采用，代价是显式注册与类型化协议 |
@@ -477,7 +488,7 @@ SQLite 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复�
 
 1. 确定服务端、Client 和集成的协调发布版本号；旧路径直接移除，自动数据迁移不提供接口兼容。
 2. Skill 与各 Prompt key 的证据展示、差异比较及配置发布影响提示应如何呈现给 Reviewer。
-3. 现有 Handoff 非激活提交能力应如何从 prepare/commit 代码提取，确保与现有 token 和 receiver checks 完全一致。
+3. Handoff 审核界面如何说明批准即发布，并引导接手方显式 Continue 和核验；批准不记录接收确认。
 4. 统一 Inbox 中 Tag 差异和正文变更的展示方式；分页使用同一存储、排序和游标，不再合并两套结果。
 5. 发布后质量异常由哪个应用监控并发起显式回滚；本 RFC 不承诺自动因果归因或无人值守回滚。
 
