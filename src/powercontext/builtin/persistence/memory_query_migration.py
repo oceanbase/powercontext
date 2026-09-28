@@ -26,7 +26,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import and_, func, insert, or_, select, update
+from sqlalchemy import and_, func, insert, inspect, or_, select, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -45,6 +45,11 @@ from powercontext.builtin.persistence.tables import (
 MEMORY_QUERY_INDEX_SCHEMA_VERSION = 1656
 _MAX_VERIFICATION_ISSUES = 32
 _VERIFICATION_PAGE_SIZE = 100
+_MIGRATION_TABLES = (
+    MEMORY_ENTRY_DIRECTORY_TABLE,
+    MEMORY_TAG_GENERATIONS_TABLE,
+    MEMORY_QUERY_INDEX_SCHEMA_TABLE,
+)
 
 
 class MemoryQueryIndexUnavailableError(PersistenceError):
@@ -69,6 +74,7 @@ class MemoryQueryMigrationPlan(BaseModel):
     schema_version: int = MEMORY_QUERY_INDEX_SCHEMA_VERSION
     phase: str
     required: bool
+    missing_tables: tuple[str, ...] = ()
     memory_revision_count: int
     directory_row_count: int
 
@@ -119,19 +125,20 @@ async def require_memory_query_index(connection: AsyncConnection) -> None:
 
 
 async def plan_memory_query_migration(connection: AsyncConnection) -> MemoryQueryMigrationPlan:
-    marker = await _marker(connection)
+    missing_tables = await _missing_migration_tables(connection)
+    marker = None if MEMORY_QUERY_INDEX_SCHEMA_TABLE.name in missing_tables else await _marker(connection)
     phase = "uninitialized" if marker is None else str(marker["phase"])
-    revisions = await connection.scalar(
-        select(func.count()).select_from(ARTIFACTS_TABLE).where(ARTIFACTS_TABLE.c.family == Memory.family)
-    )
-    directory = await connection.scalar(select(func.count()).select_from(MEMORY_ENTRY_DIRECTORY_TABLE))
+    revisions = await _count_if_present(connection, ARTIFACTS_TABLE, family=Memory.family)
+    directory = await _count_if_present(connection, MEMORY_ENTRY_DIRECTORY_TABLE)
     return MemoryQueryMigrationPlan(
         phase=phase,
-        required=marker is None
+        required=bool(missing_tables)
+        or marker is None
         or int(marker["schema_version"]) != MEMORY_QUERY_INDEX_SCHEMA_VERSION
         or marker["phase"] != "complete",
-        memory_revision_count=int(revisions or 0),
-        directory_row_count=int(directory or 0),
+        missing_tables=missing_tables,
+        memory_revision_count=revisions,
+        directory_row_count=directory,
     )
 
 
@@ -147,6 +154,11 @@ async def apply_memory_query_migration(  # noqa: C901 - explicit durable mainten
         raise MemoryQueryIndexUnavailableError("migration-id")
     if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size < 1:
         raise MemoryQueryIndexUnavailableError("batch-size")
+
+    for table in _MIGRATION_TABLES:
+        if not await _has_table(connection, table.name):
+            await connection.run_sync(lambda sync, owned=table: owned.create(sync, checkfirst=True))
+            return MemoryQueryMigrationProgress(phase="schema")
 
     marker = await _marker(connection, for_update=True)
     if marker is None:
@@ -211,6 +223,12 @@ async def verify_memory_query_migration(  # noqa: C901 - independent persisted i
 ) -> MemoryQueryMigrationVerification:
     """Verify exact revision views and mark the feature ready only on success."""
 
+    missing_tables = await _missing_migration_tables(connection)
+    if missing_tables:
+        return MemoryQueryMigrationVerification(
+            ready=False,
+            issues=tuple(f"missing {name}" for name in missing_tables),
+        )
     marker = await _marker(connection, for_update=True)
     if marker is None:
         return MemoryQueryMigrationVerification(ready=False, issues=("missing migration marker",))
@@ -475,6 +493,32 @@ async def _marker(connection: AsyncConnection, *, for_update: bool = False) -> M
         statement = statement.with_for_update()
     row = (await connection.execute(statement)).mappings().one_or_none()
     return None if row is None else dict(row)
+
+
+async def _has_table(connection: AsyncConnection, name: str) -> bool:
+    return bool(await connection.run_sync(lambda sync: inspect(sync).has_table(name)))
+
+
+async def _missing_migration_tables(connection: AsyncConnection) -> tuple[str, ...]:
+    missing: list[str] = []
+    for table in _MIGRATION_TABLES:
+        if not await _has_table(connection, table.name):
+            missing.append(table.name)
+    return tuple(missing)
+
+
+async def _count_if_present(
+    connection: AsyncConnection,
+    table: Any,
+    *,
+    family: str | None = None,
+) -> int:
+    if not await _has_table(connection, table.name):
+        return 0
+    statement = select(func.count()).select_from(table)
+    if family is not None:
+        statement = statement.where(table.c.family == family)
+    return int(await connection.scalar(statement) or 0)
 
 
 __all__ = [
