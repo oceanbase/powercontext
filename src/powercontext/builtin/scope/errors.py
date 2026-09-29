@@ -29,6 +29,14 @@ class ScopeNotFoundError(ScopeError, LookupError):
         super().__init__("scope was not found")
 
 
+class ScopeBindingTargetMissingError(ScopeError, RuntimeError):
+    """A persisted binding references a missing Scope and requires operator repair."""
+
+    def __init__(self, scope_id: str) -> None:
+        self.scope_id = scope_id
+        super().__init__("persisted Scope binding target is missing")
+
+
 class ScopeVersionConflictError(ScopeError, RuntimeError):
     def __init__(self, scope_id: str, expected: int, actual: int) -> None:
         self.scope_id = scope_id

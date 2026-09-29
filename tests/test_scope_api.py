@@ -14,12 +14,89 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 from fastapi.testclient import TestClient
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
+
+
+@pytest.mark.parametrize("binding_kind", ["durable", "default"])
+def test_missing_binding_target_is_a_conflict_without_fallback_or_replacement(tmp_path, binding_kind) -> None:
+    database_path = tmp_path / "missing-target.db"
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+    key = {"integration": "test", "kind": "session", "external_id": "missing-target"}
+    fallback_key = {**key, "external_id": "fallback"}
+    with TestClient(app) as client:
+        default_id = client.get("/v1/scopes/default").json()["scope_id"]
+        missing_id = client.post(
+            "/v1/scopes", json={"title": "Missing", "summary": "Lost scope", "idempotency_key": "missing"}
+        ).json()["scope_id"]
+        assert client.put("/v1/scope-bindings", json={"key": key, "scope_id": missing_id}).status_code == 200
+        assert client.put("/v1/scope-bindings", json={"key": fallback_key, "scope_id": default_id}).status_code == 200
+        if binding_kind == "default":
+            assert client.put("/v1/scopes/default", json={"scope_id": missing_id}).status_code == 200
+
+        # Simulate out-of-band data loss; normal writes enforce foreign keys.
+        with sqlite3.connect(database_path) as connection:
+            connection.execute("DELETE FROM pc_scopes WHERE scope_id = ?", (missing_id,))
+
+        request = {"binding_keys": [key, fallback_key]} if binding_kind == "durable" else {}
+        for _ in range(2):
+            response = client.post("/v1/scope-bindings/resolve", json=request)
+            assert response.status_code == 409
+            assert response.json()["error"]["code"] == "scope_binding_target_missing"
+            assert response.json()["error"]["details"] == {"scope_id": missing_id}
+        if binding_kind == "default":
+            response = client.get("/v1/scopes/default")
+            assert response.status_code == 409
+            assert response.json()["error"]["code"] == "scope_binding_target_missing"
+
+        # Direct lookup has no persisted binding provenance and remains a 404.
+        response = client.post("/v1/scope-bindings/resolve", json={"explicit_scope_id": missing_id})
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "scope_not_found"
+        response = client.post("/v1/scope-bindings/resolve", json={"allow_default": False})
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "scope_not_found"
+        assert [scope["scope_id"] for scope in client.get("/v1/scopes").json()["items"]] == [default_id]
+        with sqlite3.connect(database_path) as connection:
+            assert connection.execute(
+                "SELECT scope_id FROM pc_scope_bindings WHERE external_id = ?", (key["external_id"],)
+            ).fetchone() == (missing_id,)
+
+
+def test_subject_source_rejects_a_missing_persisted_binding_target(tmp_path) -> None:
+    database_path = tmp_path / "subject-target.db"
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+    with TestClient(app) as client:
+        origin = client.get("/v1/scopes/default").json()["scope_id"]
+        path = f"/v1/scopes/{origin}/subject-sources"
+        request = {"content": "Prefer concise answers.", "subject_key": "user-1"}
+        created = client.post(path, json=request)
+        assert created.status_code == 201
+        target = created.json()["subject_scope_id"]
+        with sqlite3.connect(database_path) as connection:
+            connection.execute("DELETE FROM pc_scopes WHERE scope_id = ?", (target,))
+        for _ in range(2):
+            response = client.post(path, json=request)
+            assert response.status_code == 409
+            assert response.json()["error"]["code"] == "scope_binding_target_missing"
+            assert response.json()["error"]["details"] == {"scope_id": target}
+        assert [scope["scope_id"] for scope in client.get("/v1/scopes").json()["items"]] == [origin]
 
 
 def test_scope_discovery_filters_one_explicit_field_in_sql_and_paginates(tmp_path) -> None:
