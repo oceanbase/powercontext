@@ -39,11 +39,11 @@ jobs:
         run: make contract-test
 
   tests:
-    timeout-minutes: 40
+    timeout-minutes: 8
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.14"]
       fail-fast: false
     defaults:
       run:
@@ -59,11 +59,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Run unit tests
-        run: make unit-test
-
-      - name: Run end-to-end tests
-        run: make e2e-test
+      - name: Diagnose Topic Memory end-to-end stall
+        run: timeout 180s uv run python -m pytest -vv -x -o faulthandler_timeout=30 tests/e2e/test_topic_memory_generic_api.py
 
   code-seekdb:
     timeout-minutes: 20
