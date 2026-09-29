@@ -614,9 +614,11 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
                 pending = asyncio.create_task(client.post(path, json=payload))
                 await asyncio.wait_for(entered.wait(), 5)
                 pending.cancel()
-                with pytest.raises(asyncio.CancelledError):
-                    await pending
+                # Let the recorder release its SQLite lock so cancellation can
+                # finish the request transaction's rollback before returning.
                 release.set()
+                with pytest.raises(asyncio.CancelledError):
+                    await asyncio.wait_for(pending, 35)
             # The recorder is best-effort and may reject an interrupted write.
             # The repository call finishes before its transaction releases the
             # write lock. Wait for that release before testing the business path.
