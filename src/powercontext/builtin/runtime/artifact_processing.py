@@ -66,6 +66,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerLauncher,
     ArtifactProcessingWorkerOutcome,
     WorkerEntrypoint,
+    processing_error_code,
 )
 from powercontext.builtin.runtime.protocols import RuntimeTracing
 
@@ -410,6 +411,9 @@ class _FamilyState:
     unacknowledged: int = 0
     discovery_seconds: float = 0
     invocation_seconds: float = 0
+    last_error: str = ""
+    last_error_at: str = ""
+    last_success_at: str = ""
 
 
 class ArtifactProcessingSupervisor:
@@ -482,7 +486,11 @@ class ArtifactProcessingSupervisor:
         return {
             state.binding.artifact_family: {
                 "status": "degraded" if state.degraded else self._status.value,
+                "supervisor_running": self._task is not None and not self._task.done(),
                 "max_workers": state.binding.max_workers,
+                "automatic_processing_enabled": (
+                    state.binding.automatic_processing_interval is not None or state.binding.cron is not None
+                ),
                 "used_workers": len(state.running),
                 "available_workers": max(0, state.binding.max_workers - len(state.running)),
                 "unacknowledged_requests": state.unacknowledged,
@@ -493,6 +501,9 @@ class ArtifactProcessingSupervisor:
                 "completed": state.completed,
                 "failed": state.failed,
                 "timeouts": state.timeouts,
+                "last_error": state.last_error,
+                "last_error_at": state.last_error_at,
+                "last_success_at": state.last_success_at,
             }
             for state in self._families.values()
         }
@@ -966,6 +977,7 @@ class ArtifactProcessingSupervisor:
                     )
                 state.retries.pop(scope, None)
                 state.completed += 1
+                state.last_success_at = datetime.now(UTC).isoformat()
                 if row.requested_generation > row.handled_generation:
                     self.wake(state.binding.binding_name)
             except (ArtifactProcessingLeadershipLostError, _WorkerTerminationError):
@@ -1078,6 +1090,16 @@ class ArtifactProcessingSupervisor:
         failures: int = 0,
         delay: float = 0,
     ) -> None:
+        error_code = (
+            processing_error_code(error.failure.exception_type, error.failure.error_code)
+            if isinstance(error, _WorkerExecutionError)
+            else processing_error_code(type(error).__name__)
+        )
+        if stage in {"supervisor", "lease_renewal", "scope_discovery"}:
+            error_code = f"{stage}_failed"
+        for affected in self._families.values() if state is None else (state,):
+            affected.last_error = error_code
+            affected.last_error_at = datetime.now(UTC).isoformat()
         log_safely(
             logger,
             logging.ERROR,

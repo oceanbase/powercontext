@@ -136,6 +136,7 @@ from powercontext.builtin.runtime.decision_model import (
     FailOpenDecisionModel,
     LLMDecisionModel,
 )
+from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.processing_discovery import SourceProcessingPendingProvider, enabled_profile_scopes
@@ -555,6 +556,12 @@ async def open_builtin_runtime(
                     prompts=dict(contexts.prompt_registry.capabilities),
                 ),
                 source_window_limit=config.runtime.source_window_limit,
+                extraction_diagnostics=ExtractionDiagnostics(
+                    model_configured=contexts.memory_extraction,
+                    external_worker=(
+                        config.runtime.artifact_processing_role == "api" and "memory" in processing_capabilities(config)
+                    ),
+                ),
                 context_assembly_max_entries=config.runtime.context_assembly_max_entries,
                 recall_sufficiency_policy=RecallSufficiencyPolicy.from_runtime_config(config.runtime),
                 scope_cache_size=config.runtime.scope_cache_size,

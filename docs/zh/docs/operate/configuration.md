@@ -204,6 +204,15 @@ SQLite 使用 `all`。Dream 的模型标识在首次执行时固定，关闭自�
 ready/retry 队列、未确认 Scope 数、发现与调用耗时，以及完成、失败、超时次数。未确认数反映最近一次发现结果；计数器随
 Supervisor 实例重建而重置。
 
+`GET /v1/capabilities` 的 `extraction` 对象提供只读诊断：本进程是否装配提取模型或自定义管道、
+本地 Worker 状态、自动处理是否启用，以及最近执行结果和成功、失败时间。
+`model_configured=false` 表示未装配提取管道；`last_error` 使用 `model_configuration_error`、
+`model_timeout`、`worker_crash` 等分类区分故障，不返回模型输入或原始异常内容。
+首次启动后尚未观察到执行结果时，`last_result=unverified`；成功后为 `succeeded`，失败后为 `failed`。
+历史错误在后续成功后保留，可结合结果与时间判断恢复情况；这些观察记录在进程重启后清空。
+诊断快照本身不查询数据库、不调用模型；成功记录也不证明模型连通性或其他 Scope 健康。
+分离部署以 `worker_status=external` 表示远端执行状态未知，不能据此判定整个管道健康。
+
 远程和多用户部署必须使用 `enforced`。此模式下，HTTP、MCP 和 metrics 共用同一个 Server PEP。`/v1/access/me` 返回
 `server`/`scope`/`artifact` Resource Kind、Provider 的 batch/list/relationship 能力与 Family profile。Managed Skill 的
 导出和安装不再引入单独的 Access action：接收者先获得逻辑 Skill identity 上的 `artifact.read`，再自行决定是否以及如何

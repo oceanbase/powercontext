@@ -79,6 +79,24 @@ class ArtifactProcessingWorkerLauncher(Protocol):
 WorkerEntrypoint = Callable[[ArtifactProcessingWorkAssignment], ArtifactProcessingWorkerCompletion | None]
 
 
+def processing_error_code(exception_type: str, error_code: str = "") -> str:
+    """Expose only known categories, never exception messages or custom codes."""
+
+    inference_codes = {
+        "InferenceConfigurationError": "model_configuration_error",
+        "PydanticAIConfigurationError": "model_configuration_error",
+        "InferenceTimeoutError": "model_timeout",
+        "InferenceUnavailableError": "model_unavailable",
+        "InvalidInferenceOutputError": "invalid_model_output",
+        "TimeoutError": "worker_timeout",
+    }
+    if exception_type in inference_codes:
+        return inference_codes[exception_type]
+    if error_code in {"worker_crash", "invalid_worker_result", "missing_durable_acknowledgement"}:
+        return error_code
+    return "processing_failed"
+
+
 __all__ = [
     "ArtifactProcessingWorkAssignment",
     "ArtifactProcessingWorkerCompletion",
@@ -87,4 +105,5 @@ __all__ = [
     "ArtifactProcessingWorkerLauncher",
     "ArtifactProcessingWorkerOutcome",
     "WorkerEntrypoint",
+    "processing_error_code",
 ]

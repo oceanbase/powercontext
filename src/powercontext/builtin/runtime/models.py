@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
@@ -100,6 +101,18 @@ class CommitConnectorCheckpoint(BaseModel):
     binding: ConnectorBinding
     expected: JsonValue | None
     checkpoint: JsonValue | None
+
+
+class ExtractionStatus(BaseModel):
+    """Observed Memory extraction diagnostics, without an active model probe."""
+
+    model_configured: bool
+    worker_status: Literal["disabled", "external", "leader", "standby", "degraded", "stopped"]
+    automatic_processing_enabled: bool | None = None
+    last_result: Literal["unverified", "succeeded", "failed"]
+    last_error: str | None = None
+    last_error_at: datetime | None = None
+    last_success_at: datetime | None = None
 
 
 class RuntimeCapabilities(BaseModel):

@@ -454,6 +454,64 @@ class ApproveArtifactCandidateRequest(BaseModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
 
 
+class WorkerStatus(StrEnum):
+    DISABLED = "disabled"
+    EXTERNAL = "external"
+    LEADER = "leader"
+    STANDBY = "standby"
+    DEGRADED = "degraded"
+    STOPPED = "stopped"
+
+
+class LastResult(StrEnum):
+    UNVERIFIED = "unverified"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class ExtractionStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    model_configured: Annotated[
+        StrictBool,
+        Field(description="Whether an extraction model or custom extraction pipeline is assembled in this process."),
+    ]
+    worker_status: Annotated[
+        WorkerStatus,
+        Field(
+            description="Status of this process's Memory supervisor. External means workers run elsewhere and their health is unknown here; disabled means this process has no Memory supervisor."
+        ),
+    ]
+    automatic_processing_enabled: Annotated[
+        StrictBool | None,
+        Field(
+            description="Whether this process schedules automatic Memory extraction. False still permits explicit flush and recovery of accepted work. Null means the external worker schedule is unknown."
+        ),
+    ] = None
+    last_result: Annotated[
+        LastResult,
+        Field(
+            description="Most recent extraction outcome observed by this process. Unverified means no outcome has been observed since startup. Succeeded does not prove model connectivity or health of other Scopes."
+        ),
+    ]
+    last_error: Annotated[
+        StrictStr | None,
+        Field(
+            description="Most recent sanitized failure category observed by this process, including its child Memory workers. May be model_configuration_error, model_timeout, model_unavailable, invalid_model_output, worker_timeout, worker_crash, invalid_worker_result, missing_durable_acknowledgement, supervisor_failed, lease_renewal_failed, scope_discovery_failed, or processing_failed. Retained after success and reset on process restart; null does not prove health."
+        ),
+    ] = None
+    last_error_at: Annotated[
+        AwareDatetime | None, Field(description="UTC time of the most recent locally observed failure.")
+    ] = None
+    last_success_at: Annotated[
+        AwareDatetime | None,
+        Field(
+            description="UTC time of the most recent local successful nonempty synchronous flush or acknowledged Memory worker invocation. This does not prove that a model was called or that all other Scopes are healthy."
+        ),
+    ] = None
+
+
 class FamilyCount(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2927,6 +2985,12 @@ class Capabilities(BaseModel):
     source_types: list[StrictStr]
     artifact_families: list[StrictStr]
     memory_extraction: Annotated[StrictBool, Field(description="Whether pending Sources can be extracted into Memory.")]
+    extraction: Annotated[
+        ExtractionStatus | None,
+        Field(
+            description="Live Memory extraction diagnostics. Null means diagnostics are not supplied by this runtime. This read does not call a model or prove provider connectivity."
+        ),
+    ] = None
     experience_generation: Annotated[
         StrictBool, Field(description="Whether the configured model can generate reviewed Experience Candidates.")
     ] = False

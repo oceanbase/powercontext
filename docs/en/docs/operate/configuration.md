@@ -227,6 +227,16 @@ The authenticated `/metrics` endpoint exposes `powercontext_server_artifact_proc
 label: Worker capacity, ready/retry queues, unacknowledged Scopes, discovery and invocation duration, completions,
 failures, and timeouts. Unacknowledged counts reflect the latest discovery; counters reset with the Supervisor instance.
 
+The `extraction` object in `GET /v1/capabilities` provides read-only diagnostics: whether this process has an
+extraction model or custom pipeline, local Worker status, automatic processing enablement, and the latest outcome
+and success/failure times. `model_configured=false` means no extraction pipeline is assembled. `last_error` uses
+categories such as `model_configuration_error`, `model_timeout`, and `worker_crash`, without model inputs or raw errors.
+`last_result=unverified` means no outcome has been observed since startup; subsequent success and failure produce
+`succeeded` and `failed`. Historical errors remain after success; use the outcome and timestamps to identify recovery.
+These observations reset on process restart. The diagnostic snapshot does not query the database or call a model; a success record
+does not prove model connectivity or the health of other Scopes. Split deployments report `worker_status=external`
+because remote execution health is unknown to the API process.
+
 Remote and multi-user deployments must use `enforced`. In that mode, HTTP, MCP, and metrics share one Server PEP.
 `/v1/access/me` reports the `server`/`scope`/`artifact` Resource Kinds,
 Provider batch/list/relationship capabilities and Artifact Family profiles. Managed Skill export and installation do

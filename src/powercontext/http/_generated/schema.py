@@ -5441,6 +5441,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "boolean",
                         "description": "Whether pending Sources can be extracted into Memory.",
                     },
+                    "extraction": {
+                        "$ref": "#/components/schemas/ExtractionStatus",
+                        "description": "Live "
+                        "Memory "
+                        "extraction "
+                        "diagnostics. "
+                        "Null "
+                        "means "
+                        "diagnostics "
+                        "are not "
+                        "supplied "
+                        "by this "
+                        "runtime. "
+                        "This "
+                        "read "
+                        "does "
+                        "not "
+                        "call a "
+                        "model "
+                        "or "
+                        "prove "
+                        "provider "
+                        "connectivity.",
+                        "nullable": True,
+                    },
                     "experience_generation": {
                         "type": "boolean",
                         "description": "Whether the configured model can generate reviewed Experience Candidates.",
@@ -5485,6 +5510,208 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "search_modes",
                     "context_versions",
                 ],
+            },
+            "ExtractionStatus": {
+                "properties": {
+                    "model_configured": {
+                        "type": "boolean",
+                        "description": "Whether "
+                        "an "
+                        "extraction "
+                        "model "
+                        "or "
+                        "custom "
+                        "extraction "
+                        "pipeline "
+                        "is "
+                        "assembled "
+                        "in "
+                        "this "
+                        "process.",
+                    },
+                    "worker_status": {
+                        "type": "string",
+                        "enum": ["disabled", "external", "leader", "standby", "degraded", "stopped"],
+                        "description": "Status "
+                        "of "
+                        "this "
+                        "process's "
+                        "Memory "
+                        "supervisor. "
+                        "External "
+                        "means "
+                        "workers "
+                        "run "
+                        "elsewhere "
+                        "and "
+                        "their "
+                        "health "
+                        "is "
+                        "unknown "
+                        "here; "
+                        "disabled "
+                        "means "
+                        "this "
+                        "process "
+                        "has "
+                        "no "
+                        "Memory "
+                        "supervisor.",
+                    },
+                    "automatic_processing_enabled": {
+                        "type": "boolean",
+                        "description": "Whether "
+                        "this "
+                        "process "
+                        "schedules "
+                        "automatic "
+                        "Memory "
+                        "extraction. "
+                        "False "
+                        "still "
+                        "permits "
+                        "explicit "
+                        "flush "
+                        "and "
+                        "recovery "
+                        "of "
+                        "accepted "
+                        "work. "
+                        "Null "
+                        "means "
+                        "the "
+                        "external "
+                        "worker "
+                        "schedule "
+                        "is "
+                        "unknown.",
+                        "nullable": True,
+                    },
+                    "last_result": {
+                        "type": "string",
+                        "enum": ["unverified", "succeeded", "failed"],
+                        "description": "Most "
+                        "recent "
+                        "extraction "
+                        "outcome "
+                        "observed "
+                        "by "
+                        "this "
+                        "process. "
+                        "Unverified "
+                        "means "
+                        "no "
+                        "outcome "
+                        "has "
+                        "been "
+                        "observed "
+                        "since "
+                        "startup. "
+                        "Succeeded "
+                        "does "
+                        "not "
+                        "prove "
+                        "model "
+                        "connectivity "
+                        "or "
+                        "health "
+                        "of "
+                        "other "
+                        "Scopes.",
+                    },
+                    "last_error": {
+                        "type": "string",
+                        "description": "Most "
+                        "recent "
+                        "sanitized "
+                        "failure "
+                        "category "
+                        "observed "
+                        "by "
+                        "this "
+                        "process, "
+                        "including "
+                        "its "
+                        "child "
+                        "Memory "
+                        "workers. "
+                        "May "
+                        "be "
+                        "model_configuration_error, "
+                        "model_timeout, "
+                        "model_unavailable, "
+                        "invalid_model_output, "
+                        "worker_timeout, "
+                        "worker_crash, "
+                        "invalid_worker_result, "
+                        "missing_durable_acknowledgement, "
+                        "supervisor_failed, "
+                        "lease_renewal_failed, "
+                        "scope_discovery_failed, "
+                        "or "
+                        "processing_failed. "
+                        "Retained "
+                        "after "
+                        "success "
+                        "and "
+                        "reset "
+                        "on "
+                        "process "
+                        "restart; "
+                        "null "
+                        "does "
+                        "not "
+                        "prove "
+                        "health.",
+                        "nullable": True,
+                    },
+                    "last_error_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "UTC time of the most recent locally observed failure.",
+                        "nullable": True,
+                    },
+                    "last_success_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "UTC "
+                        "time "
+                        "of "
+                        "the "
+                        "most "
+                        "recent "
+                        "local "
+                        "successful "
+                        "nonempty "
+                        "synchronous "
+                        "flush "
+                        "or "
+                        "acknowledged "
+                        "Memory "
+                        "worker "
+                        "invocation. "
+                        "This "
+                        "does "
+                        "not "
+                        "prove "
+                        "that "
+                        "a "
+                        "model "
+                        "was "
+                        "called "
+                        "or "
+                        "that "
+                        "all "
+                        "other "
+                        "Scopes "
+                        "are "
+                        "healthy.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["model_configured", "worker_status", "last_result"],
             },
             "FamilyCount": {
                 "properties": {
