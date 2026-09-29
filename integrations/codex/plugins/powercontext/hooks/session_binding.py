@@ -95,6 +95,14 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             return 0
         source = payload.get("source")
         if not isinstance(source, str) or source not in _LIFECYCLES:
+            settings = CodexPluginSettings() if settings is None else settings
+            resolve_scope_id(
+                cwd,
+                session_id=session_id,
+                settings=settings,
+                deadline=monotonic() + settings.http_budget_seconds,
+                persist_session=True,
+            )
             return 0
         try:
             settings = CodexPluginSettings() if settings is None else settings

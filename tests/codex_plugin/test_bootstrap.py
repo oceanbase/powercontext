@@ -77,6 +77,37 @@ def _already_delivered() -> dict[str, object]:
     return value
 
 
+def test_session_start_without_lifecycle_still_persists_session_binding(
+    session_binding_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolutions: list[tuple[str, str | None, bool]] = []
+    requests: list[str] = []
+
+    def resolve(cwd, *, session_id, persist_session=False, **_kwargs):
+        resolutions.append((cwd, session_id, persist_session))
+        return "scope:test"
+
+    monkeypatch.setattr(session_binding_module, "resolve_scope_id", resolve)
+    monkeypatch.setattr(
+        session_binding_module,
+        "_post_json",
+        lambda path, *_args, **_kwargs: requests.append(path) or _skipped(),
+    )
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"session_id": "session-1", "cwd": "/workspace"})),
+    )
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert session_binding_module.main() == 0
+    assert resolutions == [("/workspace", "session-1", True)]
+    assert requests == []
+    assert output.getvalue() == ""
+
+
 def test_session_start_marks_delivery_before_injecting_and_first_query_sends_receipt(
     session_binding_module: ModuleType,
     recall_module: ModuleType,
