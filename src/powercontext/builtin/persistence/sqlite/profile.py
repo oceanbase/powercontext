@@ -152,6 +152,12 @@ def _configure_sqlite(
             if driver._running and driver._connection is not None:
                 # Cancelling an await does not stop SQLite's native statement or disconnect its worker.
                 driver._connection.interrupt()
+                # SQLite rolls the entire native transaction back when an INSERT,
+                # UPDATE or DELETE is interrupted, so writes that already reported
+                # success are gone while SQLAlchemy still trusts the transaction.
+                # Record it here; the transaction must not commit later work on top
+                # of that rollback.
+                connection.info["_powercontext_sqlite_interrupted"] = True
                 context.is_disconnect = False
 
 

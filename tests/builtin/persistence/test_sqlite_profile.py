@@ -24,7 +24,7 @@ import anyio
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, insert, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, PendingRollbackError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 from sqlalchemy.pool import QueuePool
 
@@ -275,6 +275,55 @@ def test_cancelled_checkout_does_not_keep_the_only_pool_slot(tmp_path, monkeypat
             await asyncio.wait_for(database.ping(), 2)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("in_memory", [False, True], ids=["file", "memory"])
+def test_interrupted_write_cannot_commit_earlier_work(tmp_path, in_memory) -> None:
+    """An interrupted write rolls SQLite's whole native transaction back.
+
+    SQLite discards the entire transaction when an INSERT, UPDATE or DELETE is
+    interrupted, so a caller that catches the error and keeps writing must not
+    be able to commit the later work on top of that rollback.
+    """
+
+    release = ThreadEvent()
+
+    async def scenario() -> None:
+        url = "sqlite+aiosqlite:///:memory:" if in_memory else f"sqlite+aiosqlite:///{tmp_path / 'atomicity.db'}"
+
+        def slow(value: int) -> int:
+            release.wait(10)
+            return value
+
+        async with SQLiteProfile.open(SQLiteConfig(url=url), tables=()) as profile:
+            database = profile.database
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER)")
+
+            try:
+                async with database.transaction() as connection:
+                    await connection.exec_driver_sql("INSERT INTO probe VALUES (3)")
+                    driver = cast(aiosqlite.Connection, (await connection.get_raw_connection()).driver_connection)
+                    await driver.create_function("slow", 1, slow)
+                    try:
+                        async with asyncio.timeout(0.5):
+                            await connection.exec_driver_sql("UPDATE probe SET value = slow(value)")
+                    except TimeoutError:
+                        release.set()
+                    await connection.exec_driver_sql("INSERT INTO probe VALUES (4)")
+            except PendingRollbackError:
+                pass
+            else:
+                pytest.fail("an interrupted transaction committed instead of failing")
+
+            async with database.transaction() as connection:
+                rows = (await connection.exec_driver_sql("SELECT value FROM probe")).fetchall()
+                assert [row[0] for row in rows] == []
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        release.set()
 
 
 def test_sqlite_config_requires_the_async_dialect() -> None:

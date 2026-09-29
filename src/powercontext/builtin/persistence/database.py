@@ -23,7 +23,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcon
 
 from aiosqlite import Connection as SQLiteConnection
 from aiosqlite import Cursor as SQLiteCursor
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, PendingRollbackError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from powercontext.builtin.persistence.errors import DatabaseClosedError
@@ -92,10 +92,20 @@ class AsyncDatabase:
                 sqlite_cursors = connection.info.get("_powercontext_sqlite_cursors")
             yield connection
         except BaseException as error:
+            if connection.dialect.name == "sqlite":
+                connection.info.pop("_powercontext_sqlite_interrupted", None)
             await _finish_transaction(context, connection, error, sqlite_stop, sqlite_cursors)
             raise
-        else:
-            await context.__aexit__(None, None, None)
+        if connection.dialect.name == "sqlite" and connection.info.pop("_powercontext_sqlite_interrupted", False):
+            # An interrupted statement rolled SQLite's whole native transaction
+            # back, so writes that already reported success are gone. Committing
+            # now would persist only the later ones; fail the transaction instead.
+            interrupted = PendingRollbackError(
+                "The transaction was interrupted, so its earlier writes were rolled back.", code="8s2b"
+            )
+            await _finish_transaction(context, connection, interrupted, sqlite_stop, sqlite_cursors)
+            raise interrupted
+        await context.__aexit__(None, None, None)
 
     @asynccontextmanager
     async def _transaction(self) -> AsyncIterator[AsyncConnection]:
