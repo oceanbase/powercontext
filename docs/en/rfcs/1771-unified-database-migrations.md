@@ -7,7 +7,6 @@ title: Unified Versioned Database Migrations
 - RFC PR: [oceanbase/powercontext#1771](https://github.com/oceanbase/powercontext/pull/1771)
 - Tracking Issue: [oceanbase/powercontext#1756](https://github.com/oceanbase/powercontext/issues/1756)
 - Related Discussion: [Migration framework proposal on PR #1716](https://github.com/oceanbase/powercontext/pull/1716#issuecomment-5862598291)
-- Design Source: [Yuque RFC](https://yuque.antfin.com/obopensrc/knowledge_sharing/psb5g51gae41q16l)
 - Status: Design proposal. This document selects an approach and defines acceptance requirements; it does not claim that the framework or backend prototypes are implemented.
 
 # Summary
@@ -614,14 +613,6 @@ reconstruction, and constraint-validation requirements.
 External references linked above include Alembic revision/batch/async practices, Flyway versioned scripts and checksums,
 and official SQLite/OceanBase transaction and DDL semantics. They inform implementation rather than replace acceptance
 on this project's three backends.
-
-The [OpenViking, TencentDB Agent Memory, and EverOS investigation](https://yuque.antfin.com/obopensrc/knowledge_sharing/kt5qhok8zkhl5tkv)
-provides three direct comparisons: OpenViking separates copying old Sessions from cleanup and preserves read
-compatibility; Tencent's memory APIs share handlers, but legacy metadata-management endpoints retain old models,
-showing that API compatibility must be evaluated per domain; EverOS mounts current v1/v2 endpoints on one router and
-provides explicit incompatible-index rebuild paths while retaining non-rebuildable buffers. The investigation also
-identifies varying degrees of automatic startup schema changes. PowerContext routes such changes through explicit
-unified migration instead of making them the default for existing databases.
 
 # Unresolved questions
 

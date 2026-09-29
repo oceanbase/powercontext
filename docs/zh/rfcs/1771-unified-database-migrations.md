@@ -7,7 +7,6 @@ title: 统一版本化数据库迁移
 - RFC PR: [oceanbase/powercontext#1771](https://github.com/oceanbase/powercontext/pull/1771)
 - Tracking Issue: [oceanbase/powercontext#1756](https://github.com/oceanbase/powercontext/issues/1756)
 - 关联讨论：[PR #1716 的迁移框架建议](https://github.com/oceanbase/powercontext/pull/1716#issuecomment-5862598291)
-- 设计来源：[语雀 RFC](https://yuque.antfin.com/obopensrc/knowledge_sharing/psb5g51gae41q16l)
 - 状态：设计提案。本文确定建议方案和验收要求，不代表迁移框架或后端原型已经实现。
 
 # Summary
@@ -353,8 +352,6 @@ CI 同时检查“新库与升级库是否一致”和“模型变化是否有�
 项目已有 processing 的显式阶段、manifest 与迁移收据，适合成为数据任务适配器的基础；receipt 补证保留了未知来源的审核边界；PR #1716 展示了表重命名、SQLite 重建和约束校验的现实需求。[Processing 维护实现](https://github.com/oceanbase/powercontext/blob/298314f8cbbaa57fcfec668668fb55d704a1b6eb/src/powercontext/builtin/persistence/processing_migration.py)、[Receipt 补证实现](https://github.com/oceanbase/powercontext/blob/298314f8cbbaa57fcfec668668fb55d704a1b6eb/src/powercontext/builtin/persistence/receipt_migration.py)、[PR #1716 Candidate 迁移](https://github.com/oceanbase/powercontext/blob/6541705794b5f40a7ccc71c862cfb54a61890feb/src/powercontext/builtin/persistence/candidate_schema.py)
 
 外部参考为前文链接的 Alembic revision／batch／async 实践、Flyway 版本脚本和 checksum，以及 SQLite、OceanBase 的官方事务与 DDL 语义。它们提供实现基础，不替代本项目的三后端验收。
-
-[OpenViking、TencentDB Agent Memory 与 EverOS 调研](https://yuque.antfin.com/obopensrc/knowledge_sharing/kt5qhok8zkhl5tkv)提供三类直接参考：OpenViking 将旧 Session 复制与清理分开，并保留读取兼容；腾讯记忆 API 共用 handler，但旧元数据管理接口仍保留旧模型，说明接口兼容必须按业务域判断；EverOS 将当前 v1／v2 挂载到同一 router，并为不兼容索引提供显式重建路径，同时保留不可重建缓冲。调研还发现各项目存在不同程度的启动自动补结构，PowerContext 不将这种行为作为存量库默认路径，而是纳入统一显式迁移入口。
 
 # Unresolved questions
 
