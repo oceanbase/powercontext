@@ -13,20 +13,26 @@ title: Unified Versioned Database Migrations
 
 Use **Alembic to manage relational schema versions, with one PowerContext migration entry point**. SQLite, embedded
 seekDB, and OceanBase MySQL tenants share one logical revision chain; explicit adapters handle backend differences.
-The entry point owns legacy database recognition, mutual exclusion, execution records, preconditions, postconditions,
-and recovery. Alembic owns revision dependencies and schema operations. Long-running backfills, identity attestation,
-and search projection rebuilds run separately, connected to schema revisions through explicit dependencies.
+**The migration framework adds only one control table, `pc_schema_revision`, using Alembic's standard `version_num`
+column and version advancement.** Migration definitions, dependencies, and validators ship with the code; execution
+logs and backup manifests live outside the target database. The entry point owns legacy recognition, mutual exclusion,
+plan confirmation, backups, preconditions, and postconditions. It creates no general-purpose run, step, or task tables.
+
+Long-running backfills, identity attestation, and search projection rebuilds use separate scripts connected through
+explicit schema phases and completion conditions. Safe retries are established from the current revision, actual
+schema, business data, and existing domain receipts. The initial scope excludes general-purpose task scheduling,
+generic checkpoints, and automatic resumption by execution run.
 
 **Installing or upgrading software does not modify existing databases. Users explicitly initiate migrations for all
-existing databases, local or remote. Normal startup checks schema compatibility and required task state; it does not
+existing databases, local or remote. Normal startup checks schema compatibility and required data conditions; it does not
 silently add columns, change constraints, or backfill existing data.** A genuinely empty database may be initialized
 on first use: standard local mode executes the complete revision chain under a lock at a location permitted by
 configuration; remote databases and deployments with multiple replicas use a separate initialization job.
 
 The initial release uses **a maintenance window by default, enabling the new application only after migration
 succeeds**. One `apply` command coordinates plan confirmation, checks that writes are stopped, checks backup or
-recovery prerequisites, runs schema and required data tasks, performs final verification, and produces a migration
-receipt. Failure blocks business readiness and permits recovery supported by evidence; it never triggers a destructive
+recovery prerequisites, runs schema and required data tasks, performs final verification, and produces an external
+execution summary. Failure blocks business readiness and permits recovery supported by evidence; it never triggers a destructive
 downgrade automatically.
 
 Software versions, API contract versions, and schema revisions are managed separately. After migration, old and new
@@ -48,7 +54,7 @@ or a particular DDL statement has committed. Table renames, constraint changes, 
 these implicit assumptions more fragile.
 
 An upgrade must answer five questions: what version the database has, what operations will run, who may run them,
-where execution resumes after interruption, and what permits traffic to resume. These requirements also become the
+whether execution can safely retry after interruption, and what permits traffic to resume. These requirements also become the
 normal development, review, and merge process for every schema-changing PR.
 
 ## Existing paths and ownership
@@ -59,7 +65,7 @@ as its baseline; PR #1716 is listed separately. Paths are relative to `src/power
 | Existing entry point | Current responsibility | Ownership in the unified model |
 | --- | --- | --- |
 | `builtin/persistence/schema.py:create_tables` and the three database `profile.py` modules | Run `create_all(checkfirst=True)` over caller-selected SQLAlchemy tables | Frozen initial and subsequent revisions replace production initialization; retain fixture use |
-| `skill_distribution_schema.py` | Rebuild Skill publication tables, transform state, and change columns and constraints | Schema operations become revisions; row conversions become resumable data tasks, completed before constraints tighten |
+| `skill_distribution_schema.py` | Rebuild Skill publication tables, transform state, and change columns and constraints | Schema operations become revisions; row conversions become idempotently rerunnable data scripts, verified before constraints tighten |
 | `tag_schema.py` | Rebuild the SQLite Tag table; remove the old family CHECK in the MySQL branch | One logical revision using batch reconstruction or explicit constraint DDL per backend |
 | `dream_schema.py` | Add citation columns to Artifact and Candidate revisions | Additive revisions; register merged Dream columns and indexes according to their actual released form |
 | `scope_search_schema.py` | Add search columns, backfill content, then enforce non-nullability | Expand revision → batched backfill → verify → contract revision |
@@ -132,30 +138,44 @@ and writes no pending-execution marker into the target. `--yes` accepts only tha
 writers, backup requirements, locks, compatibility, or verification errors. For a non-interactive plan with changes,
 either a missing `--yes` or a missing valid plan returns `confirmation_required`, without waiting for input.
 
-The result includes run ID, source and target revisions, step and required-task states, backup reference, verification
-summary, and next action. Only an explicit `ready` result permits deployment to start the new business service.
-Backup, schema, data, and projection progress are reported separately; successful DDL does not hide a later failure.
+The result includes source and target revisions, schema/data/projection results observed during this invocation,
+backup reference, verification summary, and next action. It sends the execution summary to a local log file or deployment
+logging system. A log correlation identifier supports diagnosis; it is not a resumable execution run stored in the
+database. Only an explicit `ready` permits deployment to start the new business service. Alembic reaching head does not
+replace data and capability verification.
 
 If no schema, baseline-adoption, or planned data/projection changes remain and read-only verification passes, `apply`
 returns `ready` and “no changes” directly. It requires no maintenance window, confirmation, or new backup, and creates
-no migration run. This establishes compatibility at inspection time; subsequent business startup checks again rather
+no persistent migration record. This establishes compatibility at inspection time; subsequent business startup checks again rather
 than treating the result as a permanent admission credential.
 
 ### Inspection and recovery
 
-Standalone `verify` supports operator review and deployment checks and is read-only for the target database. Resume
-an interrupted operation using its original run ID, reacquiring the lock and checking actual state instead of blindly
-replaying the entire script:
+Standalone `verify` supports operator review and deployment checks and is read-only for the target database. After
+interruption, inspect state and actual schema again, then produce a new plan for the observed state:
 
 ```bash
+powercontext server db-migrate status --env-file deployment.env
 powercontext server db-migrate verify --env-file deployment.env
-powercontext server db-migrate apply --env-file deployment.env --resume RUN_ID --maintenance-confirmed
+powercontext server db-migrate plan --env-file deployment.env
 ```
 
-Recovery retains the original plan, target, and backup records and continues from stages proven complete within that
-run. Unknown states cannot be marked successful. Automated recovery also requires the matching plan and explicit
-`--yes`. During the compatibility period, the existing `processing-migrate` command forwards to the unified entry
-point, preserving its migration ID and manifest while enforcing maintenance, backup, and task dependencies.
+Run `apply` again only when script preconditions and postconditions prove retry is safe. Non-interactive execution
+accepts the newly reviewed plan and references the original pre-migration backup from the same maintenance window:
+
+```bash
+powercontext server db-migrate apply --env-file deployment.env --plan-id PLAN_ID --backup-ref BACKUP_ID --maintenance-confirmed --yes
+```
+
+There is no command for automatic resumption by execution run. The executor rereads versions and actual state; logs
+cannot be the sole evidence of step completion. Rolled-back transactions and precisely recognized idempotent steps
+may be retried. Ambiguous partial migration returns `recovery_required` for dedicated repair or backup restoration.
+If the backup manifest is unavailable, targets another database, or cannot be tied to this maintenance window, stop
+instead of replacing the original recovery point with a new backup of partial state.
+
+During the compatibility period, `processing-migrate` forwards to the unified maintenance entry point, preserving
+its domain migration ID, manifest, and existing receipt semantics. Those domain records are not newly added generic
+control tables and cannot bypass maintenance, backups, or completion conditions.
 
 ```mermaid
 flowchart TD
@@ -164,11 +184,11 @@ flowchart TD
     C -->|No| D["Read-only verification passes: ready"]
     C -->|Yes| E["Stop old services and all writers"]
     E --> F["apply: confirm plan, acquire lock, recheck stopped writes"]
-    F --> G["Create a consistent backup or verify recovery evidence"]
-    G --> H["Migrate schema, data, and required projections"]
-    H --> I{"Final verify passes?"}
-    I -->|Yes| J["Record receipt and return ready"]
-    I -->|No| K["Block business startup; inspect and recover"]
+    F --> G["Back up and save an external manifest, or verify the original recovery point"]
+    G --> H["Execute revisions and required data scripts"]
+    H --> I{"Schema, data, and required capabilities verified?"}
+    I -->|Yes| J["Output execution summary and return ready"]
+    I -->|No| K["Block startup and reinspect; retry only when proven safe"]
     J --> L["New service rechecks compatibility before startup"]
     D --> L
 ```
@@ -182,7 +202,7 @@ flowchart TD
 | New OceanBase database or deployment with multiple replicas | Initialize explicitly in a separate migration job; API/Worker instances only check compatibility |
 | Existing schema compatible with the binary and all required tasks complete | Start normally without schema writes or implicit repair |
 | Any existing database requiring schema upgrade, table reconstruction, constraint changes, or required backfills | Return `migration_required`, block business startup, and suggest explicit migration; local and remote databases follow the same rule |
-| Migration running, failed, or not verified | Return `migration_running` or `recovery_required`; block business writes and readiness, and provide inspection/recovery commands |
+| A known migration lock is held, or actual schema/required data verification fails | Return `migration_running` when execution is observable, or `recovery_required` when dedicated recovery is needed; block writes and readiness. The version table alone cannot identify a failed historical invocation |
 | Compatible schema with only optional projection tasks explicitly allowed to run later | Disable the affected retrieval capability and report degradation; decide core readiness according to capability contracts, without hidden startup rebuilds |
 | Unversioned database containing managed business tables or an unrecognized legacy shape | Require explicit baseline recognition; return `unknown_baseline` for unknown shapes instead of treating them as empty |
 | Unknown revision or revision outside the binary's explicit support set | Return `incompatible_schema`, reject business startup, and leave the database unchanged |
@@ -260,6 +280,12 @@ Even adding one field cannot bypass it.
    revision dependencies and revalidate before merging, retaining a single head. Published revisions are immutable.
    Schema changes without corresponding migrations or with failed verification cannot merge.
 
+Each managed schema change includes a separate Alembic revision script. A software release with no schema changes
+needs no new revision; one release may contain several. For example, `r001 → r002 → r003` may initialize tables, add a
+column, and change a constraint. A database at `r001` executes `r002` then `r003`; it does not need another combined
+`r001 → r003` script. Retain historical scripts and frozen dependencies. Correct published scripts through a new
+revision, with explicit backend adaptations inside the same logical revision.
+
 Independent delivery describes the framework's implementation schedule only. Schema-changing PRs still unmerged when
 the framework is enabled must adopt this process. Already merged or released changes are covered by baselines and
 legacy adapters.
@@ -290,36 +316,56 @@ Each physical database/schema has one official core schema revision chain. Revis
 application package versions. A release has exactly one target head. Unpublished branches are reconciled into a linear
 chain before merge; published revisions are never rewritten.
 
-Each revision has stable `revision` and `down_revision` identifiers plus PowerContext metadata for supported profiles,
-preconditions, maintenance requirements, required data tasks, step postconditions, and validators. Revisions include
-frozen table/type definitions; they must not import mutable application ORM tables to reconstruct historical state.
-Even a backend-specific no-op must prove the logical revision's postconditions; it cannot simply ignore exceptions.
+Each revision has stable `revision` and `down_revision` identifiers plus supported backends, preconditions, maintenance
+requirements, postconditions, and validators. Revisions include frozen table/type definitions; they must not import
+mutable application ORM tables to reconstruct historical state. Even a backend-specific no-op must prove the logical
+revision's postconditions; it cannot simply ignore exceptions.
 
-Proposed internal records:
+**Only one migration control table is added:**
 
-| Record | Purpose |
+| Table | Column | Purpose |
+| --- | --- | --- |
+| `pc_schema_revision` | `version_num` | Standard Alembic version table recording the current completed revision; a linear chain normally has one row after baseline adoption or completion of the first revision |
+
+Set the name through Alembic's `version_table="pc_schema_revision"` option and retain standard version reads and
+advancement. Do not add run, step, task, or JSON progress fields, move those records to additional generic tables or
+disguised business data, or replace Alembic's version management. This limit applies to new migration control tables,
+not business tables required by product features.
+[Alembic version table](https://alembic.sqlalchemy.org/en/latest/tutorial.html#running-our-first-migration)
+
+Information has distinct homes:
+
+| Information | Storage or verification |
 | --- | --- |
-| `pc_schema_revision` | Alembic version table recording the verified logical revision |
-| `pc_migration_runs` / `pc_migration_steps` | Run ID, plan ID, database identity, source/target revisions, profile, script checksums, configuration digest, maintenance confirmation, backup reference and verification level, steps, states, timestamps, error categories, and verification summaries |
-| `pc_data_migration_jobs` | Data/projection task ID and version, schema dependencies, configuration digest, checkpoints, idempotency receipts, and completion state; existing domain receipts may be referenced |
+| Revision definitions, dependencies, frozen schema, and validators | Versioned Python scripts and declarative resources shipped in the wheel |
+| Target software version, supported schemas, data completion conditions, and optional capability requirements | Release compatibility manifest |
+| Current schema position | `pc_schema_revision.version_num` |
+| Execution details, errors, and verification summaries | Local files or deployment logging; audit evidence, never sole proof of step completion |
+| Backup reference, target identity, source/target revisions, configuration and package digests, time, coverage, and verification results | External backup manifest, durably saved before the first mutation and revalidated on retry |
+| Required data and projection completion | Actual data, object definitions, and existing domain receipts/markers; no generic task-state table |
 
-Execution logs are not a second schema version system. Only the revision table defines the schema position; logs
-explain ongoing or incomplete operations. Readiness requires the core revision and all required tasks to be satisfied.
-Running, failed, or inconsistent required steps block business readiness even if Alembic has reached head. Optional
-projection work explicitly allowed to run later disables the corresponding capability; this declared degradation is
-distinct from required migration failure. Release compatibility declarations and checks share one manifest, rather
-than HTTP, SDK, and Worker implementations deciding compatibility independently.
+Readiness requires a supported target revision, correct actual schema, and all required data and capability conditions.
+The absence of a task ledger does not prove completion, and a successful log cannot replace verification. Optional
+projections explicitly permitted to run later disable only the affected capabilities. Declarations and checks share the
+release manifest.
 
-Checksums cover published revisions and their frozen dependencies and are checked against the packaged manifest.
-Modified historical scripts stop execution with a conflict. New control tables follow a fixed bootstrap protocol:
-for an existing database, acquire the lock, satisfy stopped-write and backup conditions, then create tables
-idempotently and verify definitions. If interrupted while creating control tables, recover each against its fixed
-definition rather than mistaking the database for a new business database.
+CI compares against released code to prohibit rewriting historical scripts and frozen dependencies. Runtime checks
+validate shipped resources against the trusted package checksum manifest. The backup manifest also records the package
+digest used during maintenance for retry checks. The version table stores no per-execution script checksums, so a
+revision alone cannot reconstruct the exact script bytes historically executed on that database. If recovery needs
+such evidence and external records are missing, stop for dedicated handling. Schema fingerprints cannot prove the full
+execution history either.
 
-Optional full-text/vector projections are verified against registered backend object inventories and
-`projection_version`, with results recorded in projection tasks. They do not create another revision head for core
-authoritative tables. Enabling a capability explicitly installs or rebuilds its objects; disabling it retains existing
-objects and records. Ordinary startup never silently adds their DDL.
+For existing databases, acquire the lock and satisfy stopped-write and backup requirements before creating the version
+table from its fixed definition or adopting a recognized baseline. A missing, empty, or partially created version
+table does not establish that the business database is empty. Inspect managed objects first and reject writes for
+unrecognized state. Empty initialization starts with the frozen initial revision.
+
+Verify optional full-text/vector projections against registered backend object inventories, `projection_version`, and
+configuration digests, reusing existing domain markers or deriving completion from actual results. Enabling a capability
+explicitly installs or rebuilds its objects; disabling it retains objects and domain records. Ordinary startup adds no
+DDL. New durable cursors or general-purpose task services require separate designs; this RFC does not implicitly add
+control tables for them.
 
 ## 3. Empty initialization and legacy baselines
 
@@ -334,8 +380,9 @@ opening a writable initialization path.
   the frozen initial revision → subsequent revisions → required initialization tasks → verify. Empty and upgraded
   databases targeting the same revision must produce the same managed schema. Initially there is no
   `create_all()`-then-stamp shortcut.
-- **Versioned database:** Validate the revision, checksums, execution records, and managed schema before advancing from
-  the verified revision. Recover or reject interrupted work before starting another path; never overwrite its records.
+- **Versioned database:** Validate the revision, package resource integrity, managed schema, and required data conditions
+  before advancing. After interruption, inspect actual state again and continue only through a defined safe retry path.
+  Insufficient external recovery evidence or ambiguous state rejects writes.
 - **Unversioned legacy database:** Accept only shapes explicitly recognized in the baseline inventory. Recognition
   covers tables, column types/nullability/defaults, primary and foreign keys, CHECK constraints, indexes, identity
   collations, optional capabilities, and processing/projection markers, plus applicable data-integrity checks. Package
@@ -359,37 +406,51 @@ adapters; changes still unmerged after enablement submit migrations through the 
 
 The unified execution order is:
 
-1. Read versions, backend capabilities, and actual schema without writes; generate and display the plan and obtain one
-   explicit confirmation.
+1. Read versions, backend capabilities, actual schema, and required data conditions without writes; generate and display
+   the plan and obtain one explicit confirmation.
 2. Acquire the database-wide migration lock, revalidate the plan, and recheck known writers and maintenance conditions.
    Reject execution if known active writers have not stopped.
-3. For existing databases, create a consistent backup or validate external recovery evidence before managed schema or
-   business-data writes. Record why backup is unnecessary for a genuinely empty database.
-4. Create execution records with maintenance and recovery information; adopt a recognized baseline if needed.
-5. Execute expand revisions.
-6. Run required data tasks with batched commits and verification; execute contract revisions after their barriers pass.
-7. Install/rebuild and verify required projections; explicitly mark optional capabilities that may remain deferred.
-8. Run final verification of schema, required tasks, and domain invariants; persist completion and receipts.
-9. Release the lock and return `ready`; only then may deployment start the new service and Workers. Success does not
-   restart external processes outside the command's control.
+3. For existing databases, create a consistent backup or verify the external manifest for the original recovery point
+   from this maintenance window. Insufficient recovery evidence blocks schema and business-data writes. Explain the
+   backup exemption for a genuinely empty database.
+4. Save the plan, maintenance confirmation, and backup information outside the target; open diagnostic logs for this
+   invocation. Explicitly adopt a recognized baseline if needed.
+5. Use Alembic to execute expand revisions.
+6. Run separate data scripts in batches with verifiable data conditions; execute contract revisions only after completion
+   verification passes.
+7. Install/rebuild and verify required projections; identify optional capabilities that remain unavailable.
+8. Run built-in final verify for the revision, actual schema, required data, and domain invariants; output results and
+   backup references in an external execution summary.
+9. Release the lock and return `ready`; only then may deployment start the new service and Workers. The command does not
+   restart external processes.
 
-The executor invokes Alembic at revision boundaries rather than running an unconditional `upgrade head` across task
-barriers. Long tasks declare `requires_revision`; revisions depending on their results declare `requires_jobs`.
-All dependencies form an acyclic graph, and planning exposes blockers.
+For schema-only changes, Alembic follows the revision chain. For large data changes, the entry point invokes Alembic at
+declared phase boundaries: expand revision → separate data backfill → completion verification → contract revision.
+The contract revision itself rechecks required data conditions instead of trusting a successful log or task status.
+Incomplete data prevents advancement to the target revision.
+[Alembic data migrations](https://alembic.sqlalchemy.org/en/latest/cookbook.html#data-migrations-general-techniques)
 
-Data tasks paginate by stable keys, committing each batch's changes and checkpoints/receipts in one transaction.
-Retries must not increment request counters twice, duplicate Artifacts, or apply a task twice. External interactions
-retain domain idempotency protocols; the executor does not claim atomic transactions across systems.
+Phases and validators are declared in packaged resources; planning exposes their order and blockers. There is no
+general-purpose task DAG scheduler or persistent queue. Small data changes suitable for the current transaction may
+live in a revision; large backfills and external calls should not be placed in one long DDL transaction.
 
-Processing tasks preserve old Lease invalidation, manifest verification, and migration receipt semantics. Receipt
-tasks attest only from committed identity records; unknown identities remain for review, without inferring trusted
-provenance from text. External identity lookup failures still fail the task. Whether individually unresolved records
-block capabilities follows existing access-control boundaries; they must not be marked attested or used to loosen reads.
+Data scripts preferentially derive remaining work from business data, using stable-key pagination, idempotent writes,
+and independent completion verification. Retrying may rescan completed ranges but must not increment counters twice,
+duplicate Artifacts, or apply effects twice. When existing domain checkpoints/receipts can be reused, commit each
+batch's changes and receipt in the same transaction. Without that state, generic checkpoint resumption is not promised.
+Scripts whose progress cannot be proven from data and which cannot safely rerun require a dedicated recovery procedure;
+otherwise they are unsupported. The last line of an external log is not evidence of data commit.
 
-Projection tasks rebuild from authoritative Sources and Artifacts, never modifying authoritative content to fit an
-index. Embedding model, dimension, and retrieval-shape changes require configuration-digest checks and explicit
-rebuilds when incompatible. Initially rebuilds require stopped writes. Online switching would need a separate protocol
-for shadow generations, incremental catch-up, and atomic cutover.
+Processing scripts preserve existing Lease invalidation, manifest verification, and migration receipt semantics.
+Receipt attestation uses only committed identity records; unknown identities retain their review boundary, and external
+identity lookup failure still fails execution. External interactions retain domain idempotency protocols without
+claiming transaction atomicity across systems.
+
+Projection scripts rebuild from authoritative Sources and Artifacts without modifying authoritative content to fit an
+index. Embedding model, dimension, and retrieval-shape changes require configuration-digest checks and explicit rebuilds
+when incompatible. Initially rebuilds require stopped writes; actual projection objects, data coverage, and existing
+domain markers establish completion. Schema head cannot replace capability checks. Online switching requires a
+separate design for generations, catch-up, and atomic cutover.
 
 ## 5. Locks and multiple replicas
 
@@ -425,9 +486,12 @@ Known active writers produce `active_writers`, even when confirmation flags are 
 Initially the operator or deployment orchestrator stops every writing entry point and disables automatic restarts of
 old instances. The tool does not claim to discover arbitrary external clients or fence every old version.
 `--maintenance-confirmed` records confirmation and evidence of this maintenance condition; it does not implement
-write isolation. Framework-aware startup rejects business readiness when migration records are incomplete, but this
-check cannot replace the maintenance window or stop already-running unknown clients. Migration is unsupported when
-stopped-write conditions cannot be established.
+write isolation. New startup paths check observable migration locks, the revision, actual schema, and required data
+conditions, rejecting readiness on observed migration or incompatibility. A single version table cannot persist the
+fact that an invocation failed, and missing logs do not establish that no migration is occurring. Deployment
+orchestration still prevents new instances from starting during maintenance. If lock state cannot be reliably inspected
+read-only, do not report it as unlocked. These checks cannot stop already-running unknown clients; migration is
+unsupported when stopped-write conditions cannot be established.
 
 Deployments with multiple replicas run one migration Job; failure blocks rollout. Maintenance ends and application
 startup begins only after `ready`. Each replica still checks compatibility at startup instead of trusting that a Job
@@ -439,14 +503,16 @@ OceanBase DDL may commit implicitly. A Python transaction context cannot make se
 initially follows the same conservative recovery model.
 [OceanBase transaction commits](https://www.oceanbase.com/docs/common-oceanbase-database-cn-1000000004476105)
 
-For every non-atomic step, persist intent first, perform the operation, inspect actual postconditions, then record
-completion. Recovery distinguishes three cases:
+Alembic updates the version table after executing a revision, but that table does not record progress for individual
+SQL statements inside it. Nontransactional DDL may partially commit while the version remains at the previous revision.
+Each such revision must define acceptable preconditions, exact postconditions, recognizable intermediate states, and
+rejection conditions. Diagnostic logs provide clues, not substitutes for actual checks. Retry distinguishes three cases:
 
 | Observed state | Recovery action |
 | --- | --- |
-| Preconditions still hold; no change occurred | Execute the step again |
-| Exact postconditions hold, but completion was not recorded | Verify and complete the record without repeating DDL or transformations |
-| Old/new states coexist, data differs, or the result cannot be proven | Mark `recovery_required`, retain evidence, and stop for dedicated repair or backup restoration |
+| Full preconditions hold and the previous session/DDL is confirmed ended | Execute again after maintenance, backup, lock, and newly confirmed plan requirements are met |
+| Exact postconditions for an operation hold, but the revision has not advanced | An explicit idempotent branch in the revision verifies and skips that operation; Alembic advances normally only after all operations and invariants pass |
+| Old/new states coexist, data differs, or the result cannot be proven | Return `recovery_required`, retain external evidence, and stop for dedicated repair or backup restoration |
 
 Adding a column requires verifying type, default, nullability, and related constraints, not just its name. Renames must
 distinguish old-only, new-only, and simultaneous old/new tables. After network timeout or database failover, establish
@@ -465,10 +531,16 @@ primary-key sets, row counts, and retained field contents, not counts alone. Can
 real versions and Scope foreign keys; processing checks cover receipts, counters, and manifests; retrieval projections
 check the corresponding Artifact revisions and representative queries.
 
-SQLite may atomically commit revision completion and version advancement. Nontransactional-DDL backends advance only
-after every postcondition passes. If interrupted between log and revision writes, reconcile actual state first; bare
-stamping is forbidden. Irreversible changes use forward repair or backup restoration. The executor neither runs
-destructive downgrades automatically nor silently removes unrecognized intermediate tables.
+With verified transaction configuration, SQLite atomically commits schema changes, in-revision verification, and
+version advancement; failures roll back and require reinspection. On nontransactional-DDL backends, `upgrade()` checks
+all postconditions before Alembic advances the version. If DDL commits but the version update does not, retry enters
+that revision's state-recognition logic. Without an explicit idempotent branch, stop; bare stamping is forbidden.
+Final verify and startup checks independently validate required external data/projection conditions.
+
+A revision may contain related operations but needs reviewable, recoverable boundaries. Splitting every SQL statement
+into a separate revision does not eliminate interruption windows in nontransactional DDL. Irreversible or ambiguous
+states require forward repair or backup restoration. The executor neither runs destructive downgrades automatically
+nor silently removes unrecognized intermediate tables.
 
 ## 7. Backups and release recovery
 
@@ -483,23 +555,40 @@ Genuinely empty initialization records its backup exemption separately.
 | Embedded seekDB | Use a verified engine backup/snapshot facility, or a complete persistent-directory snapshot after confirmed engine shutdown | An ordinary copy of a running engine's directory is not a consistent snapshot; if the adapter cannot establish consistency, require external recovery evidence or return `backup_required` |
 | OceanBase and other remote databases | Use existing deployment backup, snapshot, or point-in-time recovery systems; accept a reference through `--backup-ref` | Check target tenant/database, time, coverage, and restore procedure; a backup ID alone does not prove successful restoration |
 
-Plans distinguish authoritative data, pending queues, migration records, and rebuildable projections. Backups cover
-all affected non-rebuildable state and every committed change before writes stop. A full backup predating maintenance
+Plans distinguish authoritative data, pending queues, the version table and existing domain receipts, and rebuildable
+projections. Backups cover all affected non-rebuildable state and every committed change before writes stop. A full backup predating maintenance
 is acceptable only with evidence that its logs recover through the stopped-write boundary; a stale reference alone
 is insufficient. Tasks spanning files and databases specify their shared consistency boundary. Non-rebuildable
 pending messages cannot be discarded merely because they reside in an index directory.
 
-Backup records include target identity, location/reference, creation time, covered objects, validation digest,
-verification level, and restore instructions. Record adapter-verified results separately from operator confirmations.
+Backup manifests live outside the target database and include target identity, location/reference, creation time,
+source/target revisions, migration-package and configuration digests, covered objects, validation digest, verification
+level, and restore instructions. Record adapter-verified results separately from operator confirmations.
 Expose anything that cannot be automatically verified at plan confirmation instead of reporting it as automatically
 verified. Evidence insufficient for the step's requirements returns `backup_required`; execution must not lower those
 requirements. Local backup failure, insufficient space, or a mismatched backup target prevents schema changes.
 
-Resuming a run preserves the original pre-migration backup; a snapshot of partial migration state cannot replace it.
-Completion records and CLI receipts retain the recovery reference. Successful migration does not immediately delete
-backups; a retention policy manages them. If backup succeeds but execution exits before control-table creation,
-recover its reference from an operator-specified or managed-directory backup manifest and revalidate it. Proving a
-backup exists cannot require writing target control tables first.
+Retries within the same maintenance window retain the original pre-migration backup; a snapshot of partially migrated
+state cannot replace it. Recover the original reference through `--backup-ref` or a managed backup manifest bound to
+the target, then recheck package, configuration, target, and uninterrupted maintenance conditions. Unproven conditions
+return `backup_required` or `recovery_required`. Additional partial-state backups may be retained but never replace the
+original recovery point.
+
+A retry plan records the currently observed revision and schema; the backup manifest retains the original recovery
+point's source revision. These need not match. If an upgrade from `r001` to `r003` completed `r002`, retry plans continue
+from `r002` while the original backup still represents `r001`. Verify that observed state belongs to a recognized path
+for the same target, package, and maintenance window; never rewrite the manifest to hide the difference.
+
+Persist the backup manifest before the first mutation, allowing retrieval and verification even after exiting before
+version-table creation. Remote deployments use backup services or artifact storage accessible after replacing the
+migration Job, rather than keeping evidence only in an ephemeral container directory. CLI summaries include the recovery
+reference; backup and manifest retention follows policy, without immediate deletion after success. If business writes
+resumed after the attempt, reconcile new data and recovery boundaries separately rather than automatically extending
+the old maintenance window.
+
+External execution logs do not form another generic task database. Missing logs do not bypass actual database checks
+for status and readiness. Partial migrations missing required recovery evidence must stop. The initial scope does not
+promise complete execution-history queries from the database or resumption of a specific execution run.
 
 On failure, step postconditions determine whether retry or forward repair is safe. Unproven state stops execution for
 dedicated recovery. When restoring a backup, keep writes stopped and restore the database, required files, and matching
@@ -520,18 +609,22 @@ migrations, dependency conflicts, and verification failures block merging.
    keys, collation, full-text/vector/virtual tables, and other blind spots. Express renames manually instead of accepting
    generated drop-and-create operations.
 3. Compare the schema inventory with the base branch: core structure changes need new revisions; optional projection
-   definition changes need new projection versions and tasks. Check one head, immutable historical checksums, acyclic
-   task dependencies, and complete migration resources in the wheel.
+   definition changes need new projection versions and tasks. Check one head, immutable released scripts and dependencies,
+   complete phase ordering and validators, and wheel resources matching the checksum manifest.
 4. Filter externally owned tables using registered ownership, never adding unknown objects to a drop plan. Prohibit
    new schema writes, existing-data backfills, or index rebuilds in installation hooks and ordinary startup paths.
 5. Verify that installation/upgrades and `status`/`plan`/`verify` leave existing databases unchanged. Distinguish truly
    empty initialization from an unversioned database containing business tables. HTTP, Worker, and SDK entry points
    reject business access when incompatible or incompletely migrated.
 6. Verify renewed confirmation after plan changes, non-interactive confirmation rules, failed automatic backups blocking
-   execution, external backup target checks, resume preserving the original recovery point, and required-task failures
-   preventing `ready`.
+   execution, external backup target checks, retries after reinspection retaining the original recovery point, and failed
+   required data/projection conditions preventing `ready`.
 7. For API changes, test old and new client contracts against the same migrated data. If supporting old schemas or mixed
    binaries, separately test those combinations and rejection of unsupported combinations.
+8. Check that the framework adds only `pc_schema_revision` with the standard column, without other generic control tables
+   or JSON progress in the version table. Missing logs must not bypass actual state checks; missing original backup
+   manifests must block retries needing that evidence. A release may contain multiple revisions, while no schema change
+   needs no new script.
 
 `alembic check` has the same comparison limits as autogenerate, so it cannot independently prove completeness. Combine
 it with profile-level schema checks and domain assertions.
@@ -546,11 +639,11 @@ baseline/rename fixtures for already-migrated, pending, and partially migrated s
 | Empty initialization and supported-release upgrades, including v1.1.0 | Required | Required | Required |
 | A additive change and B table reconstruction or constraint change | Required | Required | Required |
 | Repeated execution without extra side effects; correct data and retrieval after upgrade | Required | Required | Required |
-| Interruption around every commit boundary, including completed DDL without its completion record | Required | Required | Required |
+| Interruption around every commit boundary, including completed DDL without version advancement | Required | Required | Required |
 | Two concurrent processes, lock timeout, and lock-holder exit | Required | Required | Required, including proxy/node routing |
-| Database newer than the binary, unknown revision, and checksum conflict | Required | Required | Required |
+| Database newer than the binary, unknown revision, and package integrity or recovery-package digest mismatch | Required | Required | Required |
 | Unknown baseline, old/new tables coexisting, temporary-table residue, and data-verification failure | Required | Required | Required |
-| Incomplete required jobs block API/Worker/SDK business access; data tasks resume from checkpoints | Required | Required | Required |
+| Unmet required data conditions block API/Worker/SDK access; idempotent reruns or recovery through existing domain checkpoints | Required | Required | Required |
 | Installation/ordinary startup leave existing databases unchanged; read-only commands create no missing target; unversioned legacy databases are not treated as empty | Required | Required | Required |
 | Active writers, failed backups, and incorrect recovery references block execution; plan changes require confirmation again | Required | Required | Required |
 | Restored pre-migration backups verify and work with the matching binary | Required, including WAL data | Required, including engine lifecycle | Required, including actual backup/restore paths |
@@ -566,9 +659,10 @@ from expectations, complete the adapters and recovery steps before enabling the 
 - **Phase A: Evidence and prototypes.** Freeze supported versions and baseline fixtures, exercise both change classes
   plus lock/recovery matrices, and establish how Alembic runs with existing official dialects. User upgrade paths remain
   unchanged during this phase.
-- **Phase B: Unified entry point.** Add revision records, logs, status/plan/apply/verify, plan confirmation, backup adapters
-  and recovery records, and legacy adapters while retaining old command compatibility. First adoption of an existing
-  database is explicit; new databases use the revision chain. Migration does not depend on business-service startup.
+- **Phase B: Unified entry point.** Add only the standard Alembic version table, status/plan/apply/verify, plan confirmation,
+  external execution logs and backup manifests, idempotent retries, and legacy adapters while retaining old commands.
+  First adoption is explicit; new databases follow the revision chain. Migration is independent of business startup.
+  This phase delivers neither a generic task ledger nor automatic resumption by execution run.
 - **Phase C: Standard change process.** Convert helpers into revisions, tasks, or read-only checks, removing superseded
   startup DDL and implicit full backfills. Update contributor guidance, the PR template, and required CI checks together,
   defining the enablement point. All still-unmerged schema-changing PRs then follow this RFC. Never retain two entry
@@ -584,17 +678,27 @@ corresponding migrations and pass the unified gate rather than introducing featu
 
 # Drawbacks
 
-Alembic does not eliminate backend differences. Execution logs, historical fixtures, and real-database CI add ongoing
-maintenance costs. Explicit migration adds operational steps, and first adoption changes the experience of startup
+A single version table reduces database control objects but stores no per-step progress, failed runs, or historical
+checksums actually executed. Diagnosis depends on external logs; recovery depends on actual state and retained backup
+evidence. Large tasks without existing domain checkpoints may rescan data; unprovable partial state needs manual repair.
+Generic checkpoint resumption cannot be promised.
+
+Alembic does not eliminate backend differences. Script idempotency, validators, backup manifests, historical fixtures,
+and real-database CI add ongoing maintenance costs. Explicit migration adds operational steps, and first adoption changes the experience of startup
 automatically filling schema gaps. Initially, stopping writes requires downtime. Plans must explain the time and space
 cost of large table copies, index construction, and embedding recomputation, without promising duration from row
 counts alone.
 
 # Rationale and alternatives
 
+Alembic's native single version table, a thin execution layer, and explicit data validators satisfy the core goals of
+schema versioning and manual maintenance. Separate run/step/task tables or one additional combined ledger suit systems
+needing generic orchestration, but add state-management and recovery protocols outside this proposal's initial scope.
+Such ledgers are not hidden in version-table JSON fields or implemented by replacing Alembic's version handling.
+
 Keeping scattered helpers is cheapest initially, but provides no common version, recovery, or deployment contract.
-A custom version-number table alone cannot establish agreement between constraints, backfills, and task state.
-Alembic reduces custom schema tooling while preserving PowerContext's ownership of domain semantics.
+A version number alone cannot prove constraints and data are correct. Frozen revisions, actual schema/data verification,
+and external recovery evidence provide those guarantees here; the Alembic revision is not a full execution ledger.
 
 Automatic upgrades from every replica's startup would require ordinary startup to have DDL privileges and handle large
 operations, competing old processes, and implicit commits. Putting every data task inside a revision would lose their
@@ -625,10 +729,12 @@ Resolve the following before enabling the framework as the standard change proce
   pre-framework release support direct upgrades, and dedicated repair policies for legacy collation conflicts.
 - Optional projection object inventories, configuration digests, and readiness scope: which tasks block the whole
   service and which block only their retrieval capability.
-- Consistent-backup adapters for each profile, external recovery evidence fields and verification levels, and default
-  retention policy. Actual restoration acceptance determines support.
-- Known active-writer coverage of each entry point and integration with maintenance orchestration. Distinguish tool
-  checks from the operator's stopped-write guarantee; heartbeat timeout is not proof of process termination.
+- Consistent-backup adapters for each profile and external backup manifest location, target binding, package digests,
+  permissions, and retention. Verify that recovery evidence remains usable after replacing remote migration Jobs.
+- Known active-writer coverage, read-only lock inspection, and maintenance orchestration integration. Make explicit that
+  a single version table cannot represent every failed state; heartbeat timeout is not proof of process termination.
+- Which data scripts can establish progress from business data and reuse existing domain receipts. Specify dedicated
+  recovery for scripts that cannot safely rerun idempotently, without implicitly adding generic task tables.
 - Initial old API contracts retained and their deprecation schedules. Every schema/API change specifies client
   compatibility and application rollback conditions separately.
 
