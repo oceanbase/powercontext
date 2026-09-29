@@ -28,6 +28,8 @@ implementations must propagate this conflict so an operator can investigate the 
 Scope, or explicitly repair the binding. They must not automatically create a replacement Scope and overwrite
 the binding. Direct lookups of missing Scopes still return 404 because an ID alone cannot establish whether the
 Scope previously existed.
+With enforced access, subject-source writes require contribution access to the bound target before returning this conflict;
+callers without that permission receive 403 without the target ID.
 
 ## Enable access control
 

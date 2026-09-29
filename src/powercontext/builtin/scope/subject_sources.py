@@ -111,12 +111,13 @@ class SubjectSourceService:
                 target = generate_scope_id() if requested_scope is None else requested_scope
             if target == scope_id:
                 raise InvalidBaseAccessRequestError("scope_id", "distinct_scopes_required")
-            if not new_scope and await self._scopes.get(connection, target) is None:
-                error_type = ScopeNotFoundError if binding is None else ScopeBindingTargetMissingError
-                raise error_type(target)
+            # Authorize before revealing a persisted binding's target or its state.
             # Checks and the new Scope's access relationship share this transaction.
             if authorize is not None:
                 await authorize(connection, target, new_binding, new_scope)
+            if not new_scope and await self._scopes.get(connection, target) is None:
+                error_type = ScopeNotFoundError if binding is None else ScopeBindingTargetMissingError
+                raise error_type(target)
             if new_scope:
                 draft = ScopeDraft(
                     title="Subject", summary="Subject evidence", idempotency_key=f"subject-{uuid4().hex}"
