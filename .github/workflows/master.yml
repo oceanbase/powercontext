@@ -60,7 +60,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Diagnose Topic Memory end-to-end stall
-        run: timeout 180s uv run python -m pytest -vv -x -o faulthandler_timeout=30 tests/e2e/test_topic_memory_generic_api.py
+        run: timeout 180s uv run python -m pytest -s -vv -x -o faulthandler_timeout=30 tests/e2e/test_topic_memory_generic_api.py
 
   code-seekdb:
     timeout-minutes: 20
