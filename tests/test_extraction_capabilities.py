@@ -53,11 +53,14 @@ def test_capabilities_reports_unconfigured_extraction_without_claiming_health(tm
         assert response.status_code == 200
         assert response.json()["memory_extraction"] is False
         extraction = response.json()["extraction"]
-        assert extraction["model_configured"] is False
-        assert extraction["worker_status"] == "disabled"
-        assert extraction["automatic_processing_enabled"] is False
-        assert extraction["last_result"] == "unverified"
-        assert extraction["last_error"] is None
+        assert extraction["configuration"] == "unconfigured"
+        assert extraction["background"]["location"] == "none"
+        assert extraction["background"]["role"] is None
+        assert extraction["background"]["state"] == "stopped"
+        assert extraction["background"]["automatic_processing_enabled"] is False
+        assert extraction["observation"]["status"] == "unverified"
+        assert extraction["observation"]["last_failure"] is None
+        assert extraction["observation"]["last_success_at"] is None
 
         async def read_with_sdk() -> None:
             async with httpx.AsyncClient(
@@ -66,21 +69,22 @@ def test_capabilities_reports_unconfigured_extraction_without_claiming_health(tm
                 sdk = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
                 capabilities = await sdk.get_capabilities()
                 assert capabilities.extraction is not None
-                assert capabilities.extraction.model_configured is False
+                assert capabilities.extraction.model_dump(mode="json") == extraction
 
         assert client.portal is not None
         client.portal.call(read_with_sdk)
 
 
 @pytest.mark.parametrize(
-    ("failure", "category"),
+    ("failure", "category", "stage"),
     [
-        (InferenceConfigurationError("secret-provider-rejection"), "model_configuration_error"),
-        (InferenceTimeoutError("memory.extract", 0.01), "model_timeout"),
-        (InferenceUnavailableError("memory.extract", "secret-provider-response"), "model_unavailable"),
+        (InferenceConfigurationError("secret-provider-rejection"), "model_configuration_error", "inference"),
+        (InferenceTimeoutError("memory.extract", 0.01), "model_timeout", "inference"),
+        (InferenceUnavailableError("memory.extract", "secret-provider-response"), "model_unavailable", "inference"),
+        (TimeoutError("secret-provider-local-timeout"), "processing_failed", "flush"),
     ],
 )
-def test_capabilities_observes_extraction_failure_and_recovery_after_startup(tmp_path, failure, category) -> None:
+def test_capabilities_keeps_independent_scope_outcomes_until_restart(tmp_path, failure, category, stage) -> None:
     pipeline = _RecoveringPipeline(failure)
     app = create_server_app(
         settings=ServerSettings(
@@ -90,39 +94,66 @@ def test_capabilities_observes_extraction_failure_and_recovery_after_startup(tmp
         ),
         candidate_pipeline=pipeline,
     )
-    with TestClient(app) as client:
+    with TestClient(app, raise_server_exceptions=False) as client:
         initial = client.get("/v1/capabilities").json()["extraction"]
-        assert initial["model_configured"] is True
-        assert initial["last_result"] == "unverified"
-        assert initial["last_error"] is None
-        assert initial["last_success_at"] is None
+        assert initial["configuration"] == "configured"
+        assert initial["observation"]["status"] == "unverified"
+        assert initial["observation"]["last_failure"] is None
+        assert initial["observation"]["last_success_at"] is None
         scope_id = client.get("/v1/scopes/default").json()["scope_id"]
         captured = client.post(
             "/v1/sources/content",
             json={"scope_id": scope_id, "source_id": "one", "content": "Keep this decision.", "metadata": {}},
         )
         assert captured.status_code == 202
+        assert client.get("/v1/capabilities").json()["extraction"] == initial
         assert client.post("/v1/memory/flush", json={"scope_id": scope_id}).is_error
         response = client.get("/v1/capabilities")
-        failed = response.json()["extraction"]
-        assert failed["last_result"] == "failed"
-        assert failed["last_error"] == category
-        assert failed["last_error_at"] is not None
+        failed = response.json()["extraction"]["observation"]
+        assert failed["status"] == "observed"
+        assert failed["since"] == initial["observation"]["since"]
+        assert failed["last_failure"]["code"] == category
+        assert failed["last_failure"]["stage"] == stage
+        assert failed["last_failure"]["occurred_at"] >= failed["since"]
         assert failed["last_success_at"] is None
         assert "secret-provider" not in response.text
 
         pipeline.failure = None
+        other_scope = client.post(
+            "/v1/scopes",
+            json={"title": "Healthy Scope", "summary": "Independent extraction", "idempotency_key": "healthy"},
+        )
+        assert other_scope.status_code == 201
+        other_scope_id = other_scope.json()["scope_id"]
+        assert (
+            client.post(
+                "/v1/sources/content",
+                json={
+                    "scope_id": other_scope_id,
+                    "source_id": "two",
+                    "content": "Keep this other decision.",
+                    "metadata": {},
+                },
+            ).status_code
+            == 202
+        )
+        assert client.post("/v1/memory/flush", json={"scope_id": other_scope_id}).status_code == 200
+        mixed = client.get("/v1/capabilities").json()["extraction"]["observation"]
+        assert mixed["status"] == "observed"
+        assert mixed["last_failure"] == failed["last_failure"]
+        assert mixed["last_success_at"] > failed["last_failure"]["occurred_at"]
+
         assert client.post("/v1/memory/flush", json={"scope_id": scope_id}).status_code == 200
-        recovered = client.get("/v1/capabilities").json()["extraction"]
-        assert recovered["last_result"] == "succeeded"
-        assert recovered["last_error"] == category
-        assert recovered["last_error_at"] == failed["last_error_at"]
-        assert recovered["last_success_at"] > recovered["last_error_at"]
+        recovered = client.get("/v1/capabilities").json()["extraction"]["observation"]
+        assert recovered["status"] == "observed"
+        assert recovered["last_failure"] == failed["last_failure"]
+        assert recovered["last_success_at"] > mixed["last_success_at"]
         assert client.post("/v1/memory/flush", json={"scope_id": scope_id}).status_code == 200
-        assert client.get("/v1/capabilities").json()["extraction"]["last_success_at"] == recovered["last_success_at"]
+        assert client.get("/v1/capabilities").json()["extraction"]["observation"] == recovered
 
     with TestClient(app) as client:
-        restarted = client.get("/v1/capabilities").json()["extraction"]
-        assert restarted["last_result"] == "unverified"
-        assert restarted["last_error"] is None
+        restarted = client.get("/v1/capabilities").json()["extraction"]["observation"]
+        assert restarted["status"] == "unverified"
+        assert restarted["since"] > recovered["since"]
+        assert restarted["last_failure"] is None
         assert restarted["last_success_at"] is None

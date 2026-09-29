@@ -79,7 +79,7 @@ class ArtifactProcessingWorkerLauncher(Protocol):
 WorkerEntrypoint = Callable[[ArtifactProcessingWorkAssignment], ArtifactProcessingWorkerCompletion | None]
 
 
-def processing_error_code(exception_type: str, error_code: str = "") -> str:
+def processing_error_code(exception_type: type[BaseException] | str, error_code: str = "") -> str:
     """Expose only known categories, never exception messages or custom codes."""
 
     inference_codes = {
@@ -88,11 +88,17 @@ def processing_error_code(exception_type: str, error_code: str = "") -> str:
         "InferenceTimeoutError": "model_timeout",
         "InferenceUnavailableError": "model_unavailable",
         "InvalidInferenceOutputError": "invalid_model_output",
-        "TimeoutError": "worker_timeout",
     }
-    if exception_type in inference_codes:
-        return inference_codes[exception_type]
-    if error_code in {"worker_crash", "invalid_worker_result", "missing_durable_acknowledgement"}:
+    names = (exception_type,) if isinstance(exception_type, str) else (base.__name__ for base in exception_type.__mro__)
+    for name in names:
+        if name in inference_codes:
+            return inference_codes[name]
+    if error_code in {
+        *inference_codes.values(),
+        "worker_crash",
+        "invalid_worker_result",
+        "missing_durable_acknowledgement",
+    }:
         return error_code
     return "processing_failed"
 

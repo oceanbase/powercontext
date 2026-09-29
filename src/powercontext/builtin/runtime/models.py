@@ -103,16 +103,40 @@ class CommitConnectorCheckpoint(BaseModel):
     checkpoint: JsonValue | None
 
 
-class ExtractionStatus(BaseModel):
-    """Observed Memory extraction diagnostics, without an active model probe."""
+class ExtractionBackground(BaseModel):
+    """Placement, leadership, and lifecycle of the Memory Supervisor."""
 
-    model_configured: bool
-    worker_status: Literal["disabled", "external", "leader", "standby", "degraded", "stopped"]
+    location: Literal["local", "external", "none"]
+    role: Literal["leader", "standby"] | None = None
+    state: Literal["running", "degraded", "stopped", "unknown"]
     automatic_processing_enabled: bool | None = None
-    last_result: Literal["unverified", "succeeded", "failed"]
-    last_error: str | None = None
-    last_error_at: datetime | None = None
+
+
+class ExtractionFailure(BaseModel):
+    """A historical failure observation, not an unresolved incident."""
+
+    model_config = ConfigDict(frozen=True)
+
+    code: str
+    stage: Literal["inference", "flush", "worker", "supervisor", "lease_renewal", "scope_discovery"]
+    occurred_at: datetime
+
+
+class ExtractionObservation(BaseModel):
+    """Independent success and failure evidence within this Runtime's lifetime."""
+
+    status: Literal["unverified", "observed"]
+    since: datetime
     last_success_at: datetime | None = None
+    last_failure: ExtractionFailure | None = None
+
+
+class ExtractionStatus(BaseModel):
+    """Read-only facts about Memory extraction, without an overall health verdict."""
+
+    configuration: Literal["configured", "unconfigured", "unknown"]
+    background: ExtractionBackground
+    observation: ExtractionObservation
 
 
 class RuntimeCapabilities(BaseModel):

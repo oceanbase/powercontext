@@ -34,12 +34,22 @@ from powercontext.server.app import create_app
         pytest.param(None, id="diagnostics-unavailable"),
         pytest.param(
             ExtractionStatus.model_validate({
-                "model_configured": True,
-                "worker_status": "leader",
-                "automatic_processing_enabled": True,
-                "last_result": "failed",
-                "last_error": "model_timeout",
-                "last_error_at": datetime(2026, 9, 29, tzinfo=UTC),
+                "configuration": "configured",
+                "background": {
+                    "location": "local",
+                    "role": "leader",
+                    "state": "running",
+                    "automatic_processing_enabled": True,
+                },
+                "observation": {
+                    "status": "observed",
+                    "since": datetime(2026, 9, 28, tzinfo=UTC),
+                    "last_failure": {
+                        "code": "model_timeout",
+                        "stage": "inference",
+                        "occurred_at": datetime(2026, 9, 29, tzinfo=UTC),
+                    },
+                },
             }),
             id="extraction-failed",
         ),

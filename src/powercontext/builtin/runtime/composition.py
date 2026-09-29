@@ -557,7 +557,7 @@ async def open_builtin_runtime(
                 ),
                 source_window_limit=config.runtime.source_window_limit,
                 extraction_diagnostics=ExtractionDiagnostics(
-                    model_configured=contexts.memory_extraction,
+                    pipeline_configured=contexts.memory_extraction,
                     external_worker=(
                         config.runtime.artifact_processing_role == "api" and "memory" in processing_capabilities(config)
                     ),
