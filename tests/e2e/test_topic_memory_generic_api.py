@@ -17,7 +17,6 @@
 import asyncio
 import logging
 import sqlite3
-import sys
 
 import httpx
 import pytest
@@ -120,26 +119,6 @@ async def _await_usage_record(database, scope):
 
     async with asyncio.timeout(5):
         while _topic_embedding_requests(database, scope) == 0:  # noqa: ASYNC110 - bounded observation of committed database state
-            await asyncio.sleep(0.02)
-
-
-async def _await_sqlite_writer(database):
-    """Wait for the preceding transaction to release SQLite's write lock."""
-
-    async with asyncio.timeout(35):
-        while True:
-            connection = sqlite3.connect(database, timeout=0)
-            try:
-                try:
-                    connection.execute("BEGIN IMMEDIATE")
-                except sqlite3.OperationalError as error:
-                    if error.sqlite_errorcode not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
-                        raise
-                else:
-                    connection.rollback()
-                    return
-            finally:
-                connection.close()
             await asyncio.sleep(0.02)
 
 
@@ -579,30 +558,20 @@ def test_usage_write_failure_logs_no_traceback_and_keeps_the_round(tmp_path, mon
 def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_healthy(tmp_path, monkeypatch):
     """Cancelling must propagate and must not wedge the runtime or its recorder.
 
-    Usage no longer runs inside the request. Its best-effort write may succeed or
-    fail after cancellation; the runtime must still accept new work afterwards.
+    Usage no longer runs inside the request, so a cancelled request neither waits
+    for it nor rolls it back; what must hold is that cancellation propagates and
+    the runtime keeps accepting work afterwards.
     """
 
     async def scenario():
         release = asyncio.Event()
         entered = asyncio.Event()
-        completed = asyncio.Event()
         original = StatisticsRepository.record
-
-        def dump_tasks():
-            for task in asyncio.all_tasks():
-                print(f"DIAGNOSTIC TASK {task.get_name()} {task!r}", file=sys.stderr)
-                task.print_stack(limit=20, file=sys.stderr)
-
-        asyncio.get_running_loop().call_later(10, dump_tasks)
 
         async def stalled_record(repository, connection, *args):
             entered.set()
             await release.wait()
-            try:
-                return await original(repository, connection, *args)
-            finally:
-                completed.set()
+            return await original(repository, connection, *args)
 
         # As above: the stalled write must be reached rather than dropped for
         # spending its budget on a slow machine.
@@ -622,16 +591,10 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
                 pending = asyncio.create_task(client.post(path, json=payload))
                 await asyncio.wait_for(entered.wait(), 5)
                 pending.cancel()
-                # Let the recorder release its SQLite lock so cancellation can
-                # finish the request transaction's rollback before returning.
-                release.set()
                 with pytest.raises(asyncio.CancelledError):
-                    await asyncio.wait_for(pending, 35)
-            # The recorder is best-effort and may reject an interrupted write.
-            # The repository call finishes before its transaction releases the
-            # write lock. Wait for that release before testing the business path.
-            await asyncio.wait_for(completed.wait(), 35)
-            await _await_sqlite_writer(tmp_path / "topics.db")
+                    await pending
+                release.set()
+            await _await_usage_record(tmp_path / "topics.db", scope)
             assert (await client.post(path, json=payload)).status_code == 201
 
     asyncio.run(scenario())

@@ -17,11 +17,9 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import time
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
-from types import TracebackType
 
 from aiosqlite import Connection as SQLiteConnection
 from sqlalchemy.exc import OperationalError
@@ -89,27 +87,19 @@ class AsyncDatabase:
             self._active_transactions += 1
         try:
             guard = self._shared_connection_lock if self._shared_connection_lock is not None else nullcontext()
-            async with guard:
-                context = self._engine.begin()
-                connection = await context.__aenter__()
+            async with guard, self._engine.begin() as connection:
+                if connection.dialect.name == "mysql":
+                    # The MySQL dialect's begin hook is a no-op. Explicitly start
+                    # the owned transaction even when the server session uses autocommit.
+                    await connection.exec_driver_sql("START TRANSACTION")
+                if self._shared_connection_lock is not None:
+                    self._transaction_owner = owner
+                    self._shared_connection = connection
                 try:
-                    if connection.dialect.name == "mysql":
-                        # The MySQL dialect's begin hook is a no-op. Explicitly start
-                        # the owned transaction even when the server session uses autocommit.
-                        await connection.exec_driver_sql("START TRANSACTION")
-                    if self._shared_connection_lock is not None:
-                        self._transaction_owner = owner
-                        self._shared_connection = connection
-                    try:
-                        yield connection
-                    finally:
-                        self._transaction_owner = None
-                        self._shared_connection = None
-                except BaseException:
-                    await _finish_engine_transaction(context, *sys.exc_info())
-                    raise
-                else:
-                    await _finish_engine_transaction(context, None, None, None)
+                    yield connection
+                finally:
+                    self._transaction_owner = None
+                    self._shared_connection = None
         finally:
             async with self._state_changed:
                 self._active_transactions -= 1
@@ -203,29 +193,6 @@ class AsyncDatabase:
                 self._closed = True
                 self._closing = False
                 self._state_changed.notify_all()
-
-
-async def _finish_engine_transaction(
-    context: AbstractAsyncContextManager[AsyncConnection],
-    error_type: type[BaseException] | None,
-    error: BaseException | None,
-    traceback: TracebackType | None,
-) -> None:
-    """Finish commit or rollback before a cancelled caller releases its guard."""
-
-    cleanup = asyncio.create_task(context.__aexit__(error_type, error, traceback))
-    cancelled = False
-    while True:
-        try:
-            await asyncio.shield(cleanup)
-            break
-        except asyncio.CancelledError:
-            cancelled = True
-            if cleanup.done():
-                break
-    cleanup.result()
-    if cancelled:
-        raise asyncio.CancelledError
 
 
 @asynccontextmanager
