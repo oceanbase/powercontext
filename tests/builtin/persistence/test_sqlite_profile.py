@@ -28,6 +28,7 @@ from sqlalchemy.exc import IntegrityError, PendingRollbackError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 from sqlalchemy.pool import QueuePool
 
+from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite import profile as sqlite_profile
 from powercontext.builtin.persistence.tables import (
@@ -343,6 +344,42 @@ def test_interrupt_marked_outside_the_transaction_does_not_fail_it(tmp_path) -> 
                 connection.info["_powercontext_sqlite_interrupted"] = True
             async with database.transaction() as connection:
                 await connection.exec_driver_sql("SELECT 1")
+
+    asyncio.run(scenario())
+
+
+def test_invalidated_connection_still_reaches_transaction_cleanup() -> None:
+    """Cleanup must not read ``connection.info`` directly.
+
+    A cancelled statement can invalidate the connection through SQLAlchemy's
+    normal path, and from then on ``connection.info`` raises
+    PendingRollbackError. Reading it inside the failure path skipped the rest of
+    the cleanup and left the transaction counted as active, which also kept
+    database shutdown from finishing.
+    """
+
+    class Boom(Exception):
+        pass
+
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        database = AsyncDatabase.attach(engine)
+        try:
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER)")
+
+            async def operation() -> None:
+                async with database.transaction() as connection:
+                    await connection.invalidate()
+                    raise Boom
+
+            with pytest.raises(Boom):
+                await operation()
+
+            assert database._active_transactions == 0
+            await asyncio.wait_for(database.close(), 5)
+        finally:
+            await engine.dispose()
 
     asyncio.run(scenario())
 

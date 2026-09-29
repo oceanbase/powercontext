@@ -20,6 +20,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator, Callable, Collection
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
+from typing import Any
 
 from aiosqlite import Connection as SQLiteConnection
 from aiosqlite import Cursor as SQLiteCursor
@@ -86,23 +87,25 @@ class AsyncDatabase:
         connection = await context.__aenter__()
         sqlite_stop = None
         sqlite_cursors: Collection[SQLiteCursor] | None = None
+        info: dict[str, Any] | None = None
         if connection.dialect.name == "sqlite":
-            sqlite_stop = connection.info.get("_powercontext_sqlite_stop")
-            sqlite_cursors = connection.info.get("_powercontext_sqlite_cursors")
+            # Hold the info dict itself. `connection.info` re-resolves the DBAPI
+            # connection and raises once it has been invalidated, and cleanup has
+            # to survive that.
+            info = connection.info
+            sqlite_stop = info.get("_powercontext_sqlite_stop")
+            sqlite_cursors = info.get("_powercontext_sqlite_cursors")
             # An interrupt recorded by a statement outside this transaction (the
             # usage recorder owns its own) must not fail this one.
-            connection.info.pop("_powercontext_sqlite_interrupted", None)
+            info.pop("_powercontext_sqlite_interrupted", None)
         try:
-            if connection.dialect.name == "sqlite":
-                sqlite_stop = connection.info.get("_powercontext_sqlite_stop")
-                sqlite_cursors = connection.info.get("_powercontext_sqlite_cursors")
             yield connection
         except BaseException as error:
-            if connection.dialect.name == "sqlite":
-                connection.info.pop("_powercontext_sqlite_interrupted", None)
+            if info is not None:
+                info.pop("_powercontext_sqlite_interrupted", None)
             await _finish_transaction(context, connection, error, sqlite_stop, sqlite_cursors)
             raise
-        if connection.dialect.name == "sqlite" and connection.info.pop("_powercontext_sqlite_interrupted", False):
+        if info is not None and info.pop("_powercontext_sqlite_interrupted", False):
             # An interrupted statement rolled SQLite's whole native transaction
             # back, so writes that already reported success are gone. Committing
             # now would persist only the later ones; fail the transaction instead.
@@ -111,7 +114,14 @@ class AsyncDatabase:
             )
             await _finish_transaction(context, connection, interrupted, sqlite_stop, sqlite_cursors)
             raise interrupted
-        await context.__aexit__(None, None, None)
+        try:
+            await context.__aexit__(None, None, None)
+        finally:
+            # The commit itself can be cancelled, and its error handler records the
+            # mark after the check above; clear it so the next borrower of this
+            # pooled connection cannot inherit an interrupt that was not theirs.
+            if info is not None:
+                info.pop("_powercontext_sqlite_interrupted", None)
 
     @asynccontextmanager
     async def _transaction(self) -> AsyncIterator[AsyncConnection]:
