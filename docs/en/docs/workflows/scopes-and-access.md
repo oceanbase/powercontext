@@ -20,6 +20,15 @@ grant permission to access that data.
 Parent relationships organize Scopes; explicit context references describe reuse. Neither relationship grants access.
 Exact, subtree, and all-Scope views change the selection being inspected, not the caller's permissions.
 
+Binding resolution returns `404 scope_not_found` when no binding is available or an explicitly supplied Scope ID
+does not exist. If a durable binding or default pointer exists but its target Scope is missing, the Server returns
+`409 scope_binding_target_missing` with the original target ID in `error.details.scope_id`.
+Resolution stops at that binding without falling back to later bindings or the default Scope. Client `Ensure()`
+implementations must propagate this conflict so an operator can investigate the data loss, restore the original
+Scope, or explicitly repair the binding. They must not automatically create a replacement Scope and overwrite
+the binding. Direct lookups of missing Scopes still return 404 because an ID alone cannot establish whether the
+Scope previously existed.
+
 ## Enable access control
 
 For shared or remote use, follow [deployment authentication](../operate/deploy-server.md#enable-authentication) and
