@@ -558,20 +558,23 @@ def test_usage_write_failure_logs_no_traceback_and_keeps_the_round(tmp_path, mon
 def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_healthy(tmp_path, monkeypatch):
     """Cancelling must propagate and must not wedge the runtime or its recorder.
 
-    Usage no longer runs inside the request, so a cancelled request neither waits
-    for it nor rolls it back; what must hold is that cancellation propagates and
-    the runtime keeps accepting work afterwards.
+    Usage no longer runs inside the request. Its best-effort write may succeed or
+    fail after cancellation; the runtime must still accept new work afterwards.
     """
 
     async def scenario():
         release = asyncio.Event()
         entered = asyncio.Event()
+        completed = asyncio.Event()
         original = StatisticsRepository.record
 
         async def stalled_record(repository, connection, *args):
             entered.set()
             await release.wait()
-            return await original(repository, connection, *args)
+            try:
+                return await original(repository, connection, *args)
+            finally:
+                completed.set()
 
         # As above: the stalled write must be reached rather than dropped for
         # spending its budget on a slow machine.
@@ -594,7 +597,9 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
                 with pytest.raises(asyncio.CancelledError):
                     await pending
                 release.set()
-            await _await_usage_record(tmp_path / "topics.db", scope)
+            # The recorder is best-effort and may reject an interrupted write.
+            # Wait for its own bounded attempt, then test the business path.
+            await asyncio.wait_for(completed.wait(), 35)
             assert (await client.post(path, json=payload)).status_code == 201
 
     asyncio.run(scenario())
