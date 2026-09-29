@@ -326,6 +326,27 @@ def test_interrupted_write_cannot_commit_earlier_work(tmp_path, in_memory) -> No
         release.set()
 
 
+def test_interrupt_marked_outside_the_transaction_does_not_fail_it(tmp_path) -> None:
+    """A mark left by a statement outside transaction() must not fail a later one.
+
+    The usage recorder owns its own transaction and never passes through
+    ``AsyncDatabase.transaction()``, so a mark an interrupt left on that pooled
+    connection survives until another transaction picks the connection up. That
+    later transaction has nothing to do with the interrupt and must commit.
+    """
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'stale-mark.db'}")
+        async with SQLiteProfile.open(config, tables=()) as profile:
+            database = profile.database
+            async with database.engine.connect() as connection:
+                connection.info["_powercontext_sqlite_interrupted"] = True
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("SELECT 1")
+
+    asyncio.run(scenario())
+
+
 def test_sqlite_config_requires_the_async_dialect() -> None:
     with pytest.raises(ValidationError, match=r"sqlite\+aiosqlite"):
         SQLiteConfig(url="sqlite:///:memory:")

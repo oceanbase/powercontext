@@ -86,6 +86,12 @@ class AsyncDatabase:
         connection = await context.__aenter__()
         sqlite_stop = None
         sqlite_cursors: Collection[SQLiteCursor] | None = None
+        if connection.dialect.name == "sqlite":
+            sqlite_stop = connection.info.get("_powercontext_sqlite_stop")
+            sqlite_cursors = connection.info.get("_powercontext_sqlite_cursors")
+            # An interrupt recorded by a statement outside this transaction (the
+            # usage recorder owns its own) must not fail this one.
+            connection.info.pop("_powercontext_sqlite_interrupted", None)
         try:
             if connection.dialect.name == "sqlite":
                 sqlite_stop = connection.info.get("_powercontext_sqlite_stop")
