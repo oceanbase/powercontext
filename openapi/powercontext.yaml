@@ -16,7 +16,7 @@ openapi: 3.0.3
 info:
   title: PowerContext API
   description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
-  version: 1.1.0
+  version: 1.2.0
 security:
   - BearerAuth: []
   - {}
@@ -8194,6 +8194,17 @@ components:
         memory:
           $ref: "#/components/schemas/ArtifactReference"
           nullable: true
+        held_count:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Number of source windows held by the Memory write gate.
+        hold_codes:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Structured Memory write gate refusal codes for held windows.
     FlushTopicMemoryRequest:
       type: object
       additionalProperties: false

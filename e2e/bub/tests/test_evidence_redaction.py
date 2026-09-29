@@ -19,6 +19,8 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
+import pytest
+
 from powercontext_e2e.artifacts import write_artifacts
 from powercontext_e2e.catalog import load_tasks
 from powercontext_e2e.evaluation import MemoryEvaluator
@@ -54,12 +56,14 @@ def test_resolved_instruction_evidence_matches_harbor_acp_summaries(
     assert resolved[0].sha256 == sha256(instruction.encode()).hexdigest()
 
 
+@pytest.mark.parametrize("secret_name", ["BUB_API_KEY", "OPENAI_API_KEY", "POWERCONTEXT_CODEX_AUTHORIZATION"])
 def test_final_evidence_redacts_configured_secrets_and_preserves_the_public_schema(
     monkeypatch,
     tmp_path: Path,
+    secret_name: str,
 ) -> None:
     sensitive_value = "provider-runtime-secret-sentinel"
-    monkeypatch.setenv("BUB_API_KEY", sensitive_value)
+    monkeypatch.setenv(secret_name, sensitive_value)
     repository = Path(__file__).resolve().parents[3]
     task = next(
         task for task in load_tasks(repository / "e2e" / "bub" / "tasks") if task.id == "project-database-decision"

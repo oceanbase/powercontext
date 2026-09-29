@@ -201,6 +201,13 @@ id = "workbuddy:UserPromptSubmit"
 capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
 
 [[toolsets]]
+id = "zcode-prompt-hook"
+probe = "zcode_prompt_hook"
+[[toolsets.tools]]
+id = "zcode:UserPromptSubmit"
+capabilities = ["source_capture", "context_injection"]
+
+[[toolsets]]
 id = "dsh-tools"
 probe = "dsh_tools"
 [[toolsets.tools]]
@@ -742,6 +749,18 @@ toolsets = ["server-mcp", "prompt-hooks"]
 implementation = ["integrations/workbuddy/plugins/powercontext/.mcp.json", "integrations/workbuddy/plugins/powercontext/hooks/workbuddy_powercontext_hook.py"]
 documentation = ["docs/en/docs/integrations/workbuddy.md", "docs/zh/docs/integrations/workbuddy.md"]
 tests = ["tests/test_cli_workbuddy.py"]
+
+[[integrations]]
+id = "zcode"
+kind = "agent_host"
+availability = "experimental"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
+profiles = ["minimal", "recommended", "full"]
+toolsets = ["server-mcp", "zcode-prompt-hook"]
+[integrations.evidence]
+implementation = ["integrations/zcode/plugins/powercontext/.mcp.json", "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs"]
+documentation = ["docs/en/docs/integrations/zcode.md", "docs/zh/docs/integrations/zcode.md"]
+tests = ["integrations/zcode/plugins/powercontext/tests/plugin.test.mjs", "tests/test_cli_zcode.py", "tests/e2e/test_zcode_service_chain.py"]
 
 [[integrations]]
 id = "pydantic-ai"

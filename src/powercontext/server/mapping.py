@@ -561,6 +561,8 @@ def flush_response(value: MemoryFlushResult) -> FlushMemoryResponse:
         high_watermark=value.high_watermark,
         processed_source_count=value.source_count,
         memory=None if value.memory_ref is None else artifact_reference(value.memory_ref),
+        held_count=value.held_count,
+        hold_codes=list(value.hold_codes),
     )
 
 

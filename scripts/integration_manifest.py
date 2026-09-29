@@ -80,6 +80,7 @@ class SupportProfile(StrEnum):
 class ToolSurfaceProbe(StrEnum):
     SERVER_MCP = "server_mcp"
     JSON_PROMPT_HOOK = "json_prompt_hook"
+    ZCODE_PROMPT_HOOK = "zcode_prompt_hook"
     DSH_TOOLS = "dsh_tools"
     DSH_COMMANDS = "dsh_commands"
     HERMES_OPERATIONS = "hermes_operations"
@@ -430,6 +431,8 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
         return set(_MCP_OPERATION_IDS)
     if probe is ToolSurfaceProbe.JSON_PROMPT_HOOK:
         return _prompt_hook_ids(root)
+    if probe is ToolSurfaceProbe.ZCODE_PROMPT_HOOK:
+        return _zcode_prompt_hook_ids(root)
     if probe is ToolSurfaceProbe.DSH_TOOLS:
         return _typescript_operation_tools(root / "integrations/dsh/plugins/powercontext/src/tools.ts", "pcTool")
     if probe is ToolSurfaceProbe.OPENCODE_TOOLS:
@@ -580,6 +583,27 @@ def _prompt_hook_ids(root: Path) -> set[str]:
             else:
                 result.add(f"{integration_id}:{event}:incomplete")
     return result
+
+
+def _zcode_prompt_hook_ids(root: Path) -> set[str]:
+    plugin = root / "integrations/zcode/plugins/powercontext"
+    try:
+        hooks = json.loads((plugin / "hooks/hooks.json").read_text(encoding="utf-8"))
+        registrations = hooks["hooks"]["UserPromptSubmit"]
+        script = (plugin / "hooks/user_prompt_submit.mjs").read_text(encoding="utf-8")
+        registered = any(
+            hook.get("type") == "process"
+            and hook.get("command") == "node"
+            and "${ZCODE_PLUGIN_ROOT}/hooks/user_prompt_submit.mjs" in hook.get("args", [])
+            for matcher in registrations
+            for hook in matcher.get("hooks", [])
+        )
+        complete = registered and all(
+            marker in script for marker in ("/v1/context/prepare", "/v1/sources/content", "hookSpecificOutput")
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        complete = False
+    return {"zcode:UserPromptSubmit" if complete else "zcode:UserPromptSubmit:incomplete"}
 
 
 def _is_complete_hook(integration_id: str, event: str, scripts: set[Path]) -> bool:
@@ -754,6 +778,7 @@ def _mcp_configuration_errors(integration_id: str, root: Path) -> list[str]:
         "codex": "integrations/codex/plugins/powercontext/.mcp.json",
         "claude-code": "integrations/claude-code/plugins/powercontext/.mcp.json",
         "workbuddy": "integrations/workbuddy/plugins/powercontext/.mcp.json",
+        "zcode": "integrations/zcode/plugins/powercontext/.mcp.json",
     }
     path = paths.get(integration_id)
     if path is None:

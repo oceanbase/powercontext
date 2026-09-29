@@ -361,6 +361,16 @@ def install_host(
         from powercontext.cli.workbuddy import install_workbuddy_plugin
 
         return install_workbuddy_plugin(source=source, ref=ref, server_url=server_url)
+    if name == "zcode":
+        from powercontext.cli.zcode import install_zcode_plugin
+
+        return install_zcode_plugin(
+            source=source,
+            ref=ref,
+            server_url=server_url or "http://127.0.0.1:8000",
+            capture_prompts=capture_prompts,
+            allow_insecure_http=allow_insecure_http,
+        )
     raise SetupSelectError.unknown_host(name)
 
 
@@ -370,9 +380,9 @@ def verify_host(name: str) -> None:
     from powercontext.cli.system import SetupError
 
     if name == "codex":
-        from powercontext.cli.system import run_codex_diagnostics
+        from powercontext.cli.system import codex_setup_checks, run_codex_diagnostics
 
-        diagnostics = run_codex_diagnostics()
+        diagnostics = codex_setup_checks(run_codex_diagnostics())
     elif name == "dsh":
         from powercontext.cli.dsh import run_dsh_diagnostics
 

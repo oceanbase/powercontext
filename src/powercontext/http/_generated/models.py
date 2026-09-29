@@ -3235,6 +3235,12 @@ class FlushMemoryResponse(BaseModel):
     high_watermark: Annotated[StrictInt, Field(ge=0)]
     processed_source_count: Annotated[StrictInt, Field(ge=0)]
     memory: ArtifactReference | None = None
+    held_count: Annotated[
+        StrictInt, Field(description="Number of source windows held by the Memory write gate.", ge=0)
+    ] = 0
+    hold_codes: Annotated[
+        list[StrictStr], Field(description="Structured Memory write gate refusal codes for held windows.")
+    ] = []
 
 
 class FlushTopicMemoryResponse(BaseModel):

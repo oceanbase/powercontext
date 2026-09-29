@@ -45,6 +45,7 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
 
     def __init__(self, **kwargs: Any) -> None:
         self._invocation_scopes = tuple(kwargs.pop("invocation_scopes", ()))
+        self._powercontext = bool(kwargs.pop("powercontext", True))
         self._step_index = 0
         super().__init__(
             registry_entry={
@@ -86,7 +87,7 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
             command=self._build_dependencies_command("uvx"),
             env={"DEBIAN_FRONTEND": "noninteractive"},
         )
-        await self.exec_as_root(environment, command=_install_bub_command())
+        await self.exec_as_root(environment, command=_install_bub_command(powercontext=self._powercontext))
         await self.exec_as_root(environment, command=_install_acp_server_command())
         agent_user = shlex.quote(str(environment.default_user or "root"))
         await self.exec_as_root(
@@ -119,8 +120,9 @@ def _tool_environment() -> str:
     return f"UV_TOOL_BIN_DIR={shlex.quote(REMOTE_BIN_DIR)} UV_TOOL_DIR={shlex.quote(REMOTE_TOOL_DIR)}"
 
 
-def _install_bub_command() -> str:
+def _install_bub_command(*, powercontext: bool = True) -> str:
     uv = f"{harbor_acp.AcpAgent._RUNNER_VENV_PATH}/bin/uv"
+    plugin = f"--overrides {REMOTE_SOURCE_OVERRIDE} --with {REMOTE_SOURCE}/integrations/bub " if powercontext else ""
     return (
         "set -eu; "
         f"mkdir -p {REMOTE_BIN_DIR} {REMOTE_BUB_HOME} {REMOTE_BUB_PROJECT} {REMOTE_CODEX_HOME}; "
@@ -129,8 +131,7 @@ def _install_bub_command() -> str:
         f"chmod 600 {REMOTE_CODEX_HOME}/auth.json; "
         "fi; "
         f"SETUPTOOLS_SCM_PRETEND_VERSION={shlex.quote(POWERCONTEXT_VERSION)} {_tool_environment()} "
-        f"{uv} tool install --force "
-        f"--overrides {REMOTE_SOURCE_OVERRIDE} --with {REMOTE_SOURCE}/integrations/bub "
+        f"{uv} tool install --force {plugin}"
         f"{shlex.quote(f'bub=={BUB_VERSION}')}"
     )
 

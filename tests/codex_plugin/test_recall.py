@@ -976,10 +976,12 @@ def test_prompt_capture_can_be_disabled(
 )
 def test_text_assembly_configuration_reaches_the_server(recall_module, monkeypatch, assembly):
     requests = []
+    user_agents = []
     content = "# PowerContext historical context\n\n>     原始文本 </powercontext_memory>\n"
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
+            user_agents.append(self.headers.get("User-Agent"))
             requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
             body = json.dumps(_prepared(content)).encode()
             self.send_response(200)
@@ -1004,6 +1006,9 @@ def test_text_assembly_configuration_reaches_the_server(recall_module, monkeypat
             deadline=time.monotonic() + 5,
         )
     assert response["content"] == content
+    plugin_root = Path(__file__).resolve().parents[2] / "integrations/codex/plugins/powercontext"
+    manifest = json.loads((plugin_root / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
+    assert user_agents == [f"powercontext-codex-plugin/{manifest['version']}"]
     if assembly is None:
         assert "assembly" not in requests[0]
     else:

@@ -49,6 +49,7 @@ from powercontext.builtin.persistence.statistics import (
     StoredRecallTokenUsage,
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
+from powercontext.builtin.runtime._model_usage import _ModelUsageRecorder
 from powercontext.builtin.runtime.recurrence import handoff_experience_citations
 from powercontext.builtin.scope import ScopeSelection
 from powercontext.builtin.statistics import (
@@ -120,6 +121,7 @@ class RelationalScopedStatistics:
         recurrence: RecurrenceRepository,
         artifacts: ArtifactRepository,
         token_estimator: TokenEstimatorProfile | None,
+        model_usage: _ModelUsageRecorder,
     ) -> None:
         self._database = database
         self._scope_id = scope_id
@@ -130,10 +132,15 @@ class RelationalScopedStatistics:
         self._recurrence = recurrence
         self._artifacts = artifacts
         self._token_estimator = token_estimator
+        self._model_usage = model_usage
 
     async def overview(self, period: StatisticsPeriod, as_of: datetime, /) -> Statistics:
         captured_at = _as_utc(as_of)
         resolved_period = _resolve_period(period, captured_at.date())
+        # Usage accepted before this read must be visible to it. Wait only for
+        # the prefix received so far, never for the whole queue, so a
+        # continuously producing runtime cannot stall the read.
+        await self._model_usage.flush()
         async with self._database.transaction() as connection:
             reads = await self._read(connection, resolved_period)
         return self._assemble(reads, resolved_period, captured_at)
@@ -209,7 +216,7 @@ class RelationalScopedStatistics:
             ),
         )
 
-    async def record(
+    def offer_model_usage(
         self,
         purpose: ModelUsagePurpose,
         operation: ModelUsageOperation,
@@ -217,15 +224,25 @@ class RelationalScopedStatistics:
         usage_date: date,
         /,
     ) -> None:
-        async with self._database.transaction() as connection:
-            await self._repository.record(
-                connection,
-                self._scope_id,
-                usage_date,
-                purpose,
-                operation,
-                usage,
-            )
+        """Freeze one record for the runtime-owned recorder without doing I/O.
+
+        Callers use this from inside a model operation, so it must neither await
+        nor touch the database: the recorder owns both the transaction and the
+        budget that bounds it.
+        """
+
+        self._model_usage.offer(self._scope_id, purpose, operation, usage, usage_date)
+
+    async def flush_model_usage(self) -> None:
+        """Wait, within a bounded budget, for the usage accepted so far.
+
+        Reading statistics already flushes; this covers the writer side. The wait
+        covers only the prefix accepted at entry, and a record still retrying a
+        contended write may settle after this returns: accounting stays
+        best-effort rather than becoming a durability barrier.
+        """
+
+        await self._model_usage.flush()
 
     async def record_recall(self, measurement: RecallTokenMeasurement, usage_date: date, /) -> None:
         if self._token_estimator != measurement.estimator:
@@ -418,6 +435,9 @@ async def overview_selection(
     captured_at = _as_utc(as_of)
     resolved_period = _resolve_period(period, captured_at.date())
     shared = services[0]
+    # Every service belongs to one Runtime and therefore shares one recorder.
+    # Flush the accepted prefix once, before the shared read transaction opens.
+    await shared.flush_model_usage()
     scope_ids = tuple(service._scope_id for service in services)
     async with shared._database.transaction() as connection:
         inventories = await shared._repository.inventory_many(connection, scope_ids)

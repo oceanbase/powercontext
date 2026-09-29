@@ -1,6 +1,6 @@
 ---
 title: Install and run
-description: Install PowerContext 1.1.0 and run the local Server.
+description: Install PowerContext 1.2.0 and run the local Server.
 ---
 
 # Install and run
@@ -24,12 +24,12 @@ Embedded seekDB is unavailable on Windows.
 
 ## Choose a version
 
-These instructions use the stable PowerContext 1.1.0 release. Keep the package and Agent integration on
-the same version: package `1.1.0` and Git tag `powercontext-v1.1.0`.
+These instructions use PowerContext 1.2.0. Keep the package and Agent integration on
+the same version: package `1.2.0` and Git tag `powercontext-v1.2.0`.
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
-powercontext setup codex --ref powercontext-v1.1.0
+uv tool install --force "powercontext[cli,server]==1.2.0"
+powercontext setup codex --ref powercontext-v1.2.0
 ```
 
 Check the [capability matrix](../integrations/capabilities.md) for host support and maintenance status.
@@ -41,13 +41,13 @@ You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on ma
 PowerContext from PyPI:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
+uv tool install --force "powercontext[cli,server]==1.2.0"
 ```
 
 For a source installation of the same version:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.1.0"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.2.0"
 ```
 
 The Git command does not leave a repository checkout for you to manage. Git uses its normal credential configuration,
@@ -117,7 +117,7 @@ Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` 
 support this embedded backend. Install or replace the tool with the optional seekDB extra:
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.1.0"
+uv tool install --force "powercontext[cli,server,seekdb]==1.2.0"
 ```
 
 When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit
@@ -174,10 +174,10 @@ The Dashboard must be explicitly enabled with static Bearer authentication; see
 [Deploy the Server](../operate/deploy-server.md). Remote plaintext HTTP connections require explicit client consent;
 see [Connect to a remote Server](../operate/connect-remote-server.md).
 
-To upgrade to 1.1.0:
+To upgrade to 1.2.0:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
+uv tool install --force "powercontext[cli,server]==1.2.0"
 ```
 
 To replace the installed tool with another Git ref:
@@ -195,7 +195,7 @@ changes.
 An application that imports the async Client SDK should add it to that application's environment:
 
 ```bash
-uv add "powercontext[client]==1.1.0"
+uv add "powercontext[client]==1.2.0"
 ```
 
 Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for

@@ -27,6 +27,13 @@ directory. It is safe to run again. Pass the same `--ref` used to install the Po
 Open a new Codex session after setup. Use `/hooks` to inspect and, when prompted, trust the PowerContext
 `UserPromptSubmit` hook.
 
+`powercontext doctor codex --json` reports basic MCP connectivity as `mcp_tools` and complete tool coverage as
+`mcp_full_profile`. Full coverage requires every capability-bearing tool in the Codex integration's `server-mcp`
+manifest, including Memory maintenance, Scope management and Handoff operations. Missing tools produce a degraded
+result and are listed by name; discovery does not prove model readiness, Hook execution or write authorization.
+Both `setup codex` and `setup select --host codex` can succeed with basic Memory support while `doctor` reports
+incomplete full coverage. Authentication and basic connection failures still fail installation.
+
 ## Understand automatic recall, Memory, and Handoff
 
 The plugin has two paths to the same Server:
@@ -58,6 +65,24 @@ binding, a host-managed workspace binding, and the Server's default Scope. The s
 Repository and directory identities are lookup inputs only; they never generate a Scope ID. The prompt hook uses the
 binding for recall and capture, while `PreToolUse` injects it into data-plane tools so Agent input cannot redirect a
 read or write. The host must create or bind a different Scope when the Session changes work boundaries.
+
+To keep later sessions in one Git root on an existing Scope, bind that checkout:
+
+```bash
+uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/scope_binding.py" \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
+```
+
+`$PLUGIN_ROOT` is the installed Codex plugin root, the same value the hooks use. In an ordinary terminal, replace it
+with that directory, such as `powercontext/powercontext/<version>` in the plugin cache or
+`integrations/codex/plugins/powercontext` in this repository. The command stores a binding with
+`integration=codex` and `kind=workspace`. Its external id is the SHA-256 of the Git root path. It does not create a
+Scope, and it does not derive a `scope_id` from the path, remote, or branch. Run the script again without
+`--bind-scope` to print the Scope resolved for that directory. `--clear-scope` removes only that workspace binding.
+
+`POWERCONTEXT_CODEX_SCOPE_ID` still takes precedence. A Session that already started keeps the Session binding written
+at startup. A new Session in that Git root uses the workspace binding when no explicit variable and no earlier Session
+binding apply. The MCP `set_scope_binding` tool changes only the current Session and does not replace this command.
 
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The Runtime labels

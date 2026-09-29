@@ -42,10 +42,10 @@ from powercontext.client.settings import ClientSettings
 from powercontext.http import CreateScopeRequest, ListMemoryEntriesRequest, PrepareContextRequest
 
 from .artifacts import write_artifacts
-from .catalog import E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec
+from .catalog import ContinuationEvaluationSpec, E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec
 from .evaluation import evaluate_observation, matches_forbidden_context
 from .evidence import fingerprint, load_resolved_instructions, redact, write_evaluation_report, write_evidence
-from .hosts import host_adapter
+from .hosts import HostAdapter, host_adapter
 from .models import (
     CaptureRecord,
     EvaluationReport,
@@ -151,11 +151,9 @@ async def run_tasks(
     settings: HarnessSettings,
     failure_policy: FailurePolicy = "collect-all",
 ) -> bool:
-    model_workload_ids = tuple(
-        task.id for task in tasks if task.execution.model and not host_adapter(task).model_configured()
-    )
-    if model_workload_ids:
-        raise ModelNotConfiguredError(model_workload_ids)
+    if continuation_ids := [task.id for task in tasks if isinstance(task.evaluation, ContinuationEvaluationSpec)]:
+        raise ValueError(f"Run OFF/ON continuation workloads with the paired command: {continuation_ids!r}")  # noqa: TRY003
+    require_runtime_models(tasks)
 
     accepted = True
     for group in group_tasks(tasks):
@@ -166,6 +164,22 @@ async def run_tasks(
             failure_policy=failure_policy,
         )
     return accepted
+
+
+def require_runtime_models(tasks: tuple[E2ETask, ...], host: HostAdapter | None = None) -> None:
+    """Reject model-backed workloads whose host lacks its runtime-selected model or other required settings.
+
+    Without ``host``, each workload runs on the host its execution spec declares.
+    """
+
+    missing = {
+        task.id: (host or host_adapter(task.execution.type)).missing_settings()
+        for task in tasks
+        if task.execution.model
+    }
+    if unconfigured := {task_id: settings for task_id, settings in missing.items() if settings}:
+        settings = tuple(dict.fromkeys(name for names in unconfigured.values() for name in names))
+        raise ModelNotConfiguredError(tuple(unconfigured), settings)
 
 
 def group_tasks(tasks: tuple[E2ETask, ...]) -> tuple[ExecutionGroup, ...]:
@@ -408,25 +422,17 @@ def _source_harbor_observation(
 def _job_config(
     task: E2ETask,
     run_id: str,
-    scope_id: str,
+    scope_id: str | None,
     output_dir: Path,
     settings: HarnessSettings,
     *,
     runtime: PreparedRuntime | None = None,
     invocation_scopes: tuple[str, ...] = (),
+    host: HostAdapter | None = None,
 ) -> JobConfig:
-    host = host_adapter(task)
+    host = host or host_adapter(task.execution.type)
     repository = settings.repository_path()
-    mounts: list[ServiceVolumeConfig] = [
-        {
-            "type": "bind",
-            "source": str(repository),
-            "target": "/opt/powercontext/source",
-            "read_only": True,
-            "bind": {"create_host_path": False},
-        },
-        *host.mounts(task),
-    ]
+    mounts: list[ServiceVolumeConfig] = host.mounts(task, repository)
     agent = host.agent_config(
         task,
         scope_id=scope_id,
@@ -640,14 +646,21 @@ async def _prepared_probes(
     return tuple(probes)
 
 
-def _run_environment(task: E2ETask, started_at: datetime, settings: HarnessSettings) -> RunEnvironment:
-    host = host_adapter(task)
+def _run_environment(
+    task: E2ETask,
+    started_at: datetime,
+    settings: HarnessSettings,
+    host: HostAdapter | None = None,
+) -> RunEnvironment:
+    host = host or host_adapter(task.execution.type)
     return RunEnvironment(
         commit=settings.commit_id(),
         database=settings.database,
+        adapter=host.name,
         adapter_version=host.version,
         adapter_protocol_version=host.protocol_version,
         agent_model=host.agent_model() if task.execution.model else None,
+        agent_settings=host.agent_settings() if task.execution.model else {},
         started_at=started_at,
         finished_at=datetime.now(UTC),
     )

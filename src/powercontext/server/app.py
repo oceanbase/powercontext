@@ -66,6 +66,7 @@ from powercontext.builtin.artifacts.memory.errors import (
     MemoryCapacityExceededError,
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
+    MemoryWriteRejectedError,
 )
 from powercontext.builtin.artifacts.memory.models import MemoryCapacity as RuntimeMemoryCapacity
 from powercontext.builtin.artifacts.prompt import GeneratePromptDemonstrations, PromptError
@@ -5481,26 +5482,12 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
     source_ingestion = _map_source_ingestion_error(error)
     if source_ingestion is not None:
         return source_ingestion
-    if isinstance(error, ArtifactNotFoundError):
-        return status.HTTP_404_NOT_FOUND, "artifact_not_found", "The requested Artifact was not found.", None
-    if isinstance(error, MemoryEntryNotFoundError):
-        return status.HTTP_404_NOT_FOUND, "memory_not_found", "The requested Memory value was not found.", None
-    memory_conflict = _map_memory_conflict_error(error)
-    if memory_conflict is not None:
-        return memory_conflict
-    if isinstance(error, CapabilityNotSupportedError):
-        return (
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "capability_not_supported",
-            "The requested capability is unavailable.",
-            {"capability": error.capability},
-        )
+    memory_error = _map_memory_error(error)
+    if memory_error is not None:
+        return memory_error
     if isinstance(
         error,
         (
-            InvalidMemoryCandidateError,
-            InvalidMemoryCitationError,
-            InvalidMemoryEvidenceError,
             HandoffScopeMismatchError,
             InvalidHandoffReferenceError,
             InvalidRuntimeRequestError,
@@ -5517,6 +5504,45 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
     if isinstance(error, InferenceUnavailableError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Model inference is unavailable.", None
     return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
+
+
+def _map_memory_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, ArtifactNotFoundError):
+        return status.HTTP_404_NOT_FOUND, "artifact_not_found", "The requested Artifact was not found.", None
+    if isinstance(error, MemoryEntryNotFoundError):
+        return status.HTTP_404_NOT_FOUND, "memory_not_found", "The requested Memory value was not found.", None
+    memory_conflict = _map_memory_conflict_error(error)
+    if memory_conflict is not None:
+        return memory_conflict
+    if isinstance(error, MemoryWriteRejectedError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "memory_write_rejected",
+            "The Memory write was rejected by the configured gate.",
+            {"code": error.code, "reason": error.reason},
+        )
+    if isinstance(error, CapabilityNotSupportedError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "capability_not_supported",
+            "The requested capability is unavailable.",
+            {"capability": error.capability},
+        )
+    if isinstance(
+        error,
+        (
+            InvalidMemoryCandidateError,
+            InvalidMemoryCitationError,
+            InvalidMemoryEvidenceError,
+        ),
+    ):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "invalid_request",
+            "The request is invalid.",
+            _invalid_request_details(error),
+        )
+    return None
 
 
 def _map_memory_conflict_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
