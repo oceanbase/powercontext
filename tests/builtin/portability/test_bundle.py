@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from sqlalchemy import delete, insert, select
+from sqlalchemy import insert, select
 
 from powercontext.builtin.artifacts.skill import capture_skill_directory
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -350,31 +350,24 @@ def test_failed_restore_rolls_back_earlier_records_and_can_be_retried(tmp_path: 
             SQLiteConfig(url=f"sqlite+aiosqlite:///{target_path}"), tables=BUILTIN_TABLES
         ) as target:
             async with target.database.transaction() as connection:
-                await _insert_scope(connection)
-                await connection.execute(insert(SOURCE_JOURNAL_HEADS_TABLE).values(scope_id="project:one", position=1))
-                await connection.execute(
-                    insert(SOURCES_TABLE).values(
-                        scope_id="project:one",
-                        source_type="content",
-                        source_id="target-only",
-                        payload=b"existing",
-                        journal_position=1,
-                    )
+                await connection.exec_driver_sql(
+                    "CREATE TRIGGER reject_restore BEFORE INSERT ON pc_sources "
+                    "BEGIN SELECT RAISE(ABORT, 'write rejected after preflight'); END"
                 )
             service = PortableBundleService(target.database)
             validation = await service.validate(archive)
-            assert validation.conflicts == 0
+            assert validation.compatible
             with pytest.raises(BundleConflictError, match="target constraint conflict"):
                 await service.restore(archive)
 
             async with target.database.transaction() as connection:
-                source_ids = tuple((await connection.execute(select(SOURCES_TABLE.c.source_id))).scalars())
-                assert source_ids == ("target-only",)
-                await connection.execute(delete(SOURCES_TABLE))
+                for table in (SCOPES_TABLE, SOURCE_JOURNAL_HEADS_TABLE, SOURCES_TABLE):
+                    assert (await connection.execute(select(table))).all() == []
+                await connection.exec_driver_sql("DROP TRIGGER reject_restore")
 
             retried = await service.restore(archive)
-            assert retried.inserted == 1
-            assert retried.already_present == 2
+            assert retried.inserted == 3
+            assert retried.already_present == 0
 
     asyncio.run(scenario())
 

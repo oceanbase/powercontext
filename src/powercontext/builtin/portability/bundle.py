@@ -43,7 +43,7 @@ from typing import Any, Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import ValidationError
-from sqlalchemy import DateTime, insert, select, tuple_, update
+from sqlalchemy import DateTime, PrimaryKeyConstraint, UniqueConstraint, and_, insert, or_, select, tuple_, update
 from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -59,6 +59,7 @@ from powercontext.builtin.artifacts.experience.recurrence import (
 )
 from powercontext.builtin.artifacts.skill.package import SkillPackageError, capture_skill_archive
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.errors import InvalidStoredPayloadError
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,
@@ -424,9 +425,11 @@ class PortableBundleService:
         projection_rebuilder: ProjectionRebuilder | None = None,
         supported_source_types: Iterable[str] | None = None,
         supported_artifact_families: Iterable[str] | None = None,
+        artifact_content_decoder: Callable[[str, bytes], object] | None = None,
     ) -> None:
         self._database = database
         self._projection_rebuilder = projection_rebuilder
+        self._artifact_content_decoder = artifact_content_decoder
         self._supported_source_types = None if supported_source_types is None else frozenset(supported_source_types)
         self._supported_artifact_families = (
             None if supported_artifact_families is None else frozenset(supported_artifact_families)
@@ -685,22 +688,40 @@ class PortableBundleService:
                 }
             )
             for processed, record in enumerate(_iter_records(source), start=1):
+                self._validate_artifact_content(record)
                 table = _SPECS[record.record_type].table
                 if table.name not in existing_tables:
                     _report_progress(progress, "target", processed, total)
                     continue
-                where = [table.c[key] == _database_value(value, table.c[key]) for key, value in record.identity.items()]
-                row = (await connection.execute(select(table).where(*where))).mappings().one_or_none()
-                if row is None:
-                    _report_progress(progress, "target", processed, total)
-                    continue
-                present = _record_from_row(record.record_type, cast(Mapping[str, Any], dict(row)))
-                if present.digest == record.digest:
-                    already_present += 1
-                else:
-                    conflicts += 1
+                keys = (record.identity, *_unique_identities(record))
+                where = or_(
+                    *(
+                        and_(*(table.c[key] == _database_value(value, table.c[key]) for key, value in identity.items()))
+                        for identity in keys
+                    )
+                )
+                rows = (await connection.execute(select(table).where(where))).mappings().all()
+                if rows:
+                    if all(
+                        _record_from_row(record.record_type, cast(Mapping[str, Any], row)).digest == record.digest
+                        for row in rows
+                    ):
+                        already_present += 1
+                    else:
+                        conflicts += 1
                 _report_progress(progress, "target", processed, total)
         return already_present, conflicts
+
+    def _validate_artifact_content(self, record: _Record, /) -> None:
+        if record.record_type != "artifact_revision" or self._artifact_content_decoder is None:
+            return
+        family = str(record.identity["family"])
+        if self._supported_artifact_families is not None and family not in self._supported_artifact_families:
+            return
+        try:
+            self._artifact_content_decoder(family, cast(bytes, _database_value(record.payload["content"])))
+        except InvalidStoredPayloadError as error:
+            raise BundleFormatError("Artifact content does not match the target family decoder") from error
 
     async def _write_records(
         self,
@@ -1140,7 +1161,7 @@ def _parse_record(value: object) -> _Record:
     if (
         set(identity) != set(spec.identity)
         or set(payload) != set(spec.payload)
-        or any(isinstance(item, bool) or not isinstance(item, str | int) for item in identity.values())
+        or any(type(item) is not spec.table.c[field].type.python_type for field, item in identity.items())
         or not _valid_digest(digest)
     ):
         raise BundleFormatError("record has invalid identity or digest")
@@ -1783,6 +1804,27 @@ def _decoded_bytes_json(value: object, name: str, /) -> object:
         raise BundleFormatError(f"{name} is not valid JSON") from error
 
 
+def _unique_identities(record: _Record, /) -> Iterator[dict[str, Any]]:
+    """Yield physical uniqueness keys not already covered by the logical identity."""
+
+    spec = _SPECS[record.record_type]
+    values = {**record.identity, **record.payload}
+    constraints = (
+        constraint.columns
+        for constraint in spec.table.constraints
+        if isinstance(constraint, PrimaryKeyConstraint | UniqueConstraint)
+    )
+    indexes = (index.columns for index in spec.table.indexes if index.unique)
+    for columns in (*constraints, *indexes):
+        fields = tuple(column.name for column in columns)
+        if set(spec.identity).issubset(fields):
+            continue
+        identity = {field: values[field] for field in fields}
+        # SQL unique keys permit multiple rows when a participating value is NULL.
+        if all(value is not None for value in identity.values()):
+            yield identity
+
+
 @contextmanager
 def _identity_index(source: Path, /) -> Iterator[Callable[[str, Mapping[str, object]], bool]]:
     index_path = _temporary_path(Path(tempfile.gettempdir()), suffix=".identities.sqlite3")
@@ -1799,8 +1841,13 @@ def _identity_index(source: Path, /) -> Iterator[Callable[[str, Mapping[str, obj
                     "INSERT INTO identities (record_type, identity) VALUES (?, ?)",
                     (record.record_type, _identity_key(record.identity)),
                 )
+                for identity in _unique_identities(record):
+                    connection.execute(
+                        "INSERT INTO identities (record_type, identity) VALUES (?, ?)",
+                        (record.record_type + ":unique", _identity_key(identity)),
+                    )
             except sqlite3.IntegrityError as error:
-                raise BundleFormatError("bundle contains duplicate immutable identity") from error
+                raise BundleFormatError("bundle contains duplicate immutable or unique identity") from error
             if record.record_type == "source":
                 connection.execute(
                     "INSERT INTO identities (record_type, identity) VALUES (?, ?)",

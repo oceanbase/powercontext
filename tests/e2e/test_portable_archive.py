@@ -858,3 +858,152 @@ def test_archive_rejects_recomputed_recurrence_without_overwriting_history(tmp_p
             assert await _replay_recurrence(target, sid) == recomputed
 
     asyncio.run(scenario())
+
+
+async def _validation_archive(tmp_path: Path) -> tuple[Path, str]:
+    archive = tmp_path / "validation.pcb"
+
+    async def authorize(_scopes: tuple[str, ...]) -> None:
+        pass
+
+    async with open_builtin_contexts(BuiltinConfig()) as source:
+        scope = await source.scopes.create(
+            ScopeDraft(title="Validation", summary="Recovery", idempotency_key="validation")
+        )
+        context = await source.get(scope.scope_id)
+        await context.sources.capture(ContentCapture(source_id="source-a", content="Portable source."))
+        await context.sources.capture(ContentCapture(source_id="source-b", content="Another portable source."))
+        await source.records.create_artifact(
+            scope.scope_id,
+            "prompt",
+            ArtifactWrite(
+                prompt_key="memory.extract",
+                content={
+                    "schema_version": "powercontext.prompt.v1",
+                    "mode": "auto",
+                    "instructions": "",
+                    "demonstrations": [],
+                },
+            ),
+        )
+        await source.portability.export([scope.scope_id], archive, authorize=authorize)
+    return archive, scope.scope_id
+
+
+def test_archive_rejects_invalid_artifact_content_before_writing(tmp_path: Path, monkeypatch) -> None:
+    from typer.testing import CliRunner
+
+    from powercontext.cli.app import create_cli
+    from powercontext.cli.archive import archive_app
+
+    async def scenario() -> Path:
+        archive, sid = await _validation_archive(tmp_path)
+
+        def damage(records):
+            record = next(r for r in records if r["record_type"] == "artifact_revision")
+            record["payload"]["content"] = {"base64": base64.b64encode(b"{}").decode()}
+            return records
+
+        _rewrite_archive_records(archive, damage)
+        async with open_builtin_contexts(BuiltinConfig()) as target:
+            for operation in (target.portability.validate, target.portability.restore):
+                with pytest.raises(BundleFormatError, match="Artifact content"):
+                    await operation(archive)
+            async with target.database.transaction() as connection:
+                assert (
+                    await connection.scalar(select(SCOPES_TABLE.c.scope_id).where(SCOPES_TABLE.c.scope_id == sid))
+                    is None
+                )
+        return archive
+
+    archive = asyncio.run(scenario())
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "unused-target"))
+    result = CliRunner().invoke(create_cli([archive_app]), ["archive", "restore", str(archive), "--dry-run"])
+    assert result.exit_code == 2, result.output
+    assert "Artifact content" in result.output
+    assert not (tmp_path / "unused-target" / "powercontext.db").exists()
+
+
+@pytest.mark.parametrize(
+    ("kind", "field", "value"),
+    [("source", "source_id", 123), ("source", "source_id", True), ("artifact_revision", "revision", "1")],
+)
+def test_archive_rejects_incorrect_identity_types(tmp_path: Path, kind: str, field: str, value: object) -> None:
+    async def scenario() -> None:
+        archive, sid = await _validation_archive(tmp_path)
+
+        def damage(records):
+            record = next(r for r in records if r["record_type"] == kind)
+            record["identity"][field] = value
+            return records
+
+        _rewrite_archive_records(archive, damage)
+        async with open_builtin_contexts(BuiltinConfig()) as target:
+            for operation in (target.portability.validate, target.portability.restore):
+                with pytest.raises(BundleFormatError, match="identity"):
+                    await operation(archive)
+            async with target.database.transaction() as connection:
+                assert (
+                    await connection.scalar(select(SCOPES_TABLE.c.scope_id).where(SCOPES_TABLE.c.scope_id == sid))
+                    is None
+                )
+
+    asyncio.run(scenario())
+
+
+def test_archive_dry_run_detects_source_journal_collision(tmp_path: Path, target_config: BuiltinConfig) -> None:
+    async def authorize(_scopes: tuple[str, ...]) -> None:
+        pass
+
+    async def scenario() -> None:
+        empty = tmp_path / "empty.pcb"
+        incoming = tmp_path / "incoming.pcb"
+        async with open_builtin_contexts(BuiltinConfig()) as source:
+            scope = await source.scopes.create(
+                ScopeDraft(title="Collision", summary="Journal", idempotency_key="collision")
+            )
+            await source.portability.export([scope.scope_id], empty, authorize=authorize)
+            context = await source.get(scope.scope_id)
+            await context.sources.capture(ContentCapture(source_id="source-a", content="Incoming source."))
+            await source.portability.export([scope.scope_id], incoming, authorize=authorize)
+        async with open_builtin_contexts(target_config) as target:
+            await target.portability.restore(empty)
+            context = await target.get(scope.scope_id)
+            await context.sources.capture(ContentCapture(source_id="source-b", content="Existing source."))
+            validation = await target.portability.validate(incoming)
+            assert not validation.compatible
+            assert validation.conflicts == 1
+            with pytest.raises(BundleConflictError):
+                await target.portability.restore(incoming)
+            async with target.database.transaction() as connection:
+                assert (
+                    await connection.scalars(
+                        select(SOURCES_TABLE.c.source_id).where(SOURCES_TABLE.c.scope_id == scope.scope_id)
+                    )
+                ).all() == ["source-b"]
+
+    asyncio.run(scenario())
+
+
+def test_archive_rejects_duplicate_journal_positions_before_writing(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        archive, sid = await _validation_archive(tmp_path)
+
+        def damage(records):
+            for record in records:
+                if record["record_type"] == "source":
+                    record["payload"]["journal_position"] = 1
+            return records
+
+        _rewrite_archive_records(archive, damage)
+        async with open_builtin_contexts(BuiltinConfig()) as target:
+            for operation in (target.portability.validate, target.portability.restore):
+                with pytest.raises(BundleFormatError, match="unique identity"):
+                    await operation(archive)
+            async with target.database.transaction() as connection:
+                assert (
+                    await connection.scalar(select(SCOPES_TABLE.c.scope_id).where(SCOPES_TABLE.c.scope_id == sid))
+                    is None
+                )
+
+    asyncio.run(scenario())

@@ -27,6 +27,7 @@ import typer
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
@@ -170,11 +171,13 @@ async def _validate_with_database(database: AsyncDatabase, source: Path, /) -> B
     async def projection_capability(_scopes: tuple[str, ...], /) -> None:
         return None
 
+    artifacts = ArtifactRepository(BUILTIN_ARTIFACT_TYPES)
     archive = PortableBundleService(
         database,
         projection_rebuilder=projection_capability,
         supported_source_types=tuple(definition.name for definition in BUILTIN_SOURCE_REGISTRY.definitions),
-        supported_artifact_families=tuple(artifact.family for artifact in BUILTIN_ARTIFACT_TYPES),
+        supported_artifact_families=artifacts.families,
+        artifact_content_decoder=artifacts.decode_content,
     )
     return await archive.validate(source, progress=_emit_progress)
 

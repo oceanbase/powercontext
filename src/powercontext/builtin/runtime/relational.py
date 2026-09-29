@@ -568,6 +568,7 @@ class RelationalContexts:
             projection_rebuilder=self.rebuild_portable_projections,
             supported_source_types=tuple(definition.name for definition in self.source_registry.definitions),
             supported_artifact_families=artifact_repository.families,
+            artifact_content_decoder=artifact_repository.decode_content,
         )
         topic_memory_repository = TopicMemoryRepository(artifacts=artifact_repository, index=self.topic_memory_index)
         self.repositories = _Repositories(
