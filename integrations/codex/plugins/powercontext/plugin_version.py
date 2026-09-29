@@ -12,14 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-[project]
-name = "powercontext-codex-plugin-runtime"
-version = "1.1.0"
-requires-python = ">=3.11,<4.0"
-dependencies = [
-    "pydantic-settings>=2.7,<3",
-    "typing-extensions>=4.12,<5",
-]
+"""Version identity shared by the installed Codex plugin's HTTP clients."""
 
-[tool.uv]
-package = false
+import json
+from pathlib import Path
+
+PLUGIN_VERSION: str = json.loads((Path(__file__).parent / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))[
+    "version"
+]

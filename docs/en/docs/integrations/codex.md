@@ -27,6 +27,13 @@ directory. It is safe to run again. Pass the same `--ref` used to install the Po
 Open a new Codex session after setup. Use `/hooks` to inspect and, when prompted, trust the PowerContext
 `SessionStart` and `UserPromptSubmit` hooks.
 
+`powercontext doctor codex --json` reports basic MCP connectivity as `mcp_tools` and complete tool coverage as
+`mcp_full_profile`. Full coverage requires every capability-bearing tool in the Codex integration's `server-mcp`
+manifest, including Memory maintenance, Scope management and Handoff operations. Missing tools produce a degraded
+result and are listed by name; discovery does not prove model readiness, Hook execution or write authorization.
+Both `setup codex` and `setup select --host codex` can succeed with basic Memory support while `doctor` reports
+incomplete full coverage. Authentication and basic connection failures still fail installation.
+
 ## Understand automatic recall, Memory, and Handoff
 
 The plugin has two paths to the same Server:

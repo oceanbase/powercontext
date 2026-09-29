@@ -39,6 +39,7 @@ from hooks.bootstrap_context import (  # noqa: E402
     validate_delivery_receipt,
 )
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
+from plugin_version import PLUGIN_VERSION  # noqa: E402
 from scope_binding import (  # noqa: E402
     ScopeBindingError,
     ScopeBindingRejectedError,
@@ -65,7 +66,7 @@ _FAILURE_OUTCOMES = frozenset({
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-codex-plugin/0.3.0",
+    "User-Agent": f"powercontext-codex-plugin/{PLUGIN_VERSION}",
 }
 
 
