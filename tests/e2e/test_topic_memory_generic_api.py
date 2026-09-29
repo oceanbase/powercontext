@@ -122,6 +122,26 @@ async def _await_usage_record(database, scope):
             await asyncio.sleep(0.02)
 
 
+async def _await_sqlite_writer(database):
+    """Wait for the preceding transaction to release SQLite's write lock."""
+
+    async with asyncio.timeout(35):
+        while True:
+            connection = sqlite3.connect(database, timeout=0)
+            try:
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                except sqlite3.OperationalError as error:
+                    if error.sqlite_errorcode not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                        raise
+                else:
+                    connection.rollback()
+                    return
+            finally:
+                connection.close()
+            await asyncio.sleep(0.02)
+
+
 @pytest.mark.parametrize("vector", [False, True])
 def test_topic_lifecycle_tags_filtered_pages_and_publication_survive_restart(tmp_path, vector):
     embedding = Embeddings() if vector else None
@@ -598,8 +618,10 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
                     await pending
                 release.set()
             # The recorder is best-effort and may reject an interrupted write.
-            # Wait for its own bounded attempt, then test the business path.
+            # The repository call finishes before its transaction releases the
+            # write lock. Wait for that release before testing the business path.
             await asyncio.wait_for(completed.wait(), 35)
+            await _await_sqlite_writer(tmp_path / "topics.db")
             assert (await client.post(path, json=payload)).status_code == 201
 
     asyncio.run(scenario())
