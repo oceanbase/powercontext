@@ -17,6 +17,7 @@
 import asyncio
 import logging
 import sqlite3
+import sys
 
 import httpx
 import pytest
@@ -587,6 +588,13 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
         entered = asyncio.Event()
         completed = asyncio.Event()
         original = StatisticsRepository.record
+
+        def dump_tasks():
+            for task in asyncio.all_tasks():
+                print(f"DIAGNOSTIC TASK {task.get_name()} {task!r}", file=sys.stderr)
+                task.print_stack(limit=20, file=sys.stderr)
+
+        asyncio.get_running_loop().call_later(10, dump_tasks)
 
         async def stalled_record(repository, connection, *args):
             entered.set()
