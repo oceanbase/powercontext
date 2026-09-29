@@ -206,9 +206,11 @@ def test_writer_lock_released_inside_the_budget_still_records(tmp_path: Path) ->
         path = tmp_path / "retry.db"
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{path}", busy_timeout_ms=5_000)
         async with _database(config) as database:
-            # One record's budget is spent in slices, so a writer that lets go
-            # partway through still yields a recorded usage row.
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=2.0)
+            # The held lock is released inside the write budget. Wait longer
+            # than that budget before asserting the committed usage row.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=6.0
+            )
             holder = sqlite3.connect(path)
             try:
                 holder.execute("BEGIN IMMEDIATE")
