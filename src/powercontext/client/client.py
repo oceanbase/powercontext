@@ -54,6 +54,8 @@ from powercontext.http import (
     CaptureContentSourceResponse,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
+    CodeQueryRequest,
+    CodeQueryResponse,
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
@@ -90,6 +92,7 @@ from powercontext.http import (
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
+    GetMemoryCapacityRequest,
     GetMemoryEntryRequest,
     GetSkillPackageRequest,
     GetSkillRequest,
@@ -123,6 +126,7 @@ from powercontext.http import (
     ListRemoteSkillTargetsResponse,
     ListScopesRequest,
     ListSourcesRequest,
+    MemoryCapacity,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -238,6 +242,7 @@ from powercontext.http._generated.operations import (
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
     GET_LIVENESS,
+    GET_MEMORY_CAPACITY,
     GET_MEMORY_ENTRY,
     GET_MEMORY_ENTRY_TAGS,
     GET_PROFILE_POLICY,
@@ -275,6 +280,7 @@ from powercontext.http._generated.operations import (
     PUBLISH_REMOTE_SKILL,
     PUT_PROFILE_POLICY,
     QUERY_ARTIFACT_TAGS,
+    QUERY_CODE,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
@@ -912,6 +918,10 @@ class PowerContextClient:
 
         return await self._request(GET_TOPIC_MEMORY, request)
 
+    async def query_code(self, scope_id: str, request: CodeQueryRequest) -> CodeQueryResponse:
+        """Read bounded native code evidence for an explicitly authorized Scope."""
+        return await self._request(QUERY_CODE, request, path_parameters={"scope_id": scope_id})
+
     async def prepare_context(self, request: PrepareContextRequest) -> PreparedContext:
         """Prepare final bounded context for one Agent turn."""
 
@@ -941,6 +951,11 @@ class PowerContextClient:
         """Resolve temporary or committed Handoff content as untrusted history."""
 
         return await self._request(CONTINUE_HANDOFF, request)
+
+    async def get_memory_capacity(self, request: GetMemoryCapacityRequest) -> MemoryCapacity:
+        """Read capacity of the current Memory head."""
+
+        return await self._request(GET_MEMORY_CAPACITY, request)
 
     async def list_memory_entries(self, request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
         """List active entries, optionally including inactive entries for audit."""

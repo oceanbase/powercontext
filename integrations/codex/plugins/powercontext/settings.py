@@ -122,6 +122,7 @@ class CodexPluginSettings(BaseSettings):
     authorization: SecretStr | None = Field(default=None, repr=False)
     scope_id: str | None = None
     context_assembly: dict[str, Any] | None = None
+    include_code: bool = False
     capture_prompts: bool = True
     flush_on_capture: bool = False
     request_timeout_seconds: float = Field(default=3.0, gt=0)

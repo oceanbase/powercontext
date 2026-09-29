@@ -5,8 +5,8 @@ This plugin is a thin DeepSeek Harness integration for a running PowerContext Se
 Install the released Server and plugin together:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.1.0
+uv tool install --force "powercontext[cli,server]==1.2.0"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.2.0
 ```
 
 `setup dsh` calls `dsh plugin --profile web add`. The plugin talks HTTP only. It does not use MCP.
@@ -38,6 +38,12 @@ safe dependency statuses and recovery actions. The endpoint summary omits creden
 report does not prove capture or processing: write routes are declared by OpenAPI but never executed by Doctor.
 Standalone `powercontext doctor dsh` verifies Web-profile registration and explicitly cannot observe the running
 host's overrides. A healthy Server with extraction disabled may return valid empty recall.
+
+`get_readiness`, including `/pc doctor`, uses `max(requestTimeoutMs, 40000)` milliseconds. This covers the
+default cold inference probe budget (30 seconds), subsequent access checks (up to 5 seconds), and transport
+headroom. Doctor reports both `request_timeout_ms` and `readiness_request_timeout_ms`. For custom Server
+probe budgets above these defaults, increase `requestTimeoutMs` accordingly. Other requests retain their
+configured deadline (1000 ms by default), and caller cancellation still stops readiness immediately.
 
 The operations table in `src/operations.generated.ts` is generated from the repository `openapi/powercontext.yaml`. From the PowerContext root:
 

@@ -49,6 +49,14 @@ provider configuration, or set
 assistant turns are captured; system/tool messages are excluded and detected
 secrets are redacted before sending them to PowerContext.
 
+The provider advertises Hermes' pre-compress checkpoint API v2. When Hermes
+supplies its host-normalized evidence list, that list is captured instead of the
+raw transcript, so turns Hermes already replaced with a compression summary are
+not stored as fresh evidence. With `compression.checkpoint_required: true`,
+enable `capture_pre_compress` as well: if PowerContext cannot commit the
+checkpoint, the provider raises and Hermes keeps the uncompressed transcript
+instead of discarding it behind a failed capture.
+
 Evaluation tracing is also opt-in. Set `evaluation_trace: true` or
 `POWERCONTEXT_HERMES_EVALUATION_TRACE=1` to record context injections in
 per-session JSONL files under `$HERMES_HOME/powercontext/evaluation-trace/`.

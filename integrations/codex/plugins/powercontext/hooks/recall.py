@@ -37,6 +37,7 @@ sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
+from plugin_version import PLUGIN_VERSION  # noqa: E402
 from scope_binding import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
@@ -49,7 +50,7 @@ _READ_CHUNK_BYTES = 65_536
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-codex-plugin/0.2.0",
+    "User-Agent": f"powercontext-codex-plugin/{PLUGIN_VERSION}",
 }
 _FAILURE_OUTCOMES = frozenset({"authentication_failed", "version_mismatch", "server_unavailable", "invalid_response"})
 
@@ -234,6 +235,7 @@ def _prepare_context(
             "scope_id": scope_id,
             "query": query,
             "max_bytes": _MAX_CONTEXT_BYTES,
+            **({"include_code": True} if settings.include_code else {}),
             **({"assembly": settings.context_assembly} if settings.context_assembly is not None else {}),
         },
         settings=settings,

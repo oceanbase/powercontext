@@ -29,6 +29,50 @@ export interface Release {
 // Only stable releases belong here; publish pre-release notes on GitHub Releases.
 export const releases: Release[] = [
   {
+    version: 'v1.2.0',
+    date: '2026-09-29',
+    title: {
+      en: 'Understand repository code · Bound Memory growth · Assess write evidence · Generate Experiences and import Skills in Codex',
+      zh: '理解仓库代码 · 限制 Memory 增长 · 判断写入证据 · 在 Codex 中生成经验、导入技能',
+    },
+    summary: {
+      en: 'PowerContext 1.2.0 adds optional native repository understanding, Memory capacity controls and an evidence-based write gate, and introduces an experimental ZCode integration. In Codex, users can generate Experience and Skill candidates and import external Skills for review. It also adds paired continuation evaluation with Codex and Bub and automates release-version maintenance.',
+      zh: 'PowerContext 1.2.0 新增可选的原生仓库代码理解、Memory 容量控制和基于证据的写入门控，并加入试验性 ZCode 集成。用户可以在 Codex 中生成经验和技能候选，并导入外部技能供审核。本次还提供 Codex 与 Bub 的续接任务对照评测和发布版本维护命令。',
+    },
+    changes: {
+      en: [
+        'Index mixed Python, JavaScript, TypeScript, and Go Git worktrees; locate definitions, inspect static relationships and possible affected tests, and read source evidence through CLI, HTTP, Python Client, Runtime, and MCP queries. Code understanding requires the code extra, is disabled by default, and needs no generation or embedding model. Local indexing has been verified on Linux; macOS and Windows local indexing remain unverified.',
+        'Refresh code evidence with local index and sync commands. Queries detect changed source content and reject stale evidence; optional prepare_context and Codex or Claude Code hook settings can include bounded code context. Embedded seekdb stores graph data in its database with local evidence files; other deployments use a separate SQLite cache. Changing the backend or database path requires a new index, and static relationships do not prove runtime calls or that tests can be skipped.',
+        'Inspect Memory capacity through Runtime, Client, HTTP, or MCP. Default per-Revision budgets are 5,000 active entries, 10,000 manifest entries, and 4 MiB of canonical content; writes that increase an exceeded dimension return memory_capacity_exceeded. Optional in-process compaction can remove eligible untagged inactive entries from the current manifest. Compaction is disabled by default and does not delete historical Revisions or cap total database size.',
+        'Optionally assess Memory candidates against their cited evidence before writing. Decision assistance and the Memory write gate are both disabled by default. When enabled, the gate can refuse unsupported or over-budget writes and surface reasons through explicit operations, flush results, and worker diagnostics; decision-backend failures fall back to the existing write path. Held extraction windows still advance their cursor and are not automatically retried. Enable and calibrate the gate separately from extraction.',
+        'Update Memory full-text and vector search projections incrementally while reusing unchanged embeddings, preserve canonical Memory error details through HTTP, and fix SQLite Topic Memory publication on builds without RETURNING support.',
+        'Use Codex tools to generate or propose Experience and Skill candidates and discover or import external Skills, with explicit review before approval. Bind a checkout to an existing Scope for later sessions, reuse saved credentials for native MCP, and distinguish basic connectivity from full tool coverage in doctor diagnostics. External Skill discovery reads configured roots on the Server host; importing or approving a Skill does not install or execute it.',
+        'Connect ZCode CLI and Windows desktop through the new community, experimental integration, including setup, doctor, prompt capture, prepared-context injection, MCP operations, and Handoff workflows. Live coverage includes CLI 0.16.9 and Windows desktop 3.14.3; other desktop versions and direct remote HTTPS ingress remain unverified.',
+        'Honor Hermes pre-compression checkpoint API v2 and skip automatic writes outside primary Agent contexts. Keep WorkBuddy recall focused on the submitted turn and bound Scope lookup time; allow DSH cold readiness probes to finish. Improve native service startup waits and avoid background throttling on macOS.',
+        'Support embedding providers that reject the dimensions request field while retaining configured vector dimensions. Allow bounded Qwen thinking settings for Topic Memory, and record model usage outside model deadlines so accounting failures do not fail the model operation.',
+        'Compare PowerContext off and on across independent continuation sessions with either Codex or Bub, recording host, model, and reasoning settings and grading the final recall step. Add LoCoMo-Plus evaluation and a LongMemEval-V2 smoke adapter. LongMemEval-V2 validation is limited to the smoke workflow; full-tier execution remains unvalidated.',
+        'Maintain release references with make version-bump VERSION=1.2.0 and verify consistency with make version-check. Before publishing, make release-check also checks for matching bilingual website release notes and installation links. Package versions remain derived from powercontext-v tags, and existing release notes retain their history.',
+        'Upgrade the Server, clients, and Agent plugins together, reopen Agent sessions, and back up existing databases before startup schema updates. Check existing Memory against the new capacity defaults before resuming growth. Code indexing, decision assistance, the write gate, and compaction require explicit opt-in. Older deployments with unfinished Artifact processing migration must complete it before starting the new configuration; Windows remains experimental.',
+      ],
+      zh: [
+        '为 Python、JavaScript、TypeScript 和 Go 混合 Git 工作区建立索引，通过 CLI、HTTP、Python Client、Runtime 和 MCP 查询定义、静态关系、可能受影响的测试及源码证据。代码理解需要安装 code 扩展，默认关闭，无需生成或 Embedding 模型；本地索引已在 Linux 验证，macOS 与 Windows 本地索引尚未验证。',
+        '通过本地 index 和 sync 命令刷新代码证据；查询检测源码内容变化并拒绝过期证据。可在 prepare_context 及 Codex、Claude Code Hook 中单独启用有预算限制的代码上下文。嵌入式 seekdb 将图数据存入数据库并保留本地证据文件，其他部署使用独立 SQLite 缓存；切换后端或数据库路径后需重建索引。静态关系不能证明运行时调用，也不能作为跳过测试的依据。',
+        '通过 Runtime、Client、HTTP 或 MCP 查看 Memory 容量。每个 Revision 默认限制为 5,000 条活跃条目、10,000 条清单条目和 4 MiB 规范内容；继续增大超限维度的写入返回 memory_capacity_exceeded。可选的进程内压缩可从当前清单移除符合条件且未加标签的失活条目，默认关闭，不删除历史 Revision，也不限制数据库总大小。',
+        '可在 Memory 写入前依据候选各自引用的证据进行判断。Decision assistance 和 Memory 写入门控均默认关闭；启用后可拒绝证据不足或超出评估预算的写入，并通过显式操作、flush 结果和 Worker 诊断暴露原因。判断模型故障时回退原有写入流程；被拒绝的提取窗口仍会推进游标，不会自动重试。需独立于提取功能配置并校准门控。',
+        '按变更增量更新 Memory 全文与向量检索投影，复用未改变的 Embedding；通过 HTTP 保留规范化的 Memory 错误详情，并修复不支持 RETURNING 的 SQLite 环境中的 Topic Memory 发布。',
+        '在 Codex 中生成或提议 Experience、Skill Candidate，发现和导入外部 Skill，并经过显式审核后批准。可将工作区绑定到已有 Scope 供后续会话复用，让原生 MCP 复用已保存凭据，并在 doctor 中区分基础连接与完整工具覆盖。外部 Skill 发现读取 Server 主机配置的目录；导入或批准 Skill 不会安装或执行它。',
+        '新增 ZCode CLI 与 Windows 桌面端社区试验性集成，支持 setup、doctor、提示采集、准备好的上下文注入、MCP 操作和 Handoff 工作流。真实运行覆盖 CLI 0.16.9 与 Windows 桌面端 3.14.3；其他桌面版本及远程 HTTPS 直接入口尚未验证。',
+        '适配 Hermes 压缩前检查点 API v2，并跳过主 Agent 以外上下文的自动写入；让 WorkBuddy 只围绕本次提交的提示召回并限制 Scope 查询耗时，允许 DSH 冷启动就绪探测完成。改进原生服务启动等待，并避免 macOS 后台节流。',
+        '支持不接受请求 dimensions 字段的 Embedding 服务，同时保留已配置的向量维度；允许为 Topic Memory 配置有界的 Qwen thinking 设置，并将模型用量记录移出模型调用超时范围，避免统计故障导致模型操作失败。',
+        '使用 Codex 或 Bub 在独立续接会话中对比 PowerContext 关闭和开启的效果，记录 Host、模型及推理配置，并以最后的召回步骤评分；新增 LoCoMo-Plus 评测和 LongMemEval-V2 冒烟适配器。LongMemEval-V2 的验证范围为冒烟工作流，全量运行尚未验证。',
+        '通过 make version-bump VERSION=1.2.0 维护发布引用，使用 make version-check 检查一致性；发布前再运行 make release-check，检查匹配的双语网站发布说明及安装链接。Python 包版本仍由 powercontext-v 标签生成，已有发布记录保留原样。',
+        'Server、客户端和 Agent 插件需一起升级，重新打开 Agent 会话，并在启动时的数据库结构更新前备份数据。恢复 Memory 增长前先检查已有内容是否超过新增的默认容量；代码索引、Decision assistance、写入门控和压缩均需显式启用。尚未完成 Artifact 处理迁移的旧部署应先完成迁移再启动新配置；Windows 仍为试验性支持。',
+      ],
+    },
+    installCommand: 'uv tool install --force "powercontext[cli,server]==1.2.0"',
+    githubUrl: 'https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.2.0',
+  },
+  {
     version: 'v1.1.0',
     date: '2026-09-20',
     title: {

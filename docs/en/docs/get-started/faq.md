@@ -240,6 +240,48 @@ Do not assume a later LangChain Scope override also redirects the tools. Verify 
 the stored entry's Scope. See [LangChain connection and Scope settings](../integrations/langchain.md#configure-connection-and-scope)
 and [LangGraph connection settings](../integrations/langgraph.md#configure-the-connection).
 
+## Importing and forking external Skills
+
+**Q: I already have a Skill package. Should I import it or fork it?**
+
+Suppose the team has a CSV amount-checking package with `SKILL.md`, a check script, and reference notes.
+Choose the mode according to whether you want to preserve that package or propose different instructions:
+
+| Mode | Use it when | What happens |
+| --- | --- | --- |
+| **`import`** | You want to bring the existing package under management without rewriting its files. | The Runtime proposes the captured, validated package directly, preserving its file paths and bytes. No generation model is required. |
+| **`fork`** | You want project-specific instructions based on the external package. | A configured generator uses the captured package as evidence for a new proposal. The generated package is not guaranteed to retain the original scripts or resources. |
+
+Neither mode edits the external package. A returned Candidate is pending until Review approval creates a new
+managed Skill Artifact; fork can also return `no_op` without a Candidate. Here, fork means generating a Skill
+proposal, not making a GitHub repository fork. See [External Agent-native Skills](../develop/interfaces.md#external-agent-native-skills)
+for the interface and [Install Skills in Agents](../workflows/configure-agent-skill-targets.md) for target setup.
+
+**Q: If I edit the external files after importing, does the managed Skill update automatically?**
+
+No. The external registration identifies a scanned package using its fingerprint; an approved managed Skill
+Revision preserves the imported snapshot. Changing a script or reference file can change that fingerprint,
+even if `SKILL.md` is untouched. Resolving the old fingerprint then reports `unavailable`, and importing it is
+rejected rather than silently selecting the changed package. Rescan and explicitly select the new fingerprint
+to import the new content; this does not automatically replace the previously approved Skill.
+
+An unavailable external registration does not mean that the approved managed Revision was deleted. You can
+still read or download that exact Revision. In the CSV example, adding a non-finite-value rule to the external
+reference notes does not add it to the already imported copy.
+
+**Q: A fork returned a Candidate. Can it replace the original package now?**
+
+Not on that evidence alone. Capturing Source evidence from the original package does not mean its scripts and resources
+are included in the generated proposal. Inspect the proposed package, including whether commands in its
+instructions refer to files that are actually present. In the CSV example, adding an instruction to check
+non-finite values does not prove that the check script was retained, updated, or run.
+
+Package validation and matching digests establish structure and content identity, not correct behavior on
+your inputs. Review the proposal and validate the intended task in an authorized, isolated workspace before
+relying on it. Approval, export or installation, and execution remain separate steps; see
+[Review Candidates](../workflows/review-candidates.md) and
+[Experience and Skill lifecycle](../workflows/experience-and-skill-lifecycle.md).
+
 ## Still stuck?
 
 - For the underlying model, see [Core concepts](./core-concepts.md).

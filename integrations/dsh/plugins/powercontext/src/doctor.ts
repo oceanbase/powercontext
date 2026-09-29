@@ -81,7 +81,7 @@ function transportFailure(error: unknown): [string, string, string] {
   const cause = error instanceof TransportError ? error.cause : error
   if (cause instanceof Error && cause.name === 'TimeoutError') {
     return ['request_timeout', 'The request exceeded its deadline.',
-      'Check the effective requestTimeoutMs and the running Server latency; inspect the failing dependency before increasing the timeout.']
+      'Check request_timeout_ms (readiness_request_timeout_ms for get_readiness) in configuration and the running Server latency; inspect the failing dependency before increasing requestTimeoutMs.']
   }
   if (cause instanceof Error && cause.name === 'AbortError') {
     return ['cancelled', 'The request was cancelled.', 'Run /pc doctor again when the current cancellation has completed.']
@@ -327,7 +327,7 @@ export async function diagnoseServer(runtime: PluginRuntime, cwd?: string, signa
     'Resolve the Scope check first.', 'skipped')
   return {
     ok: Object.values(checks).every(value => value.state === 'ok'),
-    configuration: config.summary, checks,
+    configuration: { ...config.summary, readiness_request_timeout_ms: runtime.client.requestTimeoutMsFor('get_readiness') }, checks,
     coverage: 'Read-only checks of the current configuration. Write routes are declared by the contract but not executed; processing, capture and injection are not verified by Doctor.',
   }
 }

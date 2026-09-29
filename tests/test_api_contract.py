@@ -40,6 +40,7 @@ from powercontext.http import (
     CreateMemoryArtifactRequest,
     CreateSourceRequest,
     CreateWorkContractRequest,
+    EntryChangeOperation,
     ExternalSkillResolution,
     FinalizeHandoffRequest,
     FlushTopicMemoryRequest,
@@ -47,6 +48,7 @@ from powercontext.http import (
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GenerateSkillRequest,
+    GetMemoryCapacityRequest,
     GetMemoryEntryRequest,
     GetStatsRequest,
     GetTopicMemoryRequest,
@@ -60,6 +62,7 @@ from powercontext.http import (
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListMemoryEntriesRequest,
+    MemoryCapacity,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
@@ -107,6 +110,7 @@ from powercontext.http._generated.operations import (
     GET_ARTIFACT_CANDIDATE,
     GET_ARTIFACT_REVISION,
     GET_EXPERIENCE,
+    GET_MEMORY_CAPACITY,
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
@@ -470,7 +474,13 @@ def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_to
 
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]
-    assert set(schemas["PrepareContextRequest"]["properties"]) == {"scope_id", "query", "max_bytes", "assembly"}
+    assert set(schemas["PrepareContextRequest"]["properties"]) == {
+        "scope_id",
+        "query",
+        "max_bytes",
+        "assembly",
+        "include_code",
+    }
     assert set(schemas["PreparedContext"]["properties"]) == {"schema", "status", "content", "content_bytes"}
     assert not {"memory", "mode", "selection"} & set(schemas["PreparedContext"]["properties"])
 
@@ -968,3 +978,13 @@ def test_server_publishes_the_canonical_openapi_schema() -> None:
         create_server_app(settings=ServerSettings(handoff_report=HandoffReportConfig(enabled=True))).openapi()
         == contract
     )
+
+
+def test_memory_capacity_contract_and_compact_change_are_public():
+    assert GET_MEMORY_CAPACITY.path == "/v1/memory/capacity"
+    assert GET_MEMORY_CAPACITY.request_type is GetMemoryCapacityRequest
+    assert GET_MEMORY_CAPACITY.response_type is MemoryCapacity
+    assert GET_MEMORY_CAPACITY.access == LIST_MEMORY_ENTRIES.access
+    assert EntryChangeOperation.COMPACT.value == "compact"
+    with pytest.raises(ValidationError):
+        GetMemoryCapacityRequest.model_validate({"scope_id": "scope", "budget": {}})

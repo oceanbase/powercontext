@@ -243,7 +243,10 @@ exceptions, cancellation, timeout, nor process death refunds a reservation.
 The Worker uses OpenAI/Anthropic SDK-backed providers with SDK transport retries disabled, including compatible
 endpoints. Binding assembly and Worker bootstrap validate the same policy. Topic model settings admit only bounded
 scalar sampling, output, timeout, and service-tier settings; Embedding admits only `dimensions` and `truncate`.
-`extra_body`, hidden response/conversation history, background generation, native tools, and unsupported providers are
+Generation with `openai-chat:<model>` additionally accepts exactly
+`extra_body={"chat_template_kwargs":{"enable_thinking":false}}`: the value must be a boolean, and neither level may
+contain other keys. This exception cannot override messages, output limits, tools, or retry policy. All other
+`extra_body` forms (including Embedding), hidden response/conversation history, background generation, native tools, and unsupported providers are
 rejected before provider I/O. A suspended response is rejected at the raw model boundary, preventing the inference
 library from folding separately billed continuation segments into one logical request. Ordinary non-Topic inference
 retains its existing provider behavior. An incompatible configuration does not register a Topic Worker and reports

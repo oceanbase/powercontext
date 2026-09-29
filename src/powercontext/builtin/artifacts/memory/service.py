@@ -16,13 +16,18 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass
+from hashlib import sha256
 from time import perf_counter
 from typing import Literal, Protocol, TypeAlias, TypeVar, overload
 from uuid import uuid4
 
+from pydantic import BaseModel
+
+from powercontext._logging import log_safely
 from powercontext.artifacts import Artifact, ArtifactLineage, ArtifactRef
 from powercontext.builtin.artifacts.memory.canonical import (
     canonical_embedding,
@@ -31,7 +36,7 @@ from powercontext.builtin.artifacts.memory.canonical import (
     embedding_content_hash,
     entry_content_bytes,
     entry_content_hash,
-    memory_content_hash,
+    memory_content_bytes,
     normalize_kind,
     normalize_query,
     normalize_reason,
@@ -44,8 +49,10 @@ from powercontext.builtin.artifacts.memory.errors import (
     InvalidMemoryCandidateError,
     InvalidMemoryCitationError,
     InvalidMemoryEvidenceError,
+    MemoryCapacityExceededError,
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
+    MemoryWriteRejectedError,
 )
 from powercontext.builtin.artifacts.memory.fusion import (
     admit_fts_candidates,
@@ -56,8 +63,13 @@ from powercontext.builtin.artifacts.memory.models import (
     EmbeddingProfile,
     Memory,
     MemoryCapabilities,
+    MemoryCapacity,
+    MemoryCapacityBudget,
+    MemoryCapacityDimension,
     MemoryChange,
     MemoryCitation,
+    MemoryCompactionPolicy,
+    MemoryCompactionResult,
     MemoryContent,
     MemoryEntryInput,
     MemoryEntryVersion,
@@ -78,7 +90,12 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemoryCommit,
     MemoryProjection,
     MemorySearchRequest,
+    MemoryWriteAssessment,
+    MemoryWriteGate,
+    MemoryWriteGateRequest,
     MemoryWritePlan,
+    MemoryWriteRejectionCode,
+    MemoryWriteVerdict,
 )
 from powercontext.builtin.artifacts.memory.reranking import MemoryReranker
 from powercontext.builtin.artifacts.prompt.service import ScopedPrompts, current_prompt, prompt_operation
@@ -92,21 +109,37 @@ from powercontext.builtin.inference import (
 )
 from powercontext.builtin.tags import TagFilter
 from powercontext.errors import RevisionConflictError
-from powercontext.sources import Source, SourceRef
+from powercontext.sources import (
+    TEXT_EVIDENCE_PROJECTION_KEY,
+    Source,
+    SourceObservation,
+    SourceProjectionKey,
+    SourceRef,
+    TextEvidence,
+)
 
 MemoryRememberMode: TypeAlias = Literal["append", "extract", "auto"]
 IdFactory: TypeAlias = Callable[[str], str]
 ValueT = TypeVar("ValueT")
+_GATE_EVIDENCE_ITEM_LIMIT = 32
+_GATE_EVIDENCE_TEXT_LIMIT = 2000
+logger = logging.getLogger(__name__)
 
 
 class _SourceResolver(Protocol):
     async def get(self, source: Source, /) -> Source: ...
 
+    async def get_ref(self, ref: SourceRef, /) -> Source: ...
+
     def as_ref(self, source: Source, /) -> SourceRef: ...
+
+    def project(self, source: Source, key: SourceProjectionKey, /) -> object: ...
 
 
 class _ArtifactResolver(Protocol):
     async def get(self, artifact: Artifact[object], /) -> Artifact[object]: ...
+
+    async def get_ref(self, ref: ArtifactRef, /) -> Artifact[object]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +158,51 @@ class _EntryMaterial:
     content_hash: str
 
 
+@dataclass(frozen=True, slots=True)
+class _GateEvidenceEntry:
+    text: str
+    complete: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _GateCandidateEvidence:
+    index: int
+    material: _EntryMaterial
+
+
+@dataclass(frozen=True, slots=True)
+class _GateEvidenceProjection:
+    entries: tuple[str, ...]
+    rejection: MemoryWriteAssessment | None = None
+
+
+@dataclass(slots=True)
+class _GateEvidenceBuilder:
+    policy_id: str
+    entries: list[str]
+
+    def append(self, entry: _GateEvidenceEntry) -> MemoryWriteAssessment | None:
+        if not entry.complete:
+            return self._budget_rejection()
+        if any(current == entry.text for current in self.entries):
+            return None
+        if len(self.entries) >= _GATE_EVIDENCE_ITEM_LIMIT:
+            return self._budget_rejection()
+        self.entries.append(entry.text)
+        return None
+
+    def projection(self) -> _GateEvidenceProjection:
+        return _GateEvidenceProjection(tuple(self.entries))
+
+    def _budget_rejection(self) -> MemoryWriteAssessment:
+        return MemoryWriteAssessment(
+            verdict=MemoryWriteVerdict.HOLD,
+            policy_id=self.policy_id,
+            code=MemoryWriteRejectionCode.EVIDENCE_LIMIT_EXCEEDED,
+            reason="the cited evidence exceeds the gate evidence budget",
+        )
+
+
 class _InvalidMemoryOperationError(ValueError):
     def __init__(self, code: str) -> None:
         messages = {
@@ -140,6 +218,9 @@ class _InvalidMemoryOperationError(ValueError):
             "search-limit": "memory search limit must be positive",
             "search-mode": "unsupported memory search mode",
             "search-query": "memory search query must be non-empty text",
+            "compaction-limit": "memory compaction limit must be positive",
+            "history-limit": "memory history revision limit must be positive",
+            "through-range": "through_revision must be between 1 and the current head Revision",
         }
         super().__init__(messages[code])
 
@@ -152,6 +233,15 @@ def _extraction_prompt_refs() -> tuple[ArtifactRef, ...]:
 def _require_tag_filter(capabilities: MemoryCapabilities, tag_filter: TagFilter | None) -> None:
     if tag_filter is not None and not capabilities.tag_filter:
         raise CapabilityNotSupportedError("tag-filter")
+
+
+def _annotate_reason(reason: str | None, flagged_reason: str | None) -> str | None:
+    """Fill a missing audit reason from a flagged gate verdict without overwriting a caller's."""
+
+    normalized = normalize_reason(reason)
+    if normalized is not None or flagged_reason is None:
+        return normalized
+    return normalize_reason(flagged_reason)
 
 
 class MemoryService:
@@ -169,10 +259,15 @@ class MemoryService:
         artifact_resolver: _ArtifactResolver | None = None,
         id_factory: IdFactory | None = None,
         prompt_context: ScopedPrompts | None = None,
+        write_gate: MemoryWriteGate | None = None,
+        capacity_budget: MemoryCapacityBudget | None = None,
+        compaction: MemoryCompactionPolicy | None = None,
+        max_history_revisions: int = 100,
     ) -> None:
         self._backend = backend
         self._prompt_context = prompt_context
         self._candidate_pipeline = candidate_pipeline
+        self._write_gate = write_gate
         self._embedding_model = embedding_model
         if rerank_candidate_limit < 1:
             raise _InvalidMemoryOperationError("search-limit")
@@ -181,6 +276,15 @@ class MemoryService:
         self._source_resolver = source_resolver
         self._artifact_resolver = artifact_resolver
         self._id_factory = _default_id if id_factory is None else id_factory
+        self._capacity_budget = MemoryCapacityBudget() if capacity_budget is None else capacity_budget.model_copy()
+        self._compaction = MemoryCompactionPolicy() if compaction is None else compaction.model_copy()
+        if max_history_revisions < 1:
+            raise _InvalidMemoryOperationError("history-limit")
+        self._max_history_revisions = max_history_revisions
+        # One entry, describing the projections of the most recently written Memory
+        # revision. Revisions are immutable, so a hit is always valid for that exact
+        # reference; a rebuilt or externally advanced Memory simply misses.
+        self._previous_projection_cache: tuple[ArtifactRef, dict[str, MemoryProjection]] | None = None
 
     async def get(self, memory: Memory, /) -> Memory:
         """Return the canonical exact Memory Revision matching ``memory``."""
@@ -193,13 +297,28 @@ class MemoryService:
         canonical = await self.get(memory)
         return await self._backend.latest(canonical.artifact_id)
 
-    async def revisions(self, memory: Memory, /) -> tuple[Memory, ...]:
-        """Return the visible Memory history in ascending Revision order."""
+    async def revisions(
+        self, memory: Memory, /, *, since_revision: int = 0, through_revision: int | None = None
+    ) -> tuple[Memory, ...]:
+        """Return history in ascending order within ``(since_revision, through_revision]``.
+
+        The upper bound defaults to the current head. The history limit applies
+        to the requested interval, and oversized intervals are never truncated.
+        """
 
         canonical = await self.get(memory)
         latest = await self._backend.latest(canonical.artifact_id)
+        upper = latest.revision if through_revision is None else through_revision
+        if upper < 1 or upper > latest.revision:
+            raise _InvalidMemoryOperationError("through-range")
+        if since_revision < 0:
+            raise _InvalidMemoryOperationError("since-negative")
+        if since_revision > upper:
+            raise _InvalidMemoryOperationError("since-greater")
+        if upper - since_revision > self._max_history_revisions:
+            raise CapabilityNotSupportedError("history-window")
         history = []
-        for revision in range(1, latest.revision + 1):
+        for revision in range(since_revision + 1, upper + 1):
             history.append(
                 await self._backend.get(
                     ArtifactRef(family=Memory.family, artifact_id=canonical.artifact_id, revision=revision)
@@ -211,6 +330,129 @@ class MemoryService:
         """Return the current Memory head by its stable Artifact identity."""
 
         return await self._backend.latest(artifact_id)
+
+    async def capacity(self, memory: Memory, /) -> MemoryCapacity:
+        """Measure an exact Revision, including eligible tombstones even when compaction is disabled.
+
+        Eligibility can load complete manifests across the tombstone recovery
+        window. Cost scales with their combined size; this is not a cheap counter.
+        """
+
+        canonical = await self._canonical_memory(memory)
+        values = self._capacity_values(canonical.content)
+        return MemoryCapacity(
+            memory_ref=canonical.as_ref(),
+            active_entry_count=values["active_entries"],
+            manifest_entry_count=values["manifest_entries"],
+            manifest_bytes=values["manifest_bytes"],
+            compactable_entry_count=len(await self._compactable_entry_ids(canonical)),
+            budget=self._capacity_budget.model_copy(),
+            exceeded=tuple(dimension for dimension, limit in self._capacity_limits() if values[dimension] > limit),
+        )
+
+    def _capacity_limits(self) -> tuple[tuple[MemoryCapacityDimension, int], ...]:
+        budget = self._capacity_budget
+        return (
+            ("manifest_bytes", budget.max_manifest_bytes),
+            ("manifest_entries", budget.max_manifest_entries),
+            ("active_entries", budget.max_active_entries),
+        )
+
+    @staticmethod
+    def _capacity_values(
+        content: MemoryContent, content_bytes: bytes | None = None
+    ) -> dict[MemoryCapacityDimension, int]:
+        return {
+            "manifest_bytes": len(memory_content_bytes(content) if content_bytes is None else content_bytes),
+            "manifest_entries": len(content.manifest.entries),
+            "active_entries": sum(item.state == "active" for item in content.manifest.entries),
+        }
+
+    def _require_capacity(
+        self,
+        base: Memory | None,
+        content: MemoryContent,
+        *,
+        growth: frozenset[MemoryCapacityDimension],
+        content_bytes: bytes,
+    ) -> None:
+        if not growth:
+            return
+        values = self._capacity_values(content, content_bytes)
+        previous = None
+        for dimension, limit in self._capacity_limits():
+            observed = values[dimension]
+            if dimension not in growth or observed <= limit:
+                continue
+            if previous is None:
+                previous = {} if base is None else self._capacity_values(base.content)
+            if observed > previous.get(dimension, 0):
+                raise MemoryCapacityExceededError(dimension, limit, observed)
+
+    async def _compactable_entry_ids(self, memory: Memory) -> tuple[str, ...]:
+        inactive = {item.entry_id for item in memory.content.manifest.entries if item.state == "inactive"}
+        if not inactive:
+            return ()
+        # Only the recovery window matters. An inactive entry untouched throughout
+        # that window was already inactive at its lower bound.
+        lower = max(0, memory.revision - self._compaction.min_tombstone_revisions)
+        if lower < 1:
+            return ()
+        recent = {
+            change.entry_id
+            for revision in await self._backend.changes(memory.as_ref(), lower)
+            for change in revision.changes
+            if change.op in {"add", "deactivate", "reactivate"}
+        }
+        tagged = await self._backend.any_tagged_entry_ids(memory.as_ref())
+        return tuple(sorted(inactive - recent - tagged, key=str.encode))
+
+    async def compact(
+        self, memory: Memory, *, dry_run: bool = False, limit: int | None = None, reason: str | None = None
+    ) -> MemoryCompactionResult:
+        """Drop aged, untagged tombstones; retain every prior Revision and entry body.
+
+        Previews are available while compaction is disabled. Reclaimed bytes are
+        the signed difference of complete canonical contents, including the audit
+        changes and reason, which can outweigh a small manifest reduction.
+        """
+
+        if limit is not None and limit < 1:
+            raise _InvalidMemoryOperationError("compaction-limit")
+        if not dry_run and not self._compaction.enabled:
+            raise CapabilityNotSupportedError("compaction")
+        normalized_reason = normalize_reason(reason)
+        base = await self._canonical_base(memory)
+        entry_ids = (await self._compactable_entry_ids(base))[:limit]
+        selected = frozenset(entry_ids)
+        manifest = {item.entry_id: item for item in base.content.manifest.entries if item.entry_id not in selected}
+        changes = tuple(
+            MemoryChange(
+                op="compact",
+                entry_id=item.entry_id,
+                from_entry_version_id=item.entry_version_id,
+                to_entry_version_id=None,
+                reason=normalized_reason,
+            )
+            for item in base.content.manifest.entries
+            if item.entry_id in selected
+        )
+        if not entry_ids:
+            return MemoryCompactionResult(memory=base, dry_run=dry_run)
+        content = MemoryContent(manifest=MemoryManifest(entries=tuple(manifest.values())), changes=changes)
+        reclaimed = len(memory_content_bytes(base.content)) - len(memory_content_bytes(content))
+        result = (
+            base
+            if dry_run
+            else await self._commit_existing_transition(
+                base=base,
+                manifest=manifest,
+                changes=changes,
+                current_by_entry={},
+                entry_versions=(),
+            )
+        )
+        return MemoryCompactionResult(memory=result, entry_ids=entry_ids, reclaimed_bytes=reclaimed, dry_run=dry_run)
 
     async def head_entries(self, artifact_id: str, /) -> tuple[Memory, tuple[MemoryEntryVersion, ...]]:
         """Return the current Memory head together with its validated entry objects.
@@ -240,15 +482,15 @@ class MemoryService:
     ) -> Memory | None:
         """Append or extract validated entry changes against one exact head."""
 
-        return await self.apply(
-            await self.plan_remember(
-                memory=memory,
-                sources=sources,
-                artifacts=artifacts,
-                entries=entries,
-                mode=mode,
-            )
+        plan = await self.plan_remember(
+            memory=memory,
+            sources=sources,
+            artifacts=artifacts,
+            entries=entries,
+            mode=mode,
         )
+        _raise_if_write_held(plan)
+        return await self.apply(plan)
 
     async def plan_remember(
         self,
@@ -274,12 +516,16 @@ class MemoryService:
         async with binding:
             base = await self._canonical_base(memory)
             evidence = await self._canonical_operation_evidence(sources, artifacts)
-            current_entries = () if base is None else await self._validated_entries(base)
+            # Only extraction compares against every current entry; append plans carry
+            # no current entry set and load one lazily if a candidate revises an entry.
+            current_entries = (
+                await self._validated_entries(base) if base is not None and selected_mode == "extract" else None
+            )
             candidates = await self._candidates(
                 selected_mode,
                 tuple(entries),
                 evidence,
-                current_entries,
+                () if current_entries is None else current_entries,
                 active_version_ids=(
                     frozenset()
                     if base is None
@@ -291,15 +537,25 @@ class MemoryService:
             if not candidates:
                 return MemoryWritePlan(result=base, commit=None)
 
+            assessment = await self._assess_write(base, candidates, evidence, current_entries)
+            if assessment is not None and assessment.verdict is MemoryWriteVerdict.HOLD:
+                # A refused write stays visible: the caller reads the structured code and reason
+                # from the plan. The plan carries no commit, so nothing is written.
+                return MemoryWritePlan(result=base, commit=None, decision=assessment)
+
+            flagged_reason = (
+                assessment.reason if assessment is not None and assessment.verdict is MemoryWriteVerdict.FLAG else None
+            )
             commit = await self._prepare_commit(
                 base=base,
                 candidates=candidates,
                 evidence=evidence,
                 current_entries=current_entries,
+                flagged_reason=flagged_reason,
             )
             if commit is None:
-                return MemoryWritePlan(result=base, commit=None)
-            return MemoryWritePlan(result=commit.memory, commit=commit)
+                return MemoryWritePlan(result=base, commit=None, decision=assessment)
+            return MemoryWritePlan(result=commit.memory, commit=commit, decision=assessment)
 
     async def apply(self, plan: MemoryWritePlan, /) -> Memory | None:
         """Apply one prepared write through this service's transaction boundary."""
@@ -310,6 +566,7 @@ class MemoryService:
             committed = await unit_of_work.commit(plan.commit)
         if plan.result != committed:
             raise InvalidMemoryCitationError("memory-mismatch")
+        self._cache_projections(committed, plan.commit.projections)
         return committed
 
     async def forget(
@@ -653,6 +910,7 @@ class MemoryService:
     async def rebuild_projections(self, embedding_model: EmbeddingModel | None = None, /) -> None:
         """Rebuild current-head search projections from authoritative Memory revisions."""
 
+        self._previous_projection_cache = None
         await self._backend.rebuild_projections(embedding_model)
 
     async def validate_citation(self, citation: MemoryCitation) -> MemoryEntryVersion:
@@ -833,6 +1091,7 @@ class MemoryService:
             changes=changes,
             current_by_entry=current_by_entry,
             entry_versions=(),
+            growth=frozenset({"active_entries"}) if target_state == "active" else frozenset(),
         )
 
     async def _commit_existing_transition(
@@ -843,10 +1102,13 @@ class MemoryService:
         changes: Sequence[MemoryChange],
         current_by_entry: dict[str, MemoryEntryVersion],
         entry_versions: tuple[MemoryEntryVersion, ...],
+        growth: frozenset[MemoryCapacityDimension] = frozenset(),
     ) -> Memory:
         sorted_manifest = tuple(sorted(manifest.values(), key=lambda item: item.entry_id.encode("utf-8")))
         sorted_changes = tuple(sorted(changes, key=lambda change: change.entry_id.encode("utf-8")))
         content = MemoryContent(manifest=MemoryManifest(entries=sorted_manifest), changes=sorted_changes)
+        content_bytes = memory_content_bytes(content)
+        self._require_capacity(base, content, growth=growth, content_bytes=content_bytes)
         memory = Memory(
             artifact_id=base.artifact_id,
             revision=base.revision + 1,
@@ -862,12 +1124,14 @@ class MemoryService:
         commit = MemoryCommit(
             base=base,
             memory=memory,
-            content_hash=memory_content_hash(content),
+            content_hash=sha256(content_bytes).hexdigest(),
             entry_versions=entry_versions,
             projections=projections,
         )
         async with self._backend.begin() as unit_of_work:
-            return await unit_of_work.commit(commit)
+            committed = await unit_of_work.commit(commit)
+        self._cache_projections(committed, commit.projections)
+        return committed
 
     async def _validate_anchor(
         self,
@@ -910,45 +1174,44 @@ class MemoryService:
         for item in manifest_entries:
             if item.state != "active":
                 continue
+            replayed = previous.get(item.entry_version_id)
+            if replayed is not None and item.entry_version_id not in changed_version_ids:
+                # Entry versions are immutable, so the projection recorded for this
+                # version id is exactly what this revision carries; re-deriving it
+                # would re-analyze every unchanged entry on every write.
+                prepared.append(replayed)
+                continue
             version = versions_by_entry[item.entry_id]
             if version.entry_version_id != item.entry_version_id:
                 raise InvalidMemoryCitationError("projection-version")
-            searchable_text = analyze_text(version.text)
-            reused = self._reused_projection(previous.get(version.entry_version_id), version, searchable_text)
-            if reused is not None and version.entry_version_id not in changed_version_ids:
-                prepared.append(reused)
-                continue
-            prepared.append(MemoryProjection(entry_version=version, searchable_text=searchable_text))
+            prepared.append(MemoryProjection(entry_version=version, searchable_text=analyze_text(version.text)))
             embed_indices.append(len(prepared) - 1)
         return await self._attach_embeddings(tuple(prepared), embed_indices)
 
     async def _previous_projections(self, base: Memory | None) -> dict[str, MemoryProjection]:
         if base is None:
             return {}
-        return {
+        reference = base.as_ref()
+        cached = self._previous_projection_cache
+        if cached is not None and cached[0] == reference:
+            active = {item.entry_version_id for item in base.content.manifest.entries if item.state == "active"}
+            if active <= cached[1].keys():
+                return cached[1]
+            # A commit whose outer transaction rolled back leaves this cache behind
+            # while the stored revision never advanced; another writer can then reuse
+            # the same reference with a different entry set, so a cached revision
+            # missing an active version belongs to no stored revision.
+        projections = {
             projection.entry_version.entry_version_id: projection
-            for projection in await self._backend.projections(base.as_ref())
+            for projection in await self._backend.projections(reference)
         }
+        self._previous_projection_cache = (reference, projections)
+        return projections
 
-    def _reused_projection(
-        self,
-        previous: MemoryProjection | None,
-        version: MemoryEntryVersion,
-        searchable_text: str,
-    ) -> MemoryProjection | None:
-        if previous is None:
-            return None
-        if (
-            previous.entry_version.entry_version_id != version.entry_version_id
-            or previous.entry_version.entry_content_hash != version.entry_content_hash
-            or previous.searchable_text != searchable_text
-        ):
-            return None
-        return previous.model_copy(
-            update={
-                "entry_version": version,
-                "searchable_text": searchable_text,
-            }
+    def _cache_projections(self, committed: Memory, projections: tuple[MemoryProjection, ...]) -> None:
+        self._previous_projection_cache = (
+            committed.as_ref(),
+            {projection.entry_version.entry_version_id: projection for projection in projections},
         )
 
     async def _attach_embeddings(
@@ -1100,33 +1363,149 @@ class MemoryService:
             )
         )
 
+    async def _assess_write(
+        self,
+        base: Memory | None,
+        candidates: tuple[MemoryEntryInput, ...],
+        evidence: _OperationEvidence,
+        current_entries: tuple[MemoryEntryVersion, ...] | None,
+    ) -> MemoryWriteAssessment | None:
+        """Ask the configured gate about one candidate set; ``None`` means no gate is active."""
+
+        if self._write_gate is None:
+            return None
+        projection = await self._gate_evidence(base, candidates, evidence, current_entries)
+        if projection.rejection is not None:
+            _log_gate_assessment(projection.rejection)
+            return projection.rejection
+        try:
+            return await self._write_gate.assess(
+                MemoryWriteGateRequest(
+                    candidates=tuple(candidate.text for candidate in candidates),
+                    evidence=projection.entries,
+                    expected_revision=None if base is None else base.revision,
+                )
+            )
+        except Exception:
+            return MemoryWriteAssessment(
+                verdict=MemoryWriteVerdict.ACCEPT,
+                policy_id=self._write_gate.policy_id,
+                used_fallback=True,
+            )
+
+    async def _gate_evidence(
+        self,
+        base: Memory | None,
+        candidates: tuple[MemoryEntryInput, ...],
+        evidence: _OperationEvidence,
+        current_entries: tuple[MemoryEntryVersion, ...] | None,
+    ) -> _GateEvidenceProjection:
+        builder = _GateEvidenceBuilder(self._write_gate_policy_id(), [])
+        for candidate in await self._gate_candidate_evidence(base, candidates, evidence, current_entries):
+            for entry in await self._candidate_gate_evidence(candidate):
+                if rejection := builder.append(entry):
+                    return _GateEvidenceProjection(tuple(builder.entries), rejection)
+        return builder.projection()
+
+    async def _gate_candidate_evidence(
+        self,
+        base: Memory | None,
+        candidates: tuple[MemoryEntryInput, ...],
+        evidence: _OperationEvidence,
+        current_entries: tuple[MemoryEntryVersion, ...] | None,
+    ) -> tuple[_GateCandidateEvidence, ...]:
+        current_by_entry = {} if current_entries is None else {entry.entry_id: entry for entry in current_entries}
+        targeted: set[str] = set()
+        resolved: list[_GateCandidateEvidence] = []
+        for index, candidate in enumerate(candidates, start=1):
+            previous = None
+            if candidate.entry is not None:
+                _, previous = await self._claim_revision_target(candidate, base, current_by_entry, targeted)
+            material = await self._material_from_candidate(
+                candidate,
+                evidence.sources,
+                evidence.artifacts,
+                previous=previous,
+            )
+            resolved.append(_GateCandidateEvidence(index=index, material=material))
+        return tuple(resolved)
+
+    async def _candidate_gate_evidence(self, candidate: _GateCandidateEvidence) -> tuple[_GateEvidenceEntry, ...]:
+        entries = [
+            await self._source_ref_gate_evidence(candidate.index, source) for source in candidate.material.sources
+        ]
+        entries.extend([
+            await self._artifact_ref_gate_evidence(candidate.index, artifact)
+            for artifact in candidate.material.artifacts
+        ])
+        return tuple(entries)
+
+    def _source_gate_evidence(self, candidate_index: int, source: Source) -> _GateEvidenceEntry:
+        ref = self._source_refs((source,))[0]
+        identity = _candidate_gate_identity(candidate_index, f"source:{ref.source_type}:{ref.source_id}")
+        content = _source_gate_content(source, self._source_resolver)
+        if isinstance(content, str) and content.strip():
+            return _bounded_gate_evidence(identity, content)
+        return _incomplete_gate_evidence(identity)
+
+    @staticmethod
+    def _artifact_gate_evidence(candidate_index: int, artifact: Artifact[object]) -> _GateEvidenceEntry:
+        ref = artifact.as_ref()
+        return _bounded_gate_evidence(
+            _candidate_gate_identity(candidate_index, f"artifact:{ref.family}:{ref.artifact_id}@{ref.revision}"),
+            _artifact_gate_content(artifact),
+        )
+
+    async def _source_ref_gate_evidence(self, candidate_index: int, ref: SourceRef) -> _GateEvidenceEntry:
+        identity = _candidate_gate_identity(candidate_index, f"source:{ref.source_type}:{ref.source_id}")
+        if self._source_resolver is None:
+            return _incomplete_gate_evidence(identity)
+        try:
+            return self._source_gate_evidence(candidate_index, await self._source_resolver.get_ref(ref))
+        except Exception:
+            return _incomplete_gate_evidence(identity)
+
+    async def _artifact_ref_gate_evidence(self, candidate_index: int, ref: ArtifactRef) -> _GateEvidenceEntry:
+        identity = _candidate_gate_identity(candidate_index, f"artifact:{ref.family}:{ref.artifact_id}@{ref.revision}")
+        if self._artifact_resolver is None:
+            return _incomplete_gate_evidence(identity)
+        try:
+            return self._artifact_gate_evidence(candidate_index, await self._artifact_resolver.get_ref(ref))
+        except Exception:
+            return _incomplete_gate_evidence(identity)
+
+    def _write_gate_policy_id(self) -> str:
+        if self._write_gate is not None:
+            return self._write_gate.policy_id
+        return "memory.write-gate"
+
     async def _prepare_commit(
         self,
         *,
         base: Memory | None,
         candidates: tuple[MemoryEntryInput, ...],
         evidence: _OperationEvidence,
-        current_entries: tuple[MemoryEntryVersion, ...],
+        current_entries: tuple[MemoryEntryVersion, ...] | None,
+        flagged_reason: str | None = None,
     ) -> MemoryCommit | None:
         memory_id = base.artifact_id if base is not None else self._new_id("memory")
         next_revision = 1 if base is None else base.revision + 1
         manifest = {} if base is None else {entry.entry_id: entry for entry in base.content.manifest.entries}
-        current_by_entry = {entry.entry_id: entry for entry in current_entries}
+        current_by_entry = {} if current_entries is None else {entry.entry_id: entry for entry in current_entries}
         new_versions: list[MemoryEntryVersion] = []
         changes: list[MemoryChange] = []
         targeted: set[str] = set()
-        new_content: set[bytes] = {
-            self._material_from_version(version).content_bytes
-            for version in current_entries
-            if manifest[version.entry_id].state == "active"
-        }
+        # The manifest records each active entry's validated content hash, so exact
+        # duplicate detection compares hashes; rebuilding every body here would cost
+        # one material per entry to answer the same question.
+        new_content: set[str] = {item.entry_content_hash for item in manifest.values() if item.state == "active"}
 
         for candidate in candidates:
             if candidate.entry is None:
                 material = await self._material_from_candidate(candidate, evidence.sources, evidence.artifacts)
-                if material.content_bytes in new_content:
+                if material.content_hash in new_content:
                     continue
-                new_content.add(material.content_bytes)
+                new_content.add(material.content_hash)
                 entry_id = self._new_id("entry")
                 if entry_id in manifest:
                     raise _InvalidMemoryOperationError("id-collision")
@@ -1146,12 +1525,12 @@ class MemoryService:
                         entry_id=entry_id,
                         from_entry_version_id=None,
                         to_entry_version_id=version.entry_version_id,
-                        reason=normalize_reason(candidate.reason),
+                        reason=_annotate_reason(candidate.reason, flagged_reason),
                     )
                 )
                 continue
 
-            entry_id, previous = self._claim_revision_target(candidate, current_by_entry, targeted)
+            entry_id, previous = await self._claim_revision_target(candidate, base, current_by_entry, targeted)
             item = manifest.get(entry_id)
             if item is None:
                 raise MemoryEntryNotFoundError(entry_id)
@@ -1185,7 +1564,7 @@ class MemoryService:
                     entry_id=entry_id,
                     from_entry_version_id=previous.entry_version_id,
                     to_entry_version_id=version.entry_version_id,
-                    reason=normalize_reason(candidate.reason),
+                    reason=_annotate_reason(candidate.reason, flagged_reason),
                 )
             )
 
@@ -1195,6 +1574,13 @@ class MemoryService:
         sorted_manifest = tuple(sorted(manifest.values(), key=lambda item: item.entry_id.encode("utf-8")))
         sorted_changes = tuple(sorted(changes, key=lambda change: change.entry_id.encode("utf-8")))
         content = MemoryContent(manifest=MemoryManifest(entries=sorted_manifest), changes=sorted_changes)
+        content_bytes = memory_content_bytes(content)
+        self._require_capacity(
+            base,
+            content,
+            growth=frozenset(dimension for dimension, _ in self._capacity_limits()),
+            content_bytes=content_bytes,
+        )
         memory = Memory(
             artifact_id=memory_id,
             revision=next_revision,
@@ -1213,14 +1599,15 @@ class MemoryService:
         return MemoryCommit(
             base=base,
             memory=memory,
-            content_hash=memory_content_hash(content),
+            content_hash=sha256(content_bytes).hexdigest(),
             entry_versions=tuple(new_versions),
             projections=projections,
         )
 
-    @staticmethod
-    def _claim_revision_target(
+    async def _claim_revision_target(
+        self,
         candidate: MemoryEntryInput,
+        base: Memory | None,
         current_by_entry: dict[str, MemoryEntryVersion],
         targeted: set[str],
     ) -> tuple[str, MemoryEntryVersion]:
@@ -1230,12 +1617,17 @@ class MemoryService:
         entry_id = validate_identifier(entry.entry_id)
         if entry_id in targeted:
             raise _InvalidMemoryOperationError("duplicate-target")
-        targeted.add(entry_id)
         previous = current_by_entry.get(entry_id)
+        if previous is None and base is not None:
+            # A revise needs the exact version it targets; the common append path
+            # never loads the current entry set at all.
+            current_by_entry.update({value.entry_id: value for value in await self._validated_entries(base)})
+            previous = current_by_entry.get(entry_id)
         if previous is None:
             raise MemoryEntryNotFoundError(entry_id)
         if entry != previous:
             raise InvalidMemoryCitationError("entry-mismatch")
+        targeted.add(entry_id)
         return entry_id, previous
 
     async def _material_from_candidate(
@@ -1298,7 +1690,9 @@ class MemoryService:
         result: list[ArtifactRef] = []
         allowed_refs = tuple(artifact.as_ref() for artifact in allowed)
         for value in values:
-            canonical = value if self._artifact_resolver is None else await self._artifact_resolver.get(value)
+            canonical = _matching_allowed_artifact(value, allowed)
+            if canonical is None:
+                canonical = value if self._artifact_resolver is None else await self._artifact_resolver.get(value)
             reference = canonical.as_ref()
             if reference not in (*allowed_refs, *previous):
                 raise InvalidMemoryEvidenceError("artifact-outside")
@@ -1419,6 +1813,99 @@ def _manifest_entry(version: MemoryEntryVersion, *, state: Literal["active", "in
         entry_content_hash=version.entry_content_hash,
         state=state,
     )
+
+
+def _raise_if_write_held(plan: MemoryWritePlan) -> None:
+    decision = plan.decision
+    if decision is None or decision.verdict is not MemoryWriteVerdict.HOLD:
+        return
+    code = "unspecified" if decision.code is None else decision.code.value
+    raise MemoryWriteRejectedError(code, decision.reason)
+
+
+def _bounded_gate_evidence(identity: str, content: str) -> _GateEvidenceEntry:
+    normalized = normalize_text(content)
+    return _GateEvidenceEntry(
+        text=f"{identity}\n{normalized[:_GATE_EVIDENCE_TEXT_LIMIT]}",
+        complete=len(normalized) <= _GATE_EVIDENCE_TEXT_LIMIT,
+    )
+
+
+def _incomplete_gate_evidence(identity: str) -> _GateEvidenceEntry:
+    return _GateEvidenceEntry(text=identity, complete=False)
+
+
+def _candidate_gate_identity(candidate_index: int, identity: str) -> str:
+    return f"candidate:{candidate_index} {identity}"
+
+
+def _source_gate_content(source: Source, resolver: _SourceResolver | None) -> str | None:
+    content = getattr(source, "content", None)
+    if isinstance(content, str):
+        return content
+    if isinstance(source, SourceObservation):
+        try:
+            evidence = TextEvidence.model_validate(source.projection(TEXT_EVIDENCE_PROJECTION_KEY))
+        except Exception:
+            return None
+        return evidence.content
+    if resolver is not None:
+        try:
+            evidence = TextEvidence.model_validate(resolver.project(source, TEXT_EVIDENCE_PROJECTION_KEY))
+        except Exception:
+            return None
+        return evidence.content
+    return None
+
+
+def _log_gate_assessment(assessment: MemoryWriteAssessment) -> None:
+    event = {
+        MemoryWriteVerdict.HOLD: "memory.write-gate.hold",
+        MemoryWriteVerdict.FLAG: "memory.write-gate.flag",
+    }.get(assessment.verdict, "memory.write-gate.assess")
+    log_safely(
+        logger,
+        logging.INFO,
+        "Memory write gate assessed a pending write",
+        extra={
+            "event": event,
+            "decision_kind": "memory.write-gate",
+            "policy_id": assessment.policy_id,
+            "verdict": assessment.verdict.value,
+            "code": None if assessment.code is None else assessment.code.value,
+            "used_fallback": assessment.used_fallback,
+        },
+    )
+
+
+def _artifact_gate_content(artifact: Artifact[object]) -> str:
+    content = artifact.content
+    if isinstance(content, BaseModel):
+        return content.model_dump_json()
+    return str(content)
+
+
+def _matching_allowed_artifact(
+    value: Artifact[object],
+    allowed: Sequence[Artifact[object]],
+) -> Artifact[object] | None:
+    reference = value.as_ref()
+    for artifact in allowed:
+        if artifact.as_ref() == reference:
+            return artifact
+    # Pydantic validates MemoryEntryInput artifacts through the generic Artifact[object]
+    # annotation, which strips the concrete subclass family. Fall back to the operation's
+    # canonical evidence set when the revision identity and body match exactly.
+    if value.family != Artifact.family:
+        return None
+    matches = [
+        artifact
+        for artifact in allowed
+        if artifact.artifact_id == value.artifact_id
+        and artifact.revision == value.revision
+        and artifact.content == value.content
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _canonical_source_refs(values: Sequence[SourceRef]) -> tuple[SourceRef, ...]:

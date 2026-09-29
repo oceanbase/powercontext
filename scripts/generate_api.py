@@ -143,7 +143,42 @@ def _generate_models(
     if not isinstance(result, str):
         raise ContractGenerationError("model generator output", result)  # noqa: TRY003
     evidence_models = _candidate_evidence_models(transport_contract.components.schemas)
-    return _with_candidate_evidence_limits(_with_nested_model_defaults(f"{result.rstrip()}\n"), evidence_models)
+    source = _with_nested_model_defaults(f"{result.rstrip()}\n")
+    source = _with_code_validation(source, transport_contract.components.schemas)
+    return _with_candidate_evidence_limits(source, evidence_models)
+
+
+def _with_code_validation(source: str, schemas: dict[str, Schema | Reference]) -> str:
+    """Preserve semantic constraints that OpenAPI 3.0 cannot express natively."""
+    validators = {
+        "operation": "validate_code_operation(self.model_dump())",
+        "query": "validate_code_query(self.operation.kind, self.expected_fingerprint, self.before_fingerprint)",
+    }
+    for name, schema in schemas.items():
+        if not isinstance(schema, Schema):
+            continue
+        kind = (schema.model_extra or {}).get("x-powercontext-code-validation")
+        if kind is None:
+            continue
+        if kind not in validators:
+            raise ContractGenerationError("x-powercontext-code-validation", kind)
+        source = _with_model_validator_import(source)
+        header = f"class {name}(BaseModel):"
+        start = source.find(header)
+        if start < 0:
+            raise ContractGenerationError("generated model class", name)  # noqa: TRY003
+        next_class = source.find("\nclass ", start + len(header))
+        insert_at = next_class if next_class >= 0 else len(source.rstrip())
+        validator = f"""
+    @model_validator(mode="after")
+    def _validate_code_{kind}(self):
+        from powercontext._code_validation import validate_code_{kind}
+
+        {validators[kind]}
+        return self
+"""
+        source = f"{source[:insert_at].rstrip()}\n{validator.rstrip()}\n\n{source[insert_at:].lstrip()}"
+    return source
 
 
 def _with_nested_model_defaults(source: str) -> str:
@@ -358,6 +393,8 @@ def _with_candidate_evidence_limits(source: str, model_names: tuple[str, ...]) -
 
 
 def _with_model_validator_import(source: str) -> str:
+    if " model_validator," in source or "import model_validator" in source:
+        return source
     single_line_import = "from pydantic import BaseModel, ConfigDict, Field,"
     if single_line_import in source:
         return source.replace(

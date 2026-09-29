@@ -48,6 +48,7 @@ from powercontext.builtin.artifacts.memory.canonical import (
     memory_content_hash,
 )
 from powercontext.builtin.artifacts.memory.errors import (
+    CapabilityNotSupportedError,
     InvalidMemoryCitationError,
     MemoryBackendConfigurationError,
 )
@@ -60,6 +61,7 @@ from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
+    ARTIFACT_TAGS_TABLE,
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
 )
@@ -178,6 +180,23 @@ class RelationalMemoryBackend:
             )
             return frozenset(rows)
 
+    async def any_tagged_entry_ids(self, memory: ArtifactRef, /) -> frozenset[str]:
+        await self.get(memory)
+        async with self._database.connection(self._bound_connection) as connection:
+            return await self._any_tagged_entry_ids(connection, memory)
+
+    async def _any_tagged_entry_ids(
+        self, connection: AsyncConnection, memory: ArtifactRef, *, for_update: bool = False
+    ) -> frozenset[str]:
+        table = ARTIFACT_TAGS_TABLE
+        query = select(table.c.target_id).where(
+            table.c.scope_id == self._scope_id,
+            table.c.family == Memory.family,
+            table.c.artifact_id == memory.artifact_id,
+            table.c.target_type == "memory_entry",
+        )
+        return frozenset(await connection.scalars(query.with_for_update() if for_update else query))
+
     async def entries(self, memory: ArtifactRef, /) -> tuple[MemoryEntryVersion, ...]:
         canonical = await self.get(memory)
         version_ids = tuple(item.entry_version_id for item in canonical.content.manifest.entries)
@@ -219,7 +238,6 @@ class RelationalMemoryBackend:
                     .where(
                         MEMORY_ENTRY_HEADS_TABLE.c.scope_id == self._scope_id,
                         MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id == memory.artifact_id,
-                        MEMORY_ENTRY_HEADS_TABLE.c.head_revision == memory.revision,
                     )
                     .order_by(MEMORY_ENTRY_HEADS_TABLE.c.entry_id)
                 )
@@ -298,8 +316,10 @@ class RelationalMemoryBackend:
                 self._scope_id,
                 Memory.family,
                 memory.artifact_id,
+                since_revision=lower,
+                through_revision=target.revision,
             )
-        selected = (_require_memory(value) for value in revisions if lower < value.revision <= target.revision)
+        selected = (_require_memory(value) for value in revisions)
         return tuple(
             MemoryRevisionChanges(memory_ref=value.as_ref(), changes=value.content.changes) for value in selected
         )
@@ -488,35 +508,70 @@ class RelationalMemoryBackend:
         if committed != value.memory:
             raise _InvalidMemoryCommitError("artifact-result")
 
+        compacted = {change.entry_id for change in value.memory.content.changes if change.op == "compact"}
+        if compacted:
+            # Artifact revision CAS holds the same head lock as tag replacement.
+            # Recheck with a current read so a newly tagged entry rolls back the
+            # entire compaction instead of leaving a dangling tag.
+            tagged = await self._any_tagged_entry_ids(connection, value.memory.as_ref(), for_update=True)
+            if compacted & tagged:
+                raise CapabilityNotSupportedError("compaction-tag-conflict")
+
         if value.entry_versions:
             await connection.execute(
                 insert(MEMORY_ENTRY_VERSIONS_TABLE),
                 [_entry_values(self._scope_id, entry) for entry in value.entry_versions],
             )
-        # Clear the index before the heads go, as rebuild_projections does: index
-        # metadata may cascade from the heads, and an index can only find its
-        # rows through that metadata.
-        await self._index.replace(connection, self._scope_id, value.memory.as_ref(), ())
-        await connection.execute(
-            delete(MEMORY_ENTRY_HEADS_TABLE).where(
-                MEMORY_ENTRY_HEADS_TABLE.c.scope_id == self._scope_id,
-                MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id == value.memory.artifact_id,
+        # Only entries whose pointer or state changed need projection work; the
+        # rest of the active head stays exactly as the previous revision left it.
+        previous_active = (
+            {}
+            if value.base is None
+            else {
+                item.entry_id: item.entry_version_id
+                for item in value.base.content.manifest.entries
+                if item.state == "active"
+            }
+        )
+        current_active = {
+            item.entry_id: item.entry_version_id
+            for item in value.memory.content.manifest.entries
+            if item.state == "active"
+        }
+        removed = tuple(sorted(entry_id for entry_id in previous_active if entry_id not in current_active))
+        changed = tuple(
+            sorted(
+                entry_id
+                for entry_id, entry_version_id in current_active.items()
+                if previous_active.get(entry_id) != entry_version_id
             )
         )
-        if value.projections:
+        drop = tuple(sorted({*removed, *changed}))
+        # Clear the index rows before the heads go, as rebuild_projections does:
+        # index metadata may cascade from the heads, and an index can only find its
+        # rows through that metadata.
+        await self._index.delete(connection, self._scope_id, value.memory.as_ref(), drop)
+        if drop:
+            await connection.execute(
+                delete(MEMORY_ENTRY_HEADS_TABLE).where(
+                    MEMORY_ENTRY_HEADS_TABLE.c.scope_id == self._scope_id,
+                    MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id == value.memory.artifact_id,
+                    MEMORY_ENTRY_HEADS_TABLE.c.entry_id.in_(drop),
+                )
+            )
+        if changed:
+            by_entry = {projection.entry_version.entry_id: projection for projection in value.projections}
+            upserts = tuple(by_entry[entry_id] for entry_id in changed)
             await connection.execute(
                 insert(MEMORY_ENTRY_HEADS_TABLE),
-                [
-                    _projection_values(self._scope_id, value.memory.as_ref(), projection)
-                    for projection in value.projections
-                ],
+                [_projection_values(self._scope_id, value.memory.as_ref(), projection) for projection in upserts],
             )
-        await self._index.replace(
-            connection,
-            self._scope_id,
-            value.memory.as_ref(),
-            value.projections,
-        )
+            await self._index.upsert(
+                connection,
+                self._scope_id,
+                value.memory.as_ref(),
+                upserts,
+            )
         return committed
 
 

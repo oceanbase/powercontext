@@ -151,6 +151,7 @@ def create_server_app(  # noqa: C901
         )
     )
     config = BuiltinConfig(
+        code=resolved.code,
         runtime=resolved.runtime,
         database=resolved.database,
         handoff_report=resolved.handoff_report,

@@ -150,6 +150,22 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
             )
             assert empty_list.structured_content == {"memory": None, "entries": []}
 
+            capacity_tool = projected_tools["get_memory_capacity"]
+            assert capacity_tool.annotations is not None
+            assert capacity_tool.annotations.readOnlyHint is True
+            written = await client.call_tool(
+                "remember_memory", {"scope_id": scope["scope_id"], "kind": "fact", "text": "Inspect capacity via MCP."}
+            )
+            capacity = await client.call_tool("get_memory_capacity", {"scope_id": scope["scope_id"]})
+            assert not capacity.is_error
+            assert capacity.structured_content is not None
+            assert capacity.structured_content["active_entry_count"] == 1
+            assert capacity.structured_content["manifest_entry_count"] == 1
+            assert written.structured_content is not None
+            assert capacity.structured_content["memory_ref"] == written.structured_content["memory"]
+            http_capacity = await http_client.post("/v1/memory/capacity", json={"scope_id": scope["scope_id"]})
+            assert http_capacity.json() == capacity.structured_content
+
             created_review_scope = await client.call_tool(
                 "create_scope",
                 {
@@ -201,6 +217,17 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
     tools = asyncio.run(exercise_tools())
 
     assert tools == {
+        "generate_experience",
+        "get_experience",
+        "propose_experience",
+        "generate_skill",
+        "get_skill",
+        "propose_skill",
+        "list_managed_skills",
+        "scan_external_skills",
+        "list_external_skills",
+        "resolve_external_skill",
+        "import_external_skill",
         "acknowledge_handoff",
         "activate_handoff",
         "approve_artifact_candidate",
@@ -214,6 +241,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "get_artifact_candidate",
         "get_handoff_report",
         "get_scope",
+        "get_memory_capacity",
         "get_memory_entry",
         "get_topic_memory",
         "handoff_current_work",
@@ -224,6 +252,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "list_memory_entries",
         "list_scopes",
         "publish_artifact",
+        "query_code",
         "record_task_outcome",
         "resolve_scope_binding",
         "reject_artifact_candidate",

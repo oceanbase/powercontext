@@ -219,6 +219,41 @@ result = await agent.ainvoke(
 Scope。配置详情见 [LangChain 连接与 Scope 设置](../integrations/langchain.md) 和
 [LangGraph 连接设置](../integrations/langgraph.md)。
 
+## 导入与派生外部 Skill
+
+**问：我已经有一个 Skill 包，应该选择 import 还是 fork？**
+
+假设团队已有一个 CSV 金额检查包，包含 `SKILL.md`、检查脚本和参考说明。根据你想保留现有包，还是提出不同的操作指令，
+选择相应模式：
+
+| 模式 | 适用情况 | 实际行为 |
+| --- | --- | --- |
+| **`import`** | 希望将现有包纳入管理，而不改写其中的文件。 | Runtime 直接根据捕获并校验过的包提出候选，保留文件路径和字节内容，无需生成模型。 |
+| **`fork`** | 希望基于外部包生成适合当前项目的操作指令。 | 配置好的生成器以捕获的包为依据提出新建议，不保证生成的包保留原来的脚本或资源。 |
+
+两种模式都不会修改外部原包。返回的 Candidate 在 Review 批准前保持 pending，批准后才创建新的 managed Skill Artifact；
+fork 也可能返回 `no_op`，不产生 Candidate。这里的 fork 指生成 Skill 提案，不是创建 GitHub 仓库的 Fork。
+接口说明见[外部 Agent-native Skill](../develop/interfaces.md)，目标目录配置见[在 Agent 中安装 Skill](../workflows/configure-agent-skill-targets.md)。
+
+**问：导入后再修改外部文件，managed Skill 会自动更新吗？**
+
+不会。外部 registration 通过 fingerprint 标识扫描时的包，已批准的 managed Skill Revision 则保存导入时的快照。
+即使 `SKILL.md` 没变，修改脚本或参考文件也可能改变 fingerprint。此时解析旧 fingerprint 会返回 `unavailable`，
+使用它导入会被拒绝，而不是静默选用变化后的包。需要重新扫描，并明确选择新的 fingerprint 才能导入新内容；
+这不会自动替换之前批准的 Skill。
+
+外部 registration 不可用，不等于已批准的 managed Revision 被删除。你仍可以精确读取或下载那个 Revision。
+例如，在外部 CSV 检查包的参考说明中补充非有限值规则，不会使这条规则自动进入已导入的副本。
+
+**问：fork 已经返回 Candidate，它现在就能替代原来的包吗？**
+
+不能仅凭这一点判断。从原包捕获 Source 证据，不代表生成的提案中包含了原来的脚本和资源。应检查候选包，包括指令中的命令
+是否引用了包内实际存在的文件。在 CSV 示例中，增加“检查非有限值”的指令，不等于检查脚本已经被保留、更新或执行。
+
+包校验和摘要匹配能确认结构与内容身份，不能证明它在你的输入上行为正确。在依赖它之前，应审核提案，并在已获授权的隔离
+工作区中验证预期任务。批准、导出或安装、实际执行仍然是不同步骤，详见[审核 Candidate](../workflows/review-candidates.md)
+和 [Experience 与 Skill 生命周期](../workflows/experience-and-skill-lifecycle.md)。
+
 ## 还有疑问？
 
 - 概念模型请见[核心概念](./core-concepts.md)。

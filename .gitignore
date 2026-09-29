@@ -31,6 +31,10 @@ evaluation/web/node_modules/
 evaluation/web/playwright-report/
 evaluation/web/test-results/
 evaluation/web/*.tsbuildinfo
+# Local native-code experiment and validation reports.
+/docs/*/rfcs/0000-native-git-code-understanding-validation.md
+/docs/*/rfcs/0000-native-git-code-understanding-experiment.md
+/docs/*/rfcs/0000-native-git-code-understanding-same-harness.md
 downloads/
 eggs/
 .eggs/

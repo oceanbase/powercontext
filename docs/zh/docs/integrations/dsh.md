@@ -294,6 +294,12 @@ powercontext doctor dsh
 
 `timeoutMs`、`requestTimeoutMs`、`maxBytes` 和 `flushMaxCalls` 是插件 patch 配置。Server 不可用时，召回和采集会降级；修改这些变量后需要重启 `dsh web`。
 
+`get_readiness`（包括 `/pc doctor` 中的检查）使用 `max(requestTimeoutMs, 40000)` 毫秒的请求预算，
+以容纳冷缓存下默认 30 秒的推理探测、后续最多 5 秒的访问控制检查，并留出网络传输余量。
+Doctor 在 `configuration.readiness_request_timeout_ms` 中报告该预算，同时保留普通请求的
+`request_timeout_ms`（默认 1000 毫秒）。如果 Server 配置了更长的探测预算，需要相应增加
+`requestTimeoutMs`。其他请求沿用配置的期限，调用方取消仍会立即终止 readiness 请求。
+
 环回地址默认允许明文 HTTP；远程 HTTP 需要显式设置 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`，
 HTTPS 证书校验仍然启用。主机地址变量依次读取 `BASE_URL`、`SERVER_URL`、`ENDPOINT`，然后才读取
 `POWERCONTEXT_CLIENT_SERVER_URL`。安装与持久化同意见[连接远程 Server](../operate/connect-remote-server.md)。

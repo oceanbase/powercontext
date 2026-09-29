@@ -117,13 +117,19 @@ class RuntimeCapabilities(BaseModel):
 
 
 class MemoryFlushResult(BaseModel):
-    """Result of processing one scoped Source window."""
+    """Result of processing one scoped Source window.
+
+    ``held_count`` and ``hold_codes`` expose a gate refusal to the caller: a held window
+    advances its cursor but writes no Memory, and the structured code says why.
+    """
 
     previous_cursor: int
     high_watermark: int
     current_cursor: int
     source_count: int
     memory_ref: ArtifactRef | None
+    held_count: int = 0
+    hold_codes: tuple[str, ...] = ()
 
     @property
     def processed(self) -> bool:
@@ -227,6 +233,7 @@ class PrepareContextRequest(_PreparedContextModel):
     query: Annotated[str, Field(min_length=1, max_length=8192)]
     max_bytes: Annotated[int, Field(ge=512, le=32768)] = 8000
     assembly: ContextAssembly | None = None
+    include_code: bool = Field(default=False, strict=True)
 
     @model_validator(mode="before")
     @classmethod

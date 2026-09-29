@@ -37,8 +37,11 @@ _OPERATIONAL_FIELDS = (
     "duration_ms",
     "status_code",
     "error_code",
+    "code",
     "mode",
     "source_count",
+    "held_count",
+    "hold_codes",
     "trace_id",
     "span_id",
 )

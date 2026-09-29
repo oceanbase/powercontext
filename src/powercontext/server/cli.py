@@ -119,6 +119,7 @@ async def _processing_maintenance(
     batch_size: int,
 ) -> bool:
     config = BuiltinConfig(
+        code=settings.code,
         runtime=settings.runtime,
         database=settings.database,
         inference=settings.inference,
@@ -274,6 +275,7 @@ def _run_background(settings: ServerSettings, tracing: Any) -> None:
 
 async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
     config = BuiltinConfig(
+        code=settings.code,
         runtime=settings.runtime,
         database=settings.database,
         handoff_report=settings.handoff_report,

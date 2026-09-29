@@ -31,9 +31,16 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: ${{ env.UV_VERSION }}
+
+      # A lock that reuses cleanly can still describe an unsatisfiable graph, so `uv lock --locked`
+      # does not catch a dependency declaration that the project version can never satisfy. This job
+      # checks out with tags because the root version is derived from them, which is what makes that
+      # class of failure visible.
+      - name: Verify dependencies resolve from scratch
+        run: uv lock --upgrade --dry-run
 
       - name: Validate harness and Compose definitions
         run: |
@@ -58,7 +65,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: ${{ env.UV_VERSION }}
 

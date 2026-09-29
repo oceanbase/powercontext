@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from pathlib import Path
@@ -87,6 +88,34 @@ class _RejectRedirects(HTTPRedirectHandler):
 
 
 _URL_OPENER = build_opener(_RejectRedirects)
+
+
+def open_bounded(request: Request, *, timeout: float) -> Any:
+    """Open one request under a hard wall-clock bound, response headers included.
+
+    urllib applies its timeout to each individual socket read, so a server that
+    trickles headers can outlive the caller's deadline. Running the open in a
+    daemon worker and abandoning it on expiry keeps the status line inside its
+    budget.
+    """
+
+    outcome: list[Any] = []
+
+    def _open() -> None:
+        try:
+            outcome.append(_URL_OPENER.open(request, timeout=timeout))
+        except BaseException as error:
+            outcome.append(error)
+
+    worker = threading.Thread(target=_open, name="powercontext-http", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise TimeoutError
+    result = outcome[0] if outcome else TimeoutError()
+    if isinstance(result, BaseException):
+        raise result
+    return result
 
 
 def resolve_scope_id(
@@ -203,10 +232,12 @@ def _request_json(
         method=method,
     )
     try:
-        with _URL_OPENER.open(request, timeout=min(settings.request_timeout_seconds, remaining)) as response:
+        request_timeout = min(settings.request_timeout_seconds, remaining)
+        request_deadline = min(deadline, monotonic() + request_timeout)
+        with open_bounded(request, timeout=request_timeout) as response:
             if response.status < 200 or response.status >= 300:
                 raise ScopeBindingError
-            raw = _read_bounded(response)
+            raw = _read_bounded(response, deadline=request_deadline)
     except (HTTPError, OSError, TimeoutError) as error:
         raise ScopeBindingError from error
     try:
@@ -218,15 +249,82 @@ def _request_json(
     return value
 
 
-def _read_bounded(response: _Response) -> bytes:
+def _remaining_time(deadline: float) -> float:
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        raise TimeoutError
+    return remaining
+
+
+class _DeadlineSocket:
+    """Enforce one absolute deadline on every response socket read.
+
+    ``http.client`` can consume many socket reads inside a single ``read`` call
+    while it parses chunk framing, so tightening the socket timeout once per
+    bounded read cannot stop a server that trickles chunk extensions. Recomputing
+    the timeout before every receive keeps the caller's absolute deadline,
+    framing included.
+    """
+
+    def __init__(self, sock: Any, deadline: float) -> None:
+        self._sock = sock
+        self._deadline = deadline
+
+    def _remaining_time(self) -> float:
+        remaining = self._deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        return remaining
+
+    def recv(self, *args: Any) -> Any:
+        self._sock.settimeout(self._remaining_time())
+        return self._sock.recv(*args)
+
+    def recv_into(self, *args: Any) -> Any:
+        self._sock.settimeout(self._remaining_time())
+        return self._sock.recv_into(*args)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._sock, name)
+
+
+def bind_response_deadline(response: object, deadline: float) -> None:
+    """Keep every socket read of one open response inside the absolute deadline."""
+
+    if isinstance(response, HTTPError):
+        response = response.fp
+    raw: Any = getattr(getattr(response, "fp", None), "raw", None)
+    if raw is None:
+        return
+    sock = getattr(raw, "_sock", None)
+    if sock is None or isinstance(sock, _DeadlineSocket) or not hasattr(sock, "recv_into"):
+        return
+    raw._sock = _DeadlineSocket(sock, deadline)
+
+
+def _set_response_timeout(response: object, timeout: float) -> None:
+    """Tighten urllib's socket timeout before each bounded read."""
+
+    raw = getattr(getattr(response, "fp", None), "raw", None)
+    sock = getattr(raw, "_sock", None)
+    settimeout = getattr(sock, "settimeout", None)
+    if settimeout is not None:
+        settimeout(timeout)
+
+
+def _read_bounded(response: _Response, *, deadline: float) -> bytes:
+    bind_response_deadline(response, deadline)
     chunks: list[bytes] = []
     size = 0
-    while chunk := response.read(_READ_CHUNK_BYTES):
+    while True:
+        _set_response_timeout(response, _remaining_time(deadline))
+        chunk = response.read(_READ_CHUNK_BYTES)
+        if not chunk:
+            return b"".join(chunks)
         size += len(chunk)
         if size > _MAX_RESPONSE_BYTES:
             raise ScopeBindingError
         chunks.append(chunk)
-    return b"".join(chunks)
 
 
 def _git_value(cwd: str, *arguments: str) -> str | None:

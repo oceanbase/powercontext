@@ -18,6 +18,14 @@ export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1024
 Replace the example values with one supported provider model, a profile ID you keep stable for that model, and its
 documented output dimension. `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` defaults to `unit`.
 
+The output dimension is always required. It fixes the local vector index width and validates returned vectors. By
+default that value is also sent as the `dimensions` request field. Some OpenAI-compatible services reject the field,
+including SiliconFlow `BAAI/bge-m3`. Keep the documented output dimension (1024 for bge-m3) and disable sending:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_SEND_DIMENSIONS=false
+```
+
 ## 2. Start the Server
 
 ```bash

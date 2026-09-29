@@ -215,7 +215,9 @@ API 限制。过大或过深的捕获内容仍保留，但 Topic 处理持久记
 
 Worker 使用由 OpenAI/Anthropic SDK 支持的 provider（含兼容端点），并禁用 SDK 内部 transport 重试。
 binding 装配及 Worker 启动时执行相同校验，拒绝不支持的 provider。Topic 生成设置只允许有界标量形式的采样、输出、timeout 和
-service-tier 参数；Embedding 只允许 `dimensions` 与 `truncate`。拒绝 `extra_body`、隐藏 response/conversation 历史、
+service-tier 参数；Embedding 只允许 `dimensions` 与 `truncate`。`openai-chat:<model>` 生成额外允许精确的
+`extra_body={"chat_template_kwargs":{"enable_thinking":false}}`：值必须是布尔值，两层均不能包含其他字段。
+此例外不能覆盖 messages、输出上限、tools 或重试策略。拒绝其他形式的 `extra_body`（包括 Embedding）、隐藏 response/conversation 历史、
 background 生成和 native tools，避免未计量工作。底层模型响应边界会拒绝 suspended response，阻止推理库把分别收费
 的 continuation 合并计为一次请求。普通非 Topic 推理保留既有行为；不兼容配置不注册 Topic Worker，并明确声明 Topic
 处理不可用（含 API-only 副本）。若显式配置了自动 Topic 调度，则启动时返回配置错误。模型设置、Source metadata、新 Worker、flush

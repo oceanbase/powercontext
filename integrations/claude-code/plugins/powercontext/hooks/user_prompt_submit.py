@@ -216,6 +216,7 @@ def _prepare_context(
             "scope_id": scope_id,
             "query": query,
             "max_bytes": _MAX_CONTEXT_BYTES,
+            **({"include_code": True} if settings.include_code else {}),
             **({"assembly": settings.context_assembly} if settings.context_assembly is not None else {}),
         },
         settings=settings,
