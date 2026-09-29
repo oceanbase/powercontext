@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Collection
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 
 from aiosqlite import Connection as SQLiteConnection
+from aiosqlite import Cursor as SQLiteCursor
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
@@ -75,12 +76,30 @@ class AsyncDatabase:
     async def transaction(self) -> AsyncIterator[AsyncConnection]:
         """Yield a connection in a transaction owned by the calling use case."""
 
-        owner = asyncio.current_task()
-        if self._shared_connection is not None and self._transaction_owner is owner:
-            # Nested lookups on a single-connection profile must join their
-            # caller's transaction, not acquire or commit that connection again.
+        if self._shared_connection is not None and self._transaction_owner is asyncio.current_task():
+            # Nested lookups on a single-connection profile join their caller's
+            # transaction, not acquire or commit that connection again. Only the
+            # owner runs cleanup, so a nested exit cannot close the caller's cursors.
             yield self._shared_connection
             return
+        context = self._transaction()
+        connection = await context.__aenter__()
+        sqlite_stop = None
+        sqlite_cursors: Collection[SQLiteCursor] | None = None
+        try:
+            if connection.dialect.name == "sqlite":
+                sqlite_stop = connection.info.get("_powercontext_sqlite_stop")
+                sqlite_cursors = connection.info.get("_powercontext_sqlite_cursors")
+            yield connection
+        except BaseException as error:
+            await _finish_transaction(context, connection, error, sqlite_stop, sqlite_cursors)
+            raise
+        else:
+            await context.__aexit__(None, None, None)
+
+    @asynccontextmanager
+    async def _transaction(self) -> AsyncIterator[AsyncConnection]:
+        owner = asyncio.current_task()
         async with self._state_changed:
             if self._closed or self._closing:
                 raise DatabaseClosedError
@@ -193,6 +212,71 @@ class AsyncDatabase:
                 self._closed = True
                 self._closing = False
                 self._state_changed.notify_all()
+
+
+async def _retire_cancelled_connection(
+    connection: AsyncConnection,
+    error: BaseException,
+    sqlite_cursors: Collection[SQLiteCursor] | None,
+) -> None:
+    """Close a cancelled connection's native cursor, then discard a dead driver."""
+
+    raw = await connection.get_raw_connection()
+    driver = raw.driver_connection
+    if sqlite_cursors and isinstance(driver, SQLiteConnection) and driver._running:
+        # A cancelled await leaves the native cursor held by the exception stack;
+        # rollback cannot complete until it closes.
+        for cursor in tuple(sqlite_cursors):
+            await cursor.close()
+    if _driver_is_dead(driver, connection.dialect.name):
+        # A cancelled invalidate can close the driver before updating SQLAlchemy's state.
+        await connection.invalidate(error)
+
+
+def _driver_is_dead(driver: object, dialect_name: str) -> bool:
+    """Report whether a cancelled driver already exited and must not be reused."""
+
+    if isinstance(driver, SQLiteConnection):
+        return not driver._running
+    if dialect_name == "mysql":
+        from aiomysql import Connection as MySQLConnection
+
+        return isinstance(driver, MySQLConnection) and driver.closed
+    return False
+
+
+async def _finish_transaction(
+    context: AbstractAsyncContextManager[AsyncConnection],
+    connection: AsyncConnection,
+    error: BaseException,
+    sqlite_stop: Callable[[], asyncio.Future[object] | None] | None,
+    sqlite_cursors: Collection[SQLiteCursor] | None = None,
+) -> None:
+    """Retire a failed transaction before its error propagates to the caller."""
+
+    async def finish() -> None:
+        try:
+            if isinstance(error, asyncio.CancelledError) and not connection.closed:
+                if not connection.invalidated:
+                    await _retire_cancelled_connection(connection, error, sqlite_cursors)
+                if connection.invalidated and sqlite_stop is not None:
+                    stopped = sqlite_stop()
+                    if stopped is not None:
+                        await stopped
+        finally:
+            await context.__aexit__(type(error), error, error.__traceback__)
+
+    finishing = asyncio.create_task(finish(), name="powercontext-transaction-cleanup")
+    interrupted = None
+    # Keep connection ownership until cleanup finishes, even under repeated cancellation.
+    while not finishing.done():
+        try:
+            await asyncio.shield(finishing)
+        except asyncio.CancelledError as cancellation:
+            interrupted = cancellation
+    finishing.result()
+    if interrupted is not None:
+        raise interrupted
 
 
 @asynccontextmanager
