@@ -178,6 +178,45 @@ traffic only after each node passes readiness. Suspend scaling, restart policies
 processes. Failure keeps maintenance in effect. PC migration does not restart the OceanBase cluster. SQLite/embedded seekDB retain the existing single-host `all` role restriction; migration does not enable cross-host shared directories or multi-node deployment for them. Shared-database multi-node services use an already supported remote deployment topology. Independent
 per-node databases are outside this design.
 
+**Unified confirmation when complete node discovery is unavailable.** Automatic node discovery is not a prerequisite
+for the initial delivery. Database connections and online status do not establish a complete node inventory. For shared
+databases, or when inventory completeness cannot be established, explicitly disclose this limitation; discovering no other
+nodes does not prove a single-node deployment. If the release plan includes incompatible schema, API, or task-protocol
+changes, require the operator to coordinate all affected nodes onto the target version. For explicitly supported and
+validated mixed-version operation, use the declared compatibility range rather than requiring simultaneous upgrades.
+
+Include the following declaration in the existing single plan confirmation, without a separate confirmation step:
+
+```text
+Multi-node upgrade notice
+
+PowerContext cannot automatically confirm every node connected to this database.
+
+This upgrade includes incompatible changes. Ensure that:
+• Before migration, stop all affected APIs, Workers, schedulers, and other writers,
+  and suspend mechanisms that could restart old versions.
+• After migration succeeds, upgrade all affected PowerContext nodes to the target
+  version and verify them before resuming business traffic and processing.
+• Missing nodes or continued operation of old versions may cause request failures,
+  task-processing errors, or inconsistent data.
+
+[ ] I accept responsibility for coordinating stopped writes and version upgrades
+    across all affected nodes.
+```
+
+Non-interactive execution reuses `--maintenance-confirmed`: for an incompatible shared-database upgrade declared by the
+plan, it confirms that all writers have already stopped and commits the operator to coordinating all affected node
+upgrades afterwards. `--yes` does not imply this declaration. Missing confirmation returns `confirmation_required`.
+Record the declaration with the target version and compatibility scope in the external summary; it is user confirmation,
+not evidence that PC discovered every node or verified a completed rollout. `--manage-service` still manages only the
+confirmed local services and cannot represent the entire cluster.
+
+The declaration never bypasses migration locks, available active-writer checks, or new-version startup compatibility
+checks. Observed writers or known unmet maintenance conditions still block migration. The operator coordinates nodes
+outside the tool's visibility; existing safety checks remain mandatory. Success output separates database and node
+status: “Database migration succeeded; other node upgrades require operator confirmation.” Without complete deployment
+acceptance evidence, never report “all nodes upgraded”. Report startup and readiness of managed local services separately.
+
 For manual service management, use separate steps; the lifecycle commands below are also proposed:
 
 ```bash
@@ -813,6 +852,11 @@ migrations, dependency conflicts, and verification failures block merging.
     confirmed scope, remain stopped on migration failure, and do not rerun migration after startup failure. No changes
     means no restart. Check target executable, originally stopped services, and restart suppression. Online declarations
     require additional mixed-version and legacy-task compatibility tests.
+
+12. Verify that missing complete node discovery exposes the notice and responsibility declaration within one confirmation.
+    Non-interactive execution rejects missing declarations; neither `--yes` nor local service management confirms a cluster.
+    Test incompatible versus explicitly supported mixed-version notices, mandatory available safety checks, and database
+    success without falsely reporting every node upgraded.
 
 `alembic check` has the same comparison limits as autogenerate, so it cannot independently prove completeness. Combine
 it with profile-level schema checks and domain assertions.
