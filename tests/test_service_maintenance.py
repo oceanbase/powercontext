@@ -284,3 +284,91 @@ def test_systemd_maintenance_guard_uses_a_negated_absolute_path_and_preserves_th
     dropin = adapter.artifact_path.with_name(f"{adapter.identifier}.d") / "90-powercontext-maintenance.conf"
     assert f"ConditionPathExists=!{str(marker).replace('%', '%%')}\n" in dropin.read_text()
     assert adapter.artifact_path.read_bytes() == unit
+
+
+@pytest.mark.parametrize("after_reload", [False, True])
+def test_interrupted_definition_switch_can_resume_with_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    after_reload: bool,
+) -> None:
+    controller, adapter = _installed(tmp_path)
+    summary = controller.maintenance_summary()
+    reload = adapter.update_suspended
+
+    def fail():
+        assert json.loads(controller.maintenance_path.read_text())["phase"] == "switching"
+        if after_reload:
+            reload()
+        raise OSError("interrupted reload")  # noqa: TRY003
+
+    with (
+        controller.maintenance(expected_fingerprint=summary.fingerprint) as session,
+        monkeypatch.context() as injection,
+    ):
+        injection.setattr(adapter, "update_suspended", fail)
+        with pytest.raises(OSError, match="interrupted reload"):
+            session.complete()
+    assert adapter.suspended
+    assert adapter.manager is ManagerState.INACTIVE
+    assert controller.start().ok
+    assert adapter.definition == summary.target_definition
+    assert not controller.maintenance_path.exists()
+
+
+def test_stop_waits_for_transient_connection_conflict(tmp_path: Path) -> None:
+    _, adapter = _installed(tmp_path)
+    outcomes = iter([
+        ProbeResult(ProbeState.LIVE, "owned server"),
+        ProbeResult(ProbeState.CONFLICT, "connection reset during shutdown"),
+        ProbeResult(ProbeState.UNREACHABLE, "stopped"),
+    ])
+    controller = ServiceController(
+        adapter,
+        probe=lambda _: next(outcomes, ProbeResult(ProbeState.UNREACHABLE, "stopped")),
+        sleep=lambda _: None,
+    )
+    controller.stop()
+    assert adapter.manager is ManagerState.INACTIVE
+    assert adapter.suspended
+
+
+def test_stop_rejects_a_persistent_listener_after_wait_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import powercontext.service.controller as module
+
+    _, adapter = _installed(tmp_path)
+    elapsed = iter([0.0, 0.1, 31.0])
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(elapsed))
+    controller = ServiceController(
+        adapter,
+        probe=lambda _: ProbeResult(
+            ProbeState.LIVE if adapter.manager is ManagerState.ACTIVE else ProbeState.CONFLICT, "listener remains"
+        ),
+        sleep=lambda _: None,
+    )
+    with pytest.raises(ServiceError, match=r"cannot prove.*stopped"):
+        controller.stop()
+    assert adapter.suspended
+    assert controller.maintenance_path.exists()
+
+
+def test_pending_switch_refuses_a_replaced_registration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    controller, adapter = _installed(tmp_path)
+    summary = controller.maintenance_summary()
+
+    def fail():
+        raise OSError("reload failed")  # noqa: TRY003
+
+    with (
+        controller.maintenance(expected_fingerprint=summary.fingerprint) as session,
+        monkeypatch.context() as injection,
+    ):
+        injection.setattr(adapter, "update_suspended", fail)
+        with pytest.raises(OSError):
+            session.complete()
+    adapter.write(adapter.render(replace(summary.target_definition, endpoint="http://127.0.0.1:9010")))
+    events = list(adapter.events)
+    with pytest.raises(ServiceError, match="changed outside"):
+        controller.start()
+    assert adapter.events == events
+    assert adapter.suspended

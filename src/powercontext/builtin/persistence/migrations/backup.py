@@ -174,6 +174,7 @@ class SQLiteBackupProvider:
             os.close(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
             with closing(self._read_database(self.database)) as source, closing(sqlite3.connect(target)) as destination:
                 source.backup(destination)
+                destination.execute("PRAGMA journal_mode=DELETE")
                 if destination.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                     raise MigrationError("backup_failed", "The SQLite recovery point failed integrity checks.")
             _fsync_file(target)
@@ -228,9 +229,17 @@ class SQLiteBackupProvider:
                 return BackupInspection(
                     state="failed", reasons=("The original recovery point or manifest has changed.",)
                 )
-            with closing(self._read_database(target)) as connection:
+            if any(Path(str(target) + suffix).exists() for suffix in ("-wal", "-journal")):
+                return BackupInspection(
+                    state="failed", reasons=("The recovery point has unrecorded journal sidecars.",)
+                )
+            with closing(sqlite3.connect(target.as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
                 if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                     return BackupInspection(state="failed", reasons=("The recovery point failed integrity checks.",))
+            if ref.checksum != _file_checksum(target) or any(
+                Path(str(target) + suffix).exists() for suffix in ("-wal", "-journal")
+            ):
+                return BackupInspection(state="failed", reasons=("The recovery point changed during inspection.",))
         except (OSError, sqlite3.Error, ValueError):
             return BackupInspection(state="failed", reasons=("The original recovery point cannot be inspected.",))
         return BackupInspection(state="completed", check_level="integrity_checked")
@@ -248,7 +257,8 @@ class SQLiteBackupProvider:
             ),
             steps=(
                 "Preserve the current database and its WAL/SHM files as failure evidence.",
-                "Restore the checked backup into a separate SQLite file with the Online Backup API.",
+                "Recheck the recorded checksum and absence of WAL/journal sidecars; keep the backup unchanged during restore.",
+                "Open the recorded backup with mode=ro&immutable=1 and copy it to a separate file with the Online Backup API.",
                 "Check integrity, schema revision, required extensions, queues, and business invariants.",
                 "With all connections closed, explicitly replace the configured database and remove only stale WAL/SHM sidecars.",
                 "Start a compatible application and verify readiness before restoring traffic; retain the original backup.",

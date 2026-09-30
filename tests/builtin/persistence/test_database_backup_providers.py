@@ -364,3 +364,34 @@ def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_re
             ).all() == [(1, "original")]
 
     asyncio.run(scenario())
+
+
+def test_sqlite_backup_rejects_unrecorded_wal_even_when_main_checksum_matches(tmp_path: Path) -> None:
+    import hashlib
+    import subprocess
+    import sys
+
+    database = tmp_path / "source.db"
+    with closing(sqlite3.connect(database)) as writer:
+        writer.execute("CREATE TABLE pc_artifacts (id INTEGER)")
+    provider = SQLiteBackupProvider(database)
+    ref = provider.create_backup(context())
+    # Simulate an older WAL-mode backup and record its main-file checksum.
+    with closing(sqlite3.connect(ref.location)) as writer:
+        writer.execute("PRAGMA journal_mode=WAL")
+    ref = ref.model_copy(update={"checksum": hashlib.sha256(Path(ref.location).read_bytes()).hexdigest()})
+    (provider.directory / f"{ref.ref_id}.json").write_text(ref.model_dump_json())
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os,sqlite3,sys; c=sqlite3.connect(sys.argv[1]); "
+            "c.execute('INSERT INTO pc_artifacts VALUES (7)'); c.commit(); os._exit(0)",
+            ref.location,
+        ],
+        check=True,
+    )
+    assert hashlib.sha256(Path(ref.location).read_bytes()).hexdigest() == ref.checksum
+    assert provider.inspect_backup(ref).state == "failed"
+    with pytest.raises(MigrationError, match="backup_failed"):
+        provider.restore_plan(ref)

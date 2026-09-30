@@ -596,6 +596,10 @@ def test_replaced_table_is_retained_across_verification_and_retry(tmp_path: Path
     apply(runner)
     expected = [("Keep",)]
     assert rows(database, "SELECT tag FROM pc_retained_p0002_artifact_tags") == expected
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("DELETE FROM pc_artifact_heads")
+    assert rows(database, "SELECT tag FROM pc_artifact_tags") == []
     assert runner.verify().state == "ready"
     assert not runner.apply().changed
     assert rows(database, "SELECT tag FROM pc_retained_p0002_artifact_tags") == expected
@@ -613,3 +617,54 @@ def test_retained_table_cannot_precede_its_revision(tmp_path: Path, bundle: Migr
     with pytest.raises(MigrationError, match="recovery_required"):
         apply(SQLiteMigrationRunner(database, bundle))
     assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("policy", ["manual", "skip"])
+def test_partial_migration_can_reconfirm_backup_policy_without_replacing_original(
+    tmp_path: Path,
+    bundle: MigrationBundle,
+    monkeypatch: pytest.MonkeyPatch,
+    policy: Literal["manual", "skip"],
+) -> None:
+    database = tmp_path / "pc.sqlite3"
+    load_schema(database)
+    populate(database)
+    runner = SQLiteMigrationRunner(database, bundle)
+    original_upgrade = command.upgrade
+
+    def interrupt(config, target, **kwargs):
+        if target == "p0003":
+            raise InterruptedError
+        original_upgrade(config, target, **kwargs)
+
+    with monkeypatch.context() as injection:
+        injection.setattr(command, "upgrade", interrupt)
+        with pytest.raises(InterruptedError):
+            apply(runner)
+    assert rows(database, "SELECT version_num FROM pc_schema_revision") == [("p0002",)]
+    evidence = json.loads(runner.evidence_path.read_text())
+    backup = Path(evidence["backup"]["location"])
+    backup.write_bytes(b"damaged recovery point")
+    old_plan = runner.plan()
+    plan = runner.plan(backup_policy=policy)
+    assert plan.plan_id != old_plan.plan_id
+    with pytest.raises(MigrationError, match="plan_changed"):
+        runner.apply(plan_id=old_plan.plan_id, accepted=True, maintenance_confirmed=True, backup_policy=policy)
+    with pytest.raises(MigrationError, match="backup_confirmation_required"):
+        runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True, backup_policy=policy)
+    result = runner.apply(
+        plan_id=plan.plan_id,
+        accepted=True,
+        maintenance_confirmed=True,
+        backup_policy=policy,
+        backup_confirmed=policy == "manual",
+        accept_no_backup=policy == "skip",
+        backup_ref="user declaration",
+    )
+    assert runner.verify().state == "ready"
+    assert result.backup_state == ("user_confirmed" if policy == "manual" else "skipped")
+    final = json.loads(runner.evidence_path.read_text())
+    assert final["backup_history"][0]["backup"] == evidence["backup"]
+    assert final["maintenance_window_id"] == evidence["maintenance_window_id"]
+    assert final["source_revision"] == evidence["source_revision"]
+    assert backup.read_bytes() == b"damaged recovery point"

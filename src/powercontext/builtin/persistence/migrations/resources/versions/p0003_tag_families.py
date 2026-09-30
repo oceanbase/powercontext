@@ -29,7 +29,15 @@ def upgrade() -> None:
             "SELECT sql FROM sqlite_schema WHERE type='table' AND name='pc_artifact_tags'"
         ).scalar_one()
         retained = original.replace("CREATE TABLE pc_artifact_tags", "CREATE TABLE pc_retained_p0002_artifact_tags", 1)
-        connection.exec_driver_sql(retained)
+        # The registered source shape contains this exact FK. Preserve its other
+        # constraints without allowing live-head deletions to erase historical rows.
+        foreign_key = (
+            "FOREIGN KEY(scope_id, family, artifact_id) REFERENCES pc_artifact_heads "
+            "(scope_id, family, artifact_id) ON DELETE CASCADE, "
+        )
+        if retained.count(foreign_key) != 1:
+            raise ValueError("The retained tag source has an unexpected foreign key")  # noqa: TRY003
+        connection.exec_driver_sql(retained.replace(foreign_key, "", 1))
         connection.exec_driver_sql("INSERT INTO pc_retained_p0002_artifact_tags SELECT * FROM pc_artifact_tags")
         # Alembic reflects indexes and named CHECKs, but not application triggers.
         triggers = (

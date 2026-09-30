@@ -200,6 +200,7 @@ class ServiceController:
         """Start the registered executable without reinstalling or changing configuration."""
 
         with _service_lock(self._adapter.lock_path):
+            self._recover_definition_switch()
             registration, running = self._owned_registration()
             record = self._maintenance_record()
             if record is not None and record.get("phase") not in {"manual_stopped", "database_ready", "start_failed"}:
@@ -310,9 +311,12 @@ class ServiceController:
             or hashlib.sha256(registration.content or b"").hexdigest() != summary.registration_checksum
         ):
             raise ServiceError("the stopped service registration changed during migration")  # noqa: TRY003
-        self._adapter.write(self._adapter.render(summary.target_definition))
-        self._adapter.update_suspended()
-        self._write_maintenance_record({"phase": "database_ready", "summary": summary.as_dict()})
+        self._write_maintenance_record({
+            "phase": "switching",
+            "summary": summary.as_dict(),
+            "target_checksum": hashlib.sha256(self._adapter.render(summary.target_definition)).hexdigest(),
+        })
+        self._recover_definition_switch()
         if summary.originally_running:
             try:
                 self._start_registered(summary.target_definition)
@@ -321,6 +325,56 @@ class ServiceController:
                 raise
             self.maintenance_path.unlink(missing_ok=True)
         return self.status()
+
+    def _recover_definition_switch(self) -> None:
+        """Resume only a database-verified switch with intact original/target evidence."""
+        record = self._maintenance_record()
+        if record is None or record.get("phase") != "switching":
+            return
+        try:
+            payload = record["summary"]
+            if not isinstance(payload, dict):
+                raise TypeError("invalid summary")  # noqa: TRY003, TRY301
+            payload = cast(dict[str, object], payload)
+            originally_running = payload["originally_running"]
+            if not isinstance(originally_running, bool):
+                raise TypeError("invalid original service state")  # noqa: TRY003, TRY301
+            summary = ServiceMaintenanceSummary(
+                str(payload["identifier"]),
+                str(payload["artifact_path"]),
+                ServiceDefinition.from_dict(payload["definition"]),
+                ServiceDefinition.from_dict(payload["target_definition"]),
+                originally_running,
+                str(payload["registration_checksum"]),
+            )
+            target = self._adapter.render(summary.target_definition)
+            if (
+                summary.identifier != self._adapter.identifier
+                or summary.artifact_path != str(self._adapter.artifact_path)
+                or summary.fingerprint != payload.get("fingerprint")
+                or hashlib.sha256(target).hexdigest() != record.get("target_checksum")
+            ):
+                raise ValueError("changed switch intent")  # noqa: TRY003, TRY301
+        except (KeyError, TypeError, ValueError) as error:
+            raise ServiceError("the pending service switch evidence is invalid") from error  # noqa: TRY003
+        registration = self._adapter.inspect()
+        self._require_mutable_registration(registration)
+        loaded = self._adapter.loaded_registration()
+        self._require_mutable_manager_registration(loaded)
+        if (
+            registration.definition not in (summary.definition, summary.target_definition)
+            or hashlib.sha256(registration.content or b"").hexdigest()
+            not in (summary.registration_checksum, record["target_checksum"])
+            or (
+                loaded.state is ManagerOwnershipState.OWNED
+                and loaded.definition not in (summary.definition, summary.target_definition)
+            )
+        ):
+            raise ServiceError("the service registration changed outside the pending switch")  # noqa: TRY003
+        self._require_stopped(summary.definition)
+        self._adapter.write(target)
+        self._adapter.update_suspended()
+        self._write_maintenance_record({"phase": "database_ready", "summary": summary.as_dict()})
 
     def _owned_registration(self) -> tuple[NativeRegistration, bool]:
         support, detail = self._adapter.support()
@@ -361,8 +415,11 @@ class ServiceController:
             probe = self._probe(definition.endpoint)
             if state in {ManagerState.INACTIVE, ManagerState.FAILED} and probe.state is ProbeState.UNREACHABLE:
                 return
-            if state is ManagerState.UNKNOWN or probe.state is ProbeState.CONFLICT or time.monotonic() >= deadline:
-                raise ServiceError("cannot prove the personal service stopped; maintenance must not continue")  # noqa: TRY003
+            if time.monotonic() >= deadline:
+                raise ServiceError(  # noqa: TRY003
+                    f"cannot prove the personal service stopped; maintenance must not continue: "
+                    f"manager={state.value}, probe={probe.state.value}, detail={probe.detail}"
+                )
             self._sleep(0.1)
 
     def _start_registered(self, definition: ServiceDefinition | None) -> None:

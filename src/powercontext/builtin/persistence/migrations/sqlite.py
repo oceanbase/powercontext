@@ -66,6 +66,7 @@ class _MaintenanceEvidence(BaseModel):
     manual_ref: str | None = None
     release_checksums: dict[str, str]
     retained_objects: tuple[str, ...] = ()
+    backup_history: list[dict[str, Any]] = []
 
     @model_validator(mode="after")
     def consistent_recovery_point(self) -> Self:
@@ -316,12 +317,12 @@ class SQLiteMigrationRunner:
                     evidence["bundle_checksum"] != self.bundle.checksum
                     or evidence["configuration_digest"] != self.configuration_digest
                 ):
-                    raise MigrationError(
-                        "recovery_required", "Keep the original bundle, configuration and backup policy."
-                    )
+                    raise MigrationError("recovery_required", "Keep the original bundle and configuration.")
                 pristine = self._pristine_preparation(evidence, revision, fingerprint)
-                if evidence["backup_policy"] != backup_policy and not pristine:
-                    raise MigrationError("recovery_required", "Keep the original backup policy after migration begins.")
+                if evidence["backup_policy"] != backup_policy and backup_policy == "auto" and not pristine:
+                    raise MigrationError(
+                        "recovery_required", "Do not create an automatic backup of partially migrated state."
+                    )
                 if not pristine:
                     state = "recovery_required"
         context = self._backup_context(revision, "preview")
@@ -366,6 +367,26 @@ class SQLiteMigrationRunner:
     def _prepare_evidence(self, plan: MigrationPlan, manual_ref: str | None) -> dict[str, Any]:
         previous = self._evidence()
         if previous and previous["state"] != "complete":
+            if previous["backup_policy"] != plan.backup_policy:
+                # apply has already required the new plan ID and explicit backup consent.
+                previous.setdefault("backup_history", []).append({
+                    key: previous.get(key) for key in ("backup_policy", "backup_state", "backup", "manual_ref")
+                })
+                previous.update(
+                    state="preparing",
+                    backup_policy=plan.backup_policy,
+                    backup_state="pending",
+                    backup=None,
+                    manual_ref=None,
+                )
+                if plan.backup_policy in {"manual", "skip"}:
+                    previous.update(
+                        state="active",
+                        backup_state="user_confirmed" if plan.backup_policy == "manual" else "skipped",
+                        manual_ref=manual_ref if plan.backup_policy == "manual" else None,
+                    )
+                    self._write_evidence(previous)
+                    return previous
             recovered = self._reuse_evidence(previous, plan)
             if recovered is not None:
                 return recovered
