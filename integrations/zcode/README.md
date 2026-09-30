@@ -6,4 +6,6 @@ Install and diagnose it with `powercontext setup zcode --source /path/to/powerco
 
 See the [English guide](../../docs/en/docs/integrations/zcode.md) or [中文指南](../../docs/zh/docs/integrations/zcode.md) for Scope setup, `.env`, authentication, capture controls, remote transport, validation, and uninstall instructions.
 
-The official Windows desktop version 3.14.3 has been verified with live prompt capture, scheduled Memory generation, context injection and fresh-session recall, MCP Memory and Handoff calls, local Bearer authentication, recovery after a Server outage, and a fresh user-owned directory installation. These checks used local Servers. Remote HTTPS, other official versions, and a combined real-model/real-Server open-source CLI run remain unverified.
+The official Windows desktop version 3.14.3 has been verified with live prompt capture, scheduled Memory generation, context injection and fresh-session recall, MCP Memory and Handoff calls, local Bearer authentication, recovery after a Server outage, and a fresh user-owned directory installation. These checks used local Servers.
+
+Open-source ZCode CLI 0.16.9 has completed a real-model, local-Server capture → scheduled Memory generation → fresh-session recall test. It has also connected to a Bearer-protected Server on another machine over HTTPS through an SSH port forward, using a trusted private CA: an MCP `list_scopes` call succeeded and an ordinary prompt was captured as Source in the remote Scope. Direct HTTPS ingress to the remote listener and other official desktop versions remain unverified.
