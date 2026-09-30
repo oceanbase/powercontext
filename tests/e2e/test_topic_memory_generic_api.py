@@ -582,7 +582,9 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
             original_settle(recorder, sequence)
             settled.set()
 
-        app = _app(tmp_path, UsageEmbeddings(), model_usage_write_timeout_seconds=30.0)
+        # Cancelling an await does not end SQLite's native busy-handler wait.
+        # Keep that wait below the cancellation assertion's five-second bound.
+        app = _app(tmp_path, UsageEmbeddings(), busy_timeout_ms=100, model_usage_write_timeout_seconds=30.0)
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
