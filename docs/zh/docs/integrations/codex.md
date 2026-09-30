@@ -24,8 +24,13 @@ powercontext doctor codex
 该命令会把仓库添加为 Codex marketplace，安装 PowerContext 插件，并创建用户数据目录。重复执行是安全的。
 `--ref` 应与安装 PowerContext 工具时使用的 ref 一致。
 
-配置完成后开启新的 Codex 会话。通过 `/hooks` 查看 PowerContext `UserPromptSubmit` Hook，并在收到提示时
-授予信任。
+配置完成后开启新的 Codex 会话。通过 `/hooks` 查看 PowerContext `UserPromptSubmit` Hook，并在收到提示时授予信任。
+
+`powercontext doctor codex --json` 通过 `mcp_tools` 报告基础 MCP 连接，通过 `mcp_full_profile` 报告完整工具覆盖。
+完整覆盖要求 Codex 集成 manifest 的 `server-mcp` 中声明的全部能力工具，包括 Memory 维护、Scope 管理和
+Handoff 操作。缺失工具会按名称列出，并使结果降级；工具发现不代表模型就绪、Hook 已执行或具有写入权限。
+具备基础 Memory 支持时，`setup codex` 和 `setup select --host codex` 均可成功，`doctor` 单独报告 full 覆盖不完整。
+鉴权或基础连接失败仍会使安装失败。
 
 ## 理解自动恢复、Memory 和 Handoff
 
@@ -57,6 +62,17 @@ host 管理的 workspace binding、Server 默认 Scope。解析出的 Scope 会�
 binding，不生成 Scope ID。Prompt Hook 使用该 binding 完成召回和采集；`PreToolUse` 将同一 binding 注入 data-plane
 工具，Agent 输入不能把读写重定向到其他 Scope。Session 切换工作边界时，应由 host 创建或绑定另一个 Scope。
 
+已有 `scope_id` 时，把当前 Git 根登记到这个 Scope，供之后的新会话使用：
+
+```bash
+uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/scope_binding.py" \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
+```
+
+`$PLUGIN_ROOT` 是已安装 Codex 插件的根目录，与 Hook 使用的变量相同。在普通终端里把它换成实际目录，例如插件缓存中的 `powercontext/powercontext/<version>`，或本仓库的 `integrations/codex/plugins/powercontext`。命令写入 `integration=codex`、`kind=workspace` 的绑定，外部身份是 Git 根路径的 SHA-256。它不创建 Scope，也不从路径、远程地址或分支生成 `scope_id`。去掉 `--bind-scope` 再执行一次，可以打印该目录当前解析到的编号。`--clear-scope` 只删除这条 workspace binding，不删除 Scope 里的内容。
+
+`POWERCONTEXT_CODEX_SCOPE_ID` 仍然优先于这条登记。已经开着的会话保持启动时写下的 Session binding；在该 Git 根新开一场会话后，没有显式变量、也没有更早的 Session binding 时，会使用这条 workspace binding。MCP 的 `set_scope_binding` 只改当前会话，不能代替这条命令。
+
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
 `powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为不可信历史、保留
 精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。自动注入的
@@ -64,6 +80,32 @@ Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`
 
 Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于临时移交当前任务，不能用几条 Memory 替代。概念边界见
 [理解 Memory 和 Handoff](../workflows/memory-and-handoff.md)，操作步骤见[在 Codex 中交接工作](../workflows/handoff-with-codex.md)。
+
+## Experience 和 Skill 能力
+
+除 Memory、Source 采集、上下文注入、Work Contract、Handoff、确认、Task Outcome 和候选审查外，MCP 还提供以下工具：
+
+| 能力 | 工具 |
+| --- | --- |
+| Experience | `get_experience`、`generate_experience`、`propose_experience` |
+| 受管 Skill | `list_managed_skills`、`get_skill`、`generate_skill`、`propose_skill` |
+| 外部 Skill | `scan_external_skills`、`list_external_skills`、`resolve_external_skill`、`import_external_skill` |
+
+例如，可以要求 Codex“根据这些精确 Source 引用生成一个 Experience 候选”或“列出当前 Scope 已批准的 Skill”。
+生成需要在 Server 配置对应模型；直接提交完整内容的 proposal 不需要模型。生成和提案的结果都进入待审候选，
+`no_op` 表示没有创建候选。只有明确的审查决定才会产生已批准 Artifact；读取或导入不会安装或执行 Skill。
+
+外部 Skill 扫描读取 **Server 所在主机** 配置的目录，远程 Server 不能扫描 Codex 工作站的文件系统。
+通过 `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` 配置自定义目录和主机身份，详见
+[Agent Skill 目标](../workflows/configure-agent-skill-targets.md)。
+启用访问控制时，扫描需要 `server.admin`，列出和解析需要 `server.observe`，导入需要绑定 Scope 的贡献权限。
+从扫描或列表结果选择精确外部 Skill ID 和 fingerprint，再进行解析或导入。文件内容变化会使旧 fingerprint 失效。
+`mode: import` 将精确包快照提交为待审候选，不需要生成模型；`mode: fork` 需要 Skill 生成模型。
+详见 [Experience 与 Skill 生命周期](../workflows/experience-and-skill-lifecycle.md)。
+
+同时升级 Server 并刷新插件，然后开启新 Codex 会话以发现这些工具。新增 MCP 操作沿用 Session Scope 绑定和
+Server 权限检查。Claude Code、WorkBuddy 共用该 MCP 工具集，因此也获得这些能力；full 描述能力覆盖范围，
+不代表自动批准或保证模型已经配置。
 
 ## 选择标准上下文文本
 
@@ -92,7 +134,7 @@ export POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true
 
 ## 连接启用鉴权的本地 Server
 
-本地 Server 默认关闭认证，需要时再开启；启用 Dashboard 时需要同时开启认证。首次本地配置向导默认不启用 Dashboard。
+本地 Server 默认关闭认证，需要时可独立开启。首次本地配置向导默认不启用 Dashboard；选择启用 Dashboard 不要求配置 token。
 
 从本地 secret manager 加载一个 token，然后启用鉴权并启动 Server：
 

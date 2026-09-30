@@ -31,9 +31,12 @@ class EvidenceModel(BaseModel):
 class RunEnvironment(EvidenceModel):
     commit: str
     database: str
+    # Evidence written before hosts were selectable was always Bub.
+    adapter: str = "bub"
     adapter_version: str
     adapter_protocol_version: str
     agent_model: str | None = None
+    agent_settings: dict[str, str] = Field(default_factory=dict)
     started_at: datetime
     finished_at: datetime
 
@@ -88,6 +91,18 @@ class RecallProbeObservation(EvidenceModel):
     query: str
     prepared_context: PreparedContextSnapshot
     forbidden_context_matched: bool | None = None
+
+
+class SessionSnapshot(EvidenceModel):
+    """Server-side state of one Scope after an agent session and the flush that followed it."""
+
+    session: int = Field(ge=0)
+    flush_rounds: int = Field(ge=0)
+    sources: int = Field(ge=0)
+    memory_pending: int = Field(ge=0)
+    memory_entries: int = Field(ge=0)
+    preparations: int = Field(ge=0)
+    ready_preparations: int = Field(ge=0)
 
 
 class HarborTrialObservation(EvidenceModel):
@@ -160,3 +175,70 @@ class EvaluationReport(EvidenceModel):
     @property
     def accepted(self) -> bool:
         return all(bool(result.value) for case in self.cases for result in case.assertions.values())
+
+
+Arm = Literal["off", "on"]
+ArmOutcome = Literal["passed", "failed", "timeout", "error", "integration_failed"]
+
+
+class PairedArmObservation(EvidenceModel):
+    """One arm of one OFF/ON trial for a continuation workload."""
+
+    schema_: Literal["powercontext.e2e-paired-arm/v1"] = Field(
+        default="powercontext.e2e-paired-arm/v1",
+        alias="schema",
+    )
+    run_id: str
+    task_id: str
+    trial: int = Field(ge=1)
+    arm: Arm
+    position: int = Field(ge=1, le=2, description="Whether this arm ran first or second within its trial.")
+    environment: RunEnvironment
+    scope_id: str | None = None
+    harbor: HarborTrialObservation
+    step_rewards: dict[str, float] = Field(default_factory=dict)
+    outcome: ArmOutcome
+    errors: tuple[str, ...] = ()
+    sessions: tuple[SessionSnapshot, ...] = ()
+    treatment_failures: tuple[str, ...] = ()
+
+
+class ArmSummary(EvidenceModel):
+    scored: int = Field(ge=0, description="Runs that count toward the success rate: passed, failed, or timed out.")
+    passed: int = Field(ge=0)
+    timeouts: int = Field(ge=0)
+    errors: int = Field(ge=0)
+    integration_failures: int = Field(ge=0)
+
+
+class PairedSummary(EvidenceModel):
+    off: ArmSummary
+    on: ArmSummary
+    pairs: int = Field(ge=0, description="Trials in which both arms were scored.")
+    mean_delta: float | None = Field(default=None, description="Mean ON minus OFF score over scored pairs.")
+
+
+class PairedTaskSummary(PairedSummary):
+    task_id: str
+
+
+class PairedAgent(EvidenceModel):
+    """The agent host and runtime-selected model that ran both arms."""
+
+    host: str
+    version: str
+    model: str | None = None
+    settings: dict[str, str] = Field(default_factory=dict)
+
+
+class PairedReport(EvidenceModel):
+    # v2 records the agent host that ran both arms; the harness does not read reports back.
+    schema_: Literal["powercontext.e2e-paired-report/v2"] = Field(
+        default="powercontext.e2e-paired-report/v2",
+        alias="schema",
+    )
+    experiment: str
+    agent: PairedAgent
+    trials: int = Field(ge=1)
+    tasks: tuple[PairedTaskSummary, ...] = Field(min_length=1)
+    total: PairedSummary

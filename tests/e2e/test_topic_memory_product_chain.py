@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import subprocess
 from collections.abc import Mapping
@@ -25,6 +26,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.e2e.topic_memory_product import common as common_module
 from tests.e2e.topic_memory_product import harness
 from tests.e2e.topic_memory_product.common import (
     ArtifactIdentity,
@@ -163,6 +165,37 @@ def test_worker_failure_capture_cannot_be_reported_as_pass() -> None:
 
     with pytest.raises(ProductChainError, match="E1 captured background-worker failures"):
         require_no_worker_failures("E1", failures)
+
+
+def test_worker_failure_capture_records_current_supervisor_event() -> None:
+    record = logging.LogRecord(
+        name="powercontext.builtin.runtime.artifact_processing",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=0,
+        msg="Artifact processing failed",
+        args=(),
+        exc_info=None,
+    )
+    record.event = "artifact_processing.failed"  # type: ignore[attr-defined]
+    record.stage = "worker"  # type: ignore[attr-defined]
+    record.error_code = "TimeoutError"  # type: ignore[attr-defined]
+    record.exception_type = "TimeoutError"  # type: ignore[attr-defined]
+    record.retry_count = 1  # type: ignore[attr-defined]
+
+    common_capture = common_module._WorkerFailureCapture()
+    common_capture.handle(record)
+    harness_capture = harness._WorkerFailureCapture()
+    harness_capture.handle(record)
+
+    expected = {
+        "stage": "worker",
+        "error_code": "TimeoutError",
+        "exception_type": "TimeoutError",
+        "failure_count": 1,
+    }
+    assert common_capture.failures == [expected]
+    assert harness_capture.failures == [expected]
 
 
 def test_e1_codex_generation_and_plugin_subprocesses_exclude_layer_secrets(

@@ -17,12 +17,13 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
 import sys
 import threading
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from pathlib import Path
 from shutil import which
@@ -36,13 +37,14 @@ from typing_extensions import override
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
+from plugin_version import PLUGIN_VERSION  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_RESPONSE_BYTES = 1_048_576
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-codex-plugin/0.3.0",
+    "User-Agent": f"powercontext-codex-plugin/{PLUGIN_VERSION}",
 }
 
 
@@ -157,6 +159,50 @@ def resolve_scope_id(
             method="PUT",
         )
     return scope_id
+
+
+def bind_scope(
+    cwd: str,
+    scope_id: str,
+    /,
+    *,
+    settings: CodexPluginSettings,
+    deadline: float,
+) -> str:
+    """Persist the Codex workspace identity to one server-owned Scope."""
+
+    response = _post_json(
+        "/v1/scope-bindings",
+        {"key": workspace_binding_key(cwd, deadline=deadline), "scope_id": scope_id},
+        settings=settings,
+        deadline=deadline,
+        method="PUT",
+    )
+    resolved = response.get("scope_id")
+    if not isinstance(resolved, str) or resolved != scope_id:
+        raise ScopeBindingError
+    return resolved
+
+
+def clear_scope_binding(
+    cwd: str,
+    /,
+    *,
+    settings: CodexPluginSettings,
+    deadline: float,
+) -> bool:
+    """Remove the durable Codex workspace binding from the Scope service."""
+
+    response = _post_json(
+        "/v1/scope-bindings/clear",
+        {"key": workspace_binding_key(cwd, deadline=deadline)},
+        settings=settings,
+        deadline=deadline,
+    )
+    cleared = response.get("cleared")
+    if not isinstance(cleared, bool):
+        raise ScopeBindingError
+    return cleared
 
 
 def binding_keys(cwd: str, *, session_id: str | None, deadline: float | None = None) -> list[dict[str, str]]:
@@ -320,3 +366,25 @@ def _git_value(cwd: str, *arguments: str, timeout: float = 2.0) -> str | None:
     except (OSError, subprocess.SubprocessError):
         return None
     return completed.stdout.strip() or None
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cwd", default=os.getcwd())
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--bind-scope", metavar="SCOPE_ID")
+    action.add_argument("--clear-scope", action="store_true")
+    arguments = parser.parse_args(argv)
+    settings = CodexPluginSettings()
+    deadline = monotonic() + settings.http_budget_seconds
+    if arguments.bind_scope is not None:
+        print(bind_scope(arguments.cwd, arguments.bind_scope, settings=settings, deadline=deadline))
+        return 0
+    if arguments.clear_scope:
+        clear_scope_binding(arguments.cwd, settings=settings, deadline=deadline)
+    print(resolve_scope_id(arguments.cwd, session_id=None, settings=settings, deadline=deadline))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

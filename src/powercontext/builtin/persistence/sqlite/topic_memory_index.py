@@ -19,6 +19,7 @@ from __future__ import annotations
 import struct
 from collections.abc import Mapping
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import (
     CheckConstraint,
@@ -488,42 +489,51 @@ class SQLiteTopicMemoryVectorIndex:
                     f"USING vec0(scope_id TEXT partition key, embedding float[{self.profile.dimension}])"
                 )
             probe = _pack_vector((0.0,) * self.profile.dimension)
+            probe_scope = f"__powercontext_probe_{uuid4().hex}__"
             probes = (
                 (
+                    SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE,
+                    {},
                     _DELETE_TOPIC_VECTOR_SQL,
                     _INSERT_TOPIC_VECTOR_SQL,
                     _PROBE_TOPIC_VECTOR_SQL,
                     "pc_topic_memory_topic_vec",
                 ),
                 (
+                    SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE,
+                    {"chunk_ordinal": 0},
                     _DELETE_CHUNK_VECTOR_SQL,
                     _INSERT_CHUNK_VECTOR_SQL,
                     _PROBE_CHUNK_VECTOR_SQL,
                     "pc_topic_memory_chunk_vec",
                 ),
             )
-            for delete_probe, insert_probe, select_probe, table_name in probes:
+            for metadata, extra_values, delete_probe, insert_probe, select_probe, table_name in probes:
                 await connection.execute(delete_probe, {"vector_id": -1})
-                await connection.execute(
-                    insert_probe,
-                    {
-                        "vector_id": -1,
-                        "scope_id": "__powercontext_probe__",
-                        "embedding": probe,
-                    },
-                )
-                row = (
-                    await connection.exec_driver_sql(
-                        select_probe,
-                        ("__powercontext_probe__", probe),
+                # Exercise metadata ID allocation and its vector row together without
+                # retaining probe rows or advancing the persistent ID sequence.
+                async with connection.begin_nested() as transaction:
+                    inserted = await connection.execute(
+                        insert(metadata).values(
+                            scope_id=probe_scope,
+                            artifact_id="probe",
+                            revision=1,
+                            profile_fingerprint=self._fingerprint,
+                            **extra_values,
+                        )
                     )
-                ).one_or_none()
-                await connection.execute(delete_probe, {"vector_id": -1})
-                if row is None or int(row[0]) != -1:
-                    raise TopicMemoryCapabilityError(
-                        "vector",
-                        f"sqlite-vec probe returned an invalid row for {table_name}",
+                    vector_id = inserted.lastrowid
+                    await connection.execute(
+                        insert_probe,
+                        {"vector_id": vector_id, "scope_id": probe_scope, "embedding": probe},
                     )
+                    row = (await connection.exec_driver_sql(select_probe, (probe_scope, probe))).one_or_none()
+                    if row is None or int(row[0]) != vector_id:
+                        raise TopicMemoryCapabilityError(
+                            "vector",
+                            f"sqlite-vec probe returned an invalid row for {table_name}",
+                        )
+                    await transaction.rollback()
         except SQLAlchemyError as error:
             raise TopicMemoryCapabilityError("vector", f"sqlite-vec probe failed: {error}") from error
 
@@ -538,18 +548,16 @@ class SQLiteTopicMemoryVectorIndex:
         await self._delete_existing(connection, scope_id, topic_ref.artifact_id)
         if projection.topic_embedding is None or len(projection.chunk_embeddings) != len(projection.chunks):
             raise TopicMemoryCapabilityError("vector", "projection is incomplete")
-        topic_id = (
-            await connection.execute(
-                insert(SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE)
-                .values(
-                    scope_id=scope_id,
-                    artifact_id=topic_ref.artifact_id,
-                    revision=topic_ref.revision,
-                    profile_fingerprint=self._fingerprint,
-                )
-                .returning(SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE.c.vector_id)
+        inserted = await connection.execute(
+            insert(SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE).values(
+                scope_id=scope_id,
+                artifact_id=topic_ref.artifact_id,
+                revision=topic_ref.revision,
+                profile_fingerprint=self._fingerprint,
             )
-        ).scalar_one()
+        )
+        # SQLite before 3.35 supports lastrowid, but not INSERT ... RETURNING.
+        topic_id = inserted.lastrowid
         await connection.execute(
             _INSERT_TOPIC_VECTOR_SQL,
             {
@@ -565,19 +573,16 @@ class SQLiteTopicMemoryVectorIndex:
             },
         )
         for chunk, embedding in zip(projection.chunks, projection.chunk_embeddings, strict=True):
-            vector_id = (
-                await connection.execute(
-                    insert(SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE)
-                    .values(
-                        scope_id=scope_id,
-                        artifact_id=topic_ref.artifact_id,
-                        revision=topic_ref.revision,
-                        chunk_ordinal=chunk.ordinal,
-                        profile_fingerprint=self._fingerprint,
-                    )
-                    .returning(SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.vector_id)
+            inserted = await connection.execute(
+                insert(SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE).values(
+                    scope_id=scope_id,
+                    artifact_id=topic_ref.artifact_id,
+                    revision=topic_ref.revision,
+                    chunk_ordinal=chunk.ordinal,
+                    profile_fingerprint=self._fingerprint,
                 )
-            ).scalar_one()
+            )
+            vector_id = inserted.lastrowid
             await connection.execute(
                 _INSERT_CHUNK_VECTOR_SQL,
                 {

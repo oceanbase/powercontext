@@ -36,7 +36,6 @@ from referencing.exceptions import Unresolvable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext._logging import log_safely
 from powercontext.artifacts import Artifact, ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
@@ -62,10 +61,14 @@ from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     EmbeddingProfile,
     Memory,
+    MemoryCapacityBudget,
+    MemoryCompactionPolicy,
     MemoryQueryEmbedding,
     MemoryReranker,
     MemoryService,
+    MemoryWriteGate,
     MemoryWritePlan,
+    MemoryWriteVerdict,
 )
 from powercontext.builtin.artifacts.profile import Profile
 from powercontext.builtin.artifacts.profile.management import ProfileManagementWriter
@@ -168,6 +171,8 @@ from powercontext.builtin.review.generation import (
 )
 from powercontext.builtin.review.models import ArtifactCandidate
 from powercontext.builtin.review.service import ReviewService
+from powercontext.builtin.runtime._model_usage import _ModelUsageRecorder
+from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.models import (
     CommitConnectorCheckpoint,
     ConnectorCheckpointState,
@@ -231,6 +236,7 @@ from powercontext.sources import (
     SourceDefinitionManifest,
     SourceDefinitionRegistry,
     SourceObservation,
+    SourceProjectionKey,
     SourceRef,
     TextEvidence,
 )
@@ -297,6 +303,11 @@ class _ScopedServices:
     embedding_model: EmbeddingModel | None
     memory_reranker: MemoryReranker | None
     memory_rerank_candidate_limit: int
+    decision_model: DecisionModel | None
+    memory_write_gate: MemoryWriteGate | None
+    memory_capacity_budget: MemoryCapacityBudget
+    memory_compaction: MemoryCompactionPolicy
+    memory_max_history_revisions: int
     id_factory: IdFactory
     handoff_artifact_id: str
     memory_artifact_id: str
@@ -305,6 +316,7 @@ class _ScopedServices:
     source_registry: SourceDefinitionRegistry
     prompts: PromptService
     generation_receipts: HandoffGenerationReceipts
+    model_usage: _ModelUsageRecorder
 
     def generation_sources(self) -> GenerationSourceAccess:
         return GenerationSourceAccess(self.repositories.sources)
@@ -342,6 +354,9 @@ class _ScopedServices:
             embedding_model=self.embedding_model,
             reranker=self.memory_reranker,
             rerank_candidate_limit=self.memory_rerank_candidate_limit,
+            capacity_budget=self.memory_capacity_budget,
+            compaction=self.memory_compaction,
+            max_history_revisions=self.memory_max_history_revisions,
             source_resolver=_RelationalMemorySourceResolver(
                 database=self.database,
                 scope_id=self.scope_id,
@@ -356,6 +371,7 @@ class _ScopedServices:
                 connection=connection,
             ),
             id_factory=self.id_factory,
+            write_gate=self.memory_write_gate,
         )
 
     def evidence(self, authorize: EvidenceAuthorizer | None = None) -> EvidenceResolver:
@@ -470,6 +486,7 @@ class _ScopedServices:
             recurrence=self.repositories.recurrence,
             artifacts=self.repositories.artifacts,
             token_estimator=None if self.token_estimator is None else self.token_estimator.profile,
+            model_usage=self.model_usage,
         )
 
     def recall_tokens(self) -> RelationalRecallTokenEstimator | None:
@@ -510,7 +527,12 @@ class RelationalContexts:
         embedding_model: EmbeddingModel | None = None,
         token_estimator: TokenEstimator | None = None,
         memory_reranker: MemoryReranker | None = None,
+        decision_model: DecisionModel | None = None,
+        memory_write_gate: MemoryWriteGate | None = None,
         memory_rerank_candidate_limit: int = 30,
+        memory_capacity_budget: MemoryCapacityBudget | None = None,
+        memory_compaction: MemoryCompactionPolicy | None = None,
+        memory_max_history_revisions: int = 100,
         id_factory: IdFactory | None = None,
         handoff_artifact_id: str = "handoff",
         memory_artifact_id: str = "memory",
@@ -522,6 +544,9 @@ class RelationalContexts:
         handoff_verification_keys: tuple[bytes, ...] = (),
         topic_memory_write_timeout_seconds: float = 30.0,
         topic_memory_write_concurrency: int = 4,
+        model_usage_queue_capacity: int = 256,
+        model_usage_write_timeout_seconds: float = 1.0,
+        model_usage_flush_timeout_seconds: float = 0.5,
     ) -> None:
         self.database = database
         self.scopes = ScopeApplication(database, cursor_secret=cursor_secret)
@@ -558,6 +583,13 @@ class RelationalContexts:
             processing_binding_states=ArtifactProcessingBindingStateRepository(),
             topic_memories=topic_memory_repository,
         )
+        self._model_usage = _ModelUsageRecorder(
+            database,
+            self.repositories.statistics,
+            queue_capacity=model_usage_queue_capacity,
+            write_timeout_seconds=model_usage_write_timeout_seconds,
+            flush_timeout_seconds=model_usage_flush_timeout_seconds,
+        )
         self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
         self.prompt_registry = prompt_registry or PromptRegistry(
             builtin_prompt_definitions(),
@@ -591,6 +623,7 @@ class RelationalContexts:
             PromptManagementWriter(self.repositories.artifacts, self.prompt_registry),
             ProfileManagementWriter(self.repositories.artifacts),
             MemoryManagementWriter(
+                capacity_budget=memory_capacity_budget,
                 database=database,
                 artifacts=self.repositories.artifacts,
                 index=self.index,
@@ -659,7 +692,14 @@ class RelationalContexts:
         self._embedding_model = embedding_model
         self._token_estimator = token_estimator
         self._memory_reranker = memory_reranker
+        self._decision_model = decision_model
+        self._memory_write_gate = memory_write_gate
         self._memory_rerank_candidate_limit = memory_rerank_candidate_limit
+        self._memory_capacity_budget = (
+            MemoryCapacityBudget() if memory_capacity_budget is None else memory_capacity_budget
+        )
+        self._memory_compaction = MemoryCompactionPolicy() if memory_compaction is None else memory_compaction
+        self._memory_max_history_revisions = memory_max_history_revisions
         self._handoff_artifact_id = handoff_artifact_id
         self._memory_artifact_id = memory_artifact_id
         self._tracing = tracing
@@ -734,39 +774,40 @@ class RelationalContexts:
     def model_usage_reporter(
         self, scope_id: str, /
     ) -> Callable[[ModelUsagePurpose, ModelUsageOperation, InferenceUsage], Awaitable[None]]:
-        """Return a best-effort usage callback for one operational Scope."""
+        """Return a best-effort usage callback for one operational Scope.
+
+        The callback only freezes and enqueues the record. The runtime-owned
+        recorder performs the independent short write; it never joins the
+        caller's transaction and never consumes the caller's model deadline.
+        """
 
         async def report(
             purpose: ModelUsagePurpose,
             operation: ModelUsageOperation,
             usage: InferenceUsage,
         ) -> None:
-            try:
-                await self.statistics(scope_id).record(
-                    purpose,
-                    operation,
-                    usage,
-                    datetime.now(UTC).date(),
-                )
-            except Exception as error:
-                # Usage is an operational side effect; a statistics outage
-                # must not turn a successful Artifact write into a failure.
-                log_safely(
-                    logger,
-                    logging.ERROR,
-                    "Model usage recording failed",
-                    exc_info=error,
-                    extra={
-                        "event": "statistics.model_usage.failed",
-                        "scope_id": scope_id,
-                        "purpose": purpose.value,
-                        "operation": operation.value,
-                        "outcome": "failure",
-                        "unit": "statistics",
-                    },
-                )
+            self._model_usage.offer(scope_id, purpose, operation, usage, datetime.now(UTC).date())
 
         return report
+
+    async def aclose_usage_recorder(self) -> None:
+        """Drain the usage recorder after its producers and before the database.
+
+        Ordering is load-bearing: closing the database first would reject the
+        recorder's own write, and closing this before producers stop would drop
+        records that were already accepted.
+        """
+
+        await self._model_usage.close()
+
+    async def flush_model_usage(self) -> None:
+        """Make usage accepted so far visible at an operation's completion boundary.
+
+        The wait is bounded and covers only the records already accepted, so a
+        continuously producing runtime cannot stall a completing operation.
+        """
+
+        await self._model_usage.flush()
 
     async def register_source_definition(
         self,
@@ -1396,6 +1437,11 @@ class RelationalContexts:
             embedding_model=self._embedding_model,
             memory_reranker=self._memory_reranker,
             memory_rerank_candidate_limit=self._memory_rerank_candidate_limit,
+            decision_model=self._decision_model,
+            memory_write_gate=self._memory_write_gate,
+            memory_capacity_budget=self._memory_capacity_budget,
+            memory_compaction=self._memory_compaction,
+            memory_max_history_revisions=self._memory_max_history_revisions,
             id_factory=self._id_factory,
             handoff_artifact_id=self._handoff_artifact_id,
             memory_artifact_id=self._memory_artifact_id,
@@ -1404,6 +1450,7 @@ class RelationalContexts:
             generation_receipts=self._generation_receipts,
             token_estimator=self._token_estimator,
             source_registry=self.source_registry,
+            model_usage=self._model_usage,
         )
 
 
@@ -1427,6 +1474,17 @@ class _RelationalMemorySourceResolver:
 
     def as_ref(self, source: Source, /) -> SourceRef:
         return self._catalog.as_ref(source)
+
+    def project(self, source: Source, key: SourceProjectionKey, /) -> object:
+        return self._catalog.project(source, key)
+
+    async def get_ref(self, ref: SourceRef, /) -> Source:
+        try:
+            async with self._database.connection(self._connection) as connection:
+                (stored,) = await self._access.require_for_generation(connection, self._scope_id, (ref,))
+        except RepositoryNotFoundError:
+            raise SourceNotFoundError(ref) from None
+        return stored.value
 
     async def get(self, source: Source, /) -> Source:
         try:
@@ -1533,13 +1591,16 @@ class _RelationalArtifactResolver:
 
     async def get(self, artifact: Artifact[object], /) -> Artifact[object]:
         try:
-            async with self._database.connection(self._bound_connection) as connection:
-                return cast(
-                    Artifact[object],
-                    await self._repository.get(connection, self._scope_id, artifact.as_ref()),
-                )
-        except RepositoryNotFoundError:
+            return await self.get_ref(artifact.as_ref())
+        except ArtifactNotFoundError:
             raise ArtifactNotFoundError(artifact) from None
+
+    async def get_ref(self, ref: ArtifactRef, /) -> Artifact[object]:
+        try:
+            async with self._database.connection(self._bound_connection) as connection:
+                return cast(Artifact[object], await self._repository.get(connection, self._scope_id, ref))
+        except RepositoryNotFoundError:
+            raise ArtifactNotFoundError(ref) from None
 
 
 class _RelationalTriggers:
@@ -1661,6 +1722,7 @@ class _RelationalTriggers:
             prepared = (
                 None if not sources else await self._prepare_memory(sources, authorize_snapshot=authorize_snapshot)
             )
+            held = _is_held_write(prepared)
             commit = None if prepared is None else prepared.commit
             with self._stage(
                 _MEMORY_COMMIT_STAGE,
@@ -1694,6 +1756,8 @@ class _RelationalTriggers:
                 current_cursor=action.through,
                 source_count=len(sources),
                 memory_ref=None if updated is None else updated.as_ref(),
+                held_count=1 if held else 0,
+                hold_codes=_hold_codes(prepared),
             )
 
     async def _sources(
@@ -1956,6 +2020,26 @@ def _validate_schema_value(name: str, schema: Mapping[str, Any], value: object) 
         _json_schema_validator(name, schema).validate(value)
     except (JsonSchemaValidationError, Unresolvable) as error:
         raise InvalidSourceObservationError("schema", f"value does not match {name!r}") from error
+
+
+def _is_held_write(plan: MemoryWritePlan | None) -> bool:
+    """Report whether the gate refused this prepared write."""
+
+    if plan is None:
+        return False
+    decision = plan.decision
+    return decision is not None and decision.verdict is MemoryWriteVerdict.HOLD
+
+
+def _hold_codes(plan: MemoryWritePlan | None) -> tuple[str, ...]:
+    """Expose the structured refusal code of a held write to the window caller."""
+
+    if not _is_held_write(plan) or plan is None:
+        return ()
+    decision = plan.decision
+    if decision is None or decision.code is None:
+        return ()
+    return (decision.code.value,)
 
 
 def _scoped_id_factory(memory_artifact_id: str, delegate: IdFactory | None) -> IdFactory:

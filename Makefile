@@ -19,7 +19,7 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: workflow-actions-check integration-manifest-check ## Run code quality tools.
+check: version-check workflow-actions-check integration-manifest-check ## Run code quality tools.
 
 .PHONY: workflow-actions-check
 workflow-actions-check: ## Verify third-party GitHub Actions use immutable commit pins.
@@ -96,6 +96,11 @@ harness-check: ## Validate the Bub replay harness and committed scenarios.
 harness-acceptance: ## Evaluate workloads by ID or category against an existing Server.
 	@uv run --project e2e/bub powercontext-e2e acceptance \
 		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results}" $(ARGS)
+
+.PHONY: harness-paired
+harness-paired: ## Compare PowerContext off and on for continuation workloads against an existing Server.
+	@uv run --project e2e/bub powercontext-e2e paired \
+		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results/paired}" $(ARGS)
 
 .PHONY: harness-rescore
 harness-rescore: ## Rescore REPLAY without rerunning Bub or PowerContext.
@@ -184,6 +189,25 @@ pi-test: ## Install and test the Pi package.
 build: clean-build ## Build wheel file
 	@echo "🚀 Creating wheel file"
 	@uv build
+
+# Export rather than interpolate VERSION into shell commands.
+export VERSION
+
+.PHONY: version-bump
+version-bump: ## Synchronize release references: make version-bump VERSION=X.Y.Z (does not tag or publish).
+	@uv run python scripts/release_version.py --write
+	@$(MAKE) api-generate
+	@$(MAKE) version-check
+	@echo "Before publishing a stable release, add its website release notes and run make release-check."
+
+.PHONY: version-check
+version-check: ## Check release references and generated API code; optionally assert VERSION=X.Y.Z or a release tag.
+	@uv run python scripts/release_version.py --check
+	@$(MAKE) api-generate-check js-api-generate-check
+
+.PHONY: release-check
+release-check: version-check docs-install ## Check version references and require matching bilingual notes for a stable release.
+	@cd website && node --import tsx --test tests/releases.test.ts
 
 .PHONY: clean-build
 clean-build: ## Clean build artifacts

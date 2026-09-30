@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tomllib
 from email.message import Message
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -46,6 +47,8 @@ _probe_codex_mcp_status = system_cli._probe_codex_mcp_status
 
 @pytest.fixture(autouse=True)
 def isolated_codex_plugin_cache(tmp_path, monkeypatch):
+    # Setup reads .env from cwd; tests must not consume a developer's credentials.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
     monkeypatch.delenv("POWERCONTEXT_CODEX_AUTHORIZATION", raising=False)
     monkeypatch.delenv("POWERCONTEXT_CODEX_SCOPE_ID", raising=False)
@@ -134,7 +137,7 @@ def test_setup_codex_installs_from_a_remote_ref_and_prepares_storage(
         ],
     )
 
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert json.loads(result.output) == {
         "marketplace": "powercontext",
         "plugin": "powercontext",
@@ -183,6 +186,72 @@ def test_codex_diagnostics_verify_native_mcp_tools_without_process_authorization
     assert diagnostics["authorization"].status is DiagnosticStatus.OK
     assert diagnostics["mcp_tools"].status is DiagnosticStatus.OK
     assert "2 tools" in diagnostics["mcp_tools"].detail
+    assert diagnostics["mcp_full_profile"].status is DiagnosticStatus.DEGRADED
+    assert "generate_experience" in diagnostics["mcp_full_profile"].detail
+    assert "import_external_skill" in diagnostics["mcp_full_profile"].detail
+
+
+def test_codex_diagnostics_recognize_full_tools_from_the_server(monkeypatch) -> None:
+    import asyncio
+
+    from fastmcp import Client
+
+    from powercontext.server.app import create_app
+    from powercontext.server.mcp import create_mcp_server
+
+    async def catalog():
+        async with Client(create_mcp_server(create_app(handoff_report_enabled=True))) as client:
+            return {tool.name: {} for tool in await client.list_tools()}
+
+    tools = asyncio.run(catalog())
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {"installed": [{"name": "powercontext", "installed": True, "enabled": True}]},
+    )
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", lambda **_kwargs: {"tools": tools})
+    diagnostics = system_cli.run_codex_diagnostics()
+    assert diagnostics["mcp_full_profile"].status is DiagnosticStatus.OK
+    tools.pop("resolve_external_skill")
+    diagnostics = system_cli.run_codex_diagnostics()
+    assert diagnostics["mcp_tools"].status is DiagnosticStatus.OK
+    assert diagnostics["mcp_full_profile"].status is DiagnosticStatus.DEGRADED
+    assert "resolve_external_skill" in diagnostics["mcp_full_profile"].detail
+
+
+def _declared_codex_mcp_tools() -> set[str]:
+    path = Path(__file__).resolve().parents[1] / "integrations/capabilities.toml"
+    manifest = tomllib.loads(path.read_text(encoding="utf-8"))
+    codex = next(host for host in manifest["integrations"] if host["id"] == "codex")
+    return {
+        tool["id"]
+        for toolset in manifest["toolsets"]
+        if toolset["id"] in codex["toolsets"] and toolset["probe"] == "server_mcp"
+        for tool in toolset["tools"]
+        if tool.get("capabilities")
+    }
+
+
+@pytest.mark.parametrize("missing", [None, *sorted(_declared_codex_mcp_tools())])
+def test_doctor_codex_requires_every_declared_capability_tool(monkeypatch, missing) -> None:
+    tools = {name: {} for name in _declared_codex_mcp_tools()}
+    if missing is not None:
+        tools.pop(missing)
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {"installed": [{"name": "powercontext", "installed": True, "enabled": True}]},
+    )
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", lambda **_kwargs: {"tools": tools})
+
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "codex", "--json"])
+    full = json.loads(result.output)["checks"]["mcp_full_profile"]
+    assert result.exit_code == (0 if missing is None else 1)
+    assert full["status"] == ("ok" if missing is None else "degraded")
+    if missing is not None:
+        assert missing in full["detail"]
 
 
 def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypatch) -> None:
@@ -208,6 +277,41 @@ def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypat
     assert diagnostics["mcp_tools"].status is DiagnosticStatus.FAILED
     assert "remember_memory, search_memory" in diagnostics["mcp_tools"].detail
     assert "POWERCONTEXT_CODEX_AUTHORIZATION" in diagnostics["mcp_tools"].detail
+
+
+@pytest.mark.parametrize("selected", [False, True], ids=["setup-codex", "setup-select"])
+@pytest.mark.parametrize("basic_available", [False, True])
+def test_codex_setup_entrypoints_accept_basic_memory_only(monkeypatch, tmp_path, selected, basic_available) -> None:
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "install_codex_plugin",
+        lambda **_kwargs: system_cli.CodexSetupResult(
+            marketplace="powercontext",
+            plugin="powercontext",
+            plugin_version="1.1.0",
+            data_dir=str(tmp_path / "data"),
+            authorization_state="not_configured",
+        ),
+    )
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {"installed": [{"name": "powercontext", "installed": True, "enabled": True}]},
+    )
+    tools = {"remember_memory": {}, "search_memory": {}} if basic_available else {}
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", lambda **_kwargs: {"tools": tools})
+    arguments = ["setup", "select", "--host", "codex"] if selected else ["setup", "codex"]
+
+    result = CliRunner().invoke(create_cli([setup_app]), [*arguments, "--json"])
+
+    assert result.exit_code == (0 if basic_available else 1), result.output
+    if selected:
+        codex = next(host for host in json.loads(result.output)["hosts"] if host["host"] == "codex")
+        assert codex["status"] == ("installed" if basic_available else "failed")
+    if not basic_available:
+        assert "remember_memory, search_memory" in result.output
 
 
 def test_codex_diagnostics_reject_native_mcp_without_authorization_environment(monkeypatch) -> None:

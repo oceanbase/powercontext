@@ -1,6 +1,6 @@
 # Dashboard design principles
 
-The Dashboard is a content viewer for personal use and demonstrations, authenticated by a static token and disabled by default. This document helps developers and reviewers decide what a page should show, how to organize reading, and whether a change preserves the behavior users need. The API contract in `openapi/powercontext.yaml` and the service implementation define the available capabilities.
+The Dashboard is a content viewer for personal use and demonstrations, disabled by default. It shares the Server access mode: local access can be anonymous, while enforced access requires a static token. This document helps developers and reviewers decide what a page should show, how to organize reading, and whether a change preserves the behavior users need. The API contract in `openapi/powercontext.yaml` and the service implementation define the available capabilities.
 
 ## What the Dashboard helps users do
 
@@ -96,9 +96,10 @@ Chinese, English, light and dark settings apply across the Dashboard, including 
 
 Pages show actual readable data, and actions correspond to existing capabilities. If one section fails, other independently readable content remains visible. Read errors, insufficient permissions and missing generation configuration have different meanings and must not collapse into an empty state.
 
-The Dashboard supports the built-in static Bearer identity, with the same permissions for every token holder. Enabling it
-requires `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`, `ACCESS_MODE=enforced`, and `AUTH_TOKEN`. Team deployments that
-inject authentication or authorization Providers must disable it. Pages reuse the existing API and its access checks;
+Enable Dashboard with `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`. Local `ACCESS_MODE=disabled` opens directly without
+a token. With `ACCESS_MODE=enforced`, it requires `AUTH_TOKEN` and uses the built-in static Bearer identity, with the
+same permissions for every token holder. Team deployments that inject authentication or authorization Providers must
+disable it. Pages reuse the existing API and follow the Server access mode;
 they add no data endpoints or member and role management. See [Install and run](../docs/get-started/install-and-run.md)
 for personal setup.
 

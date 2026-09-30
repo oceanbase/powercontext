@@ -117,13 +117,19 @@ class RuntimeCapabilities(BaseModel):
 
 
 class MemoryFlushResult(BaseModel):
-    """Result of processing one scoped Source window."""
+    """Result of processing one scoped Source window.
+
+    ``held_count`` and ``hold_codes`` expose a gate refusal to the caller: a held window
+    advances its cursor but writes no Memory, and the structured code says why.
+    """
 
     previous_cursor: int
     high_watermark: int
     current_cursor: int
     source_count: int
     memory_ref: ArtifactRef | None
+    held_count: int = 0
+    hold_codes: tuple[str, ...] = ()
 
     @property
     def processed(self) -> bool:

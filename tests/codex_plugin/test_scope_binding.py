@@ -294,3 +294,116 @@ def test_pre_tool_hook_denies_data_plane_when_binding_is_unavailable(
     assert bind_tools_module.main() == 0
     result = json.loads(output.getvalue())["hookSpecificOutput"]
     assert result["permissionDecision"] == "deny"
+
+
+class _CliSettings:
+    http_budget_seconds = 6.0
+
+
+def test_bind_scope_puts_the_codex_workspace_key(
+    scope_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    requests: list[tuple[str, dict[str, object], str]] = []
+
+    def request(path, payload, *, settings, deadline, method="POST"):
+        requests.append((path, payload, method))
+        return {"scope_id": "scp_project_a"}
+
+    monkeypatch.setattr(scope_module, "_post_json", request)
+    settings = _CliSettings()
+
+    bound = scope_module.bind_scope(str(tmp_path), "scp_project_a", settings=settings, deadline=float("inf"))
+    key = scope_module.workspace_binding_key(str(tmp_path))
+
+    assert bound == "scp_project_a"
+    assert requests == [("/v1/scope-bindings", {"key": key, "scope_id": "scp_project_a"}, "PUT")]
+    assert key["integration"] == "codex"
+    assert key["kind"] == "workspace"
+    assert key["external_id"] != str(tmp_path)
+
+
+def test_bind_scope_rejects_a_different_server_scope(
+    scope_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    def request(path, payload, *, settings, deadline, method="POST"):
+        return {"scope_id": "scp_other"}
+
+    monkeypatch.setattr(scope_module, "_post_json", request)
+
+    with pytest.raises(scope_module.ScopeBindingError):
+        scope_module.bind_scope(str(tmp_path), "scp_project_a", settings=_CliSettings(), deadline=float("inf"))
+
+
+def test_clear_scope_binding_removes_only_the_workspace_key(
+    scope_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    requests: list[tuple[str, dict[str, object]]] = []
+
+    def request(path, payload, *, settings, deadline, method="POST"):
+        requests.append((path, payload))
+        return {"cleared": True}
+
+    monkeypatch.setattr(scope_module, "_post_json", request)
+
+    assert scope_module.clear_scope_binding(str(tmp_path), settings=_CliSettings(), deadline=float("inf")) is True
+    assert requests == [("/v1/scope-bindings/clear", {"key": scope_module.workspace_binding_key(str(tmp_path))})]
+
+
+def test_cli_bind_scope_prints_the_bound_scope_id(
+    scope_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    seen: dict[str, object] = {}
+
+    def bind(cwd, scope_id, *, settings, deadline):
+        seen["cwd"] = cwd
+        seen["scope_id"] = scope_id
+        seen["settings"] = settings
+        return scope_id
+
+    monkeypatch.setattr(scope_module, "CodexPluginSettings", lambda: _CliSettings())
+    monkeypatch.setattr(scope_module, "bind_scope", bind)
+
+    assert scope_module.main(["--cwd", str(tmp_path), "--bind-scope", "scp_project_a"]) == 0
+
+    assert seen["cwd"] == str(tmp_path)
+    assert seen["scope_id"] == "scp_project_a"
+    assert isinstance(seen["settings"], _CliSettings)
+    assert capsys.readouterr().out.strip() == "scp_project_a"
+
+
+def test_cli_clear_scope_prints_the_directory_resolution(
+    scope_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    def clear(cwd, *, settings, deadline):
+        calls.append(("clear", cwd))
+        return True
+
+    def resolve(cwd, *, session_id, settings, deadline, persist_session=False):
+        calls.append(("resolve", cwd, session_id, persist_session))
+        return "scp_default"
+
+    monkeypatch.setattr(scope_module, "CodexPluginSettings", lambda: _CliSettings())
+    monkeypatch.setattr(scope_module, "clear_scope_binding", clear)
+    monkeypatch.setattr(scope_module, "resolve_scope_id", resolve)
+
+    assert scope_module.main(["--cwd", str(tmp_path), "--clear-scope"]) == 0
+
+    assert calls == [
+        ("clear", str(tmp_path)),
+        ("resolve", str(tmp_path), None, False),
+    ]
+    assert capsys.readouterr().out.strip() == "scp_default"

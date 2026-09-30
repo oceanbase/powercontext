@@ -41,6 +41,12 @@ def powercontext_bub_environment() -> dict[str, str]:
     return {name: value for name, value in environ.items() if name.startswith("POWERCONTEXT_BUB_") and value}
 
 
+def prefixed_environment(prefix: str) -> dict[str, str]:
+    """Return a host integration's native settings that start with ``prefix``, without translating them."""
+
+    return {name: value for name, value in environ.items() if name.startswith(prefix) and value}
+
+
 def codex_auth_path() -> Path:
     """Resolve Codex's native authentication document location."""
 
@@ -48,11 +54,11 @@ def codex_auth_path() -> Path:
 
 
 class ModelNotConfiguredError(RuntimeError):
-    """Report model-backed workloads without a runtime model."""
+    """Report model-backed workloads whose host lacks its runtime model or another required setting."""
 
-    def __init__(self, workload_ids: tuple[str, ...]) -> None:
+    def __init__(self, workload_ids: tuple[str, ...], settings: tuple[str, ...]) -> None:
         joined_ids = ", ".join(workload_ids)
-        super().__init__(f"The following workloads require BUB_MODEL: {joined_ids}")
+        super().__init__(f"The following workloads require {', '.join(settings)}: {joined_ids}")
 
 
 class HarnessSettings(BaseSettings):
@@ -98,7 +104,16 @@ class HarnessSettings(BaseSettings):
             for name in environ
             if name == "BUB_API_KEY"
             or (name.startswith("BUB_") and name.endswith("_API_KEY"))
-            or name == "POWERCONTEXT_CLIENT_API_TOKEN"
+            or name
+            in {
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "OPENAI_API_KEY",
+                "POWERCONTEXT_CLAUDE_AUTHORIZATION",
+                "POWERCONTEXT_CLIENT_API_TOKEN",
+                "POWERCONTEXT_CODEX_AUTHORIZATION",
+            }
         }
         values = {environ[name] for name in secret_names if environ[name]}
         if self.agent_proxy_url is not None and (proxy_url := self.agent_proxy_url.get_secret_value()):

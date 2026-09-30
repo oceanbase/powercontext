@@ -1,6 +1,6 @@
 # Dashboard 设计原则
 
-Dashboard 是 PowerContext 中供个人使用和演示的内容查看器，使用静态 token 鉴权，默认关闭。这份文档供开发和评审人员判断页面该展示什么、如何组织阅读，以及一次改动是否保留了用户需要的行为。接口能力以 `openapi/powercontext.yaml` 和服务实现为依据。
+Dashboard 是 PowerContext 中供个人使用和演示的内容查看器，默认关闭，与 Server 共用访问模式：本地可免认证访问，启用认证时要求静态 token。这份文档供开发和评审人员判断页面该展示什么、如何组织阅读，以及一次改动是否保留了用户需要的行为。接口能力以 `openapi/powercontext.yaml` 和服务实现为依据。
 
 ## Dashboard 帮助用户完成什么
 
@@ -96,9 +96,10 @@ Dashboard 是 PowerContext 中供个人使用和演示的内容查看器，使�
 
 页面显示真实可读的数据，操作入口对应已有能力。某个区块失败时，其他可独立读取的内容继续显示。读取错误、权限不足和生成配置缺失各有不同含义，不能合并成无内容。
 
-Dashboard 仅支持内置静态 Bearer 身份，所有 token 持有者共享同一权限。启用需要
-`POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`、`ACCESS_MODE=enforced` 和 `AUTH_TOKEN`；注入认证或授权
-Provider 的团队部署必须关闭它。页面读取复用现有 API 并继续执行服务鉴权，不新增数据接口，也不实现成员或角色管理。
+通过 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true` 启用 Dashboard。本地 `ACCESS_MODE=disabled` 时直接访问，
+无需 token；`ACCESS_MODE=enforced` 时要求 `AUTH_TOKEN`，使用内置静态 Bearer 身份，所有 token 持有者共享同一权限。
+注入认证或授权 Provider 的团队部署必须关闭它。页面读取复用现有 API，并遵循服务的访问模式，不新增数据接口，
+也不实现成员或角色管理。
 个人启用步骤见[安装和运行](../docs/get-started/install-and-run.md)。
 
 目录可以随保存和修订而变化，精确引用仍指向对应的历史版本。引用不存在或无权访问时，应明确处理该结果，不能用当前版本或相似记录代替。

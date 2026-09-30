@@ -1369,6 +1369,46 @@ class FlushTopicMemoryRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
 
 
+class GetMemoryCapacityRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class MemoryCapacityDimension(StrEnum):
+    ACTIVE_ENTRIES = "active_entries"
+    MANIFEST_ENTRIES = "manifest_entries"
+    MANIFEST_BYTES = "manifest_bytes"
+
+
+class MemoryCapacityBudget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    max_active_entries: Annotated[StrictInt, Field(ge=1)]
+    max_manifest_entries: Annotated[StrictInt, Field(ge=1)]
+    max_manifest_bytes: Annotated[StrictInt, Field(ge=1024)]
+
+
+class MemoryCapacity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    memory_ref: ArtifactReference
+    active_entry_count: Annotated[StrictInt, Field(ge=0)]
+    manifest_entry_count: Annotated[StrictInt, Field(ge=0)]
+    manifest_bytes: Annotated[
+        StrictInt,
+        Field(
+            description="Exact canonical bytes of the complete Revision content, including its change records.", ge=0
+        ),
+    ]
+    compactable_entry_count: Annotated[StrictInt, Field(ge=0)]
+    budget: MemoryCapacityBudget
+    exceeded: list[MemoryCapacityDimension]
+
+
 class GetTopicMemoryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2333,6 +2373,7 @@ class EntryChangeOperation(StrEnum):
     REVISE = "revise"
     DEACTIVATE = "deactivate"
     REACTIVATE = "reactivate"
+    COMPACT = "compact"
 
 
 class FlushStatus(StrEnum):
@@ -3230,6 +3271,12 @@ class FlushMemoryResponse(BaseModel):
     high_watermark: Annotated[StrictInt, Field(ge=0)]
     processed_source_count: Annotated[StrictInt, Field(ge=0)]
     memory: ArtifactReference | None = None
+    held_count: Annotated[
+        StrictInt, Field(description="Number of source windows held by the Memory write gate.", ge=0)
+    ] = 0
+    hold_codes: Annotated[
+        list[StrictStr], Field(description="Structured Memory write gate refusal codes for held windows.")
+    ] = []
 
 
 class FlushTopicMemoryResponse(BaseModel):

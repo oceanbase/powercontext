@@ -44,9 +44,18 @@ class _SpyEmbedder(Embedder):
         type(self).settings_seen.append(settings)
 
 
+def _patch_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace Embedder only for one test, including the adapter's already-bound name."""
+
+    import powercontext.builtin.inference.pydantic_ai as adapter
+
+    monkeypatch.setattr("pydantic_ai.Embedder", _SpyEmbedder)
+    monkeypatch.setattr(adapter, "Embedder", _SpyEmbedder)
+
+
 def test_embedding_models_send_the_configured_dimension_to_the_provider(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr("pydantic_ai.Embedder", _SpyEmbedder)
+    _patch_embedder(monkeypatch)
     _SpyEmbedder.settings_seen = []
 
     async def scenario() -> None:
@@ -61,6 +70,31 @@ def test_embedding_models_send_the_configured_dimension_to_the_provider(monkeypa
         assert operational is not None
         assert readiness is not None
         expected_settings = {"dimensions": 1536, "extra_body": {"route": "embedding"}}
+        assert _SpyEmbedder.settings_seen == [expected_settings, expected_settings]
+        assert operational.profile.dimension == 1536
+
+    asyncio.run(scenario())
+
+
+def test_embedding_models_omit_dimensions_when_sending_is_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    _patch_embedder(monkeypatch)
+    _SpyEmbedder.settings_seen = []
+
+    async def scenario() -> None:
+        config = InferenceConfig(
+            embedding_model="openai:BAAI/bge-m3",
+            embedding_model_settings={"dimensions": 512, "extra_body": {"route": "embedding"}},
+            embedding_profile_id="bge-m3-1024-unit",
+            embedding_dimension=1024,
+            embedding_send_dimensions=False,
+        )
+        async with AsyncExitStack() as resources:
+            operational, readiness = await _embedding_models(config, resources, None)
+        assert operational is not None
+        assert readiness is not None
+        assert operational.profile.dimension == 1024
+        expected_settings = {"extra_body": {"route": "embedding"}}
         assert _SpyEmbedder.settings_seen == [expected_settings, expected_settings]
 
     asyncio.run(scenario())

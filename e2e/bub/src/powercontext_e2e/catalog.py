@@ -123,6 +123,16 @@ class OutcomeEvaluationSpec(CatalogModel):
     expected_execution: ExpectedExecutionSpec
 
 
+class ContinuationEvaluationSpec(CatalogModel):
+    """Compare PowerContext off and on for a task whose final session depends on an earlier one.
+
+    The Harbor task's own verifier grades the final step. ``recall_step`` names that step so the harness can check
+    that PowerContext supplied context during it.
+    """
+
+    recall_step: str = Field(min_length=1)
+
+
 class E2ETask(CatalogModel):
     schema_: Literal["powercontext.e2e-task/v1"] = Field(alias="schema")
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
@@ -130,7 +140,7 @@ class E2ETask(CatalogModel):
     provenance: Provenance | None = None
     dataset: HarborDatasetSpec
     execution: BubExecutionSpec
-    evaluation: MemoryEvaluationSpec | OutcomeEvaluationSpec
+    evaluation: MemoryEvaluationSpec | OutcomeEvaluationSpec | ContinuationEvaluationSpec
 
 
 class TaskSelectionError(ValueError):

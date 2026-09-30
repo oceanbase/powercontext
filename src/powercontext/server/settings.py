@@ -145,7 +145,7 @@ class BearerAuthConfig(BaseModel):
 
 
 class DashboardConfig(BaseModel):
-    """Optional personal and demonstration UI using static Bearer authentication."""
+    """Optional personal and demonstration UI sharing the Server access mode."""
 
     enabled: bool = False
 
@@ -310,10 +310,12 @@ class ServerSettings(BaseSettings):
             raise ValueError("ACCESS_BACKGROUND_PRINCIPAL_DESCRIPTION requires BACKGROUND_PRINCIPAL_ID")  # noqa: TRY003
         if self.auth.enabled:
             self.access.mode = "enforced"
-        if self.dashboard.enabled and (
-            self.access.mode != "enforced" or self.auth.token is None or not self.auth.token.get_secret_value()
+        if (
+            self.dashboard.enabled
+            and self.access.mode == "enforced"
+            and (self.auth.token is None or not self.auth.token.get_secret_value())
         ):
-            raise ValueError("DASHBOARD_ENABLED requires ACCESS_MODE=enforced and AUTH_TOKEN")  # noqa: TRY003
+            raise ValueError("DASHBOARD_ENABLED with ACCESS_MODE=enforced requires AUTH_TOKEN")  # noqa: TRY003
         if self.access.mode == "disabled" and self.auth.token is not None:
             raise ValueError("AUTH_TOKEN requires ACCESS_MODE=enforced or legacy AUTH_ENABLED=true")  # noqa: TRY003
         if self.access.mode == "disabled" and self.access.background_principal_id is not None:
