@@ -36,7 +36,8 @@ limitations under the License.
   {% endfor %}
   </div>
   {{ pagination(profile_pager, t) }}
-{% elif data.profile %}
+{% endif %}
+{% if data.profile %}
   <article class="reading-sheet">
     <header class="reading-heading">
       <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
@@ -63,7 +64,8 @@ limitations under the License.
     </div>
   </article>
   {% include 'components/evidence-modal.html' %}
-{% else %}
+  {% include 'components/revision-history.html' %}
+{% elif not profile_history_view %}
   <h1>{{ t.profile }}</h1>
   <section class="card mt-4"><div class="empty"><h2>{{ t.profile_empty }}</h2><p>{{ t.profile_empty_body }}</p></div></section>
 {% endif %}

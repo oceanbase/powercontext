@@ -16,6 +16,7 @@
 
 import re
 from html import unescape
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -23,7 +24,16 @@ import pytest
 from fastapi.testclient import TestClient
 from markdown_it import MarkdownIt
 
+from powercontext.builtin.artifacts.prompt import PROMPT_KEYS, PromptRegistry
+from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.dashboard.api import DashboardAPI
+from powercontext.server.factory import create_server_app
+from powercontext.server.settings import (
+    DashboardConfig,
+    McpConfig,
+    ServerSettings,
+)
 from tests.test_dashboard import commit_handoff, create_scope
 from tests.test_dashboard import dashboard as dashboard
 
@@ -92,8 +102,289 @@ def test_profile_safe_markdown_and_scope_isolation(dashboard):
     empty = dashboard.get("/dashboard/profile", params={"scope": other, "lang": "en"})
     assert "No profile in this scope" in empty.text
     assert "Chinese 中文" not in empty.text
-    for params in ({"revision": "0"}, {"revision": "no"}, {"view": "history", "revision": "1"}):
+    for params in ({"revision": "0"}, {"revision": "no"}, {"view": "draft"}):
         assert dashboard.get("/dashboard/profile", params={"scope": scope, **params}).status_code == 422
+    combined = dashboard.get("/dashboard/profile", params={"scope": scope, "view": "history", "revision": "1"})
+    assert combined.status_code == 200
+    assert "Chinese 中文" in combined.text
+
+
+def test_profile_page_rolls_back_to_a_new_revision(dashboard):
+    scope = create_scope(dashboard, "Profile rollback")["scope_id"]
+    original = "# First profile\n\nOriginal preference."
+    _profile(dashboard, scope, original)
+    path = f"/v1/scopes/{scope}/artifacts/profile/profile"
+    current = dashboard.get(path)
+    changed = dashboard.put(
+        path,
+        json={"content": {"content": "# Second profile\n\nLater preference."}},
+        headers={"If-Match": current.headers["etag"]},
+    )
+    assert changed.status_code == 200, changed.text
+    opened = dashboard.get("/dashboard/profile", params={"scope": scope, "revision": "1", "lang": "en"})
+    assert opened.status_code == 200
+    assert 'name="reason"' in opened.text
+    stale = dashboard.post(
+        "/dashboard/rollback",
+        data={
+            "scope": scope,
+            "family": "profile",
+            "artifact_id": "profile",
+            "source_revision": "1",
+            "expected_revision": "1",
+            "reason": "Restore the approved profile",
+        },
+    )
+    assert stale.status_code == 200
+    assert "The current revision changed" in stale.text
+    restored = dashboard.post(
+        "/dashboard/rollback",
+        data={
+            "scope": scope,
+            "family": "profile",
+            "artifact_id": "profile",
+            "source_revision": "1",
+            "expected_revision": "2",
+            "reason": "Restore the approved profile",
+        },
+    )
+    assert restored.status_code == 200
+    assert "Confirm rollback" not in restored.text
+    head = dashboard.get(path)
+    assert head.status_code == 200
+    body = head.json()
+    assert body["revision"] == 3
+    stored = dashboard.get(f"{path}/revisions/1").json()
+    assert body["content"]["content"] == stored["content"]["content"]
+    assert body["restored_from_revision"] == 1
+    assert body["reason"] == "Restore the approved profile"
+    assert body["created_by"]["id"]
+
+
+def test_rollback_is_offered_when_access_control_is_disabled(tmp_path: Path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/open.db"),
+            dashboard=DashboardConfig(enabled=True),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "scheduler.db",
+    )
+    with TestClient(app) as client:
+        scope = create_scope(client, "Open rollback")["scope_id"]
+        _profile(client, scope, "# First profile\n\nOriginal preference.")
+        current = client.get(f"/v1/scopes/{scope}/artifacts/profile/profile")
+        changed = client.put(
+            f"/v1/scopes/{scope}/artifacts/profile/profile",
+            json={"content": {"content": "# Second profile\n\nLater preference."}},
+            headers={"If-Match": current.headers["etag"]},
+        )
+        assert changed.status_code == 200, changed.text
+        opened = client.get("/dashboard/profile", params={"scope": scope, "revision": "1", "lang": "en"})
+        assert opened.status_code == 200
+        assert 'name="reason"' in opened.text
+        assert 'type="number"' in opened.text
+
+
+def test_profile_compare_accepts_a_revision_outside_the_current_page(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Profile compare")["scope_id"]
+    _profile(dashboard, scope, "# First profile\n\nOriginal preference.")
+    path = f"/v1/scopes/{scope}/artifacts/profile/profile"
+    for revision in range(2, 9):
+        previous = dashboard.get(path)
+        changed = dashboard.put(
+            path,
+            json={"content": {"content": f"# Profile {revision}\n\nUpdated preference."}},
+            headers={"If-Match": previous.headers["etag"]},
+        )
+        assert changed.status_code == 200, changed.text
+    compared = dashboard.get(
+        "/dashboard/profile",
+        params={"scope": scope, "revision": "1", "compare": "8", "lang": "en"},
+    )
+    assert compared.status_code == 200
+    assert 'id="compare-revision"' in compared.text
+    assert 'type="number"' in compared.text
+    assert "First profile" in compared.text
+    assert "Profile 8" in compared.text
+    missing = dashboard.get(
+        "/dashboard/profile",
+        params={"scope": scope, "revision": "1", "compare": "99", "lang": "en"},
+    )
+    assert "That revision could not be compared." in missing.text
+
+
+def test_prompt_page_shows_the_selected_revision(dashboard: TestClient) -> None:
+    # This fixture has no generation model, so custom prompts are otherwise rejected.
+    writer = dashboard.app.state.application._records()._family_writers.get("prompt")
+    writer._registry = PromptRegistry(builtin_prompt_definitions(), supported=frozenset(PROMPT_KEYS))
+    scope = create_scope(dashboard, "Prompt history")["scope_id"]
+    created = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={
+            "family": "prompt",
+            "prompt_key": "memory.extract",
+            "content": {
+                "schema_version": "powercontext.prompt.v1",
+                "mode": "custom",
+                "instructions": "Keep the approved prompt.",
+                "demonstrations": [],
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+    current = dashboard.get(f"/v1/scopes/{scope}/artifacts/prompt/memory.extract")
+    replaced = dashboard.put(
+        f"/v1/scopes/{scope}/artifacts/prompt/memory.extract",
+        json={
+            "content": {
+                "schema_version": "powercontext.prompt.v1",
+                "mode": "custom",
+                "instructions": "Keep a later prompt.",
+                "demonstrations": [],
+            }
+        },
+        headers={"If-Match": current.headers["etag"]},
+    )
+    assert replaced.status_code == 200, replaced.text
+    opened = dashboard.get(
+        "/dashboard/prompts",
+        params={"scope": scope, "prompt_key": "memory.extract", "prompt_revision": "1", "lang": "en"},
+    )
+    assert opened.status_code == 200
+    assert "Keep the approved prompt." in opened.text
+    assert "Keep a later prompt." not in opened.text
+
+
+def _put_content(client: TestClient, scope: str, family: str, artifact_id: str, content: dict[str, Any]) -> dict[str, Any]:
+    path = f"/v1/scopes/{scope}/artifacts/{family}/{artifact_id}"
+    current = client.get(path)
+    assert current.status_code == 200, (family, current.text)
+    replaced = client.put(path, json={"content": content}, headers={"If-Match": current.headers["etag"]})
+    assert replaced.status_code == 200, (family, replaced.text)
+    return replaced.json()
+
+
+def _rollback(client: TestClient, scope: str, family: str, artifact_id: str, expected: int) -> Any:
+    return client.post(
+        "/dashboard/rollback",
+        data={
+            "scope": scope,
+            "family": family,
+            "artifact_id": artifact_id,
+            "source_revision": "1",
+            "expected_revision": str(expected),
+            "reason": "Restore the approved revision",
+        },
+    )
+
+
+def test_dashboard_rolls_back_experience_skill_topic_and_handoff(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Family rollback")["scope_id"]
+    experience = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={
+            "family": "experience",
+            "content": {
+                "situation": "A compatibility issue was found before release",
+                "action": "Add cross-version tests",
+                "outcome": "Avoided a production regression",
+                "lesson": "Public API changes require compatibility coverage",
+            },
+        },
+    )
+    assert experience.status_code == 201, experience.text
+    experience_id = experience.json()["artifact_id"]
+    _put_content(
+        dashboard,
+        scope,
+        "experience",
+        experience_id,
+        {
+            "situation": "A compatibility issue was found before release",
+            "action": "Add cross-version tests",
+            "outcome": "Avoided a production regression",
+            "lesson": "A later lesson replaced the approved one",
+        },
+    )
+    restored = _rollback(dashboard, scope, "experience", experience_id, 2)
+    assert restored.status_code == 200
+    assert "Public API changes require compatibility coverage" in restored.text
+    assert dashboard.get(f"/v1/scopes/{scope}/artifacts/experience/{experience_id}").json()["revision"] == 3
+
+    skill = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={
+            "family": "skill",
+            "content": {
+                "name": "compatibility-check",
+                "description": "Check compatibility before release",
+                "instructions": "Run the approved compatibility tests.",
+                "validation": ["Compatibility tests pass"],
+            },
+        },
+    )
+    assert skill.status_code == 201, skill.text
+    skill_id = skill.json()["artifact_id"]
+    _put_content(
+        dashboard,
+        scope,
+        "skill",
+        skill_id,
+        {
+            "name": "compatibility-check",
+            "description": "Check compatibility before release",
+            "instructions": "Run a later set of tests.",
+            "validation": ["Compatibility tests pass"],
+        },
+    )
+    restored_skill = _rollback(dashboard, scope, "skill", skill_id, 2)
+    assert restored_skill.status_code == 200, restored_skill.text
+    assert "Run the approved compatibility tests." in restored_skill.text
+
+    topic = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={
+            "family": "topic-memory",
+            "content": {"title": "Approved topic", "summary": "Approved summary", "detail": "Approved detail."},
+        },
+    )
+    assert topic.status_code == 201, topic.text
+    topic_id = topic.json()["artifact_id"]
+    _put_content(
+        dashboard,
+        scope,
+        "topic-memory",
+        topic_id,
+        {"title": "Later topic", "summary": "Later summary", "detail": "Later detail."},
+    )
+    restored_topic = _rollback(dashboard, scope, "topic-memory", topic_id, 2)
+    assert restored_topic.status_code == 200, restored_topic.text
+    assert "Approved detail." in restored_topic.text
+
+    handoff = commit_handoff(dashboard, scope)
+    handoff_id = handoff["artifact_id"]
+    original = dashboard.get(f"/v1/scopes/{scope}/artifacts/handoff/{handoff_id}").json()["content"]
+    source = {"kind": "source", "source_ref": {"name": "content", "source_id": "review"}}
+    changed = {
+        "schema": original["schema"],
+        "objective": "A later objective replaced the approved handoff.",
+        "state": [{"text": "Review remains in progress.", "citations": [source]}],
+        "disposition": original["disposition"],
+        "next_action": {"text": "Continue the review.", "citations": [source]},
+        "omissions": [],
+    }
+    _put_content(dashboard, scope, "handoff", handoff_id, changed)
+    confirmation = dashboard.get(
+        "/dashboard/handoff-detail",
+        params={"scope": scope, "artifact": handoff_id, "revision": "1", "lang": "en"},
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    assert "This creates a new revision" in confirmation.text
+    restored_handoff = _rollback(dashboard, scope, "handoff", handoff_id, 2)
+    assert restored_handoff.status_code == 200, restored_handoff.text
+    assert "Review the HTTP contract" in restored_handoff.text
+    assert "A later objective replaced the approved handoff." not in restored_handoff.text
 
 
 def test_profile_evidence_is_bound_to_the_exact_revision(dashboard):

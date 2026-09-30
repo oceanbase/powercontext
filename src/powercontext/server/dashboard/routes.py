@@ -92,6 +92,18 @@ def links(request: Request, ctx: dict[str, Any]):
                 in {
                     "artifact",
                     "revision",
+                    "compare",
+                    "rollback_error",
+                    "memory_history",
+                    "memory_history_cursor",
+                    "prompt_key",
+                    "prompt_revision",
+                    "prompt_revision_cursor",
+                    "topic_revision_cursor",
+                    "profile_revision_cursor",
+                    "experience_revision_cursor",
+                    "skill_revision_cursor",
+                    "handoff_revision_cursor",
                     "kind",
                     "entry",
                     "memory_id",
@@ -224,6 +236,9 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "profile_revisions": [],
         "profile_pager": None,
         "profile_html": "",
+        "history": None,
+        "prompt_key": None,
+        "prompt_opened": None,
         "return_to": collection_return(
             request.query_params.get("return_to"),
             request.query_params.get("scope", ""),
@@ -375,6 +390,66 @@ async def download_handoff(request: Request) -> Response:
     finally:
         await api.client.aclose()
     return render(request, ctx)
+
+
+@router.post("/rollback")
+async def rollback_revision(request: Request) -> Response:
+    form = await request.form()
+    scope = str(form.get("scope") or "")
+    family = str(form.get("family") or "")
+    artifact_id = str(form.get("artifact_id") or "")
+    reason = str(form.get("reason") or "")
+    try:
+        source_revision = positive_revision(str(form.get("source_revision") or ""))
+        expected_revision = positive_revision(str(form.get("expected_revision") or ""))
+    except ReadError:
+        return RedirectResponse(f"/dashboard/home?scope={scope}", status_code=303)
+    api = DashboardAPI(request)
+    try:
+        stored = await api.artifact_revision(scope, family, artifact_id, source_revision)
+        from powercontext.server.dashboard.revisions import replace_body
+
+        response = await api.send(
+            "PUT",
+            f"/v1/scopes/{segment(scope)}/artifacts/{segment(family)}/{segment(artifact_id)}",
+            replace_body(family, stored["content"], source_revision, reason),
+            headers={"If-Match": f'"revision:{expected_revision}"'},
+        )
+    except ReadError as error:
+        code = "forbidden" if error.status == 403 else "rejected"
+        return RedirectResponse(_rollback_return(scope, family, artifact_id, source_revision, code), status_code=303)
+    finally:
+        await api.client.aclose()
+    if response.status_code == 412:
+        code = "revision_conflict"
+    elif response.status_code == 403:
+        code = "forbidden"
+    elif response.status_code != 200:
+        code = "rejected"
+    else:
+        created = response.json()["revision"]
+        return RedirectResponse(_rollback_return(scope, family, artifact_id, created, None), status_code=303)
+    return RedirectResponse(_rollback_return(scope, family, artifact_id, source_revision, code), status_code=303)
+
+
+def _rollback_return(scope: str, family: str, artifact_id: str, revision: int, error: str | None) -> str:
+    params: dict[str, Any] = {"scope": scope, "rollback_error": error}
+    if family == "profile":
+        page = "profile"
+        params["revision"] = revision
+    elif family == "topic-memory":
+        page = "topics"
+        params.update(topic_artifact=artifact_id, topic_revision=revision)
+    elif family == "prompt":
+        page = "prompts"
+        params.update(prompt_key=artifact_id, prompt_revision=revision)
+    elif family in {"experience", "skill", "handoff"}:
+        page = "handoff-detail" if family == "handoff" else family
+        params.update(artifact=artifact_id, revision=revision)
+    else:
+        page = "notes"
+        params["memory_history"] = revision
+    return f"/dashboard/{page}?{urlencode({key: value for key, value in params.items() if value is not None})}"
 
 
 @router.get("/{page}")

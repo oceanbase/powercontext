@@ -644,6 +644,9 @@ class ScopedRecordApplication:
         expected_etag: str,
         write: ArtifactWrite,
         /,
+        *,
+        actor_type: str | None = None,
+        actor_id: str | None = None,
     ) -> ArtifactRecord:
         async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._records().replace_artifact(
@@ -652,6 +655,8 @@ class ScopedRecordApplication:
                 artifact_id,
                 expected_etag,
                 write,
+                actor_type=actor_type,
+                actor_id=actor_id,
             )
 
 

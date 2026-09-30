@@ -25,13 +25,16 @@ from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definit
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.family_management import FamilyManagementWriterRegistry, PromptManagementWriter
 from powercontext.builtin.persistence.records import RelationalRecordService
+from powercontext.builtin.persistence.rollback import merged_source_revision
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.records import (
+    ArtifactRevisionActor,
     ArtifactRevisionPreconditionError,
     ArtifactWrite,
     BaseValueConflictError,
+    InvalidBaseAccessRequestError,
     InvalidCursorError,
 )
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER
@@ -195,3 +198,85 @@ def test_definition_change_does_not_hide_history_or_partially_commit_a_failed_ro
             assert recovered.content["mode"] == "auto"
 
     asyncio.run(scenario())
+
+
+def test_prompt_rollback_records_its_source_and_rejects_an_incomplete_restore() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records = _records(profile)
+            await records.create_artifact(
+                "scope-a",
+                "prompt",
+                ArtifactWrite(content=_content("Keep the approved prompt."), prompt_key="memory.extract"),
+            )
+            first = await records.get_artifact("scope-a", "prompt", "memory.extract")
+            updated = await records.replace_artifact(
+                "scope-a",
+                "prompt",
+                "memory.extract",
+                '"revision:1"',
+                ArtifactWrite(content=_content("Keep a later prompt.")),
+            )
+            assert updated.created_at is not None
+            assert updated.created_by is None
+            assert updated.restored_from_revision is None
+            with pytest.raises(InvalidBaseAccessRequestError):
+                await records.replace_artifact(
+                    "scope-a",
+                    "prompt",
+                    "memory.extract",
+                    '"revision:2"',
+                    ArtifactWrite(content=first.content, restored_from_revision=1),
+                )
+            with pytest.raises(InvalidBaseAccessRequestError):
+                await records.replace_artifact(
+                    "scope-a",
+                    "prompt",
+                    "memory.extract",
+                    '"revision:2"',
+                    ArtifactWrite(content=first.content, restored_from_revision=2, reason="Restore the current head"),
+                )
+            with pytest.raises(InvalidBaseAccessRequestError):
+                await records.replace_artifact(
+                    "scope-a",
+                    "prompt",
+                    "memory.extract",
+                    '"revision:2"',
+                    ArtifactWrite(
+                        content=_content("Different text."),
+                        restored_from_revision=1,
+                        reason="Restore the approved prompt",
+                    ),
+                )
+            restored = await records.replace_artifact(
+                "scope-a",
+                "prompt",
+                "memory.extract",
+                '"revision:2"',
+                ArtifactWrite(
+                    content=first.content,
+                    restored_from_revision=1,
+                    reason="  Restore the approved prompt  ",
+                ),
+                actor_type="user",
+                actor_id="operator",
+            )
+            assert restored.revision == 3
+            assert restored.content_digest == first.content_digest
+            assert restored.restored_from_revision == 1
+            assert restored.reason == "Restore the approved prompt"
+            assert restored.created_at is not None
+            assert restored.created_by == ArtifactRevisionActor(type="user", id="operator")
+            listed = await records.list_artifact_revisions(
+                "scope-a", "prompt", "memory.extract", limit=10, cursor=None
+            )
+            assert listed.items[0].reason == "Restore the approved prompt"
+            assert listed.items[1].created_by is None
+
+    asyncio.run(scenario())
+
+
+def test_memory_replace_rejects_rollback_fields() -> None:
+    write = ArtifactWrite(content={"changes": []}, restored_from_revision=1, reason="Restore memory")
+    with pytest.raises(InvalidBaseAccessRequestError, match="is not supported for memory"):
+        merged_source_revision("memory", write, type("Command", (), {})())

@@ -52,5 +52,16 @@ limitations under the License.
     </div>
   </article></section>
 </div>
+{% if memory_changes is defined %}
+  <section class="mt-4">
+    <h2>{{ t.memory_changes }}</h2>
+    {% if memory_changes %}
+      <ul>{% for change in memory_changes %}<li>{{ change.op }} · {{ change.entry_id }}{% if change.reason %} · {{ change.reason }}{% endif %}</li>{% endfor %}</ul>
+    {% else %}
+      <p class="text-secondary">{{ t.revision_empty }}</p>
+    {% endif %}
+  </section>
+{% endif %}
+{% include 'components/revision-history.html' %}
 {% endif %}
 </div>

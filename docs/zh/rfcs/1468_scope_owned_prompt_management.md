@@ -262,11 +262,10 @@ GET /v1/scopes/project:payments/artifacts/prompt/memory.extract/revisions/2
 
 1. 读取旧的 exact revision；
 2. 读取 current head 与 ETag；
-3. 使用旧 revision 的 `content` 和 current ETag 替换 current head；
+3. 使用旧 revision 的 `content`、current ETag、`restored_from_revision` 和非空 `reason` 替换 current head；
 4. 得到一个新 revision，其 content digest 与被恢复 revision 相同。
 
-例如，revision 5 为 current 时恢复 revision 2，会创建 revision 6。Revision 2 到 5 继续可读。通用 request audit
-标识 actor 与 request；与旧 content 相同可通过 content digest 确认。Server 绝不把 head pointer 向后移动。
+例如，revision 5 为 current 时恢复 revision 2，会创建 revision 6。Revision 2 到 5 继续可读。新 revision 记下源修订、原因和已认证主体。此后每个新 revision 都写入 `created_at`。与旧 content 相同可通过 content digest 确认。Server 绝不把 head pointer 向后移动。两个回滚字段都不提供时仍是普通替换。给出源修订但没有有效原因、源修订就是当前 head，或正文与该源修订不一致，返回 422。
 
 # Reference-level explanation
 
@@ -770,7 +769,7 @@ conditional replacement 中，可以保留单调历史，并使用与所有更�
 - **Mutable cross-Scope Prompt reference：** 允许一个 Scope 在没有本地 revision 的情况下改变另一个 Scope 的行为。
 - **Prompt DSL 或 variables：** 在出现具体需求前增加 compiler 与 injection 复杂度。
 - **Draft、review 与 activation workflow：** 重复 Candidate/Review 概念，且首个 administrative vertical slice 不需要。
-- **专用 rollback endpoint：** exact read 加 conditional replacement 已经表达其安全语义。
+- **专用 rollback endpoint：** exact read 加 conditional replacement 已经表达其安全语义。替换请求可以带上源修订和原因，不新增路由，也不新增权限。
 
 如果不做此设计，operational prompt 仍固定在 deployment composition 阶段，客户只能 fork Runtime code 或运行多个部署
 来获得不同 prompt 行为。

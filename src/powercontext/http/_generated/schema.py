@@ -3645,7 +3645,59 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "head "
                 "without "
                 "semantic "
-                "generation.",
+                "generation. "
+                "Profile "
+                "replacement "
+                "uses "
+                "the "
+                "same "
+                "conditional "
+                "write. "
+                "To "
+                "roll "
+                "back "
+                "Profile, "
+                "Prompt, "
+                "Experience, "
+                "Skill, "
+                "Handoff, "
+                "or "
+                "Topic "
+                "Memory, "
+                "set "
+                "restored_from_revision "
+                "and "
+                "reason. "
+                "The "
+                "server "
+                "checks "
+                "that "
+                "the "
+                "submitted "
+                "canonical "
+                "content "
+                "matches "
+                "that "
+                "revision "
+                "and "
+                "differs "
+                "from "
+                "the "
+                "current "
+                "head, "
+                "then "
+                "commits "
+                "a "
+                "new "
+                "revision. "
+                "Memory "
+                "replacement "
+                "cannot "
+                "restore "
+                "a "
+                "whole "
+                "historical "
+                "manifest.",
                 "operationId": "replace_artifact",
                 "x-powercontext-access": {"resolver": "path_artifact_write_access"},
                 "parameters": [
@@ -3661,7 +3713,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "required": True,
                         "schema": {
                             "type": "string",
-                            "enum": ["memory", "experience", "skill", "handoff", "prompt", "topic-memory"],
+                            "enum": ["memory", "experience", "skill", "handoff", "prompt", "topic-memory", "profile"],
                         },
                     },
                     {
@@ -4707,7 +4759,36 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["family", "content"],
             },
             "ReplaceProfileArtifactRequest": {
-                "properties": {"content": {"$ref": "#/components/schemas/ProfileWriteContent"}},
+                "properties": {
+                    "content": {"$ref": "#/components/schemas/ProfileWriteContent"},
+                    "restored_from_revision": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "Historical "
+                        "Profile "
+                        "revision "
+                        "restored "
+                        "by "
+                        "this "
+                        "replacement. "
+                        "Must "
+                        "match "
+                        "content.restored_from_revision "
+                        "when "
+                        "both "
+                        "are "
+                        "set.",
+                        "nullable": True,
+                    },
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "description": "Required when restored_from_revision or content.restored_from_revision is set.",
+                        "nullable": True,
+                    },
+                },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["content"],
@@ -4760,6 +4841,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "description": "Family-provided number of direct Source inputs when available.",
                         "nullable": True,
                     },
+                    "created_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "created_by": {"allOf": [{"$ref": "#/components/schemas/AccessPrincipal"}], "nullable": True},
+                    "restored_from_revision": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "reason": {"type": "string", "maxLength": 1024, "nullable": True},
                 },
                 "type": "object",
                 "required": ["scope_id", "family", "artifact_id", "revision", "sources", "artifacts", "content_digest"],
@@ -4808,6 +4893,41 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "default": [],
                     },
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When "
+                        "this "
+                        "revision "
+                        "was "
+                        "committed. "
+                        "Absent "
+                        "for "
+                        "revisions "
+                        "stored "
+                        "before "
+                        "this "
+                        "field "
+                        "existed.",
+                        "nullable": True,
+                    },
+                    "created_by": {
+                        "allOf": [{"$ref": "#/components/schemas/AccessPrincipal"}],
+                        "description": "Principal that committed a rollback. Ordinary revisions omit it.",
+                        "nullable": True,
+                    },
+                    "restored_from_revision": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "Historical revision restored by this rollback.",
+                        "nullable": True,
+                    },
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "description": "Reason recorded for a rollback.",
+                        "nullable": True,
+                    },
                 },
                 "type": "object",
                 "required": [
@@ -8655,7 +8775,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["family", "content"],
             },
             "ReplaceTopicMemoryArtifactRequest": {
-                "properties": {"content": {"$ref": "#/components/schemas/TopicMemoryWriteContent"}},
+                "properties": {
+                    "content": {"$ref": "#/components/schemas/TopicMemoryWriteContent"},
+                    "restored_from_revision": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["content"],
@@ -9023,7 +9153,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 ]
             },
             "ReplacePromptArtifactRequest": {
-                "properties": {"content": {"$ref": "#/components/schemas/PromptContent"}},
+                "properties": {
+                    "content": {"$ref": "#/components/schemas/PromptContent"},
+                    "restored_from_revision": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["content"],
@@ -9293,19 +9433,49 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["kind", "text"],
             },
             "ReplaceExperienceArtifactRequest": {
-                "properties": {"content": {"$ref": "#/components/schemas/ExperienceProposal"}},
+                "properties": {
+                    "content": {"$ref": "#/components/schemas/ExperienceProposal"},
+                    "restored_from_revision": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["content"],
             },
             "ReplaceSkillArtifactRequest": {
-                "properties": {"content": {"$ref": "#/components/schemas/SkillProposal"}},
+                "properties": {
+                    "content": {"$ref": "#/components/schemas/SkillProposal"},
+                    "restored_from_revision": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["content"],
             },
             "ReplaceHandoffArtifactRequest": {
-                "properties": {"content": {"$ref": "#/components/schemas/HandoffContent"}},
+                "properties": {
+                    "content": {"$ref": "#/components/schemas/HandoffContent"},
+                    "restored_from_revision": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["content"],
