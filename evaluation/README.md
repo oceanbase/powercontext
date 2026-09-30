@@ -4,6 +4,13 @@ This directory contains a self-progressing SWE-bench Pro evaluation service. A b
 experiment or only one Arm to reduce cost and latency. The web process owns the HTTP API and report UI; the worker
 owns task execution, retries, resource cleanup, and durable recovery.
 
+## Skill-text routing regression suite
+
+[`evaluation/skill-up`](skill-up/) is a deterministic Skill-text-to-tool-selection suite for the packaged Claude Code
+Skill over MCP. It is complementary to the transcript-reviewed multi-host integration-guidance record and the
+SWE-bench/LongMemEval task-outcome evaluations; it does not replace either evidence type or qualify other hosts.
+Follow its isolated Server, validation, and artifact-retention instructions before running it.
+
 The service is intentionally deployment-neutral. Host names, operators, filesystem roots, optional proxy endpoints, Docker
 network ranges, credentials, and service locations are supplied by the operator. The repository does not contain a
 production environment file or a ready-to-install host-specific systemd unit.

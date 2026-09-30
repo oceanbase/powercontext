@@ -1,0 +1,22 @@
+id: empty-memory-search
+title: Empty Memory search does not create context
+description: A search for a fictional absent fact stays read-only and reports no restored or persisted context.
+input:
+  prompt: |
+    Search PowerContext for the fictional fact "the Zephyr program uses silver migration lanterns". It is not
+    expected to exist. Tell me the result, but do not create or save anything.
+expect:
+  exit_code: 0
+judge:
+  type: rule_based
+  success:
+    - tool_called:
+        name: mcp__powercontext__search_memory
+    - output_matches:
+        not:
+          - "(?i)(restored|recalled|persisted|saved) (the |this )?(context|memory)"
+  failure:
+    - tool_called:
+        name: mcp__powercontext__remember_memory
+    - tool_called:
+        name: mcp__powercontext__list_memory_entries

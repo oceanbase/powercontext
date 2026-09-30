@@ -1,0 +1,42 @@
+schema_version: v1alpha1
+
+environment:
+  type: none
+
+mcp:
+  servers:
+    - name: powercontext
+      mode: real
+      transport: http
+      endpoint: http://127.0.0.1:8000/mcp
+      config_ref: evals/fixtures/mcp/powercontext.yaml
+
+skills:
+  - source: local_path
+    path: vendor/powercontext-plugin
+    include: [SKILL.md, "references/**", "scripts/**", "*.py"]
+
+engine:
+  name: claude_code
+
+cases:
+  files:
+    - evals/cases/01-ordinary-coding.yaml
+    - evals/cases/02-explicit-memory-save.yaml
+    - evals/cases/03-empty-memory-search.yaml
+    - evals/cases/04-inspect-candidates.yaml
+    - evals/cases/05-failed-memory-save.yaml
+  defaults:
+    timeout_seconds: 300
+    max_turns: 8
+  parallelism: 1
+
+judge:
+  type: rule_based
+
+benchmark:
+  enabled: true
+
+report:
+  formats: [json, junit, html]
+  artifacts: [transcript]

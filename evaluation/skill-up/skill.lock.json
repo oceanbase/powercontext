@@ -1,0 +1,39 @@
+{
+  "files": {
+    "SKILL.md": {
+      "sha256": "fd6aec8d2ee4e4aa522f8ecf75138b640c3d197c02401c5d3185089d7b345ac3",
+      "source": "integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/SKILL.md"
+    },
+    "claude_code_settings.py": {
+      "sha256": "f949cae6b91ea8b4106fb417b3b673f7ed188f487e60502c7cb378a8889daa41",
+      "source": "integrations/claude-code/plugins/powercontext/claude_code_settings.py"
+    },
+    "powercontext_client_config.py": {
+      "sha256": "2847abc64f072ea3fb31fd81b0b1ca197592588fb72ced6186b655107a910cd9",
+      "source": "integrations/claude-code/plugins/powercontext/powercontext_client_config.py"
+    },
+    "references/review-publication.md": {
+      "sha256": "83f3fa674d83785d06945669cbbe08b6d679665fed7e165d778dbfbcd9d10841",
+      "source": "integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/references/review-publication.md"
+    },
+    "references/scope-memory.md": {
+      "sha256": "6858a67a67fe83164234c2cdce42e094def4e1821034816739be31635c8a2943",
+      "source": "integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/references/scope-memory.md"
+    },
+    "references/work-handoff.md": {
+      "sha256": "76dea45b708f2155e395029afe57b31ac112d8b13d614a6ab604aa436e3d2b2e",
+      "source": "integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/references/work-handoff.md"
+    },
+    "scope_binding_errors.py": {
+      "sha256": "69376968029ba0a7a3dcefcb7477a253c94db924cdb4e19e6fc3e536938fa66a",
+      "source": "integrations/claude-code/plugins/powercontext/scope_binding_errors.py"
+    },
+    "scripts/workspace_scope.py": {
+      "sha256": "0752bc6722d57574aa1e65bff5053cae8baed03ee2573bdabcc4141d6c60a964",
+      "source": "integrations/claude-code/plugins/powercontext/scripts/workspace_scope.py"
+    }
+  },
+  "schema": "powercontext.skill-up-skill-lock.v1",
+  "source_revision": "99f74c5616590b7aacb060aad67222b12e1b9d5b",
+  "source_root": "integrations/claude-code/plugins/powercontext"
+}

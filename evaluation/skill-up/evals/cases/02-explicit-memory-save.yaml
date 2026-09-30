@@ -1,0 +1,13 @@
+id: explicit-memory-save
+title: Explicit memory save uses Memory persistence
+description: An explicit request to remember a fictional project constraint routes to Memory persistence.
+input:
+  prompt: |
+    Please remember this fictional project constraint for later: the Atlas migration uses purple canary gates.
+expect:
+  exit_code: 0
+judge:
+  type: rule_based
+  success:
+    - tool_called:
+        name: mcp__powercontext__remember_memory

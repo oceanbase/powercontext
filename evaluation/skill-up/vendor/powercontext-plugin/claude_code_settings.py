@@ -1,0 +1,251 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Validated process configuration for the PowerContext Claude Code plugin."""
+
+from __future__ import annotations
+
+import ipaddress
+import json
+import os
+import stat
+from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
+
+from powercontext_client_config import load_client_settings, parse_boolean, resolve_allow_insecure_http
+
+# Kept in lockstep with powercontext.transport.LOOPBACK_HOSTS; the plugin ships
+# isolated and cannot import powercontext.
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Mirror ``powercontext.transport.is_loopback_host`` for the isolated plugin."""
+
+    normalized = host.strip().lower()
+    if normalized in _LOOPBACK_HOSTS:
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+@dataclass(frozen=True, slots=True)
+class ClaudeCodePluginSettings:
+    """Configuration loaded once by a plugin entry point."""
+
+    server_url: str = "http://127.0.0.1:8000"
+    authorization: str | None = None
+    scope_id: str | None = None
+    context_assembly: dict[str, object] | None = None
+    include_code: bool = False
+    capture_prompts: bool = True
+    flush_on_capture: bool = False
+    request_timeout_seconds: float = 3.0
+    http_budget_seconds: float = 6.0
+    flush_max_calls: int = 4
+    allow_insecure_http: bool | None = None
+
+    def __post_init__(self) -> None:
+        saved = load_client_settings("claude-code")
+        option = os.environ.get("CLAUDE_PLUGIN_OPTION_ALLOW_INSECURE_HTTP")
+        if option is not None:
+            saved = {
+                "server_url": os.environ.get("CLAUDE_PLUGIN_OPTION_SERVER_URL"),
+                "allow_insecure_http": parse_boolean(option),
+            }
+        allow_insecure_http = resolve_allow_insecure_http(
+            self.server_url,
+            host="claude-code",
+            host_environment="POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP",
+            explicit=self.allow_insecure_http,
+            saved=saved,
+        )
+        object.__setattr__(self, "allow_insecure_http", allow_insecure_http)
+        object.__setattr__(self, "server_url", _http_base_url(self.server_url, allow_insecure_http=allow_insecure_http))
+        object.__setattr__(self, "authorization", _authorization_header(self.authorization))
+        object.__setattr__(self, "scope_id", _optional_text(self.scope_id))
+        if self.request_timeout_seconds <= 0 or self.http_budget_seconds <= 0:
+            raise ValueError("PowerContext HTTP timeouts must be positive")  # noqa: TRY003
+        if not 1 <= self.flush_max_calls <= 16:
+            raise ValueError("PowerContext flush_max_calls must be between 1 and 16")  # noqa: TRY003
+
+    @classmethod
+    def from_environment(cls, *, server_url: str | None = None) -> ClaudeCodePluginSettings:
+        """Load Claude user options and integration-specific environment values.
+
+        ``server_url`` carries the explicit endpoint configured by the host entry
+        point, such as the Claude Code statusLine command. The effective endpoint is
+        resolved before persisted authorization is loaded so one server's token is
+        never paired with another server's address.
+        """
+
+        saved = load_client_settings("claude-code")
+        resolved_server_url = (
+            _first_environment("POWERCONTEXT_CLAUDE_SERVER_URL")
+            or _optional_text(server_url)
+            or _first_environment("CLAUDE_PLUGIN_OPTION_SERVER_URL", "POWERCONTEXT_CLIENT_SERVER_URL")
+            or saved.get("server_url")
+            or "http://127.0.0.1:8000"
+        )
+        return cls(
+            server_url=resolved_server_url,
+            authorization=_first_environment("POWERCONTEXT_CLAUDE_AUTHORIZATION")
+            or _stored_authorization(
+                server_url=resolved_server_url,
+                root=Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")).expanduser(),
+            ),
+            scope_id=_first_environment("POWERCONTEXT_CLAUDE_SCOPE_ID"),
+            context_assembly=_environment_object("POWERCONTEXT_CLAUDE_CONTEXT_ASSEMBLY"),
+            include_code=_environment_bool("POWERCONTEXT_CLAUDE_INCLUDE_CODE", default=False),
+            capture_prompts=_environment_bool(
+                "POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS",
+                "CLAUDE_PLUGIN_OPTION_CAPTURE_PROMPTS",
+                default=True,
+            ),
+            flush_on_capture=_environment_bool(
+                "POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE",
+                default=False,
+            ),
+            request_timeout_seconds=_environment_float(
+                "POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS",
+                default=3.0,
+            ),
+            http_budget_seconds=_environment_float(
+                "POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS",
+                default=6.0,
+            ),
+            flush_max_calls=_environment_int(
+                "POWERCONTEXT_CLAUDE_FLUSH_MAX_CALLS",
+                default=4,
+            ),
+        )
+
+
+def _first_environment(*names: str) -> str | None:
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None:
+            return value
+    return None
+
+
+def _environment_object(name: str) -> dict[str, object] | None:
+    value = _first_environment(name)
+    if value is None:
+        return None
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        raise ValueError("PowerContext context assembly must be a JSON object") from None  # noqa: TRY003
+    if not isinstance(parsed, dict):
+        raise ValueError("PowerContext context assembly must be a JSON object")  # noqa: TRY003, TRY004
+    return parsed
+
+
+def _environment_bool(*names: str, default: bool) -> bool:
+    value = _first_environment(*names)
+    if value is None:
+        return default
+    normalized = value.strip().casefold()
+    if normalized in _TRUE_VALUES:
+        return True
+    if normalized in _FALSE_VALUES:
+        return False
+    raise ValueError("invalid boolean PowerContext configuration")  # noqa: TRY003
+
+
+def _environment_float(name: str, *, default: float) -> float:
+    value = os.environ.get(name)
+    return default if value is None else float(value)
+
+
+def _environment_int(name: str, *, default: int) -> int:
+    value = os.environ.get(name)
+    return default if value is None else int(value)
+
+
+def _optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value.strip() or None
+
+
+def _authorization_header(value: str | None) -> str | None:
+    normalized = _optional_text(value)
+    if normalized is None:
+        return None
+    scheme, separator, credential = normalized.partition(" ")
+    if (
+        not separator
+        or scheme.casefold() != "bearer"
+        or not credential
+        or not credential.isascii()
+        or not credential.isprintable()
+        or any(character.isspace() for character in credential)
+    ):
+        raise ValueError("Claude Code authorization must be a valid Bearer header")  # noqa: TRY003
+    return normalized
+
+
+def _stored_authorization(*, server_url: str, root: Path) -> str | None:
+    path = root / "powercontext" / "credentials.json"
+    try:
+        if path.is_symlink() or not path.is_file() or (os.name != "nt" and stat.S_IMODE(path.stat().st_mode) & 0o077):
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("version") != 1:
+            return None
+        stored_url, authorization = payload.get("server_url"), payload.get("authorization")
+        if not isinstance(stored_url, str) or not isinstance(authorization, str):
+            return None
+        if _http_base_url(stored_url) != _http_base_url(server_url):
+            return None
+        return _authorization_header(authorization)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _http_base_url(value: str, *, allow_insecure_http: bool = False) -> str:
+    normalized = value.strip().rstrip("/")
+    parsed = urlsplit(normalized)
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("PowerContext Server URL must not contain credentials")  # noqa: TRY003
+    if parsed.hostname is None or parsed.scheme not in {"http", "https"}:
+        raise ValueError("PowerContext Server URL must use HTTP or HTTPS")  # noqa: TRY003
+    if parsed.query or parsed.fragment:
+        raise ValueError("PowerContext Server URL must not contain a query or fragment")  # noqa: TRY003
+    scheme = parsed.scheme.lower()
+    host = parsed.hostname.lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        raise ValueError("PowerContext Server URL must use a valid port") from None  # noqa: TRY003
+    if scheme == "http" and not _is_loopback_host(host) and not allow_insecure_http:
+        raise ValueError("unencrypted PowerContext URLs must be loopback addresses")  # noqa: TRY003
+    if port is None or (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+        netloc = f"[{host}]" if ":" in host else host
+    else:
+        netloc = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+    path = parsed.path.rstrip("/")
+    if path.endswith("/mcp"):
+        path = path.removesuffix("/mcp")
+    return urlunsplit((scheme, netloc, path, "", "")).rstrip("/")
+
+
+__all__ = ["ClaudeCodePluginSettings"]

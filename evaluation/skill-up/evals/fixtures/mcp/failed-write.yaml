@@ -1,0 +1,7 @@
+tool_responses:
+  remember_memory:
+    default:
+      status: failed
+      error:
+        code: controlled_write_failure
+        message: The evaluation fixture rejected the Memory write.

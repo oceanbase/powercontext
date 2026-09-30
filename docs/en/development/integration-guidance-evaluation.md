@@ -10,6 +10,14 @@ The baseline is upstream `fe4002d37663213294ebffe4c080b6676b1c8014`. Measurement
 2026-09-09 with `step-3.7-flash` through the configured StepFun endpoint, temperature 0, a 6,000-token output budget,
 and no forced tool selection. Fixtures use fictional Aurora facts and an isolated `fixture-scope`.
 
+## Deterministic Claude Code Skill regression suite
+
+The [`evaluation/skill-up`](../../../evaluation/skill-up/) suite is deterministic Skill-text-to-tool-selection evidence
+for the packaged Claude Code Skill over MCP. It is complementary to this transcript-reviewed multi-host record and to
+the SWE-bench/LongMemEval task-outcome evaluations. It covers only Claude Code + MCP, with an isolated Server and
+transcript assertions; it does not qualify other hosts, real approval flows, automatic Capture/Flush, bounded recall,
+or Memory quality. Its controlled failed-write case is reporting evidence, not real persistence evidence.
+
 ## Current qualification on master `847203dc`
 
 The 2026-09-15 evaluation uses `step-3.7-flash`, temperature 0, automatic tool selection, and fictional Aurora facts.

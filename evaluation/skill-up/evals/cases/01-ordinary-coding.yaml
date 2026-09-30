@@ -1,0 +1,86 @@
+id: ordinary-coding
+title: Ordinary coding does not use PowerContext
+description: Refactoring a self-contained function does not require a PowerContext operation.
+input:
+  prompt: |
+    Refactor the following Python function to remove the duplicated condition:
+
+    def check(x):
+        if x > 10:
+            return True
+        if x > 10:
+            return True
+        return False
+expect:
+  exit_code: 0
+judge:
+  type: rule_based
+  failure:
+    - tool_called:
+        name: mcp__powercontext__acknowledge_handoff
+    - tool_called:
+        name: mcp__powercontext__activate_handoff
+    - tool_called:
+        name: mcp__powercontext__approve_artifact_candidate
+    - tool_called:
+        name: mcp__powercontext__capture_content_source
+    - tool_called:
+        name: mcp__powercontext__clear_scope_binding
+    - tool_called:
+        name: mcp__powercontext__commit_handoff
+    - tool_called:
+        name: mcp__powercontext__continue_handoff
+    - tool_called:
+        name: mcp__powercontext__create_dream_run
+    - tool_called:
+        name: mcp__powercontext__create_scope
+    - tool_called:
+        name: mcp__powercontext__create_work_contract
+    - tool_called:
+        name: mcp__powercontext__finalize_handoff
+    - tool_called:
+        name: mcp__powercontext__get_artifact_candidate
+    - tool_called:
+        name: mcp__powercontext__get_dream_run
+    - tool_called:
+        name: mcp__powercontext__get_handoff_report
+    - tool_called:
+        name: mcp__powercontext__get_memory_entry
+    - tool_called:
+        name: mcp__powercontext__get_scope
+    - tool_called:
+        name: mcp__powercontext__get_topic_memory
+    - tool_called:
+        name: mcp__powercontext__handoff_current_work
+    - tool_called:
+        name: mcp__powercontext__list_artifact_candidates
+    - tool_called:
+        name: mcp__powercontext__list_dream_runs
+    - tool_called:
+        name: mcp__powercontext__list_memory_entries
+    - tool_called:
+        name: mcp__powercontext__list_scopes
+    - tool_called:
+        name: mcp__powercontext__publish_artifact
+    - tool_called:
+        name: mcp__powercontext__query_code
+    - tool_called:
+        name: mcp__powercontext__record_task_outcome
+    - tool_called:
+        name: mcp__powercontext__reject_artifact_candidate
+    - tool_called:
+        name: mcp__powercontext__remember_memory
+    - tool_called:
+        name: mcp__powercontext__resolve_scope_binding
+    - tool_called:
+        name: mcp__powercontext__retire_memory_entry
+    - tool_called:
+        name: mcp__powercontext__revise_artifact_candidate
+    - tool_called:
+        name: mcp__powercontext__revise_memory_entry
+    - tool_called:
+        name: mcp__powercontext__search_memory
+    - tool_called:
+        name: mcp__powercontext__search_topic_memory
+    - tool_called:
+        name: mcp__powercontext__set_scope_binding

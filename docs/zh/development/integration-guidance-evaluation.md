@@ -10,6 +10,13 @@ description: tracking issue 1450 D 的工具选择测量、执行证据及模型
 StepFun endpoint 上的 `step-3.7-flash`，temperature 为 0，输出预算为 6,000 token，不强制工具选择。
 测试使用虚构的 Aurora 事实和隔离的 `fixture-scope`。
 
+## 确定性的 Claude Code Skill 回归套件
+
+[`evaluation/skill-up`](../../../evaluation/skill-up/) 为打包的 Claude Code Skill 提供经由 MCP 的确定性
+Skill 文本到工具选择证据。它与现有经转录审查的多宿主记录，以及 SWE-bench/LongMemEval 任务结果评测相互补充。
+仅覆盖 Claude Code + MCP，不代表其他宿主、真实审批流程、自动 Capture/Flush、有限召回或记忆质量。套件使用隔离
+Server 和转录断言；其中受控的保存失败用例只证明报告行为，不是实际持久化证据。
+
 ## 基于主分支 `847203dc` 的当前验证
 
 2026-09-15 使用 `step-3.7-flash`、温度 0、自动工具选择及虚构的 Aurora 事实进行验证。DSH 的 12 条观测来自
