@@ -550,12 +550,17 @@ The unified execution order is:
 
 1. Inspect actual schema, data, legacy-task formats, and release compatibility declarations without writes; build the plan
    with backup/lifecycle options and confirm once.
-2. Local management or cluster orchestration disables producers, drains tasks that require it, stops old writers, and
-   suppresses automatic restarts. Acquire the database-wide lock and recheck the plan, Leases, and tasks.
-3. Apply the backup policy: await native automatic backup and adapter checks, record the manual declaration, record
-   accepted skip risk, or record the genuinely empty database exemption.
-4. Durably save the plan, policy, service state, and available recovery references outside the target and open diagnostic
-   logs. Explicitly adopt a recognized baseline where necessary.
+2. Before stopping services or starting backup, durably save the accepted plan, backup policy, maintenance intent,
+   original service running state, and maintenance-window identity outside the target, and open diagnostic logs.
+   If persistence fails, do not proceed. Replacement Jobs and retries read the same recovery record; the current stopped
+   state must not overwrite the original running state.
+3. Local management or cluster orchestration disables producers, drains tasks that require it, stops old writers, and
+   suppresses automatic restarts. Acquire the database-wide lock and recheck the plan, Leases, and tasks. Persist stop
+   progress in the recovery record.
+4. Apply the backup policy: await native automatic backup and adapter checks, record the manual declaration, record
+   accepted skip risk, or record the genuinely empty database exemption. Persist the backup reference and inspection
+   result (or declaration/risk acceptance) before explicitly adopting a recognized baseline or entering DDL. Retries reuse
+   the original recovery point; never replace it with a snapshot of partially migrated state.
 5. Execute expand revisions through Alembic.
 6. Run idempotent data/legacy-task conversions and completion checks at declared schema phases; contract revisions
    themselves recheck required conditions.
