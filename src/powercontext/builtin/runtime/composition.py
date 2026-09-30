@@ -27,6 +27,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 from pydantic import AnyHttpUrl, JsonValue, SecretStr
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
 from powercontext._logging import log_safely
@@ -96,6 +98,7 @@ from powercontext.builtin.persistence.processing_migration import (
     assert_processing_schema_ready,
     bootstrap_processing_schema,
 )
+from powercontext.builtin.persistence.schema import ensure_portable_timestamp_precision
 from powercontext.builtin.persistence.scope_search_schema import ensure_scope_search_schema
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.skill_distribution_schema import ensure_skill_distribution_schema
@@ -106,7 +109,7 @@ from powercontext.builtin.persistence.sqlite.topic_memory_index import (
     SQLiteTopicMemoryFTSIndex,
     SQLiteTopicMemoryVectorIndex,
 )
-from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.persistence.tables import BUILTIN_TABLES, PORTABLE_RESTORE_RECEIPTS_TABLE
 from powercontext.builtin.persistence.tag_schema import ensure_topic_memory_tag_schema
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_index import (
@@ -387,6 +390,7 @@ async def open_builtin_runtime(
     cursor_secret: bytes | None = None,
     handoff_verification_keys: tuple[bytes, ...] = (),
     recall_effort_sink: RecallEffortSink | None = None,
+    _archive_recovery: bool = False,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
@@ -486,6 +490,7 @@ async def open_builtin_runtime(
         contexts = await resources.enter_async_context(
             open_builtin_contexts(
                 config,
+                _archive_recovery=_archive_recovery,
                 candidate_pipeline=configured_pipeline,
                 experience_pipeline=configured_incubation,
                 experience_generator=configured_experience,
@@ -651,6 +656,7 @@ async def open_builtin_runtime(
                 scheduled_source_runner=scheduled_source_runner,
                 scheduled_experience_runner=scheduled_experience_runner,
                 remote_ingestion=contexts,
+                archive_service=contexts.portability,
             )
         )
         runtime.artifact_processing_supervisor = await resources.enter_async_context(
@@ -875,6 +881,7 @@ async def open_builtin_contexts(
     prompt_demonstrators: dict[str, DemonstrationGenerator] | None = None,
     handoff_verification_keys: tuple[bytes, ...] = (),
     _topic_memory_worker: bool = False,
+    _archive_recovery: bool = False,
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
@@ -902,6 +909,7 @@ async def open_builtin_contexts(
                 await ensure_topic_memory_tag_schema(connection)
                 await ensure_dream_schema(connection)
                 await ensure_scope_search_schema(connection)
+                await ensure_portable_timestamp_precision(connection, BUILTIN_TABLES)
                 # A Topic child reuses its parent's schema. It never reads or
                 # writes Memory/Experience projections; rebuilding their FTS
                 # indexes here would take the shared SQLite write lock once
@@ -909,8 +917,8 @@ async def open_builtin_contexts(
                 if not _topic_memory_worker:
                     await index.initialize(connection)
                     await experience_index.initialize(connection)
-                await TopicMemoryRepository(index=topic_index).initialize(
-                    connection, configure_retrieval_shape=not _topic_memory_worker
+                await _initialize_archive_aware_topics(
+                    connection, topic_index, worker=_topic_memory_worker, recovery=_archive_recovery
                 )
             contexts = RelationalContexts(
                 database=profile.database,
@@ -983,11 +991,12 @@ async def open_builtin_contexts(
             await ensure_topic_memory_tag_schema(connection)
             await ensure_dream_schema(connection)
             await ensure_scope_search_schema(connection)
+            await ensure_portable_timestamp_precision(connection, BUILTIN_TABLES)
             if not _topic_memory_worker:
                 await index.initialize(connection)
                 await experience_index.initialize(connection)
-            await TopicMemoryRepository(index=topic_index).initialize(
-                connection, configure_retrieval_shape=not _topic_memory_worker
+            await _initialize_archive_aware_topics(
+                connection, topic_index, worker=_topic_memory_worker, recovery=_archive_recovery
             )
         contexts = RelationalContexts(
             database=profile.database,
@@ -1035,6 +1044,27 @@ async def open_builtin_contexts(
             # Producers are stopped by now, and the profile below still owns the
             # database this recorder writes into.
             await contexts.aclose_usage_recorder()
+
+
+async def _initialize_archive_aware_topics(
+    connection: AsyncConnection, index: TopicMemoryIndex, *, worker: bool, recovery: bool
+) -> None:
+    # Only an explicit restore may open incomplete projections, and only when
+    # a committed restore receipt explains their absence. Normal startup and
+    # workers retain the strict storage invariant checks.
+    pending = (
+        recovery
+        and not worker
+        and await connection.scalar(
+            select(PORTABLE_RESTORE_RECEIPTS_TABLE.c.bundle_id)
+            .where(PORTABLE_RESTORE_RECEIPTS_TABLE.c.projections_ready.is_(False))
+            .limit(1)
+        )
+    )
+    if pending:
+        await index.initialize(connection)
+    else:
+        await TopicMemoryRepository(index=index).initialize(connection, configure_retrieval_shape=not worker)
 
 
 def _register_prompt_demonstrators(

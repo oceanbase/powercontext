@@ -31,7 +31,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.mysql import BINARY, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
+from sqlalchemy.dialects.mysql import BINARY, DATETIME, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
 
 from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
@@ -409,6 +409,27 @@ ARTIFACT_CANDIDATE_HEADS_TABLE = Table(
     ),
 )
 
+PORTABLE_RESTORE_RECEIPTS_TABLE = Table(
+    "pc_portable_restore_receipts",
+    SHARED_METADATA,
+    Column("bundle_id", identity_string(36), primary_key=True),
+    Column("format_version", Integer, nullable=False),
+    Column("total_digest", identity_string(71), nullable=False),
+    Column("record_count", BigInteger, nullable=False),
+    Column("status", identity_string(32), nullable=False),
+    Column("inserted", BigInteger, nullable=False),
+    Column("already_present", BigInteger, nullable=False),
+    Column("projections_ready", Boolean, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "status IN ('authoritative_restored', 'ready')",
+        name="ck_pc_portable_restore_receipts_status",
+    ),
+    CheckConstraint("record_count >= 0", name="ck_pc_portable_restore_receipts_record_count"),
+    CheckConstraint("inserted >= 0", name="ck_pc_portable_restore_receipts_inserted"),
+    CheckConstraint("already_present >= 0", name="ck_pc_portable_restore_receipts_existing"),
+)
+
 PROFILE_POLICIES_TABLE = Table(
     "pc_profile_policies",
     SHARED_METADATA,
@@ -417,7 +438,7 @@ PROFILE_POLICIES_TABLE = Table(
     Column("activation_mode", identity_string(32), nullable=False),
     Column("pending_candidate_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
     Column("version", BigInteger, nullable=False),
-    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
     ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
     ForeignKeyConstraint(
         ("scope_id", "pending_candidate_id"),
@@ -598,7 +619,7 @@ TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE = Table(
     Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
     Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, primary_key=True),
-    Column("published_at", DateTime(timezone=False), nullable=False),
+    Column("published_at", DateTime(timezone=False).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
     ForeignKeyConstraint(
         ("scope_id", "family", "artifact_id", "revision"),
         (
@@ -905,6 +926,7 @@ SHARED_TABLES = (
     ARTIFACT_PUBLICATIONS_TABLE,
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_CANDIDATE_HEADS_TABLE,
+    PORTABLE_RESTORE_RECEIPTS_TABLE,
     PROFILE_POLICIES_TABLE,
     SOURCE_CURSORS_TABLE,
     ARTIFACT_PROCESSING_LEASES_TABLE,
@@ -1036,7 +1058,7 @@ ARTIFACT_TAGS_TABLE = Table(
     Column("tag_key_hash", LargeBinary(32).with_variant(BINARY(32), "mysql"), primary_key=True),
     Column("tag_key", identity_string(128), nullable=False),
     Column("tag", String(64), nullable=False),
-    Column("assigned_at", DateTime(timezone=True), nullable=False),
+    Column("assigned_at", DateTime(timezone=True).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
     ForeignKeyConstraint(
         ("scope_id", "family", "artifact_id"),
         ("pc_artifact_heads.scope_id", "pc_artifact_heads.family", "pc_artifact_heads.artifact_id"),

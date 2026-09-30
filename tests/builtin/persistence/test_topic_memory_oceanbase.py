@@ -75,7 +75,7 @@ def test_oceanbase_topic_schema_compiles_native_text_and_vector_storage() -> Non
     vector_topics = str(CreateTable(vector_index.topic_table).compile(dialect=dialect))
     vector_chunks = str(CreateTable(vector_index.chunk_table).compile(dialect=dialect))
 
-    assert "published_at DATETIME NOT NULL" in publication
+    assert "published_at DATETIME(6) NOT NULL" in publication
     assert "FOREIGN KEY(scope_id, family, artifact_id, revision)" in publication
     assert "shape VARCHAR(16)" in retrieval_shape
     assert "profile_fingerprint VARCHAR(64)" in retrieval_shape
