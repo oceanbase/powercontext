@@ -212,7 +212,53 @@ class SystemdUserAdapter:
         _require_owned_or_not_loaded(self.loaded_registration())
         self._run("disable", self.identifier)
 
+    def suspend(self, marker: Path) -> None:
+        """Prevent every native activation while preserving the installed unit."""
+
+        _require_owned_or_not_loaded(self.loaded_registration())
+        path = self.artifact_path.with_name(f"{self.identifier}.d") / "90-powercontext-maintenance.conf"
+        if path.parent.is_symlink():
+            raise ServiceError("the service maintenance drop-in directory must not be a symlink")  # noqa: TRY003
+        content = self._maintenance_dropin(marker)
+        if path.exists() and (path.is_symlink() or path.read_bytes() != content):
+            raise ServiceError("the service maintenance drop-in is not owned by PowerContext")  # noqa: TRY003
+        atomic_write(path, content, mode=0o600)
+        self.reload()
+
+    def resume(self) -> None:
+        _require_owned_or_not_loaded(self.loaded_registration())
+        path = self.artifact_path.with_name(f"{self.identifier}.d") / "90-powercontext-maintenance.conf"
+        marker = self.lock_path.with_name(f"{self.lock_path.name}.maintenance.json")
+        if path.exists():
+            if path.is_symlink() or path.parent.is_symlink() or path.read_bytes() != self._maintenance_dropin(marker):
+                raise ServiceError("the service maintenance drop-in is not owned by PowerContext")  # noqa: TRY003
+            path.unlink()
+            self.reload()
+        self.enable()
+
+    def update_suspended(self) -> None:
+        self.reload()
+
+    @staticmethod
+    def _maintenance_dropin(marker: Path) -> bytes:
+        path = str(marker)
+        if not marker.is_absolute() or any(character in path for character in "\x00\r\n"):
+            raise ServiceError("the maintenance marker must be an absolute path without control characters")  # noqa: TRY003
+        # ConditionPathExists parses ! before the path and does not use
+        # ExecStart's shell-like quoting or dollar expansion. A quoted !path
+        # would be ignored as a relative path, silently removing the guard.
+        condition = path.replace("%", "%%")
+        return (
+            f"# Managed by PowerContext: maintenance activation guard\n[Unit]\nConditionPathExists=!{condition}\n"
+        ).encode()
+
     def remove(self) -> None:
+        path = self.artifact_path.with_name(f"{self.identifier}.d") / "90-powercontext-maintenance.conf"
+        marker = self.lock_path.with_name(f"{self.lock_path.name}.maintenance.json")
+        if path.exists():
+            if path.is_symlink() or path.parent.is_symlink() or path.read_bytes() != self._maintenance_dropin(marker):
+                raise ServiceError("the service maintenance drop-in is not owned by PowerContext")  # noqa: TRY003
+            path.unlink()
         self.artifact_path.unlink(missing_ok=True)
 
     def manager_state(self) -> ManagerState:

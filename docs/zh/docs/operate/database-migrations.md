@@ -1,165 +1,106 @@
 ---
-title: 数据库迁移设计
-description: 了解统一迁移的设计、共享数据库升级、备份选择、服务启停与兼容性检查。
+title: 数据库迁移
+description: 了解数据库迁移命令、备份策略、服务启停及当前验收范围。
 ---
 
-# 数据库迁移设计
+# 数据库迁移
 
-PowerContext 的统一数据库迁移方案使用 Alembic 管理结构版本，安装新版与迁移已有数据库分开。本文介绍
-[统一迁移 RFC](https://github.com/oceanbase/powercontext/pull/1771) 的运维契约，关联
-[issue #1756](https://github.com/oceanbase/powercontext/issues/1756)。
+统一迁移使用 Alembic 管理版本，只新增 `pc_schema_revision(version_num)` 一张控制表。安装或更新程序与迁移数据库分开；结构变化由随包发布、不可改写的 revision 显式执行。
+设计关联 [RFC #1771](https://github.com/oceanbase/powercontext/pull/1771) 和 [issue #1756](https://github.com/oceanbase/powercontext/issues/1756)。
 
 ## 当前可用范围
 
-**统一迁移仍处于原型阶段。本文中的 `server db-migrate`、`BackupProvider`、`service start/stop/restart`
-及 `--manage-service` 是拟议设计，尚不能作为已发布命令使用。** 原型只验证隔离的四表测试库，不接入业务启动，
-其 `ready` 不代表完整 Server 可用；原型中的执行记录也不代表最终单表持久化设计已落地。
+本分支提供 `powercontext server db-migrate status/plan/apply/verify`，读取与 Server 相同的部署配置，不接受任意测试 bundle 路径。随 wheel 发布的冻结资源目前用于阶段 A 的 Artifact 四表迁移验收；只有已登记结构的持久 SQLite 数据库可以执行。完整 Server 数据库含有尚未纳管的对象时返回 `unknown_baseline`，seekdb 和 OceanBase 统一迁移返回 `unsupported_backend`。
 
-当前前台启动入口是 `powercontext server run`，个人服务命令提供 `install/status/uninstall`。
-已有 Artifact 处理状态的维护请使用[迁移 Artifact 处理状态](artifact-processing-migration.md)中的
-`server processing-migrate`，不要用原型替代生产迁移。服务部署参考[部署 Server](deploy-server.md)。
+输出中的 `ready` 仅表示当前迁移 bundle 已通过结构和数据验证；`readiness_scope=registered_bundle`、`server_ready=false` 明确区分它与完整 Server、索引、旧任务及集群可用。不要以此替代生产升级或完整业务库初始化。普通业务启动的全面版本门禁和完整历史基线仍须在三后端验收后接入。
 
-## 版本与更新边界
+原有 `server processing-migrate` 保留，请按[迁移 Artifact 处理状态](artifact-processing-migration.md)使用。它尚未自动转发到统一入口。服务部署参考[部署 Server](deploy-server.md)。
 
-最终框架只新增 `pc_schema_revision(version_num)` 一张迁移控制表，沿用 Alembic 的版本读写；不新增通用执行、
-步骤、任务台账。每次受管结构变更新增独立且不可改写的 revision，沿依赖链执行；没有结构变化的发布无需新脚本。
-业务版本、API 版本和 schema revision 分开管理。数据任务、验证器与影响声明随包发布，日志和备份记录保存在库外。
+## 只读检查与一次确认
 
-安装或升级软件包不迁移已有库；本地库、远端库均通过显式命令迁移。真正空白的本地库允许在配置许可且持锁确认后
-初始化；远端库和多节点共享库使用单独初始化任务。已有库不兼容时新版拒绝业务启动，提示 `migration_required`。
-框架启用后，所有受管结构变更 PR 都必须提交 migration 和验证；框架与 PR #1716 独立推进。
-
-## 一次确认完成维护
-
-交互用户可以直接执行拟议的 `apply`，不用先手工拼装多个迁移步骤。以下示例供理解接口，当前不可直接执行：
+先检查目标或预览计划；这些命令不会创建缺失数据库、父目录或控制表：
 
 ```bash
-powercontext server db-migrate apply --env-file deployment.env --manage-service
+powercontext server db-migrate status --env-file deployment.env
+powercontext server db-migrate plan --env-file deployment.env --backup auto
+powercontext server db-migrate verify --env-file deployment.env
 ```
 
-它汇总目标库、来源／目标版本、受影响的表和接口、旧任务、停机要求、备份与启停范围。用户在同一页面选择后确认一次，
-随后执行停写、取锁复核、备份策略、结构与数据转换、索引重建和最终验证；不逐条 SQL 确认。
-只有只读检查且没有持久化变更时，返回“无需变更”，不备份、不启停服务。
+计划绑定目标身份、源／目标 revision、实际结构摘要、冻结脚本摘要、配置摘要、备份策略和服务范围。配置与凭据值不输出到诊断中；预期错误返回稳定 JSON 类别和非零退出码。
 
-希望提前审阅时使用拟议的只读 `status`、`plan`；出现实质变化时需要重新确认。自动化场景明确提供计划与策略，
-例如用户自行备份、部署系统已停止全部写入者后：
+在支持范围内，终端用户可直接执行 `apply`，默认 PC 自动备份。命令展示计划、备份方法、维护影响及停写责任，确认一次后执行，不逐条 SQL 询问：
+
+```bash
+powercontext server db-migrate apply --env-file deployment.env --backup auto
+```
+
+这次确认同时声明：所有其他 API、Worker、SDK、调度和自动重启入口均已停写；共享库场景还由操作者协调后续节点升级。PC 无法发现任意外部客户端。计划发生实质变化时拒绝执行，需要重新审阅。
+
+自动化必须显式指定策略和计划，并分别声明维护及备份选择。例如用户自行完成备份并停止全部写入者后：
 
 ```bash
 powercontext server db-migrate plan --env-file deployment.env --backup manual
-powercontext server db-migrate apply --env-file deployment.env --plan-id PLAN_ID --backup manual --backup-confirmed --maintenance-confirmed --yes
+powercontext server db-migrate apply --env-file deployment.env --backup manual \
+  --plan-id PLAN_ID --backup-confirmed --maintenance-confirmed --yes
 ```
 
-`--yes` 仅接受该计划，不等于手动备份声明或接受无备份风险。计划绑定数据库、版本、结构和脚本摘要、兼容性、
-备份选择与启停范围；缺失所需确认返回 `confirmation_required`。任何备份选择都不能绕过锁、活跃写入者或数据检查。
+`--yes` 仅接受计划，不隐含手动备份声明、无备份风险或所有节点已停写。`--shared-database` 将共享库维护责任加入计划，不使 SQLite 获得跨主机部署能力。数据库已达到 bundle 目标且无需持久化变更时，`apply` 返回 `changed=false`，不备份、不启停服务；程序版本切换仍须单独安排。
 
-## 多个 Server 共用一个数据库
+## 备份选择
 
-本方案的多节点指共享一个数据库；不设计每个节点拥有独立数据库的升级。每个数据库只运行一个迁移 Job。
-
-1. 在独立环境准备新版程序；禁用新请求和任务生产，按计划排空在途操作及必须由旧处理器消费的任务。
-2. 停止全部 API、Worker、调度器和 SDK 写入者，暂停自动扩容、自动重启及会拉起旧程序的调度。
-3. 一个新版迁移 Job 执行 `apply`，取得数据库级锁，复核计划和旧任务后处理备份并迁移。
-4. 迁移返回 `ready` 后启动新版节点，各节点仍须检查 schema、任务格式及必要能力，通过 readiness 才恢复流量。
-5. 迁移失败保持维护；数据库已就绪但某个节点启动失败时，单独处理启动问题，不重跑迁移或自动降级。
-
-迁移锁只排斥其他迁移进程，不能自动阻止任意外部客户端写入。`--maintenance-confirmed` 是运维停写声明。
-无法建立停写条件时拒绝执行。PC 升级不重启 OceanBase 数据库集群。 SQLite／嵌入式 seekDB 仍受现有单机 `all` 角色限制，迁移设计不使其获得跨主机共享目录或多节点部署能力；共享数据库的多节点服务使用已有支持的远端部署方式。
-
-## 备份选择与原生方法
-
-| 选择 | 行为 | 拟议参数 |
+| 策略 | 行为 | 参数 |
 | --- | --- | --- |
-| PC 备份 | 推荐支持的原生方法，提示大数据量可能耗时较久、占用更多空间，等待完成与适配器检查 | `--backup auto` |
-| 已手动备份 | 仅记录用户声明，不检查文件、备份任务、时间、目标或可恢复性；引用可选 | `--backup manual --backup-confirmed`，可加 `--backup-ref BACKUP_ID` |
-| 不备份 | 提示失败后可能无法恢复原数据，明确接受风险才继续 | `--backup skip --accept-no-backup` |
+| PC 自动备份 | 使用支持的数据库原生方法，等待完成并检查；提示大数据量可能耗时较久、占用更多空间 | `--backup auto` |
+| 用户已手动备份 | 仅记录声明，不核验文件、任务、时间、目标或可恢复性 | `--backup manual --backup-confirmed`，可加 `--backup-ref BACKUP_ID` |
+| 不备份 | 明确接受失败后可能无法恢复原数据的风险 | `--backup skip --accept-no-backup` |
 
-手动模式显示 `user_confirmed`，不显示 `verified`；跳过显示 `skipped`；真正空库显示 `not_required`。
-PC 自动备份失败、未完成或不支持所需对象时，迁移停在写入之前。改变策略需重新确认，不能自动跳过。
+自动备份报告 `completed`，手动备份报告 `user_confirmed`，跳过报告 `skipped`；真正空库初始化报告 `not_required`。自动备份不支持、失败或未完成时停在迁移写入之前，返回 `backup_unsupported` 或备份失败类别，不能自动改成跳过。选择其他策略后需要重新确认计划。
 
-独立 `BackupProvider` 属于数据库维护能力，复用 Profile 的配置、目标身份和引擎生命周期，由后端适配器实现：
-`capabilities(context)` 报告能力，`create_backup(context)` 发起备份，`inspect_backup(ref)` 查询 PC 备份，
-`restore_plan(ref)` 提供显式恢复步骤。手动和跳过分支不调用它核验用户备份。
+独立 `BackupProvider` 复用后端配置和维护连接。SQLite 使用 Online Backup API 创建独立文件，包含已提交 WAL，并检查文件完整性。seekdb 和 OceanBase 集群的设计采用原生 `FORK DATABASE`，在所有受影响表、依赖和跨表一致性均能覆盖且恢复路径经过验收时可选 `FORK TABLE`。PC 不将不支持 Fork 的远端引擎自动切换到物理备份。
 
-| 后端 | 推荐方法 | 限制 |
+| 产品 | `FORK TABLE` 起始版本 | `FORK DATABASE` 起始版本 |
 | --- | --- | --- |
-| SQLite | 停写后使用 SQLite Online Backup API 创建独立数据库文件，检查可打开及完整性 | 包含已提交 WAL；不能只复制主文件；恢复验证还包含扩展、索引和业务数据 |
-| seekDB | 经过版本、对象覆盖和恢复验收的 `FORK DATABASE`，保存同实例迁移前恢复点 | 不默认逐表 fork；同实例共享存储，不提供磁盘损坏保护 |
-| OceanBase | 数据库原生物理备份和日志归档，通过配置好的管理接口或备份平台发起并查询完成 | 检查任务和日志覆盖；租户级恢复可能影响其他应用，不能默认覆盖整个共享租户 |
+| OceanBase AI 数据库 | V4.6.2 | V4.6.2 |
+| seekdb | V1.1.0 | V1.2.0 |
 
-原生能力参考：[SQLite Backup API](https://sqlite.org/backup.html)、
-[OceanBase 备份架构](https://en.oceanbase.com/docs/common-oceanbase-database-10000000001168918)。
+版本满足只是能力检查的起点，还需检查实际产品、租户模式、权限、对象覆盖、后续 DDL 限制和恢复路径。多个表 Fork 不自动代表整库共同快照；Fork 共享底层存储，不提供磁盘损坏保护。当前远端统一迁移尚未通过完整验收，存在 provider 不等于可用生产升级。
 
-seekDB V1.2.0 发布说明提供整库共同快照能力，部分非表对象及跨库外键不复制。Fork 使用写时复制并共享底层存储，
-因此经验证后可以用于引擎／存储健康情况下的迁移失败恢复，不要求同时另做物理备份；独立灾备由用户按需安排。
-逐表 `FORK TABLE` 不能默认替代整库一致性保护。
-[seekDB V1.2.0](https://github.com/oceanbase/seekdb/releases/tag/v1.2.0)、
-[Fork 机制](https://en.oceanbase.com/blog/fork-table-ready-for-agents)。
+旧业务表、Fork 恢复点和 SQLite 备份本次保留，不在迁移成功、普通启动或重试时删除。旧表删除由后续版本单独 revision 实现；恢复点由显式维护操作清理，均需验证依赖、保留窗口及恢复责任。
 
-自动 fork 启用前必须验收实际嵌入式版本、索引／约束覆盖、源库后续 DDL、引擎重启和完整恢复。
-当前 `SeekDBConfig.database` 固定为 `test`，不能直接承诺修改连接指向 fork 库；需要实现恢复到原库名，
-或另行提供可配置目标及统一切换。`MERGE TABLE` 不用于自动回滚 schema。对象覆盖或恢复路径不满足时返回
-`backup_unsupported`，可重新选择手动或跳过，不复制运行中的目录，也不自动升级数据库引擎。
+## 服务停止、启动与升级
 
-## 服务启停与重启
+本机个人服务提供以下命令，保留注册和配置：
 
-不兼容升级采用：停止旧写入者 → 备份策略 → 迁移 → 验证 → 启动新版 → readiness → 恢复流量。
-安装新版不等于切换进程；延后切换时保留可独立运行的旧环境。
+```bash
+powercontext service stop
+powercontext service start
+powercontext service restart
+```
 
-拟议的 `service stop/start/restart` 只管理当前用户归 PC 所有的本机服务，并保留注册和配置。
-`--manage-service` 显示并确认目标可执行程序、配置及原运行状态，自动排空停服、抑制重启；只在迁移成功后
-更新已确认的启动定义并恢复原本在运行的服务。原本停止的服务保持停止，失败不自动拉起旧服务。
-不按 PATH 猜新版本，不使用可能立即启动服务的 `service install` 作为维护中间步骤。
+这些命令只管理当前用户归 PC 所有的服务，不管理集群或其他客户端。`stop` 禁止维护期间自动拉起旧服务；`start` 恢复启动。涉及迁移时不能用一次 `restart` 替代停写维护。
 
-集群和外部服务由部署系统启停。手工维护时，拟议命令是先 `powercontext service stop`，执行 `apply` 成功后，
-确认服务定义已指向新版，再运行 `powercontext service start`。`restart` 不能替代停服期间的数据库迁移。
-前台服务在迁移成功且旧进程退出后，通过现有命令从新版环境启动：
+完整升级的托管设计为：排空请求、停服并禁止自动重启 → 取迁移锁并复核 → 按策略备份 → 迁移 → 验证 → 将启动定义切换到已确认新版程序 → 启动原本运行的服务 → readiness。迁移失败保持停服；原本停止的服务保持停止。数据库验证成功而服务启动失败时分别报告，处理启动问题而不重跑迁移。
+
+`--manage-service` 的范围始终只是已确认的本机服务，不能代替 `--maintenance-confirmed` 对其他写入者和共享库节点的声明。阶段 A 的有限 bundle 未完成完整 Server readiness 验收；需要持久化变更时，`--manage-service` 返回 `service_unsupported`，不能据此自动切换生产服务。
+
+手动管理时，先停旧服务，在已支持的完整迁移成功后确认服务启动定义指向新版，再启动。前台部署则退出旧进程，使用新版环境的现有入口：
 
 ```bash
 powercontext server run --env-file deployment.env --role all
 ```
 
-## 表、接口与旧任务的发布判断
+## 共享数据库、接口与旧任务
 
-变更作者提供随包影响清单，操作者据此选择部署方式，不能仅靠“改了表”或“内部接口”猜测：
+多个 Server 共用一个数据库时，每库只执行一个迁移 Job。部署系统停止流量和任务生产、排空在途请求及需由旧处理器消费的任务、停止全部写入者，并暂停扩容和自动重启。迁移后协调全部相关节点升级，各节点通过自身 schema、任务和能力检查后才恢复流量。迁移锁只排斥迁移进程，不阻止未知外部客户端。
 
-| 声明 | 运维判断 |
-| --- | --- |
-| `affected_objects` | 表、约束、索引和外部文件范围，大表复制、资源与不可逆转换 |
-| `execution_mode` 与程序／schema 支持范围 | 无持久化变更可普通发布；不兼容变更默认停写维护；在线迁移必须有已实现且验证过的后端与混合版本支持 |
-| `api_changes` | 是否内部同步发布，是否独立调用方，旧接口保留／弃用及最早移除版本或日期 |
-| `task_formats` | 待执行、运行中、延迟、重试和死信任务的版本，兼容消费／幂等转换／排空方式 |
+发布作者应提供受影响对象、执行模式、程序／schema 兼容范围、API 变化和任务格式声明。公共 API 不兼容替换需标记弃用并说明替代入口和移除计划；同包内部入口可与调用方一起替换。保留的 API 可转换请求／响应后共用当前实现，不要求每个 handler 支持两套表结构。
 
-操作者可选择更保守的停机方式，不能选择“在线”来绕过已知不兼容。首期不承诺通用在线 DDL。
-内部同包入口可随调用方一起替换；独立部署的 Worker／SDK 即使称为内部也需要兼容安排。
-Artifact 等公共 API 不兼容替换时标记 `deprecated`，说明替代入口和移除计划；仅表变化而 API 契约不变无需弃用。
-保留的旧 API 可转换请求／响应后共用当前实现，不要求每个 handler 同时兼容新旧表。
+旧格式任务需要在只读计划、停写取锁后、迁移后及 Worker 启动前检查。未知格式或不可观察来源不能假报无任务；应按声明兼容消费、幂等转换或有界排空，并保留任务 ID、幂等键、Scope、重试和领域收据。这些完整业务检查尚未由阶段 A bundle 覆盖。
 
-**升级检查旧格式任务。** `plan` 只读统计相关队列、Lease 和 payload 格式，停写取锁后、迁移后及 Worker 启动前复查。
-没有格式版本字段时用冻结识别器；未知或不可观察的来源阻止相关迁移／Worker，不假报无任务。
-未知格式返回 `unsupported_task_format`，未排空返回 `legacy_tasks_pending`。先停生产，再让旧 Worker 有边界地排空，
-最后停 Worker 才执行 DDL；或按计划兼容消费／幂等转换。保留任务 ID、幂等键、Scope／身份、重试和领域收据，
-不删队列或把未完成任务标成功。移除旧处理器前必须处理遗留任务；外部 API 调用方升级由发布计划协调。
+## 存储层与恢复边界
 
-## 与现有存储层结合
+维护执行器复用配置，使用专用连接承载 Alembic 和锁；冻结历史 SQL 不依赖当前 Repository 或应用 metadata。Repository 仅在结构满足后运行；全文／向量索引由版本化资源和受控重建管理。seekdb／OceanBase DDL 可能隐式提交，不能用 Python 事务承诺整个迁移原子化。
 
-| 现有层 | 升级中的职责 |
-| --- | --- |
-| Profile | 复用连接配置和引擎生命周期，拆出无 `create_tables` 副作用的 inspection／maintenance 入口 |
-| `AsyncDatabase` | 提供专用维护连接及事务；`AsyncConnection.run_sync` 将同一连接交给 Alembic，锁和 DDL 不换连接 |
-| Alembic | 冻结 revision 执行 DDL，验证后推进唯一版本表 |
-| Repository | schema 满足后复用稳定领域操作；历史转换优先冻结 SQL／映射，不依赖不断变化的当前 Repository |
-| 索引 | 结构定义进入版本资源，受控重建派生数据并检查，普通启动不隐式改表 |
-| 启动门禁 | 先检查 schema、任务和必要能力，再装配 Repository、索引和 Worker |
+单版本表不提供通用 run ID 续跑。中断后先用只读命令检查真实结构和数据；含混状态返回 `recovery_required`，不盲目 stamp、不用部分状态的备份替换原恢复点。库外摘要记录执行结果及备份信息。
 
-例如新增必填列：先 revision 加可空列，数据脚本分批幂等回填，校验后下一 revision 收紧约束，重建相关索引，
-最后才启用新版 Repository。seekDB／OceanBase DDL 可隐式提交，不能用一个 Python 事务假装整个升级原子化。
-已有领域收据与对应数据批次一起提交，索引从权威数据重建。
-
-## 中断与恢复
-
-中断后只读检查 `status`、`verify`、`plan`，仅在实际状态证明可安全重试时继续。单一版本表不提供通用按 run ID
-续跑；含混状态返回 `recovery_required`。auto 保留原始恢复点和库外记录，不用部分迁移后的备份覆盖它；manual
-仍不核验，skip 不承诺恢复原数据。所有模式均检查真实结构、数据和任务，不盲目 stamp。
-
-恢复独立、显式执行并保持停写；恢复数据库、必要文件及匹配程序后验证。应用回退不等于数据库回滚。
-迁移 `ready` 与服务启动结果分别报告，不在成功后立即删除恢复点。生产支持仍以 RFC 的实际后端验收为准。
+恢复独立、显式执行，并保持停写。恢复数据库、必要文件和匹配程序后重新验证；应用回退不等于数据库回滚。manual 不承诺已验证可恢复，skip 不承诺恢复原数据。

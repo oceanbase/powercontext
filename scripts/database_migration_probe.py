@@ -33,7 +33,9 @@ def main() -> int:
     parser.add_argument("action", choices=("status", "plan", "apply", "verify"))
     parser.add_argument("--sqlite-path", type=Path, required=True, help="Explicit disposable database path.")
     parser.add_argument("--plan-id")
-    parser.add_argument("--resume")
+    parser.add_argument("--backup", choices=("auto", "manual", "skip"), default="auto")
+    parser.add_argument("--backup-confirmed", action="store_true")
+    parser.add_argument("--accept-no-backup", action="store_true")
     parser.add_argument("--maintenance-confirmed", action="store_true")
     parser.add_argument("--yes", action="store_true")
     args = parser.parse_args()
@@ -41,11 +43,11 @@ def main() -> int:
     runner = SQLiteMigrationRunner(args.sqlite_path, bundle)
     try:
         if args.action in {"status", "plan"}:
-            result = runner.plan()
+            result = runner.plan(backup_policy=args.backup)
         elif args.action == "verify":
             result = runner.verify()
         else:
-            plan = runner.plan()
+            plan = runner.plan(backup_policy=args.backup)
             plan_id = args.plan_id
             accepted = args.yes
             if plan.state != "ready" and not accepted and sys.stdin.isatty():
@@ -56,7 +58,9 @@ def main() -> int:
                 plan_id=plan_id,
                 accepted=accepted,
                 maintenance_confirmed=args.maintenance_confirmed,
-                resume=args.resume,
+                backup_policy=args.backup,
+                backup_confirmed=args.backup_confirmed,
+                accept_no_backup=args.accept_no_backup,
             )
         print(result.model_dump_json())
     except MigrationError as error:

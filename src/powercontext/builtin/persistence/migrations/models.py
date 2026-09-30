@@ -49,7 +49,15 @@ class MigrationPlan(BaseModel):
     state: Literal["uninitialized", "migration_required", "ready", "recovery_required"]
     revisions: tuple[str, ...]
     adopt_baseline: bool = False
-    resume_run_id: str | None = None
+    backup_policy: Literal["auto", "manual", "skip"] = "auto"
+    backup_available: bool = True
+    backup_reason: tuple[str, ...] = ()
+    affected_objects: tuple[str, ...] = ()
+    retained_objects: tuple[str, ...] = ()
+    shared_database: bool = False
+    service: dict[str, Any] | None = None
+    execution_mode: Literal["offline"] = "offline"
+    readiness_scope: Literal["registered_bundle"] = "registered_bundle"
 
 
 class MigrationResult(BaseModel):
@@ -58,5 +66,6 @@ class MigrationResult(BaseModel):
     state: Literal["ready"] = "ready"
     revision: str
     changed: bool
-    run_id: str | None = None
     backup_ref: str | None = None
+    backup_state: Literal["completed", "user_confirmed", "skipped", "not_required"] = "not_required"
+    readiness_scope: Literal["registered_bundle"] = "registered_bundle"
