@@ -479,7 +479,8 @@ opening a writable initialization path.
 
 - **Empty database:** Under the lock, establish the absence of managed business tables and historical markers, then run
   the frozen initial revision → subsequent revisions → required initialization tasks → verify. Empty and upgraded
-  databases targeting the same revision must produce the same managed schema. Initially there is no
+  databases targeting the same revision must produce the same current business schema. Validate retained historical
+  tables/recovery objects separately against the release manifest; empty databases need not create them. Initially there is no
   `create_all()`-then-stamp shortcut.
 - **Versioned database:** Validate the revision, package resource integrity, managed schema, and required data conditions
   before advancing. After interruption, inspect actual state again and continue only through a defined safe retry path.
@@ -489,8 +490,8 @@ opening a writable initialization path.
   covers tables, column types/nullability/defaults, primary and foreign keys, CHECK constraints, indexes, identity
   collations, optional capabilities, and processing/projection markers, plus applicable data-integrity checks. Package
   versions, one column's presence, or zero row counts alone are insufficient.
-- **Unknown or mixed shape:** Report differences and reject writes. Temporary-table residue, simultaneous old/new
-  Candidate tables, or one missing table from a required pair need specific recovery paths; forced stamping is forbidden.
+- **Unknown or mixed shape:** Report differences and reject writes. Unregistered temporary-table residue or old/new
+  Candidate coexistence, or one missing table from a required pair need specific recovery paths; forced stamping is forbidden.
 
 The initial fixtures must include databases created by the released
 [powercontext-v1.1.0](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.1.0) package and the last
@@ -614,7 +615,7 @@ rejection conditions. Diagnostic logs provide clues, not substitutes for actual 
 | --- | --- |
 | Full preconditions hold and the previous session/DDL is confirmed ended | Execute again after maintenance, the selected backup policy, locking, and newly confirmed plan requirements are met |
 | Exact postconditions for an operation hold, but the revision has not advanced | An explicit idempotent branch in the revision verifies and skips that operation; Alembic advances normally only after all operations and invariants pass |
-| Old/new states coexist, data differs, or the result cannot be proven | Return `recovery_required`, retain external evidence, and stop for dedicated repair or backup restoration |
+| Unregistered old/new states coexist, data differs, or the result cannot be proven | Return `recovery_required`, retain external evidence, and stop for dedicated repair or backup restoration |
 
 Adding a column requires verifying type, default, nullability, and related constraints, not just its name. Renames must
 distinguish old-only, new-only, and simultaneous old/new tables. After network timeout or database failover, establish
@@ -668,40 +669,87 @@ migration. Users may select a different policy and confirm again; never silently
 
 ### Native methods for the three backends
 
+The unified `BackupProvider` uses SQLite Online Backup API for SQLite and native `FORK DATABASE` / `FORK TABLE` for
+seekdb and OceanBase clusters. PC automatic backup on OceanBase does not fall back to physical backup or log archiving;
+independently arranged user backups remain covered by the manual policy.
+
 | Backend | PC-managed automatic method | Verification and boundary |
 | --- | --- | --- |
-| SQLite file database | SQLite Online Backup API through native driver backup support, creating an independent database file after writes stop | Include committed WAL data and check output opens and passes integrity checks; copying only the main file is insufficient. Keep backup outside the source and verify extensions, indexes, and business invariants during restoration |
-| Embedded seekDB | Prefer `FORK DATABASE` on verified versions with verified object coverage, creating a same-instance pre-migration recovery database | Check whole-database snapshot, objects, indexes/constraints, subsequent DDL, and recovery after engine restart; this is a logical recovery point, not an independent physical copy or disk disaster recovery |
-| OceanBase MySQL tenant | Integrate configured native physical backup and log archiving, directly through native administration or an existing backup platform, querying completion | Record tenant/database, backup job, recoverable point, and log coverage; do not copy individual OBServer directories or restart the cluster for PC updates. Missing configuration/privileges makes auto unavailable |
+| SQLite file database | SQLite Online Backup API creates an independent file after writes stop | Include committed WAL data and verify readability and integrity; copying the main file is insufficient. Restoration also verifies extensions, indexes, and business invariants |
+| seekdb | Prefer `FORK DATABASE`; use `FORK TABLE` only under the coverage and consistency conditions below | Verify the actual engine version, object coverage, subsequent DDL restrictions, and restoration after restart; retain a same-instance recovery point |
+| OceanBase cluster (supported MySQL tenant) | Prefer `FORK DATABASE`; use `FORK TABLE` only under the conditions below | Identify the OceanBase AI Database product/version and verify tenant mode, privileges, objects, and restoration; PC upgrades do not restart the cluster |
 
-SQLite's backup API and OceanBase data backup/log archiving provide the implementation basis; integration still requires
-acceptance on actual engine versions. [SQLite Backup API](https://sqlite.org/backup.html),
-[OceanBase backup architecture](https://en.oceanbase.com/docs/common-oceanbase-database-10000000001168918)
+### Fork introduction versions and capability checks
 
-### Scope of seekDB Fork
+Evaluate the products separately. Neither seekdb version thresholds nor MySQL protocol compatibility establish Fork
+support in an OceanBase cluster.
 
-seekDB's V1.2.0 release notes introduce `FORK DATABASE` with a common snapshot for a database's user tables, excluding
-some non-table objects and cross-database foreign keys. Official Fork documentation describes copy-on-write sharing of
-underlying storage. Prefer whole-database fork rather than treating multiple `FORK TABLE` operations as the default
-consistent-database safeguard. [seekDB V1.2.0](https://github.com/oceanbase/seekdb/releases/tag/v1.2.0),
-[Fork mechanism](https://en.oceanbase.com/blog/fork-table-ready-for-agents)
+| Product | First `FORK TABLE` version | First `FORK DATABASE` version |
+| --- | --- | --- |
+| OceanBase AI Database | **V4.6.2** | **V4.6.2** |
+| seekdb | **V1.1.0** | **V1.2.0** |
 
-For failed PC migrations while the engine and storage remain healthy, a fully accepted fork implementation may satisfy
-the selected recovery policy without an additional physical backup. The confirmation screen explains this same-instance
-scope. Disk damage, instance-directory loss, or engine-upgrade failure needs independently arranged backup. Subsequent
-writes consume additional space; do not promise instant completion or zero extra space for large databases.
+Sources: [OceanBase AI Database V4.6.2 release notes](https://www.oceanbase.com/docs/common-oceanbase-database-ai-1000000006862228),
+[seekdb V1.1.0](https://github.com/oceanbase/seekdb/releases/tag/v1.1.0), and
+[seekdb V1.2.0](https://github.com/oceanbase/seekdb/releases/tag/v1.2.0).
+These are feature introduction versions, not claims of completed PC production acceptance. Explicitly expose experimental
+status where the release notes specify it. For SQLite, see the [SQLite Backup API](https://sqlite.org/backup.html).
 
-Before enabling auto fork, verify actual `pylibseekdb`/server versions, all PC objects, preserved or safely rebuildable
-triggers/foreign keys and full-text/vector capabilities, allowed source renames/column drops/table drops, and readable
-recoverable copies after interruption and restart. Unsupported non-rebuildable state returns `backup_unsupported`,
-offering manual or explicit skip. Never silently copy a running directory or upgrade the engine to gain Fork support.
+`capabilities(context)` reports table and database Fork availability separately, the identified product and actual server
+version, minimum versions, privilege/object/restore restrictions, and reasons for unavailability. Inspect the actual
+embedded seekdb engine rather than substituting the Python package version. Unknown capability is unavailable; read-only
+inspection creates no probe database or table.
 
-Restoration keeps writes stopped, protects the original fork, and restores the database actually used by PC. Embedded
-`SeekDBConfig.database` currently fixes the name to `test`; switching configuration to a fork database is not an existing
-recovery feature. The adapter must deliver complete restoration to the original name, or separately implement a
-configurable target and coordinated switch, before auto fork is enabled. `MERGE TABLE` is not a schema rollback protocol
-and must not automatically undo incompatible DDL. Recovery databases are not migration control tables, are excluded
-from migration object scans, and are not immediately deleted after success.
+If the user selects PC automatic backup without supported capabilities, the confirmation screen explicitly shows
+“PC automatic backup unavailable”, the current product/version, required feature, and reason. Explicit `--backup auto`
+returns `backup_unsupported` without backup or migration DDL. Interactive users may select manual backup or explicit skip
+and confirm the updated plan; non-interactive execution fails without waiting for input. Never silently fall back to
+physical backup, directory copying, manual, or skip, and never upgrade the engine automatically. Failure after backup
+creation starts is a backup failure that also blocks migration; it is not reported as a completed backup.
+
+### Fork coverage and restoration conditions
+
+Prefer database Fork. Table Fork is available when only `FORK TABLE` exists (for example seekdb V1.1.x), or when the plan
+explicitly selects table-level protection, only if all writers are stopped, all affected objects and dependencies are
+covered, and the adapter has validated cross-table consistency and restoration. Otherwise auto is unavailable. Multiple
+table Fork operations do not automatically provide a common database snapshot; database Fork does not automatically
+cover every non-table object either. Record the method, object mapping, snapshot boundary, and checks in the external manifest.
+
+Fork provides same-instance/cluster migration recovery, not an independent physical copy or storage disaster recovery.
+It can cover migration failures while the engine and storage remain healthy without an additional PC physical backup;
+users arrange independent disaster recovery separately. The confirmation screen warns that large datasets may take longer
+and subsequent writes plus retained tables consume storage. Do not promise instantaneous completion or zero extra space.
+
+Before enabling auto, validate PC objects, preserved or safely rebuildable triggers/foreign keys and full-text/vector
+capabilities, permitted source renames/schema changes after Fork, and restoration after interruption or restart. If Fork
+relationships prevent planned DDL, provide a validated table-switch procedure that retains the old data or return
+`backup_unsupported`; never delete the recovery point to make DDL succeed.
+See the [OceanBase Fork overview](https://www.oceanbase.com/docs/common-oceanbase-database-ai-1000000006779059).
+
+Restoration keeps writes stopped, preserves the original Fork, and restores the actual PC target using a validated
+procedure. Embedded `SeekDBConfig.database` currently fixes the name to `test`: deliver restoration to that name or
+separately implement configurable targets and coordinated switching, rather than claiming that switching to a Fork database
+already works. OceanBase restoration is limited to confirmed databases/tables and dependencies, never an entire shared
+tenant by default. `MERGE TABLE` is not an automatic rollback protocol for incompatible DDL.
+
+### Retained tables and cleanup in later releases
+
+The current upgrade does not delete replaced business tables or Fork recovery databases/tables, even after migration
+returns `ready`. Table reconstruction or name switching must first preserve the old contents and recoverable object
+mapping; internal name switching must not discard old data prematurely. Manual/skip policies do not waive old-table
+retention, and retaining old tables alone does not establish a completed backup.
+
+The release manifest records ownership, original/retained names, source revision, purpose, storage impact, and future
+cleanup conditions. The revision's allowed-object inventory explicitly includes retained objects. Business Repositories,
+indexes, and Workers use only current migrated tables, without dual-writing to old tables. Backup objects are not migration
+control tables or new business tables to migrate again. Schema checks recognize registered retained objects; unregistered
+old/new coexistence or intermediate residue still returns `recovery_required`.
+
+A later release delivers cleanup separately: an independent revision removes old business tables, and an explicit
+maintenance operation removes Fork recovery points. Its plan lists the objects and verifies that old binaries/APIs/tasks
+no longer depend on them, the retention window has passed, and required recovery no longer relies on them, before execution
+with the confirmed backup policy. The current upgrade, ordinary startup, retry, and verify never delete these objects
+automatically. Do not invent a deletion release before it is declared in a release plan.
 
 ### Manual backup, skipping, and recovery
 
@@ -758,7 +806,10 @@ migrations, dependency conflicts, and verification failures block merging.
 9. Verify side-effect-free Profile inspection/maintenance, fixed-connection Alembic and locking, historical scripts
    independent of current repositories, and index startup without schema writes. Test legacy tasks appearing after
    planning, unknown formats, delayed/retry queues, and idempotent conversion.
-10. Verify one Job for a shared database, stopped writes across nodes, and readiness. Local services stop only within the
+10. Verify product-specific Fork version and table/database capability checks; unavailable auto performs no migration
+    writes or silent fallback. Verify retained tables/recovery points survive upgrades and retries, registered retention
+    is not mistaken for residue, and later cleanup checks dependencies and recovery requirements.
+11. Verify one Job for a shared database, stopped writes across nodes, and readiness. Local services stop only within the
     confirmed scope, remain stopped on migration failure, and do not rerun migration after startup failure. No changes
     means no restart. Check target executable, originally stopped services, and restart suppression. Online declarations
     require additional mixed-version and legacy-task compatibility tests.
@@ -779,11 +830,11 @@ baseline/rename fixtures for already-migrated, pending, and partially migrated s
 | Interruption around every commit boundary, including completed DDL without version advancement | Required | Required | Required |
 | Two concurrent processes, lock timeout, and lock-holder exit | Required | Required | Required, including proxy/node routing |
 | Database newer than the binary, unknown revision, and package integrity or recovery-package digest mismatch | Required | Required | Required |
-| Unknown baseline, old/new tables coexisting, temporary-table residue, and data-verification failure | Required | Required | Required |
+| Unknown baseline, unregistered old/new tables coexisting, temporary-table residue, and data-verification failure | Required | Required | Required |
 | Unmet required data conditions block API/Worker/SDK access; idempotent reruns or recovery through existing domain checkpoints | Required | Required | Required |
 | Installation/ordinary startup leave existing databases unchanged; read-only commands create no missing target; unversioned legacy databases are not treated as empty | Required | Required | Required |
 | Active writers and failed auto backups block execution; manual has no verification, skip requires risk acceptance, and material plan changes require confirmation again | Required | Required | Required |
-| PC native recovery points restore, verify, and work with the matching binary | Required, including WAL data | Required, including fork object coverage, DDL limits, engine lifecycle, and original-name restoration | Required, including native jobs, log coverage, and actual restoration |
+| PC native recovery points restore, verify, and work with the matching binary | Required, including WAL data | Required, including fork object coverage, DDL limits, engine lifecycle, and original-name restoration | Required, including Fork versions/privileges/object coverage, DDL limits, and actual restoration |
 | Old/new API contracts against the same migrated data | Required for affected APIs | Required for affected APIs | Required for affected APIs |
 
 These are implementation acceptance requirements, not claims of executed prototypes. Reports record Python, driver,
@@ -824,7 +875,7 @@ Generic checkpoint resumption cannot be promised.
 
 Alembic does not eliminate backend differences. Idempotency, validators, backup adapters, service management, historical
 fixtures, and real-database CI add ongoing maintenance costs. Manual backups are unverified; skipping backup may lose
-recovery of original data. seekDB fork shares storage and provides no independent disaster recovery. Explicit migration
+recovery of original data. seekdb/OceanBase Fork shares storage and provides no independent disaster recovery. Explicit migration
 adds operational steps and changes automatic-startup repair expectations. Initial stopped-write maintenance causes
 downtime. Plans explain time/space costs of large copies, index construction, and embedding recomputation without
 promising duration from row counts.
@@ -870,8 +921,8 @@ Resolve the following before enabling the framework as the standard change proce
   pre-framework release support direct upgrades, and dedicated repair policies for legacy collation conflicts.
 - Optional projection object inventories, configuration digests, and readiness scope: which tasks block the whole
   service and which block only their retrieval capability.
-- Native `BackupProvider` support, storage/permissions, and retention; seekDB fork object coverage, DDL restrictions,
-  restart recovery, and original-name restoration; OceanBase native jobs and log-archive integration. The rule that
+- Native `BackupProvider` support, storage/permissions, and retention; seekdb/OceanBase Fork object coverage, DDL restrictions,
+  restart and target-database restoration, and acceptance of old-table cleanup in later releases. The rule that
   manual declarations are not verified is settled.
 
 - Known active-writer coverage, read-only lock inspection, and maintenance orchestration integration. Make explicit that
