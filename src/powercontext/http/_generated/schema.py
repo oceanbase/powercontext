@@ -191,6 +191,29 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "security": [],
             }
         },
+        "/v1/server-info": {
+            "get": {
+                "tags": ["server"],
+                "summary": "Get stable Server deployment identity and protocol contracts",
+                "description": "Returns deployment identity and "
+                "compatibility metadata only. Runtime "
+                "availability, enabled behavior, limits and "
+                "inventory remain owned by health, "
+                "capabilities and statistics endpoints.",
+                "operationId": "get_server_info",
+                "responses": {
+                    "200": {
+                        "description": "Stable deployment identity and protocol compatibility metadata.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ServerInfo"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
+            }
+        },
         "/v1/capabilities": {
             "get": {
                 "tags": ["capabilities"],
@@ -231,6 +254,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "query parameters preserve the existing "
                 "complete-list behavior.",
                 "operationId": "list_scopes",
+                "x-powercontext-feature-contracts": ["scope.selection"],
                 "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
                 "parameters": [
                     {"name": "query", "in": "query", "required": False, "schema": {"type": "string", "maxLength": 256}},
@@ -401,6 +425,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "its Memory, or authorize cross-Scope "
                 "access.",
                 "operationId": "get_scope",
+                "x-powercontext-feature-contracts": ["scope.selection"],
                 "x-powercontext-access": {"resolver": "path_scope_read_access"},
                 "parameters": [
                     {
@@ -467,6 +492,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                 },
+                "x-powercontext-feature-contracts": ["scope.selection"],
                 "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
             },
             "put": {
@@ -1540,6 +1566,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-feature-contracts": ["memory.explicit"],
                 "x-powercontext-access": {
                     "action": "scope.contribute",
                     "resource": {"type": "scope", "scope-id-from": "scope_id"},
@@ -1585,6 +1612,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-feature-contracts": ["memory.explicit"],
                 "x-powercontext-access": {
                     "action": "scope.read",
                     "resource": {"type": "scope", "scope-id-from": "scope_id"},
@@ -1718,6 +1746,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-feature-contracts": ["memory.explicit"],
                 "x-powercontext-access": {"resolver": "exact_memory_access"},
                 "x-powercontext-scope-mode": "current",
             }
@@ -4362,6 +4391,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                 },
+                "x-powercontext-feature-contracts": ["access.principal"],
                 "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
             }
         },
@@ -4578,6 +4608,101 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     },
     "components": {
         "schemas": {
+            "ContractVersion": {
+                "properties": {
+                    "major": {"type": "integer", "minimum": 1.0},
+                    "minor": {"type": "integer", "minimum": 0.0},
+                },
+                "type": "object",
+                "required": ["major", "minor"],
+                "description": "A major/minor compatibility "
+                "version. A major increment may "
+                "remove or incompatibly change the "
+                "governed contract. A minor "
+                "increment only adds "
+                "backward-compatible behavior or "
+                "fields.",
+            },
+            "FeatureContract": {
+                "properties": {
+                    "version": {"$ref": "#/components/schemas/ContractVersion"},
+                    "operations": {"items": {"type": "string"}, "type": "array", "minItems": 1, "uniqueItems": True},
+                },
+                "type": "object",
+                "required": ["version", "operations"],
+                "description": "Compatibility version for exactly "
+                "the listed OpenAPI operation IDs. "
+                "Adding operations or compatible "
+                "semantics increments minor; "
+                "removing, renaming or incompatibly "
+                "changing a listed operation "
+                "increments major.",
+            },
+            "ServerInfo": {
+                "properties": {
+                    "schema_version": {
+                        "allOf": [{"$ref": "#/components/schemas/ContractVersion"}],
+                        "description": "Compatibility version for this response shape and field semantics.",
+                    },
+                    "product": {"type": "string", "enum": ["powercontext"]},
+                    "server_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "description": "Opaque "
+                        "identity "
+                        "of the "
+                        "durable "
+                        "Server "
+                        "deployment. "
+                        "It is "
+                        "unrelated "
+                        "to Access "
+                        "deployment_id "
+                        "and "
+                        "remains "
+                        "stable "
+                        "across "
+                        "restarts, "
+                        "upgrades, "
+                        "backup "
+                        "restore "
+                        "and "
+                        "replicas "
+                        "sharing "
+                        "the same "
+                        "primary "
+                        "database.",
+                    },
+                    "package_version": {"type": "string", "minLength": 1},
+                    "api_contract_version": {
+                        "allOf": [{"$ref": "#/components/schemas/ContractVersion"}],
+                        "description": "Major/minor projection of the OpenAPI info.version served by this package.",
+                    },
+                    "feature_contracts": {
+                        "additionalProperties": {"$ref": "#/components/schemas/FeatureContract"},
+                        "type": "object",
+                        "description": "Stable feature groups keyed by contract name.",
+                    },
+                },
+                "type": "object",
+                "required": [
+                    "schema_version",
+                    "product",
+                    "server_id",
+                    "package_version",
+                    "api_contract_version",
+                    "feature_contracts",
+                ],
+                "description": "Stable deployment identity and protocol "
+                "compatibility metadata. Compatible "
+                "clients must ignore unknown optional "
+                "fields added by a future schema minor "
+                "version. This contract intentionally "
+                "excludes runtime capabilities, health, "
+                "limits, inventory and "
+                "authorization-principal identity.",
+            },
             "CreateSubjectSourceRequest": {
                 "properties": {
                     "subject_key": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
@@ -10047,4 +10172,9 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         },
     },
     "security": [{"BearerAuth": []}, {}],
+    "x-powercontext-feature-contracts": {
+        "access.principal": {"major": 1, "minor": 0},
+        "scope.selection": {"major": 1, "minor": 0},
+        "memory.explicit": {"major": 1, "minor": 0},
+    },
 }

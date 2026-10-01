@@ -87,6 +87,7 @@ The source contract is `openapi/powercontext.yaml`. Generated Pydantic models an
 | Area | Operations |
 | --- | --- |
 | Health | liveness and readiness |
+| Server discovery | stable deployment identity and protocol contracts |
 | Capabilities | source types, Artifact families, extraction, search modes |
 | Sources | capture durable content evidence |
 | Memory | flush pending Sources, remember explicit entries, search |
@@ -99,6 +100,47 @@ the Builtin runtime. HTTP request models are transport values and remain separat
 Server errors use the OpenAPI error schema and include a Server-owned `X-PowerContext-Request-ID` response header
 derived from the inbound request span. Validation errors, revision conflicts, missing entries, unavailable inference,
 and internal failures map to stable HTTP status codes.
+
+### Server identity and compatibility discovery
+
+`GET /v1/server-info` is protected by `server.observe` and returns the stable deployment `server_id`, installed package
+version, API contract version, response schema version, and initial feature contracts. It deliberately does not report
+health, enabled runtime capabilities, limits, inventory, secrets, filesystem paths, or the authenticated principal.
+Use the dedicated health, capabilities, statistics, and access endpoints for those concerns.
+
+All discovery versions use integers with `major >= 1` and `minor >= 0`. A major increment may remove or incompatibly
+change the governed contract; a minor increment is backward compatible. The response `schema_version` governs its fields and
+semantics, while `api_contract_version` is the major/minor projection of the OpenAPI `info.version`. Each feature
+contract version applies only to its listed OpenAPI operation IDs: adding an operation or compatible semantics increments
+minor; removing, renaming, or incompatibly changing a listed operation increments major. Compatible clients must ignore
+unknown optional fields introduced by a schema minor version.
+
+OpenAPI's root `x-powercontext-feature-contracts` declares the explicit feature versions. Each governed operation lists
+its membership in the same extension; `make api-generate` produces the discovery metadata from those declarations.
+Generation rejects invalid versions (including values outside these bounds), unknown or duplicate memberships, and
+features without operations. Version bumps remain an explicit contract edit, not an automatic consequence of changing membership.
+
+The Server stores one identity singleton using the Runtime-owned primary relational database. Startup creates the identity
+table idempotently, then atomically creates or loads the singleton, so concurrent initializers converge on one ID and
+restarts, package upgrades, backup restore, and replicas sharing that database retain it. If identity schema
+initialization or loading fails, Server startup fails before readiness instead of publishing a temporary identity. An
+in-memory SQLite deployment, including SQLite URI memory mode, receives a new ID with each database lifetime because it
+has no durable store. Applications using the same shared-memory SQLite database share both data and identity while any
+Runtime connection keeps that database alive; after the last connection closes, reopening creates new data and identity.
+Memory classification uses the dialect's effective connection arguments and the decoded SQLite URI, including supported
+true spellings (`true`, `1`, `yes`, `on`) and percent-encoded `:memory:` paths. Pooling and offline maintenance guards
+consume the same `SQLiteConfig.is_in_memory` classification.
+
+Treat a restored backup as the same deployment and keep its ID. When a backup is used to create an independent clone,
+stop every Server process using the clone database and rotate only the clone:
+
+```bash
+uv run powercontext server identity-reset --env-file /path/to/clone.env --maintenance-confirmed
+```
+
+The command refuses in-memory databases and requires the explicit maintenance confirmation. It cannot detect active
+replicas, so stopping them is an operator precondition. Logical application-data imports do not copy the identity unless
+the `pc_server_identity` table itself is included.
 
 ## Python Client
 
@@ -117,6 +159,7 @@ from powercontext.client import PowerContextClient
 
 async def search() -> None:
     async with PowerContextClient("http://127.0.0.1:8000") as client:
+        server_info = await client.get_server_info()
         capabilities = await client.get_capabilities()
         result = await client.search_memory(
             SearchMemoryRequest(
@@ -126,6 +169,7 @@ async def search() -> None:
                 mode="auto",
             )
         )
+        print(server_info.model_dump())
         print(capabilities.model_dump())
         print(result.model_dump())
 ```

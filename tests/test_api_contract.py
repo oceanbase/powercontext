@@ -156,6 +156,7 @@ from powercontext.http._generated.operations import (
 )
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
+from powercontext.server.info import server_info
 from powercontext.server.settings import HandoffReportConfig, ServerSettings
 
 
@@ -182,6 +183,63 @@ def test_contract_uses_the_namespaced_request_id_header() -> None:
 
     assert "X-PowerContext-Request-ID" in contract
     assert "X-Request-ID" not in contract
+
+
+def test_server_info_contract_is_observable_and_forward_compatible() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+
+    assert contract["info"]["version"] == "1.2.0"
+    operation = contract["paths"]["/v1/server-info"]["get"]
+    assert operation["operationId"] == "get_server_info"
+    assert operation["x-powercontext-access"] == {
+        "action": "server.observe",
+        "resource": {"type": "server"},
+    }
+    schema = contract["components"]["schemas"]["ServerInfo"]
+    assert schema["required"] == [
+        "schema_version",
+        "product",
+        "server_id",
+        "package_version",
+        "api_contract_version",
+        "feature_contracts",
+    ]
+    assert "additionalProperties" not in schema
+
+    parsed = http_models.ServerInfo.model_validate({
+        "schema_version": {"major": 1, "minor": 0},
+        "product": "powercontext",
+        "server_id": "server-a",
+        "package_version": "1.2.3",
+        "api_contract_version": {"major": 1, "minor": 2},
+        "feature_contracts": {
+            "memory.explicit": {
+                "version": {"major": 1, "minor": 0},
+                "operations": ["remember_memory"],
+            }
+        },
+        "future_optional_field": {"added_in_schema_minor": 1},
+    })
+    assert parsed.server_id == "server-a"
+
+
+def test_server_info_feature_contracts_match_openapi_versions_and_membership() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    expected = {
+        name: {
+            "version": version,
+            "operations": [
+                operation["operationId"]
+                for path_item in contract["paths"].values()
+                for operation in path_item.values()
+                if name in operation.get("x-powercontext-feature-contracts", [])
+            ],
+        }
+        for name, version in contract["x-powercontext-feature-contracts"].items()
+    }
+    assert {
+        name: feature.model_dump() for name, feature in server_info("server-a").feature_contracts.items()
+    } == expected
 
 
 def test_contract_declares_server_and_remote_target_bearer_boundaries() -> None:

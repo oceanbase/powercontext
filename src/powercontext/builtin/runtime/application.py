@@ -143,6 +143,7 @@ from powercontext.builtin.persistence.artifact_governance import (
     ArtifactGovernance,
     ArtifactLifecycleState,
 )
+from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.skill_publications import SkillPublication
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.records import (
@@ -441,6 +442,7 @@ class _RuntimeStateError(RuntimeError):
     def __init__(self, code: str) -> None:
         messages = {
             "closed": "Built-in Runtime is closed",
+            "database": "Primary database is not configured",
             "empty-write": "explicit Memory write did not produce a Memory",
             "experience-incubation": "Experience incubation is not configured",
             "external-skill-registry": "External Skill Registry is not configured",
@@ -2977,6 +2979,7 @@ class BuiltinRuntime:
         *,
         provider: PowerContextProvider[BuiltinSources, BuiltinArtifacts, BuiltinTriggers],
         capabilities: RuntimeCapabilities,
+        primary_database: AsyncDatabase | None = None,
         code_service: CodeService | None = None,
         source_window_limit: int = 100,
         context_assembly_max_entries: int = 8,
@@ -3035,6 +3038,7 @@ class BuiltinRuntime:
         if scope_cache_size < 1:
             raise _RuntimeConfigurationError("scope_cache_size")
         self._provider = provider
+        self._primary_database = primary_database
         self._capabilities = capabilities
         self._review_service = review_service
         self.profiles = profiles
@@ -3125,6 +3129,14 @@ class BuiltinRuntime:
 
     async def __aenter__(self) -> BuiltinRuntime:
         return self
+
+    @property
+    def primary_database(self) -> AsyncDatabase:
+        """Borrow the primary database while the composed Runtime remains open."""
+
+        if self._primary_database is None:
+            raise _RuntimeStateError("database")
+        return self._primary_database
 
     async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
         await self.close()

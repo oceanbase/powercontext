@@ -83,6 +83,7 @@ inference 配置见[配置 Pydantic AI 推理](pydantic-ai-inference.md)。
 | 领域 | Operation |
 | --- | --- |
 | Health | liveness 和 readiness |
+| Server discovery | 稳定 deployment identity 和协议契约 |
 | Capabilities | source type、Artifact family、extraction、search mode |
 | Sources | capture 持久化 content evidence |
 | Memory | flush 待处理 Source、remember 显式 entry、search |
@@ -95,6 +96,42 @@ HTTP request model 是 transport value，与 Core domain model 保持独立。
 Server error 使用 OpenAPI error schema，并在 response header 中包含由 inbound request span 派生的
 Server-owned `X-PowerContext-Request-ID`。validation error、revision conflict、entry 不存在、inference
 unavailable 和内部 failure 会映射为稳定的 HTTP status code。
+
+### Server identity 与兼容性发现
+
+`GET /v1/server-info` 受 `server.observe` 保护，返回稳定的 deployment `server_id`、已安装 package version、API
+contract version、response schema version 和首批 feature contract。它刻意不返回 health、已启用 runtime
+capability、limit、inventory、secret、文件系统 path 或已认证 principal；这些信息分别由 health、capabilities、
+statistics 和 access endpoint 负责。
+
+所有 discovery version 都使用 `major >= 1` 和 `minor >= 0` 的整数。major 增加表示受管契约可能被移除或发生不兼容变化；minor
+增加只允许向后兼容的扩展。response 的 `schema_version` 管理字段与语义，`api_contract_version` 是 OpenAPI
+`info.version` 的 major/minor 投影。每个 feature contract version 只约束它列出的 OpenAPI operation ID：增加
+operation 或兼容语义时增加 minor，移除、重命名或不兼容地改变已列 operation 时增加 major。兼容 client 必须忽略
+schema minor version 新增的未知可选字段。
+
+OpenAPI 根级 `x-powercontext-feature-contracts` 显式声明 feature version，各受管 operation 使用同名扩展声明归属。
+`make api-generate` 从这些声明生成 discovery metadata，并拒绝超出上述范围的版本、未知或重复归属及没有 operation 的 feature。
+版本号仍须显式修改，不会因归属变化而自动增加。
+
+Server 使用 Runtime 持有的主关系数据库保存一条 identity singleton。启动时先幂等创建 identity table，再原子创建或读取
+singleton，因此并发 initializer 会收敛到同一 ID，进程重启、package 升级、备份恢复以及共享同一数据库的 replica
+也会保持该 ID。identity schema 初始化或读取失败时，Server 会在进入 readiness 之前直接启动失败，而不会发布
+临时 identity。内存 SQLite（包括 SQLite URI memory mode）没有持久存储，所以每个数据库生命周期都会获得新 ID。
+使用同一共享内存 SQLite 数据库的 application 会共享数据和 identity；只要仍有 Runtime 连接，数据库就保持存活。
+最后一个连接关闭后，再次打开会重新创建数据和 identity。
+内存分类使用 dialect 的实际连接参数和解码后的 SQLite URI，包括支持的 true 拼写（`true`、`1`、`yes`、`on`）以及
+百分号编码的 `:memory:` path。连接池选择和离线维护检查统一使用 `SQLiteConfig.is_in_memory` 的分类结果。
+
+把备份恢复为原 deployment 时应保留原 ID。若用备份创建独立 clone，请停止所有使用 clone 数据库的 Server
+进程，然后只在 clone 上轮换：
+
+```bash
+uv run powercontext server identity-reset --env-file /path/to/clone.env --maintenance-confirmed
+```
+
+该命令拒绝内存数据库，并要求显式 maintenance confirmation。它无法检测仍在运行的 replica，因此停服是 operator
+前置条件。逻辑 application-data import 不会复制 identity，除非显式包含 `pc_server_identity` 表。
 
 ## Python Client
 
@@ -113,6 +150,7 @@ from powercontext.client import PowerContextClient
 
 async def search() -> None:
     async with PowerContextClient("http://127.0.0.1:8000") as client:
+        server_info = await client.get_server_info()
         capabilities = await client.get_capabilities()
         result = await client.search_memory(
             SearchMemoryRequest(
@@ -122,6 +160,7 @@ async def search() -> None:
                 mode="auto",
             )
         )
+        print(server_info.model_dump())
         print(capabilities.model_dump())
         print(result.model_dump())
 ```

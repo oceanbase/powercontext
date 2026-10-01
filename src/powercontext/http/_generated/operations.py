@@ -158,6 +158,7 @@ from powercontext.http._generated.models import (
     SearchMemoryResponse,
     SearchTopicMemoryRequest,
     SearchTopicMemoryResponse,
+    ServerInfo,
     SetDefaultScopeRequest,
     SetScopeBindingRequest,
     SkillArtifact,
@@ -180,6 +181,17 @@ OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
 API_VERSION = "1.2.0"
+FEATURE_CONTRACTS: dict[str, dict[str, JsonValue]] = {
+    "access.principal": {"version": {"major": 1, "minor": 0}, "operations": ["get_access_principal"]},
+    "scope.selection": {
+        "version": {"major": 1, "minor": 0},
+        "operations": ["list_scopes", "get_scope", "get_default_scope"],
+    },
+    "memory.explicit": {
+        "version": {"major": 1, "minor": 0},
+        "operations": ["remember_memory", "search_memory", "get_memory_entry"],
+    },
+}
 
 RequestT = TypeVar("RequestT")
 ResponseT = TypeVar("ResponseT")
@@ -368,6 +380,30 @@ GET_READINESS = Operation[None, ReadinessResponse](
         },
     },
     access=None,
+)
+
+GET_SERVER_INFO = Operation[None, ServerInfo](
+    method="GET",
+    path="/v1/server-info",
+    operation_id="get_server_info",
+    request_type=None,
+    request_location=None,
+    path_parameters=(),
+    response_type=ServerInfo,
+    success_status=200,
+    summary="Get stable Server deployment identity and protocol contracts",
+    tags=("server",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "Stable deployment identity and protocol compatibility metadata.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.observe", resource="server", scope_id_field=None, resolver="static"),
 )
 
 GET_CAPABILITIES = Operation[None, Capabilities](

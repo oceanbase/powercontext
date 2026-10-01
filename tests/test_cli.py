@@ -629,6 +629,49 @@ def test_cli_exposes_installed_role_commands() -> None:
     assert "client" not in result.output
 
 
+def test_server_identity_reset_requires_offline_confirmation_and_rotates(tmp_path) -> None:
+    database = tmp_path / "runtime.db"
+    environment = tmp_path / "server.env"
+    environment.write_text(f"POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{database}\n")
+    cli = create_cli([server_app])
+
+    refused = CliRunner().invoke(cli, ["server", "identity-reset", "--env-file", str(environment)])
+    assert refused.exit_code == 2
+    assert not database.exists()
+
+    first = CliRunner().invoke(
+        cli,
+        ["server", "identity-reset", "--env-file", str(environment), "--maintenance-confirmed"],
+    )
+    second = CliRunner().invoke(
+        cli,
+        ["server", "identity-reset", "--env-file", str(environment), "--maintenance-confirmed"],
+    )
+
+    assert first.exit_code == second.exit_code == 0
+    assert first.output.strip() != second.output.strip()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=1",
+        "sqlite+aiosqlite:///file:%3Amemory%3A?cache=shared&uri=true",
+    ],
+)
+def test_server_identity_reset_rejects_sqlite_memory_uri(tmp_path, url: str) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(f"POWERCONTEXT_SERVER_DATABASE_URL={url}\n")
+
+    result = CliRunner().invoke(
+        create_cli([server_app]),
+        ["server", "identity-reset", "--env-file", str(environment), "--maintenance-confirmed"],
+    )
+
+    assert result.exit_code == 2
+    assert "identity reset requires a persistent database" in result.output
+
+
 def test_service_command_provider_requires_the_complete_server_role() -> None:
     script = """
 import builtins

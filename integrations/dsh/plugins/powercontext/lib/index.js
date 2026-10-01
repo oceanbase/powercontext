@@ -222,6 +222,17 @@ const OPERATIONS$1 = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_server_info: {
+		method: "GET",
+		path: "/v1/server-info",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	get_capabilities: {
 		method: "GET",
 		path: "/v1/capabilities",

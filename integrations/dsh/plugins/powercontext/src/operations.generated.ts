@@ -23,6 +23,7 @@ export const OPERATIONS = {
   flush_profile: { method: 'POST', path: '/v1/profile/flush', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   get_liveness: { method: 'GET', path: '/health/live', location: null, scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   get_readiness: { method: 'GET', path: '/health/ready', location: null, scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  get_server_info: { method: 'GET', path: '/v1/server-info', location: null, scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   get_capabilities: { method: 'GET', path: '/v1/capabilities', location: null, scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   list_scopes: { method: 'GET', path: '/v1/scopes', location: "query", scopeMode: 'none', pathParameters: [], queryParams: ['query','query_field','parent_scope_id','external_reference_kind','binding_integration','binding_kind','limit','cursor'], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   create_scope: { method: 'POST', path: '/v1/scopes', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [201], emptyStatuses: [] },
