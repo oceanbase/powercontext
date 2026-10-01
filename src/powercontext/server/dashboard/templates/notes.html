@@ -39,14 +39,16 @@ limitations under the License.
     <nav class="list-group list-group-flush memory-items d-none d-xl-grid" aria-label="{{ t.notes_list }}">
       {% for item in data.notes %}<a class="list-group-item list-group-item-action note-selector {% if selected_note and selected_note.entry_id == item.entry_id %}active{% endif %}" href="{{ link('notes', entry=item.entry_id, fragment='note-reading') }}" hx-swap="outerHTML show:#note-reading:top" {% if selected_note and selected_note.entry_id == item.entry_id %}aria-current="true"{% endif %}>
         {% if item.kind is defined %}<span class="small d-block mb-2">{{ t.get(item.kind, item.kind) }}</span>{% endif %}<span class="note-summary d-block text-truncate fw-normal">{{ item.text|truncate(48, true) }}</span>
-      </a>{% else %}<div class="empty memory-empty d-flex flex-column justify-content-center"><h2 class="empty-title">{{ t.notes_no_match if search_query else t.notes_empty }}</h2></div>{% endfor %}
+      </a>{% else %}<div class="empty memory-empty d-flex flex-column justify-content-center"><h2 class="empty-title">{{ t.not_found if memory_revision_missing else (t.notes_no_match if search_query else t.notes_empty) }}</h2></div>{% endfor %}
     </nav>
     {% include 'components/memory-accordion.html' %}
     <div class="card-footer collection-footer">{{ pagination(notes_pager, t, compact=true, always=true) }}</div>
   </div></aside>
   <section class="col-xl-8 d-none d-xl-flex flex-column" id="note-reading" tabindex="-1" aria-label="{{ t.note_reading }}"><article class="card collection-panel flex-fill">
     <div class="card-body note-reading collection-content" tabindex="0" role="region" aria-label="{{ t.notes }}">
-      {% if selected_note %}
+      {% if memory_revision_missing %}
+      <div class="empty"><h2>{{ t.not_found }}</h2></div>
+      {% elif selected_note %}
       <p class="note-text">{{ selected_note.text }}</p>
       {% elif data.notes %}<div class="empty"><h2>{{ t.not_found }}</h2><a class="btn" href="{{ link('notes') }}">{{ t.notes_list }}</a></div>{% else %}<div class="empty"><p class="empty-subtitle">{{ t.notes_no_match if search_query else t.notes_empty_body }}</p></div>{% endif %}
     </div>

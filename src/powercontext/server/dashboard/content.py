@@ -68,7 +68,9 @@ async def load_notes(api: DashboardAPI, ctx: dict[str, Any]) -> None:
             ctx["data"]["notes"] = [{**hit, **hit["citation"]} for hit in result["hits"]]
             ctx["search_limited"] = len(result["hits"]) == 50
         else:
-            ctx["data"]["notes"] = memory_view(await api.read("/v1/memory/entries/list", {"scope_id": ctx["scope"]}))
+            result = await api.read("/v1/memory/entries/list", {"scope_id": ctx["scope"]})
+            ctx["data"]["notes"] = memory_view(result)
+        ctx["memory_binding"] = result.get("memory")
     except ReadError as error:
         ctx["errors"]["notes"] = error
 
@@ -151,18 +153,14 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         )
     elif page == "notes":
         await load_notes(api, ctx)
-        window = list_page(
-            ctx["data"]["notes"], request.query_params.get("notes_page"), request.query_params.get("entry")
-        )
+        await _show_historical_notes(api, request, ctx)
+        notes_page = request.query_params.get("notes_page")
+        if ctx.get("historical_notes"):
+            notes_page = _notes_page_in_range(ctx["data"]["notes"], notes_page)
+        window = list_page(ctx["data"]["notes"], notes_page, request.query_params.get("entry"))
         ctx["data"]["notes"] = window["items"]
-        if ctx["search_query"]:
-            entries = await asyncio.gather(
-                *(
-                    api.read("/v1/memory/entries/get", {"scope_id": ctx["scope"], "citation": hit["citation"]})
-                    for hit in window["items"]
-                )
-            )
-            ctx["data"]["notes"] = memory_view({"entries": entries})
+        if ctx.get("historical_notes") or ctx["search_query"]:
+            ctx["data"]["notes"] = await _resolve_note_texts(api, ctx["scope"], ctx["data"]["notes"])
         ctx["notes_pager"] = list_links(ctx, "notes", window)
         ctx["notes_page_size"] = PAGE_SIZE
         await select_note(api, request, ctx)
@@ -280,15 +278,102 @@ async def load_prompts(api: DashboardAPI, request: Request, ctx: dict[str, Any])
                     ctx["prompt_opened"] = None
 
 
-async def _load_memory_history(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:
+async def _show_historical_notes(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:
+    """Replace the current note list when an older Memory revision is open."""
+
+    displayed = _displayed_memory(ctx)
+    raw = request.query_params.get("memory_history")
+    if displayed is None or raw is None or not raw.isdigit():
+        return
+    artifact_id, head_revision = displayed
+    revision = int(raw)
+    if head_revision is None or revision == head_revision:
+        return
     try:
-        heads = await api.read(f"/v1/scopes/{segment(ctx['scope'])}/artifacts/memory?limit=1")
+        opened = await api.artifact_revision(ctx["scope"], "memory", artifact_id, revision)
     except ReadError:
+        ctx["data"]["notes"] = []
+        ctx["historical_notes"] = True
+        ctx["memory_revision_missing"] = True
         return
-    if not heads["items"]:
+    ctx["data"]["notes"] = _manifest_notes(opened["content"], artifact_id, revision)
+    ctx["historical_notes"] = True
+
+
+def _notes_page_in_range(items: list[dict[str, Any]], raw: str | None) -> str | None:
+    """Drop a page number that belongs to a longer note list."""
+
+    if raw is None or not raw.isdigit() or raw.startswith("0"):
+        return raw
+    last = max(1, (len(items) + PAGE_SIZE - 1) // PAGE_SIZE)
+    return None if int(raw) > last else raw
+
+
+def _manifest_notes(content: dict[str, Any], artifact_id: str, revision: int) -> list[dict[str, Any]]:
+    manifest = content.get("manifest") if isinstance(content, dict) else None
+    entries = manifest.get("entries") if isinstance(manifest, dict) else None
+    notes = []
+    for item in entries or []:
+        if not isinstance(item, dict) or item.get("state", "active") != "active":
+            continue
+        entry_id = item.get("entry_id")
+        version_id = item.get("entry_version_id")
+        if not isinstance(entry_id, str) or not isinstance(version_id, str):
+            continue
+        notes.append({
+            "entry_id": entry_id,
+            "entry_version_id": version_id,
+            "text": "",
+            "citation": {
+                "memory_ref": {"family": "memory", "artifact_id": artifact_id, "revision": revision},
+                "entry_id": entry_id,
+                "entry_version_id": version_id,
+            },
+        })
+    return notes
+
+
+async def _resolve_note_texts(api: DashboardAPI, scope: str, notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not notes:
+        return notes
+    entries = await asyncio.gather(
+        *(api.read("/v1/memory/entries/get", {"scope_id": scope, "citation": note["citation"]}) for note in notes)
+    )
+    return memory_view({"entries": entries})
+
+
+def _displayed_memory(ctx: dict[str, Any]) -> tuple[str, int | None] | None:
+    """Return the Memory whose notes are on screen, with its current head revision when known."""
+
+    note = ctx.get("selected_note")
+    note_ref = note.get("memory_ref") if isinstance(note, dict) else None
+    binding = ctx.get("memory_binding")
+    artifact_id = None
+    if isinstance(note_ref, dict) and note_ref.get("artifact_id"):
+        artifact_id = str(note_ref["artifact_id"])
+    elif isinstance(binding, dict) and binding.get("artifact_id"):
+        artifact_id = str(binding["artifact_id"])
+    if artifact_id is None:
+        return None
+    revision = binding.get("revision") if isinstance(binding, dict) else None
+    if isinstance(binding, dict) and binding.get("artifact_id") == artifact_id and isinstance(revision, int):
+        return artifact_id, revision
+    return artifact_id, None
+
+
+async def _load_memory_history(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:
+    displayed = _displayed_memory(ctx)
+    if displayed is None:
         return
-    artifact_id = heads["items"][0]["artifact_id"]
-    selected = request.query_params.get("memory_history") or str(heads["items"][0]["revision"])
+    artifact_id, head_revision = displayed
+    if head_revision is None:
+        try:
+            head = await api.read(f"/v1/scopes/{segment(ctx['scope'])}/artifacts/memory/{segment(artifact_id)}")
+        except ReadError:
+            return
+        head_revision = int(head["revision"])
+    ctx["memory_artifact"] = artifact_id
+    selected = request.query_params.get("memory_history") or str(head_revision)
     if not str(selected).isdigit():
         return
     ctx["history"] = await load_history(

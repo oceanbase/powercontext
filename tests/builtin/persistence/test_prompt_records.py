@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import replace
 
 import pytest
@@ -28,7 +29,7 @@ from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.rollback import merged_source_revision
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE, BUILTIN_TABLES, CREATED_BY_LENGTH
 from powercontext.builtin.records import (
     ArtifactRevisionActor,
     ArtifactRevisionPreconditionError,
@@ -272,6 +273,50 @@ def test_prompt_rollback_records_its_source_and_rejects_an_incomplete_restore() 
             )
             assert listed.items[0].reason == "Restore the approved prompt"
             assert listed.items[1].created_by is None
+
+    asyncio.run(scenario())
+
+
+def test_rollback_actor_keeps_a_maximum_length_principal_id() -> None:
+    actor_id = "张" * 255
+    quoted = "\\" * 255
+    from sqlalchemy.dialects.mysql.base import MySQLDialect
+    from sqlalchemy.schema import CreateColumn
+
+    column = ARTIFACTS_TABLE.c.created_by.type.length
+    assert column == CREATED_BY_LENGTH
+    ddl = str(CreateColumn(ARTIFACTS_TABLE.c.created_by).compile(dialect=MySQLDialect()))
+    assert "VARCHAR(2048)" in ddl
+    for value in (actor_id, quoted):
+        payload = json.dumps({"type": "user", "id": value}, ensure_ascii=False, separators=(",", ":"))
+        assert len(payload) <= column
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records = _records(profile)
+            await records.create_artifact(
+                "scope-a",
+                "prompt",
+                ArtifactWrite(content=_content("Keep the approved prompt."), prompt_key="memory.extract"),
+            )
+            first = await records.get_artifact("scope-a", "prompt", "memory.extract")
+            await records.replace_artifact(
+                "scope-a",
+                "prompt",
+                "memory.extract",
+                '"revision:1"',
+                ArtifactWrite(content=_content("Keep a later prompt.")),
+            )
+            restored = await records.replace_artifact(
+                "scope-a",
+                "prompt",
+                "memory.extract",
+                '"revision:2"',
+                ArtifactWrite(content=first.content, restored_from_revision=1, reason="Restore the approved prompt"),
+                actor_type="user",
+                actor_id=actor_id,
+            )
+            assert restored.created_by == ArtifactRevisionActor(type="user", id=actor_id)
 
     asyncio.run(scenario())
 

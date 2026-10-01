@@ -24,12 +24,16 @@
             {% elif history.family == "prompt" %}
               <a class="btn btn-sm" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
             {% elif history.family == "memory" %}
-              <a class="btn btn-sm" href="{{ link('notes', memory_history=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
+              <a class="btn btn-sm" href="{{ link('notes', memory_history=item.revision, memory_artifact=history.artifact_id, notes_page=none) }}">{{ t.revision }} {{ item.revision }}</a>
             {% else %}
               <a class="btn btn-sm" href="{{ link(none, artifact=history.artifact_id, revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
             {% endif %}
             {% if item.revision != history.selected %}
-              <a class="btn btn-sm" href="{{ link(none, compare=item.revision) }}">{{ t.revision_compare }}</a>
+              {% if history.family == "memory" %}
+                <a class="btn btn-sm" href="{{ link(none, compare=item.revision, memory_artifact=history.artifact_id, notes_page=none) }}">{{ t.revision_compare }}</a>
+              {% else %}
+                <a class="btn btn-sm" href="{{ link(none, compare=item.revision) }}">{{ t.revision_compare }}</a>
+              {% endif %}
             {% endif %}
           </div>
         </div>
@@ -57,6 +61,7 @@
           <p class="text-secondary">{{ t.revision_same }}</p>
         {% endif %}
       {% endfor %}
+      {% if history.compare_truncated %}<p class="text-secondary">{{ t.revision_compare_truncated }}</p>{% endif %}
     </div>
   {% endif %}
   {% if history.selected != history.head %}
@@ -75,7 +80,10 @@
         <input type="hidden" name="prompt_key" value="{{ history.artifact_id }}">
         <input type="hidden" name="prompt_revision" value="{{ history.selected }}">
       {% endif %}
-      {% if history.family == "memory" %}<input type="hidden" name="memory_history" value="{{ history.selected }}">{% endif %}
+      {% if history.family == "memory" %}
+        <input type="hidden" name="memory_history" value="{{ history.selected }}">
+        <input type="hidden" name="memory_artifact" value="{{ history.artifact_id }}">
+      {% endif %}
       <label class="form-label" for="compare-revision">{{ t.revision_other }}</label>
       <input class="form-control" id="compare-revision" name="compare" type="number" min="1" step="1" required value="{{ history.compare or history.head }}">
       <button class="btn mt-2" type="submit">{{ t.revision_compare }}</button>

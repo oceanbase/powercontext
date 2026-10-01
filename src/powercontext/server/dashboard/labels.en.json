@@ -232,6 +232,7 @@
   "revision_unknown_time": "Time unknown",
   "revision_compare": "Compare",
   "revision_compare_missing": "That revision could not be compared.",
+  "revision_compare_truncated": "Only some of the changed notes are compared.",
   "revision_other": "Other revision",
   "revision_rollback": "Roll back",
   "revision_reason": "Reason",

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import json
 from typing import Any
@@ -27,6 +28,7 @@ from powercontext.server.dashboard.api import DashboardAPI, ReadError, segment
 from powercontext.server.dashboard.pagination import PAGE_SIZE
 
 ROLLBACK_FAMILIES = frozenset({"profile", "prompt", "experience", "skill", "handoff", "topic-memory"})
+_MEMORY_COMPARE_LIMIT = 32
 _SKILL_FIELDS = (
     "name",
     "description",
@@ -143,11 +145,86 @@ def _handoff_citation(citation: dict[str, Any]) -> dict[str, Any]:
     return citation
 
 
+def _active_manifest(content: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    manifest = content.get("manifest") if isinstance(content, dict) else None
+    entries = manifest.get("entries") if isinstance(manifest, dict) else None
+    selected = {}
+    for item in entries or []:
+        if not isinstance(item, dict) or item.get("state", "active") != "active":
+            continue
+        entry_id = item.get("entry_id")
+        version_id = item.get("entry_version_id")
+        if isinstance(entry_id, str) and isinstance(version_id, str):
+            selected[entry_id] = item
+    return selected
+
+
+async def _entry_text(
+    api: DashboardAPI, scope: str, artifact_id: str, revision: int, item: dict[str, Any] | None
+) -> str:
+    if item is None:
+        return ""
+    entry = await api.read(
+        "/v1/memory/entries/get",
+        {
+            "scope_id": scope,
+            "citation": {
+                "memory_ref": {"family": "memory", "artifact_id": artifact_id, "revision": revision},
+                "entry_id": item["entry_id"],
+                "entry_version_id": item["entry_version_id"],
+            },
+        },
+    )
+    text = entry.get("text")
+    return text if isinstance(text, str) else ""
+
+
+async def _memory_text_rows(
+    api: DashboardAPI,
+    scope: str,
+    artifact_id: str,
+    left_revision: int,
+    left: dict[str, Any],
+    right_revision: int,
+    right: dict[str, Any],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Diff note text for entries whose exact version differs between two Memory revisions."""
+
+    left_entries = _active_manifest(left)
+    right_entries = _active_manifest(right)
+    changed = [
+        entry_id
+        for entry_id in sorted(set(left_entries) | set(right_entries))
+        if _version(left_entries, entry_id) != _version(right_entries, entry_id)
+    ]
+    if not changed:
+        return [_text_row("content", "", "")], False
+    shown = changed[:_MEMORY_COMPARE_LIMIT]
+    texts = await asyncio.gather(
+        *(
+            asyncio.gather(
+                _entry_text(api, scope, artifact_id, left_revision, left_entries.get(entry_id)),
+                _entry_text(api, scope, artifact_id, right_revision, right_entries.get(entry_id)),
+            )
+            for entry_id in shown
+        )
+    )
+    rows = [
+        _text_row(entry_id, left_text, right_text)
+        for entry_id, (left_text, right_text) in zip(shown, texts, strict=True)
+    ]
+    return rows, len(changed) > _MEMORY_COMPARE_LIMIT
+
+
+def _version(entries: dict[str, dict[str, Any]], entry_id: str) -> str | None:
+    item = entries.get(entry_id)
+    version = None if item is None else item.get("entry_version_id")
+    return version if isinstance(version, str) else None
+
+
 def comparison(family: str, left: dict[str, Any], right: dict[str, Any]) -> list[dict[str, Any]]:
     """Readable rows for two stored content objects. The left side is the opened revision."""
 
-    if family == "memory":
-        return [_text_row("changes", left.get("changes"), right.get("changes"))]
     if family == "profile":
         return [_text_row("content", left.get("content"), right.get("content"))]
     if family == "topic-memory":
@@ -194,11 +271,17 @@ async def load_history(
     compare = _revision_param(compare_raw)
     rows = None
     compare_error = False
+    compare_truncated = False
     if compare is not None and compare != selected:
         try:
             left = await api.artifact_revision(scope, family, artifact_id, selected)
             right = await api.artifact_revision(scope, family, artifact_id, compare)
-            rows = comparison(family, left["content"], right["content"])
+            if family == "memory":
+                rows, compare_truncated = await _memory_text_rows(
+                    api, scope, artifact_id, selected, left["content"], compare, right["content"]
+                )
+            else:
+                rows = comparison(family, left["content"], right["content"])
         except ReadError:
             rows = None
             compare_error = True
@@ -226,6 +309,7 @@ async def load_history(
         "same_content": same_content,
         "compare": compare,
         "compare_error": compare_error,
+        "compare_truncated": compare_truncated,
         "rows": rows,
         "error": request.query_params.get("rollback_error"),
     }

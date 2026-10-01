@@ -36,7 +36,7 @@ from powercontext.server.dashboard.navigation import (
 )
 from powercontext.server.dashboard.preferences import CATALOGS, presentation, remember_language
 from powercontext.server.dashboard.presenters import source_view
-from powercontext.server.dashboard.session import login_response
+from powercontext.server.dashboard.session import login_response, same_origin
 
 ROOT = Path(__file__).parent
 LABELS = CATALOGS["zh"]
@@ -96,6 +96,7 @@ def links(request: Request, ctx: dict[str, Any]):
                     "rollback_error",
                     "memory_history",
                     "memory_history_cursor",
+                    "memory_artifact",
                     "prompt_key",
                     "prompt_revision",
                     "prompt_revision_cursor",
@@ -153,6 +154,7 @@ def links(request: Request, ctx: dict[str, Any]):
             query = {"scope": params["scope"], "period": ctx["period"]}
         else:
             query.update(params)
+            _retain_memory_artifact(destination, ctx, query)
         if destination.startswith("evidence/"):
             destination = "evidence/" + segment(destination.removeprefix("evidence/"))
         return (
@@ -161,6 +163,11 @@ def links(request: Request, ctx: dict[str, Any]):
         )
 
     return link
+
+
+def _retain_memory_artifact(destination: str, ctx: dict[str, Any], query: dict[str, Any]) -> None:
+    if destination == "notes" and ctx.get("memory_artifact") and query.get("memory_artifact") is None:
+        query["memory_artifact"] = ctx["memory_artifact"]
 
 
 def reading_link_context(
@@ -237,6 +244,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "profile_pager": None,
         "profile_html": "",
         "history": None,
+        "memory_revision_missing": False,
         "prompt_key": None,
         "prompt_opened": None,
         "return_to": collection_return(
@@ -394,6 +402,8 @@ async def download_handoff(request: Request) -> Response:
 
 @router.post("/rollback")
 async def rollback_revision(request: Request) -> Response:
+    if not same_origin(request):
+        return HTMLResponse(status_code=403)
     form = await request.form()
     scope = str(form.get("scope") or "")
     family = str(form.get("family") or "")

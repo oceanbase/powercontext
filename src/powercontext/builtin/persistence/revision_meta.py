@@ -89,6 +89,7 @@ def rollback_columns(family: str, artifact_id: str, revision: int) -> dict[str, 
     if stamp.created_by_type is not None and stamp.created_by_id is not None:
         created_by = json.dumps(
             {"type": stamp.created_by_type, "id": stamp.created_by_id},
+            ensure_ascii=False,
             separators=(",", ":"),
         )
     return {
@@ -142,6 +143,22 @@ async def ensure_revision_metadata_schema(connection: AsyncConnection, /) -> Non
         except DBAPIError:
             if not await _has_column(connection, name):
                 raise
+    await _widen_created_by(connection)
+
+
+async def _widen_created_by(connection: AsyncConnection) -> None:
+    """Grow an older created_by column so a maximum-length principal id can be stored."""
+
+    if connection.dialect.name == "sqlite":
+        return
+    columns = await connection.run_sync(lambda sync: inspect(sync).get_columns(ARTIFACTS_TABLE.name))
+    column = next((item for item in columns if item["name"] == "created_by"), None)
+    length = None if column is None else getattr(column["type"], "length", None)
+    target = ARTIFACTS_TABLE.c.created_by.type.length
+    if length is None or not isinstance(length, int) or length >= target:
+        return
+    declaration = str(CreateColumn(ARTIFACTS_TABLE.c.created_by).compile(dialect=connection.dialect))
+    await connection.exec_driver_sql(f"ALTER TABLE {ARTIFACTS_TABLE.name} MODIFY COLUMN {declaration}")
 
 
 async def _has_column(connection: AsyncConnection, column_name: str) -> bool:

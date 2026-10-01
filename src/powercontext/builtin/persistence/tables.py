@@ -196,7 +196,7 @@ ARTIFACTS_TABLE = Table(
     Column("content", _canonical_payload_type(), nullable=False),
     Column("memory_citations", _canonical_payload_type(), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=True),
-    Column("created_by", String(512), nullable=True),
+    Column("created_by", String(2048), nullable=True),
     Column("restored_from_revision", Integer, nullable=True),
     Column("rollback_reason", String(1024), nullable=True),
 )

@@ -232,6 +232,7 @@
   "revision_unknown_time": "时间未知",
   "revision_compare": "对比",
   "revision_compare_missing": "找不到要对比的版本。",
+  "revision_compare_truncated": "变化的笔记太多，这里只对比了其中一部分。",
   "revision_other": "另一版本",
   "revision_rollback": "回滚",
   "revision_reason": "原因",
