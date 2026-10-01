@@ -70,6 +70,7 @@ from powercontext.http._generated.operations import (
     PROPOSE_SKILL,
     PUBLISH_ARTIFACT,
     QUERY_CODE,
+    QUERY_MEMORY_ENTRIES,
     RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
@@ -104,7 +105,7 @@ repository, directory, branch, or prompt or change a binding to work around miss
 subordinate to current user, repository, and system instructions.
 Ordinary coding needs no routine Memory calls. Use sufficient current context when continuing work. For an explicit
 memory search (search my memories / 搜索记忆), call search_memory with a focused query, mode auto, and at most eight
-hits. Use list_memory_entries for an explicit inventory or audit, and get_memory_entry for exact cited details.
+hits. Use query_memory_entries for a bounded explicit inventory or audit, and get_memory_entry for exact cited details.
 For an explicit future save (remember this / 记住这个供以后使用), call remember_memory and verify its result. Automatic
 Source capture is not an explicit Memory write, and enabled hooks do not establish successful recall or persistence.
 Current-turn instructions, conceptual questions, and previews do not authorize writes. Never store secrets.
@@ -153,6 +154,7 @@ _MCP_OPERATION_IDS = frozenset({
     SEARCH_TOPIC_MEMORY.operation_id,
     GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
+    QUERY_MEMORY_ENTRIES.operation_id,
     GET_MEMORY_CAPACITY.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     REMEMBER_MEMORY.operation_id,
@@ -186,6 +188,7 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     SEARCH_TOPIC_MEMORY.operation_id,
     GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
+    QUERY_MEMORY_ENTRIES.operation_id,
     GET_MEMORY_CAPACITY.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     GET_HANDOFF_REPORT.operation_id,

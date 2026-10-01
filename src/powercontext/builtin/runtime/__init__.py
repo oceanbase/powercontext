@@ -34,6 +34,7 @@ from powercontext.builtin.artifacts.handoff import (
 )
 from powercontext.builtin.artifacts.memory.models import MemoryChange
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
+from powercontext.builtin.artifacts.memory.protocols import MemoryDirectoryItem, MemoryDirectoryPage
 from powercontext.builtin.dream.application import DreamApplication, ScopedDreamApplication
 from powercontext.builtin.dream.models import (
     CreateDreamRunRequest,
@@ -156,6 +157,7 @@ from powercontext.builtin.runtime.models import (
     PreparedContext,
     ProposeExperienceRequest,
     ProposeSkillRequest,
+    QueryMemoryEntriesRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
@@ -290,6 +292,8 @@ __all__ = [
     "MemoryChange",
     "MemoryChangesPage",
     "MemoryCitation",
+    "MemoryDirectoryItem",
+    "MemoryDirectoryPage",
     "MemoryEntriesPage",
     "MemoryEntryInput",
     "MemoryEntryInventoryStatistics",
@@ -321,6 +325,7 @@ __all__ = [
     "PreparedHandoff",
     "ProposeExperienceRequest",
     "ProposeSkillRequest",
+    "QueryMemoryEntriesRequest",
     "ReadinessCheckStatus",
     "ReadinessProbeDefinition",
     "RecallTokenDay",

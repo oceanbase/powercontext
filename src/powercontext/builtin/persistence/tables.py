@@ -1013,7 +1013,112 @@ MEMORY_ENTRY_HEADS_TABLE = Table(
 )
 
 
-MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
+MEMORY_ENTRY_DIRECTORY_TABLE = Table(
+    "pc_memory_entry_directory",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("entry_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
+    Column("entry_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+    Column("state", identity_string(8), nullable=False),
+    Column("valid_from_revision", Integer, primary_key=True),
+    Column("valid_to_revision", Integer),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "memory_artifact_id", "valid_from_revision"),
+        (
+            "pc_artifacts.scope_id",
+            "pc_artifacts.family",
+            "pc_artifacts.artifact_id",
+            "pc_artifacts.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    ForeignKeyConstraint(
+        ("scope_id", "memory_artifact_id", "entry_id", "entry_version_id"),
+        (
+            "pc_memory_entry_versions.scope_id",
+            "pc_memory_entry_versions.memory_artifact_id",
+            "pc_memory_entry_versions.entry_id",
+            "pc_memory_entry_versions.entry_version_id",
+        ),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("state IN ('active', 'inactive')", name="ck_pc_memory_entry_directory_state"),
+    CheckConstraint(
+        "valid_from_revision > 0",
+        name="ck_pc_memory_entry_directory_from_positive",
+    ),
+    CheckConstraint(
+        "valid_to_revision IS NULL OR valid_to_revision > valid_from_revision",
+        name="ck_pc_memory_entry_directory_valid_range",
+    ),
+    Index(
+        "ix_pc_memory_entry_directory_page",
+        "scope_id",
+        "memory_artifact_id",
+        "entry_id",
+        "valid_from_revision",
+        "valid_to_revision",
+        "state",
+    ),
+)
+
+
+MEMORY_TAG_GENERATIONS_TABLE = Table(
+    "pc_memory_tag_generations",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("generation", BigInteger, nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "memory_artifact_id"),
+        (
+            "pc_artifact_heads.scope_id",
+            "pc_artifact_heads.family",
+            "pc_artifact_heads.artifact_id",
+        ),
+        ondelete="CASCADE",
+    ),
+    CheckConstraint("generation >= 0", name="ck_pc_memory_tag_generations_nonnegative"),
+)
+
+
+MEMORY_QUERY_INDEX_SCHEMA_TABLE = Table(
+    "pc_memory_query_index_schema",
+    SHARED_METADATA,
+    Column("singleton", Integer, primary_key=True, autoincrement=False),
+    Column("schema_version", Integer, nullable=False),
+    Column("phase", identity_string(16), nullable=False),
+    Column("migration_id", identity_string(64), nullable=False),
+    Column("checkpoint_scope_id", identity_string(MAX_SCOPE_ID_LENGTH)),
+    Column("checkpoint_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
+    Column("checkpoint_revision", Integer),
+    CheckConstraint("singleton = 1", name="ck_pc_memory_query_schema_singleton"),
+    CheckConstraint(
+        "phase IN ('bootstrap', 'backfill', 'verify', 'complete')",
+        name="ck_pc_memory_query_schema_phase",
+    ),
+    CheckConstraint(
+        "checkpoint_revision IS NULL OR checkpoint_revision > 0",
+        name="ck_pc_memory_query_schema_checkpoint_revision",
+    ),
+    CheckConstraint(
+        "(checkpoint_scope_id IS NULL AND checkpoint_artifact_id IS NULL AND checkpoint_revision IS NULL) OR "
+        "(checkpoint_scope_id IS NOT NULL AND checkpoint_artifact_id IS NOT NULL AND checkpoint_revision IS NOT NULL)",
+        name="ck_pc_memory_query_schema_checkpoint_complete",
+    ),
+)
+
+
+MEMORY_TABLES = (
+    MEMORY_ENTRY_VERSIONS_TABLE,
+    MEMORY_ENTRY_DIRECTORY_TABLE,
+    MEMORY_ENTRY_HEADS_TABLE,
+    MEMORY_TAG_GENERATIONS_TABLE,
+    MEMORY_QUERY_INDEX_SCHEMA_TABLE,
+)
 
 TOPIC_MEMORY_TABLES = (
     TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE,

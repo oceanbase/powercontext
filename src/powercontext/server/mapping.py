@@ -73,6 +73,7 @@ from powercontext.builtin.runtime import (
     InvalidRuntimeRequestError,
     MemoryChange,
     MemoryChangesPage,
+    MemoryDirectoryPage,
     MemoryEntriesPage,
     MemoryEntryInput,
     MemoryEntryRecord,
@@ -231,6 +232,7 @@ from powercontext.http import (
     ListMemoryChangesResponse,
     ListMemoryEntriesResponse,
     ManagedSkillLibraryEntry,
+    MemoryDirectoryItem,
     MemoryEntry,
     MemoryEntryState,
     MemoryMatchedBy,
@@ -246,6 +248,7 @@ from powercontext.http import (
     ProfileWriteContent,
     ProposeExperienceRequest,
     ProposeSkillRequest,
+    QueryMemoryEntriesResponse,
     RecordTaskOutcomeRequest,
     RejectArtifactCandidateRequest,
     ResolveExternalSkillRequest,
@@ -855,6 +858,22 @@ def entries_response(value: MemoryEntriesPage) -> ListMemoryEntriesResponse:
     return ListMemoryEntriesResponse(
         memory=None if value.memory_ref is None else artifact_reference(value.memory_ref),
         entries=[memory_entry(item) for item in value.entries],
+    )
+
+
+def directory_response(value: MemoryDirectoryPage) -> QueryMemoryEntriesResponse:
+    return QueryMemoryEntriesResponse(
+        memory_ref=None if value.memory_ref is None else artifact_reference(value.memory_ref),
+        items=[
+            MemoryDirectoryItem(
+                citation=transport_citation(item.citation),
+                version=item.version,
+                kind=item.kind,
+                state=MemoryEntryState(item.state),
+            )
+            for item in value.items
+        ],
+        next_cursor=value.next_cursor,
     )
 
 

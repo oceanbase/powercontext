@@ -186,6 +186,15 @@ class SearchMemoryRequest(BaseModel):
     tag_filter: TagFilter | None = None
 
 
+class QueryMemoryEntriesRequest(BaseModel):
+    """Traverse compact entry identities without loading entry bodies."""
+
+    include_inactive: bool = Field(default=False, strict=True)
+    tag_filter: TagFilter | None = None
+    limit: Annotated[int, Field(ge=1, le=100)] = 50
+    cursor: Annotated[str | None, Field(max_length=4096)] = None
+
+
 class MemorySearchPage(BaseModel):
     """Search results that can represent a scope with no Memory."""
 

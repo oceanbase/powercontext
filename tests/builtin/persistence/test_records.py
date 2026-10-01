@@ -50,6 +50,7 @@ from powercontext.builtin.persistence.tables import (
     BUILTIN_TABLES,
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
+    MEMORY_TAG_GENERATIONS_TABLE,
     SKILL_PACKAGES_TABLE,
     SOURCES_TABLE,
 )
@@ -239,6 +240,32 @@ def test_artifact_and_entry_tags_preserve_content_and_query_independently() -> N
                 await records.replace_tags("scope-a", artifact, ("lost update",), expected_etag=empty.etag)
             await records.replace_tags("scope-a", artifact, (), expected_etag=tagged.etag)
             assert (await records.get_tags("scope-a", entry)).tags == ("project",)
+
+    asyncio.run(scenario())
+
+
+def test_memory_entry_tag_generation_advances_only_for_effective_changes() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, _ = _services(profile)
+            created = await records.create_artifact("scope-a", "memory", ArtifactWrite(content=_memory_content()))
+            head = await records.get_artifact("scope-a", "memory", created.artifact_id)
+            entry_id = MemoryContent.model_validate(head.content).manifest.entries[0].entry_id
+            target = MemoryEntryTagTarget(artifact_id=created.artifact_id, entry_id=entry_id)
+
+            empty = await records.get_tags("scope-a", target)
+            tagged = await records.replace_tags("scope-a", target, ("Stable",), expected_etag=empty.etag)
+            unchanged = await records.replace_tags("scope-a", target, ("Stable",), expected_etag=tagged.etag)
+            await records.replace_tags("scope-a", target, ("stable",), expected_etag=unchanged.etag)
+
+            async with profile.database.transaction() as connection:
+                generation = await connection.scalar(
+                    select(MEMORY_TAG_GENERATIONS_TABLE.c.generation).where(
+                        MEMORY_TAG_GENERATIONS_TABLE.c.scope_id == "scope-a",
+                        MEMORY_TAG_GENERATIONS_TABLE.c.memory_artifact_id == created.artifact_id,
+                    )
+                )
+            assert generation == 2
 
     asyncio.run(scenario())
 

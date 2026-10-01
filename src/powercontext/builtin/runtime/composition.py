@@ -82,6 +82,7 @@ from powercontext.builtin.inference.usage import (
 )
 from powercontext.builtin.persistence.dream_schema import ensure_dream_schema
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
+from powercontext.builtin.persistence.memory_query_migration import bootstrap_memory_query_index
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
 from powercontext.builtin.persistence.oceanbase.memory_index import (
     OceanBaseMemoryFTSIndex,
@@ -898,6 +899,7 @@ async def open_builtin_contexts(
             async with profile.database.transaction() as connection:
                 await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
                 await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
+                await bootstrap_memory_query_index(connection)
                 await ensure_skill_distribution_schema(connection)
                 await ensure_topic_memory_tag_schema(connection)
                 await ensure_dream_schema(connection)
@@ -979,6 +981,7 @@ async def open_builtin_contexts(
         async with profile.database.transaction() as connection:
             await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
             await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
+            await bootstrap_memory_query_index(connection)
             await ensure_skill_distribution_schema(connection)
             await ensure_topic_memory_tag_schema(connection)
             await ensure_dream_schema(connection)

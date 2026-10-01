@@ -59,6 +59,7 @@ export const OPERATIONS = {
   search_memory: { method: 'POST', path: '/v1/memory/search', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   get_memory_capacity: { method: 'POST', path: '/v1/memory/capacity', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   list_memory_entries: { method: 'POST', path: '/v1/memory/entries/list', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  query_memory_entries: { method: 'POST', path: '/v1/memory/entries/query', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   get_memory_entry: { method: 'POST', path: '/v1/memory/entries/get', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   revise_memory_entry: { method: 'POST', path: '/v1/memory/entries/revise', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   retire_memory_entry: { method: 'POST', path: '/v1/memory/entries/retire', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },

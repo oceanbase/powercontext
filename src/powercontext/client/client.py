@@ -143,6 +143,8 @@ from powercontext.http import (
     PublishArtifactRequest,
     PublishRemoteSkillRequest,
     PutProfilePolicyRequest,
+    QueryMemoryEntriesRequest,
+    QueryMemoryEntriesResponse,
     ReadinessResponse,
     ReconcileRemoteSkillsRequest,
     ReconcileRemoteSkillsResponse,
@@ -281,6 +283,7 @@ from powercontext.http._generated.operations import (
     PUT_PROFILE_POLICY,
     QUERY_ARTIFACT_TAGS,
     QUERY_CODE,
+    QUERY_MEMORY_ENTRIES,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
@@ -961,6 +964,11 @@ class PowerContextClient:
         """List active entries, optionally including inactive entries for audit."""
 
         return await self._request(LIST_MEMORY_ENTRIES, request)
+
+    async def query_memory_entries(self, request: QueryMemoryEntriesRequest) -> QueryMemoryEntriesResponse:
+        """Query compact entry identities in a bounded revision-pinned page."""
+
+        return await self._request(QUERY_MEMORY_ENTRIES, request)
 
     async def get_memory_entry(self, request: GetMemoryEntryRequest) -> MemoryEntry:
         """Read one exact Memory entry version."""

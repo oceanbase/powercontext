@@ -25,7 +25,7 @@ from fastmcp.client.transports import StreamableHttpTransport
 from starlette.middleware import Middleware
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.runtime import MemoryEntriesPage
+from powercontext.builtin.runtime import MemoryDirectoryPage, MemoryEntriesPage
 from powercontext.server.app import create_app
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
 from powercontext.server.authz import (
@@ -58,6 +58,10 @@ class _MemoryApplication:
     async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:
         del include_inactive
         return MemoryEntriesPage(memory_ref=None)
+
+    async def query(self, request) -> MemoryDirectoryPage:
+        del request
+        return MemoryDirectoryPage(memory_ref=None)
 
 
 def test_mcp_internal_bridge_preserves_principal_and_audits_mcp_transport() -> None:
@@ -132,6 +136,14 @@ def test_mcp_internal_bridge_preserves_principal_and_audits_mcp_transport() -> N
             async with app.router.lifespan_context(app), Client(transport) as client:
                 result = await client.call_tool("list_memory_entries", {"scope_id": "scope-a"})
                 assert result.is_error is False
+                query = await client.call_tool("query_memory_entries", {"scope_id": "scope-a", "limit": 1})
+                assert query.is_error is False
+                denied_query = await client.call_tool(
+                    "query_memory_entries",
+                    {"scope_id": "scope-b", "limit": 1},
+                    raise_on_error=False,
+                )
+                assert denied_query.is_error is True
                 for operation in ("scan_external_skills", "list_external_skills"):
                     denied = await client.call_tool(operation, {"scope_id": "scope-a"}, raise_on_error=False)
                     assert denied.is_error
@@ -142,6 +154,18 @@ def test_mcp_internal_bridge_preserves_principal_and_audits_mcp_transport() -> N
             assert decision.transport == "mcp"
             assert decision.principal == BOB
             assert decision.allowed is True
+            query_decision = next(event for event in audit if event.operation == "query_memory_entries")
+            assert query_decision.transport == "mcp"
+            assert query_decision.principal == BOB
+            assert query_decision.allowed is True
+            denied_decision = next(
+                event
+                for event in audit
+                if event.operation == "query_memory_entries" and event.resource == ResourceRef.scope("scope-b")
+            )
+            assert denied_decision.transport == "mcp"
+            assert denied_decision.principal == BOB
+            assert denied_decision.allowed is False
             for operation in ("scan_external_skills", "list_external_skills"):
                 denied_decision = next(event for event in audit if event.operation == operation)
                 assert denied_decision.principal == BOB

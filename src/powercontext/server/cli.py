@@ -25,6 +25,11 @@ from typing import Annotated, Any, Literal
 import typer
 from pydantic import ValidationError
 
+from powercontext.builtin.persistence.memory_query_migration import (
+    apply_memory_query_migration,
+    plan_memory_query_migration,
+    verify_memory_query_migration,
+)
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.processing_migration import (
     apply_processing_migration,
@@ -157,6 +162,72 @@ async def _processing_maintenance(
                     break
         async with profile.database.transaction() as connection:
             verification = await verify_processing_migration(connection, config_manifest=manifest)
+        typer.echo(verification.model_dump_json())
+        return verification.ready
+
+
+@app.command("memory-query-migrate")
+def memory_query_migrate(
+    action: Annotated[Literal["plan", "apply", "verify"], typer.Option(help="Offline migration action.")] = "plan",
+    env_file: Annotated[Path | None, typer.Option(help="Load deployment settings from this environment file.")] = None,
+    maintenance_confirmed: Annotated[
+        bool,
+        typer.Option(help="Confirm all old hosts and Memory writers are stopped."),
+    ] = False,
+    migration_id: Annotated[str, typer.Option(help="Stable resume ID for this migration.")] = "rfc1656",
+    batch_size: Annotated[
+        int,
+        typer.Option(min=1, max=10000, help="Maximum Memory revisions committed per migration step."),
+    ] = 100,
+) -> None:
+    """Plan, apply or verify the resumable Memory query-index migration."""
+
+    if action == "apply" and not maintenance_confirmed:
+        raise typer.BadParameter("apply requires --maintenance-confirmed after stopping old hosts and writes")  # noqa: TRY003
+    with server_settings_context(env_file=env_file) as settings:
+        ready = asyncio.run(
+            _memory_query_maintenance(settings, action, migration_id=migration_id, batch_size=batch_size)
+        )
+    if not ready:
+        raise typer.Exit(code=1)
+
+
+async def _memory_query_maintenance(
+    settings: ServerSettings,
+    action: Literal["plan", "apply", "verify"],
+    *,
+    migration_id: str,
+    batch_size: int,
+) -> bool:
+    database = settings.database
+    if isinstance(database, SQLiteConfig):
+        if database.is_in_memory:
+            raise typer.BadParameter("offline migration requires a persistent database")  # noqa: TRY003
+        opened = SQLiteProfile.open(database, tables=())
+    elif isinstance(database, OceanBaseConfig):
+        opened = OceanBaseProfile.open(database, tables=())
+    elif isinstance(database, SeekDBConfig):
+        opened = SeekDBProfile.open(database, tables=())
+    else:
+        raise typer.BadParameter("unsupported migration database")  # noqa: TRY003
+    async with opened as profile:
+        if action == "plan":
+            async with profile.database.transaction() as connection:
+                plan = await plan_memory_query_migration(connection)
+            typer.echo(plan.model_dump_json())
+            return True
+        if action == "apply":
+            while True:
+                async with profile.database.transaction() as connection:
+                    progress = await apply_memory_query_migration(
+                        connection,
+                        migration_id=migration_id,
+                        batch_size=batch_size,
+                    )
+                if progress.complete or progress.phase == "verify":
+                    break
+        async with profile.database.transaction() as connection:
+            verification = await verify_memory_query_migration(connection)
         typer.echo(verification.model_dump_json())
         return verification.ready
 

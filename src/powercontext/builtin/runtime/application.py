@@ -59,6 +59,8 @@ from powercontext.builtin.artifacts.memory import (
     MemoryCapacity,
     MemoryCitation,
     MemoryCompactionResult,
+    MemoryDirectoryPage,
+    MemoryDirectoryQuery,
     MemoryEntryInput,
     MemoryEntryVersion,
     MemoryHit,
@@ -197,6 +199,7 @@ from powercontext.builtin.runtime.models import (
     PreparedContext,
     ProposeExperienceRequest,
     ProposeSkillRequest,
+    QueryMemoryEntriesRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
@@ -2459,6 +2462,18 @@ class ScopedMemoryApplication:
                         hits=result.hits,
                         rerank=result.rerank,
                     )
+
+    async def query(self, request: QueryMemoryEntriesRequest, /) -> MemoryDirectoryPage:
+        async with self._runtime._context(self.scope_id) as context:
+            return await context.artifacts.memory.query_directory(
+                context.artifacts.memory_artifact_id,
+                MemoryDirectoryQuery(
+                    include_inactive=request.include_inactive,
+                    tag_filter=request.tag_filter,
+                    limit=request.limit,
+                    cursor=request.cursor,
+                ),
+            )
 
     async def capacity(self) -> MemoryCapacity:
         """Read capacity of the Scope's current Memory, or raise when it does not exist."""

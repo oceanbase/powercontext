@@ -3289,6 +3289,19 @@ class ListMemoryEntriesRequest(BaseModel):
     ] = False
 
 
+class QueryMemoryEntriesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    include_inactive: Annotated[
+        StrictBool, Field(description="Include inactive entries from the pinned Memory Revision for explicit audit.")
+    ] = False
+    tag_filter: TagFilter | None = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
 class ListArtifactCandidatesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3311,6 +3324,16 @@ class MemoryEntry(BaseModel):
     state: MemoryEntryState
     source_refs: list[SourceReference]
     artifact_refs: list[ArtifactReference]
+
+
+class MemoryDirectoryItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    citation: MemoryCitation
+    version: Annotated[StrictInt, Field(ge=1)]
+    kind: StrictStr
+    state: MemoryEntryState
 
 
 class MemoryMutationResponse(BaseModel):
@@ -3945,6 +3968,15 @@ class ListMemoryEntriesResponse(BaseModel):
     )
     memory: ArtifactReference | None = None
     entries: list[MemoryEntry]
+
+
+class QueryMemoryEntriesResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    memory_ref: Annotated[ArtifactReference | None, Field(...)]
+    items: Annotated[list[MemoryDirectoryItem], Field(max_length=100)]
+    next_cursor: Annotated[StrictStr | None, Field(max_length=4096)]
 
 
 class PrepareContextRequest(BaseModel):
