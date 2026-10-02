@@ -161,6 +161,7 @@ class FakeAdapter:
         self.fail_disable = False
         self.fail_remove = False
         self.fail_reload = False
+        self.suspended = False
 
     def support(self) -> tuple[SupportState, str]:
         return SupportState.SUPPORTED, "fake manager available"
@@ -221,6 +222,18 @@ class FakeAdapter:
         self.events.append("disable")
         if self.fail_disable:
             raise ServiceError("disable failed")  # noqa: TRY003
+
+    def suspend(self, marker: Path) -> None:
+        self.events.append("suspend")
+        self.suspended = True
+
+    def resume(self) -> None:
+        self.events.append("resume")
+        self.suspended = False
+
+    def update_suspended(self) -> None:
+        self.events.append("update_suspended")
+        self.loaded_definition = self.definition
 
     def remove(self) -> None:
         self.events.append("remove")

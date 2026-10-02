@@ -178,18 +178,25 @@ def test_long_shared_transaction_drops_usage_without_invalidating_memory() -> No
     asyncio.run(scenario())
 
 
-def test_file_writer_lock_does_not_consume_busy_timeout(tmp_path: Path) -> None:
+def test_file_writer_lock_does_not_consume_busy_timeout(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'locked.db'}", busy_timeout_ms=5_000)
         async with _database(config) as database:
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=0.04)
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=0.2, flush_timeout_seconds=2.0
+            )
             try:
                 async with database.transaction() as connection:
                     await connection.execute(update(SCOPES_TABLE).values(title="locked"))
+                    # Exclude first-checkout setup from the lock-wait measurement.
+                    async with database.engine.connect():
+                        pass
                     start = asyncio.get_running_loop().time()
                     _offer(recorder)
                     await recorder.flush()
-                    assert asyncio.get_running_loop().time() - start < 0.5
+                    # Allow scheduling overhead while still rejecting a full
+                    # five-second native busy wait. Flush must actually settle.
+                    assert asyncio.get_running_loop().time() - start < 3.0
                 assert await _rows(database) == ()
                 await _assert_connection_restored(database)
                 _offer(recorder)
@@ -198,7 +205,9 @@ def test_file_writer_lock_does_not_consume_busy_timeout(tmp_path: Path) -> None:
             finally:
                 await recorder.close()
 
-    asyncio.run(scenario())
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(scenario())
+    assert "Model usage flush timed out" not in caplog.text
 
 
 def test_writer_lock_released_inside_the_budget_still_records(tmp_path: Path) -> None:
@@ -206,9 +215,11 @@ def test_writer_lock_released_inside_the_budget_still_records(tmp_path: Path) ->
         path = tmp_path / "retry.db"
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{path}", busy_timeout_ms=5_000)
         async with _database(config) as database:
-            # One record's budget is spent in slices, so a writer that lets go
-            # partway through still yields a recorded usage row.
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=2.0)
+            # The held lock is released inside the write budget. Wait longer
+            # than that budget before asserting the committed usage row.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=6.0
+            )
             holder = sqlite3.connect(path)
             try:
                 holder.execute("BEGIN IMMEDIATE")
