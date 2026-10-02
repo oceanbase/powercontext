@@ -15,18 +15,439 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
+from threading import Event as ThreadEvent
+from typing import cast
 
+import aiosqlite
+import anyio
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import func, insert, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import Connection as SyncConnection
+from sqlalchemy import event, func, insert, select
+from sqlalchemy.exc import IntegrityError, PendingRollbackError
+from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
+from sqlalchemy.pool import QueuePool
 
+from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.sqlite import profile as sqlite_profile
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACTS_TABLE,
     SHARED_TABLES,
 )
+
+
+def test_sqlite_stop_waiters_finish_when_another_waiter_is_cancelled(tmp_path) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'stop.db'}")
+        async with SQLiteProfile.open(config, tables=()) as profile, profile.database.engine.connect() as connection:
+            driver = cast(aiosqlite.Connection, (await connection.get_raw_connection()).driver_connection)
+            entered = ThreadEvent()
+            release = ThreadEvent()
+
+            def hold_worker() -> None:
+                entered.set()
+                assert release.wait(5)
+
+            blocked = asyncio.create_task(driver._execute(hold_worker))
+            try:
+                assert await asyncio.to_thread(entered.wait, 2)
+                first, second = driver.stop(), driver.stop()
+                assert first is not None and second is not None
+                first.cancel()
+                release.set()
+                await asyncio.wait_for(blocked, 2)
+                await asyncio.wait_for(second, 2)
+                assert not second.cancelled()
+            finally:
+                release.set()
+                await asyncio.gather(blocked, return_exceptions=True)
+                await connection.invalidate()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("phase", ["rollback", "close"])
+def test_transaction_finishes_cleanup_before_propagating_repeated_cancellation(tmp_path, monkeypatch, phase) -> None:
+    async def scenario() -> None:
+        entered = asyncio.Event()
+        cleaning = asyncio.Event()
+        release = asyncio.Event()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cleanup.db'}")
+        async with SQLiteProfile.open(config, tables=()) as profile:
+            database = profile.database
+            pool = cast(QueuePool, database.engine.pool)
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER)")
+
+            async def operation() -> None:
+                async with database.transaction() as connection:
+                    if phase == "rollback":
+                        driver = cast(aiosqlite.Connection, (await connection.get_raw_connection()).driver_connection)
+                        original_rollback = driver.rollback
+
+                        async def delayed_rollback() -> None:
+                            if not cleaning.is_set():
+                                cleaning.set()
+                                await release.wait()
+                            await original_rollback()
+
+                        monkeypatch.setattr(driver, "rollback", delayed_rollback)
+                    else:
+                        original_close = AsyncConnection.close
+
+                        async def delayed_close(closing: AsyncConnection) -> None:
+                            if closing is connection:
+                                cleaning.set()
+                                await release.wait()
+                            await original_close(closing)
+
+                        monkeypatch.setattr(AsyncConnection, "close", delayed_close)
+                    await connection.exec_driver_sql("INSERT INTO probe VALUES (1)")
+                    entered.set()
+                    await asyncio.Event().wait()
+
+            pending = asyncio.create_task(operation())
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                pending.cancel()
+                await asyncio.wait_for(cleaning.wait(), 2)
+                pending.cancel()
+                done, _ = await asyncio.wait({pending}, timeout=0.02)
+                assert not done, "cancellation returned before transaction cleanup finished"
+                assert pool.checkedout() == 1
+                assert database._active_transactions == 1
+            finally:
+                release.set()
+                if not pending.done():
+                    pending.cancel()
+                await asyncio.wait_for(asyncio.gather(pending, return_exceptions=True), 2)
+            assert pending.cancelled()
+            assert pool.checkedout() == 0
+            async with database.transaction() as connection:
+                assert (await connection.exec_driver_sql("SELECT count(*) FROM probe")).scalar_one() == 0
+
+    asyncio.run(scenario())
+
+
+def test_shared_transaction_keeps_its_lock_until_cancelled_rollback_finishes(monkeypatch) -> None:
+    async def scenario() -> None:
+        entered, cleaning, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        contender_started, contender_entered = asyncio.Event(), asyncio.Event()
+        async with SQLiteProfile.open(SQLiteConfig(), tables=()) as profile:
+            database = profile.database
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER)")
+
+            async def operation() -> None:
+                async with database.transaction() as connection:
+                    async with database.transaction() as nested:
+                        assert nested is connection
+                        await nested.exec_driver_sql("INSERT INTO probe VALUES (1)")
+                    driver = cast(aiosqlite.Connection, (await connection.get_raw_connection()).driver_connection)
+                    original = driver.rollback
+
+                    async def delayed_rollback() -> None:
+                        if not cleaning.is_set():
+                            cleaning.set()
+                            await release.wait()
+                        await original()
+
+                    monkeypatch.setattr(driver, "rollback", delayed_rollback)
+                    entered.set()
+                    await asyncio.Event().wait()
+
+            async def contender() -> None:
+                contender_started.set()
+                async with database.transaction() as connection:
+                    contender_entered.set()
+                    assert (await connection.exec_driver_sql("SELECT count(*) FROM probe")).scalar_one() == 0
+                    await connection.exec_driver_sql("INSERT INTO probe VALUES (2)")
+
+            pending = asyncio.create_task(operation())
+            competing = None
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                pending.cancel()
+                await asyncio.wait_for(cleaning.wait(), 2)
+                competing = asyncio.create_task(contender())
+                await asyncio.wait_for(contender_started.wait(), 2)
+                pending.cancel()
+                done, _ = await asyncio.wait({competing}, timeout=0.02)
+                assert not done
+                assert not contender_entered.is_set()
+            finally:
+                release.set()
+                if not pending.done():
+                    pending.cancel()
+                await asyncio.wait_for(asyncio.gather(pending, return_exceptions=True), 2)
+            assert pending.cancelled()
+            assert competing is not None
+            await asyncio.wait_for(competing, 2)
+            async with database.transaction() as connection:
+                assert (await connection.exec_driver_sql("SELECT value FROM probe")).scalar_one() == 2
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("phase", ["body", "sql"])
+def test_repeated_transaction_cancellation_does_not_exhaust_the_pool(tmp_path, monkeypatch, phase) -> None:
+    monkeypatch.setattr(
+        sqlite_profile,
+        "create_async_engine",
+        partial(create_async_engine, pool_size=1, max_overflow=0, pool_timeout=0.5),
+    )
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'repeated.db'}")
+        async with SQLiteProfile.open(config, tables=()) as profile:
+            database = profile.database
+            pool = cast(QueuePool, database.engine.pool)
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER)")
+            for _ in range(10):
+                entered = asyncio.Event()
+                release = ThreadEvent()
+
+                async def operation(entered: asyncio.Event = entered, release: ThreadEvent = release) -> None:
+                    async with database.transaction() as connection:
+                        await connection.exec_driver_sql("INSERT INTO probe VALUES (1)")
+                        if phase == "sql":
+                            driver = cast(
+                                aiosqlite.Connection, (await connection.get_raw_connection()).driver_connection
+                            )
+                            loop = asyncio.get_running_loop()
+
+                            def wait_for_release() -> int:
+                                loop.call_soon_threadsafe(entered.set)
+                                assert release.wait(5)
+                                return 1
+
+                            await driver.create_function("wait_for_release", 0, wait_for_release)
+                            await connection.exec_driver_sql("SELECT wait_for_release()")
+                        else:
+                            entered.set()
+                            await asyncio.Event().wait()
+
+                try:
+                    async with anyio.create_task_group() as group:
+                        group.start_soon(operation)
+                        await asyncio.wait_for(entered.wait(), 2)
+                        group.cancel_scope.cancel()
+                        release.set()
+                finally:
+                    release.set()
+                assert pool.checkedout() == 0
+                await asyncio.wait_for(database.ping(), 2)
+                async with database.transaction() as connection:
+                    assert (await connection.exec_driver_sql("SELECT count(*) FROM probe")).scalar_one() == 0
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_checkout_does_not_keep_the_only_pool_slot(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        sqlite_profile,
+        "create_async_engine",
+        partial(create_async_engine, pool_size=1, max_overflow=0, pool_timeout=0.5),
+    )
+
+    async def scenario() -> None:
+        entered = asyncio.Event()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'checkout.db'}")
+        async with SQLiteProfile.open(config, tables=()) as profile:
+            database = profile.database
+            pool = cast(QueuePool, database.engine.pool)
+
+            async def blocked_checkout() -> None:
+                entered.set()
+                async with database.transaction():
+                    pytest.fail("the held pool slot was unexpectedly available")
+
+            async with database.transaction():
+                pending = asyncio.create_task(blocked_checkout())
+                await asyncio.wait_for(entered.wait(), 2)
+                pending.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await asyncio.wait_for(pending, 2)
+                assert pool.checkedout() == 1
+            assert pool.checkedout() == 0
+            await asyncio.wait_for(database.ping(), 2)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("in_memory", [False, True], ids=["file", "memory"])
+def test_interrupted_write_cannot_commit_earlier_work(tmp_path, in_memory) -> None:
+    """An interrupted write rolls SQLite's whole native transaction back.
+
+    SQLite discards the entire transaction when an INSERT, UPDATE or DELETE is
+    interrupted, so a caller that catches the error and keeps writing must not
+    be able to commit the later work on top of that rollback.
+    """
+
+    release = ThreadEvent()
+
+    async def scenario() -> None:
+        url = "sqlite+aiosqlite:///:memory:" if in_memory else f"sqlite+aiosqlite:///{tmp_path / 'atomicity.db'}"
+
+        def slow(value: int) -> int:
+            release.wait(10)
+            return value
+
+        async with SQLiteProfile.open(SQLiteConfig(url=url), tables=()) as profile:
+            database = profile.database
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER)")
+
+            try:
+                async with database.transaction() as connection:
+                    await connection.exec_driver_sql("INSERT INTO probe VALUES (3)")
+                    driver = cast(aiosqlite.Connection, (await connection.get_raw_connection()).driver_connection)
+                    await driver.create_function("slow", 1, slow)
+                    try:
+                        async with asyncio.timeout(0.5):
+                            await connection.exec_driver_sql("UPDATE probe SET value = slow(value)")
+                    except TimeoutError:
+                        release.set()
+                    await connection.exec_driver_sql("INSERT INTO probe VALUES (4)")
+            except PendingRollbackError:
+                pass
+            else:
+                pytest.fail("an interrupted transaction committed instead of failing")
+
+            async with database.transaction() as connection:
+                rows = (await connection.exec_driver_sql("SELECT value FROM probe")).fetchall()
+                assert [row[0] for row in rows] == []
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        release.set()
+
+
+def test_interrupt_marked_outside_the_transaction_does_not_fail_it(tmp_path) -> None:
+    """A mark left by a statement outside transaction() must not fail a later one.
+
+    The usage recorder owns its own transaction and never passes through
+    ``AsyncDatabase.transaction()``, so a mark an interrupt left on that pooled
+    connection survives until another transaction picks the connection up. That
+    later transaction has nothing to do with the interrupt and must commit.
+    """
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'stale-mark.db'}")
+        async with SQLiteProfile.open(config, tables=()) as profile:
+            database = profile.database
+            async with database.engine.connect() as connection:
+                connection.info["_powercontext_sqlite_interrupted"] = True
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("SELECT 1")
+
+    asyncio.run(scenario())
+
+
+def test_invalidated_connection_still_reaches_transaction_cleanup() -> None:
+    """Cleanup must not read ``connection.info`` directly.
+
+    A cancelled statement can invalidate the connection through SQLAlchemy's
+    normal path, and from then on ``connection.info`` raises
+    PendingRollbackError. Reading it inside the failure path skipped the rest of
+    the cleanup and left the transaction counted as active, which also kept
+    database shutdown from finishing.
+    """
+
+    class Boom(Exception):
+        pass
+
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        database = AsyncDatabase.attach(engine)
+        try:
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER)")
+
+            async def operation() -> None:
+                async with database.transaction() as connection:
+                    await connection.invalidate()
+                    raise Boom
+
+            with pytest.raises(Boom):
+                await operation()
+
+            assert database._active_transactions == 0
+            await asyncio.wait_for(database.close(), 5)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_invalidated_connection_preserves_the_original_cancellation() -> None:
+    """A cancelled statement must still surface as cancellation.
+
+    Once the connection is invalidated, reading ``connection.info`` raises
+    PendingRollbackError. Cleanup must not turn that into the caller's error:
+    the operation was cancelled, and the caller has to see that.
+    """
+
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        database = AsyncDatabase.attach(engine)
+        try:
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER)")
+
+            async def operation() -> None:
+                async with database.transaction() as connection:
+                    await connection.invalidate()
+                    raise asyncio.CancelledError
+
+            task = asyncio.create_task(operation())
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+            assert database._active_transactions == 0
+            await asyncio.wait_for(database.close(), 5)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_marker_recorded_during_commit_does_not_survive_the_transaction(tmp_path) -> None:
+    """The interruption check runs before COMMIT.
+
+    A mark recorded while the commit is still in flight therefore lands after
+    that check, and has to be cleared on the way out -- otherwise the next
+    borrower of this pooled connection inherits an interrupt that was never
+    theirs.
+    """
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'commit-mark.db'}")
+        async with SQLiteProfile.open(config, tables=()) as profile:
+            database = profile.database
+
+            def plant_mark(connection: SyncConnection) -> None:
+                connection.info["_powercontext_sqlite_interrupted"] = True
+
+            event.listen(database.engine.sync_engine, "commit", plant_mark)
+            try:
+                async with database.transaction() as connection:
+                    await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER)")
+            finally:
+                event.remove(database.engine.sync_engine, "commit", plant_mark)
+
+            async with database.engine.connect() as connection:
+                assert "_powercontext_sqlite_interrupted" not in connection.info
+
+            async with database.transaction() as connection:
+                await connection.exec_driver_sql("INSERT INTO probe VALUES (1)")
+
+    asyncio.run(scenario())
 
 
 def test_sqlite_config_requires_the_async_dialect() -> None:
