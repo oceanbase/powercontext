@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from contextvars import Context
 from dataclasses import dataclass
 from datetime import date
 
@@ -117,7 +118,15 @@ class _ModelUsageRecorder:
                 # Get the loop before constructing the coroutine so a sync caller
                 # outside a loop cannot leave an unawaited coroutine behind.
                 loop = asyncio.get_running_loop()
-                self._consumer = loop.create_task(self._consume(), name="powercontext-model-usage")
+                # This is a runtime-owned worker, not a child of the request that
+                # happened to submit its first record. A clean context prevents
+                # request cancellation scopes and request-local state from leaking
+                # into the consumer and cancelling an in-flight database cleanup.
+                self._consumer = loop.create_task(
+                    self._consume(),
+                    name="powercontext-model-usage",
+                    context=Context(),
+                )
                 self._consumer.add_done_callback(self._consumer_finished)
             self._offered += 1
             self._pending.append((self._offered, record))

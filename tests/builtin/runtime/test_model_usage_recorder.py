@@ -19,6 +19,7 @@ import logging
 import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from contextvars import ContextVar
 from datetime import date
 from pathlib import Path
 from threading import Event as ThreadEvent
@@ -43,6 +44,7 @@ _DAY = date(2026, 1, 2)
 _SCOPE = "usage-secret-scope"
 _PURPOSE = ModelUsagePurpose.MEMORY_EXTRACTION
 _OPERATION = ModelUsageOperation.GENERATION
+_REQUEST_CONTEXT = ContextVar("model_usage_request_context", default="runtime")
 
 
 @asynccontextmanager
@@ -619,6 +621,42 @@ def test_cancelled_flush_propagates_without_cancelling_consumer() -> None:
                 await recorder.flush()
                 assert (await _rows(database))[0].requests == 1
                 await _assert_connection_restored(database)
+            finally:
+                await recorder.close()
+
+    asyncio.run(scenario())
+
+
+def test_consumer_does_not_inherit_the_request_context() -> None:
+    class ContextRepository(StatisticsRepository):
+        observed_context: str | None = None
+
+        async def record(
+            self,
+            connection: AsyncConnection,
+            scope_id: str,
+            usage_date: date,
+            purpose: ModelUsagePurpose,
+            operation: ModelUsageOperation,
+            usage: InferenceUsage,
+            /,
+        ) -> None:
+            self.observed_context = _REQUEST_CONTEXT.get()
+            await super().record(connection, scope_id, usage_date, purpose, operation, usage)
+
+    async def scenario() -> None:
+        async with _database() as database:
+            repository = ContextRepository()
+            recorder = _ModelUsageRecorder(database, repository)
+            try:
+                token = _REQUEST_CONTEXT.set("request")
+                try:
+                    _offer(recorder)
+                finally:
+                    _REQUEST_CONTEXT.reset(token)
+                await recorder.flush()
+                assert repository.observed_context == "runtime"
+                assert (await _rows(database))[0].requests == 1
             finally:
                 await recorder.close()
 
