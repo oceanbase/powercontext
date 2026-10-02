@@ -15,13 +15,21 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock
 
+import pytest
 from sqlalchemy import BigInteger, DateTime, Integer, String
 from sqlalchemy.dialects import mysql
+from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
 from powercontext.builtin.artifacts.memory import MemoryEntryInput
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.artifacts.memory.errors import MemoryBackendConfigurationError
+from powercontext.builtin.persistence.memory_schema import ensure_memory_entry_version_scope_identity
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
@@ -30,6 +38,7 @@ from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.sources import ContentCapture, ContentSource
 
 _INNODB_MAX_INDEX_BYTES = 3072
+_SCOPE_VERSION_INDEX = "uq_pc_memory_entry_versions_scope_version"
 
 
 class _UnbudgetedColumnTypeError(TypeError):
@@ -70,6 +79,74 @@ def test_memory_schema_is_mysql_compilable_and_respects_key_and_payload_limits()
     assert budgets
     assert max(budgets) == 2560
     assert all(budget < _INNODB_MAX_INDEX_BYTES for budget in budgets)
+
+    scope_version_indexes = {
+        tuple(column.name for column in index.columns) for index in MEMORY_ENTRY_VERSIONS_TABLE.indexes if index.unique
+    }
+    assert ("scope_id", "entry_version_id") in scope_version_indexes
+
+
+def test_sqlite_startup_adds_scope_global_version_identity_to_an_existing_table(tmp_path) -> None:
+    async def scenario() -> None:
+        database = tmp_path / "legacy-memory.db"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "CREATE TABLE pc_memory_entry_versions (scope_id TEXT NOT NULL, entry_version_id TEXT NOT NULL)"
+            )
+
+        async with (
+            SQLiteProfile.open(
+                SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
+                tables=(MEMORY_ENTRY_VERSIONS_TABLE,),
+            ) as profile,
+            profile.database.transaction() as connection,
+        ):
+            indexes = (await connection.exec_driver_sql("PRAGMA index_list('pc_memory_entry_versions')")).all()
+
+        assert _SCOPE_VERSION_INDEX in {str(row[1]) for row in indexes}
+
+    asyncio.run(scenario())
+
+
+def test_sqlite_startup_rejects_duplicate_scope_global_version_identities(tmp_path) -> None:
+    async def scenario() -> None:
+        database = tmp_path / "duplicate-memory.db"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "CREATE TABLE pc_memory_entry_versions (scope_id TEXT NOT NULL, entry_version_id TEXT NOT NULL)"
+            )
+            connection.executemany(
+                "INSERT INTO pc_memory_entry_versions (scope_id, entry_version_id) VALUES (?, ?)",
+                (("scope", "duplicate"), ("scope", "duplicate")),
+            )
+
+        with pytest.raises(MemoryBackendConfigurationError):
+            async with SQLiteProfile.open(
+                SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
+                tables=(MEMORY_ENTRY_VERSIONS_TABLE,),
+            ):
+                pass
+
+    asyncio.run(scenario())
+
+
+def test_oceanbase_startup_adds_scope_global_version_identity_to_an_existing_table() -> None:
+    async def scenario() -> None:
+        connection = SimpleNamespace(
+            dialect=SimpleNamespace(name="mysql"),
+            scalar=AsyncMock(return_value=0),
+            execute=AsyncMock(return_value=SimpleNamespace(first=lambda: None)),
+            exec_driver_sql=AsyncMock(),
+        )
+
+        await ensure_memory_entry_version_scope_identity(cast(AsyncConnection, connection))
+
+        connection.exec_driver_sql.assert_awaited_once_with(
+            "CREATE UNIQUE INDEX uq_pc_memory_entry_versions_scope_version "
+            "ON pc_memory_entry_versions (scope_id, entry_version_id)"
+        )
+
+    asyncio.run(scenario())
 
 
 def test_sqlite_memory_backend_commits_authoritative_history_and_fts() -> None:
