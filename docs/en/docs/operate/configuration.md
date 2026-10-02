@@ -149,7 +149,7 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_INFERENCE_DECISION_HEADERS` | `{}` | JSON object of static decision client headers; values are secrets and inherit generation headers when no dedicated model is set |
 | `POWERCONTEXT_SERVER_INFERENCE_DECISION_MODEL_SETTINGS` | `{}` | JSON object of decision model settings; merged with generation settings when no dedicated model is set |
 | `POWERCONTEXT_SERVER_INFERENCE_DECISION_TIMEOUT_SECONDS` | generation timeout | Timeout in seconds for a decision operation |
-| `POWERCONTEXT_SERVER_INFERENCE_DECISION_MAX_REQUESTS` | generation request limit | Maximum provider requests for one decision operation, including retries |
+| `POWERCONTEXT_SERVER_INFERENCE_DECISION_MAX_REQUESTS` | generation request limit | Maximum model requests for one decision operation, including model-output validation retries; excludes provider SDK HTTP retries |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | unset | Experience automatic admission interval; unset preserves accepted work and stops new automatic admission |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | automatic local project targets | JSON override containing the host identity and explicit Agent Skill targets |
 
