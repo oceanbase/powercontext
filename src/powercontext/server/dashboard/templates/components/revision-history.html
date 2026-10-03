@@ -1,0 +1,108 @@
+{% if history %}
+<section class="card mt-4">
+  <div class="card-header"><h2 class="card-title mb-0">{{ t.revision_history }}</h2></div>
+  <div class="list-group list-group-flush">
+    {% for item in history["items"] %}
+      <div class="list-group-item">
+        <div class="d-flex flex-wrap justify-content-between gap-2">
+          <div>
+            <strong>{{ t.revision }} {{ item.revision }}</strong>
+            {% if item.revision == history.head %}<span class="badge bg-blue-lt ms-2">{{ t.revision_current }}</span>{% endif %}
+            {% if item.restored_from_revision %}<span class="badge bg-purple-lt ms-2">{{ t.revision_rollback_badge }}</span>{% endif %}
+            <div class="text-secondary small">
+              {% if item.created_at %}{{ item.created_at }}{% else %}{{ t.revision_unknown_time }}{% endif %}
+              {% if item.restored_from_revision %} · {{ t.revision_from }} {{ item.restored_from_revision }}{% endif %}
+              {% if item.created_by %} · {{ t.revision_actor }} {{ item.created_by.type }}:{{ item.created_by.id }}{% endif %}
+            </div>
+            {% if item.reason %}<div class="small">{{ item.reason }}</div>{% endif %}
+          </div>
+          <div class="btn-list">
+            {% if history.family == "profile" %}
+              <a class="btn btn-sm" href="{{ link('profile', revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
+            {% elif history.family == "topic-memory" %}
+              <a class="btn btn-sm" href="{{ link('topics', topic_artifact=history.artifact_id, topic_revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
+            {% elif history.family == "prompt" %}
+              <a class="btn btn-sm" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
+            {% elif history.family == "memory" %}
+              <a class="btn btn-sm" href="{{ link('notes', memory_history=item.revision, memory_artifact=history.artifact_id, notes_page=none) }}">{{ t.revision }} {{ item.revision }}</a>
+            {% else %}
+              <a class="btn btn-sm" href="{{ link(none, artifact=history.artifact_id, revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
+            {% endif %}
+            {% if item.revision != history.selected %}
+              {% if history.family == "memory" %}
+                <a class="btn btn-sm" href="{{ link(none, compare=item.revision, memory_artifact=history.artifact_id, notes_page=none) }}">{{ t.revision_compare }}</a>
+              {% else %}
+                <a class="btn btn-sm" href="{{ link(none, compare=item.revision) }}">{{ t.revision_compare }}</a>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div class="list-group-item text-secondary">{{ t.revision_empty }}</div>
+    {% endfor %}
+  </div>
+  {% if history.next_url %}
+    <div class="card-footer"><a href="{{ history.next_url }}">{{ t.profile_history }}</a></div>
+  {% endif %}
+  {% if history.error == "revision_conflict" %}<div class="card-body text-danger">{{ t.revision_conflict }}</div>
+  {% elif history.error == "forbidden" %}<div class="card-body text-danger">{{ t.revision_forbidden }}</div>
+  {% elif history.error %} <div class="card-body text-danger">{{ t.revision_rejected }}</div>{% endif %}
+  {% if history.compare_error %}<div class="card-body text-danger">{{ t.revision_compare_missing }}</div>{% endif %}
+  {% if history.rows %}
+    <div class="card-body">
+      <h3 class="h4">{{ t.revision_compare }} · {{ history.selected }} / {{ history.compare }}</h3>
+      {% for row in history.rows %}
+        <h4 class="h5 mt-3">{{ row.name }}</h4>
+        {% if row.changed %}
+          <pre class="page-body-pre text-break">{% for line in row.diff %}{% if line.kind == "add" %}+ {% elif line.kind == "remove" %}- {% else %}  {% endif %}{{ line.text }}
+{% endfor %}</pre>
+        {% else %}
+          <p class="text-secondary">{{ t.revision_same }}</p>
+        {% endif %}
+      {% endfor %}
+      {% if history.compare_truncated %}<p class="text-secondary">{{ t.revision_compare_truncated }}</p>{% endif %}
+    </div>
+  {% endif %}
+  {% if history.selected != history.head %}
+    <form class="card-body border-top" method="get" action="/dashboard/{{ page }}">
+      <input type="hidden" name="scope" value="{{ scope }}">
+      {% if history.family == "profile" %}<input type="hidden" name="revision" value="{{ history.selected }}">{% endif %}
+      {% if history.family not in ["profile", "prompt", "memory", "topic-memory"] %}
+        <input type="hidden" name="artifact" value="{{ history.artifact_id }}">
+        <input type="hidden" name="revision" value="{{ history.selected }}">
+      {% endif %}
+      {% if history.family == "topic-memory" %}
+        <input type="hidden" name="topic_artifact" value="{{ history.artifact_id }}">
+        <input type="hidden" name="topic_revision" value="{{ history.selected }}">
+      {% endif %}
+      {% if history.family == "prompt" %}
+        <input type="hidden" name="prompt_key" value="{{ history.artifact_id }}">
+        <input type="hidden" name="prompt_revision" value="{{ history.selected }}">
+      {% endif %}
+      {% if history.family == "memory" %}
+        <input type="hidden" name="memory_history" value="{{ history.selected }}">
+        <input type="hidden" name="memory_artifact" value="{{ history.artifact_id }}">
+      {% endif %}
+      <label class="form-label" for="compare-revision">{{ t.revision_other }}</label>
+      <input class="form-control" id="compare-revision" name="compare" type="number" min="1" step="1" required value="{{ history.compare or history.head }}">
+      <button class="btn mt-2" type="submit">{{ t.revision_compare }}</button>
+    </form>
+  {% endif %}
+  {% if history.can_rollback and history.selected != history.head and not history.same_content %}
+    <form class="card-body border-top" method="post" action="/dashboard/rollback">
+      <input type="hidden" name="scope" value="{{ scope }}">
+      <input type="hidden" name="family" value="{{ history.family }}">
+      <input type="hidden" name="artifact_id" value="{{ history.artifact_id }}">
+      <input type="hidden" name="source_revision" value="{{ history.selected }}">
+      <input type="hidden" name="expected_revision" value="{{ history.head }}">
+      {% if history.family == "handoff" %}<p>{{ t.handoff_rollback_notice }}</p>{% endif %}
+      <label class="form-label" for="rollback-reason">{{ t.revision_reason }}</label>
+      <input class="form-control" id="rollback-reason" name="reason" maxlength="1024" required>
+      <button class="btn btn-primary mt-3" type="submit">{{ t.revision_confirm }}</button>
+    </form>
+  {% elif history.same_content and history.selected != history.head %}
+    <div class="card-body text-secondary">{{ t.revision_same }}</div>
+  {% endif %}
+</section>
+{% endif %}

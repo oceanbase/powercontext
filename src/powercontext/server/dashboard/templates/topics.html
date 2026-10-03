@@ -42,5 +42,6 @@ limitations under the License.
       <p class="text-secondary mt-3">{{ topic.summary }}</p><h3>{{ t.full_detail }}</h3><pre class="page-body-pre text-break">{{ topic.detail }}</pre>
       <hr><h3>{{ t.source_references }}</h3>{% if topic.source_refs %}<ul>{% for source in topic.source_refs %}<li><code>{{ source.name }}/{{ source.source_id }}</code></li>{% endfor %}</ul>{% else %}<p class="text-secondary">{{ t.no_sources }}</p>{% endif %}
     {% else %}<div class="empty"><h2>{{ t.select_topic }}</h2><p class="empty-subtitle text-secondary">{{ t.select_topic_hint }}</p></div>{% endif %}
+    {% include 'components/revision-history.html' %}
   </div></div></section>
 </div>

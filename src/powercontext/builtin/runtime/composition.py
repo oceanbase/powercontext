@@ -81,6 +81,7 @@ from powercontext.builtin.inference.usage import (
     UsageReportingStructuredGenerator,
 )
 from powercontext.builtin.persistence.dream_schema import ensure_dream_schema
+from powercontext.builtin.persistence.revision_meta import ensure_revision_metadata_schema
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
 from powercontext.builtin.persistence.oceanbase.memory_index import (
@@ -901,6 +902,7 @@ async def open_builtin_contexts(
                 await ensure_skill_distribution_schema(connection)
                 await ensure_topic_memory_tag_schema(connection)
                 await ensure_dream_schema(connection)
+                await ensure_revision_metadata_schema(connection)
                 await ensure_scope_search_schema(connection)
                 # A Topic child reuses its parent's schema. It never reads or
                 # writes Memory/Experience projections; rebuilding their FTS
@@ -982,6 +984,7 @@ async def open_builtin_contexts(
             await ensure_skill_distribution_schema(connection)
             await ensure_topic_memory_tag_schema(connection)
             await ensure_dream_schema(connection)
+            await ensure_revision_metadata_schema(connection)
             await ensure_scope_search_schema(connection)
             if not _topic_memory_worker:
                 await index.initialize(connection)

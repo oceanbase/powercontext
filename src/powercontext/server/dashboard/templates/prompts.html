@@ -26,10 +26,13 @@ limitations under the License.
     <section class="col-12 col-xl-6"><article class="card h-100">
       <div class="card-header"><div><h2 class="card-title mb-1">{{ prompt.prompt_key }}</h2><div class="text-secondary small">{{ t.prompt_status }}: {{ prompt.status }}</div></div><span class="badge bg-blue-lt">{{ t.prompt_mode }}: {{ t.prompt_custom if prompt.mode == 'custom' else t.prompt_auto }}</span></div>
       <div class="card-body">
-        <dl class="row mb-3"><dt class="col-sm-4">{{ t.prompt_revision }}</dt><dd class="col-sm-8">{{ prompt.artifact.revision if prompt.artifact else t.prompt_auto }}</dd><dt class="col-sm-4">{{ t.prompt_demonstrations }}</dt><dd class="col-sm-8">{{ prompt.effective.demonstrations|length if prompt.effective else 0 }}</dd></dl>
-        {% if prompt.effective %}<h3 class="h4">{{ t.prompt_instructions }}</h3><pre class="page-body-pre text-break">{{ prompt.effective.instructions }}</pre>{% elif prompt.builtin %}<h3 class="h4">{{ t.prompt_instructions }}</h3><pre class="page-body-pre text-break">{{ prompt.builtin.instructions }}</pre>{% endif %}
+        {% set opened = prompt_opened if prompt_opened and prompt.prompt_key == prompt_key else none %}
+        <dl class="row mb-3"><dt class="col-sm-4">{{ t.prompt_revision }}</dt><dd class="col-sm-8">{{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }}</dd><dt class="col-sm-4">{{ t.prompt_demonstrations }}</dt><dd class="col-sm-8">{{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</dd></dl>
+        {% if prompt.artifact %}<p><a href="{{ link('prompts', prompt_key=prompt.prompt_key, prompt_revision=prompt.artifact.revision) }}">{{ t.revision_history }}</a></p>{% endif %}
+        {% if opened %}<h3 class="h4">{{ t.prompt_instructions }}</h3><pre class="page-body-pre text-break">{{ opened.content.instructions }}</pre>{% elif prompt.effective %}<h3 class="h4">{{ t.prompt_instructions }}</h3><pre class="page-body-pre text-break">{{ prompt.effective.instructions }}</pre>{% elif prompt.builtin %}<h3 class="h4">{{ t.prompt_instructions }}</h3><pre class="page-body-pre text-break">{{ prompt.builtin.instructions }}</pre>{% endif %}
       </div>
     </article></section>
   {% endfor %}
   </div>
+  {% include 'components/revision-history.html' %}
 {% endif %}
