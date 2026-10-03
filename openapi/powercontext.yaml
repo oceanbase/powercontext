@@ -6528,6 +6528,26 @@ components:
         schema:
           type: object
           additionalProperties: true
+    MemoryEvidenceAuthority:
+      type: string
+      enum: [untrusted, user_asserted, repository_attested, system_attested]
+    MemoryEvidenceVerification:
+      type: string
+      enum: [unknown, verified, not_verified]
+    MemoryEvidenceDeclaration:
+      type: object
+      additionalProperties: false
+      required: [authority, verification, declaration_version]
+      properties:
+        authority:
+          $ref: "#/components/schemas/MemoryEvidenceAuthority"
+        verification:
+          $ref: "#/components/schemas/MemoryEvidenceVerification"
+        declaration_version:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
     SourceDefinitionManifest:
       type: object
       additionalProperties: false
@@ -6554,6 +6574,8 @@ components:
           maxItems: 16
           items:
             $ref: "#/components/schemas/SourceProjectionManifest"
+        memory_evidence:
+          $ref: "#/components/schemas/MemoryEvidenceDeclaration"
     RegisterSourceDefinitionRequest:
       type: object
       additionalProperties: false
@@ -6637,6 +6659,8 @@ components:
         definition_fingerprint:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
+        memory_evidence:
+          $ref: "#/components/schemas/MemoryEvidenceDeclaration"
         payload:
           type: object
           additionalProperties: true

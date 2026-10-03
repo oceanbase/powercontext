@@ -723,6 +723,28 @@ class SourceProjectionManifest(BaseModel):
     schema_: Annotated[dict[str, Any], Field(alias="schema")]
 
 
+class MemoryEvidenceAuthority(StrEnum):
+    UNTRUSTED = "untrusted"
+    USER_ASSERTED = "user_asserted"
+    REPOSITORY_ATTESTED = "repository_attested"
+    SYSTEM_ATTESTED = "system_attested"
+
+
+class MemoryEvidenceVerification(StrEnum):
+    UNKNOWN = "unknown"
+    VERIFIED = "verified"
+    NOT_VERIFIED = "not_verified"
+
+
+class MemoryEvidenceDeclaration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    authority: MemoryEvidenceAuthority
+    verification: MemoryEvidenceVerification
+    declaration_version: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+
+
 class SourceDefinitionManifest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -732,6 +754,7 @@ class SourceDefinitionManifest(BaseModel):
     fingerprint: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
     source_schema: dict[str, Any]
     projections: Annotated[list[SourceProjectionManifest], Field(max_length=16)]
+    memory_evidence: MemoryEvidenceDeclaration | None = None
 
 
 class RegisterSourceDefinitionRequest(BaseModel):
@@ -788,6 +811,7 @@ class SourceObservation(BaseModel):
     description: StrictStr | None = None
     source_type: Annotated[StrictStr, Field(max_length=128, min_length=1)]
     definition_fingerprint: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    memory_evidence: MemoryEvidenceDeclaration | None = None
     payload: dict[str, Any]
     projections: Annotated[list[SourceProjectionValue], Field(max_length=16)]
 

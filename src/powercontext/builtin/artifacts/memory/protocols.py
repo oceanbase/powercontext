@@ -32,6 +32,7 @@ from powercontext.builtin.artifacts.memory.models import (
     MemoryEntryInput,
     MemoryEntryVersion,
     MemoryHit,
+    MemoryLifecycleProjection,
     MemoryRevisionChanges,
     MemoryUsedSearchMode,
 )
@@ -55,6 +56,7 @@ class MemoryProjection(BaseModel):
     searchable_text: str
     embedding: EmbeddingVector | None = None
     embedding_content_hash: str | None = None
+    lifecycle: MemoryLifecycleProjection | None = None
 
 
 class MemoryCommit(BaseModel):
@@ -208,6 +210,11 @@ class MemoryBackend(Protocol):
 
     async def projections(self, memory: ArtifactRef, /) -> tuple[MemoryProjection, ...]:
         """Load rebuildable active-head projections for an exact Memory Revision."""
+
+        ...
+
+    async def lifecycle_projections(self, memory: ArtifactRef, /) -> tuple[MemoryLifecycleProjection, ...]:
+        """Load internal lifecycle metadata for one exact Memory Revision."""
 
         ...
 

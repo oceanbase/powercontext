@@ -25,7 +25,7 @@ from powercontext.artifacts import Artifact, ArtifactRef
 from powercontext.artifacts import MemoryCitation as MemoryCitation
 from powercontext.builtin.artifacts.search import AdmissionCounts
 from powercontext.builtin.inference.models import InferenceUsage
-from powercontext.sources import Source, SourceRef
+from powercontext.sources import MemoryEvidenceDeclaration, Source, SourceRef
 
 MemoryEntryState: TypeAlias = Literal["active", "inactive"]
 MemoryChangeOp: TypeAlias = Literal["add", "revise", "deactivate", "reactivate", "compact"]
@@ -33,6 +33,20 @@ MemoryCapacityDimension: TypeAlias = Literal["active_entries", "manifest_entries
 MemorySearchMode: TypeAlias = Literal["fts", "vector", "hybrid", "auto"]
 MemoryUsedSearchMode: TypeAlias = Literal["fts", "vector", "hybrid"]
 MemoryMatchedBy: TypeAlias = Literal["fts", "vector"]
+MemoryLifecycleValidity: TypeAlias = Literal["current", "inactive", "superseded", "unresolved_conflict"]
+MemoryTimeState: TypeAlias = Literal["unknown"]
+
+
+class MemoryEvidenceSnapshot(BaseModel):
+    """The definition-owned evidence declaration attached to an entry version.
+
+    The snapshot is intentionally independent of the entry content hash. It is
+    immutable provenance metadata that can be replayed into lifecycle
+    projections without changing the authoritative Memory body or citation.
+    """
+
+    source: SourceRef
+    declaration: MemoryEvidenceDeclaration
 
 
 class EmbeddingProfile(BaseModel):
@@ -184,7 +198,59 @@ class MemoryEntryVersion(BaseModel):
     entry_content_hash: str
     created_in_revision: int
     sources: tuple[SourceRef, ...] = ()
+    source_evidence: tuple[MemoryEvidenceSnapshot, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+
+
+class MemoryLifecycleProjection(BaseModel):
+    """Rebuildable lifecycle state for one Memory manifest entry.
+
+    Reserved infrastructure for the stage-2 quality policy. The rules are
+    deterministic so the rows can be rebuilt from the authoritative manifest, but
+    no production path consumes them yet: the materialized table has no reader
+    outside the rebuild, and the annotation below is not wired into Context Pack
+    assembly.
+    """
+
+    memory_ref: ArtifactRef
+    entry_id: str
+    entry_version_id: str
+    validity: MemoryLifecycleValidity
+    validity_reason: str | None = None
+    successor_entry_id: str | None = None
+    source_evidence: tuple[MemoryEvidenceSnapshot, ...] = ()
+    rule_version: str = "memory-lifecycle-v1"
+    quality_policy: Literal["neutral"] = "neutral"
+
+    @property
+    def context_annotation(self) -> MemoryContextAnnotation:
+        """Return the internal annotation reserved for Context Pack assembly."""
+
+        return MemoryContextAnnotation(
+            validity=self.validity,
+            validity_reason=self.validity_reason,
+            successor_entry_id=self.successor_entry_id,
+            source_evidence=self.source_evidence,
+            source_count=len(self.source_evidence),
+            time_state="unknown",
+            quality_policy=self.quality_policy,
+        )
+
+
+class MemoryContextAnnotation(BaseModel):
+    """Internal lifecycle context reserved for later Context Pack rendering.
+
+    Nothing renders it yet, and it is deliberately absent from the public transport
+    models.
+    """
+
+    validity: MemoryLifecycleValidity
+    validity_reason: str | None = None
+    successor_entry_id: str | None = None
+    source_evidence: tuple[MemoryEvidenceSnapshot, ...] = ()
+    source_count: int = Field(ge=0, default=0)
+    time_state: MemoryTimeState = "unknown"
+    quality_policy: Literal["neutral"] = "neutral"
 
 
 class MemoryRevisionChanges(BaseModel):

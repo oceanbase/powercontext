@@ -41,6 +41,7 @@ from powercontext.sources import (
     Connector,
     ConnectorBinding,
     ConnectorRunResult,
+    MemoryEvidenceDeclaration,
     SourceDefinitionRegistry,
     SourceObservation,
     SourceRef,
@@ -132,6 +133,23 @@ class _RemoteConnectorCheckpointStore(ConnectorCheckpointStore):
             raise InvalidConnectorRunError("checkpoint-mismatch", "Server returned a different Connector checkpoint")
 
 
+def _without_neutral_evidence(payload: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """Drop an absent-or-neutral evidence declaration before comparing a manifest.
+
+    A neutral declaration carries no ranking preference, so a manifest that states
+    it and a manifest that omits it describe the same Definition. The transport
+    model carries the field as an optional value, so a server response states it
+    explicitly while the worker's own manifest omits it. Comparing the canonical
+    form rather than one encoding keeps that difference from reading as a
+    mismatch.
+    """
+
+    declaration = payload.get("memory_evidence")
+    if declaration is None or declaration == MemoryEvidenceDeclaration().model_dump(mode="json"):
+        return {key: value for key, value in payload.items() if key != "memory_evidence"}
+    return payload
+
+
 class RemoteConnectorWorker:
     """Register worker-owned Definitions and execute one Connector binding."""
 
@@ -155,7 +173,9 @@ class RemoteConnectorWorker:
                     )
                 )
             )
-            if registered.model_dump(mode="json", by_alias=True) != manifest.model_dump(mode="json", by_alias=True):
+            if _without_neutral_evidence(
+                registered.model_dump(mode="json", by_alias=True)
+            ) != _without_neutral_evidence(manifest.model_dump(mode="json", by_alias=True)):
                 raise InvalidConnectorRunError(
                     "manifest-mismatch",
                     f"Server returned a different manifest for {definition.name!r}",
