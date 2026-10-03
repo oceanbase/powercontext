@@ -885,6 +885,92 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
+        "/v1/context/bootstrap": {
+            "post": {
+                "tags": ["context"],
+                "summary": "Prepare bounded context for an Agent lifecycle boundary",
+                "description": "Prepare an opt-in, deterministic "
+                "bootstrap package without "
+                "manufacturing a query. Only "
+                "explicitly curated active Memory "
+                "entries and one caller-selected "
+                "exact committed Handoff are "
+                "eligible. Returned historical text "
+                "is untrusted data and grants no "
+                "authority. A ready receipt remains "
+                "pending until the host records "
+                "delivery. Reusing one stable event "
+                "identity with different "
+                "package-shaping fields is rejected "
+                "with 422.",
+                "operationId": "prepare_bootstrap_context",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/BootstrapContextRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "A bounded package ready for host injection, or a normal empty/skipped result.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BootstrapContext"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/context/bootstrap/receipts": {
+            "post": {
+                "tags": ["context"],
+                "summary": "Record a bootstrap delivery outcome",
+                "description": "Atomically claim one "
+                "pending content-free "
+                "receipt as injected or "
+                "failed. A second injected "
+                "claim is rejected with 422, "
+                "so concurrent lifecycle "
+                "hooks cannot both inject "
+                "the same package. A "
+                "terminal outcome never "
+                "changes.",
+                "operationId": "record_bootstrap_delivery",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RecordBootstrapDeliveryRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Current durable delivery state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/BootstrapDeliveryReceipt"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
         "/v1/work/contracts/create": {
             "post": {
                 "tags": ["work"],
@@ -6611,6 +6697,81 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["schema", "status", "content", "content_bytes"],
             },
+            "BootstrapContextItem": {
+                "properties": {
+                    "kind": {"$ref": "#/components/schemas/BootstrapContextItemKind"},
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "entry_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                        "nullable": True,
+                    },
+                    "entry_version_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                        "nullable": True,
+                    },
+                    "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "truncated": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "kind",
+                    "scope_id",
+                    "artifact",
+                    "entry_id",
+                    "entry_version_id",
+                    "content_digest",
+                    "truncated",
+                ],
+            },
+            "BootstrapDeliveryReceipt": {
+                "properties": {
+                    "receipt_id": {"type": "string", "maxLength": 64, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "state": {"$ref": "#/components/schemas/BootstrapReceiptState"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["receipt_id", "state"],
+            },
+            "BootstrapContext": {
+                "properties": {
+                    "schema": {"$ref": "#/components/schemas/BootstrapContextSchema"},
+                    "status": {"$ref": "#/components/schemas/BootstrapContextStatus"},
+                    "reason": {"allOf": [{"$ref": "#/components/schemas/BootstrapSkipReason"}], "nullable": True},
+                    "profile": {"$ref": "#/components/schemas/BootstrapContextProfile"},
+                    "content": {"type": "string", "nullable": True},
+                    "content_bytes": {"type": "integer", "minimum": 0.0},
+                    "package_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "nullable": True},
+                    "items": {
+                        "items": {"$ref": "#/components/schemas/BootstrapContextItem"},
+                        "type": "array",
+                        "maxItems": 7,
+                    },
+                    "truncated": {"type": "boolean"},
+                    "receipt": {"$ref": "#/components/schemas/BootstrapDeliveryReceipt"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "schema",
+                    "status",
+                    "reason",
+                    "profile",
+                    "content",
+                    "content_bytes",
+                    "package_digest",
+                    "items",
+                    "truncated",
+                    "receipt",
+                ],
+            },
             "EntryChange": {
                 "properties": {
                     "op": {"$ref": "#/components/schemas/EntryChangeOperation"},
@@ -8070,10 +8231,116 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "default": False,
                     },
                     "assembly": {"$ref": "#/components/schemas/ContextAssembly"},
+                    "bootstrap_receipt_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                        "description": "Optional "
+                        "exact "
+                        "receipt "
+                        "for "
+                        "the "
+                        "last "
+                        "successfully "
+                        "injected "
+                        "bootstrap "
+                        "package. "
+                        "Only "
+                        "fully "
+                        "delivered "
+                        "Memory "
+                        "entry "
+                        "versions "
+                        "from "
+                        "an "
+                        "injected "
+                        "same-Scope "
+                        "receipt "
+                        "are "
+                        "removed "
+                        "before "
+                        "candidate "
+                        "limiting "
+                        "and "
+                        "sufficiency "
+                        "assessment; "
+                        "entries "
+                        "whose "
+                        "bootstrap "
+                        "bodies "
+                        "were "
+                        "truncated "
+                        "remain "
+                        "eligible.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["scope_id", "query"],
+            },
+            "BootstrapContextRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "enabled": {"type": "boolean", "default": False},
+                    "profile": {
+                        "allOf": [{"$ref": "#/components/schemas/BootstrapContextProfile"}],
+                        "default": "powercontext.scope-bootstrap.v1",
+                    },
+                    "lifecycle": {"$ref": "#/components/schemas/BootstrapContextLifecycle"},
+                    "integration": {"type": "string", "maxLength": 64, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "event_id": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "pattern": "^[\\x20-\\x7E]+$",
+                        "description": "Optional "
+                        "stable "
+                        "host "
+                        "event "
+                        "identity, "
+                        "persisted "
+                        "only "
+                        "as "
+                        "a "
+                        "digest. "
+                        "Within "
+                        "the "
+                        "same "
+                        "Scope, "
+                        "integration, "
+                        "and "
+                        "lifecycle, "
+                        "retries "
+                        "must "
+                        "keep "
+                        "the "
+                        "profile, "
+                        "max_bytes, "
+                        "and "
+                        "exact "
+                        "Handoff "
+                        "unchanged.",
+                    },
+                    "max_bytes": {"type": "integer", "maximum": 8192.0, "minimum": 512.0, "default": 4096},
+                    "handoff": {
+                        "$ref": "#/components/schemas/ArtifactReference",
+                        "description": "Optional exact committed Handoff Revision in the current Scope.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "lifecycle", "integration"],
+            },
+            "RecordBootstrapDeliveryRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "receipt_id": {"type": "string", "maxLength": 64, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "outcome": {"type": "string", "enum": ["injected", "failed"]},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "receipt_id", "outcome"],
             },
             "ContextAssemblySection": {
                 "properties": {
@@ -9503,6 +9770,19 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "CandidateStatus": {"type": "string", "enum": ["pending", "approved", "rejected"]},
             "PreparedContextSchema": {"type": "string", "enum": ["powercontext.prepared-context.v1"]},
             "PreparedContextStatus": {"type": "string", "enum": ["ready", "empty"]},
+            "BootstrapContextSchema": {"type": "string", "enum": ["powercontext.bootstrap-context.v1"]},
+            "BootstrapContextProfile": {"type": "string", "enum": ["powercontext.scope-bootstrap.v1"]},
+            "BootstrapContextLifecycle": {
+                "type": "string",
+                "enum": ["startup", "resume", "clear", "compact", "restore", "fork"],
+            },
+            "BootstrapContextStatus": {"type": "string", "enum": ["ready", "empty", "skipped"]},
+            "BootstrapContextItemKind": {"type": "string", "enum": ["memory_entry", "handoff"]},
+            "BootstrapReceiptState": {"type": "string", "enum": ["pending", "injected", "skipped", "failed"]},
+            "BootstrapSkipReason": {
+                "type": "string",
+                "enum": ["disabled", "no_eligible_context", "already_delivered", "preparation_failed"],
+            },
             "EntryChangeOperation": {
                 "type": "string",
                 "enum": ["add", "revise", "deactivate", "reactivate", "compact"],

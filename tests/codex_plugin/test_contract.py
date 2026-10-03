@@ -266,7 +266,11 @@ def test_codex_settings_environment_authorization_overrides_stored_authorization
 def test_codex_hooks_fix_session_and_data_plane_bindings() -> None:
     configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text())
 
-    assert "session_binding.py" in configuration["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    session_start = configuration["hooks"]["SessionStart"][0]
+    assert session_start["matcher"] == "startup|resume|clear|compact"
+    session_hook = session_start["hooks"][0]
+    assert "session_binding.py" in session_hook["command"]
+    assert session_hook["additionalContextLimit"] == 8192
     pre_tool_use = configuration["hooks"]["PreToolUse"][0]
     assert pre_tool_use["matcher"] == "mcp__powercontext__.*"
     assert "bind_tools.py" in pre_tool_use["hooks"][0]["command"]

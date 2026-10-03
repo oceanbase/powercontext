@@ -25,7 +25,7 @@ The command adds the repository as a Codex marketplace, installs the PowerContex
 directory. It is safe to run again. Pass the same `--ref` used to install the PowerContext tool.
 
 Open a new Codex session after setup. Use `/hooks` to inspect and, when prompted, trust the PowerContext
-`UserPromptSubmit` hook.
+`SessionStart` and `UserPromptSubmit` hooks.
 
 `powercontext doctor codex --json` reports basic MCP connectivity as `mcp_tools` and complete tool coverage as
 `mcp_full_profile`. Full coverage requires every capability-bearing tool in the Codex integration's `server-mcp`
@@ -95,6 +95,41 @@ Memory stores durable, reusable decisions, constraints, and state. A Handoff tem
 another task, session, or model. It must be explicitly prepared, inspected, and delivered, rather than substituted with
 a few Memory entries. Read [Memory and Handoff](../workflows/memory-and-handoff.md) for the boundary and
 [Hand off work in Codex](../workflows/handoff-with-codex.md) for the procedure.
+
+## Opt in to Session bootstrap context
+
+Bootstrap context is off by default. To load a small, deterministic package before Codex's first prompt on
+`startup`, `resume`, `clear`, or `compact`, start Codex with:
+
+```bash
+export POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=true
+codex
+```
+
+The fixed `powercontext.scope-bootstrap.v1` profile includes at most six active Memory entries explicitly tagged
+`bootstrap-context`, considering the current Scope before at most eight direct Context References. It never scans all Memory,
+Sources, transcripts, pending Candidates, or generated instructions. Secret-like Memory kinds are excluded. Historical
+text is marked as untrusted and cannot override current user, developer, system, or repository instructions.
+
+The default package limit is 4096 UTF-8 bytes. It can be set from 512 through 8192 bytes:
+
+```bash
+export POWERCONTEXT_CODEX_BOOTSTRAP_MAX_BYTES=6144
+```
+
+No Handoff is selected automatically. To add one exact committed Handoff from the current Scope, provide its immutable
+identity before starting Codex:
+
+```bash
+export POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF='{"artifact_id":"HANDOFF_ID","revision":3}'
+```
+
+Use the Memory-entry tag API to add `bootstrap-context` only to reviewed decisions, constraints, objectives, verified
+state, or repository guidance suitable for every new Session. A content-free delivery receipt makes retries idempotent;
+after successful injection, the first ordinary query sends that receipt so the Runtime suppresses only fully delivered
+exact Memory entry versions. Entries truncated during bootstrap and revised versions remain eligible for recall.
+Preparation, validation, and receipt failures all fail open and inject nothing.
+Failures before a new lifecycle package is established, including invalid configuration, also clear any stale saved receipt.
 
 ## Experience and Skill
 
@@ -277,6 +312,9 @@ Complete the [Source, topic evolution, and cross-session recall check](../get-st
 | `POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP for hooks |
 | `POWERCONTEXT_CODEX_SCOPE_ID` | unset | Explicitly select an existing Scope instead of resolving bindings and the Server default |
 | `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` runtime override; setup saves it for subsequent Hook and native MCP connections |
+| `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT` | `false` | Inject the curated bootstrap profile on supported `SessionStart` events |
+| `POWERCONTEXT_CODEX_BOOTSTRAP_MAX_BYTES` | `4096` | Bootstrap package limit; valid values are 512 through 8192 bytes |
+| `POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF` | unset | JSON identity of one exact committed Handoff, for example `{"artifact_id":"...","revision":3}` |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 | `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Per-request hook timeout |

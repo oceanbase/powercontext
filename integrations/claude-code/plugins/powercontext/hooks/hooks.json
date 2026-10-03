@@ -1,6 +1,22 @@
 {
-  "description": "Recall relevant memory and capture the current Claude Code prompt as a Source.",
+  "description": "Bootstrap scoped context, recall relevant memory, and capture the current Claude Code prompt as a Source.",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"
+            ],
+            "timeout": 10,
+            "statusMessage": "Loading PowerContext context"
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

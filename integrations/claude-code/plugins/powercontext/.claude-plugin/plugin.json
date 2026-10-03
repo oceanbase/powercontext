@@ -1,6 +1,6 @@
 {
   "name": "powercontext",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Restore project memory and transfer current work through PowerContext.",
   "author": {
     "name": "PowerContext Team",
