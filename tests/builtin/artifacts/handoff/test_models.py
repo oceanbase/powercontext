@@ -128,10 +128,23 @@ def test_handoff_content_is_bounded() -> None:
 def test_prepare_action_requires_unique_bounded_evidence() -> None:
     citation = _statement().citations[0]
 
+    action = PrepareHandoff(
+        objective="Complete parser error handling.",
+        rollover_reasons=("user_requested", "host_context_budget"),
+        evidence=(citation,),
+    )
+
+    assert action.rollover_reasons == ("user_requested", "host_context_budget")
     with pytest.raises(ValidationError):
         PrepareHandoff(
             objective="Complete parser error handling.",
             evidence=(citation, citation),
+        )
+    with pytest.raises(ValidationError):
+        PrepareHandoff(
+            objective="Complete parser error handling.",
+            rollover_reasons=("user_requested", "user_requested"),
+            evidence=(citation,),
         )
     with pytest.raises(ValidationError):
         PrepareHandoff(
@@ -148,10 +161,18 @@ def test_activation_adds_the_boundary_source_once_and_rejects_duplicate_evidence
     activation = ActivateHandoff(
         boundary_source=citation.source_ref,
         objective="Complete parser error handling.",
+        rollover_reasons=("host_compaction",),
         evidence=(citation,),
     )
 
+    assert activation.rollover_reasons == ("host_compaction",)
     assert activation.action_evidence() == (citation,)
+    with pytest.raises(ValidationError):
+        ActivateHandoff(
+            boundary_source=SourceRef(source_type="content", source_id="boundary"),
+            objective="Complete parser error handling.",
+            rollover_reasons=("manual_checkpoint", "manual_checkpoint"),
+        )
     with pytest.raises(ValidationError):
         ActivateHandoff(
             boundary_source=SourceRef(source_type="content", source_id="boundary"),

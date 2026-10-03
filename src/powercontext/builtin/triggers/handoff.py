@@ -52,6 +52,7 @@ class HandoffTrigger:
             actions=(
                 PrepareHandoff(
                     objective=activation.objective,
+                    rollover_reasons=activation.rollover_reasons,
                     evidence=activation.action_evidence(),
                     max_bytes=activation.max_bytes,
                 ),

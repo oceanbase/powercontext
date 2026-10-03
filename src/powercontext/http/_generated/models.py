@@ -2411,6 +2411,15 @@ class HandoffResolutionStatus(StrEnum):
     RESOLVED = "resolved"
 
 
+class HandoffRolloverReason(StrEnum):
+    USER_REQUESTED = "user_requested"
+    HOST_CONTEXT_BUDGET = "host_context_budget"
+    HOST_COMPACTION = "host_compaction"
+    CONTEXT_QUALITY = "context_quality"
+    DELEGATION = "delegation"
+    MANUAL_CHECKPOINT = "manual_checkpoint"
+
+
 class HandoffSchema(StrEnum):
     POWERCONTEXT_HANDOFF_V1 = "powercontext.handoff.v1"
 
@@ -3873,6 +3882,7 @@ class PrepareHandoffRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    rollover_reasons: Annotated[list[HandoffRolloverReason], Field(max_length=6)] = []
     evidence: Annotated[list[HandoffCitation], Field(max_length=32, min_length=1)]
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
 
@@ -4007,6 +4017,7 @@ class ActivateHandoffRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     boundary_source: SourceReference
     objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    rollover_reasons: Annotated[list[HandoffRolloverReason], Field(max_length=6)] = []
     evidence: Annotated[list[HandoffCitation], Field(max_length=32, validate_default=True)] = []
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
 

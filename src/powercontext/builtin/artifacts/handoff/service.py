@@ -110,6 +110,7 @@ class HandoffService:
         draft = await self._generation_pipeline.generate(
             HandoffGenerationRequest(
                 objective=action.objective,
+                rollover_reasons=action.rollover_reasons,
                 evidence=evidence,
                 max_bytes=action.max_bytes,
             )

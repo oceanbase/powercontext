@@ -693,6 +693,7 @@ def activate_handoff_request(value: ActivateHandoffRequest) -> ActivateHandoff:
     return ActivateHandoff(
         boundary_source=runtime_source_reference(value.boundary_source),
         objective=value.objective,
+        rollover_reasons=tuple(reason.value for reason in value.rollover_reasons),
         evidence=tuple(runtime_handoff_citation(citation) for citation in value.evidence),
         max_bytes=value.max_bytes,
     )
@@ -711,6 +712,7 @@ def handoff_activation_response(value: HandoffActivation) -> TransportHandoffAct
 def prepare_handoff_request(value: PrepareHandoffRequest) -> PrepareHandoff:
     return PrepareHandoff(
         objective=value.objective,
+        rollover_reasons=tuple(reason.value for reason in value.rollover_reasons),
         evidence=tuple(runtime_handoff_citation(citation) for citation in value.evidence),
         max_bytes=value.max_bytes,
     )
