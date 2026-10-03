@@ -73,6 +73,34 @@ from powercontext_eval.benchmarks.longmemeval_v2.score_smoke import (
 )
 from powercontext_eval.benchmarks.longmemeval_v2.smoke import prepare_smoke_run
 from powercontext_eval.benchmarks.swebench_pro.catalog import PUBLIC_V2_TASK_SET, SweBenchProCatalog, TaskSet
+from powercontext_eval.benchmarks.work_continuity.arms import (
+    DEFAULT_ASSEMBLY_MAX_BYTES,
+    ContinuationArmError,
+    supported_continuation_arm_ids,
+)
+from powercontext_eval.benchmarks.work_continuity.attempts import (
+    AttemptInputError,
+    load_attempts,
+)
+from powercontext_eval.benchmarks.work_continuity.catalog import (
+    TaskCatalog,
+    WorkContinuityCatalogError,
+    WorkContinuityInputError,
+)
+from powercontext_eval.benchmarks.work_continuity.report import (
+    ReportError as WorkContinuityReportError,
+)
+from powercontext_eval.benchmarks.work_continuity.report import (
+    build_report as build_work_continuity_report,
+)
+from powercontext_eval.benchmarks.work_continuity.runner import (
+    WorkContinuityRunError,
+    execution_configuration,
+    require_recording_bindings,
+    run_summary,
+    run_work_continuity,
+    write_run_artifacts,
+)
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT
 from powercontext_eval.models import TreatmentMode
 
@@ -82,8 +110,13 @@ if TYPE_CHECKING:
 app = typer.Typer(no_args_is_help=True, help="PowerContext evaluation runner.")
 swebench_pro_app = typer.Typer(no_args_is_help=True, help="Pinned SWE-bench Pro evaluation.")
 longmemeval_v2_app = typer.Typer(no_args_is_help=True, help="Pinned LongMemEval-V2 evaluation.")
+work_continuity_app = typer.Typer(
+    no_args_is_help=True,
+    help="Continuation-method evaluation for Rollover Handoff and its alternatives.",
+)
 app.add_typer(swebench_pro_app, name="swebench-pro")
 app.add_typer(longmemeval_v2_app, name="longmemeval-v2")
+app.add_typer(work_continuity_app, name="work-continuity")
 DEFAULT_DOCKER_NETWORK_POOL = "172.30.0.0/15"
 
 
@@ -619,6 +652,133 @@ def longmemeval_v2_report(
                 "classification": "smoke-subset",
                 "report": str(result.report_path),
                 "markdown": str(result.markdown_path),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+@work_continuity_app.command("validate")
+def work_continuity_validate(
+    task_lock: Annotated[Path, typer.Option("--task-lock")],
+    attempts: Annotated[Path | None, typer.Option("--attempts")] = None,
+) -> None:
+    """Validate the pinned task lock and any recorded attempts without writing anything."""
+
+    try:
+        catalog = TaskCatalog.load(task_lock)
+        recorded = load_attempts(attempts, catalog=catalog) if attempts is not None else None
+        if recorded is not None:
+            # The documented preflight has to reject what `run` would reject:
+            # a recording bound to another task lock or another context is not
+            # scoreable, and finding that out here is the point of the command.
+            require_recording_bindings(catalog=catalog, attempts=recorded)
+    except (WorkContinuityInputError, AttemptInputError) as error:
+        raise typer.BadParameter(str(error)) from None
+    except (WorkContinuityCatalogError, WorkContinuityRunError) as error:
+        typer.echo(f"Work-continuity validation failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "work-continuity-input-validation",
+                "task_set_id": catalog.task_set_id,
+                "task_count": len(catalog.tasks),
+                "task_ids": list(catalog.task_ids),
+                "task_lock_sha256": catalog.content_sha256,
+                "supported_arms": list(supported_continuation_arm_ids()),
+                "attempt_count": None if recorded is None else len(recorded.attempts),
+                "hosts": None if recorded is None else list(recorded.hosts),
+                "recording_protocol": (
+                    None
+                    if recorded is None
+                    else {
+                        "task_set_id": recorded.protocol.task_set_id,
+                        "task_lock_sha256": recorded.protocol.task_lock_sha256,
+                        "assembly_max_bytes": recorded.protocol.assembly_max_bytes,
+                    }
+                ),
+                "execution_configuration": None if recorded is None else execution_configuration(recorded),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+def _method_rows(summary: dict[str, object]) -> list[dict[str, object]]:
+    """Return one per-method echo row, rejecting a summary that lost its shape."""
+
+    arms = summary.get("arms")
+    if not isinstance(arms, list):
+        raise WorkContinuityRunError("work-continuity run summary is missing its per-method rows")
+    rows: list[dict[str, object]] = []
+    for arm in arms:
+        if not isinstance(arm, dict):
+            raise WorkContinuityRunError("work-continuity run summary holds a malformed method row")
+        method = cast("dict[str, object]", arm)
+        injected = method.get("injected_bytes")
+        outcome = method.get("outcome")
+        if not isinstance(injected, dict) or not isinstance(outcome, dict):
+            raise WorkContinuityRunError("work-continuity run summary holds a malformed method row")
+        rows.append(
+            {
+                "arm_id": method["arm_id"],
+                "injected_bytes_total": cast("dict[str, object]", injected)["total"],
+                "task_success": cast("dict[str, object]", outcome)["task_success"],
+            }
+        )
+    return rows
+
+
+@work_continuity_app.command("run")
+def work_continuity_run(
+    task_lock: Annotated[Path, typer.Option("--task-lock")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+    run_id: Annotated[str, typer.Option("--run-id")],
+    max_bytes: Annotated[int, typer.Option("--max-bytes", min=1)] = DEFAULT_ASSEMBLY_MAX_BYTES,
+    arm: Annotated[list[str] | None, typer.Option("--arm")] = None,
+    task_id: Annotated[list[str] | None, typer.Option("--task-id")] = None,
+    attempts: Annotated[Path | None, typer.Option("--attempts")] = None,
+    powercontext_revision: Annotated[str | None, typer.Option("--powercontext-revision")] = None,
+    integration_revision: Annotated[str | None, typer.Option("--integration-revision")] = None,
+) -> None:
+    """Assemble every selected method, score any recorded attempts, and write one run directory."""
+
+    try:
+        result = run_work_continuity(
+            task_lock=task_lock,
+            run_id=run_id,
+            max_bytes=max_bytes,
+            arm_ids=tuple(arm) if arm else None,
+            task_ids=tuple(task_id) if task_id else None,
+            attempts_path=attempts,
+            powercontext_revision=powercontext_revision,
+            integration_revision=integration_revision,
+        )
+        artifacts = write_run_artifacts(result, output_dir)
+        report = build_work_continuity_report(result, output_dir=artifacts.output_dir)
+        methods = _method_rows(run_summary(result))
+    except ContinuationArmError as error:
+        raise typer.BadParameter(str(error)) from None
+    except (WorkContinuityInputError, AttemptInputError) as error:
+        raise typer.BadParameter(str(error)) from None
+    except (WorkContinuityRunError, WorkContinuityReportError, WorkContinuityCatalogError) as error:
+        typer.echo(f"Work-continuity run failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": result.classification,
+                "run_id": result.run_id,
+                "manifest": str(artifacts.manifest_path),
+                "assembly": str(artifacts.assembly_path),
+                "scores": str(artifacts.scores_path),
+                "summary": str(artifacts.summary_path),
+                "report": str(report.report_path),
+                "markdown": str(report.markdown_path),
+                "methods": methods,
             },
             ensure_ascii=False,
             sort_keys=True,
