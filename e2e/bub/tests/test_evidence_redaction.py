@@ -72,6 +72,7 @@ def test_resolved_instruction_evidence_matches_harbor_acp_summaries(
                 "POWERCONTEXT_OPENCODE_AUTHORIZATION",
                 "HF_TOKEN",
                 "AWS_SECRET_ACCESS_KEY",
+                "POWERCONTEXT_PI_AUTHORIZATION",
             )
         ),
         # The Client and the Server accept a token of any length.

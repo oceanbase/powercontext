@@ -6,8 +6,8 @@ on Memory collection, grounding, and recall rather than the native task reward.
 
 The common architecture separates workload selection, execution, evidence, Memory evaluation, and reporting. Bub is
 the execution adapter for acceptance workloads because its model, tools, context injection, capture, and checkpoints
-are observable. The OFF/ON comparison can also run on Codex, Claude Code, and OpenCode, without changing the workload
-or evaluation contracts.
+are observable. The OFF/ON comparison can also run on Codex, Claude Code, OpenCode, and Pi, without changing the
+workload or evaluation contracts.
 
 Every workload follows one execution path:
 
@@ -154,8 +154,8 @@ step, because Harbor would then skip the recall step when that step's unrelated 
 
 The `paired` command runs each selected workload with PowerContext off and on, in separate containers, and repeats
 this for `--trials` trials. The arm that runs first alternates between trials. `--host` selects the agent host for
-both arms: `bub` by default, `codex`, `claude-code`, or `opencode`. Each host uses its own PowerContext integration, so
-ON means what that integration does for its users.
+both arms: `bub` by default, `codex`, `claude-code`, `opencode`, or `pi`. Each host uses its own PowerContext
+integration, so ON means what that integration does for its users.
 
 - OFF is the host as a user without PowerContext has it. The agent is not told that PowerContext is off, and it
   cannot find PowerContext: no integration is installed, no PowerContext sources are mounted in its container, and it
@@ -165,9 +165,10 @@ ON means what that integration does for its users.
 - ON installs the integration, binds it to a new Scope, and gives it the harness Client's Server token. For Bub this
   means the plugin with `capture_events` enabled, so that, like the other host integrations, it captures what the
   user says without relying on the model to call a memory tool. This is not the plugin's default setting. Codex runs
-  with `--enable plugins`, Claude Code has the plugin enabled, and OpenCode loads it from its plugins directory. In all
-  three, the plugin captures each user prompt and asks for context before each turn, and the plugin's tools (MCP for
-  Codex and Claude Code, native tools for OpenCode) and Skill are available to the model.
+  with `--enable plugins`, Claude Code has the plugin enabled, OpenCode loads it from its plugins directory, and Pi
+  loads the installed package. In all four, the plugin captures each user prompt and asks for context before each
+  turn, and the plugin's tools (MCP for Codex and Claude Code, native tools for OpenCode and Pi) and Skill are
+  available to the model.
 - Everything else is the same in both arms: image, host version, model, reasoning settings, and budget.
 
 Both arms' containers can reach the Server, and the Server keeps the ON arms' Memory across trials. The command
@@ -281,6 +282,28 @@ export POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP=true
 export POWERCONTEXT_E2E_OPENCODE_MODEL=openrouter/z-ai/glm-5.3
 export OPENROUTER_API_KEY=replace-me
 make harness-paired ARGS='--host opencode --trials 2'
+```
+
+Pi 0.82.1, the version the PowerContext Pi package tests against, runs through Harbor's Pi agent. Harbor installs Pi
+from its former npm name, which ends before that version, so the harness installs `@earendil-works/pi-coding-agent`
+with the same steps. The ON arm then runs `pi install` on the package, as `powercontext setup pi` does; the agent
+container sees only its `package.json`, `extensions`, `src`, and `skills`. The package reads
+`POWERCONTEXT_PI_SERVER_URL`, the Scope, and the plain-HTTP consent `POWERCONTEXT_PI_ALLOW_INSECURE_HTTP` from its
+environment. Pi runs every session with `--no-session`, so it saves no session. Its bash tool keeps the full output of
+a command over 2,000 lines or 50 KB as `pi-bash-*.log` in the temporary directory, so before each session in both arms
+the harness removes those files. The harness selects the model with `POWERCONTEXT_E2E_PI_MODEL` in Pi's
+`provider/model` form and passes `POWERCONTEXT_E2E_PI_REASONING_EFFORT`, default `medium`, as `--thinking`. Harbor
+passes the provider's key, such as `OPENROUTER_API_KEY`.
+
+```bash
+export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:8000
+export POWERCONTEXT_CLIENT_API_TOKEN=replace-me
+export POWERCONTEXT_CLIENT_TIMEOUT=150
+export POWERCONTEXT_PI_SERVER_URL=http://host-gateway:8000
+export POWERCONTEXT_PI_ALLOW_INSECURE_HTTP=true
+export POWERCONTEXT_E2E_PI_MODEL=openrouter/z-ai/glm-5.3
+export OPENROUTER_API_KEY=replace-me
+make harness-paired ARGS='--host pi --trials 2'
 ```
 
 Each arm writes `observation.json`, which includes the per-session Server snapshots for ON, and its Harbor jobs:

@@ -29,6 +29,7 @@ from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION, REMOTE_CODEX_AUTH
 from .harbor_claude_code import CLAUDE_CODE_VERSION
 from .harbor_codex import CODEX_VERSION
 from .harbor_opencode import OPENCODE_VERSION
+from .harbor_pi import PI_VERSION
 from .settings import (
     bub_environment,
     codex_auth_path,
@@ -259,6 +260,19 @@ OPENCODE = PluginHost(
     ),
 )
 
+# Harbor passes the key of the model's provider, such as OPENROUTER_API_KEY. The package's extension is TypeScript that
+# Pi loads directly with the Skill, and reads its Server URL from its environment.
+PI = PluginHost(
+    name="pi",
+    version=PI_VERSION,
+    agent_import_path="powercontext_e2e.harbor_pi:PowerContextPiAgent",
+    plugin_prefix="POWERCONTEXT_PI_",
+    setting_prefix="POWERCONTEXT_E2E_PI_",
+    plugin_paths=tuple(
+        f"integrations/pi/plugins/powercontext/{name}" for name in ("package.json", "extensions", "src", "skills")
+    ),
+)
+
 
 def _capture_settings(task: E2ETask) -> tuple[bool, int, int]:
     evaluation = task.evaluation
@@ -289,7 +303,7 @@ def read_only_bind(source: Path, target: str) -> ServiceVolumeConfig:
     }
 
 
-_HOSTS: dict[str, HostAdapter] = {host.name: host for host in (BubHost(), CODEX, CLAUDE_CODE, OPENCODE)}
+_HOSTS: dict[str, HostAdapter] = {host.name: host for host in (BubHost(), CODEX, CLAUDE_CODE, OPENCODE, PI)}
 
 
 def host_adapter(name: str) -> HostAdapter:

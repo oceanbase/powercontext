@@ -23,6 +23,7 @@ from typing import NamedTuple
 
 import pytest
 from harbor.agents.installed.opencode import OpenCode
+from harbor.agents.installed.pi import Pi
 from harbor.environments.base import ExecResult
 from harbor.models.agent.context import AgentContext
 from harbor.models.job.config import JobConfig
@@ -31,6 +32,7 @@ from powercontext_e2e.catalog import E2ETask, load_tasks
 from powercontext_e2e.harbor_claude_code import PowerContextClaudeCodeAgent
 from powercontext_e2e.harbor_codex import PowerContextCodexAgent
 from powercontext_e2e.harbor_opencode import PowerContextOpenCodeAgent
+from powercontext_e2e.harbor_pi import PowerContextPiAgent
 from powercontext_e2e.hosts import host_adapter
 from powercontext_e2e.runner import _job_config, prepare_runtime_task, require_runtime_models, run_tasks
 from powercontext_e2e.settings import HarnessSettings, ModelNotConfiguredError
@@ -240,6 +242,13 @@ _PLUGIN_HOSTS = [
         "POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP",
         "POWERCONTEXT_OPENCODE_SCOPE_ID",
     ),
+    _PluginHost(
+        "pi",
+        "POWERCONTEXT_E2E_PI_MODEL",
+        "POWERCONTEXT_PI_SERVER_URL",
+        "POWERCONTEXT_PI_ALLOW_INSECURE_HTTP",
+        "POWERCONTEXT_PI_SCOPE_ID",
+    ),
 ]
 
 
@@ -426,6 +435,68 @@ def test_opencode_reasoning_effort_selects_the_model_variant(tmp_path: Path) -> 
     assert _opencode_agent(tmp_path, powercontext=True).build_cli_flags() == "--variant medium"
 
 
+def _pi_agent(tmp_path: Path, *, powercontext: bool) -> PowerContextPiAgent:
+    return PowerContextPiAgent(
+        logs_dir=tmp_path,
+        model_name="openrouter/model-test",
+        server_url="http://host-gateway:8000",
+        powercontext=powercontext,
+    )
+
+
+@pytest.mark.parametrize("powercontext", [True, False])
+def test_pi_installs_the_package_only_for_on(tmp_path: Path, powercontext: bool) -> None:
+    environment = _RecordingEnvironment()
+
+    asyncio.run(_pi_agent(tmp_path, powercontext=powercontext).install(environment))
+
+    installed = [command for command in environment.commands if "pi install" in command]
+    assert bool(installed) is powercontext
+
+
+@pytest.mark.parametrize("powercontext", [True, False])
+def test_pi_sessions_start_without_tool_output_an_earlier_session_left(
+    monkeypatch, tmp_path: Path, powercontext: bool
+) -> None:
+    # Harbor leaves the container's temporary directory in place between the steps of a trial. Pi's bash tool keeps
+    # the full output of a truncated command there, which a later session could otherwise read.
+    started: list[set[str]] = []
+    environment = _ShellEnvironment(tmp_path)
+    (environment.tmp / "pi-bash-0123456789abcdef.log").write_text("The team chose OceanBase with 12 shards.")
+    (environment.tmp / "notes.txt").write_text("Not Pi's file.")
+
+    async def run_pi(self, instruction, environment, context) -> None:
+        started.append({path.name for path in environment.tmp.iterdir()})
+
+    monkeypatch.setattr(Pi, "run", run_pi)
+
+    asyncio.run(_pi_agent(tmp_path, powercontext=powercontext).run("task", environment, AgentContext()))
+
+    assert started == [{"notes.txt"}]
+
+
+def test_pi_sessions_start_when_no_earlier_tool_output_exists(monkeypatch, tmp_path: Path) -> None:
+    started: list[str] = []
+
+    async def run_pi(self, instruction, environment, context) -> None:
+        started.append(instruction)
+
+    monkeypatch.setattr(Pi, "run", run_pi)
+
+    asyncio.run(_pi_agent(tmp_path, powercontext=False).run("task", _ShellEnvironment(tmp_path), AgentContext()))
+
+    assert started == ["task"]
+
+
+def test_pi_runs_without_a_saved_session(tmp_path: Path) -> None:
+    # Pi saves every session unless told not to, so the harness relies on Harbor passing `--no-session`.
+    environment = _RecordingEnvironment()
+
+    asyncio.run(_pi_agent(tmp_path, powercontext=False).run("task", environment, AgentContext()))
+
+    assert any("pi --print" in command and "--no-session" in command for command in environment.commands)
+
+
 @pytest.mark.parametrize("host", _PLUGIN_HOSTS, ids=lambda host: host.name)
 def test_plugin_host_requires_a_model_and_the_server_url_before_any_run(monkeypatch, host: _PluginHost) -> None:
     adapter = host_adapter(host.name)
@@ -438,7 +509,7 @@ def test_plugin_host_requires_a_model_and_the_server_url_before_any_run(monkeypa
     require_runtime_models((_PAIRED_TASK,), adapter)
 
 
-@pytest.mark.parametrize("host", ["bub", "codex", "claude-code", "opencode"])
+@pytest.mark.parametrize("host", ["bub", "codex", "claude-code", "opencode", "pi"])
 @pytest.mark.parametrize(
     "manifest",
     ["paired-tasks/project-decision-continuation.yaml", "tasks/acceptance-01-project-database-decision.yaml"],
