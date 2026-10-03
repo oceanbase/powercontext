@@ -529,6 +529,7 @@ GET_DEFAULT_SCOPE = Operation[None, ScopeDescriptor](
     responses={
         200: {"description": "The ordinary Scope selected by the host default pointer."},
         404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
         503: {"$ref": "#/components/responses/Unavailable"},
@@ -596,6 +597,7 @@ RESOLVE_SCOPE_BINDING = Operation[ResolveScopeBindingRequest, ScopeDescriptor](
     responses={
         200: {"description": "The resolved Scope descriptor."},
         404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
         503: {"$ref": "#/components/responses/Unavailable"},

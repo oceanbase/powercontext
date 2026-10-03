@@ -306,6 +306,7 @@ from powercontext.builtin.runtime.application import BuiltinRuntime, PromptAppli
 from powercontext.builtin.scope import (
     ScopeApplication,
     ScopeBindingNotFoundError,
+    ScopeBindingTargetMissingError,
     ScopeDraft,
     ScopeIdempotencyConflictError,
     ScopeMutation,
@@ -5422,6 +5423,13 @@ def _map_scope_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | 
             "artifact_publication_conflict",
             "The publication key identifies a different source Artifact.",
             None,
+        )
+    if isinstance(error, ScopeBindingTargetMissingError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "scope_binding_target_missing",
+            "The persisted Scope binding references a missing Scope. Operator repair is required.",
+            {"scope_id": error.scope_id},
         )
     if isinstance(error, (ScopeNotFoundError, ScopeBindingNotFoundError)):
         return status.HTTP_404_NOT_FOUND, "scope_not_found", "The requested Scope was not found.", None

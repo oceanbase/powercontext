@@ -513,6 +513,10 @@ paths:
     get:
       tags: [scopes]
       summary: Get the default Scope binding target
+      description: >-
+        A missing default binding returns 404 scope_not_found. A persisted default binding whose target is missing
+        returns 409 scope_binding_target_missing with details.scope_id; repair the binding or restore its target
+        explicitly instead of automatically provisioning a replacement.
       operationId: get_default_scope
       x-powercontext-access: {action: server.observe, resource: {type: server}}
       responses:
@@ -524,6 +528,8 @@ paths:
                 $ref: "#/components/schemas/ScopeDescriptor"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -593,6 +599,10 @@ paths:
         Inspect the Server-owned Scope selection for the current host identity before an operation that needs a binding.
         Reuse the returned Scope. Do not guess a Scope from the repository, branch, directory, or prompt, and do not
         change bindings while diagnosing availability.
+        No resolvable binding, or an unknown explicit Scope ID, returns 404 scope_not_found. A persisted durable or
+        default binding whose target is missing returns 409 scope_binding_target_missing with details.scope_id.
+        Resolution stops at that binding without falling back or creating a replacement Scope. Operator repair
+        is required; clients must not treat this conflict as an unprovisioned identity.
       operationId: resolve_scope_binding
       x-powercontext-access: {action: server.observe, resource: {type: server}}
       requestBody:
@@ -610,6 +620,8 @@ paths:
                 $ref: "#/components/schemas/ScopeDescriptor"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

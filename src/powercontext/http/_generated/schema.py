@@ -456,6 +456,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "get": {
                 "tags": ["scopes"],
                 "summary": "Get the default Scope binding target",
+                "description": "A missing default binding returns 404 "
+                "scope_not_found. A persisted default "
+                "binding whose target is missing returns "
+                "409 scope_binding_target_missing with "
+                "details.scope_id; repair the binding or "
+                "restore its target explicitly instead of "
+                "automatically provisioning a "
+                "replacement.",
                 "operationId": "get_default_scope",
                 "responses": {
                     "200": {
@@ -463,6 +471,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
@@ -529,7 +538,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "Scope from the repository, "
                 "branch, directory, or prompt, "
                 "and do not change bindings "
-                "while diagnosing availability.",
+                "while diagnosing availability. "
+                "No resolvable binding, or an "
+                "unknown explicit Scope ID, "
+                "returns 404 scope_not_found. A "
+                "persisted durable or default "
+                "binding whose target is missing "
+                "returns 409 "
+                "scope_binding_target_missing "
+                "with details.scope_id. "
+                "Resolution stops at that "
+                "binding without falling back or "
+                "creating a replacement Scope. "
+                "Operator repair is required; "
+                "clients must not treat this "
+                "conflict as an unprovisioned "
+                "identity.",
                 "operationId": "resolve_scope_binding",
                 "requestBody": {
                     "content": {
@@ -543,6 +567,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "503": {"$ref": "#/components/responses/Unavailable"},

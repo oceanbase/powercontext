@@ -31,7 +31,7 @@ from powercontext.builtin.persistence.records import _canonical_source_text, _so
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.records import BaseValueConflictError, InvalidBaseAccessRequestError, SourceRecord
 from powercontext.builtin.scope.application import generate_scope_id
-from powercontext.builtin.scope.errors import ScopeNotFoundError
+from powercontext.builtin.scope.errors import ScopeBindingTargetMissingError, ScopeNotFoundError
 from powercontext.builtin.scope.models import ScopeBinding, ScopeBindingKey, ScopeDraft
 from powercontext.builtin.scope.repository import ScopeRepository
 from powercontext.builtin.sources import ContentSource
@@ -111,11 +111,13 @@ class SubjectSourceService:
                 target = generate_scope_id() if requested_scope is None else requested_scope
             if target == scope_id:
                 raise InvalidBaseAccessRequestError("scope_id", "distinct_scopes_required")
-            if not new_scope and await self._scopes.get(connection, target) is None:
-                raise ScopeNotFoundError(target)
+            # Authorize before revealing a persisted binding's target or its state.
             # Checks and the new Scope's access relationship share this transaction.
             if authorize is not None:
                 await authorize(connection, target, new_binding, new_scope)
+            if not new_scope and await self._scopes.get(connection, target) is None:
+                error_type = ScopeNotFoundError if binding is None else ScopeBindingTargetMissingError
+                raise error_type(target)
             if new_scope:
                 draft = ScopeDraft(
                     title="Subject", summary="Subject evidence", idempotency_key=f"subject-{uuid4().hex}"
