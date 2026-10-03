@@ -1,0 +1,121 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+identity:
+  name: prepare_context
+  author: oceanbase
+  label:
+    en_US: Prepare Context
+description:
+  human:
+    en_US: 'Prepare bounded historical context. Request: query, optional max_bytes and assembly.'
+  llm: 'Prepare bounded historical context. Request: query, optional max_bytes and assembly.'
+parameters:
+- name: memory_context
+  type: object
+  required: false
+  label:
+    en_US: Memory Context
+  human_description:
+    en_US: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id. Defaults
+      to the invoking app and user when available.'
+  llm_description: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id.
+    Defaults to the invoking app and user when available.'
+  form: form
+- name: request
+  type: object
+  required: true
+  label:
+    en_US: Request
+  human_description:
+    en_US: 'Prepare bounded historical context. Request: query, optional max_bytes and assembly. Never
+      include scope_id.'
+  llm_description: 'Prepare bounded historical context. Request: query, optional max_bytes and assembly.
+    Never include scope_id.'
+  form: llm
+  input_schema:
+    additionalProperties: false
+    properties:
+      query:
+        maxLength: 8192
+        minLength: 1
+        pattern: .*\S.*
+        type: string
+      max_bytes:
+        default: 8000
+        maximum: 32768
+        minimum: 512
+        type: integer
+      assembly:
+        anyOf:
+        - additionalProperties: false
+          properties:
+            format:
+              enum:
+              - markdown
+              type: string
+              default: markdown
+            sections:
+              default:
+              - family: memory
+                limit: 6
+              - family: experience
+                limit: 2
+              description: Unique families in output and byte-budget priority order. Profile explicitly
+                includes the latest committed snapshot from the current Scope and direct Context References,
+                in that order, without query filtering or generation. Topic Memory searches only the current
+                Scope and includes title, summary, and an optional matching snippet, with an exact revision
+                citation. An empty array disables candidate recall.
+              items:
+                additionalProperties: false
+                properties:
+                  family:
+                    enum:
+                    - memory
+                    - experience
+                    - profile
+                    - topic-memory
+                    type: string
+                  limit:
+                    description: Maximum included entries. Each Profile entry is one Scope snapshot. Experience
+                      is limited to two. All section limits together must not exceed the Server's runtime.context_assembly_max_entries
+                      policy (default 8); exceeding it returns HTTP 422 before recall. The byte budget
+                      may reduce the actual output count.
+                    maximum: 8
+                    minimum: 1
+                    type: integer
+                required:
+                - family
+                - limit
+                type: object
+              maxItems: 4
+              type: array
+            show:
+              default: []
+              items:
+                enum:
+                - confidence
+                - recall_rank
+                type: string
+              maxItems: 2
+              type: array
+          type: object
+        - type: 'null'
+        default: null
+    required:
+    - query
+    type: object
+extra:
+  python:
+    source: tools/prepare_context.py

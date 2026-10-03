@@ -15,6 +15,7 @@
     "workbuddy",
     "zcode",
     "---Python Agent frameworks---",
+    "dify",
     "pydantic-ai",
     "langchain",
     "langgraph",
