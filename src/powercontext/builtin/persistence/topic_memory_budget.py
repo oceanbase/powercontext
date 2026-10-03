@@ -46,12 +46,12 @@ def exhausted_reason(row: Mapping[Any, Any]) -> str:
     return ""
 
 
-async def require_topic_memory_work_available(
+async def load_topic_memory_work_budget(
     connection: AsyncConnection, scope_id: str, binding_name: str, source_after: int
-) -> None:
-    """Cheap selector guard: terminal frontiers never spawn or reproject Sources."""
+) -> Mapping[Any, Any] | None:
+    """Read one authoritative frontier's metadata without changing its allowance."""
     table = TOPIC_MEMORY_WORK_BUDGETS_TABLE
-    row = (
+    return (
         (
             await connection.execute(
                 select(table).where(
@@ -64,6 +64,13 @@ async def require_topic_memory_work_available(
         .mappings()
         .one_or_none()
     )
+
+
+async def require_topic_memory_work_available(
+    connection: AsyncConnection, scope_id: str, binding_name: str, source_after: int
+) -> None:
+    """Worker-side guard before Source materialization and projection."""
+    row = await load_topic_memory_work_budget(connection, scope_id, binding_name, source_after)
     if row is not None and (reason := exhausted_reason(row)):
         raise TopicMemoryGenerationError(reason)
 

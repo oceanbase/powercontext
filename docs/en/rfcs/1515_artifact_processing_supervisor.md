@@ -494,7 +494,22 @@ the key moves to the delayed queue. When due and its type has capacity, it retur
 
 Backoff remains in memory. Restart or leadership change may retry an accepted failed invocation immediately, then
 rebuild the backoff sequence; it never skips the failed business position. Permanent errors may continue consuming
-invocation resources and must be found through observability; the first version does not discard them automatically.
+invocation resources unless the domain can identify a durable rejection before dispatch; input is never discarded
+automatically.
+
+A binding may register a metadata-only `work_block` probe for all dispatch paths. Its domain owns the rejection's
+identity, stage, code and operational counters; the Supervisor does not interpret Family-specific budget tables or
+error-code lists. A blocked key remains unacknowledged and waits for a five-minute metadata recheck, new explicit
+request, or automatic admission. Unchanged cached checks neither spawn Workers nor add failures or repeated error
+logs. The bounded waiting cache cannot make an evicted key eligible: every dispatch still runs the probe. Terminal
+cache eviction schedules bounded durable-intent rediscovery without applying the transient overflow gate to healthy
+Scopes. Log deduplication is local to the current term and bounded cache, rather than a persisted exactly-once promise.
+
+Workers retain their own domain guards. A durable rejection reached after admission is returned as sanitized typed
+failure metadata carrying the same block, so the Supervisor can enter waiting without treating it as another execution
+failure. Other errors preserve ordinary backoff. Metadata-probe failures are isolated to the affected key and back off;
+they do not revoke the shared Supervisor term. No Source selection, token estimation or model work moves to the parent.
+Admission checks share a bounded time allowance per Family per cycle, so a page of slow probes yields to other Families.
 
 Memory owns a persisted per-Scope window reduction for generation timeouts. A failed extraction can
 halve the next window without advancing its Source cursor or acknowledging the invocation; the

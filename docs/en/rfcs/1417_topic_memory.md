@@ -723,7 +723,20 @@ minutes. The Supervisor may continue checking a failed key, but Topic Worker's d
 The attempt counter is committed before Source projection; each provider reservation is committed before I/O. The
 third attempt may finish using the remaining provider budget; a subsequent attempt is refused. An exhausted request
 or token allowance records `window_provider_budget_exceeded`, and an exhausted attempt count is reported as
-`window_attempt_limit`. The selector reads terminal frontiers before materializing Sources or spawning another Worker.
+`window_attempt_limit`. Before dispatch, a Topic-owned metadata probe checks the current Cursor, target/Source head
+and work-budget row, including legacy rows whose attempt count is exhausted but whose failure code is empty.
+The probe does not select or materialize Sources, estimate tokens, or construct models. The Worker selector and
+pre-I/O reservations retain their guards against changes after admission; an already started third attempt may finish.
+
+A durable rejection enters terminal waiting rather than ordinary failure backoff. It does not launch another Worker,
+consume provider allowance, increase the failure counter, acknowledge the invocation, or advance progress. The
+Supervisor checks metadata again after five minutes, on a new explicit flush, or at automatic admission. A changed
+allowance or Cursor can make the key eligible again without restarting. Transient failures keep their existing backoff.
+The first observed rejection or changed diagnostic emits `artifact_processing.blocked` with its stage, error code,
+Family, binding, Scope, attempted Window range and attempt/request/token counters. Unchanged cached rechecks are quiet.
+Deduplication is bounded and local to the Supervisor term; restart or cache eviction may report the condition again.
+Evicted terminal keys remain protected by the domain gate and are revisited through bounded durable-intent discovery;
+terminal cache pressure does not pause other Scope admission.
 
 A terminal frontier retains its Sources, Cursor, Pending, and later same-Scope Sources. It is not a NOOP, success, or
 permission to skip evidence. Other Scope keys remain processable. A retry that succeeds within the remaining allowance
@@ -745,9 +758,10 @@ conflicts and leadership loss are control signals and do not increase the ordina
 Cursor and Head conflicts use a fixed short retry deadline rather than immediate redispatch. The conflicting target
 releases its current page while delayed, so frozen suffix targets continue to make progress without a hot loop.
 
-Logs include at least the binding, Scope, Window range, stage, error code, exception type, failure count, retry delay,
-Supervisor generation, Worker ID, and traceback. They must not contain original Source content, Prompts, complete model
-outputs, or secrets.
+Console and JSON operational logs retain the binding, Family, Scope, Window range, stage, error code and applicable
+budget/retry counters. Actual Worker errors retain the child's stage, exception type and Worker identity. Sanitized
+stack locations are available in internal Worker failure diagnostics; operational formatters do not serialize arbitrary
+extras or traceback payloads. Logs must not contain original Source content, Prompts, complete model outputs, or secrets.
 
 ## HTTP, MCP, and Prepared Context
 
