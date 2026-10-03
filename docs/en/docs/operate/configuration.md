@@ -243,6 +243,26 @@ The authenticated `/metrics` endpoint exposes `powercontext_server_artifact_proc
 label: Worker capacity, ready/retry queues, unacknowledged Scopes, discovery and invocation duration, completions,
 failures, and timeouts. Unacknowledged counts reflect the latest discovery; counters reset with the Supervisor instance.
 
+The `extraction` object in `GET /v1/capabilities` separates configuration, background execution, and local observations.
+Reading this snapshot does not query the database or call a model, and does not produce an overall health verdict.
+
+- `configuration` is `configured` when a local extraction model or custom pipeline is assembled, or `unconfigured`
+  when neither is available. It does not verify credentials or connectivity. External execution reports `unknown`.
+- `background.location` is `local`, `external`, or `none`. The local Supervisor's `role` (`leader` or `standby`) is
+  separate from its `state` (`running`, `degraded`, or `stopped`); standby is normal. A worker crash can coexist with a
+  running Supervisor that arranges retries. `automatic_processing_enabled=false` still permits explicit work.
+  External execution has unknown state and schedule; no running local Supervisor means a null role.
+- `observation.since` marks the start of this Runtime's local observation window, including its child Memory workers.
+  `status=unverified` means no execution outcome or control failure has been observed; `observed` means evidence exists.
+  `last_success_at` records a successful nonempty flush or acknowledged worker invocation. `last_failure` records a safe
+  `code`, `stage`, and `occurred_at`, such as `model_timeout` at `inference` or `worker_crash` at `worker`.
+  Generic failures retain the observing boundary (`flush` or `worker`) without assuming a model failure.
+
+Success and failure records are independent: Scope B succeeding does not clear Scope A's failure or prove its recovery.
+A historical failure also does not mean an incident is still unresolved. Observations reset on Runtime restart and do
+not prove model connectivity or remote worker health. Use structured logs for Scope-specific failures and retries, and
+the existing metrics for queue and progress observations; local ready counts are not a global Source backlog.
+
 Remote and multi-user deployments must use `enforced`. In that mode, HTTP, MCP, and metrics share one Server PEP.
 `/v1/access/me` reports the `server`/`scope`/`artifact` Resource Kinds,
 Provider batch/list/relationship capabilities and Artifact Family profiles. Managed Skill export and installation do

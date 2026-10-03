@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+from datetime import UTC, datetime
 from types import TracebackType
 from typing import Self
 
@@ -23,15 +24,45 @@ from typer.testing import CliRunner
 import powercontext.client.cli as client_cli
 from powercontext.cli.app import create_cli
 from powercontext.client import PowerContextClient
-from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSchema
+from powercontext.http import Capabilities, ExtractionStatus, MemorySearchMode, PreparedContextSchema
 from powercontext.server.app import create_app
 
 
-def test_capabilities_flow_through_server_sdk_and_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "extraction",
+    [
+        pytest.param(None, id="diagnostics-unavailable"),
+        pytest.param(
+            ExtractionStatus.model_validate({
+                "configuration": "configured",
+                "background": {
+                    "location": "local",
+                    "role": "leader",
+                    "state": "running",
+                    "automatic_processing_enabled": True,
+                },
+                "observation": {
+                    "status": "observed",
+                    "since": datetime(2026, 9, 28, tzinfo=UTC),
+                    "last_failure": {
+                        "code": "model_timeout",
+                        "stage": "inference",
+                        "occurred_at": datetime(2026, 9, 29, tzinfo=UTC),
+                    },
+                },
+            }),
+            id="extraction-failed",
+        ),
+    ],
+)
+def test_capabilities_flow_through_server_sdk_and_cli(
+    monkeypatch: pytest.MonkeyPatch, extraction: ExtractionStatus | None
+) -> None:
     server_capabilities = Capabilities(
         source_types=["git-commit"],
         artifact_families=["memory", "handoff"],
         memory_extraction=True,
+        extraction=extraction,
         handoff_generation=True,
         search_modes=[MemorySearchMode.FTS],
         context_versions=[PreparedContextSchema.POWERCONTEXT_PREPARED_CONTEXT_V1],
@@ -70,16 +101,4 @@ def test_capabilities_flow_through_server_sdk_and_cli(monkeypatch: pytest.Monkey
     result = CliRunner().invoke(create_cli([]), ["--json", "capabilities"])
 
     assert result.exit_code == 0
-    assert json.loads(result.output) == {
-        "source_types": ["git-commit"],
-        "artifact_families": ["memory", "handoff"],
-        "memory_extraction": True,
-        "experience_generation": False,
-        "managed_skill_generation": False,
-        "external_skill_registry": False,
-        "artifact_dreaming": False,
-        "handoff_generation": True,
-        "search_modes": ["fts"],
-        "context_versions": ["powercontext.prepared-context.v1"],
-        "prompts": {},
-    }
+    assert json.loads(result.output) == server_capabilities.model_dump(mode="json")

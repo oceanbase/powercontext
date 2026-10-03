@@ -48,6 +48,7 @@ from powercontext.builtin.runtime.processing_registry import processing_capabili
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
 from powercontext.http import (
     Capabilities,
+    ExtractionStatus,
     MemorySearchMode,
     PreparedContextSchema,
     PromptCapability,
@@ -254,7 +255,20 @@ def create_server_app(  # noqa: C901
             app.state.application = runtime
             app.state.access_control = active_access_control
             app.state.authentication_provider = configured_authentication
-            app.state.capabilities = await _server_capabilities(runtime)
+            capabilities = await _server_capabilities(runtime)
+
+            def current_capabilities() -> Capabilities:
+                extraction = runtime.extraction_status()
+                return capabilities.model_copy(
+                    update={
+                        "extraction": (
+                            None if extraction is None else ExtractionStatus.model_validate(extraction.model_dump())
+                        ),
+                    }
+                )
+
+            app.state.capabilities = capabilities
+            app.state.capability_provider = current_capabilities
             await readiness_probe()
             try:
                 yield
@@ -262,6 +276,7 @@ def create_server_app(  # noqa: C901
                 _log_lifecycle("server.stopping", "PowerContext Server is stopping")
                 readiness_probe.unbind()
                 app.state.application = None
+                app.state.capability_provider = None
                 app.state.access_control = configured_access_control
                 app.state.authentication_provider = configured_authentication
                 app.state.capabilities = Capabilities(

@@ -66,6 +66,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerLauncher,
     ArtifactProcessingWorkerOutcome,
     WorkerEntrypoint,
+    processing_error_code,
 )
 from powercontext.builtin.runtime.protocols import RuntimeTracing
 
@@ -410,6 +411,10 @@ class _FamilyState:
     unacknowledged: int = 0
     discovery_seconds: float = 0
     invocation_seconds: float = 0
+    last_error: str = ""
+    last_error_stage: str = ""
+    last_error_at: str = ""
+    last_success_at: str = ""
 
 
 class ArtifactProcessingSupervisor:
@@ -482,7 +487,12 @@ class ArtifactProcessingSupervisor:
         return {
             state.binding.artifact_family: {
                 "status": "degraded" if state.degraded else self._status.value,
+                "supervisor_running": self._task is not None and not self._task.done(),
+                "supervisor_role": "leader" if self._fence is not None and not self._lease_lost else "standby",
                 "max_workers": state.binding.max_workers,
+                "automatic_processing_enabled": (
+                    state.binding.automatic_processing_interval is not None or state.binding.cron is not None
+                ),
                 "used_workers": len(state.running),
                 "available_workers": max(0, state.binding.max_workers - len(state.running)),
                 "unacknowledged_requests": state.unacknowledged,
@@ -493,6 +503,10 @@ class ArtifactProcessingSupervisor:
                 "completed": state.completed,
                 "failed": state.failed,
                 "timeouts": state.timeouts,
+                "last_error": state.last_error,
+                "last_error_stage": state.last_error_stage,
+                "last_error_at": state.last_error_at,
+                "last_success_at": state.last_success_at,
             }
             for state in self._families.values()
         }
@@ -545,6 +559,7 @@ class ArtifactProcessingSupervisor:
                 except Exception as error:
                     await self._lose_leadership()
                     self._status = ArtifactProcessingSupervisorStatus.DEGRADED
+                    self._record_failure(None, error, "supervisor")
                     self._log_failure(None, None, error, "supervisor")
                 finally:
                     self._started.set()
@@ -598,6 +613,7 @@ class ArtifactProcessingSupervisor:
         except asyncio.CancelledError:
             raise
         except Exception as error:
+            self._record_failure(None, error, "lease_renewal")
             self._log_failure(None, None, error, "lease_renewal")
             self._lease_lost = True
             self._wake.set()
@@ -630,6 +646,7 @@ class ArtifactProcessingSupervisor:
                 except Exception as error:
                     state.degraded = True
                     state.next_discovery_at = now + self._tick
+                    self._record_failure(state, error, "scope_discovery")
                     self._log_failure(state, None, error, "scope_discovery")
                 finally:
                     state.discovery_seconds = asyncio.get_running_loop().time() - now
@@ -994,6 +1011,7 @@ class ArtifactProcessingSupervisor:
                     )
                 state.retries.pop(scope, None)
                 state.completed += 1
+                state.last_success_at = datetime.now(UTC).isoformat()
                 if row.requested_generation > row.handled_generation:
                     self.wake(state.binding.binding_name)
             except (ArtifactProcessingLeadershipLostError, _WorkerTerminationError):
@@ -1010,6 +1028,7 @@ class ArtifactProcessingSupervisor:
                 state.failed += 1
                 if isinstance(error, TimeoutError):
                     state.timeouts += 1
+                self._record_failure(state, error, "worker")
                 self._log_failure(state, running.assignment, error, "worker", failures, delay)
             finally:
                 if not retain_slot:
@@ -1096,6 +1115,24 @@ class ArtifactProcessingSupervisor:
             if state.discovery_pending or state.scan_in_progress or not state.reconcile_complete or state.degraded:
                 deadlines.append(max(now, state.next_discovery_at))
         return None if not deadlines else max(0.001, min(deadlines) - now)
+
+    def _record_failure(self, state: _FamilyState | None, error: BaseException, stage: str) -> None:
+        error_code = (
+            processing_error_code(error.failure.exception_type, error.failure.error_code)
+            if isinstance(error, _WorkerExecutionError)
+            else processing_error_code(type(error))
+        )
+        if stage in {"supervisor", "lease_renewal", "scope_discovery"}:
+            error_code = f"{stage}_failed"
+        elif error_code.startswith("model_") or error_code == "invalid_model_output":
+            stage = "inference"
+        elif isinstance(error, TimeoutError):
+            error_code = "worker_timeout"
+        occurred_at = datetime.now(UTC).isoformat()
+        for affected in self._families.values() if state is None else (state,):
+            affected.last_error = error_code
+            affected.last_error_stage = stage
+            affected.last_error_at = occurred_at
 
     def _log_failure(
         self,
@@ -1205,10 +1242,15 @@ def _run_spawned_worker(
         completion = entrypoint(assignment)
         sender.send(ArtifactProcessingWorkerCompletion() if completion is None else completion)
     except BaseException as error:
+        error_code = processing_error_code(type(error))
         sender.send(
             ArtifactProcessingWorkerFailure(
                 stage=_safe_error_attribute(error, "stage", "worker"),
-                error_code=_safe_error_attribute(error, "error_code", "worker_failed"),
+                error_code=(
+                    _safe_error_attribute(error, "error_code", "worker_failed")
+                    if error_code == "processing_failed"
+                    else error_code
+                ),
                 exception_type=type(error).__name__,
                 traceback=_safe_traceback(error),
             )
