@@ -79,3 +79,13 @@ Its displayed text is the same untrusted, request-specific context sent to the m
 
 See [runtime acceptance tests](tests/runtime/README.md) for the pinned real DSH host, deterministic CI scenarios,
 and the separate real-model and Web acceptance procedure.
+
+## Web and Desktop setup targets
+
+`powercontext setup dsh` prompts for Web or Desktop on a TTY; `--json` and non-interactive invocations default to Web.
+Use `--profile web` or `--profile desktop` explicitly in scripts. Each profile has independent package dependencies
+and bundle activation. Desktop requires its installed dsh launcher, an initialized profile, and a fully quit application.
+Use Desktop's **Manage dsh Command…** menu or pass `--dsh-command` with its installed launcher path.
+`powercontext doctor dsh --profile desktop` checks registration without launching the reserved profile; reopen
+Desktop and run `/pc doctor` to inspect the active session. Connection settings and URL-bound credentials remain shared.
+See [the installation guide](../../../../docs/en/docs/integrations/dsh.md) for paths and complete examples.

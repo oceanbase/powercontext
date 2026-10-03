@@ -19,13 +19,13 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { environment, injected, CANARY } from './fixture.mjs'
-import { installIntoCleanHome } from './setup-fixture.mjs'
+import { installIntoHome } from './setup-fixture.mjs'
 import { registerSkill } from '../../src/skill.ts'
 
 test('documented setup installs the matched plugin, diagnoses the running host and recalls processed Source', { timeout: 240000 }, async () => {
   const env = await environment()
   try {
-    const installation = await installIntoCleanHome(env.home)
+    const installation = await installIntoHome(env.home)
     assert.ok(installation.setup.includes('powercontext-dsh'))
     assert.equal(installation.doctor.checks.plugin.checks.registration, 'present')
     assert.equal(installation.doctor.checks.plugin.checks.running_host_configuration, 'not_observed')
