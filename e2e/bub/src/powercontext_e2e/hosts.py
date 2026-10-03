@@ -28,6 +28,7 @@ from .catalog import ContinuationEvaluationSpec, E2ETask, MemoryEvaluationSpec
 from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION, REMOTE_CODEX_AUTH, REMOTE_SOURCE
 from .harbor_claude_code import CLAUDE_CODE_VERSION
 from .harbor_codex import CODEX_VERSION
+from .harbor_opencode import OPENCODE_VERSION
 from .settings import (
     bub_environment,
     codex_auth_path,
@@ -244,6 +245,21 @@ CLAUDE_CODE = PluginHost(
 )
 
 
+# Harbor passes the key of the model's provider, such as OPENROUTER_API_KEY. The plugin is a bundled JavaScript file
+# with a Skill, and reads its Server URL from its environment.
+OPENCODE = PluginHost(
+    name="opencode",
+    version=OPENCODE_VERSION,
+    agent_import_path="powercontext_e2e.harbor_opencode:PowerContextOpenCodeAgent",
+    plugin_prefix="POWERCONTEXT_OPENCODE_",
+    setting_prefix="POWERCONTEXT_E2E_OPENCODE_",
+    plugin_paths=(
+        "integrations/opencode/plugins/powercontext/lib",
+        "integrations/opencode/plugins/powercontext/skills",
+    ),
+)
+
+
 def _capture_settings(task: E2ETask) -> tuple[bool, int, int]:
     evaluation = task.evaluation
     if isinstance(evaluation, MemoryEvaluationSpec):
@@ -273,7 +289,7 @@ def read_only_bind(source: Path, target: str) -> ServiceVolumeConfig:
     }
 
 
-_HOSTS: dict[str, HostAdapter] = {host.name: host for host in (BubHost(), CODEX, CLAUDE_CODE)}
+_HOSTS: dict[str, HostAdapter] = {host.name: host for host in (BubHost(), CODEX, CLAUDE_CODE, OPENCODE)}
 
 
 def host_adapter(name: str) -> HostAdapter:

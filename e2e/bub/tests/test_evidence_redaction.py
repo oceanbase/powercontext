@@ -24,7 +24,7 @@ import pytest
 from powercontext_e2e.artifacts import write_artifacts
 from powercontext_e2e.catalog import load_tasks
 from powercontext_e2e.evaluation import MemoryEvaluator
-from powercontext_e2e.evidence import load_resolved_instructions
+from powercontext_e2e.evidence import load_resolved_instructions, redact
 from powercontext_e2e.models import (
     HarborTrialObservation,
     MemoryEntrySnapshot,
@@ -65,6 +65,10 @@ def test_resolved_instruction_evidence_matches_harbor_acp_summaries(
         "CLAUDE_CODE_OAUTH_TOKEN",
         "ANTHROPIC_API_KEY",
         "POWERCONTEXT_CLAUDE_AUTHORIZATION",
+        "OPENROUTER_API_KEY",
+        "POWERCONTEXT_OPENCODE_AUTHORIZATION",
+        "HF_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
     ],
 )
 def test_final_evidence_redacts_configured_secrets_and_preserves_the_public_schema(
@@ -133,3 +137,15 @@ def test_final_evidence_redacts_configured_secrets_and_preserves_the_public_sche
     assert replay["resolved_instructions"][0]["content"] == "Use credential [REDACTED] to complete the task."
     assert evaluation["schema"] == "powercontext.e2e-evaluation/v1"
     assert evaluation["cases"][0]["attributes"]["execution_adapter"] == "bub"
+
+
+def test_short_placeholder_credentials_do_not_corrupt_evidence(monkeypatch) -> None:
+    # Evidence is redacted by substring, so redacting "1" or "ollama" would rewrite numbers and ordinary words.
+    monkeypatch.setenv("LOCAL_API_KEY", "1")
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-provider-secret")
+    evidence = json.dumps({"reward": 1, "provider": "ollama", "error": "rejected sk-or-provider-secret"})
+
+    redacted = json.loads(redact(evidence, HarnessSettings()))
+
+    assert redacted == {"reward": 1, "provider": "ollama", "error": "rejected [REDACTED]"}

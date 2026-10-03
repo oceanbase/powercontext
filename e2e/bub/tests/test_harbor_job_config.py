@@ -22,11 +22,15 @@ from pathlib import Path
 from typing import NamedTuple
 
 import pytest
+from harbor.agents.installed.opencode import OpenCode
+from harbor.environments.base import ExecResult
+from harbor.models.agent.context import AgentContext
 from harbor.models.job.config import JobConfig
 
 from powercontext_e2e.catalog import E2ETask, load_tasks
 from powercontext_e2e.harbor_claude_code import PowerContextClaudeCodeAgent
 from powercontext_e2e.harbor_codex import PowerContextCodexAgent
+from powercontext_e2e.harbor_opencode import PowerContextOpenCodeAgent
 from powercontext_e2e.hosts import host_adapter
 from powercontext_e2e.runner import _job_config, prepare_runtime_task, require_runtime_models, run_tasks
 from powercontext_e2e.settings import HarnessSettings, ModelNotConfiguredError
@@ -229,6 +233,13 @@ _PLUGIN_HOSTS = [
         "POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP",
         "POWERCONTEXT_CLAUDE_SCOPE_ID",
     ),
+    _PluginHost(
+        "opencode",
+        "POWERCONTEXT_E2E_OPENCODE_MODEL",
+        "POWERCONTEXT_OPENCODE_SERVER_URL",
+        "POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP",
+        "POWERCONTEXT_OPENCODE_SCOPE_ID",
+    ),
 ]
 
 
@@ -294,6 +305,80 @@ def test_codex_on_arm_enables_plugins_and_runs_hooks_unattended(tmp_path: Path) 
     assert "hook-trust" not in flags(False)
 
 
+class _RecordingEnvironment:
+    """Record the commands an agent runs, succeeding without a container."""
+
+    default_user = None
+
+    def __init__(self, *, failing: str | None = None) -> None:
+        self.commands: list[str] = []
+        self._failing = failing
+
+    async def exec(self, command: str, **_: object) -> ExecResult:
+        self.commands.append(command)
+        failed = self._failing is not None and self._failing in command
+        return ExecResult(stdout="", stderr="", return_code=1 if failed else 0)
+
+
+def _opencode_agent(tmp_path: Path, *, powercontext: bool) -> PowerContextOpenCodeAgent:
+    return PowerContextOpenCodeAgent(
+        logs_dir=tmp_path,
+        model_name="openrouter/model-test",
+        server_url="http://host-gateway:8000",
+        powercontext=powercontext,
+        reasoning_effort="medium",
+    )
+
+
+@pytest.mark.parametrize("powercontext", [True, False])
+def test_opencode_installs_the_plugin_only_for_on(tmp_path: Path, powercontext: bool) -> None:
+    environment = _RecordingEnvironment()
+
+    asyncio.run(_opencode_agent(tmp_path, powercontext=powercontext).install(environment))
+
+    installed = [command for command in environment.commands if "powercontext-opencode.js" in command]
+    assert bool(installed) is powercontext
+
+
+@pytest.mark.parametrize("powercontext", [True, False])
+def test_opencode_sessions_start_without_earlier_opencode_sessions(
+    monkeypatch, tmp_path: Path, powercontext: bool
+) -> None:
+    # Harbor leaves OpenCode's data directory in place between the steps of a trial.
+    started: list[list[str]] = []
+
+    async def run_opencode(self, instruction, environment, context) -> None:
+        started.append(list(environment.commands))
+
+    monkeypatch.setattr(OpenCode, "run", run_opencode)
+    environment = _RecordingEnvironment()
+
+    asyncio.run(_opencode_agent(tmp_path, powercontext=powercontext).run("task", environment, AgentContext()))
+
+    (before_session,) = started
+    assert any("opencode.db" in command and "rm -rf" in command for command in before_session)
+
+
+def test_opencode_session_does_not_start_when_earlier_sessions_remain(monkeypatch, tmp_path: Path) -> None:
+    # A session store the clear did not reach must stop the arm instead of leaving an earlier session readable.
+    started: list[str] = []
+
+    async def run_opencode(self, instruction, environment, context) -> None:
+        started.append(instruction)
+
+    monkeypatch.setattr(OpenCode, "run", run_opencode)
+    environment = _RecordingEnvironment(failing="opencode session list")
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(_opencode_agent(tmp_path, powercontext=False).run("task", environment, AgentContext()))
+
+    assert started == []
+
+
+def test_opencode_reasoning_effort_selects_the_model_variant(tmp_path: Path) -> None:
+    assert _opencode_agent(tmp_path, powercontext=True).build_cli_flags() == "--variant medium"
+
+
 @pytest.mark.parametrize("host", _PLUGIN_HOSTS, ids=lambda host: host.name)
 def test_plugin_host_requires_a_model_and_the_server_url_before_any_run(monkeypatch, host: _PluginHost) -> None:
     adapter = host_adapter(host.name)
@@ -306,7 +391,7 @@ def test_plugin_host_requires_a_model_and_the_server_url_before_any_run(monkeypa
     require_runtime_models((_PAIRED_TASK,), adapter)
 
 
-@pytest.mark.parametrize("host", ["bub", "codex", "claude-code"])
+@pytest.mark.parametrize("host", ["bub", "codex", "claude-code", "opencode"])
 @pytest.mark.parametrize(
     "manifest",
     ["paired-tasks/project-decision-continuation.yaml", "tasks/acceptance-01-project-database-decision.yaml"],

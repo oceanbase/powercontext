@@ -6,8 +6,8 @@ on Memory collection, grounding, and recall rather than the native task reward.
 
 The common architecture separates workload selection, execution, evidence, Memory evaluation, and reporting. Bub is
 the execution adapter for acceptance workloads because its model, tools, context injection, capture, and checkpoints
-are observable. The OFF/ON comparison can also run on Codex and Claude Code, without changing the workload or
-evaluation contracts.
+are observable. The OFF/ON comparison can also run on Codex, Claude Code, and OpenCode, without changing the workload
+or evaluation contracts.
 
 Every workload follows one execution path:
 
@@ -154,8 +154,8 @@ step, because Harbor would then skip the recall step when that step's unrelated 
 
 The `paired` command runs each selected workload with PowerContext off and on, in separate containers, and repeats
 this for `--trials` trials. The arm that runs first alternates between trials. `--host` selects the agent host for
-both arms: `bub` by default, `codex`, or `claude-code`. Each host uses its own PowerContext integration, so ON means
-what that integration does for its users.
+both arms: `bub` by default, `codex`, `claude-code`, or `opencode`. Each host uses its own PowerContext integration, so
+ON means what that integration does for its users.
 
 - OFF is the host as a user without PowerContext has it. The agent is not told that PowerContext is off, and it
   cannot find PowerContext: no integration is installed, no PowerContext sources are mounted in its container, and it
@@ -165,8 +165,9 @@ what that integration does for its users.
 - ON installs the integration, binds it to a new Scope, and gives it the harness Client's Server token. For Bub this
   means the plugin with `capture_events` enabled, so that, like the other host integrations, it captures what the
   user says without relying on the model to call a memory tool. This is not the plugin's default setting. Codex runs
-  with `--enable plugins`, and Claude Code has the plugin enabled: in both, a hook captures each user prompt and asks
-  for context before each turn, and the plugin's MCP tools and Skill are available to the model.
+  with `--enable plugins`, Claude Code has the plugin enabled, and OpenCode loads it from its plugins directory. In all
+  three, the plugin captures each user prompt and asks for context before each turn, and the plugin's tools (MCP for
+  Codex and Claude Code, native tools for OpenCode) and Skill are available to the model.
 - Everything else is the same in both arms: image, host version, model, reasoning settings, and budget.
 
 Both arms' containers can reach the Server, and the Server keeps the ON arms' Memory across trials. The command
@@ -254,6 +255,31 @@ export POWERCONTEXT_E2E_CLAUDE_CODE_MODEL=claude-sonnet-5-5
 export CLAUDE_CODE_OAUTH_TOKEN=replace-me
 export CLAUDE_FORCE_OAUTH=1
 make harness-paired ARGS='--host claude-code --trials 2'
+```
+
+OpenCode 1.18.33 runs through Harbor's OpenCode agent. The ON arm copies the plugin's bundled `lib/index.js` and its
+Skill to where `powercontext setup opencode` puts them. Setup also registers a TUI plugin, which `opencode run` does not
+load. The agent container sees only the plugin's `lib` and `skills` directories. The plugin reads
+`POWERCONTEXT_OPENCODE_SERVER_URL`, the Scope, and the plain-HTTP consent `POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP`
+from its environment; without the consent it stays inactive and the ON arm reports an integration failure. The plugin
+prefers `POWERCONTEXT_OPENCODE_BASE_URL` when that is also set, so leave it unset. OpenCode keeps its sessions in its
+data directory, which Harbor does not clear between steps, so the harness removes the session store before each session
+in both arms, as sessions start empty on the other hosts, and stops the arm if OpenCode still lists a session
+afterwards. The harness selects the model with `POWERCONTEXT_E2E_OPENCODE_MODEL` in OpenCode's `provider/model` form and
+passes `POWERCONTEXT_E2E_OPENCODE_REASONING_EFFORT`, default `medium`, as the model variant. OpenCode silently ignores a
+variant that the model does not define, so choose an effort the model offers; the report records the requested value.
+Harbor passes the key of the providers it knows, such as `OPENROUTER_API_KEY`; a model from another provider gets no
+key.
+
+```bash
+export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:8000
+export POWERCONTEXT_CLIENT_API_TOKEN=replace-me
+export POWERCONTEXT_CLIENT_TIMEOUT=150
+export POWERCONTEXT_OPENCODE_SERVER_URL=http://host-gateway:8000
+export POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP=true
+export POWERCONTEXT_E2E_OPENCODE_MODEL=openrouter/z-ai/glm-5.3
+export OPENROUTER_API_KEY=replace-me
+make harness-paired ARGS='--host opencode --trials 2'
 ```
 
 Each arm writes `observation.json`, which includes the per-session Server snapshots for ON, and its Harbor jobs:
