@@ -24,8 +24,8 @@ import { startPowerContextServer } from '../../scripts/e2e-server.mjs'
 
 vi.mock('../../src/peers.ts', () => ({
   loadPeer: async (specifier: string) => {
-    if (specifier === '@deepseek-ai/dsh-tools') {
-      return { defineTool: (definition: Record<string, unknown>) => definition }
+    if (specifier === '@deepseek-ai/dsh-mcp-client') {
+      return { apply: async () => undefined }
     }
     if (specifier === '@deepseek-ai/dsh-llm') {
       return { createUserMessage: (input: unknown) => input }
@@ -300,7 +300,7 @@ describe('plugin HTTP call-through without a model', () => {
 
       await harness.provide(REQUIRED_SERVICES.at(-1)!)
       await harness.fiber
-      expect(harness.registrations.tools.length).toBeGreaterThan(0)
+      expect(harness.registrations.tools).toEqual([])
       expect(harness.registrations.commands.map(item => item.name)).toEqual(['pc'])
       expect(harness.registrations.skills).toEqual(expect.arrayContaining([expect.objectContaining({
         name: 'powercontext-project-context',

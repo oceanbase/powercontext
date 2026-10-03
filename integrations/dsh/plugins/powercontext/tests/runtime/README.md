@@ -25,7 +25,7 @@ These tests launch the real `dsh --profile sdk` subprocess and a real PowerConte
 Only the built distributable plugin files are installed. Host tool registration, pre-step processing, message
 construction, model request assembly, and session persistence are not replaced. A loopback model fixture provides
 scripted OpenAI-compatible streaming replies and Server inference decisions. A loopback proxy can inject HTTP
-failures at individual PowerContext endpoints.
+failures at individual PowerContext endpoints or hold the native MCP initialization response.
 
 The setup scenario first runs `powercontext setup dsh --source <this checkout>` with the pinned DSH executable
 and a clean DSH home. It verifies Web-profile registration through `powercontext doctor dsh --json`, then loads
@@ -43,7 +43,8 @@ The scenarios cover:
 - automatic Source capture, Server processing into Memory, fresh-session recall, model input, and durable snapshot metadata;
 - clean CLI installation, standalone observation limits, and in-host Doctor configuration/route/authentication checks;
 - Source idempotency, no duplicate snapshot injection, and matching section/content text;
-- Scope business and route failures, authentication failure, unavailable Server, continued conversation, and a real named tool result;
+- Scope business and route failures, authentication failure, unavailable Server, continued conversation, and denied cross-Scope MCP calls before dispatch;
+- stalled MCP startup, continued ordinary conversation, late native tool registration, and cleanup of pending handshakes;
 - independent prepare/capture/flush failure, recovery, host restart, and configured Scope isolation.
 
 The registered-entry unit tests in `../automatic-path.spec.ts` cover cancellation, deadlines, writer failures
@@ -79,8 +80,8 @@ configure the test model through environment-backed credentials. Test the shippe
    names the failed stage, existing prepared content survives capture/flush failure, and empty/failure results add no notice.
 4. Cancel during a held Scope request. Confirm no prepare/capture/flush follows cancellation. Restart or reload the
    plugin and check that one ordinary prompt still produces one automatic capture and one snapshot at most.
-5. Use an unrelated Scope, then exercise `pc_search`, `/pc doctor`, `/pc capabilities`, and bare `/pc`.
-   Verify the existing direct-call behavior and absence of cross-Scope content.
+5. Use an unrelated Scope, then exercise the native `mcp__powercontext__search_memory` tool, `/pc doctor`,
+   `/pc capabilities`, and bare `/pc`. Verify the MCP call and absence of cross-Scope content.
 
 Record package versions/commit, OS/Node/Python, model identity, sanitized configuration, per-scenario outcomes,
 request/session evidence, and screenshots in the PR. Test the installed older DSH separately through a supported

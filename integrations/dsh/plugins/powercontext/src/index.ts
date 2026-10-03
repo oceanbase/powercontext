@@ -21,11 +21,11 @@ import { resolveConfig, type PluginConfig } from './config.ts'
 import { createDiagnosticEmitter } from './diagnostics.ts'
 import { PLUGIN_NAME } from './errors.ts'
 import type { PluginRuntime } from './invoke.ts'
+import { registerMcp, registerMcpPolicy, type McpScopeResolutionRequest } from './mcp.ts'
 import { loadPeer } from './peers.ts'
 import { runRecallPreStep, type PromptMessage } from './recall.ts'
 import { resolveScopeId } from './scope.ts'
 import { registerGuidance, registerSkill } from './skill.ts'
-import { registerTools } from './tools.ts'
 import { RuntimeStatus } from './status.ts'
 
 export const name = PLUGIN_NAME
@@ -60,8 +60,6 @@ type CreateUserMessage = (input: {
   }
 }) => unknown
 
-type DefineTool = (definition: Record<string, unknown>) => unknown
-
 function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
   const resolved = resolveConfig(config)
   const client = new PowerContextClient({
@@ -85,7 +83,38 @@ function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
   }
 }
 
-function registerRecall(ctx: Context, runtime: PluginRuntime, createUserMessage: CreateUserMessage): void {
+type SessionScopeResolver = (request: McpScopeResolutionRequest) => Promise<string | undefined>
+
+function createSessionScopeResolver(runtime: PluginRuntime): {
+  forPreStep: SessionScopeResolver
+  forTool: SessionScopeResolver
+} {
+  const cache = new Map<string, { cwd?: string; scopeId: string }>()
+  const keyFor = (sessionId: string | undefined, cwd: string | undefined) => (
+    sessionId ? `session:${sessionId}` : `cwd:${cwd ?? ''}`
+  )
+  const resolve = async (request: McpScopeResolutionRequest, refresh: boolean): Promise<string | undefined> => {
+    const key = keyFor(request.sessionId, request.cwd)
+    const cached = cache.get(key)
+    if (!refresh && cached && cached.cwd === request.cwd) return cached.scopeId
+    // A failed refresh must not leave a previous turn's Scope available to MCP calls.
+    cache.delete(key)
+    const scopeId = await runtime.resolveScope(request.cwd, request.signal)
+    if (scopeId) cache.set(key, { cwd: request.cwd, scopeId })
+    return scopeId
+  }
+  return {
+    forPreStep: request => resolve(request, true),
+    forTool: request => resolve(request, false),
+  }
+}
+
+function registerRecall(
+  ctx: Context,
+  runtime: PluginRuntime,
+  createUserMessage: CreateUserMessage,
+  resolveSessionScope: SessionScopeResolver,
+): void {
   ctx.on('agent/pre-step', (async (payload: {
     agent: { session: { header: { id: string; cwd?: string } } }
     messages: PromptMessage[]
@@ -103,12 +132,23 @@ function registerRecall(ctx: Context, runtime: PluginRuntime, createUserMessage:
       signal,
       client: runtime.client,
       config: runtime.config,
-      resolveScope: runtime.resolveScope,
+      resolveScope: (cwd, signal) => resolveSessionScope({
+        sessionId: payload.agent.session.header.id,
+        cwd,
+        signal: signal ?? payload.signal,
+      }),
       wrapContent: (text) => createUserMessage({
         content: [{ type: 'text', text }],
         source: {
           kind: 'plugin', plugin: PLUGIN_NAME, form: 'snapshot',
           sections: [{ name: 'PowerContext', text }],
+        },
+      }),
+      wrapScope: (text) => createUserMessage({
+        content: [{ type: 'text', text }],
+        source: {
+          kind: 'plugin', plugin: PLUGIN_NAME, form: 'snapshot',
+          sections: [{ name: 'PowerContext Scope routing', text }],
         },
       }),
       log: runtime.log,
@@ -118,12 +158,13 @@ function registerRecall(ctx: Context, runtime: PluginRuntime, createUserMessage:
 }
 
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  const toolsMod = await loadPeer<{ defineTool: DefineTool }>('@deepseek-ai/dsh-tools')
   const llmMod = await loadPeer<{ createUserMessage: CreateUserMessage }>('@deepseek-ai/dsh-llm')
   const runtime = createRuntime(ctx, config)
+  const sessionScope = createSessionScopeResolver(runtime)
+  registerMcpPolicy(ctx, sessionScope.forTool)
   registerGuidance(ctx)
-  registerTools(ctx, runtime, toolsMod.defineTool)
-  registerRecall(ctx, runtime, llmMod.createUserMessage)
+  registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep)
   registerCommands(ctx, runtime)
   registerSkill(ctx)
+  await registerMcp(ctx, runtime.config)
 }

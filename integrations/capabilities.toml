@@ -218,65 +218,153 @@ id = "zcode:Stop"
 capabilities = ["flush_or_checkpoint"]
 
 [[toolsets]]
-id = "dsh-tools"
-probe = "dsh_tools"
+id = "dsh-mcp"
+probe = "dsh_mcp"
 [[toolsets.tools]]
-id = "pc_search:search_memory"
+id = "mcp__powercontext__search_memory"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
-id = "pc_memory_list:list_memory_entries"
+id = "mcp__powercontext__search_topic_memory"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
-id = "pc_memory_get:get_memory_entry"
+id = "mcp__powercontext__get_topic_memory"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
-id = "pc_remember:remember_memory"
+id = "mcp__powercontext__list_memory_entries"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "mcp__powercontext__get_memory_entry"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "mcp__powercontext__get_memory_capacity"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "mcp__powercontext__remember_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
-id = "pc_memory_revise:revise_memory_entry"
+id = "mcp__powercontext__revise_memory_entry"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
-id = "pc_memory_retire:retire_memory_entry"
+id = "mcp__powercontext__retire_memory_entry"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
-id = "pc_prepare_context:prepare_context"
-capabilities = ["context_injection"]
-[[toolsets.tools]]
-id = "pc_capture_source:capture_content_source"
+id = "mcp__powercontext__capture_content_source"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
-id = "pc_handoff_activate:activate_handoff"
+id = "mcp__powercontext__create_work_contract"
+capabilities = ["work_contract"]
+[[toolsets.tools]]
+id = "mcp__powercontext__handoff_current_work"
 capabilities = ["handoff"]
 [[toolsets.tools]]
-id = "pc_handoff_prepare:prepare_handoff"
+id = "mcp__powercontext__activate_handoff"
 capabilities = ["handoff"]
 [[toolsets.tools]]
-id = "pc_handoff_finalize:finalize_handoff"
+id = "mcp__powercontext__finalize_handoff"
 capabilities = ["handoff"]
 [[toolsets.tools]]
-id = "pc_handoff_commit:commit_handoff"
+id = "mcp__powercontext__commit_handoff"
 capabilities = ["handoff"]
 [[toolsets.tools]]
-id = "pc_handoff_continue:continue_handoff"
+id = "mcp__powercontext__continue_handoff"
 capabilities = ["handoff"]
 [[toolsets.tools]]
-id = "pc_experience_generate:generate_experience"
-capabilities = ["experience_read_or_generate"]
+id = "mcp__powercontext__get_handoff_report"
+capabilities = ["handoff"]
 [[toolsets.tools]]
-id = "pc_experience_get:get_experience"
-capabilities = ["experience_read_or_generate"]
+id = "mcp__powercontext__create_scope"
+capabilities = ["scope_organization"]
 [[toolsets.tools]]
-id = "pc_skill_generate:generate_skill"
-capabilities = ["skill_read_or_generate"]
+id = "mcp__powercontext__get_scope"
+capabilities = ["scope_organization"]
 [[toolsets.tools]]
-id = "pc_skill_get:get_skill"
-capabilities = ["skill_read_or_generate"]
+id = "mcp__powercontext__list_scopes"
+capabilities = ["scope_organization"]
 [[toolsets.tools]]
-id = "pc_review_list:list_artifact_candidates"
+id = "mcp__powercontext__publish_artifact"
+capabilities = ["artifact_publication"]
+[[toolsets.tools]]
+id = "mcp__powercontext__resolve_scope_binding"
+capabilities = ["persistent_scope_binding"]
+[[toolsets.tools]]
+id = "mcp__powercontext__set_scope_binding"
+capabilities = ["persistent_scope_binding"]
+[[toolsets.tools]]
+id = "mcp__powercontext__clear_scope_binding"
+capabilities = ["persistent_scope_binding"]
+[[toolsets.tools]]
+id = "mcp__powercontext__acknowledge_handoff"
+capabilities = ["acknowledge"]
+[[toolsets.tools]]
+id = "mcp__powercontext__record_task_outcome"
+capabilities = ["task_outcome"]
+[[toolsets.tools]]
+id = "mcp__powercontext__create_dream_run"
+non_profile_reason = "Explicit asynchronous Artifact synthesis is outside the host capability profiles."
+[[toolsets.tools]]
+id = "mcp__powercontext__get_dream_run"
+non_profile_reason = "Read one asynchronous Artifact synthesis run."
+[[toolsets.tools]]
+id = "mcp__powercontext__list_dream_runs"
+non_profile_reason = "List asynchronous Artifact synthesis runs in an authorized Scope."
+[[toolsets.tools]]
+id = "mcp__powercontext__list_artifact_candidates"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
-id = "pc_review_get:get_artifact_candidate"
+id = "mcp__powercontext__get_artifact_candidate"
 capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "mcp__powercontext__approve_artifact_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "mcp__powercontext__reject_artifact_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "mcp__powercontext__revise_artifact_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "mcp__powercontext__query_code"
+non_profile_reason = "Experimental repository code queries require an explicit local repository binding and are disabled by default."
+[[toolsets.tools]]
+id = "mcp__powercontext__generate_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "mcp__powercontext__get_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "mcp__powercontext__propose_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "mcp__powercontext__generate_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "mcp__powercontext__get_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "mcp__powercontext__propose_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "mcp__powercontext__list_managed_skills"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "mcp__powercontext__scan_external_skills"
+capabilities = ["external_skill"]
+[[toolsets.tools]]
+id = "mcp__powercontext__list_external_skills"
+capabilities = ["external_skill"]
+[[toolsets.tools]]
+id = "mcp__powercontext__resolve_external_skill"
+capabilities = ["external_skill"]
+[[toolsets.tools]]
+id = "mcp__powercontext__import_external_skill"
+capabilities = ["external_skill"]
+
+[[toolsets]]
+id = "dsh-lifecycle"
+probe = "dsh_lifecycle"
+[[toolsets.tools]]
+id = "agent:pre-step"
+capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
 
 [[toolsets]]
 id = "dsh-command"
@@ -692,13 +780,13 @@ tests = ["tests/claude_code_plugin/test_contract.py", "tests/e2e/test_claude_cod
 id = "dsh"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill", "slash_command"]
-profiles = ["minimal"]
-toolsets = ["dsh-tools", "dsh-command"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding", "slash_command"]
+profiles = ["minimal", "recommended", "full"]
+toolsets = ["dsh-mcp", "dsh-lifecycle", "dsh-command"]
 [integrations.evidence]
-implementation = ["integrations/dsh/plugins/powercontext/src/tools.ts", "integrations/dsh/plugins/powercontext/src/commands.ts"]
+implementation = ["integrations/dsh/plugins/powercontext/src/mcp.ts", "integrations/dsh/plugins/powercontext/src/recall.ts", "integrations/dsh/plugins/powercontext/src/commands.ts"]
 documentation = ["docs/en/docs/integrations/dsh.md", "docs/zh/docs/integrations/dsh.md"]
-tests = ["integrations/dsh/plugins/powercontext/tests/plugin-surfaces.spec.ts"]
+tests = ["integrations/dsh/plugins/powercontext/tests/mcp.spec.ts", "integrations/dsh/plugins/powercontext/tests/plugin-surfaces.spec.ts"]
 
 [[integrations]]
 id = "hermes"

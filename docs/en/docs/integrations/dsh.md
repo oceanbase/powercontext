@@ -37,6 +37,7 @@ commands. A local source must contain the checked-in built `lib/index.js`.
 repeating that command does not update a moving branch. A broken checkout is replaced.
 
 `setup dsh` calls `dsh plugin --profile web add`; it does not start the Server. Restart DSH after installation.
+The model-facing PowerContext surface is registered through DSH's native `@deepseek-ai/dsh-mcp-client`.
 
 ## Start the Server and the host
 
@@ -173,10 +174,25 @@ See the [runtime test procedure](https://github.com/oceanbase/powercontext/blob/
 
 ## Understand what the plugin does
 
-The plugin has two paths to the same Server:
+The plugin has three deliberately different paths to the same Server:
 
 - before each model step it asks the Runtime to prepare one final, bounded context value, then independently captures the user's prompt as Source evidence;
-- named `pc_*` tools call the public HTTP API to remember, search, revise, retire, and audit Memory.
+- DSH's native MCP client connects to `/mcp` and exposes the Server tools as `mcp__powercontext__<operation>`;
+- `/pc` commands and automatic lifecycle stages use the bounded HTTP client for host control and diagnostics.
+
+The MCP surface covers the full PowerContext profile: Memory read/write, Source capture, Work Contract, Handoff and
+acknowledgement, task outcome, Experience, managed and external Skill workflows, candidate inspection, Scope
+organization, persistent Scope binding, and artifact publication. It also exposes the Server's additional MCP tools that
+are outside the profile contract. The plugin does not register Pi/Hermes-style direct HTTP operation tools.
+
+Scope-dependent MCP operations, including those with a path `scope_id`, must use the exact host-resolved Scope
+exposed in the current-turn routing metadata. Do not select a different Scope using
+`mcp__powercontext__resolve_scope_binding` with `allow_default: true`. The plugin refuses another Scope instead of
+rewriting MCP arguments; automatic lifecycle hooks and model operations use the same project context.
+
+Optional native MCP initialization waits at most five seconds during plugin startup. Ordinary DSH conversations
+continue if the handshake stalls, and the same client may finish connecting later. Tools are unavailable until
+registration completes; check the current tool catalog before selecting an MCP operation.
 
 The plugin resolves one Server-owned Scope in this order: `POWERCONTEXT_DSH_SCOPE_ID`, a durable binding for the
 session workspace, then the Server default. The workspace path is hashed only as an external binding key. A missing
@@ -184,11 +200,12 @@ workspace therefore uses the Server default instead of the Harness process direc
 
 The plugin calls `POST /v1/context/prepare` once before the model analyzes the prompt. Explicit `remember_memory` calls do not require a model.
 
-## Diagnose direct tool and command failures
+## Diagnose MCP and command failures
 
-Named tools and Scope-dependent `/pc` commands return a controlled failure if Scope resolution fails. They stop before
-the requested operation, without creating a binding or retrying with another Scope. Cancellation and the existing
-per-request timeout also apply to Scope resolution.
+Scope-dependent native MCP tools and `/pc` commands return a controlled failure before dispatch if host Scope
+resolution fails or returns no Scope. A failed refresh invalidates the session's cached Scope; MCP calls cannot use
+a previous turn's value to bypass the failure. Ordinary conversation continues without selecting another Scope or
+creating a binding. Cancellation and the existing per-request timeout also apply to lifecycle Scope resolution.
 
 Inside DeepSeek Harness:
 
@@ -302,7 +319,7 @@ powercontext doctor dsh
 | `POWERCONTEXT_DSH_BASE_URL` | `http://127.0.0.1:8000` | Server base URL used by the plugin |
 | `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_DSH_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
-| `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for plugin HTTP requests |
+| `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for MCP and lifecycle HTTP requests |
 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 

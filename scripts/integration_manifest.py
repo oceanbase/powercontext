@@ -81,7 +81,8 @@ class ToolSurfaceProbe(StrEnum):
     SERVER_MCP = "server_mcp"
     JSON_PROMPT_HOOK = "json_prompt_hook"
     ZCODE_PROMPT_HOOK = "zcode_prompt_hook"
-    DSH_TOOLS = "dsh_tools"
+    DSH_MCP = "dsh_mcp"
+    DSH_LIFECYCLE = "dsh_lifecycle"
     DSH_COMMANDS = "dsh_commands"
     HERMES_OPERATIONS = "hermes_operations"
     HERMES_COMMANDS = "hermes_commands"
@@ -433,8 +434,25 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
         return _prompt_hook_ids(root)
     if probe is ToolSurfaceProbe.ZCODE_PROMPT_HOOK:
         return _zcode_prompt_hook_ids(root)
-    if probe is ToolSurfaceProbe.DSH_TOOLS:
-        return _typescript_operation_tools(root / "integrations/dsh/plugins/powercontext/src/tools.ts", "pcTool")
+    if probe is ToolSurfaceProbe.DSH_MCP:
+        source = _read(root, "integrations/dsh/plugins/powercontext/src/mcp.ts")
+        if "@deepseek-ai/dsh-mcp-client" not in source or "mcpEndpoint" not in source:
+            raise ValueError("DSH MCP bridge is incomplete")
+        from powercontext.server.mcp import _MCP_OPERATION_IDS
+
+        return {f"mcp__powercontext__{operation}" for operation in _MCP_OPERATION_IDS}
+    if probe is ToolSurfaceProbe.DSH_LIFECYCLE:
+        index = _read(root, "integrations/dsh/plugins/powercontext/src/index.ts")
+        recall = _read(root, "integrations/dsh/plugins/powercontext/src/recall.ts")
+        capture = _read(root, "integrations/dsh/plugins/powercontext/src/capture.ts")
+        required = ("agent/pre-step", "runRecallPreStep", "prepare_context")
+        capture_required = ("captureUserPrompt", "flushThrough", "flush_memory")
+        return (
+            {"agent:pre-step"}
+            if all(marker in index or marker in recall for marker in required)
+            and all(marker in capture for marker in capture_required)
+            else set()
+        )
     if probe is ToolSurfaceProbe.OPENCODE_TOOLS:
         return _typescript_operation_tools(
             root / "integrations/opencode/plugins/powercontext/src/index.ts", "operationTool"

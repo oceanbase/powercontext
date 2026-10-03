@@ -15,9 +15,17 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { resolveScopeId } from '../src/scope.ts'
+import { formatScopeRouting, resolveScopeId } from '../src/scope.ts'
 
 describe('Scope binding', () => {
+  it('formats host-resolved routing metadata without exposing the workspace path', () => {
+    const text = formatScopeRouting('scope-a', 'C:/workspace/project')
+    expect(text).toContain('"scope-a"')
+    expect(text).toContain('workspace binding key')
+    expect(text).not.toContain('C:/workspace/project')
+    expect(text).toContain('Do not call mcp__powercontext__resolve_scope_binding')
+  })
+
   it('delegates explicit, durable, and default precedence to the Server', async () => {
     const request = vi.fn().mockResolvedValue({ value: { scope_id: 'scp_00000000000000000000000000' } })
     const client = { request } as never

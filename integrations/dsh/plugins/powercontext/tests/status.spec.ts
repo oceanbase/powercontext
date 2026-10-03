@@ -25,7 +25,7 @@ import { MAX_SOURCE_LENGTH } from '../src/errors.ts'
 
 const peers = vi.hoisted(() => ({ createUserMessage: vi.fn((value: unknown) => value) }))
 vi.mock('../src/peers.ts', () => ({ loadPeer: async (name: string) => name === '@deepseek-ai/dsh-llm'
-  ? peers : { defineTool: (value: unknown) => value } }))
+  ? peers : { apply: async () => undefined } }))
 
 const PRIVATE = 'private-user-and-response-marker'
 const SCOPE = '/v1/scope-bindings/resolve'

@@ -19,9 +19,8 @@ import { PowerContextClient, type FetchFn } from '../src/client.ts'
 import { registerCommands, type CommandResult } from '../src/commands.ts'
 import { resolveConfig } from '../src/config.ts'
 import { createDiagnosticEmitter } from '../src/diagnostics.ts'
-import type { PluginRuntime, ToolResult } from '../src/invoke.ts'
+import type { PluginRuntime } from '../src/invoke.ts'
 import { resolveScopeId } from '../src/scope.ts'
-import { registerTools } from '../src/tools.ts'
 
 const RESOLVE_PATH = '/v1/scope-bindings/resolve'
 const PRIVATE = 'private-response-marker'
@@ -44,11 +43,6 @@ function fixture(fetchImpl: FetchFn, baseUrl = 'http://127.0.0.1:8000', requestT
     resolveScope: (cwd, signal) => resolveScopeId(client, cwd, config.scopeId, signal),
     log: createDiagnosticEmitter(line => events.push(JSON.parse(line))),
   }
-  const tools: Array<{
-    name: string
-    execute: (args: Record<string, unknown>, exec: unknown) => Promise<ToolResult>
-  }> = []
-  registerTools({ tools: { register: tool => tools.push(tool as never) }, on: () => undefined }, runtime, value => value)
   let command!: (invocation: {
     rawInput: string
     signal: AbortSignal
@@ -62,8 +56,6 @@ function fixture(fetchImpl: FetchFn, baseUrl = 'http://127.0.0.1:8000', requestT
   })
   return {
     calls, events, runtime,
-    tool: (name: string, args: Record<string, unknown> = {}, signal?: AbortSignal) =>
-      tools.find(tool => tool.name === name)!.execute(args, invocation(signal)),
     command: (rawInput: string, signal?: AbortSignal) => command({ ...invocation(signal), rawInput }),
   }
 }
@@ -74,9 +66,8 @@ function domainResponse(status: number, code: unknown): Response {
   })
 }
 
-describe.each(['tool', 'command'] as const)('registered %s failure boundary', entry => {
-  async function remember(h: ReturnType<typeof fixture>, signal?: AbortSignal): Promise<ToolResult> {
-    if (entry === 'tool') return h.tool('pc_remember', { kind: 'decision', text: 'Keep the API stable.' }, signal)
+describe('registered command failure boundary', () => {
+  async function remember(h: ReturnType<typeof fixture>, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const result = await h.command('remember Keep the API stable.', signal)
     expect(result.kind).toBe('error')
     return JSON.parse(result.text)
@@ -113,9 +104,7 @@ describe.each(['tool', 'command'] as const)('registered %s failure boundary', en
     const h = fixture(async url => new URL(url).pathname === RESOLVE_PATH
       ? Response.json({ scope_id: 'scope-workspace' })
       : domainResponse(404, 'memory_not_found'))
-    const result = entry === 'tool'
-      ? await h.tool('pc_memory_get', { citation: {} })
-      : JSON.parse((await h.command('search API')).text)
+    const result = JSON.parse((await h.command('search API')).text)
     expect(result).toMatchObject({
       ok: false, code: 'not_found', error_code: 'memory_not_found', status: 404, request_id: 'request-1',
     })
@@ -173,7 +162,7 @@ describe.each(['tool', 'command'] as const)('registered %s failure boundary', en
     await remember(h)
     await remember(h)
     expect(h.events).toEqual([expect.objectContaining({
-      event: entry === 'tool' ? 'tool_call' : 'command', outcome: 'server_unavailable', recovery: 'powercontext doctor',
+      event: 'command', outcome: 'server_unavailable', recovery: 'powercontext doctor',
     })])
   })
 

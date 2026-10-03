@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Execute registered adapters against a controlled transport, without contacting a Server.
+// Execute host adapters against a controlled transport, without contacting a Server.
 import { createInterface } from 'node:readline'
 import { OPERATIONS } from '../integrations/dsh/plugins/powercontext/src/operations.generated.ts'
 
@@ -31,20 +31,40 @@ const signal = new AbortController().signal
 const request = async (operation, payload) => {
   send({ kind: 'request', operation, payload })
   const reply = await receive()
-  if (reply.kind !== 'response') throw new Error('Expected a controlled HTTP response')
+  if (reply.kind !== 'response') throw new Error('Expected a controlled operation response')
   return { kind: 'json', status: OPERATIONS[operation].successStatuses[0], requestId: undefined, value: reply.value }
 }
 let execute
 if (host === 'dsh') {
-  const { registerTools } = await import('../integrations/dsh/plugins/powercontext/src/tools.ts')
-  const tools = []
-  registerTools({ tools: { register: tool => tools.push(tool) }, on: () => {} }, {
-    client: { request }, resolveScope: async () => scope, config: {}, log: () => {},
-  }, tool => tool)
-  execute = (name, args) => {
-    const tool = tools.find(tool => tool.name === name)
-    if (!tool) throw new Error(`DSH has no tool ${name}`)
-    return tool.execute(args, { signal })
+  // DSH exposes the Server's native MCP catalog. The pc_* names are only the
+  // cross-host labels used by this routing evaluation; map them to real MCP
+  // tools and emulate the MCP content envelope around the controlled reply.
+  const nativeOperations = new Map([
+    ['pc_capture_source', 'capture_content_source'],
+    ['pc_handoff_activate', 'activate_handoff'],
+    ['pc_handoff_prepare', 'prepare_handoff'],
+    ['pc_handoff_finalize', 'finalize_handoff'],
+    ['pc_handoff_commit', 'commit_handoff'],
+    ['pc_handoff_continue', 'continue_handoff'],
+  ])
+  const callMcpTool = async (name, args) => {
+    const operation = name.startsWith('mcp__powercontext__')
+      ? name.slice('mcp__powercontext__'.length)
+      : name
+    if (!operation || !(operation in OPERATIONS)) throw new Error(`DSH has no MCP tool ${name}`)
+    const reply = await request(operation, args)
+    return { content: [{ type: 'text', text: JSON.stringify(reply.value) }], isError: false, status: reply.status }
+  }
+  execute = async (name, args) => {
+    const operation = nativeOperations.get(name)
+    if (!operation) throw new Error(`DSH has no semantic MCP mapping for ${name}`)
+    const payload = { ...args, scope_id: scope }
+    // The shared handoff scenario includes wrapper-only input to ensure an
+    // adapter does not forward a caller-provided Scope or boundary hint.
+    if (operation === 'prepare_handoff') delete payload.boundary_source
+    const result = await callMcpTool(`mcp__powercontext__${operation}`, payload)
+    const data = JSON.parse(result.content[0].text)
+    return { ok: true, status: result.status, data }
   }
 } else if (host === 'pi') {
   const { registerTools } = await import('../integrations/pi/plugins/powercontext/src/tools.ts')

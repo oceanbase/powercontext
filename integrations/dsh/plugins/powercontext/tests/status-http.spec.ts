@@ -25,7 +25,7 @@ import { operationFailure } from '../src/doctor.ts'
 import { toToolResult } from '../src/invoke.ts'
 
 vi.mock('../src/peers.ts', () => ({ loadPeer: async (name: string) => name === '@deepseek-ai/dsh-llm'
-  ? { createUserMessage: (value: unknown) => value } : { defineTool: (value: unknown) => value } }))
+  ? { createUserMessage: (value: unknown) => value } : { apply: async () => undefined } }))
 
 const CAPTURE = '/v1/sources/content'
 const FLUSH = '/v1/memory/flush'
@@ -85,9 +85,11 @@ async function fixture(target: string, respond: (res: ServerResponse, occurrence
   } as unknown as Context, { baseUrl, authorization: 'Bearer http-fixture', timeoutMs: 10000,
     requestTimeoutMs: 250, flushOnCapture: true, flushMaxCalls: 3 })
   const agent = { session: { header: { id: 'http-review', cwd: '/review-workspace' } } }
-  const run = (signal = new AbortController().signal) => hook({ agent, signal, turn: 1,
+  const run = (signal = new AbortController().signal) => {
+    return hook({ agent, signal, turn: 1,
     messages: [{ content: [{ type: 'text', text: 'fixture prompt' }], source: { kind: 'user' } }],
-  }, async () => ({ kind: 'enter', messages: [] }))
+    }, async () => ({ kind: 'enter', messages: [] }))
+  }
   const command = (rawInput = '') => pc({ agent, rawInput, signal: new AbortController().signal })
   const status = async () => JSON.parse((await command()).text.split('\nautomatic=')[1])
   return { run, status, command, requests, logs, baseUrl,
@@ -208,7 +210,7 @@ describe('registered /pc with real HTTP response failures', () => {
     expect(JSON.stringify(status)).not.toContain(PRIVATE)
   })
 
-  it('keeps body failure evidence for direct tools and Doctor API discovery', async () => {
+  it('keeps body failure evidence for lifecycle HTTP and Doctor API discovery', async () => {
     const h = await fixture('/openapi.json', fault(401, 'stall'))
     const error = await h.client.readOpenApi().catch(error => error)
     expect(toToolResult(error)).toMatchObject({ ok: false, code: 'authentication_failed', status: 401,

@@ -29,10 +29,6 @@ declare module '@deepseek-ai/schemastery' {
   export type { Schema }
 }
 
-declare module '@deepseek-ai/dsh-tools' {
-  export function defineTool(definition: Record<string, unknown>): unknown
-}
-
 declare module '@deepseek-ai/dsh-agent' {
   export type PreStepDecision =
     | { kind: 'reject' }

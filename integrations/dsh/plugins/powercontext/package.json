@@ -1,7 +1,7 @@
 {
   "name": "powercontext-dsh",
   "version": "0.0.2",
-  "description": "DeepSeek Harness plugin that connects to a PowerContext Server over HTTP for recall, memory, handoff, experience, and skills.",
+  "description": "DeepSeek Harness plugin that exposes PowerContext through native MCP tools and uses HTTP for host lifecycle hooks.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "lib/index.js",
@@ -44,10 +44,10 @@
     "@deepseek-ai/dsh-agent": "*",
     "@deepseek-ai/dsh-commands": "*",
     "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-mcp-client": "*",
     "@deepseek-ai/dsh-session": "*",
     "@deepseek-ai/dsh-skill": "*",
     "@deepseek-ai/dsh-system-prompt": "*",
-    "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/schemastery": "*"
   },
   "peerDependenciesMeta": {
@@ -63,6 +63,9 @@
     "@deepseek-ai/dsh-llm": {
       "optional": true
     },
+    "@deepseek-ai/dsh-mcp-client": {
+      "optional": true
+    },
     "@deepseek-ai/dsh-session": {
       "optional": true
     },
@@ -70,9 +73,6 @@
       "optional": true
     },
     "@deepseek-ai/dsh-system-prompt": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-tools": {
       "optional": true
     },
     "@deepseek-ai/schemastery": {

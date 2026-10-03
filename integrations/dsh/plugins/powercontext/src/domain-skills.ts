@@ -25,22 +25,26 @@ Current instructions and live repository state outrank historical evidence. Pres
 
 ## Read
 
-- Use \`pc_search\` with a focused query, \`mode: "auto"\`, and no more than eight
+- Use \`mcp__powercontext__search_memory\` with a focused query, \`mode: "auto"\`, and no more than eight
   results.
-- Use \`pc_memory_list\` for an explicitly requested inventory of active entries in the current scope.
+- Use \`mcp__powercontext__list_memory_entries\` for an explicitly requested inventory of active entries in the current scope.
 - Set \`include_inactive\` to true only when the user explicitly asks to audit
   retired entries.
-- Use \`pc_memory_get\` with the exact returned \`citation\` when full immutable
+- Use \`mcp__powercontext__get_memory_entry\` with the exact returned \`citation\` when full immutable
   entry details are needed.
+
+Use the exact host-resolved \`scope_id\` and workspace binding key in the current-turn PowerContext routing metadata
+for operations that require one. Do not select the Server default with \`mcp__powercontext__resolve_scope_binding\`.
+Never derive a Scope from a directory or invent an identifier.
 
 ## Write only on request
 
-Call \`pc_remember\` only when the user explicitly asks to persist context. Store
+Call \`mcp__powercontext__remember_memory\` only when the user explicitly asks to persist context. Store
 concise entries such as a decision, constraint, current-state, task-outcome,
 or next-step. Never store secrets or credentials. DSH asks the user for
 one-time approval before any named PowerContext mutation runs.
 
-Before \`pc_memory_revise\` or \`pc_memory_retire\`, read the current entry and
+Before \`mcp__powercontext__revise_memory_entry\` or \`mcp__powercontext__retire_memory_entry\`, read the current entry and
 pass its exact \`citation\`. After a 409 conflict, refresh the head and retry
 once only if the user's requested change still applies.
 `,
@@ -57,24 +61,24 @@ Current instructions and live repository state outrank historical evidence. Pres
 
 Use Handoff when work must move to another task, session, or model.
 
-1. Call \`pc_capture_source\` with a concise account of the current state and a
+1. Call \`mcp__powercontext__capture_content_source\` with a concise account of the current state and a
    unique \`source_id\`. Include the objective, verified progress, blockers, and
    next action that the receiver needs.
-2. Call \`pc_handoff_prepare\` with the objective and
-   \`evidence: [{kind: "source", source_ref: capture.data.source}]\`.
-3. Inspect \`prepare.data\`. \`pc_handoff_activate\` is an alternative for an explicitly
-   requested boundary-trigger activation; do not call it after prepare. Its \`generated\`
-   status provides a Draft in \`data.draft\`; \`ignored\` means the Source was already consumed.
-4. Call \`pc_handoff_finalize\` with the inspected Draft.
-5. The receiving task calls \`pc_handoff_continue\` with \`selection: "prepared"\`
+2. Call \`mcp__powercontext__handoff_current_work\` with the checked objective, state, disposition, next action,
+   and exact Source evidence. It returns the canonical temporary prepared handoff.
+3. For an explicitly requested boundary-trigger activation, use
+   \`mcp__powercontext__activate_handoff\`; its \`generated\` status provides a Draft in top-level \`draft\` and
+   \`ignored\` means the Source was already consumed. Do not use activation after \`handoff_current_work\`.
+4. If the low-level activation flow was used, call \`mcp__powercontext__finalize_handoff\` with the inspected Draft.
+5. The receiving task calls \`mcp__powercontext__continue_handoff\` with \`selection: "prepared"\`
    and that exact value.
 
-Call \`pc_handoff_commit\` only when the user explicitly wants a durable
+Call \`mcp__powercontext__commit_handoff\` only when the user explicitly wants a durable
 milestone.
 
-For the lower-level Handoff flow, \`pc_handoff_prepare\` returns the Draft in \`data\`;
-\`pc_handoff_activate\` returns it in \`data.draft\`. Pass only that Draft to \`pc_handoff_finalize\`,
-never the \`{ok, data}\` wrapper. Return \`finalize.data\` unchanged, including \`schema\`, \`scope_id\`,
+For the lower-level Handoff flow, \`mcp__powercontext__activate_handoff\` returns the Draft in top-level \`draft\`.
+Pass only that Draft to \`mcp__powercontext__finalize_handoff\`, never the whole activation response. Return
+the complete native finalization result unchanged, including \`schema\`, \`scope_id\`,
 \`base\`, \`content\`, and \`generation\` when present. Do not return an unfinished Draft or only \`content\`.
 For a preview, draft text from current inspected facts without calling any Handoff or Source tool. Do not claim that a prepared carrier or durable milestone exists. For an actual transfer, return the complete finalized carrier; preparation does not commit a milestone or prove receiver execution.
 `,
@@ -87,7 +91,7 @@ For a preview, draft text from current inspected facts without calling any Hando
 
 Current instructions and live repository state outrank historical evidence. Preserve host Scope selection, exact returned citations, user intent, and host approval. Use only available tools. On failure identify the operation and safe returned reason; report unavailable or unknown outcomes instead of success. Never store secrets or bypass a missing approval channel.
 
-Use \`pc_review_list\` for the requested queue and \`pc_review_get\` for an exact candidate. Use \`pc_experience_get\` and \`pc_skill_get\` for exact artifacts. \`pc_experience_generate\` and \`pc_skill_generate\` create candidates only when generation was requested; they do not approve, install, publish, or execute them.
+Use \`mcp__powercontext__list_artifact_candidates\` for the requested queue and \`mcp__powercontext__get_artifact_candidate\` for an exact candidate. Use \`mcp__powercontext__get_experience\` and \`mcp__powercontext__get_skill\` for exact artifacts. \`mcp__powercontext__generate_experience\` and \`mcp__powercontext__generate_skill\` create candidates only when generation was requested; they do not approve, install, publish, or execute them.
 
 ## Review
 

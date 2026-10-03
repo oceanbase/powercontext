@@ -32,7 +32,7 @@ test('live model searches and reports an unavailable write approval channel', { 
     })
     const save = await instance.run('Remember for future Aurora work: the deployment color is violet-cedar-1520. Tell me whether it was saved.')
     assert.ok(env.modelRequests.some(request => request.messages.some(message =>
-      message.tool_calls?.some(call => call.function.name === 'pc_remember'))), save.finalResponse)
+      message.tool_calls?.some(call => call.function.name === 'mcp__powercontext__remember_memory'))), save.finalResponse)
     // The pinned SDK has no interactive approval channel. The real host must deny the write.
     assert.ok(!env.calls.some(call => call.path === '/v1/memory/remember'))
     assert.ok(!JSON.stringify(await env.api('/v1/memory/entries/list', { scope_id: env.scopeId })).includes('violet-cedar-1520'))
@@ -40,7 +40,7 @@ test('live model searches and reports an unavailable write approval channel', { 
     assert.match(save.finalResponse, /failed|unavailable|could not|couldn't|not saved|did not|未保存|失败|不可用/i)
     await env.api('/v1/memory/remember', { scope_id: env.scopeId, kind: 'decision', text: 'Aurora deployment color is violet-cedar-1520.' })
     const search = await instance.run('Search my saved memories for the Aurora deployment color and report the result.')
-    assert.ok(env.calls.some(call => call.path === '/v1/memory/search' && call.status === 200), search.finalResponse)
+    assert.ok(env.mcpCalls.some(call => JSON.stringify(call.body).includes('search_memory')), search.finalResponse)
     assert.ok(search.finalResponse.includes('violet-cedar-1520'))
     console.log('Live routing:', realModel.model, JSON.stringify({ denied: save.finalResponse, search: search.finalResponse }))
   } finally { await env.close() }

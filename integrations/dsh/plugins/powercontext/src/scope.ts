@@ -33,6 +33,20 @@ export function workspaceBindingKey(cwd: string): { integration: string; kind: s
   }
 }
 
+export function formatScopeRouting(scopeId: string, cwd?: string): string {
+  const workspace = sessionCwd(cwd)
+  const bindingKey = workspace ? workspaceBindingKey(workspace) : undefined
+  return [
+    'PowerContext host Scope routing is authoritative for this DSH session.',
+    `Use exactly this scope_id for every mcp__powercontext__ operation that accepts one: ${JSON.stringify(scopeId)}.`,
+    bindingKey
+      ? `The workspace binding key already used by the host is ${JSON.stringify(bindingKey)}.`
+      : 'No workspace binding key is available for this session.',
+    'Do not call mcp__powercontext__resolve_scope_binding with allow_default=true to select another Scope.',
+    'If this routing metadata is unavailable, report the Scope as unavailable instead of guessing an identifier.',
+  ].join('\n')
+}
+
 export async function resolveScopeId(
   client: PowerContextClient,
   cwd: string | undefined,
