@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shlex
@@ -26,6 +27,7 @@ from collections.abc import Iterable
 from enum import StrEnum
 from pathlib import Path
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -82,6 +84,7 @@ class ToolSurfaceProbe(StrEnum):
     JSON_PROMPT_HOOK = "json_prompt_hook"
     ZCODE_PROMPT_HOOK = "zcode_prompt_hook"
     DSH_TOOLS = "dsh_tools"
+    DIFY_TOOLS = "dify_tools"
     DSH_COMMANDS = "dsh_commands"
     HERMES_OPERATIONS = "hermes_operations"
     HERMES_COMMANDS = "hermes_commands"
@@ -435,6 +438,8 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
         return _zcode_prompt_hook_ids(root)
     if probe is ToolSurfaceProbe.DSH_TOOLS:
         return _typescript_operation_tools(root / "integrations/dsh/plugins/powercontext/src/tools.ts", "pcTool")
+    if probe is ToolSurfaceProbe.DIFY_TOOLS:
+        return _dify_operation_tools(root)
     if probe is ToolSurfaceProbe.OPENCODE_TOOLS:
         return _typescript_operation_tools(
             root / "integrations/opencode/plugins/powercontext/src/index.ts", "operationTool"
@@ -497,6 +502,32 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
             },
         )
     raise ValueError(f"unimplemented tool surface probe: {probe}")
+
+
+def _dify_operation_tools(root: Path) -> set[str]:
+    plugin = root / "integrations/dify/plugin"
+    provider = yaml.safe_load((plugin / "provider/powercontext.yaml").read_text(encoding="utf-8"))
+    pairs: set[str] = set()
+    for path in provider["tools"]:
+        declaration = yaml.safe_load((plugin / path).read_text(encoding="utf-8"))
+        source = plugin / declaration["extra"]["python"]["source"]
+        operations = {
+            node.value.value
+            for definition in ast.parse(source.read_text(encoding="utf-8")).body
+            if isinstance(definition, ast.ClassDef)
+            for node in definition.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "operation" for target in node.targets)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        }
+        if len(operations) != 1:
+            raise ValueError(f"{path}: expected one operation binding")
+        pair = f"{declaration['identity']['name']}:{operations.pop()}"
+        if pair in pairs:
+            raise ValueError(f"{path}: duplicate Dify tool registration")
+        pairs.add(pair)
+    return pairs
 
 
 def _read(root: Path, relative_path: str) -> str:

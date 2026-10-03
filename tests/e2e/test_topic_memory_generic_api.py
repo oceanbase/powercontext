@@ -31,6 +31,7 @@ from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLiteTop
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tag_schema import ensure_topic_memory_tag_schema
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime._model_usage import _ModelUsageRecorder
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 
@@ -566,7 +567,13 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
     async def scenario():
         release = asyncio.Event()
         entered = asyncio.Event()
+        completing = asyncio.Event()
         original = StatisticsRepository.record
+        original_flush = _ModelUsageRecorder.flush
+
+        async def observed_flush(recorder, through=None):
+            completing.set()
+            await original_flush(recorder, through)
 
         async def stalled_record(repository, connection, *args):
             entered.set()
@@ -588,13 +595,25 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
             payload = {"family": "topic-memory", "content": _content("cancelled")}
             with monkeypatch.context() as injected:
                 injected.setattr(StatisticsRepository, "record", stalled_record)
+                injected.setattr(_ModelUsageRecorder, "flush", observed_flush)
                 pending = asyncio.create_task(client.post(path, json=payload))
                 await asyncio.wait_for(entered.wait(), 5)
+                # Usage can start before the business transaction commits. Cancel
+                # at the request's usage completion boundary, after that commit.
+                await asyncio.wait_for(completing.wait(), 5)
                 pending.cancel()
                 with pytest.raises(asyncio.CancelledError):
                     await pending
                 release.set()
             await _await_usage_record(tmp_path / "topics.db", scope)
+            assert _topic_embedding_requests(tmp_path / "topics.db", scope) == 1
+            listed = await client.get(path + "/topic-memory")
+            assert listed.status_code == 200, listed.text
+            assert len(listed.json()["items"]) == 1
+            artifact_id = listed.json()["items"][0]["artifact_id"]
+            saved = await client.get(f"{path}/topic-memory/{artifact_id}")
+            assert saved.status_code == 200, saved.text
+            assert saved.json()["content"] == payload["content"]
             assert (await client.post(path, json=payload)).status_code == 201
 
     asyncio.run(scenario())

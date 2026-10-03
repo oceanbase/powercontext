@@ -1,0 +1,7 @@
+# Copyright (c) 2026 OceanBase.
+__pycache__/
+*.pyc
+.env*
+.venv/
+.git/
+*.difypkg

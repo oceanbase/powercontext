@@ -185,6 +185,17 @@ pi-test: ## Install and test the Pi package.
 	@pnpm --dir integrations/pi/plugins/powercontext test
 	@pnpm --dir integrations/pi/plugins/powercontext run typecheck
 
+.PHONY: dify-test
+dify-test: ## Check the isolated Dify SDK plugin and real PowerContext HTTP/SQLite tools.
+	@uv sync --locked --project integrations/dify --python 3.12
+	@uv run --project integrations/dify python integrations/dify/generate_requirements.py --check
+	@uv run --project integrations/dify python -X utf8 integrations/dify/generate_contract.py --check
+	@uv run --project integrations/dify ruff check integrations/dify
+	@uv run --project integrations/dify ruff format --check integrations/dify
+	@uv run --project integrations/dify ty check --project integrations/dify --python integrations/dify/.venv
+	@uv run --project integrations/dify python -X utf8 -m pytest integrations/dify/tests
+	@uv run python -X utf8 -m pytest tests/e2e/test_dify_tools_http.py
+
 .PHONY: build
 build: clean-build ## Build wheel file
 	@echo "🚀 Creating wheel file"
