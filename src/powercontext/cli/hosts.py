@@ -334,7 +334,12 @@ def install_host(
     if name == "dsh":
         from powercontext.cli.dsh import install_dsh_plugin
 
-        return install_dsh_plugin(source=source, ref=ref, server_url=server_url or "http://127.0.0.1:8000")
+        return install_dsh_plugin(
+            source=source,
+            ref=ref,
+            server_url=server_url or "http://127.0.0.1:8000",
+            allow_insecure_http=allow_insecure_http,
+        )
     if name == "openclaw":
         from powercontext.cli.openclaw import install_openclaw_plugin
         from powercontext.cli.system import DEFAULT_OPENCLAW_SERVER_URL

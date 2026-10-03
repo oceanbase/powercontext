@@ -90,6 +90,14 @@ def _codex_url() -> str | None:
 
 
 def _native_settings(host: str) -> tuple[dict[str, Any], str, str]:
+    if host == "dsh":
+        from powercontext.cli.dsh_transport import read_dsh_settings
+
+        return (
+            read_dsh_settings(profile=os.environ.get("DSH_PROFILE", "").strip() or "web"),
+            "baseUrl",
+            "allowInsecureHttp",
+        )
     if host == "claude-code":
         settings = _object_at(
             _read(_home("CLAUDE_CONFIG_DIR", ".claude") / "settings.json"),
@@ -131,24 +139,6 @@ def _workbuddy_mcp_url() -> str | None:
     return _url(raw)
 
 
-def _check_dsh_overlays(*, profile: str | None = None) -> None:
-    home = _home("DSH_HOME", ".dsh")
-    profile = profile or os.environ.get("DSH_PROFILE", "").strip() or "web"
-    for path in (home / "cordis.patch.yml", home / "profiles" / profile / "cordis.patch.yml"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            continue
-        except (OSError, UnicodeError):
-            raise ValueError(_UNKNOWN) from None
-        # DSH initProfile creates comments followed by an empty patch list.
-        # Recognize only that inert form; do not evaluate YAML tags or patches.
-        content = "\n".join(line.partition("#")[0].strip() for line in content.splitlines()).strip()
-        if content in {"", "[]"}:
-            continue
-        raise ValueError("Cannot determine PowerContext transport with unsupported DSH runtime overlays")  # noqa: TRY003
-
-
 def _selected_url(host: str, prefix: str, native_url: str | None) -> str:
     common_url = _environment_url("POWERCONTEXT_CLIENT_SERVER_URL")
     saved_url = load_client_settings(host).get("server_url")
@@ -169,17 +159,6 @@ def _selected_url(host: str, prefix: str, native_url: str | None) -> str:
     return environment_url or common_url or native_url or fallback
 
 
-def validate_dsh_setup_transport() -> None:
-    """Require a verifiable DSH patch layer before changing installation state."""
-    try:
-        _check_dsh_overlays(profile="web")
-    except ValueError:
-        raise ValueError(  # noqa: TRY003
-            "Cannot verify customized DSH runtime overlays. Align the endpoint and HTTP consent manually, "
-            "or remove custom overlays before rerunning setup."
-        ) from None
-
-
 def configured_native_endpoint(host: str) -> str | None:
     """Read only explicitly configured native endpoints for setup conflict detection."""
     if host == "codex":
@@ -193,14 +172,12 @@ def configured_native_endpoint(host: str) -> str | None:
     return _url(native[url_key]) if url_key in native else None
 
 
-def resolve_host_transport(host: str) -> tuple[str, bool]:  # noqa: C901 - host-specific transport guards.
+def resolve_host_transport(host: str) -> tuple[str, bool]:
     """Resolve the effective endpoint and consent, or report an unknown native configuration.
 
     Native HTTP consent is endpoint-bound. This is a read-only diagnostic, not
     an HTTP guard; callers must label remote HTTP as degraded or blocked.
     """
-    if host == "dsh":
-        _check_dsh_overlays()
     if host == "zcode":
         from powercontext.cli.zcode import zcode_plugin_dir
 
@@ -228,7 +205,7 @@ def resolve_host_transport(host: str) -> tuple[str, bool]:  # noqa: C901 - host-
     _, allowed = resolve_client_transport(host, server_url=endpoint)
     native_consent = native.get(consent_key, _MISSING)
     if native_consent is not _MISSING:
-        if host == "openclaw" and not isinstance(native_consent, bool):
+        if host in {"openclaw", "dsh"} and not isinstance(native_consent, bool):
             raise ValueError(_UNKNOWN)
         consent = parse_client_boolean(native_consent)
         environment_consent = any(
@@ -239,4 +216,4 @@ def resolve_host_transport(host: str) -> tuple[str, bool]:  # noqa: C901 - host-
     return endpoint, allowed
 
 
-__all__ = ["resolve_host_transport", "validate_dsh_setup_transport"]
+__all__ = ["resolve_host_transport"]

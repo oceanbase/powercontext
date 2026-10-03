@@ -70,19 +70,14 @@ def prepare_setup_transport(
     from powercontext.cli.system import SetupError
 
     try:
+        native = {}
         if host == "dsh":
-            from powercontext.cli.native_transport import validate_dsh_setup_transport
+            from powercontext.cli.dsh_transport import read_dsh_settings
 
-            validate_dsh_setup_transport()
+            native = read_dsh_settings(profile="web", prospective=True)
         prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_")) + "_"
-        server_url = resolve_setup_endpoint(host, server_url=server_url)
-        loaded = setup_environment()
-        if allow_insecure_http is None:
-            consent_keys = (prefix + "ALLOW_INSECURE_HTTP", "POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP")
-            if not any(key in os.environ for key in consent_keys):
-                configured_consent = next((loaded[key] for key in consent_keys if key in loaded), None)
-                if configured_consent is not None:
-                    allow_insecure_http = parse_client_boolean(configured_consent)
+        server_url = resolve_setup_endpoint(host, server_url=server_url, native_endpoint=native.get("baseUrl"))
+        allow_insecure_http = _setup_consent(host, server_url, allow_insecure_http, native)
         endpoint, allowed = resolve_client_transport(
             host, server_url=server_url, allow_insecure_http=allow_insecure_http
         )
@@ -123,7 +118,33 @@ def prepare_setup_transport(
             "protected in transit. TLS verification and Server authentication remain unchanged.",
             err=True,
         )
+    if host == "dsh":
+        from powercontext.cli.dsh_transport import validate_dsh_setup_transport
+
+        try:
+            validate_dsh_setup_transport(native, endpoint, allowed)
+        except ValueError as error:
+            raise SetupError(str(error)) from error
     return SetupTransport(host, endpoint, allowed)
+
+
+def _setup_consent(host: str, endpoint: str, requested: bool | None, native: dict[str, Any]) -> bool | None:
+    """Select setup consent without allowing saved consent to override a native refusal."""
+    loaded = setup_environment()
+    if requested is not None:
+        return requested
+    prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_")) + "_"
+    keys = (prefix + "ALLOW_INSECURE_HTTP", "POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP")
+    if any(key in os.environ for key in keys):
+        return None  # resolve_client_transport reads the runtime environment.
+    value = next((loaded[key] for key in keys if key in loaded), None)
+    if value is not None:
+        return parse_client_boolean(value)
+    if host == "dsh":
+        from powercontext.cli.dsh_transport import matching_dsh_consent
+
+        return matching_dsh_consent(native, endpoint)
+    return None
 
 
 def setup_environment() -> dict[str, str]:
@@ -154,7 +175,13 @@ def _explicit_setup_endpoint(host: str, server_url: str) -> str:
     return endpoint
 
 
-def resolve_setup_endpoint(host: str, *, server_url: str | None = None, default: str = "http://127.0.0.1:8000") -> str:
+def resolve_setup_endpoint(
+    host: str,
+    *,
+    server_url: str | None = None,
+    default: str = "http://127.0.0.1:8000",
+    native_endpoint: str | None = None,
+) -> str:
     """Choose one endpoint, rejecting ambiguous explicit settings before installation.
 
     A command-line URL is an explicit choice. Otherwise URL declarations must agree;
@@ -172,7 +199,7 @@ def resolve_setup_endpoint(host: str, *, server_url: str | None = None, default:
         if values.get(name)
     ]
     saved = load_client_settings(host).get("server_url")
-    native = existing_native_endpoint(host)
+    native = native_endpoint if host == "dsh" else existing_native_endpoint(host)
     for name, value in (("saved client settings", saved), ("native host settings", native)):
         if value:
             candidates.append((name, normalize_client_url(value).removesuffix("/mcp").rstrip("/")))

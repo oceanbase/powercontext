@@ -471,15 +471,3 @@ def test_doctor_does_not_claim_safety_for_unreadable_native_configuration(tmp_pa
     monkeypatch.setenv("OPENCLAW_CONFIG_PATH", str(path))
     path.write_text("{ this is not plain JSON }")
     assert transport_diagnostic("openclaw").status != "ok"
-
-
-def test_dsh_setup_checks_the_web_profile_even_with_another_runtime_profile(tmp_path, monkeypatch):
-    from powercontext.cli.transport import prepare_setup_transport
-
-    monkeypatch.setenv("DSH_HOME", str(tmp_path))
-    monkeypatch.setenv("DSH_PROFILE", "custom")
-    patch = tmp_path / "profiles/web/cordis.patch.yml"
-    patch.parent.mkdir(parents=True)
-    patch.write_text("- id: powercontext-dsh\n  config:\n    baseUrl: https://old.example\n")
-    with pytest.raises(RuntimeError, match="DSH"):
-        prepare_setup_transport("dsh", server_url="https://new.example", json_output=True)

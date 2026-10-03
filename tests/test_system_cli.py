@@ -1835,6 +1835,7 @@ def test_claude_runner_uses_the_resolved_executable(monkeypatch) -> None:
 
 def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch) -> None:
     import powercontext.cli.dsh as dsh_cli
+    import powercontext.cli.dsh_transport as dsh_transport
 
     checkout = tmp_path / "powercontext"
     plugin = checkout / "integrations" / "dsh" / "plugins" / "powercontext"
@@ -1846,6 +1847,7 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
     run_dsh = Mock(return_value="id: powercontext-dsh\n")
     monkeypatch.setattr(dsh_cli, "_run_dsh", run_dsh)
+    monkeypatch.setattr(dsh_transport, "read_dsh_settings", lambda **_kwargs: {})
 
     result = CliRunner().invoke(
         create_cli([setup_app]),

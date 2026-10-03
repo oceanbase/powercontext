@@ -21,6 +21,30 @@ The test package pins `@deepseek-ai/dsh-sdk-client@0.1.2-rc.1` and the resolved 
 lockfile. Use Node 22.19+ (CI: 22.19.0; also tested on Windows with 24.14.1). Install peers in this isolated package;
 the plugin's ordinary unit-test installation deliberately does not install its optional host peers.
 
+`../config-runtime` separately pins `@deepseek-ai/dsh-app-boot@0.2.0-rc.2` for native configuration/compatibility
+checks; install it with `pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile`.
+Its own dependency graph keeps the 0.2 API peers separate from the 0.1.2 SDK host.
+`tests/test_dsh_transport.py` loads those real APIs through a synthetic carrier in disposable profiles; those
+checks do not execute a 0.2 CLI installation or a Desktop host. They verify omitted incompatible third-party
+layers, rejected incompatible PowerContext bundles, and explicit version exemptions. The SDK continues to use
+its matched 0.1.2 runtime. Setup reads the selected installation's own configuration APIs, not this test copy.
+
+Run the native configuration regressions without installing a DSH CLI:
+
+```bash
+pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+uv run pytest tests/test_dsh_transport.py --require-dsh-config-runtime
+```
+
+The Python 3.11–3.14 CI matrix installs this locked configuration package, resolves `DSH_TEST_CONFIG_BOOT`,
+and requires it while running the unit suite. Missing APIs fail instead of silently skipping their tests;
+tests that need the DSH CLI can still skip when that host is absent.
+
+Run `uv run pytest tests/test_dsh_transport.py --require-dsh-runtime` with `DSH_TEST_EXECUTABLE` selecting the
+installed DSH CLI. The `dsh-package` CI job resolves both runtimes before running that command and fails if
+either is unavailable.
+The file also retains ordinary Python transport-policy tests that require no DSH installation.
+
 These tests launch the real `dsh --profile sdk` subprocess and a real PowerContext Server with isolated homes.
 Only the built distributable plugin files are installed. Host tool registration, pre-step processing, message
 construction, model request assembly, and session persistence are not replaced. A loopback model fixture provides
@@ -30,6 +54,16 @@ failures at individual PowerContext endpoints.
 The setup scenario first runs `powercontext setup dsh --source <this checkout>` with the pinned DSH executable
 and a clean DSH home. It verifies Web-profile registration through `powercontext doctor dsh --json`, then loads
 that installed package's distributable files into the SDK profile. The Server and plugin use the same checkout.
+A separate setup acceptance installs twice into an existing Web profile with a non-empty, unrelated model patch,
+checks registration through the real CLI, and verifies the patch is preserved. Run it independently with
+`node --test setup.test.mjs`; it does not require an SDK conversation or external model service.
+The native include regression starts a minimal real DSH profile with a recording plugin. It confirms that
+named groups and nested relative YAML/JSON includes, with include-local patches, load two endpoint configurations;
+public setup then rejects those entries while preserving the saved endpoint and credentials.
+Replacing the extra PowerContext entry with UI/model configuration allows setup and a subsequent real host
+startup; include files retain their original bytes and the native host evaluates the model expression.
+The Python configuration tests also cover installed readback after an injected installation change; that injection is
+not a real native installation race.
 A test-only loopback adapter invokes the real host command service because the pinned SDK protocol only exposes
 prompts. It verifies `/pc doctor` with an environment URL overriding an unusable patch URL, preserves health when
 Scope authentication fails, and confirms that Doctor makes no capture or flush requests.

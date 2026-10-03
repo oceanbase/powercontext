@@ -116,7 +116,10 @@ def test_flush_persists_copied_usage_with_unknown_tokens_and_original_date(tmp_p
 def test_queue_capacity_drops_without_sql_or_sensitive_logs(caplog: pytest.LogCaptureFixture) -> None:
     async def scenario() -> None:
         async with _database() as database:
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), queue_capacity=2)
+            # Keep queue overflow assertions independent of SQLite write deadlines.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), queue_capacity=2, write_timeout_seconds=5.0, flush_timeout_seconds=5.0
+            )
             try:
                 for _ in range(8):
                     _offer(recorder)

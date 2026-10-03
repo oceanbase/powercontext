@@ -59,7 +59,19 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up project tools
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+
+      - name: Install and resolve native DSH configuration test APIs
+        run: |
+          pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+          boot="$(node --input-type=module -e "import { createRequire } from 'node:module'; import { resolve } from 'node:path'; const require = createRequire(resolve('integrations/dsh/plugins/powercontext/tests/config-runtime/package.json')); process.stdout.write(require.resolve('@deepseek-ai/dsh-app-boot'))")"
+          test -n "$boot" && test -f "$boot" || { echo "DSH configuration runtime unresolved"; exit 1; }
+          echo "DSH_TEST_CONFIG_BOOT=$boot" >> "$GITHUB_ENV"
+
       - name: Run unit tests
+        env:
+          PYTEST_ADDOPTS: --require-dsh-config-runtime
         run: make unit-test
 
       - name: Run end-to-end tests
@@ -180,6 +192,21 @@ jobs:
 
       - name: Test built plugin in the real DSH runtime
         run: make dsh-runtime-test
+
+      - name: Install native DSH configuration test APIs
+        run: pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+
+      - name: Resolve required DSH test runtimes
+        run: |
+          bin="$(node --input-type=module -e "import { dshBin } from './integrations/dsh/plugins/powercontext/tests/runtime/fixture.mjs'; process.stdout.write(dshBin)")"
+          test -n "$bin" && test -f "$bin" || { echo "DSH test executable unresolved"; exit 1; }
+          boot="$(node --input-type=module -e "import { createRequire } from 'node:module'; import { resolve } from 'node:path'; const require = createRequire(resolve('integrations/dsh/plugins/powercontext/tests/config-runtime/package.json')); process.stdout.write(require.resolve('@deepseek-ai/dsh-app-boot'))")"
+          test -n "$boot" && test -f "$boot" || { echo "DSH configuration runtime unresolved"; exit 1; }
+          echo "DSH_TEST_EXECUTABLE=$bin" >> "$GITHUB_ENV"
+          echo "DSH_TEST_CONFIG_BOOT=$boot" >> "$GITHUB_ENV"
+
+      - name: Verify DSH setup with customized profiles
+        run: uv run pytest tests/test_dsh_transport.py --require-dsh-runtime
 
       - name: Verify DSH guidance adapter requests and results
         run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[dsh]"

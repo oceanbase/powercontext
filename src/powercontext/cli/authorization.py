@@ -75,13 +75,15 @@ def normalize_authorization(value: str) -> str:
 def credential_path(host: str) -> Path:
     """Return a PowerContext-owned credential path below the host config root."""
 
+    from powercontext.cli.dsh_runtime import dsh_home
+
     roots = {
         "codex": Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser(),
         "claude-code": Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")).expanduser(),
         "opencode": Path(os.environ.get("OPENCODE_CONFIG_DIR", Path.home() / ".config" / "opencode")).expanduser(),
         "pi": Path(os.environ.get("PI_CODING_AGENT_DIR", Path.home() / ".pi" / "agent")).expanduser(),
         "workbuddy": Path(os.environ.get("WORKBUDDY_HOME", Path.home() / ".workbuddy")).expanduser(),
-        "dsh": Path(os.environ.get("DSH_HOME", Path.home() / ".dsh")).expanduser(),
+        "dsh": dsh_home(),
     }
     try:
         root = roots[host]
