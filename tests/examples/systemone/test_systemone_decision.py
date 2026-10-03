@@ -63,7 +63,7 @@ def _response(choice: Any = "yes", **answer_overrides: Any) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("outcome", list(DecisionOutcome))
-def test_choice_preserves_evidence_and_reports_portable_usage(outcome: DecisionOutcome) -> None:
+def test_openrouter_choice_preserves_evidence_and_reports_portable_usage(outcome: DecisionOutcome) -> None:
     request = DecisionRequest(
         decision_kind="memory.write-gate",
         question="是否已有完整验证?",
@@ -76,12 +76,20 @@ def test_choice_preserves_evidence_and_reports_portable_usage(outcome: DecisionO
         sent.append(incoming)
         return httpx.Response(
             200,
-            json={**_response(outcome, confidence=0.75), "usage": {"input_tokens": 17, "output_tokens": 3}},
+            json={
+                **_response(outcome, confidence=0.75),
+                "model": "typesafe/jev-1.13-20260917",
+                "id": "simulated-openrouter-decision",
+                "provider": "TypeSafe",
+                "usage": {"input_tokens": 17, "output_tokens": 3, "cost": 0.000000714},
+            },
         )
 
     async def scenario() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            model = SystemOneDecisionModel(_config(), client)
+            model = SystemOneDecisionModel(
+                _config(endpoint="https://openrouter.ai/api/alpha/decisions", model="typesafe/jev-1.13"), client
+            )
             result = await model.evaluate(request)
 
         assert result.outcome is outcome
@@ -92,20 +100,22 @@ def test_choice_preserves_evidence_and_reports_portable_usage(outcome: DecisionO
 
     asyncio.run(scenario())
     assert len(sent) == 1
+    assert sent[0].method == "POST"
+    assert str(sent[0].url) == "https://openrouter.ai/api/alpha/decisions"
     assert sent[0].headers["authorization"] == "Bearer configured-test-key"
+    assert sent[0].headers["content-type"] == "application/json"
     body = json.loads(sent[0].content)
-    assert body["model"] == "jev-test"
+    assert body["model"] == "typesafe/jev-1.13"
     assert isinstance(body["state"], str)
-    assert "是否已有完整验证?" in body["state"]
     assert json.loads(body["state"]) == {
         "decision_kind": request.decision_kind,
-        "question": request.question,
         "subject": request.subject,
         "evidence": list(request.evidence),
     }
     question = body["questions"]["decision"]
     assert question["type"] == "choice"
     assert set(question["criteria"]) == {"yes", "no", "abstain"}
+    assert request.question in question["instructions"]
     assert request.subject not in question["instructions"]
     assert request.evidence[1] not in question["instructions"]
 
@@ -222,6 +232,32 @@ def test_laya_uses_explicit_model_and_budget_without_requiring_a_key(endpoint: s
 def test_laya_rejects_plain_http_outside_loopback() -> None:
     with pytest.raises(ValidationError):
         _config(provider="laya", endpoint="http://192.0.2.1/v1/systemone", api_key="")
+
+
+def test_laya_does_not_send_a_question_that_would_be_truncated() -> None:
+    sent: list[httpx.Request] = []
+
+    def handler(incoming: httpx.Request) -> httpx.Response:
+        sent.append(incoming)
+        return httpx.Response(200, json=_response())
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            model = SystemOneDecisionModel(
+                _config(provider="laya", endpoint="http://127.0.0.1:8891/v1/systemone", api_key=""),
+                client,
+                laya_budget=LayaInputBudget(
+                    tokenize=lambda text: list(range(len(text.split()))),
+                    max_length=4096,
+                    head_max_length=256,
+                    mask_token="<mask>",  # noqa: S106 - Tokenizer vocabulary, not a credential.
+                ),
+            )
+            with pytest.raises(InferenceConfigurationError, match=r"instructions.*head budget"):
+                await model.evaluate(DecisionRequest("artifact.applicability", "condition " * 256, "evidence"))
+        assert sent == []
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("provider", ["jev", "laya"])

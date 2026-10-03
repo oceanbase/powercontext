@@ -183,7 +183,11 @@ def test_file_writer_lock_does_not_consume_busy_timeout(tmp_path: Path) -> None:
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'locked.db'}", busy_timeout_ms=5_000)
         async with _database(config) as database:
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=0.04)
+            # The write and flush budgets both need scheduling margin below the
+            # half-second assertion; a timed-out flush also has to return and log.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=0.25, flush_timeout_seconds=0.3
+            )
             try:
                 async with database.transaction() as connection:
                     await connection.execute(update(SCOPES_TABLE).values(title="locked"))
@@ -191,6 +195,10 @@ def test_file_writer_lock_does_not_consume_busy_timeout(tmp_path: Path) -> None:
                     _offer(recorder)
                     await recorder.flush()
                     assert asyncio.get_running_loop().time() - start < 0.5
+                # Flush is best effort and may return before native cleanup has
+                # settled the expired write. Drain that prefix before checking
+                # rollback and testing a fresh write on the recovered connection.
+                await recorder.flush()
                 assert await _rows(database) == ()
                 await _assert_connection_restored(database)
                 _offer(recorder)
