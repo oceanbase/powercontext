@@ -587,23 +587,34 @@ def _prompt_hook_ids(root: Path) -> set[str]:
 
 def _zcode_prompt_hook_ids(root: Path) -> set[str]:
     plugin = root / "integrations/zcode/plugins/powercontext"
-    try:
-        hooks = json.loads((plugin / "hooks/hooks.json").read_text(encoding="utf-8"))
-        registrations = hooks["hooks"]["UserPromptSubmit"]
-        script = (plugin / "hooks/user_prompt_submit.mjs").read_text(encoding="utf-8")
-        registered = any(
-            hook.get("type") == "process"
-            and hook.get("command") == "node"
-            and "${ZCODE_PLUGIN_ROOT}/hooks/user_prompt_submit.mjs" in hook.get("args", [])
-            for matcher in registrations
-            for hook in matcher.get("hooks", [])
-        )
-        complete = registered and all(
-            marker in script for marker in ("/v1/context/prepare", "/v1/sources/content", "hookSpecificOutput")
-        )
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        complete = False
-    return {"zcode:UserPromptSubmit" if complete else "zcode:UserPromptSubmit:incomplete"}
+    definitions = {
+        "UserPromptSubmit": (
+            "user_prompt_submit.mjs",
+            ("/v1/context/prepare", "/v1/sources/content", "hookSpecificOutput"),
+        ),
+        "SessionStart": ("session_start.mjs", ("/v1/context/prepare", "SessionStart", "lifecycle_generic")),
+        "Stop": ("stop.mjs", ("flushBoundary", "Stop", "stop_reentry")),
+    }
+    result = set()
+    for event, (filename, markers) in definitions.items():
+        try:
+            hooks = json.loads((plugin / "hooks/hooks.json").read_text(encoding="utf-8"))
+            script = (plugin / "hooks" / filename).read_text(encoding="utf-8")
+            registered = any(
+                hook.get("type") == "process"
+                and hook.get("command") == "node"
+                and f"${{ZCODE_PLUGIN_ROOT}}/hooks/{filename}" in hook.get("args", [])
+                for matcher in hooks["hooks"][event]
+                for hook in matcher.get("hooks", [])
+            )
+            complete = registered and all(marker in script for marker in markers)
+            if event == "Stop":
+                pending = (plugin / "shared/pending.mjs").read_text(encoding="utf-8")
+                complete = complete and "/v1/memory/flush" in pending and "current_cursor" in pending
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            complete = False
+        result.add(f"zcode:{event}" if complete else f"zcode:{event}:incomplete")
+    return result
 
 
 def _is_complete_hook(integration_id: str, event: str, scripts: set[Path]) -> bool:

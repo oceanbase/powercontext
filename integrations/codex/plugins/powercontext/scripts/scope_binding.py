@@ -37,13 +37,14 @@ from typing_extensions import override
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
+from plugin_version import PLUGIN_VERSION  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_RESPONSE_BYTES = 1_048_576
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-codex-plugin/0.3.0",
+    "User-Agent": f"powercontext-codex-plugin/{PLUGIN_VERSION}",
 }
 
 

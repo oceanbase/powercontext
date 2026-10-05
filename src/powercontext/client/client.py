@@ -133,6 +133,7 @@ from powercontext.http import (
     PreparedContext,
     PreparedHandoff,
     PreparedWorkHandoff,
+    PrepareHandoffHintRequest,
     PrepareHandoffRequest,
     ProfilePolicyResponse,
     PromptConfiguration,
@@ -273,6 +274,7 @@ from powercontext.http._generated.operations import (
     LIST_SOURCES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
+    PREPARE_HANDOFF_HINT,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
     PROPOSE_SKILL_PACKAGE,
@@ -951,6 +953,11 @@ class PowerContextClient:
         """Resolve temporary or committed Handoff content as untrusted history."""
 
         return await self._request(CONTINUE_HANDOFF, request)
+
+    async def prepare_handoff_hint(self, request: PrepareHandoffHintRequest) -> PreparedContext:
+        """Prepare optional orientation; read the full Handoff before continuing work."""
+
+        return await self._request(PREPARE_HANDOFF_HINT, request)
 
     async def get_memory_capacity(self, request: GetMemoryCapacityRequest) -> MemoryCapacity:
         """Read capacity of the current Memory head."""

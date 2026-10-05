@@ -539,6 +539,17 @@ const OPERATIONS$1 = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	prepare_handoff_hint: {
+		method: "POST",
+		path: "/v1/handoff/hint",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	flush_topic_memory: {
 		method: "POST",
 		path: "/v1/topic-memory/flush",

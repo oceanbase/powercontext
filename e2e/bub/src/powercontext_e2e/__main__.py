@@ -100,6 +100,12 @@ def main() -> None:
         help="Select one category; repeat to select more than one.",
     )
     paired_parser.add_argument("--trials", type=int, default=2, help="Trials per arm; the arm order alternates.")
+    paired_parser.add_argument(
+        "--host",
+        choices=("bub", "codex", "claude-code", "opencode"),
+        default="bub",
+        help="Agent host that runs both arms with its own PowerContext integration.",
+    )
     paired_parser.add_argument("--output", type=Path, required=True)
 
     rescore_parser = subparsers.add_parser("rescore")
@@ -121,7 +127,9 @@ def main() -> None:
             ids=tuple(args.id),
             categories=tuple(args.category) or (() if args.id else ("paired",)),
         )
-        report = asyncio.run(run_paired(selected, output_dir=args.output, settings=settings, trials=args.trials))
+        report = asyncio.run(
+            run_paired(selected, output_dir=args.output, settings=settings, trials=args.trials, host=args.host)
+        )
         # The run is valid when every arm produced a measurement; the task outcome itself is the result.
         unscored = report.total.off.errors + report.total.on.errors + report.total.on.integration_failures
         passed = unscored == 0

@@ -19,7 +19,7 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: workflow-actions-check integration-manifest-check ## Run code quality tools.
+check: version-check workflow-actions-check integration-manifest-check ## Run code quality tools.
 
 .PHONY: workflow-actions-check
 workflow-actions-check: ## Verify third-party GitHub Actions use immutable commit pins.
@@ -49,7 +49,7 @@ e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.
 	@uv sync --locked --extra seekdb --extra code
-	@uv run --locked --extra seekdb --extra code python -m pytest tests/e2e/test_native_code_seekdb.py
+	@uv run --locked --extra seekdb --extra code python -m pytest tests/e2e/test_mysql_source_roundtrip.py tests/e2e/test_native_code_seekdb.py
 
 .PHONY: real-e2e-test
 real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE defaults to all.
@@ -189,6 +189,25 @@ pi-test: ## Install and test the Pi package.
 build: clean-build ## Build wheel file
 	@echo "🚀 Creating wheel file"
 	@uv build
+
+# Export rather than interpolate VERSION into shell commands.
+export VERSION
+
+.PHONY: version-bump
+version-bump: ## Synchronize release references: make version-bump VERSION=X.Y.Z (does not tag or publish).
+	@uv run python scripts/release_version.py --write
+	@$(MAKE) api-generate
+	@$(MAKE) version-check
+	@echo "Before publishing a stable release, add its website release notes and run make release-check."
+
+.PHONY: version-check
+version-check: ## Check release references and generated API code; optionally assert VERSION=X.Y.Z or a release tag.
+	@uv run python scripts/release_version.py --check
+	@$(MAKE) api-generate-check js-api-generate-check
+
+.PHONY: release-check
+release-check: version-check docs-install ## Check version references and require matching bilingual notes for a stable release.
+	@cd website && node --import tsx --test tests/releases.test.ts
 
 .PHONY: clean-build
 clean-build: ## Clean build artifacts

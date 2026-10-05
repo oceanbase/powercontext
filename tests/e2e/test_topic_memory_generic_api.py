@@ -107,7 +107,7 @@ def _topic_embedding_requests(database, scope=None):
         return connection.execute(query, parameters).fetchone()[0]
 
 
-async def _await_usage_record(database, scope):
+async def _await_usage_record(database, scope, write_budget):
     """Wait until the scope's usage row is visible.
 
     A visible row means the recorder's transaction committed, so it no longer
@@ -115,9 +115,13 @@ async def _await_usage_record(database, scope):
     consult the busy handler and fails immediately instead of waiting, so a
     health check issued while that write is still in flight measures contention
     rather than the runtime's health.
+
+    The window must exceed the recorder's own write budget: a record that
+    consumes its whole budget commits late but still commits, and a window
+    smaller than the budget would report a healthy runtime as wedged.
     """
 
-    async with asyncio.timeout(5):
+    async with asyncio.timeout(write_budget + 5):
         while _topic_embedding_requests(database, scope) == 0:  # noqa: ASYNC110 - bounded observation of committed database state
             await asyncio.sleep(0.02)
 
@@ -465,7 +469,7 @@ def test_stalled_usage_write_does_not_delay_or_fail_the_topic_write(tmp_path, mo
                 assert await asyncio.wait_for(entered.wait(), 5)
                 release.set()
             assert len((await client.get(path + "/topic-memory")).json()["items"]) == 1
-            await _await_usage_record(tmp_path / "topics.db", scope)
+            await _await_usage_record(tmp_path / "topics.db", scope, 30.0)
             assert (await client.post(path, json=payload)).status_code == 201
 
     asyncio.run(scenario())
@@ -594,7 +598,7 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
                 with pytest.raises(asyncio.CancelledError):
                     await pending
                 release.set()
-            await _await_usage_record(tmp_path / "topics.db", scope)
+            await _await_usage_record(tmp_path / "topics.db", scope, 30.0)
             assert (await client.post(path, json=payload)).status_code == 201
 
     asyncio.run(scenario())

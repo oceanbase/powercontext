@@ -49,10 +49,14 @@ class DeterministicSourcePipeline:
 
 
 def _invoke_hook(
-    *, node: str, base_url: str, scope_id: str, session_id: str, turn_id: str, prompt: str
+    *, node: str, base_url: str, scope_id: str | None, session_id: str, turn_id: str, prompt: str
 ) -> dict[str, Any]:
     environment = dict(os.environ)
-    environment.update(POWERCONTEXT_ZCODE_SERVER_URL=base_url, POWERCONTEXT_ZCODE_SCOPE_ID=scope_id)
+    environment.pop("POWERCONTEXT_ZCODE_SCOPE_ID", None)
+    environment.pop("ZCODE_SESSION_ID", None)
+    environment.update(POWERCONTEXT_ZCODE_SERVER_URL=base_url, ZCODE_PLUGIN_DATA=os.environ["ZCODE_PLUGIN_DATA"])
+    if scope_id is not None:
+        environment["POWERCONTEXT_ZCODE_SCOPE_ID"] = scope_id
     result = subprocess.run(
         [node, str(HOOK)],
         input=json.dumps({
@@ -73,7 +77,8 @@ def _invoke_hook(
     return json.loads(result.stdout)
 
 
-def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path) -> None:
+def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ZCODE_PLUGIN_DATA", str(tmp_path / "plugin-data"))
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node.js is required for the ZCode Hook")
@@ -106,6 +111,66 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path)
             )
             created.raise_for_status()
             scope_id = created.json()["scope_id"]
+            scope_script = HOOK.parent.parent / "scripts" / "scope.mjs"
+            environment = dict(os.environ)
+            environment.pop("POWERCONTEXT_ZCODE_SCOPE_ID", None)
+            environment.pop("ZCODE_SESSION_ID", None)
+            environment["POWERCONTEXT_ZCODE_SERVER_URL"] = base_url
+
+            def run_scope(action: str, *extra: str) -> dict[str, Any]:
+                result = subprocess.run(
+                    [
+                        node,
+                        str(scope_script),
+                        action,
+                        "--cwd",
+                        str(HOOK.parents[5]),
+                        "--session-id",
+                        "binding-probe",
+                        *extra,
+                    ],
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
+                )
+                assert result.returncode == 0, result.stdout + result.stderr
+                return json.loads(result.stdout)
+
+            assert run_scope("bind", "--scope-id", scope_id)["scope_id"] == scope_id
+            other = client.post(
+                "/v1/scopes",
+                json={
+                    "title": "Session binding probe",
+                    "summary": "isolated",
+                    "idempotency_key": "zcode-session-binding-probe",
+                },
+            )
+            other.raise_for_status()
+            session_scope = other.json()["scope_id"]
+            bound = client.put(
+                "/v1/scope-bindings",
+                json={
+                    "key": {"integration": "zcode", "kind": "session", "external_id": "binding-probe"},
+                    "scope_id": session_scope,
+                },
+            )
+            bound.raise_for_status()
+            assert run_scope("resolve")["scope_id"] == session_scope
+            probe = _invoke_hook(
+                node=node,
+                base_url=base_url,
+                scope_id=None,
+                session_id="binding-probe",
+                turn_id="probe-1",
+                prompt="Scope binding synthetic probe.",
+            )
+            assert session_scope in probe["hookSpecificOutput"]["additionalContext"]
+            probe_sources = client.get(f"/v1/scopes/{session_scope}/sources")
+            probe_sources.raise_for_status()
+            assert len(probe_sources.json()["items"]) == 1
+            assert run_scope("unbind")["scope_id"] == session_scope
             first = _invoke_hook(
                 node=node,
                 base_url=base_url,
@@ -114,11 +179,60 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path)
                 turn_id="turn-1",
                 prompt="The staging deployment color is teal-731.",
             )
-            assert first["hookSpecificOutput"]["additionalContext"] == ""
-            flushed = client.post("/v1/memory/flush", json={"scope_id": scope_id})
-            flushed.raise_for_status()
-            assert flushed.json()["processed_source_count"] == 1
-            assert flushed.json()["memory"] is not None
+            assert scope_id in first["hookSpecificOutput"]["additionalContext"]
+            assert "teal-731" not in first["hookSpecificOutput"]["additionalContext"]
+            remaining = 5 - time.time() % 5
+            if remaining < 1.5:
+                time.sleep(remaining + 0.05)
+            stopped = subprocess.run(
+                [node, str(HOOK.parent / "stop.mjs")],
+                input=json.dumps({
+                    "hookEventName": "Stop",
+                    "cwd": str(HOOK.parents[5]),
+                    "sessionId": "old-session",
+                    "stopHookActive": False,
+                }),
+                env={
+                    **environment,
+                    "POWERCONTEXT_ZCODE_SCOPE_ID": scope_id,
+                    "POWERCONTEXT_ZCODE_BOUNDARY_FLUSH": "true",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=2,
+            )
+            assert stopped.returncode == 0, stopped.stderr
+            assert json.loads(stopped.stdout) == {}
+            status = subprocess.run(
+                [
+                    node,
+                    str(HOOK.parent.parent / "scripts/status.mjs"),
+                    "--cwd",
+                    str(HOOK.parents[5]),
+                    "--session-id",
+                    "old-session",
+                ],
+                env={
+                    **environment,
+                    "POWERCONTEXT_ZCODE_SCOPE_ID": scope_id,
+                    "POWERCONTEXT_ZCODE_BOUNDARY_FLUSH": "true",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            assert status.returncode == 0, status.stdout + status.stderr
+            result = json.loads(status.stdout)
+            assert result["observation"]["stages"]["flush"]["state"] == "cursor_reached"
+            assert result["pending"]["scopes"] == []
+            entries = client.post("/v1/memory/entries/list", json={"scope_id": scope_id})
+            entries.raise_for_status()
+            assert entries.json()["memory"] is not None
+            generated = next(entry for entry in entries.json()["entries"] if "teal-731" in entry["text"])
+            captured = client.get(f"/v1/scopes/{scope_id}/sources").json()["items"]
+            assert generated["source_refs"] == [{"name": "content", "source_id": captured[0]["source_id"]}]
 
             second = _invoke_hook(
                 node=node,
@@ -129,6 +243,30 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path)
                 prompt="What is the staging deployment color?",
             )
             assert "teal-731" in second["hookSpecificOutput"]["additionalContext"]
+            status = subprocess.run(
+                [
+                    node,
+                    str(HOOK.parent.parent / "scripts/status.mjs"),
+                    "--cwd",
+                    str(HOOK.parents[5]),
+                    "--session-id",
+                    "new-session",
+                ],
+                env={**environment, "POWERCONTEXT_ZCODE_SCOPE_ID": scope_id},
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            assert status.returncode == 0, status.stderr + status.stdout
+            observation = json.loads(status.stdout)["observation"]
+            assert observation["scope_id"] == scope_id
+            assert observation["stages"]["prepare"]["state"] == "ready"
+            assert observation["stages"]["capture"]["state"] == "accepted"
+            accepted_position = observation["stages"]["capture"]["source_position"]
+            persisted = client.get(f"/v1/scopes/{scope_id}/sources").json()["items"]
+            assert any(source["position"] == accepted_position for source in persisted)
+            assert "teal-731" not in status.stdout
             _invoke_hook(
                 node=node,
                 base_url=base_url,

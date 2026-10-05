@@ -1,6 +1,6 @@
 ---
 title: Install and run
-description: Install PowerContext 1.1.0 and run the local Server.
+description: Install PowerContext 1.2.0 and run the local Server.
 ---
 
 # Install and run
@@ -24,12 +24,12 @@ Embedded seekDB is unavailable on Windows.
 
 ## Choose a version
 
-These instructions use the stable PowerContext 1.1.0 release. Keep the package and Agent integration on
-the same version: package `1.1.0` and Git tag `powercontext-v1.1.0`.
+These instructions use PowerContext 1.2.0. Keep the package and Agent integration on
+the same version: package `1.2.0` and Git tag `powercontext-v1.2.0`.
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
-powercontext setup codex --ref powercontext-v1.1.0
+uv tool install --force "powercontext[cli,server]==1.2.0"
+powercontext setup codex --ref powercontext-v1.2.0
 ```
 
 Check the [capability matrix](../integrations/capabilities.md) for host support and maintenance status.
@@ -41,13 +41,13 @@ You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on ma
 PowerContext from PyPI:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
+uv tool install --force "powercontext[cli,server]==1.2.0"
 ```
 
 For a source installation of the same version:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.1.0"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.2.0"
 ```
 
 The Git command does not leave a repository checkout for you to manage. Git uses its normal credential configuration,
@@ -75,14 +75,18 @@ Without environment variables or an environment file, the Server:
 `Ctrl-C` performs a clean shutdown. Restarting the command reopens the same database.
 
 The Dashboard is an optional content viewer for personal use and demonstrations. It is disabled by default and needs
-no separate frontend installation or model configuration. To enable it, put these settings in a protected environment
-file and replace the token example with your own long random credential:
+no separate frontend installation or model configuration. To enable it locally without a token, save these settings
+in an environment file:
 
 ```dotenv
+POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1
 POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
-POWERCONTEXT_SERVER_ACCESS_MODE=enforced
-POWERCONTEXT_SERVER_AUTH_TOKEN=replace-with-your-random-token
+POWERCONTEXT_SERVER_ACCESS_MODE=disabled
 ```
+
+To require authentication, set `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and set `POWERCONTEXT_SERVER_AUTH_TOKEN` to
+your own long random credential. The [configuration wizard](configure-server-environment.md#local-dashboard-and-optional-authentication)
+also offers this choice when enabling Dashboard locally.
 
 ```bash
 chmod 600 /path/to/powercontext.env
@@ -90,11 +94,11 @@ powercontext config validate --env-file /path/to/powercontext.env
 powercontext server run --env-file /path/to/powercontext.env
 ```
 
-Open `http://127.0.0.1:8000/dashboard/home` and enter the same token. Use the actual port if you change it.
-The token also protects the Server API and MCP, so connected Agents need it too. The CLI does not automatically load
-a directory's `.env` file.
+Open `http://127.0.0.1:8000/dashboard/home`, using the actual port if you change it. With authentication disabled, the
+page opens directly. When enabled, sign in with the Server token and configure connected Agents to use it for API
+and MCP requests. The CLI does not automatically load a directory's `.env` file.
 
-The first sign-in selects the Server default Scope. Pages are empty until content is saved. Save a Memory through an
+The first visit selects the Server default Scope. Pages are empty until content is saved. Save a Memory through an
 Agent or public API, then refresh Memories in the same Scope. Experiences, skills, handoffs, and usage also come from
 saved records. The Dashboard does not capture sessions, run generation, or approve candidates. The Dashboard and Agent
 must use the same Server and Scope.
@@ -104,8 +108,9 @@ revision does not change the current profile. In **Handoff**, use **Export Markd
 detail page to download that exact revision, including its full text, omissions, and citations. If sign-in expires,
 sign in again to return to the selected detail, then repeat the download.
 
-All token holders use one identity. Multi-user RBAC deployments should leave the Dashboard disabled and use the API,
-MCP, or host integrations. See [Deploy the Server](../operate/deploy-server.md) for network and credential configuration.
+When authentication is enabled, all token holders use one identity. Multi-user RBAC deployments should leave the
+Dashboard disabled and use the API, MCP, or host integrations. See [Deploy the Server](../operate/deploy-server.md)
+for network and credential configuration.
 
 This minimal launch does not enable model-backed extraction or vector search. To generate and validate one explicit
 environment file for those capabilities, continue with the
@@ -117,7 +122,7 @@ Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` 
 support this embedded backend. Install or replace the tool with the optional seekDB extra:
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.1.0"
+uv tool install --force "powercontext[cli,server,seekdb]==1.2.0"
 ```
 
 When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit
@@ -170,14 +175,14 @@ tag-table constraints during Server startup to support Topic Memory tags. Stop t
 one upgraded instance first so the schema upgrade completes before other instances connect. Databases from before
 1.0.0 also need the [Artifact processing migration](../operate/artifact-processing-migration.md) if it has not already
 been completed. Upgrade the Server, clients, and Agent integrations together.
-The Dashboard must be explicitly enabled with static Bearer authentication; see
+The Dashboard must be explicitly enabled; static Bearer authentication is optional for local use. See
 [Deploy the Server](../operate/deploy-server.md). Remote plaintext HTTP connections require explicit client consent;
 see [Connect to a remote Server](../operate/connect-remote-server.md).
 
-To upgrade to 1.1.0:
+To upgrade to 1.2.0:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
+uv tool install --force "powercontext[cli,server]==1.2.0"
 ```
 
 To replace the installed tool with another Git ref:
@@ -195,7 +200,7 @@ changes.
 An application that imports the async Client SDK should add it to that application's environment:
 
 ```bash
-uv add "powercontext[client]==1.1.0"
+uv add "powercontext[client]==1.2.0"
 ```
 
 Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for

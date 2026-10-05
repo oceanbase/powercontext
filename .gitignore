@@ -161,6 +161,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env_jev
+.env.systemone
 .env.bak-*
 *.env.client.env
 *.env.client.env.bak-*

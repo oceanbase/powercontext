@@ -51,6 +51,7 @@ export const OPERATIONS = {
   finalize_handoff: { method: 'POST', path: '/v1/handoff/finalize', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   commit_handoff: { method: 'POST', path: '/v1/handoff/commit', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   continue_handoff: { method: 'POST', path: '/v1/handoff/continue', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  prepare_handoff_hint: { method: 'POST', path: '/v1/handoff/hint', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   flush_topic_memory: { method: 'POST', path: '/v1/topic-memory/flush', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   search_topic_memory: { method: 'POST', path: '/v1/topic-memory/search', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   get_topic_memory: { method: 'POST', path: '/v1/topic-memory/get', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },

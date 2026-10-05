@@ -38,6 +38,7 @@ classifiers = [
 
 [project.optional-dependencies]
 code = [
+    "psutil>=7.2,<8; sys_platform == 'darwin'",
     "tree-sitter==0.26.0",
     "tree-sitter-go==0.25.0",
     "tree-sitter-javascript==0.25.0",
@@ -53,13 +54,15 @@ builtin = [
     "pydantic-settings>=2.7,<3",
     "pyyaml>=6,<7",
     "pyobvector>=0.2.28,<0.3",
+    # aiomysql 0.3.2 cannot import/encode bytes with PyMySQL 1.2.1-1.2.3.
+    # This temporary bound covers both OceanBase and embedded seekdb.
+    "pymysql>=1.2,<1.2.1",
     "sqlalchemy[asyncio]>=2,<3",
     "sqlite-vec>=0.1.9,<0.2",
 ]
 seekdb = [
     "powercontext[builtin]",
     "pylibseekdb>=1.4.0.post1,<2; sys_platform == 'linux' or sys_platform == 'darwin'",
-    "pymysql>=1.1,<2",
 ]
 client = [
     "httpx[socks]>=0.28,<1",
@@ -211,6 +214,8 @@ pythonpath = ["integrations/pydantic-ai/src", "scripts"]
 markers = [
     "native_service: mutates a disposable matching-platform current-user service manager",
     "real_e2e: uses real Codex, external model providers, and the configured database",
+    "zcode_host_acceptance: uses an explicitly configured real ZCode CLI and isolated real PowerContext Server",
+    "zcode_live_model: opt-in ZCode host acceptance using live host and Generation models",
 ]
 
 [tool.ruff]

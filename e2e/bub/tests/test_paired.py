@@ -27,13 +27,23 @@ import pytest
 from harbor.models.task.task import Task as HarborTask
 from harbor.models.trial.result import StepResult
 from harbor.models.verifier.result import VerifierResult
+from powercontext.client import UnauthorizedResponseError
 
+from powercontext_e2e import paired as paired_module
 from powercontext_e2e.catalog import load_tasks
-from powercontext_e2e.models import HarborTrialObservation, PairedArmObservation, RunEnvironment, SessionSnapshot
+from powercontext_e2e.models import (
+    HarborTrialObservation,
+    PairedAgent,
+    PairedArmObservation,
+    RunEnvironment,
+    SessionSnapshot,
+)
 from powercontext_e2e.paired import (
+    UnauthenticatedServerError,
     arm_outcome,
     classify_outcome,
     recall_session_index,
+    require_authenticated_server,
     summarize,
     treatment_failures,
 )
@@ -227,6 +237,9 @@ def _observation(trial: int, arm: str, outcome: str, task_id: str = "task") -> P
     )
 
 
+_AGENT = PairedAgent(host="bub", version="0", model="provider:model")
+
+
 def test_summary_pairs_only_trials_where_both_arms_were_scored() -> None:
     report = summarize(
         (
@@ -238,6 +251,7 @@ def test_summary_pairs_only_trials_where_both_arms_were_scored() -> None:
             _observation(3, "on", "passed"),
         ),
         trials=3,
+        agent=_AGENT,
     )
 
     (task,) = report.tasks
@@ -249,7 +263,7 @@ def test_summary_pairs_only_trials_where_both_arms_were_scored() -> None:
 
 
 def test_summary_reports_no_difference_without_a_scored_pair() -> None:
-    report = summarize((_observation(1, "off", "error"), _observation(1, "on", "passed")), trials=1)
+    report = summarize((_observation(1, "off", "error"), _observation(1, "on", "passed")), trials=1, agent=_AGENT)
 
     assert report.total.pairs == 0
     assert report.total.mean_delta is None
@@ -327,3 +341,37 @@ def test_recorder_records_a_failed_settle_instead_of_raising() -> None:
     assert recorder.failures == ["Settling the Scope after session 0 failed: TimeoutError: flush timed out"]
     assert [snapshot.session for snapshot in recorder.snapshots] == [1]
     assert any("not observed" in reason for reason in treatment_failures(recorder.snapshots, recall_session=1))
+
+
+class _AnonymousClient:
+    """Answer the harness's unauthenticated probe the way a Server with or without enforced access would."""
+
+    answers = False
+
+    def __init__(self, *_: object, **__: object) -> None:
+        pass
+
+    async def __aenter__(self) -> _AnonymousClient:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        del exc_info
+
+    async def list_scopes(self) -> list[object]:
+        if not self.answers:
+            raise UnauthorizedResponseError(status_code=401, request_id=None)
+        return []
+
+
+def test_paired_accepts_a_server_that_requires_a_token(monkeypatch) -> None:
+    monkeypatch.setattr(paired_module, "PowerContextClient", _AnonymousClient)
+
+    asyncio.run(require_authenticated_server())
+
+
+def test_paired_refuses_a_server_that_answers_without_a_token(monkeypatch) -> None:
+    # Both arms can reach the Server, so an OFF agent could read the ON arm's Memory from an open Server.
+    monkeypatch.setattr(paired_module, "PowerContextClient", type("OpenServer", (_AnonymousClient,), {"answers": True}))
+
+    with pytest.raises(UnauthenticatedServerError):
+        asyncio.run(require_authenticated_server())

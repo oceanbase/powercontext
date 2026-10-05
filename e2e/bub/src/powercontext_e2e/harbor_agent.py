@@ -29,7 +29,7 @@ AGENT_ID = "powercontext-bub-acp"
 REMOTE_BIN_DIR = "/installed-agent/bin"
 REMOTE_BUB_HOME = "/installed-agent/bub-home"
 REMOTE_BUB_PROJECT = "/installed-agent/bub-project"
-REMOTE_CODEX_AUTH = "/run/powercontext/codex-auth.json"
+REMOTE_CODEX_AUTH = "/run/agent-auth/codex-auth.json"
 REMOTE_CODEX_HOME = "/installed-agent/codex"
 REMOTE_SOURCE = "/opt/powercontext/source"
 REMOTE_SOURCE_OVERRIDE = f"{REMOTE_SOURCE}/e2e/bub/source-overrides.txt"
@@ -138,10 +138,12 @@ def _install_bub_command(*, powercontext: bool = True) -> str:
 
 def _install_acp_server_command() -> str:
     runner_bin = f"{harbor_acp.AcpAgent._RUNNER_VENV_PATH}/bin"
+    # Bub initializes its plugin project with an unpinned requirement, so retain the harness version here.
     return (
         "set -eu; "
         f"PATH={runner_bin}:$PATH BUB_HOME={REMOTE_BUB_HOME} CODEX_HOME={REMOTE_CODEX_HOME} "
         f"BUB_PROJECT={REMOTE_BUB_PROJECT} "
         f"{_tool_environment()} {REMOTE_BIN_DIR}/bub install "
-        f"{shlex.quote(f'bub-acp-server=={BUB_ACP_SERVER_VERSION}')}"
+        f"{shlex.quote(f'bub-acp-server=={BUB_ACP_SERVER_VERSION}')} "
+        f"{shlex.quote(f'bub=={BUB_VERSION}')}"
     )

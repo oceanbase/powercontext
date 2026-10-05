@@ -7,7 +7,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     "info": {
         "title": "PowerContext API",
         "description": "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.",
-        "version": "1.1.0",
+        "version": "1.2.0",
     },
     "paths": {
         "/v1/scopes/{scope_id}/subject-sources": {
@@ -1347,6 +1347,65 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "description": "Resolved content and per-statement evidence availability.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffResolution"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {"resolver": "continue_handoff_access"},
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/handoff/hint": {
+            "post": {
+                "tags": ["handoff"],
+                "summary": "Prepare optional compact continuity hints from a selected Handoff",
+                "description": "Explicitly request untrusted historical "
+                "orientation for a fresh session. Select "
+                "an exact Revision, a complete transferred "
+                "PreparedHandoff, or latest only after "
+                "resolving the intended workstream Scope. "
+                "Hints project existing Handoff fields and "
+                "authorized evidence references without "
+                "transcript summaries or model generation. "
+                "They never replace full Handoff reads, "
+                "evidence checks, current instructions, or "
+                "live validation. The complete rendered "
+                "UTF-8 hint is limited to max_bytes (at "
+                "most 4000); omit it rather than truncate "
+                "when budget or evidence is insufficient. "
+                "Blocked hints include the full recorded "
+                "state only when the complete hint fits. "
+                "Authorization matches Continue: "
+                "exact/latest require artifact.read and "
+                "handoff.evidence.inspect on the selected "
+                "Handoff, covering only its citation "
+                "manifest without general Scope read; "
+                "prepared requires scope.read. General "
+                "evidence APIs retain their independent "
+                "permission checks. Prepared selection "
+                "provides no exact Revision reference; the "
+                "receiver must retain the complete "
+                "transferred PreparedHandoff.",
+                "operationId": "prepare_handoff_hint",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/PrepareHandoffHintRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Bounded orientation "
+                        "text, or empty when "
+                        "no complete "
+                        "supported hint can "
+                        "be delivered.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedContext"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -6268,6 +6327,52 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "selection"],
             },
+            "PrepareHandoffHintRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "selection": {"$ref": "#/components/schemas/HandoffSelection"},
+                    "prepared": {
+                        "$ref": "#/components/schemas/PreparedHandoff",
+                        "description": "Required "
+                        "only "
+                        "for "
+                        "prepared "
+                        "selection; "
+                        "retain "
+                        "this "
+                        "complete "
+                        "value "
+                        "for "
+                        "continuation.",
+                        "nullable": True,
+                    },
+                    "revision": {
+                        "$ref": "#/components/schemas/ArtifactReference",
+                        "description": "Required only for exact selection.",
+                        "nullable": True,
+                    },
+                    "max_bytes": {
+                        "type": "integer",
+                        "maximum": 4000.0,
+                        "minimum": 1.0,
+                        "description": "Complete "
+                        "rendered "
+                        "UTF-8 "
+                        "text "
+                        "budget "
+                        "including "
+                        "notice, "
+                        "boundaries, "
+                        "and "
+                        "exact "
+                        "references.",
+                        "default": 2000,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "selection"],
+            },
             "FinalizeHandoffRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
@@ -7422,6 +7527,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "high_watermark": {"type": "integer", "minimum": 0.0},
                     "processed_source_count": {"type": "integer", "minimum": 0.0},
                     "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "held_count": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Number of source windows held by the Memory write gate.",
+                        "default": 0,
+                    },
+                    "hold_codes": {
+                        "items": {"type": "string"},
+                        "type": "array",
+                        "description": "Structured Memory write gate refusal codes for held windows.",
+                        "default": [],
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",

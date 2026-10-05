@@ -17,9 +17,11 @@
 from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from powercontext.artifacts import Artifact, ArtifactRef
 from powercontext.builtin.artifacts.memory.models import (
@@ -65,11 +67,72 @@ class MemoryCommit(BaseModel):
     projections: tuple[MemoryProjection, ...]
 
 
+class MemoryWriteRejectionCode(StrEnum):
+    """Structured, caller-visible vocabulary for a held Memory write.
+
+    Names mirror the evidence-selection vocabulary so a host can branch on one stable set of
+    codes instead of parsing prose.
+    """
+
+    NEEDS_EVIDENCE = "needs_evidence"
+    EVIDENCE_LIMIT_EXCEEDED = "evidence_limit_exceeded"
+    INSUFFICIENT_COVERAGE = "insufficient_coverage"
+
+
+class MemoryWriteVerdict(StrEnum):
+    """The complete verdict vocabulary a Memory write gate may produce."""
+
+    ACCEPT = "accept"
+    FLAG = "flag"
+    HOLD = "hold"
+
+
+class MemoryWriteAssessment(BaseModel):
+    """One gate verdict with the structured refusal a caller can observe.
+
+    ``HOLD`` always carries both a ``code`` and a ``reason``: a refused write is visible to
+    its caller, never silently dropped. ``ACCEPT``/``FLAG`` leave ``code`` unset.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    verdict: MemoryWriteVerdict
+    policy_id: str
+    code: MemoryWriteRejectionCode | None = None
+    reason: str | None = None
+    used_fallback: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryWriteGateRequest:
+    """A bounded projection of one pending Memory write for sufficiency judgement."""
+
+    candidates: tuple[str, ...]
+    evidence: tuple[str, ...]
+    expected_revision: int | None = None
+
+
+class MemoryWriteGate(Protocol):
+    """Judge whether a pending Memory write is supported by its cited evidence.
+
+    A gate only classifies: it never writes, approves, rejects, or deletes anything. A missing
+    or failing gate must be treated by callers as a pass-through, never as a hold.
+    """
+
+    policy_id: str
+
+    async def assess(self, request: MemoryWriteGateRequest, /) -> MemoryWriteAssessment:
+        """Return one verdict for a candidate set and its bounded evidence projection."""
+
+        ...
+
+
 class MemoryWritePlan(BaseModel):
     """A side-effect-free result that can be committed in an outer transaction."""
 
     result: Memory | None
     commit: MemoryCommit | None
+    decision: MemoryWriteAssessment | None = None
 
 
 class MemorySearchRequest(BaseModel):

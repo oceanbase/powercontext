@@ -235,6 +235,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "clear_scope_binding",
         "commit_handoff",
         "continue_handoff",
+        "prepare_handoff_hint",
         "create_scope",
         "create_work_contract",
         "finalize_handoff",

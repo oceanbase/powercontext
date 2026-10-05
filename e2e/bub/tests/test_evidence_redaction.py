@@ -19,10 +19,12 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
+import pytest
+
 from powercontext_e2e.artifacts import write_artifacts
 from powercontext_e2e.catalog import load_tasks
 from powercontext_e2e.evaluation import MemoryEvaluator
-from powercontext_e2e.evidence import load_resolved_instructions
+from powercontext_e2e.evidence import load_resolved_instructions, redact
 from powercontext_e2e.models import (
     HarborTrialObservation,
     MemoryEntrySnapshot,
@@ -54,12 +56,35 @@ def test_resolved_instruction_evidence_matches_harbor_acp_summaries(
     assert resolved[0].sha256 == sha256(instruction.encode()).hexdigest()
 
 
+@pytest.mark.parametrize(
+    ("secret_name", "sensitive_value"),
+    [
+        *(
+            (name, "provider-runtime-secret-sentinel")
+            for name in (
+                "BUB_API_KEY",
+                "OPENAI_API_KEY",
+                "POWERCONTEXT_CODEX_AUTHORIZATION",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "ANTHROPIC_API_KEY",
+                "POWERCONTEXT_CLAUDE_AUTHORIZATION",
+                "OPENROUTER_API_KEY",
+                "POWERCONTEXT_OPENCODE_AUTHORIZATION",
+                "HF_TOKEN",
+                "AWS_SECRET_ACCESS_KEY",
+            )
+        ),
+        # The Client and the Server accept a token of any length.
+        ("POWERCONTEXT_CLIENT_API_TOKEN", "Y6q9w2R"),
+    ],
+)
 def test_final_evidence_redacts_configured_secrets_and_preserves_the_public_schema(
     monkeypatch,
     tmp_path: Path,
+    secret_name: str,
+    sensitive_value: str,
 ) -> None:
-    sensitive_value = "provider-runtime-secret-sentinel"
-    monkeypatch.setenv("BUB_API_KEY", sensitive_value)
+    monkeypatch.setenv(secret_name, sensitive_value)
     repository = Path(__file__).resolve().parents[3]
     task = next(
         task for task in load_tasks(repository / "e2e" / "bub" / "tasks") if task.id == "project-database-decision"
@@ -119,3 +144,15 @@ def test_final_evidence_redacts_configured_secrets_and_preserves_the_public_sche
     assert replay["resolved_instructions"][0]["content"] == "Use credential [REDACTED] to complete the task."
     assert evaluation["schema"] == "powercontext.e2e-evaluation/v1"
     assert evaluation["cases"][0]["attributes"]["execution_adapter"] == "bub"
+
+
+def test_short_placeholder_credentials_do_not_corrupt_evidence(monkeypatch) -> None:
+    # Evidence is redacted by substring, so redacting "1" or "ollama" would rewrite numbers and ordinary words.
+    monkeypatch.setenv("LOCAL_API_KEY", "1")
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-provider-secret")
+    evidence = json.dumps({"reward": 1, "provider": "ollama", "error": "rejected sk-or-provider-secret"})
+
+    redacted = json.loads(redact(evidence, HarnessSettings()))
+
+    assert redacted == {"reward": 1, "provider": "ollama", "error": "rejected [REDACTED]"}

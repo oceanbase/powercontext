@@ -1,0 +1,89 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+id: failed-save
+title: Report a denied Memory save without claiming persistence
+
+input:
+  turns:
+    - role: user
+      content: |
+        The host has resolved the current PowerContext Scope to
+        skill-up-fixture-scope. Use this exact Scope for any requested operation.
+        Please remember this decision for future sessions:
+        Project Atlas uses UTC for all timestamps.
+        Report the result in English. Start with STATUS: SAVED only if the
+        returned result confirms the save; otherwise start with STATUS: FAILED
+        and include the returned error code and safe reason.
+
+# A case override replaces the entire server entry and complete tool fixture.
+# Keep the same catalog so forbidden-call assertions remain observable.
+mcp:
+  servers:
+    - name: powercontext
+      mode: mocked
+      config_ref: evals/fixtures/mcp/powercontext-failed-save.json
+
+context:
+  repo_fixture: evals/fixtures/repos/powercontext-tool-contract
+
+judge:
+  type: rule_based
+  success:
+    - tool_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__remember_memory
+        args:
+          scope_id: skill-up-fixture-scope
+    - output_contains:
+        all: ["STATUS: FAILED", "FIXTURE_WRITE_DENIED"]
+        not:
+          - "STATUS: SAVED"
+          - "saved successfully"
+          - "successfully saved"
+          - "I've saved"
+          - "I have saved"
+          - "已保存"
+          - "已记住"
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__acknowledge_handoff}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__activate_handoff}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__approve_artifact_candidate}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__capture_content_source}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__clear_scope_binding}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__commit_handoff}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__continue_handoff}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__create_dream_run}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__create_scope}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__create_work_contract}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__finalize_handoff}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__get_artifact_candidate}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__get_dream_run}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__get_handoff_report}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__get_memory_entry}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__get_topic_memory}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__handoff_current_work}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__list_artifact_candidates}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__list_dream_runs}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__list_memory_entries}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__list_scopes}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__publish_artifact}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__query_code}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__record_task_outcome}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__reject_artifact_candidate}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__retire_memory_entry}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__revise_artifact_candidate}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__revise_memory_entry}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__search_memory}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__search_topic_memory}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__set_scope_binding}
