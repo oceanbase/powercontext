@@ -741,75 +741,8 @@ class _BlockingNativeRepository(StatisticsRepository):
         driver = (await connection.get_raw_connection()).driver_connection
         assert isinstance(driver, SQLiteConnection)
         await driver.create_function("wait_for_release", 0, self._block)
-        await super().record(connection, scope_id, usage_date, purpose, operation, usage)
         await connection.exec_driver_sql("SELECT wait_for_release()")
-
-
-@pytest.mark.parametrize("file_backed", [False, True])
-def test_expiry_during_raw_checkout_keeps_the_record_budget(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, file_backed: bool
-) -> None:
-    async def scenario() -> None:
-        config = (
-            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'raw-checkout.db'}") if file_backed else SQLiteConfig()
-        )
-        async with _database(config) as database:
-            original = AsyncConnection.get_raw_connection
-            delayed = False
-
-            async def get_raw_connection(connection):
-                nonlocal delayed
-                raw = await original(connection)
-                if not delayed:
-                    delayed = True
-                    # The initial 0.25s attempt expires before any usage SQL.
-                    await asyncio.sleep(0.3)
-                return raw
-
-            monkeypatch.setattr(AsyncConnection, "get_raw_connection", get_raw_connection)
-            recorder = _ModelUsageRecorder(
-                database, StatisticsRepository(), write_timeout_seconds=1.0, flush_timeout_seconds=2.0
-            )
-            try:
-                _offer(recorder)
-                await recorder.flush()
-                assert (await _rows(database))[0].requests == 1
-                await _assert_connection_restored(database)
-            finally:
-                await recorder.close()
-
-    asyncio.run(scenario())
-
-
-@pytest.mark.parametrize("file_backed", [False, True])
-def test_native_body_interrupted_before_commit_keeps_the_record_budget(tmp_path: Path, file_backed: bool) -> None:
-    async def scenario() -> None:
-        config = (
-            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'native-expiry.db'}") if file_backed else SQLiteConfig()
-        )
-        async with _database(config) as database:
-            repository = _BlockingNativeRepository()
-            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=1.0, flush_timeout_seconds=2.0)
-            try:
-                _offer(recorder)
-                assert await asyncio.to_thread(repository.entered.wait, 1)
-                # Keep actual SQLite execution inside a native function past the
-                # first 0.25s deadline. Its interrupt surfaces when this returns.
-                release = asyncio.get_running_loop().call_later(0.3, repository.release.set)
-                try:
-                    await recorder.flush()
-                finally:
-                    release.cancel()
-                assert (await _rows(database))[0].requests == 1
-                await _assert_connection_restored(database)
-                _offer(recorder)
-                await recorder.flush()
-                assert (await _rows(database))[0].requests == 2
-            finally:
-                repository.release.set()
-                await recorder.close()
-
-    asyncio.run(scenario())
+        await super().record(connection, scope_id, usage_date, purpose, operation, usage)
 
 
 def test_uninterruptible_native_call_keeps_connection_owned_until_real_cleanup() -> None:

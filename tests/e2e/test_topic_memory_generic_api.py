@@ -285,26 +285,9 @@ def test_valid_emoji_and_punctuation_content_has_empty_lexical_projection(tmp_pa
         assert exact.status_code == 200 and exact.json()["title"] == "😀"
 
 
-@pytest.mark.parametrize("slow_first_usage_write", [False, True])
-def test_write_embeddings_are_attributed_to_the_operation_scope(tmp_path, monkeypatch, slow_first_usage_write):
-    if slow_first_usage_write:
-        original_record = StatisticsRepository.record
-        delayed = False
-
-        async def record(repository, *args, **kwargs):
-            nonlocal delayed
-            result = await original_record(repository, *args, **kwargs)
-            if not delayed:
-                delayed = True
-                # Outlive the first attempt's 0.25s slice while leaving room in
-                # the record's 1s budget for a rollback-safe repeat.
-                await asyncio.sleep(0.3)
-            return result
-
-        monkeypatch.setattr(StatisticsRepository, "record", record)
-
+def test_write_embeddings_are_attributed_to_the_operation_scope(tmp_path):
     embedding = UsageEmbeddings()
-    with TestClient(_app(tmp_path, embedding, model_usage_write_timeout_seconds=1.0)) as client:
+    with TestClient(_app(tmp_path, embedding)) as client:
         source, target = _scope(client, "usage-source"), _scope(client, "usage-target")
         created = _create(client, source, "create")
         path = created.headers["Location"]

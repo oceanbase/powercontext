@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 import time
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
@@ -225,18 +224,16 @@ class AsyncDatabase:
 
 
 @asynccontextmanager
-async def _sqlite_model_usage_transaction(  # noqa: C901 - native deadlines and cleanup share one connection owner
-    connection: AsyncConnection, deadline: float
-) -> AsyncIterator[None]:
+async def _sqlite_model_usage_transaction(connection: AsyncConnection, deadline: float) -> AsyncIterator[None]:
     driver = (await connection.get_raw_connection()).driver_connection
     if not isinstance(driver, SQLiteConnection):
         raise TypeError("model usage requires the aiosqlite driver")  # noqa: TRY003
     loop = asyncio.get_running_loop()
     remaining = deadline - loop.time()
     if remaining <= 0:
-        # Raw checkout belongs to this attempt, not the record's whole budget.
-        # No statement has run, so expiry remains safe to repeat.
-        raise ModelUsageAttemptExpired
+        # The record's budget was already gone when this attempt started, so
+        # there is nothing left to repeat it with.
+        raise TimeoutError
     # The worker thread uses a monotonic clock, not the event loop's clock API.
     stop_at = time.monotonic() + remaining
     async with driver.execute("PRAGMA busy_timeout") as cursor:
@@ -278,19 +275,8 @@ async def _sqlite_model_usage_transaction(  # noqa: C901 - native deadlines and 
                 raise ModelUsageAttemptExpired
             # sqlite3's legacy mode does not begin a transaction for SELECT.
             # Include the Scope existence read in the write's actual snapshot.
-            try:
-                await connection.exec_driver_sql("BEGIN")
-                yield
-            except OperationalError as error:
-                if (
-                    getattr(error.orig, "sqlite_errorcode", None) == sqlite3.SQLITE_INTERRUPT
-                    and loop.time() >= deadline
-                ):
-                    # The native deadline interrupted the body before COMMIT.
-                    # The transaction context must roll back successfully before
-                    # the recorder sees this marker and repeats the increment.
-                    raise ModelUsageAttemptExpired from error
-                raise
+            await connection.exec_driver_sql("BEGIN")
+            yield
             # The body is done, but the attempt may have outlived its slice. The
             # statements are still uncommitted, so stopping here applies nothing
             # and costs the record its usage; the native timer above, not this
