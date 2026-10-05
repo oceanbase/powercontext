@@ -114,10 +114,8 @@ Each arm uses its own explicit database configuration and registers its own Scop
 settings continue to apply only to ON. Without an explicit database configuration, each arm uses its local SQLite default.
 Treatment evidence queries the configured backend and records its kind and a target fingerprint without the
 connection URL or password. Containers install the locked Server/CLI runtime dependencies with `--no-dev`.
-For OceanBase, dependency preparation also omits the unused `sqlite-vec` package while keeping the dependency
-lock unchanged. This requires a PowerContext source revision that imports the SQLite
-vector extension only when SQLite vector search is enabled and includes `tzdata` in its builtin runtime dependencies
-for images without system timezone data. OceanBase credentials appear only in each arm's
+The PowerContext source revision must include `tzdata` in its builtin runtime dependencies for images without
+system timezone data. OceanBase credentials appear only in each arm's
 private `runtime/container.env`; remove these files with the disposable runtime when cleaning up a run.
 
 After the Web and Worker services are healthy, create a bounded batch through the console API:

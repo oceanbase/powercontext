@@ -1230,10 +1230,7 @@ def test_each_arm_receives_its_database_without_exposing_credentials(tmp_path: P
             for command in docker.commands
             if "sync" in command and "--project" in command and command[command.index("--project") + 1] == "/source"
         )
-        if databases[arm]["kind"] == "oceanbase":
-            assert runtime_install[-2:] == ("--no-install-package", "sqlite-vec")
-        else:
-            assert "--no-install-package" not in runtime_install
+        assert "--no-install-package" not in runtime_install
 
     assert environment_files[0] != environment_files[1]
     assert registered_scopes == ["eval:run-1:off", "eval:run-1:on"]

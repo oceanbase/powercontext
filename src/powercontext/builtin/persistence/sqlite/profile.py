@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Literal
 from weakref import WeakKeyDictionary
 
+import sqlite_vec
 from aiosqlite import Connection
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import Table, event
@@ -134,8 +135,6 @@ def _configure_sqlite(
 
 
 async def _load_sqlite_vec(connection: Connection) -> None:
-    import sqlite_vec
-
     await connection.enable_load_extension(True)
     try:
         await connection.load_extension(sqlite_vec.loadable_path())

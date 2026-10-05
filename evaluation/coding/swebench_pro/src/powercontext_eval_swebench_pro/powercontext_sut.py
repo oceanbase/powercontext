@@ -2395,11 +2395,6 @@ class DockerSut:
             "server",
             "--extra",
             "cli",
-            *(
-                ("--no-install-package", "sqlite-vec")
-                if config.database_configs is not None and config.database_configs[arm].get("kind") == "oceanbase"
-                else ()
-            ),
         )
         self._docker.run(command, cwd=paths.runtime, timeout=900)
         self._docker.run(
