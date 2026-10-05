@@ -16,7 +16,7 @@
 
 import type { PowerContextClient, JsonObject } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
-import { failureEvent, isVersionMismatch, publicErrorCode } from './diagnostics.ts'
+import { failureEvent, isVersionMismatch, publicErrorCode, SCOPE_BINDING_TARGET_MISSING_RECOVERY } from './diagnostics.ts'
 import {
   authenticationRejection,
   bodyFailureDetails,
@@ -89,6 +89,9 @@ function mapServerError(error: ServerResponseError): ToolResult {
     return { ok: false, code: 'not_found', ...(code ? { error_code: code } : {}), message: code === 'scope_not_found' ? 'PowerContext could not resolve the requested Scope. Check its configuration.' : 'PowerContext resource was not found.', status: 404, ...requestIdField(error.requestId) }
   }
   if (error.statusCode === 409) {
+    if (code === 'scope_binding_target_missing') {
+      return { ok: false, code, message: SCOPE_BINDING_TARGET_MISSING_RECOVERY, status: 409, ...requestIdField(error.requestId) }
+    }
     return { ok: false, code: code ?? 'conflict', message: 'PowerContext operation conflicts with the current state. Inspect the current reference before retrying.', status: 409, ...requestIdField(error.requestId) }
   }
   if (error.statusCode === 422) {

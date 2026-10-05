@@ -39,7 +39,7 @@ const PUBLIC_ERROR_CODES = new Set([
   'candidate_not_found', 'handoff_evidence_not_found', 'source_definition_not_found',
   'external_skill_not_found', 'conflict', 'revision_conflict', 'memory_entry_inactive',
   'source_conflict', 'candidate_conflict', 'artifact_conflict', 'candidate_terminal',
-  'scope_version_conflict', 'scope_idempotency_conflict', 'artifact_publication_conflict',
+  'scope_version_conflict', 'scope_idempotency_conflict', 'scope_binding_target_missing', 'artifact_publication_conflict',
   'connector_checkpoint_conflict', 'generation_conflict', 'external_skill_snapshot_unavailable',
   'handoff_report_inconsistent', 'invalid_request', 'invalid_scope_relationship',
   'invalid_source_ingestion', 'invalid_lifecycle', 'artifact_publication_unsupported',
@@ -55,6 +55,10 @@ const PUBLIC_ERROR_CODES = new Set([
 export function publicErrorCode(code: unknown): string | undefined {
   return typeof code === 'string' && PUBLIC_ERROR_CODES.has(code) ? code : undefined
 }
+
+export const SCOPE_BINDING_TARGET_MISSING_RECOVERY =
+  'A persisted Scope binding points to a missing Scope. An operator must investigate the data loss and restore ' +
+  'the original Scope or explicitly repair the binding. Do not automatically create a replacement Scope.'
 
 export function isVersionMismatch(error: ServerResponseError): boolean {
   return error.statusCode === 404
@@ -77,6 +81,8 @@ function responseDiagnostic(event: string, outcome: string, error: ServerRespons
     http_status: error.statusCode,
     ...(error.requestId ? { request_id: error.requestId } : {}),
     ...(code ? { error_code: code } : {}),
+    ...(error.statusCode === 409 && code === 'scope_binding_target_missing'
+      ? { recovery: SCOPE_BINDING_TARGET_MISSING_RECOVERY } : {}),
   }
 }
 
