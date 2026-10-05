@@ -23,6 +23,7 @@ from urllib.error import HTTPError
 from urllib.request import Request
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from powercontext_eval_swebench_pro.cli import app
@@ -156,10 +157,11 @@ def test_swebench_pro_run_rejects_invalid_database_config_without_exposing_secre
     )
 
     assert result.exit_code == 2, result.output
-    assert "--database-config" in result.output
-    assert "Database configuration" in result.output
-    assert "private-test-password" not in result.output
-    assert "another-private-password" not in result.output
+    output = unstyle(result.output)
+    assert "--database-config" in output
+    assert "Database configuration" in output
+    assert "private-test-password" not in output
+    assert "another-private-password" not in output
 
 
 def test_swebench_pro_run_defaults_optional_integrations_off(monkeypatch) -> None:

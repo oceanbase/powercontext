@@ -1685,6 +1685,9 @@ requires-dist = [
     { name = "tree-sitter-typescript", marker = "extra == 'code'", specifier = "==0.23.2" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.16,<1" },
     { name = "typing-extensions", specifier = ">=4.12,<5" },
+    { name = "tzdata", marker = "extra == 'builtin'", specifier = ">=2026.3" },
+    { name = "tzdata", marker = "extra == 'seekdb'", specifier = ">=2026.3" },
+    { name = "tzdata", marker = "extra == 'server'", specifier = ">=2026.3" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34,<1" },
 ]
 provides-extras = ["builtin", "cli", "client", "code", "seekdb", "server", "tracing-otlp"]
