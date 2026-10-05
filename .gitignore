@@ -27,10 +27,10 @@ build/
 develop-eggs/
 dist/
 node_modules/
-evaluation/web/node_modules/
-evaluation/web/playwright-report/
-evaluation/web/test-results/
-evaluation/web/*.tsbuildinfo
+evaluation/coding/swebench_pro/web/node_modules/
+evaluation/coding/swebench_pro/web/playwright-report/
+evaluation/coding/swebench_pro/web/test-results/
+evaluation/coding/swebench_pro/web/*.tsbuildinfo
 # Local native-code experiment and validation reports.
 /docs/*/rfcs/0000-native-git-code-understanding-validation.md
 /docs/*/rfcs/0000-native-git-code-understanding-experiment.md

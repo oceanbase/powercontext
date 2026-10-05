@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -49,6 +51,35 @@ class _ContentCandidatePipeline:
             for source in request.sources
             if isinstance(source, ContentSource)
         )
+
+
+def test_oceanbase_server_commands_work_without_sqlite_vector_package(tmp_path) -> None:
+    script = """
+import sys
+sys.modules['sqlite_vec'] = None
+
+from typer.testing import CliRunner
+from powercontext.cli.app import create_cli
+from powercontext.server.factory import create_server_app
+from powercontext.server.settings import ServerSettings
+
+settings = ServerSettings(
+    _env_file=None,
+    database={'kind': 'oceanbase', 'url': 'mysql+aoceanbase://probe:probe@127.0.0.1:1/probe?charset=utf8mb4'},
+)
+create_server_app(settings=settings)
+result = CliRunner().invoke(create_cli(), ['server', 'run', '--help'])
+assert result.exit_code == 0, result.output
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_builtin_runtime_rejects_unregistered_scope_without_persisting_data(tmp_path) -> None:
@@ -108,12 +139,8 @@ def test_builtin_runtime_rejects_unregistered_scope_without_persisting_data(tmp_
     asyncio.run(scenario())
 
 
-def test_builtin_runtime_uses_sqlite_fts_without_vector_extension(tmp_path, monkeypatch) -> None:
-    missing_extension = tmp_path / "missing-sqlite-vec"
-    monkeypatch.setattr(
-        "powercontext.builtin.persistence.sqlite.profile.sqlite_vec.loadable_path",
-        lambda: str(missing_extension),
-    )
+def test_builtin_runtime_uses_sqlite_fts_without_vector_extension(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "sqlite_vec", None)
 
     async def scenario() -> None:
         async with open_builtin_runtime(

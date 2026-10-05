@@ -27,9 +27,9 @@ import pytest
 from pydantic_ai.messages import ModelResponse, RetryPromptPart, TextPart
 from pydantic_ai.models.function import FunctionModel
 
-from benchmark.locomo.dataset import LoCoMoConversation, LoCoMoSession, LoCoMoTurn
-from benchmark.locomo_plus import runner
-from benchmark.locomo_plus.dataset import SMOKE_CASE_IDS, LoCoMoPlusCase, LoCoMoPlusDataset
+from evaluation.memory.locomo.dataset import LoCoMoConversation, LoCoMoSession, LoCoMoTurn
+from evaluation.memory.locomo_plus import runner
+from evaluation.memory.locomo_plus.dataset import SMOKE_CASE_IDS, LoCoMoPlusCase, LoCoMoPlusDataset
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     LLMMemoryCandidatePipeline,
@@ -82,7 +82,6 @@ def _dataset() -> LoCoMoPlusDataset:
 
 def _settings() -> ServerSettings:
     return ServerSettings(
-        database=SQLiteConfig(),
         inference=InferenceConfig(
             generation_model="test-answer",
             embedding_model="test-embedding",
@@ -186,6 +185,259 @@ class _EmbeddingModel:
 
     async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+
+@pytest.fixture
+def offline_benchmark(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Keep database operations real while controlling the answer and judge."""
+    state: dict[str, Any] = {"judge_valid": True}
+
+    @asynccontextmanager
+    async def runtime_factory(config: BuiltinConfig):
+        async with open_builtin_runtime(
+            config.model_copy(update={"inference": InferenceConfig()}),
+            candidate_pipeline=_CandidatePipeline(),
+            embedding_model=_EmbeddingModel(),
+        ) as runtime:
+            yield runtime
+
+    async def open_model(name, settings, resources):
+        async def respond(messages, info):
+            if name == "test-answer":
+                output = "A walk could help; it helped your mood before."
+            else:
+                output = (
+                    '{"label":"correct","reason":"Mentions the prior walk."}'
+                    if state["judge_valid"]
+                    else "unparseable verdict"
+                )
+            return ModelResponse(parts=[TextPart(output)])
+
+        return FunctionModel(respond, model_name=name)
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", runtime_factory)
+    monkeypatch.setattr(runner, "open_model", open_model)
+    return state
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_memory_uses_configured_database_or_result_directory_fallback(
+    tmp_path: Path, offline_benchmark: dict[str, Any], configured: bool
+) -> None:
+    output_directory = tmp_path / "results"
+    database_path = tmp_path / "configured.sqlite3" if configured else output_directory / "state.sqlite3"
+    settings = _settings()
+    if configured:
+        settings.database = SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}")
+    summary = asyncio.run(
+        runner.run_benchmark(
+            _dataset(),
+            settings=settings,
+            output_directory=output_directory,
+            run_id="database-choice",
+            judge_model="test-judge",
+            arm="memory-source",
+            limit=1,
+        )
+    )
+    assert summary["overall"]["completed_count"] == 1, _rows(output_directory)
+    assert database_path.exists()
+    assert summary["configuration"]["database_kind"] == "sqlite"
+    assert summary["configuration"]["database_fingerprint"]
+    assert summary["configuration"]["persistence"] == (
+        "configured database; isolated run scopes" if configured else "isolated output-directory/state.sqlite3"
+    )
+    if configured:
+        assert not (output_directory / "state.sqlite3").exists()
+
+    async def read_persisted_scope():
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"))
+        ) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.get(_rows(output_directory)[-1]["scope_id"])
+            memories = await runtime.memory.for_scope(scope.scope_id).list()
+            assert len(memories.entries) == 3
+
+    asyncio.run(read_persisted_scope())
+
+
+def test_explicit_in_memory_database_is_rejected_instead_of_silently_using_a_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _settings()
+    settings.database = SQLiteConfig()
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("a nonresumable database must be rejected before opening services")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    with pytest.raises(ValueError, match="persistent database"):
+        asyncio.run(
+            runner.run_benchmark(
+                _dataset(),
+                settings=settings,
+                output_directory=tmp_path,
+                run_id="in-memory",
+                judge_model="test-judge",
+                arm="memory-source",
+                limit=1,
+            )
+        )
+    assert not (tmp_path / "state.sqlite3").exists()
+
+
+def test_separate_results_isolate_equal_run_ids_in_a_shared_database(
+    tmp_path: Path, offline_benchmark: dict[str, Any]
+) -> None:
+    settings = _settings()
+    settings.database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'shared.sqlite3'}")
+    output_directories = (tmp_path / "first", tmp_path / "second")
+    scope_ids = []
+    for directory in output_directories:
+        summary = asyncio.run(
+            runner.run_benchmark(
+                _dataset(),
+                settings=settings,
+                output_directory=directory,
+                run_id="same-run-id",
+                judge_model="test-judge",
+                arm="memory-source",
+                limit=1,
+            )
+        )
+        assert summary["overall"]["completed_count"] == 1, _rows(directory)
+        scope_ids.append(_rows(directory)[-1]["scope_id"])
+    assert scope_ids[0] != scope_ids[1]
+
+    async def read_both_scopes():
+        async with open_builtin_runtime(BuiltinConfig(database=settings.database)) as runtime:
+            assert runtime.scopes is not None
+            for scope_id in scope_ids:
+                descriptor = await runtime.scopes.get(scope_id)
+                page = await runtime.memory.for_scope(descriptor.scope_id).list()
+                assert len(page.entries) == 3
+
+    asyncio.run(read_both_scopes())
+
+
+def test_resume_keeps_original_scope_and_rejects_a_different_database_before_opening_services(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _settings()
+    settings.database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'original.sqlite3'}")
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "output_directory": tmp_path / "results",
+        "run_id": "resume-database",
+        "judge_model": "test-judge",
+        "arm": "memory-source",
+        "limit": 1,
+    }
+    offline_benchmark["judge_valid"] = False
+    first = asyncio.run(runner.run_benchmark(**parameters))
+    assert first["overall"]["failures_by_stage"]["judge"] == 1
+    original_scope = _rows(parameters["output_directory"])[-1]["scope_id"]
+    ingestion_path = parameters["output_directory"] / "ingestion.json"
+    original_ingestion = ingestion_path.read_bytes()
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("changing a resumed database must be rejected before opening models or databases")
+
+    new_database = tmp_path / "different.sqlite3"
+    with monkeypatch.context() as guarded:
+        guarded.setattr(runner, "open_builtin_runtime", unexpected_service)
+        guarded.setattr(runner, "open_model", unexpected_service)
+        changed_settings = settings.model_copy(
+            update={"database": SQLiteConfig(url=f"sqlite+aiosqlite:///{new_database}")}
+        )
+        changed_parameters: dict[str, Any] = {**parameters, "settings": changed_settings}
+        with pytest.raises(ValueError, match="run identity changed"):
+            asyncio.run(runner.run_benchmark(**changed_parameters))
+    assert not new_database.exists()
+    assert ingestion_path.read_bytes() == original_ingestion
+
+    offline_benchmark["judge_valid"] = True
+    resumed = asyncio.run(runner.run_benchmark(**parameters))
+    assert resumed["overall"]["completed_count"] == 1
+    assert _rows(parameters["output_directory"])[-1]["scope_id"] == original_scope
+    assert ingestion_path.read_bytes() == original_ingestion
+
+
+def test_resume_rejects_recreated_database_without_replacing_saved_scope(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "recreated.sqlite3"
+    settings = _settings()
+    settings.database = SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}")
+    output_directory = tmp_path / "results"
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "output_directory": output_directory,
+        "run_id": "lost-database",
+        "judge_model": "test-judge",
+        "arm": "memory-source",
+        "limit": 1,
+    }
+    offline_benchmark["judge_valid"] = False
+    first = asyncio.run(runner.run_benchmark(**parameters))
+    assert first["overall"]["failures_by_stage"]["judge"] == 1
+    ingestion_path = output_directory / "ingestion.json"
+    original_ingestion = ingestion_path.read_bytes()
+    database_path.unlink()
+
+    async def read_recreated_database():
+        async with open_builtin_runtime(BuiltinConfig(database=settings.database)) as runtime:
+            assert runtime.scopes is not None
+            return tuple(scope.scope_id for scope in await runtime.scopes.list())
+
+    empty_database_scopes = asyncio.run(read_recreated_database())
+    assert _rows(output_directory)[-1]["scope_id"] not in empty_database_scopes
+
+    async def unexpected_model(*args, **kwargs):
+        pytest.fail("a lost persisted scope must be rejected before spending on models")
+
+    monkeypatch.setattr(runner, "open_model", unexpected_model)
+    resumed = asyncio.run(runner.run_benchmark(**parameters))
+    assert resumed["overall"]["completed_count"] == 0
+    assert resumed["overall"]["failures_by_stage"]["infrastructure"] == 1
+    assert _rows(output_directory)[-1]["error"]["type"] == "ScopeNotFoundError"
+    assert ingestion_path.read_bytes() == original_ingestion
+
+    assert asyncio.run(read_recreated_database()) == empty_database_scopes
+
+
+def test_legacy_manifest_remains_replayable_but_cannot_resume(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": _settings(),
+        "output_directory": tmp_path,
+        "run_id": "legacy",
+        "judge_model": "test-judge",
+        "arm": "query-only",
+        "limit": 1,
+    }
+    completed = asyncio.run(runner.run_benchmark(**parameters))
+    assert completed["overall"]["completed_count"] == 1
+    manifest_path = tmp_path / "run.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("scope_namespace")
+    manifest["configuration"].pop("database_fingerprint")
+    manifest_path.write_text(json.dumps(manifest))
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("legacy artifact replay and rejected resume must not open services")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    assert runner.replay_results(tmp_path)["overall"]["completed_count"] == 1
+    with pytest.raises(ValueError, match="new output directory"):
+        asyncio.run(runner.run_benchmark(**parameters))
 
 
 def test_memory_source_arm_captures_flushes_searches_and_expands_real_sqlite_sources(

@@ -77,13 +77,8 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
-      # `evaluation/` is its own uv project with its own `testpaths`, so the root
-      # unit-test job never collected it and the benchmark's own tests were only
-      # ever run by hand. The job starts at the unit subtree because that is the
-      # subtree this change owns; `evaluation/tests/web` and
-      # `evaluation/tests/contract` are already red on `master` for reasons
-      # unrelated to the benchmark, and gating them here would make this check
-      # red before it could report anything.
+      # Evaluation has its own uv project. Collect each suite's unit tests through
+      # its dedicated path; the root project's testpaths do not include them.
       - name: Run the evaluation project unit tests
         run: |
           set -o pipefail

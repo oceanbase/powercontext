@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from benchmark.locomo_plus.dataset import (
+from evaluation.memory.locomo_plus.dataset import (
     DEFAULT_SMOKE_PATH,
     SMOKE_CASE_IDS,
     ensure_dataset,

@@ -520,7 +520,7 @@ def test_agent_container_cannot_read_workload_answers(monkeypatch, tmp_path: Pat
         monkeypatch.setenv(plugin_host.server_url, "http://host-gateway:8000")
     task = load_tasks(_REPOSITORY / "e2e" / "bub" / manifest)[0]
     protected = [_REPOSITORY / "e2e" / "bub" / name for name in ("harbor-tasks", "paired-tasks", "tasks")]
-    protected.append(_REPOSITORY / "benchmark")
+    protected.append(_REPOSITORY / "evaluation")
 
     sources = [Path(mount["source"]) for mount in _config(task, tmp_path, host=host_adapter(host)).environment.mounts]
 

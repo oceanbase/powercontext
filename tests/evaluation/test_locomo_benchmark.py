@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from benchmark.locomo.dataset import load_locomo, render_session
-from benchmark.locomo.metrics import (
+from evaluation.memory.locomo.dataset import load_locomo, render_session
+from evaluation.memory.locomo.metrics import (
     bleu1,
     diagnose_observations,
     exact_match,
@@ -29,7 +29,7 @@ from benchmark.locomo.metrics import (
     summarize_observations,
     token_f1,
 )
-from benchmark.locomo.runner import (
+from evaluation.memory.locomo.runner import (
     normalize_run_id,
     prepare_rejudge,
     prepare_run,
@@ -39,7 +39,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, MemoryExtractionProfile, RuntimeConfig
 from powercontext.server.settings import ServerSettings
 
-DATASET = Path(__file__).parents[2] / "benchmark" / "locomo" / "dataset" / "locomo10.json"
+DATASET = Path(__file__).parents[2] / "evaluation" / "memory" / "locomo" / "dataset" / "locomo10.json"
 
 
 def test_canonical_locomo_dataset_has_expected_shape_and_scored_selection() -> None:

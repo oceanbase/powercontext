@@ -95,7 +95,7 @@ PowerContext release number.
 | WorkBuddy integration | Its hooks and transport scripts carry User-Agent strings; there is no plugin manifest version to align with the Server. |
 | Skill Receiver | `RECEIVER_VERSION` in `src/powercontext/client/skill_receiver.py` supplies the default receiver identity version reported during enrollment, reconciliation, and receipts. It is independent of the Server version. |
 | Python integrations | `integrations/{bub,langchain,langgraph,opendal,pydantic-ai}/pyproject.toml` contain separate distribution versions. Dependency constraints express compatibility, not the current main release. |
-| Evaluation and harness packages | `evaluation/pyproject.toml`, `evaluation/web/package.json`, and `e2e/bub/pyproject.toml` have their own package versions. |
+| Evaluation and harness packages | `evaluation/pyproject.toml`, `evaluation/coding/swebench_pro/web/package.json`, and `e2e/bub/pyproject.toml` have their own package versions. |
 | Protocols and dependencies | Agent Plugins schema versions, persisted format versions, OpenAPI specification version, API paths, host minimum versions, and third-party dependencies change only with their own contracts. |
 
 Installing an Agent integration from the matching `powercontext-v…` repository tag selects the matching source
