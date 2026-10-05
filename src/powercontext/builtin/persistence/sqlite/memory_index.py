@@ -31,7 +31,6 @@ from sqlalchemy import (
     UniqueConstraint,
     bindparam,
     delete,
-    func,
     insert,
     select,
     text,
@@ -201,34 +200,11 @@ _VECTOR_COMPLETENESS_SQL = text(
     WHERE m.scope_id = :scope_id
     """
 )
-_VECTOR_SEARCH_SQL = text(
-    """
-    WITH nearest AS (
-        SELECT rowid, distance
-        FROM pc_memory_entry_vec
-        WHERE embedding MATCH :query_vector
-          AND k = :neighbor_limit
-    )
-    SELECT m.memory_artifact_id, m.head_revision, m.entry_id, m.entry_version_id, v.text,
-           nearest.distance
-    FROM nearest
-    JOIN pc_memory_vector_entries AS m ON m.vector_id = nearest.rowid
-    JOIN pc_memory_entry_versions AS v
-      ON v.scope_id = m.scope_id
-     AND v.memory_artifact_id = m.memory_artifact_id
-     AND v.entry_version_id = m.entry_version_id
-    WHERE m.scope_id = :scope_id
-      AND m.memory_artifact_id IN (SELECT value FROM json_each(:memory_artifact_ids))
-    ORDER BY nearest.distance,
-             m.memory_artifact_id, m.entry_id, m.entry_version_id
-    LIMIT :candidate_limit
-    """
-)
-
 # Exact distance evaluation over the eligible set avoids global KNN followed by
-# post-filtering. The unfiltered path keeps its existing behavior.
-_TAGGED_VECTOR_SEARCH_SQL = text(
-    """
+# post-filtering. The vec0 table holds the embeddings of every scope, so a KNN
+# query would rank the whole table before the scope filter applies, and
+# sqlite-vec rejects k above 4096 once the table grows past that.
+_VECTOR_SEARCH_SQL_TEMPLATE = """
     SELECT m.memory_artifact_id, m.head_revision, m.entry_id, m.entry_version_id, v.text,
            vec_distance_L2(vec.embedding, :query_vector) AS distance
     FROM pc_memory_vector_entries AS m
@@ -242,7 +218,10 @@ _TAGGED_VECTOR_SEARCH_SQL = text(
     /* tag-filter */
     ORDER BY distance, m.memory_artifact_id, m.entry_id, m.entry_version_id
     LIMIT :candidate_limit
-""".replace("/* tag-filter */", memory_tag_sql("m"))
+"""
+_VECTOR_SEARCH_SQL = text(_VECTOR_SEARCH_SQL_TEMPLATE.replace("/* tag-filter */", ""))
+_TAGGED_VECTOR_SEARCH_SQL = text(
+    _VECTOR_SEARCH_SQL_TEMPLATE.replace("/* tag-filter */", memory_tag_sql("m"))
 ).bindparams(bindparam("tag_keys", expanding=True), bindparam("tag_hashes", expanding=True))
 
 
@@ -553,15 +532,11 @@ class SQLiteMemoryVectorIndex:
         if not await self.vector_complete(connection, scope_id, request.memories, self.profile):
             raise CapabilityNotSupportedError("vector")
         query_vector = _pack_vector(validate_embedding(request.query_vector, dimension=self.profile.dimension))
-        total = int(await connection.scalar(select(func.count()).select_from(SQLITE_MEMORY_VECTOR_ENTRIES_TABLE)) or 0)
-        if total == 0:
-            return MemorySearchChannels()
         rows = (
             await connection.execute(
                 _VECTOR_SEARCH_SQL if request.tag_filter is None else _TAGGED_VECTOR_SEARCH_SQL,
                 {
                     "query_vector": query_vector,
-                    "neighbor_limit": total,
                     **memory_tag_parameters(request.tag_filter),
                     "scope_id": scope_id,
                     "memory_artifact_ids": json.dumps(

@@ -200,13 +200,16 @@ class _WorkerFailureCapture(logging.Handler):
         self.failures: list[dict[str, object]] = []
 
     def emit(self, record: logging.LogRecord) -> None:
-        if getattr(record, "event", None) != "artifact_processing.worker.failed":
+        if getattr(record, "event", None) not in {
+            "artifact_processing.failed",
+            "artifact_processing.worker.failed",
+        }:
             return
         self.failures.append({
             "stage": str(getattr(record, "stage", "unknown")),
             "error_code": str(getattr(record, "error_code", "unknown")),
             "exception_type": str(getattr(record, "exception_type", "unknown")),
-            "failure_count": int(getattr(record, "failure_count", 0)),
+            "failure_count": int(getattr(record, "failure_count", getattr(record, "retry_count", 0))),
         })
 
 

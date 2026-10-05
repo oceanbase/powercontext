@@ -20,7 +20,7 @@ from marko import Markdown, block
 from marko.element import Element
 from marko.md_renderer import MarkdownRenderer
 
-from .models import ArmSummary, EvaluationReport, PairedReport, PairedSummary, TaskObservation
+from .models import ArmSummary, EvaluationReport, PairedAgent, PairedReport, PairedSummary, TaskObservation
 
 
 def render_report(observation: TaskObservation, report: EvaluationReport) -> str:
@@ -79,6 +79,8 @@ def render_paired_report(report: PairedReport) -> str:
             f"Preliminary: {report.trials} trial(s) per arm and no uncertainty estimate. Errors and ON runs that did "
             "not receive PowerContext's treatment are counted but left out of success rates and paired differences.",
         ),
+        block.BlankLine(0),
+        *_nodes(markdown, _agent_text(report.agent)),
     ]
     for title, summary in (
         *((f"`{task.task_id}`", task) for task in report.tasks),
@@ -88,6 +90,11 @@ def render_paired_report(report: PairedReport) -> str:
         children.extend(_nodes(markdown, _paired_summary_text(summary)))
     document.children = children
     return markdown.render(document)
+
+
+def _agent_text(agent: PairedAgent) -> str:
+    settings = "".join(f", {name} `{value}`" for name, value in sorted(agent.settings.items()))
+    return f"Host `{agent.host}` {agent.version}, model `{agent.model or 'not set'}`{settings}."
 
 
 def _paired_summary_text(summary: PairedSummary) -> str:

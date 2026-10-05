@@ -5,8 +5,9 @@ benchmark suite. The Terminal-Bench case retains its native task and verifier, w
 on Memory collection, grounding, and recall rather than the native task reward.
 
 The common architecture separates workload selection, execution, evidence, Memory evaluation, and reporting. Bub is
-the current execution adapter because its model, tools, context injection, capture, and checkpoints are observable.
-Another adapter can be added later without changing the common workload or evaluation contracts.
+the execution adapter for acceptance workloads because its model, tools, context injection, capture, and checkpoints
+are observable. The OFF/ON comparison can also run on Codex, Claude Code, and OpenCode, without changing the workload
+or evaluation contracts.
 
 Every workload follows one execution path:
 
@@ -152,13 +153,29 @@ strategy; earlier steps' rewards are recorded for diagnosis only. A task may not
 step, because Harbor would then skip the recall step when that step's unrelated job falls short.
 
 The `paired` command runs each selected workload with PowerContext off and on, in separate containers, and repeats
-this for `--trials` trials. The arm that runs first alternates between trials.
+this for `--trials` trials. The arm that runs first alternates between trials. `--host` selects the agent host for
+both arms: `bub` by default, `codex`, `claude-code`, or `opencode`. Each host uses its own PowerContext integration, so
+ON means what that integration does for its users.
 
-- OFF installs the host without its PowerContext integration and passes no `POWERCONTEXT_*` settings.
-- ON installs the integration bound to a new Scope. For Bub this means the plugin with `capture_events` enabled, so
-  that, like the other host integrations, it captures what the user says without relying on the model to call a
-  memory tool. This is not the plugin's default setting.
-- Everything else is the same in both arms: image, host version, model, and budget.
+- OFF is the host as a user without PowerContext has it. The agent is not told that PowerContext is off, and it
+  cannot find PowerContext: no integration is installed, no PowerContext sources are mounted in its container, and it
+  gets no `POWERCONTEXT_*` settings or Server credential. Continuation tasks ask about earlier sessions, and agents
+  that find PowerContext files go looking for it. For Codex this differs from the published SWE-bench Pro protocol,
+  whose OFF arm has the plugin installed and runs with `--disable plugins`.
+- ON installs the integration, binds it to a new Scope, and gives it the harness Client's Server token. For Bub this
+  means the plugin with `capture_events` enabled, so that, like the other host integrations, it captures what the
+  user says without relying on the model to call a memory tool. This is not the plugin's default setting. Codex runs
+  with `--enable plugins`, Claude Code has the plugin enabled, and OpenCode loads it from its plugins directory. In all
+  three, the plugin captures each user prompt and asks for context before each turn, and the plugin's tools (MCP for
+  Codex and Claude Code, native tools for OpenCode) and Skill are available to the model.
+- Everything else is the same in both arms: image, host version, model, reasoning settings, and budget.
+
+Both arms' containers can reach the Server, and the Server keeps the ON arms' Memory across trials. The command
+therefore runs only against a Server that requires authentication: it stops before the first run if the Server lists
+its Scopes to a client without a token. Start the Server with `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and a
+`POWERCONTEXT_SERVER_AUTH_TOKEN`, and give the harness the same value as `POWERCONTEXT_CLIENT_API_TOKEN`; the harness
+passes it to the ON arm's integration as `POWERCONTEXT_BUB_API_TOKEN` or `POWERCONTEXT_<HOST>_AUTHORIZATION`. The
+token still lets an ON agent read other Scopes on the same Server, including earlier trials'.
 
 After each ON session the harness records the Scope's Server statistics. When another session follows, it first
 flushes the Scope, standing in for the time that passes between real sessions, and repeats the flush until the Scope
@@ -180,7 +197,14 @@ The harness Client waits for each flush, which runs the Server's generation mode
 timeout; the Bub plugin also flushes during a session.
 
 ```bash
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+export POWERCONTEXT_SERVER_AUTH_TOKEN=replace-me
+powercontext server run  # in another shell, with the Server's inference settings
+```
+
+```bash
 export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:8000
+export POWERCONTEXT_CLIENT_API_TOKEN=replace-me
 export POWERCONTEXT_CLIENT_TIMEOUT=150
 export POWERCONTEXT_BUB_BASE_URL=http://host-gateway:8000
 export POWERCONTEXT_BUB_TIMEOUT=150
@@ -188,6 +212,75 @@ export POWERCONTEXT_BUB_TRUST_TRANSPORT_SECURITY=true
 export BUB_MODEL=openrouter:openai/gpt-5.4
 export BUB_API_KEY="$OPENROUTER_API_KEY"
 make harness-paired ARGS='--trials 2'
+```
+
+Codex 0.153.4 runs through Harbor's Codex agent. The plugin reads its Server URL only from its installed
+`.mcp.json`, so the harness writes `POWERCONTEXT_CODEX_SERVER_URL` there before each ON session, as
+`powercontext setup codex --server-url` does; other `POWERCONTEXT_CODEX_*` settings reach the ON arm unchanged. The
+harness selects the model with `POWERCONTEXT_E2E_CODEX_MODEL` and the reasoning effort with
+`POWERCONTEXT_E2E_CODEX_REASONING_EFFORT`, which defaults to `medium`. Harbor authenticates Codex with
+`OPENAI_API_KEY`, the auth document named by `CODEX_AUTH_JSON_PATH`, or `~/.codex/auth.json` when
+`CODEX_FORCE_AUTH_JSON=1`. A ChatGPT login can use the models that Codex 0.153.4 offers to ChatGPT accounts.
+
+```bash
+export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:8000
+export POWERCONTEXT_CLIENT_API_TOKEN=replace-me
+export POWERCONTEXT_CLIENT_TIMEOUT=150
+export POWERCONTEXT_CODEX_SERVER_URL=http://host-gateway:8000
+export POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP=true
+export POWERCONTEXT_E2E_CODEX_MODEL=gpt-5.6-sol
+export CODEX_FORCE_AUTH_JSON=1
+make harness-paired ARGS='--host codex --trials 2'
+```
+
+Claude Code 2.1.284 runs through Harbor's Claude Code agent. The ON container sees only the plugin's marketplace
+manifest, `.claude-plugin/marketplace.json`, and `integrations/claude-code`. Before each ON session the harness installs
+the plugin with its `server_url` option set to `POWERCONTEXT_CLAUDE_SERVER_URL`, because the plugin's MCP connection
+reads only that option. The plugin's hook reads `POWERCONTEXT_CLAUDE_SERVER_URL` itself, and other
+`POWERCONTEXT_CLAUDE_*` settings reach the ON arm unchanged. Without `POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP=true`,
+the hook skips a plain-HTTP Server such as `host-gateway`, and the ON arm reports an integration failure. The harness
+selects the model with `POWERCONTEXT_E2E_CLAUDE_CODE_MODEL` and the effort with
+`POWERCONTEXT_E2E_CLAUDE_CODE_REASONING_EFFORT`, which defaults to `medium`. Harbor authenticates Claude Code with
+`CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`), `ANTHROPIC_API_KEY`, or `ANTHROPIC_AUTH_TOKEN`. When an API key
+and the OAuth token are both set, it uses the API key unless `CLAUDE_FORCE_OAUTH=1`. Harbor also forwards
+`ANTHROPIC_BASE_URL` from the harness environment, so unset it unless the agent should use that endpoint.
+
+```bash
+export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:8000
+export POWERCONTEXT_CLIENT_API_TOKEN=replace-me
+export POWERCONTEXT_CLIENT_TIMEOUT=150
+export POWERCONTEXT_CLAUDE_SERVER_URL=http://host-gateway:8000
+export POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP=true
+export POWERCONTEXT_E2E_CLAUDE_CODE_MODEL=claude-sonnet-5-5
+export CLAUDE_CODE_OAUTH_TOKEN=replace-me
+export CLAUDE_FORCE_OAUTH=1
+make harness-paired ARGS='--host claude-code --trials 2'
+```
+
+OpenCode 1.18.33 runs through Harbor's OpenCode agent. The ON arm copies the plugin's bundled `lib/index.js` and its
+Skill to where `powercontext setup opencode` puts them. Setup also registers a TUI plugin, which `opencode run` does not
+load. The agent container sees only the plugin's `lib` and `skills` directories. The plugin reads
+`POWERCONTEXT_OPENCODE_SERVER_URL`, the Scope, and the plain-HTTP consent `POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP`
+from its environment; without the consent it stays inactive and the ON arm reports an integration failure. The plugin
+prefers `POWERCONTEXT_OPENCODE_BASE_URL` when that is also set, so leave it unset. OpenCode keeps its sessions,
+oversized tool results, plans, snapshots, and logs in its data directory, which Harbor does not clear between steps.
+Before each session in both arms the harness therefore empties that directory except for stored credentials, and removes
+OpenCode's temporary directory, as sessions start empty on the other hosts. It stops the arm if OpenCode still lists a
+session afterwards. The harness selects the model with `POWERCONTEXT_E2E_OPENCODE_MODEL` in OpenCode's `provider/model`
+form and passes `POWERCONTEXT_E2E_OPENCODE_REASONING_EFFORT`, default `medium`, as the model variant. OpenCode silently
+ignores a variant that the model does not define, so choose an effort the model offers; the report records the requested
+value. Harbor passes the key of the providers it knows, such as `OPENROUTER_API_KEY`; a model from another provider gets
+no key.
+
+```bash
+export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:8000
+export POWERCONTEXT_CLIENT_API_TOKEN=replace-me
+export POWERCONTEXT_CLIENT_TIMEOUT=150
+export POWERCONTEXT_OPENCODE_SERVER_URL=http://host-gateway:8000
+export POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP=true
+export POWERCONTEXT_E2E_OPENCODE_MODEL=openrouter/z-ai/glm-5.3
+export OPENROUTER_API_KEY=replace-me
+make harness-paired ARGS='--host opencode --trials 2'
 ```
 
 Each arm writes `observation.json`, which includes the per-session Server snapshots for ON, and its Harbor jobs:
@@ -201,8 +294,9 @@ Each arm writes `observation.json`, which includes the per-session Server snapsh
     harbor-jobs/
 ```
 
-The command exits non-zero when any arm could not be scored; a task that fails in either arm is a result, not a
-command failure. The report is marked preliminary. It does not yet estimate uncertainty, check the Default Scope for
+The report states the host, its version, the model, and the reasoning settings. The command exits non-zero when any
+arm could not be scored; a task that fails in either arm is a result, not a command failure. The report is marked
+preliminary. It does not yet estimate uncertainty, check the Default Scope for
 leaks, record latency or token usage, or run in the fixed Compose harness.
 
 ## Long-horizon task
@@ -243,9 +337,10 @@ proxy exposed there can be passed as `http://host-gateway:<port>`. The typed set
 evidence is written.
 
 The agent container sees only the repository files that installation needs: the `powercontext` package and the host
-integration. Workload files, answer keys, and benchmark data stay on the host, because the agent can search its
-container. Agent setup uses Bub's supported installation path: `uv tool install` installs Bub with the local
-PowerContext plugin, then `bub install bub-acp-server` adds the ACP server to the same environment. Harbor uploads and
+integration, and none of them in a paired OFF arm. Workload files, answer keys, and benchmark data stay on the host,
+because the agent can search its container. Agent setup uses Bub's supported installation path: `uv tool install`
+installs Bub with the local PowerContext plugin when enabled, then `bub install` adds the ACP server to the same
+environment. Both steps pin Bub to the harness version so installing ACP cannot upgrade the host. Harbor uploads and
 runs its native ACP client. The Terminal-Bench task keeps its original image, setup, verifier, and isolation boundary.
 The harness ignores dataset CPU and memory limits because it evaluates Memory behavior rather than benchmark resource
 compliance. This also keeps the fixed harness usable in nested container runtimes that cannot create additional
@@ -278,6 +373,9 @@ Offline rescoring therefore preserves the live outcome without exposing a config
 The harness does not mirror PowerContext Server, PowerContext Client, Bub, Harbor, or any-llm settings. Each component
 loads its native parameters, and the adapter only forwards the native values needed across the nested-container
 boundary. The Bub plugin uses Bub's Pydantic settings extension and accepts the same fields in the `powercontext`
-section of `bub.yml`. Native Bub API keys and the PowerContext Client token are redacted at every final evidence sink.
-CI scans evidence with TruffleHog before publishing it. Native ACP artifacts can contain arbitrary command output and
-should be reviewed before sharing.
+section of `bub.yml`. Every `*_API_KEY`, `*_TOKEN`, `*_AUTHORIZATION`, and `*_SECRET_ACCESS_KEY` value in the harness
+environment, including Bub's API keys and the PowerContext Client token, is redacted at every final evidence sink,
+whatever its length. Only common placeholders for local model servers, such as `1` or `ollama`, are left in place,
+because they protect nothing and redacting them by substring would rewrite the evidence. CI scans evidence with
+TruffleHog before publishing it. Native ACP artifacts can contain arbitrary command output and should be reviewed before
+sharing.

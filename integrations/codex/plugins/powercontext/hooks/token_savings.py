@@ -39,6 +39,7 @@ from hooks.recall import (  # noqa: E402
     _remaining_time,
     _ServerUnavailableError,
 )
+from plugin_version import PLUGIN_VERSION  # noqa: E402
 from scope_binding import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
@@ -49,7 +50,7 @@ from scope_binding import (  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _COMPONENT = "powercontext.codex.token_savings"
-_USER_AGENT = "powercontext-codex-token-savings/0.3.0"
+_USER_AGENT = f"powercontext-codex-token-savings/{PLUGIN_VERSION}"
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",

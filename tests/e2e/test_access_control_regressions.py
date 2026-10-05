@@ -277,6 +277,97 @@ async def _handoff(client, scope_id):
 
 
 @pytest.mark.parametrize("backend", ["builtin", "casbin"])
+def test_hints_share_continue_manifest_authority_and_resolve_published_evidence_in_its_original_scope(
+    tmp_path, backend
+):
+    async def scenario():
+        async with _server(tmp_path, backend) as (_, client, _):
+            scope_id = await _scope(client)
+            revision = await _handoff(client, scope_id)
+            await _grant(client, scope_id, "bob", "handoff.viewer", _resource(scope_id, "handoff", "handoff"))
+            bob = {"Authorization": "Bearer bob"}
+            payload = {"scope_id": scope_id, "selection": "exact", "revision": revision}
+            for selection in (payload, {"scope_id": scope_id, "selection": "latest"}):
+                continued = await client.post("/v1/handoff/continue", headers=bob, json=selection)
+                assert continued.status_code == 200 and continued.json()["status"] == "resolved", continued.text
+                ready = await client.post("/v1/handoff/hint", headers=bob, json=selection | {"max_bytes": 4000})
+                assert ready.status_code == 200 and ready.json()["status"] == "ready", ready.text
+            source_ref = continued.json()["content"]["state"][0]["citations"][0]["source_ref"]
+            direct = await client.get(
+                f"/v1/scopes/{scope_id}/sources/{source_ref['name']}/{source_ref['source_id']}", headers=bob
+            )
+            assert direct.status_code == 403, direct.text
+            prepared = {
+                "schema": "powercontext.prepared-handoff.v1",
+                "scope_id": scope_id,
+                "base": revision,
+                "content": continued.json()["content"],
+            }
+            prepared_payload = {"scope_id": scope_id, "selection": "prepared", "prepared": prepared}
+            for path in ("/v1/handoff/continue", "/v1/handoff/hint"):
+                denied = await client.post(path, headers=bob, json=prepared_payload)
+                assert denied.status_code == 403, denied.text
+
+            target = await client.post(
+                "/v1/scopes", json={"title": "Target", "summary": "Published Handoff", "idempotency_key": "hint-target"}
+            )
+            target_id = target.json()["scope_id"]
+            publication = await client.post(
+                "/v1/artifact-publications",
+                json={
+                    "source": {"scope_id": scope_id, "artifact": revision},
+                    "target_scope_id": target_id,
+                    "idempotency_key": "hint-publication",
+                },
+            )
+            assert publication.status_code == 201, publication.text
+            published_revision = publication.json()["target"]["artifact"]
+            published_access = await _grant(
+                client,
+                target_id,
+                "bob",
+                "handoff.viewer",
+                _resource(target_id, "handoff", published_revision["artifact_id"]),
+            )
+            published_payload = {"scope_id": target_id, "selection": "exact", "revision": published_revision}
+            continued = await client.post("/v1/handoff/continue", headers=bob, json=published_payload)
+            assert continued.status_code == 200 and continued.json()["status"] == "resolved", continued.text
+            ready = await client.post("/v1/handoff/hint", headers=bob, json=published_payload | {"max_bytes": 4000})
+            assert ready.status_code == 200 and ready.json()["status"] == "ready", ready.text
+            hint_data = json.loads(
+                "\n".join(
+                    line.removeprefix(">     ")
+                    for line in ready.json()["content"].splitlines()
+                    if line.startswith(">     ")
+                )
+            )
+            assert hint_data["evidence_scope_id"] == scope_id
+            assert hint_data["scope_id"] == target_id
+            revoked = await client.post(
+                "/v1/access/bindings/revoke",
+                json={
+                    "binding_id": published_access["binding_id"],
+                    "expected_version": published_access["version"],
+                    "idempotency_key": "revoke-hint-handoff-access",
+                },
+            )
+            assert revoked.status_code == 200, revoked.text
+            for path in ("/v1/handoff/continue", "/v1/handoff/hint"):
+                denied = await client.post(path, headers=bob, json=published_payload)
+                assert denied.status_code == 403, denied.text
+            await _grant(client, scope_id, "bob", "scope.viewer")
+            for path in ("/v1/handoff/continue", "/v1/handoff/hint"):
+                request = prepared_payload | {"max_bytes": 4000} if path.endswith("hint") else prepared_payload
+                allowed = await client.post(path, headers=bob, json=request)
+                assert allowed.status_code == 200, allowed.text
+                assert allowed.json()["status"] == ("ready" if path.endswith("hint") else "resolved"), allowed.text
+            denied = await client.post("/v1/handoff/hint", headers={"Authorization": "Bearer stranger"}, json=payload)
+            assert denied.status_code == 403
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("backend", ["builtin", "casbin"])
 def test_unprivileged_requests_cannot_distinguish_missing_owner(tmp_path, backend):
     async def scenario():
         async with _server(tmp_path, backend) as (_, client, _):

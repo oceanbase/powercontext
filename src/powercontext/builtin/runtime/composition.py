@@ -44,6 +44,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryHit,
     MemoryRerankDecision,
     MemoryReranker,
+    MemoryWriteGate,
 )
 from powercontext.builtin.artifacts.profile.generation import PROFILE_INSTRUCTIONS, LLMProfileGenerator
 from powercontext.builtin.artifacts.profile.service import (
@@ -138,6 +139,7 @@ from powercontext.builtin.runtime.decision_model import (
 )
 from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
+from powercontext.builtin.runtime.memory_write_gate import build_memory_write_gate
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.processing_discovery import SourceProcessingPendingProvider, enabled_profile_scopes
 from powercontext.builtin.runtime.processing_registry import (
@@ -320,6 +322,38 @@ def _require_decision_backend(runtime: RuntimeConfig, configured: DecisionModel 
         raise BuiltinConfigurationError("decision-model")
 
 
+def _configured_memory_write_gate(
+    injected: MemoryWriteGate | None,
+    decision_model: DecisionModel | None,
+    runtime: RuntimeConfig,
+) -> MemoryWriteGate | None:
+    """Resolve the Memory write gate: an explicit injection wins, then configuration builds one.
+
+    The gate is auxiliary and fail-open by contract, which is the opposite of the decision role:
+    an enabled gate whose decision backend is unavailable logs a warning and passes writes through
+    instead of failing startup, so a misconfigured gate can never block Memory writes.
+    """
+
+    if injected is not None:
+        return injected
+    if not runtime.memory_write_gate_enabled:
+        return None
+    gate = build_memory_write_gate(
+        decision_model,
+        enabled=True,
+        hold_on=runtime.memory_write_gate_hold_on,
+        threshold=runtime.memory_write_gate_threshold,
+    )
+    if gate is None:
+        log_safely(
+            logger,
+            logging.WARNING,
+            "Memory write gate is enabled but no decision backend is available; writes pass through",
+            extra={"event": "memory.write-gate.unavailable", "decision_kind": "memory.write-gate"},
+        )
+    return gate
+
+
 @asynccontextmanager
 async def open_builtin_runtime(
     config: BuiltinConfig,
@@ -340,6 +374,7 @@ async def open_builtin_runtime(
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
     decision_model: DecisionModel | None = None,
+    memory_write_gate: MemoryWriteGate | None = None,
     instrumentation: InstrumentationSettings | None = None,
     scope_cache_observer: ScopeCacheObserver | None = None,
     topic_memory_search_observer: Callable[[str, bool], None] | None = None,
@@ -389,7 +424,10 @@ async def open_builtin_runtime(
                 or skill_generator is None
                 or handoff_pipeline is None
                 or (config.runtime.memory_rerank_enabled and memory_reranker is None)
-                or (config.runtime.decision_assistance_enabled and decision_model is None)
+                or (
+                    (config.runtime.decision_assistance_enabled or config.runtime.memory_write_gate_enabled)
+                    and decision_model is None
+                )
             )
             else (None, None, None, None, None, None, None, None, None, None, None)
         )
@@ -424,6 +462,7 @@ async def open_builtin_runtime(
             tracing,
             timeout_seconds=config.inference.decision_timeout_seconds or config.inference.generation_timeout_seconds,
         )
+        configured_gate = _configured_memory_write_gate(memory_write_gate, configured_decision, config.runtime)
         if embedding_model is None:
             configured_embedding_source, readiness_embedding = await _embedding_models(
                 config.inference,
@@ -458,6 +497,7 @@ async def open_builtin_runtime(
                 token_estimator=token_estimator,
                 memory_reranker=configured_reranker,
                 decision_model=configured_decision,
+                memory_write_gate=configured_gate,
                 source_registry=configured_source_registry,
                 cursor_secret=cursor_secret,
                 tracing=tracing,
@@ -504,6 +544,7 @@ async def open_builtin_runtime(
                 "profile": profile_generator,
                 "skill": dream_generator,
             },
+            injected_memory_write_gate=memory_write_gate,
             worker_security=worker_security,
             source_registry=configured_source_registry,
         )
@@ -666,6 +707,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
     injected_embedding_model: EmbeddingModel | None = None,
     injected_token_estimator: TokenEstimator | None = None,
     injected_pipelines: Mapping[str, object | None] | None = None,
+    injected_memory_write_gate: MemoryWriteGate | None = None,
     worker_security: dict[str, Any] | None = None,
     source_registry: SourceDefinitionRegistry = BUILTIN_SOURCE_REGISTRY,
 ) -> tuple[ArtifactProcessingBinding, ...]:
@@ -712,6 +754,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
             injected_embedding_model is not None
             or injected_token_estimator is not None
             or injected_pipelines.get(family) is not None
+            or (family == "memory" and injected_memory_write_gate is not None)
         ):
             raise BuiltinConfigurationError("artifact-processing-child-resources")
         if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
@@ -831,6 +874,7 @@ async def open_builtin_contexts(
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
     decision_model: DecisionModel | None = None,
+    memory_write_gate: MemoryWriteGate | None = None,
     source_registry: SourceDefinitionRegistry | None = None,
     cursor_secret: bytes | None = None,
     tracing: RuntimeTracing | None = None,
@@ -890,6 +934,7 @@ async def open_builtin_contexts(
                 token_estimator=configured_token_estimator,
                 memory_reranker=memory_reranker,
                 decision_model=decision_model,
+                memory_write_gate=memory_write_gate,
                 memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
                 memory_capacity_budget=MemoryCapacityBudget(
                     max_active_entries=config.runtime.memory_max_active_entries,
@@ -966,6 +1011,7 @@ async def open_builtin_contexts(
             token_estimator=configured_token_estimator,
             memory_reranker=memory_reranker,
             decision_model=decision_model,
+            memory_write_gate=memory_write_gate,
             memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
             memory_capacity_budget=MemoryCapacityBudget(
                 max_active_entries=config.runtime.memory_max_active_entries,
@@ -1098,7 +1144,10 @@ async def _generation_pipelines(
     if (
         settings.generation_model is None
         and (not runtime.memory_rerank_enabled or settings.rerank_model is None)
-        and not (runtime.decision_assistance_enabled and settings.decision_model is not None)
+        and not (
+            (runtime.decision_assistance_enabled or runtime.memory_write_gate_enabled)
+            and settings.decision_model is not None
+        )
     ):
         return (None, None, None, None, None, None, None, None, None, None, None)
 
@@ -1384,7 +1433,7 @@ async def _generation_decision(
 ) -> tuple[DecisionModel | None, ReadinessProbe | None]:
     """Build the opt-in decision backend, reusing the generation model when not overridden."""
 
-    if not runtime.decision_assistance_enabled:
+    if not runtime.decision_assistance_enabled and not runtime.memory_write_gate_enabled:
         return None, None
 
     from pydantic_ai.settings import ModelSettings, merge_model_settings

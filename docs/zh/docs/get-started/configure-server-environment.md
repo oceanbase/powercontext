@@ -21,8 +21,8 @@ powercontext config init --output .env
 基础记忆通过 Agent 显式保存和全文召回，不要求独立模型 API；自动处理和语义检索分别需要对应的模型配置。
 已有环境文件可以直接沿用，也可以按模块调整。
 
-首次本地配置默认关闭 Dashboard 和认证。需要时启用 Dashboard，或显式设置
-`POWERCONTEXT_SERVER_ACCESS_MODE=enforced` 和 `POWERCONTEXT_SERVER_AUTH_TOKEN` 开启认证。
+首次本地配置默认关闭 Dashboard 和认证。开启 Dashboard 不要求启用认证；手动开启认证时，设置
+`POWERCONTEXT_SERVER_ACCESS_MODE=enforced` 和 `POWERCONTEXT_SERVER_AUTH_TOKEN`。
 远程配置会启用认证；修改已有配置时，接受默认选项会保留已有 Dashboard 和认证设置。
 
 配置 Agent 时每次选择一个 Agent；完成后可以继续添加，已配置项不会再次出现。每个 Agent 可分别使用默认 Scope、绑定已有
@@ -49,6 +49,24 @@ powercontext config init --template --output .env
 provider 凭据，不要把它们写入命令行参数。
 
 Windows 支持为 `experimental`。将文件用于个人服务前，按[部署 Server](../operate/deploy-server.md)限制其 ACL。
+
+### 本地 Dashboard 与可选认证
+
+首次本地配置中开启 Dashboard 时，向导会询问是否启用认证，默认关闭。
+接受默认选项不会生成 Server Token，浏览器可直接打开页面，HTTP API 和 MCP 也无需 Authorization。
+对应的最小配置为：
+
+```dotenv
+POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
+POWERCONTEXT_SERVER_ACCESS_MODE=disabled
+```
+
+需要认证时，在开启 Dashboard 时选择启用访问认证。向导会生成 token，并为所选 Agent 写入对应凭据。
+手动配置时，设置 `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` 和 `POWERCONTEXT_SERVER_AUTH_TOKEN`。
+Dashboard、HTTP API 和 MCP 共用这一认证设置。远程场景仍启用认证。
+
+已有认证配置会保留原有 token 和访问模式。
 
 ### 选择或修改 Web / Server 端口
 
@@ -118,7 +136,7 @@ powercontext ready
 powercontext capabilities
 ```
 
-这会为检查命令提供客户端地址和 Server Token；无需将模型 API key 加载到客户端环境。
+这会为检查命令提供客户端地址，以及启用认证时的 Server Token。本地免认证配置不需要 token。
 接下来按 `.env.next-steps.md` 创建 Scope、安装插件，并按[快速开始](quickstart.md)验收真实记忆。
 
 全部变量、默认值和优先级规则见[配置](../operate/configuration.md)。

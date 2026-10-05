@@ -87,6 +87,9 @@ capabilities = ["handoff"]
 id = "continue_handoff"
 capabilities = ["handoff"]
 [[toolsets.tools]]
+id = "prepare_handoff_hint"
+capabilities = ["handoff"]
+[[toolsets.tools]]
 id = "get_handoff_report"
 capabilities = ["handoff"]
 [[toolsets.tools]]
@@ -206,6 +209,13 @@ probe = "zcode_prompt_hook"
 [[toolsets.tools]]
 id = "zcode:UserPromptSubmit"
 capabilities = ["source_capture", "context_injection"]
+
+[[toolsets.tools]]
+id = "zcode:SessionStart"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "zcode:Stop"
+capabilities = ["flush_or_checkpoint"]
 
 [[toolsets]]
 id = "dsh-tools"
@@ -753,14 +763,14 @@ tests = ["tests/test_cli_workbuddy.py"]
 [[integrations]]
 id = "zcode"
 kind = "agent_host"
-availability = "experimental"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
+availability = "master_only"
+capabilities = ["flush_or_checkpoint", "memory_read", "memory_write", "source_capture", "context_injection", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
 profiles = ["minimal", "recommended", "full"]
 toolsets = ["server-mcp", "zcode-prompt-hook"]
 [integrations.evidence]
-implementation = ["integrations/zcode/plugins/powercontext/.mcp.json", "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs"]
-documentation = ["docs/en/docs/integrations/zcode.md", "docs/zh/docs/integrations/zcode.md"]
-tests = ["integrations/zcode/plugins/powercontext/tests/plugin.test.mjs", "tests/test_cli_zcode.py", "tests/e2e/test_zcode_service_chain.py"]
+implementation = ["integrations/zcode/plugins/powercontext/.mcp.json", "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs", "integrations/zcode/plugins/powercontext/scripts/scope.mjs", "integrations/zcode/plugins/powercontext/scripts/status.mjs", "integrations/zcode/plugins/powercontext/scripts/doctor.mjs", "integrations/zcode/plugins/powercontext/hooks/session_start.mjs", "integrations/zcode/plugins/powercontext/hooks/stop.mjs", "integrations/zcode/plugins/powercontext/shared/pending.mjs", "integrations/zcode/plugins/powercontext/scripts/pending.mjs"]
+documentation = ["docs/en/docs/integrations/zcode.md", "docs/zh/docs/integrations/zcode.md", "integrations/zcode/acceptance/README.md", "integrations/zcode/acceptance/desktop.md"]
+tests = ["integrations/zcode/plugins/powercontext/tests/plugin.test.mjs", "integrations/zcode/plugins/powercontext/tests/scope.test.mjs", "integrations/zcode/plugins/powercontext/tests/observations.test.mjs", "integrations/zcode/plugins/powercontext/tests/host.test.mjs", "integrations/zcode/plugins/powercontext/tests/lifecycle.test.mjs", "integrations/zcode/plugins/powercontext/tests/boundary.test.mjs", "tests/test_cli_zcode.py", "tests/e2e/test_zcode_service_chain.py", "tests/e2e/test_zcode_host_acceptance.py"]
 
 [[integrations]]
 id = "pydantic-ai"

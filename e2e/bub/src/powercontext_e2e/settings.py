@@ -21,6 +21,7 @@ import subprocess
 from os import environ
 from pathlib import Path
 
+from powercontext.client.settings import ClientSettings
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,18 +42,38 @@ def powercontext_bub_environment() -> dict[str, str]:
     return {name: value for name, value in environ.items() if name.startswith("POWERCONTEXT_BUB_") and value}
 
 
+def prefixed_environment(prefix: str) -> dict[str, str]:
+    """Return a host integration's native settings that start with ``prefix``, without translating them."""
+
+    return {name: value for name, value in environ.items() if name.startswith(prefix) and value}
+
+
+def server_api_token() -> str | None:
+    """Return the token the harness Client uses, which the ON arm's integration also needs for the same Server."""
+
+    token = ClientSettings().api_token
+    return None if token is None else token.get_secret_value()
+
+
 def codex_auth_path() -> Path:
     """Resolve Codex's native authentication document location."""
 
     return Path(environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser() / "auth.json"
 
 
-class ModelNotConfiguredError(RuntimeError):
-    """Report model-backed workloads without a runtime model."""
+_SECRET_SUFFIXES = ("_API_KEY", "_AUTHORIZATION", "_TOKEN", "_SECRET_ACCESS_KEY")
+# Local model servers accept any key, and the placeholders commonly passed to them are ordinary words and numbers.
+# They protect nothing, and redacting them by substring would rewrite the evidence. Any other value is redacted,
+# however short.
+_PLACEHOLDER_CREDENTIALS = frozenset({"1", "true", "none", "null", "empty", "dummy", "ollama", "lm-studio"})
 
-    def __init__(self, workload_ids: tuple[str, ...]) -> None:
+
+class ModelNotConfiguredError(RuntimeError):
+    """Report model-backed workloads whose host lacks its runtime model or another required setting."""
+
+    def __init__(self, workload_ids: tuple[str, ...], settings: tuple[str, ...]) -> None:
         joined_ids = ", ".join(workload_ids)
-        super().__init__(f"The following workloads require BUB_MODEL: {joined_ids}")
+        super().__init__(f"The following workloads require {', '.join(settings)}: {joined_ids}")
 
 
 class HarnessSettings(BaseSettings):
@@ -93,14 +114,12 @@ class HarnessSettings(BaseSettings):
         return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
     def evidence_secrets(self) -> tuple[str, ...]:
-        secret_names = {
-            name
-            for name in environ
-            if name == "BUB_API_KEY"
-            or (name.startswith("BUB_") and name.endswith("_API_KEY"))
-            or name == "POWERCONTEXT_CLIENT_API_TOKEN"
+        # Provider keys and tokens, and the full Authorization headers the host integrations send to the Server.
+        values = {
+            value
+            for name, value in environ.items()
+            if name.endswith(_SECRET_SUFFIXES) and value and value.lower() not in _PLACEHOLDER_CREDENTIALS
         }
-        values = {environ[name] for name in secret_names if environ[name]}
         if self.agent_proxy_url is not None and (proxy_url := self.agent_proxy_url.get_secret_value()):
             values.add(proxy_url)
         return tuple(sorted(values, key=lambda value: (-len(value), value)))

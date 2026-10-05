@@ -74,8 +74,10 @@ async def _run_family_worker(
     spec: FamilyWorkerSpec, assignment: ArtifactProcessingWorkAssignment
 ) -> ArtifactProcessingWorkerCompletion:
     from powercontext.builtin.runtime.composition import (
+        _configured_memory_write_gate,
         _dream_generator,
         _embedding_models,
+        _fail_open_decision_model,
         _generation_pipelines,
         _prompt_registry,
         _usage_reporting_embedding_model,
@@ -87,6 +89,13 @@ async def _run_family_worker(
         pipelines = await _generation_pipelines(
             config.inference, config.runtime, resources, None, BUILTIN_SOURCE_REGISTRY
         )
+        decision_model = _fail_open_decision_model(
+            None,
+            pipelines[7],
+            None,
+            timeout_seconds=config.inference.decision_timeout_seconds or config.inference.generation_timeout_seconds,
+        )
+        memory_write_gate = _configured_memory_write_gate(None, decision_model, config.runtime)
         embedding, _ = await _embedding_models(config.inference, resources, None)
         contexts = await resources.enter_async_context(
             open_builtin_contexts(
@@ -94,6 +103,8 @@ async def _run_family_worker(
                 candidate_pipeline=pipelines[1],
                 experience_pipeline=pipelines[2],
                 embedding_model=_usage_reporting_embedding_model(embedding),
+                decision_model=decision_model,
+                memory_write_gate=memory_write_gate,
                 prompt_registry=_prompt_registry(
                     config.runtime,
                     (
@@ -192,13 +203,15 @@ async def _process_family_invocation(  # noqa: C901 - one guarded dispatch per r
                     await invocation.complete(connection, remaining_work=False)
                 return ArtifactProcessingWorkerCompletion()
         if assignment.artifact_family == "memory":
-            await contexts.process_memory(
+            result = await contexts.process_memory(
                 scope,
                 config.runtime.source_window_limit,
                 processing=invocation,
                 authorize_snapshot=None if security is None else partial(security.authorize_memory, scope),
                 on_commit=None if security is None else partial(security.memory_commit, scope_id=scope),
             )
+            if result.held_count:
+                return ArtifactProcessingWorkerCompletion(held_count=result.held_count, hold_codes=result.hold_codes)
         elif assignment.artifact_family == "experience":
             await contexts.incubate_experience(
                 scope,

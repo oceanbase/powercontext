@@ -31,9 +31,12 @@ class EvidenceModel(BaseModel):
 class RunEnvironment(EvidenceModel):
     commit: str
     database: str
+    # Evidence written before hosts were selectable was always Bub.
+    adapter: str = "bub"
     adapter_version: str
     adapter_protocol_version: str
     agent_model: str | None = None
+    agent_settings: dict[str, str] = Field(default_factory=dict)
     started_at: datetime
     finished_at: datetime
 
@@ -219,12 +222,23 @@ class PairedTaskSummary(PairedSummary):
     task_id: str
 
 
+class PairedAgent(EvidenceModel):
+    """The agent host and runtime-selected model that ran both arms."""
+
+    host: str
+    version: str
+    model: str | None = None
+    settings: dict[str, str] = Field(default_factory=dict)
+
+
 class PairedReport(EvidenceModel):
-    schema_: Literal["powercontext.e2e-paired-report/v1"] = Field(
-        default="powercontext.e2e-paired-report/v1",
+    # v2 records the agent host that ran both arms; the harness does not read reports back.
+    schema_: Literal["powercontext.e2e-paired-report/v2"] = Field(
+        default="powercontext.e2e-paired-report/v2",
         alias="schema",
     )
     experiment: str
+    agent: PairedAgent
     trials: int = Field(ge=1)
     tasks: tuple[PairedTaskSummary, ...] = Field(min_length=1)
     total: PairedSummary

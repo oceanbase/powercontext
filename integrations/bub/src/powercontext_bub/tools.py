@@ -21,7 +21,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any, TypedDict, cast
 
 from bub import tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from powercontext.client import PowerContextClient
 from powercontext.http import (
@@ -41,6 +41,7 @@ class ToolSettings(TypedDict):
     explicit_scope_id: str | None
     binding_keys: list[ScopeBindingKey]
     timeout: float
+    api_token: SecretStr | None
     trust_transport_security: bool
     allow_insecure_http: bool
     max_bytes: int
@@ -130,6 +131,7 @@ def _client(settings: ToolSettings) -> AbstractAsyncContextManager[PowerContextC
     return open_client(
         settings["base_url"],
         timeout=settings["timeout"],
+        api_token=settings["api_token"],
         trust_transport_security=settings["trust_transport_security"],
         allow_insecure_http=settings["allow_insecure_http"],
     )

@@ -380,9 +380,9 @@ def verify_host(name: str) -> None:
     from powercontext.cli.system import SetupError
 
     if name == "codex":
-        from powercontext.cli.system import run_codex_diagnostics
+        from powercontext.cli.system import codex_setup_checks, run_codex_diagnostics
 
-        diagnostics = run_codex_diagnostics()
+        diagnostics = codex_setup_checks(run_codex_diagnostics())
     elif name == "dsh":
         from powercontext.cli.dsh import run_dsh_diagnostics
 

@@ -22,15 +22,19 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from harbor.job import Job
+from powercontext.client import PowerContextClient, UnauthorizedResponseError
+from powercontext.client.settings import ClientSettings
 from powercontext.http import CreateScopeRequest
 
 from .catalog import ContinuationEvaluationSpec, E2ETask
 from .evidence import redact, write_evidence
+from .hosts import HostAdapter, host_adapter
 from .models import (
     Arm,
     ArmOutcome,
     ArmSummary,
     HarborTrialObservation,
+    PairedAgent,
     PairedArmObservation,
     PairedReport,
     PairedSummary,
@@ -60,6 +64,17 @@ SCORES: dict[ArmOutcome, int] = {"passed": 1, "failed": 0, "timeout": 0}
 AGENT_TIMEOUT = "AgentTimeoutError"
 
 
+class UnauthenticatedServerError(RuntimeError):
+    """Report a Server that answers without a token, which an OFF agent that reaches it could read."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The PowerContext Server answers unauthenticated requests, so an OFF agent that reaches it could read the "
+            "ON arm's Memory. Start it with POWERCONTEXT_SERVER_ACCESS_MODE=enforced and POWERCONTEXT_SERVER_AUTH_TOKEN, "
+            "and give the harness the same token as POWERCONTEXT_CLIENT_API_TOKEN"
+        )
+
+
 class MemoryExtractionUnavailableError(RuntimeError):
     """Report a Server that cannot turn captured Sources into Memory, which the ON arm depends on."""
 
@@ -73,18 +88,24 @@ async def run_paired(
     output_dir: Path,
     settings: HarnessSettings,
     trials: int,
+    host: str = "bub",
 ) -> PairedReport:
-    """Run every task ``trials`` times per arm, alternating which arm goes first, and write the paired report."""
+    """Run every task ``trials`` times per arm on ``host``, alternating which arm goes first, and write the report.
+
+    Continuation workloads are host-neutral, so the host is chosen for the run rather than by each manifest.
+    """
 
     if not tasks or trials < 1:
         raise ValueError("At least one continuation workload and one trial are required")  # noqa: TRY003
+    adapter = host_adapter(host)
     recall_sessions = {task.id: recall_session_index(task, settings) for task in tasks}
     recall_steps = {task.id: _continuation(task).recall_step for task in tasks}
-    require_runtime_models(tasks)
+    require_runtime_models(tasks, adapter)
 
     observations: list[PairedArmObservation] = []
     async with _powercontext_client() as client:
         await client.get_readiness()
+        await require_authenticated_server()
         if not (await client.get_capabilities()).memory_extraction:
             raise MemoryExtractionUnavailableError
         for task in tasks:
@@ -95,6 +116,7 @@ async def run_paired(
                     observation = await _run_arm(
                         client,
                         task,
+                        host=adapter,
                         trial=trial,
                         arm=arm,
                         position=position,
@@ -110,10 +132,35 @@ async def run_paired(
                     )
                     observations.append(observation)
 
-    report = summarize(observations, trials=trials)
+    report = summarize(observations, trials=trials, agent=_paired_agent(adapter))
     write_evidence(output_dir / "paired-report.json", report.model_dump_json(by_alias=True, indent=2) + "\n", settings)
     write_evidence(output_dir / "report.md", render_paired_report(report), settings)
     return report
+
+
+def _paired_agent(host: HostAdapter) -> PairedAgent:
+    return PairedAgent(
+        host=host.name,
+        version=host.version,
+        model=host.agent_model(),
+        settings=host.agent_settings(),
+    )
+
+
+async def require_authenticated_server() -> None:
+    """Refuse a Server that lists its Scopes to a client without a token.
+
+    Both arms' containers can reach the Server, so only authentication keeps the OFF arm out of the ON arm's Memory;
+    the token goes to the harness Client and the ON arm's integration only.
+    """
+
+    settings = ClientSettings()
+    async with PowerContextClient(settings.server_url, timeout=settings.timeout) as anonymous:
+        try:
+            await anonymous.list_scopes()
+        except UnauthorizedResponseError:
+            return
+    raise UnauthenticatedServerError
 
 
 def recall_session_index(task: E2ETask, settings: HarnessSettings) -> int:
@@ -145,6 +192,7 @@ async def _run_arm(
     client: PowerContextClient,
     task: E2ETask,
     *,
+    host: HostAdapter,
     trial: int,
     arm: Arm,
     position: int,
@@ -172,7 +220,7 @@ async def _run_arm(
                     )
                 )
             ).scope_id
-        job = await Job.create(_job_config(task, run_id, scope_id, output_dir, settings))
+        job = await Job.create(_job_config(task, run_id, scope_id, output_dir, settings, host=host))
         if scope_id is not None:
             recorder = SessionRecorder(client, scope_id, final_session=recall_session)
             job.on_agent_ended(recorder)
@@ -195,7 +243,7 @@ async def _run_arm(
         trial=trial,
         arm=arm,
         position=position,
-        environment=_run_environment(task, started_at, settings),
+        environment=_run_environment(task, started_at, settings, host),
         scope_id=scope_id,
         harbor=harbor,
         step_rewards=step_rewards(step_results),
@@ -300,10 +348,11 @@ def classify_outcome(
     return "passed" if reward is not None and reward >= 1 else "failed"
 
 
-def summarize(observations: Sequence[PairedArmObservation], *, trials: int) -> PairedReport:
+def summarize(observations: Sequence[PairedArmObservation], *, trials: int, agent: PairedAgent) -> PairedReport:
     task_ids = tuple(dict.fromkeys(observation.task_id for observation in observations))
     return PairedReport(
-        experiment="e2e:paired:" + ",".join(task_ids),
+        experiment=f"e2e:paired:{agent.host}:" + ",".join(task_ids),
+        agent=agent,
         trials=trials,
         tasks=tuple(
             PairedTaskSummary(

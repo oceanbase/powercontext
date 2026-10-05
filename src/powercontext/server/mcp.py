@@ -66,6 +66,7 @@ from powercontext.http._generated.operations import (
     LIST_MANAGED_SKILLS,
     LIST_MEMORY_ENTRIES,
     LIST_SCOPES,
+    PREPARE_HANDOFF_HINT,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
     PUBLISH_ARTIFACT,
@@ -111,6 +112,8 @@ Current-turn instructions, conceptual questions, and previews do not authorize w
 For requested transfer, handoff_current_work records an inspected boundary and returns a temporary handoff. Commit
 only when a durable milestone is requested; continue from the exact selected value and verify historical claims.
 Prepared content is not proof of injection, a committed milestone, acceptance, or work execution.
+When available, prepare_handoff_hint provides optional bounded historical orientation for the selected Handoff.
+Hints never replace the complete Handoff, evidence checks, current instructions, or live validation.
 For requested Experience or Skill synthesis use generate_experience or generate_skill; caller-authored content uses
 propose_experience or propose_skill. These create pending candidates, not approved artifacts. Read an exact approved
 revision with get_experience or get_skill; use list_managed_skills to discover approved Skills.
@@ -148,6 +151,7 @@ _MCP_OPERATION_IDS = frozenset({
     FINALIZE_HANDOFF.operation_id,
     COMMIT_HANDOFF.operation_id,
     CONTINUE_HANDOFF.operation_id,
+    PREPARE_HANDOFF_HINT.operation_id,
     SEARCH_MEMORY.operation_id,
     QUERY_CODE.operation_id,
     SEARCH_TOPIC_MEMORY.operation_id,
@@ -181,6 +185,7 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     GET_DREAM_RUN.operation_id,
     LIST_DREAM_RUNS.operation_id,
     CONTINUE_HANDOFF.operation_id,
+    PREPARE_HANDOFF_HINT.operation_id,
     SEARCH_MEMORY.operation_id,
     QUERY_CODE.operation_id,
     SEARCH_TOPIC_MEMORY.operation_id,

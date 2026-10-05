@@ -27,12 +27,13 @@ from typing import cast
 import pytest
 from aiosqlite import Connection as SQLiteConnection
 from sqlalchemy import delete, event, insert, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.util import await_only
 
 from powercontext.builtin.inference import InferenceUsage
-from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.database import AsyncDatabase, ModelUsageAttemptExpired
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.statistics import StatisticsRepository, StoredModelUsage
 from powercontext.builtin.persistence.tables import MODEL_USAGE_DAILY_TABLE, SCOPES_TABLE
@@ -227,6 +228,174 @@ def test_writer_lock_released_inside_the_budget_still_records(tmp_path: Path) ->
             finally:
                 holder.rollback()
                 holder.close()
+                await recorder.close()
+
+    asyncio.run(scenario())
+
+
+def test_an_attempt_that_expires_at_checkout_is_repeated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An expired attempt applied nothing, so the record keeps its budget."""
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'slow-checkout.db'}")
+        async with _database(config) as database:
+            starts = 0
+            original_start = AsyncConnection.start
+
+            async def start(connection: AsyncConnection, is_ctxmanager: bool = False) -> AsyncConnection:
+                nonlocal starts
+                starts += 1
+                if starts == 1:
+                    # Outlive the whole slice without starting driver work, so
+                    # the attempt expires with nothing applied.
+                    await asyncio.sleep(0.08)
+                return await original_start(connection, is_ctxmanager)
+
+            monkeypatch.setattr(AsyncConnection, "start", start)
+            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=0.2)
+            try:
+                _offer(recorder)
+                await recorder.flush()
+                assert starts > 1
+                assert (await _rows(database))[0].requests == 1
+                await _assert_connection_restored(database)
+            finally:
+                await recorder.close()
+
+    asyncio.run(scenario())
+
+
+class _SlowBodyRepository(StatisticsRepository):
+    """Make the first write outlive its slice without leaving the event loop."""
+
+    def __init__(self, *, delay: float) -> None:
+        self.delay = delay
+        self.calls = 0
+
+    async def record(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        usage_date: date,
+        purpose: ModelUsagePurpose,
+        operation: ModelUsageOperation,
+        usage: InferenceUsage,
+        /,
+    ) -> None:
+        self.calls += 1
+        if self.calls == 1:
+            await asyncio.sleep(self.delay)
+        await super().record(connection, scope_id, usage_date, purpose, operation, usage)
+
+
+def test_a_body_that_outlives_its_slice_is_repeated_not_dropped(tmp_path: Path) -> None:
+    """A body that finishes after its own slice still records.
+
+    The deadline check runs after the body, so on its own it can only discard
+    work that is already done. A released usage write must not depend on the
+    release landing inside one slice, which is what the stalled-request e2e test
+    asserts when it waits for a visible row on a loaded machine.
+    """
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'late-body.db'}")
+        async with _database(config) as database:
+            # One record's 0.2s budget is spent in 0.05s slices, so a 0.08s body
+            # outlives the attempt that owns it while the record owns budget.
+            repository = _SlowBodyRepository(delay=0.08)
+            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=0.2)
+            try:
+                _offer(recorder)
+                await recorder.flush()
+                assert repository.calls == 2
+                assert (await _rows(database))[0].requests == 1
+                await _assert_connection_restored(database)
+            finally:
+                await recorder.close()
+
+    asyncio.run(scenario())
+
+
+def test_a_repeat_after_an_expiry_gets_the_rest_of_the_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A slice bounds a wait; a body slower than every slice must not be dropped.
+
+    The first attempt is sliced, so a slow body expires it. Handing the repeat
+    the same slice only reaches the same wall, which is how a loaded machine
+    loses a record that still owns most of its budget; the repeat has to spend
+    what the record has left.
+    """
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'rest-of-budget.db'}")
+        async with _database(config) as database:
+            budgets: list[float] = []
+            expired = False
+            original = AsyncDatabase._model_usage_transaction
+
+            @asynccontextmanager
+            async def transaction(instance: AsyncDatabase, timeout_seconds: float) -> AsyncIterator[AsyncConnection]:
+                nonlocal expired
+                budgets.append(timeout_seconds)
+                if not expired:
+                    expired = True
+                    raise ModelUsageAttemptExpired
+                async with original(instance, timeout_seconds) as connection:
+                    yield connection
+
+            monkeypatch.setattr(AsyncDatabase, "_model_usage_transaction", transaction)
+            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=1.0)
+            try:
+                _offer(recorder)
+                await recorder.flush()
+                assert budgets[0] == pytest.approx(0.25, abs=0.01)
+                assert budgets[1] > 0.5
+                assert (await _rows(database))[0].requests == 1
+            finally:
+                await recorder.close()
+
+    asyncio.run(scenario())
+
+
+def test_a_repeat_after_a_lost_race_gets_the_rest_of_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The slice protects the budget until the first attempt has already failed.
+
+    A repeat is only reached once a sliced attempt failed, so the slice has
+    nothing left to protect: another slice reaches the same wall and drops a
+    record that still owns most of its budget. The budget stays the bound, so
+    the total the record may spend is unchanged.
+    """
+
+    class _Busy(Exception):
+        sqlite_errorcode = 5
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'lost-race.db'}")
+        async with _database(config) as database:
+            budgets: list[float] = []
+            contended = False
+            original = AsyncDatabase._model_usage_transaction
+
+            @asynccontextmanager
+            async def transaction(instance: AsyncDatabase, timeout_seconds: float) -> AsyncIterator[AsyncConnection]:
+                nonlocal contended
+                budgets.append(timeout_seconds)
+                if not contended:
+                    contended = True
+                    raise OperationalError("BEGIN", None, _Busy("database is locked"))
+                async with original(instance, timeout_seconds) as connection:
+                    yield connection
+
+            monkeypatch.setattr(AsyncDatabase, "_model_usage_transaction", transaction)
+            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=1.0)
+            try:
+                _offer(recorder)
+                await recorder.flush()
+                assert budgets[0] == pytest.approx(0.25, abs=0.01)
+                assert budgets[1] > 0.5
+                assert (await _rows(database))[0].requests == 1
+            finally:
                 await recorder.close()
 
     asyncio.run(scenario())

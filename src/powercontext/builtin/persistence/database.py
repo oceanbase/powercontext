@@ -32,6 +32,32 @@ from powercontext.builtin.persistence.errors import DatabaseClosedError
 SELECTION_BATCH_SIZE = 500
 
 
+class ModelUsageAttemptExpired(TimeoutError):
+    """A usage attempt stopped before its body could commit.
+
+    Raised only where the record cannot have been applied, which is the same
+    rollback-safe shape as a lost race: the recorder may spend more of the same
+    record budget on another attempt. A deadline that may have raced a commit
+    stays a plain ``TimeoutError``, because repeating that one could count the
+    same usage twice.
+    """
+
+
+@asynccontextmanager
+async def _expiring(deadline: float) -> AsyncIterator[None]:
+    """Bound a step that cannot have applied anything when it expires.
+
+    Guard acquisition and checkout run before the body, so an expired step
+    leaves the record unapplied and worth another attempt within its budget.
+    """
+
+    try:
+        async with asyncio.timeout_at(deadline):
+            yield
+    except TimeoutError as error:
+        raise ModelUsageAttemptExpired from error
+
+
 class AsyncDatabase:
     """Own or attach to one SQLAlchemy async engine.
 
@@ -111,7 +137,9 @@ class AsyncDatabase:
 
         Only the recorder's separate consumer task calls this method. SQLite SQL
         is interrupted natively, not by cancelling SQLAlchemy (which invalidates
-        its connection and destroys a StaticPool's in-memory database).
+        its connection and destroys a StaticPool's in-memory database). A step
+        that expires before the body commits raises ``ModelUsageAttemptExpired``
+        so the recorder can repeat the attempt inside the same record budget.
         """
 
         deadline = asyncio.get_running_loop().time() + timeout_seconds
@@ -124,7 +152,7 @@ class AsyncDatabase:
         try:
             if guard is not None:
                 # Cancellation is safe here: no driver operation has started.
-                async with asyncio.timeout_at(deadline):
+                async with _expiring(deadline):
                     await guard.acquire()
                 acquired = True
             connection = self._engine.connect()
@@ -132,7 +160,7 @@ class AsyncDatabase:
                 # Pool timeout only bounds waiting for a slot, not pre-ping or
                 # the driver's handshake. SQLAlchemy returns an interrupted
                 # checkout to the pool; aiomysql closes cancelled socket reads.
-                async with asyncio.timeout_at(deadline):
+                async with _expiring(deadline):
                     await connection.start()
                 if connection.dialect.name == "sqlite":
                     async with _sqlite_model_usage_transaction(connection, deadline):
@@ -203,6 +231,8 @@ async def _sqlite_model_usage_transaction(connection: AsyncConnection, deadline:
     loop = asyncio.get_running_loop()
     remaining = deadline - loop.time()
     if remaining <= 0:
+        # The record's budget was already gone when this attempt started, so
+        # there is nothing left to repeat it with.
         raise TimeoutError
     # The worker thread uses a monotonic clock, not the event loop's clock API.
     stop_at = time.monotonic() + remaining
@@ -242,13 +272,18 @@ async def _sqlite_model_usage_transaction(connection: AsyncConnection, deadline:
         timer = loop.call_at(deadline, driver._conn.interrupt)
         async with connection.begin():
             if loop.time() >= deadline:
-                raise TimeoutError
+                raise ModelUsageAttemptExpired
             # sqlite3's legacy mode does not begin a transaction for SELECT.
             # Include the Scope existence read in the write's actual snapshot.
             await connection.exec_driver_sql("BEGIN")
             yield
+            # The body is done, but the attempt may have outlived its slice. The
+            # statements are still uncommitted, so stopping here applies nothing
+            # and costs the record its usage; the native timer above, not this
+            # check, is what bounds work in progress. Expire as a repeatable
+            # attempt and let the recorder spend the rest of the record budget.
             if loop.time() >= deadline:
-                raise TimeoutError
+                raise ModelUsageAttemptExpired
         # busy_timeout stays bounded through COMMIT and any automatic ROLLBACK.
     finally:
         if timer is not None:

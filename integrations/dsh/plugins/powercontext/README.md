@@ -5,8 +5,8 @@ This plugin is a thin DeepSeek Harness integration for a running PowerContext Se
 Install the released Server and plugin together:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.1.0
+uv tool install --force "powercontext[cli,server]==1.2.0"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.2.0
 ```
 
 `setup dsh` calls `dsh plugin --profile web add`. The plugin talks HTTP only. It does not use MCP.

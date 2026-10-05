@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Topic publication, Server ownership, and accepted request completion are atomic."""
+"""Topic publication, Scope authorization, and accepted request completion are atomic."""
 
 from __future__ import annotations
 
@@ -21,7 +21,12 @@ import asyncio
 import pytest
 from sqlalchemy import func, select
 
-from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING, TopicMemoryContent
+from powercontext.builtin.artifacts.topic_memory import (
+    TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+    TopicMemoryContent,
+    TopicMemoryDraft,
+    prepare_topic_memory_projection,
+)
 from powercontext.builtin.artifacts.topic_memory.generation import (
     TopicMemoryGlobalOutput,
     TopicMemoryProbe,
@@ -51,25 +56,28 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerOutcome,
 )
 from powercontext.builtin.runtime.topic_memory_processing import (
+    ArtifactProcessingWaveKind,
     TopicMemoryAtomicPublisher,
     TopicMemoryProcessor,
+    TopicMemoryWindowAssignment,
     TopicMemoryWindowSelector,
 )
 from powercontext.builtin.runtime.topic_memory_scope import TopicMemoryScopeProcessor
-from powercontext.server.authz import PrincipalRef
+from powercontext.builtin.sources import SourceCursor
+from powercontext.server.authz import AccessAction, PrincipalRef
 from powercontext.server.authz.repository import ACCESS_AUDIT_EVENTS_TABLE, ACCESS_OWNERS_TABLE, ACCESS_TABLES
 from powercontext.server.processing_security import WorkerSecuritySpec, open_worker_security
 from powercontext.sources import SourceMaterialization
 from tests.builtin.persistence.contract import SOURCE_ADAPTERS, NoteSource
-from tests.builtin.runtime.test_topic_memory_processing import _stages
+from tests.builtin.runtime.test_topic_memory_processing import _content, _stages
 
 BINDING = TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 SCOPE = "topic-security-scope"
-TOPIC_ID = "owned-topic"
+TOPIC_ID = "shared-topic"
 
 
-@pytest.mark.parametrize("failure_boundary", ["owner", "acknowledgement"])
-def test_real_topic_owner_and_publication_roll_back_then_same_generation_retry_succeeds(tmp_path, failure_boundary):
+@pytest.mark.parametrize("failure_boundary", ["authorization", "acknowledgement"])
+def test_scope_authorized_topic_publication_rolls_back_then_same_generation_retry_succeeds(tmp_path, failure_boundary):
     async def scenario():
         index = CompositeTopicMemoryIndex(SQLiteTopicMemoryFTSIndex())
         topics = TopicMemoryRepository(index=index)
@@ -82,14 +90,14 @@ def test_real_topic_owner_and_publication_roll_back_then_same_generation_retry_s
                     connection,
                     SCOPE,
                     NoteSource(
-                        name="ownership-source", materialization=SourceMaterialization.CAPTURED, body="Verified topic"
+                        name="scope-source", materialization=SourceMaterialization.CAPTURED, body="Verified topic"
                     ),
                 )
                 pending = ArtifactProcessingPendingRepository()
                 await pending.raise_source(connection, SCOPE, BINDING, source.journal_position)
                 await pending.request_flush(connection, SCOPE, BINDING)
                 intent = await ArtifactProcessingIntentRepository().request(connection, SCOPE, BINDING)
-                term = await ArtifactProcessingLeaseRepository().start_single_process_term(connection, "topic-owner")
+                term = await ArtifactProcessingLeaseRepository().start_single_process_term(connection, "topic-worker")
             assignment = ArtifactProcessingWorkAssignment(
                 BINDING, SCOPE, "topic-memory", intent.requested_generation, term.fence("single-process"), "worker-1"
             )
@@ -133,26 +141,40 @@ def test_real_topic_owner_and_publication_roll_back_then_same_generation_retry_s
             ).model_dump(mode="json")
             async with open_worker_security(spec, profile.database) as security:
                 assert security is not None
-                owner_hook_calls = 0
+                authorization_calls = 0
 
-                async def owner_commit(connection, scope_id, operations):
-                    nonlocal owner_hook_calls
+                async def scope_commit(connection, scope_id, operations):
+                    nonlocal authorization_calls
                     await security.topic_commit(connection, scope_id, operations)
-                    owner_hook_calls += 1
+                    authorization_calls += 1
                     assert len(operations) == 1 and operations[0].artifact_id == TOPIC_ID
-                    assert await connection.scalar(select(func.count()).select_from(ACCESS_OWNERS_TABLE)) == 1
+                    # Scope-owned knowledge carries no per-topic Artifact owner.
+                    assert await connection.scalar(select(func.count()).select_from(ACCESS_OWNERS_TABLE)) == 0
                     assert (
                         await connection.scalar(
                             select(func.count())
                             .select_from(ACCESS_AUDIT_EVENTS_TABLE)
                             .where(ACCESS_AUDIT_EVENTS_TABLE.c.reason_code == "artifact-owner-established")
                         )
-                        == 1
+                        == 0
                     )
-                    if failure_boundary == "owner":
-                        raise OSError("injected after real Topic owner hook")  # noqa: TRY003
+                    # The publication is authorized by the recorded Scope decision instead.
+                    assert (
+                        await connection.scalar(
+                            select(func.count())
+                            .select_from(ACCESS_AUDIT_EVENTS_TABLE)
+                            .where(
+                                ACCESS_AUDIT_EVENTS_TABLE.c.action == AccessAction.SCOPE_CONTRIBUTE.value,
+                                ACCESS_AUDIT_EVENTS_TABLE.c.allowed.is_(True),
+                                ACCESS_AUDIT_EVENTS_TABLE.c.transport == "background",
+                            )
+                        )
+                        >= 1
+                    )
+                    if failure_boundary == "authorization":
+                        raise OSError("injected after real Topic scope authorization")  # noqa: TRY003
 
-                first = processor(owner_commit)
+                first = processor(scope_commit)
                 finish_target = first._finish_target
 
                 async def fail_after_ack(connection, work, target):
@@ -163,14 +185,16 @@ def test_real_topic_owner_and_publication_roll_back_then_same_generation_retry_s
                     assert acknowledged.handled_generation == assignment.claimed_request_generation
                     assert cursor.cursor.sequence == source.journal_position
                     assert await connection.scalar(select(func.count()).select_from(ARTIFACT_HEADS_TABLE)) == 1
-                    assert await connection.scalar(select(func.count()).select_from(ACCESS_OWNERS_TABLE)) == 1
-                    raise OSError("injected after real Topic owner hook and acknowledgement")  # noqa: TRY003
+                    assert await connection.scalar(select(func.count()).select_from(ACCESS_OWNERS_TABLE)) == 0
+                    raise OSError(  # noqa: TRY003
+                        "injected after real Topic scope authorization and acknowledgement"
+                    )
 
                 if failure_boundary == "acknowledgement":
                     first._finish_target = fail_after_ack
-                with pytest.raises(OSError, match="after real Topic owner hook"):
+                with pytest.raises(OSError, match="after real Topic scope authorization"):
                     await first.process(assignment)
-                assert owner_hook_calls == 1
+                assert authorization_calls == 1
                 async with profile.database.transaction() as connection:
                     cursor = await SourceCursorRepository().load(connection, SCOPE, BINDING)
                     intent = await ArtifactProcessingIntentRepository().load(connection, SCOPE, BINDING)
@@ -214,16 +238,118 @@ def test_real_topic_owner_and_publication_roll_back_then_same_generation_retry_s
                         await connection.scalar(select(func.count()).select_from(TOPIC_MEMORY_PROCESSING_TARGETS_TABLE))
                         == 0
                     )
-                    owner = (await connection.execute(select(ACCESS_OWNERS_TABLE))).mappings().one()
-                    assert (owner["owner_kind"], owner["family"], owner["artifact_id"]) == (
-                        "artifact",
-                        "topic-memory",
-                        TOPIC_ID,
-                    )
-                    assert (owner["owner_type"], owner["owner_id"]) == ("service", "topic-worker")
+                    assert await connection.scalar(select(func.count()).select_from(ACCESS_OWNERS_TABLE)) == 0
                     assert await connection.scalar(select(func.count()).select_from(ARTIFACT_HEADS_TABLE)) == 1
                     assert (
                         await connection.scalar(select(func.count()).select_from(TOPIC_MEMORY_WORK_BUDGETS_TABLE)) == 0
                     )
+
+    asyncio.run(scenario())
+
+
+def test_scope_authority_alone_commits_an_update_to_an_existing_topic(tmp_path) -> None:
+    """An enforced background principal evolves a Topic without any Artifact owner relation."""
+
+    async def scenario() -> None:
+        index = CompositeTopicMemoryIndex(SQLiteTopicMemoryFTSIndex())
+        topics = TopicMemoryRepository(index=index)
+        sources = SourceRepository(SOURCE_ADAPTERS)
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'topic-evolution-security.db'}")
+        async with SQLiteProfile.open(config, tables=(*BUILTIN_TABLES, *ACCESS_TABLES, *index.tables)) as profile:
+            async with profile.database.transaction() as connection:
+                await topics.initialize(connection)
+                first = await sources.add(
+                    connection,
+                    SCOPE,
+                    NoteSource(
+                        name="evolution-source-1",
+                        materialization=SourceMaterialization.CAPTURED,
+                        body="legacy zircon",
+                    ),
+                )
+                current = await topics.publish_create(
+                    connection,
+                    SCOPE,
+                    TOPIC_ID,
+                    TopicMemoryDraft(content=_content("legacy", "zircon"), sources=(first.ref,)),
+                    prepare_topic_memory_projection(_content("legacy", "zircon")),
+                )
+                await sources.add(
+                    connection,
+                    SCOPE,
+                    NoteSource(
+                        name="evolution-source-2",
+                        materialization=SourceMaterialization.CAPTURED,
+                        body="updated zircon",
+                    ),
+                )
+                term = await ArtifactProcessingLeaseRepository().start_single_process_term(
+                    connection, "topic-evolution"
+                )
+                await SourceCursorRepository().save(
+                    connection, SCOPE, BINDING, SourceCursor(sequence=1), expected_generation=None
+                )
+
+            spec = WorkerSecuritySpec(
+                principal=PrincipalRef(type="service", id="topic-worker"),
+                deployment_id="test",
+                static_preset=True,
+            ).model_dump(mode="json")
+            async with open_worker_security(spec, profile.database) as security:
+                assert security is not None
+                processor = TopicMemoryProcessor(
+                    database=profile.database,
+                    sources=sources,
+                    topics=topics,
+                    stages=_stages(
+                        probe=TopicMemoryProbeOutput(
+                            probes=(TopicMemoryProbe(query="zircon", evidence_ids=("evidence-0001",)),)
+                        ),
+                        global_output=TopicMemoryGlobalOutput(
+                            proposals=(
+                                TopicMemoryProposal(
+                                    candidate_id="candidate-0001",
+                                    content=_content("updated", "zircon"),
+                                    evidence_ids=("evidence-0001",),
+                                ),
+                            )
+                        ),
+                    ),
+                    publisher=TopicMemoryAtomicPublisher(
+                        profile.database,
+                        sources,
+                        topics,
+                        commit_authorizer=security.topic_commit,
+                    ),
+                )
+                assignment = TopicMemoryWindowAssignment(
+                    binding_name=BINDING,
+                    scope_id=SCOPE,
+                    source_after=1,
+                    source_through=2,
+                    wave_target=2,
+                    claimed_flush_generation=1,
+                    cursor_generation=1,
+                    wave_kind=ArtifactProcessingWaveKind.EXPLICIT,
+                    fence=term.fence("single-process"),
+                    worker_id="worker-evolution",
+                )
+                completion = await processor.process(assignment)
+                assert completion.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
+
+            async with profile.database.transaction() as connection:
+                revised = await topics.get_exact(
+                    connection,
+                    SCOPE,
+                    current.topic.as_ref().model_copy(update={"revision": 2}),
+                )
+                cursor = await SourceCursorRepository().load(connection, SCOPE, BINDING)
+                owners = await connection.scalar(select(func.count()).select_from(ACCESS_OWNERS_TABLE))
+                budgets = await connection.scalar(select(func.count()).select_from(TOPIC_MEMORY_WORK_BUDGETS_TABLE))
+            assert revised.topic.content.title == "updated topic"
+            assert revised.topic.lineage.artifacts == (current.topic.as_ref(),)
+            assert cursor is not None and cursor.cursor.sequence == 2
+            assert owners == 0
+            assert budgets == 0
 
     asyncio.run(scenario())

@@ -60,6 +60,8 @@ class ArtifactProcessingWorkerCompletion:
     """Control result; success still requires durable acknowledgement."""
 
     outcome: ArtifactProcessingWorkerOutcome = ArtifactProcessingWorkerOutcome.SUCCEEDED
+    held_count: int = 0
+    hold_codes: tuple[str, ...] = ()
 
 
 class ArtifactProcessingWorkerHandle(Protocol):

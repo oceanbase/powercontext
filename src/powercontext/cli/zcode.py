@@ -27,9 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 from typing import Any
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
 
 from powercontext.cli.authorization import normalize_authorization
 from powercontext.cli.git_source import InvalidGitHubSourceError, clone_github_source, is_local_source
@@ -170,13 +168,20 @@ def preserve_zcode_installation() -> Iterator[None]:
             raise
 
 
+def saved_zcode_capture_prompts() -> bool:
+    """Keep an installed capture preference when setup has no explicit override."""
+
+    return _read_config(zcode_plugin_dir() / "powercontext.json").get("capture_prompts") is not False
+
+
 def install_zcode_plugin(  # noqa: C901 - stages and rolls back two user-owned destinations.
     *,
     source: str,
     ref: str,
     server_url: str = DEFAULT_SERVER_URL,
     allow_insecure_http: bool = False,
-    capture_prompts: bool = True,
+    capture_prompts: bool | None = None,
+    boundary_flush: bool | None = None,
 ) -> ZCodeSetupResult:
     """Install a managed plugin copy and register it without replacing other ZCode settings."""
 
@@ -194,6 +199,16 @@ def install_zcode_plugin(  # noqa: C901 - stages and rolls back two user-owned d
     config = _read_config(config_path)
     if destination.exists() and not (destination / OWNER_MARKER).is_file():
         raise SetupError(f"ZCode plugin path {destination} already exists and is not owned by PowerContext")  # noqa: TRY003
+    previous = _read_config(destination / "powercontext.json")
+    if capture_prompts is None:
+        capture_prompts = previous.get("capture_prompts") is not False
+    if boundary_flush is None:
+        boundary = (setup_environment() | dict(os.environ)).get("POWERCONTEXT_ZCODE_BOUNDARY_FLUSH")
+        boundary_flush = (
+            boundary.lower() not in {"0", "false", "no", "off"}
+            if boundary is not None
+            else previous.get("boundary_flush") is True
+        )
     plugins = config.setdefault("plugins", {})
     dirs = plugins.setdefault("dirs", [])
     if str(destination) not in dirs:
@@ -221,6 +236,7 @@ def install_zcode_plugin(  # noqa: C901 - stages and rolls back two user-owned d
                     "server_url": endpoint,
                     "allow_insecure_http": allow_insecure_http,
                     "capture_prompts": capture_prompts,
+                    "boundary_flush": boundary_flush,
                 },
             )
             mcp_path = staged / ".mcp.json"
@@ -265,12 +281,126 @@ def _mcp_authorization_matches(entry: dict[str, Any]) -> bool:
         return False
 
 
-def run_zcode_diagnostics() -> dict[str, Diagnostic]:
+def _check_zcode_modules(destination: Path) -> Diagnostic:
+    ok = DiagnosticStatus.OK
+    failed = DiagnosticStatus.FAILED
+    hook = destination / "hooks" / "user_prompt_submit.mjs"
+    modules = [
+        hook,
+        *(destination / "hooks" / name for name in ("session_start.mjs", "stop.mjs")),
+        *(
+            destination / "shared" / name
+            for name in ("settings.mjs", "transport.mjs", "scope.mjs", "observations.mjs", "context.mjs", "pending.mjs")
+        ),
+        *(destination / "scripts" / name for name in ("scope.mjs", "status.mjs", "doctor.mjs", "pending.mjs")),
+    ]
+    hooks_file = destination / "hooks" / "hooks.json"
+    try:
+        declared = json.loads(hooks_file.read_text(encoding="utf-8"))
+        hook_ok = all(module.is_file() for module in modules) and all(
+            declared["hooks"][name] for name in ("UserPromptSubmit", "SessionStart", "Stop")
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        hook_ok = False
+    node = which("node")
+    if hook_ok and node:
+        try:
+            hook_ok = all(
+                subprocess.run(  # noqa: S603 - fixed Node executable and managed plugin path.
+                    [node, "--check", str(module)], capture_output=True, check=False, timeout=5
+                ).returncode
+                == 0
+                for module in modules
+            )
+        except (OSError, subprocess.SubprocessError):
+            hook_ok = False
+    else:
+        hook_ok = False
+    return Diagnostic(ok if hook_ok else failed, "valid" if hook_ok else "missing, invalid, or Node unavailable")
+
+
+def _runtime_observation_detail(item: dict[str, Any]) -> str:
+    detail = ""
+    observed_at = item.get("observed_at")
+    selection = item.get("selection")
+    scope_id = item.get("scope_id")
+    if observed_at is not None:
+        if (
+            not isinstance(observed_at, int)
+            or observed_at < 0
+            or selection not in {"session_exact", "workspace_latest"}
+        ):
+            raise ValueError
+        detail += f" observed_at={observed_at} selection={selection}"
+        if scope_id is not None:
+            if (
+                not isinstance(scope_id, str)
+                or len(scope_id) > 256
+                or not all(
+                    character.isascii() and (character.isalnum() or character in ":_-") for character in scope_id
+                )
+            ):
+                raise ValueError
+            detail += f" scope_id={scope_id}"
+    return detail
+
+
+def _decode_zcode_probe(output: str, prepare: bool) -> dict[str, Diagnostic]:
+    result = json.loads(output)
+    if result.get("schema") != "powercontext.zcode.diagnostics.v1":
+        raise ValueError
+    checks = result["checks"]
+    expected = {"server", "protected_api", "scope_probe", "runtime", "mcp_session"}
+    if not expected.issubset(checks):
+        raise ValueError
+    diagnostics = {}
+    for name in expected | ({"prepare_probe"} if prepare else set()):
+        item = checks.get(name, {"status": "skipped", "code": "not_observed"})
+        status = DiagnosticStatus(item["status"])
+        code = item["code"]
+        if not isinstance(code, str) or not code.replace("_", "").isalnum() or len(code) > 64:
+            raise ValueError
+        message = code + (" (probe process)" if name.endswith("probe") or name == "protected_api" else "")
+        if name == "runtime":
+            message += " (historical Hook observation; not current-session MCP discovery)"
+            message += _runtime_observation_detail(item)
+        stages = item.get("stages", {}) if name == "runtime" else {}
+        if not isinstance(stages, dict) or not all(
+            key in {"scope", "prepare", "capture", "context_output", "flush"}
+            and isinstance(value, str)
+            and len(value) <= 200
+            and all(part.replace("_", "").isalnum() for part in value.split(":"))
+            for key, value in stages.items()
+        ):
+            raise ValueError
+        diagnostics[name] = Diagnostic(status, message, checks=stages or None)
+    return diagnostics
+
+
+def _probe_zcode(destination: Path, runtime_data_dir: Path | None, prepare: bool) -> dict[str, Diagnostic]:
+    node = which("node")
+    script = destination / "scripts" / "doctor.mjs"
+    if not node or not script.is_file():
+        return {"probe": Diagnostic(DiagnosticStatus.FAILED, "diagnostic script or Node unavailable")}
+    args = [node, str(script)]
+    if runtime_data_dir is not None:
+        args.extend(["--data-dir", str(runtime_data_dir.resolve())])
+    if prepare:
+        args.append("--prepare")
+    try:
+        process = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=False, timeout=6)  # noqa: S603
+        diagnostics = _decode_zcode_probe(process.stdout, prepare)
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError):
+        return {"probe": Diagnostic(DiagnosticStatus.FAILED, "diagnostic probe unavailable or invalid")}
+
+    return diagnostics
+
+
+def run_zcode_diagnostics(*, runtime_data_dir: Path | None = None, prepare: bool = False) -> dict[str, Diagnostic]:
     """Check CLI, registration, Hook, MCP, and Server independently."""
 
     ok = DiagnosticStatus.OK
     failed = DiagnosticStatus.FAILED
-    skipped = DiagnosticStatus.SKIPPED
     executable = zcode_executable()
     diagnostics = {
         "zcode": Diagnostic(
@@ -288,30 +418,7 @@ def run_zcode_diagnostics() -> dict[str, Diagnostic]:
         )
     except SetupError:
         diagnostics["plugin"] = Diagnostic(failed, "ZCode user config is invalid or unreadable")
-    hook = destination / "hooks" / "user_prompt_submit.mjs"
-    hooks_file = destination / "hooks" / "hooks.json"
-    try:
-        declared = json.loads(hooks_file.read_text(encoding="utf-8"))
-        hook_ok = hook.is_file() and bool(declared["hooks"]["UserPromptSubmit"])
-    except (OSError, ValueError, KeyError, TypeError):
-        hook_ok = False
-    node = which("node")
-    if hook_ok and node:
-        try:
-            checked = subprocess.run(  # noqa: S603 - fixed Node executable and managed Hook path.
-                [node, "--check", str(hook)],
-                capture_output=True,
-                check=False,
-                timeout=5,
-            )
-            hook_ok = checked.returncode == 0
-        except (OSError, subprocess.SubprocessError):
-            hook_ok = False
-    else:
-        hook_ok = False
-    diagnostics["hooks"] = Diagnostic(
-        ok if hook_ok else failed, "valid" if hook_ok else "missing, invalid, or Node unavailable"
-    )
+    diagnostics["hooks"] = _check_zcode_modules(destination)
     try:
         mcp = json.loads((destination / ".mcp.json").read_text(encoding="utf-8"))
         endpoint = json.loads((destination / "powercontext.json").read_text(encoding="utf-8"))["server_url"]
@@ -324,13 +431,7 @@ def run_zcode_diagnostics() -> dict[str, Diagnostic]:
         mcp_ok = False
     diagnostics["mcp"] = Diagnostic(ok if mcp_ok else failed, "configured" if mcp_ok else "missing or mismatched")
     if not endpoint:
-        diagnostics["server"] = Diagnostic(skipped, "endpoint is unavailable")
+        diagnostics["server"] = Diagnostic(DiagnosticStatus.SKIPPED, "endpoint is unavailable")
     else:
-        try:
-            request = Request(endpoint + "/health/ready", headers={"Accept": "application/json"})  # noqa: S310
-            with urlopen(request, timeout=2) as response:  # noqa: S310 - endpoint is selected by setup transport policy.
-                ready = response.status == 200
-        except (OSError, HTTPError, URLError, ValueError, TypeError):
-            ready = False
-        diagnostics["server"] = Diagnostic(ok if ready else failed, "ready" if ready else "unreachable or unready")
+        diagnostics.update(_probe_zcode(destination, runtime_data_dir, prepare))
     return diagnostics

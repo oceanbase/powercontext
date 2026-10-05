@@ -17,21 +17,26 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from functools import partial
+from typing import cast
 
 import pytest
 from sqlalchemy import func, select
 
+import powercontext.builtin.runtime.composition as composition
+import powercontext.builtin.runtime.family_processing as family_processing
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput, ExperienceContent
 from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.builtin.inference import InferenceTimeoutError
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
 from powercontext.builtin.inference.usage import UsageReportingStructuredGenerator
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.processing_migration import bootstrap_processing_schema
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
+from powercontext.builtin.persistence.supervision import ArtifactProcessingFence, ArtifactProcessingLeaseRepository
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     ARTIFACT_HEADS_TABLE,
@@ -44,11 +49,14 @@ from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig, 
 from powercontext.builtin.runtime.family_processing import (
     FAMILY_BINDINGS,
     FamilyWorkerSpec,
+    _process_family_invocation,
     process_family_invocation,
     run_family_worker,
 )
+from powercontext.builtin.runtime.models import MemoryFlushResult
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkAssignment,
+    ArtifactProcessingWorkerCompletion,
     ArtifactProcessingWorkerOutcome,
 )
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
@@ -91,6 +99,35 @@ class ProfileGenerator:
         return "# Preferences\n\nVerify every change."
 
 
+class _FakeDecisionModel:
+    policy_id = "test.worker.decision.v1"
+
+    async def evaluate(self, request, /):
+        raise AssertionError
+
+
+class _WorkerProfiles:
+    generator = None
+    max_sources = 0
+
+
+class _WorkerContexts:
+    profiles = _WorkerProfiles()
+
+
+class _HeldMemoryContexts:
+    async def process_memory(self, *_args, **_kwargs):
+        return MemoryFlushResult(
+            previous_cursor=0,
+            high_watermark=1,
+            current_cursor=1,
+            source_count=1,
+            memory_ref=None,
+            held_count=1,
+            hold_codes=("evidence_limit_exceeded",),
+        )
+
+
 async def prepare(profile, family):
     contexts = RelationalContexts(
         database=profile.database, candidate_pipeline=MemoryPipeline(), experience_pipeline=ExperiencePipeline()
@@ -122,6 +159,62 @@ def security_spec(*, allowed=True):
         deployment_id="test",
         static_preset=allowed,
     ).model_dump(mode="json")
+
+
+def test_memory_timeout_retries_shrink_without_acknowledging_or_skipping_input(tmp_path, monkeypatch):
+    windows = []
+    original = MemoryPipeline.extract
+
+    async def bounded_extract(self, request):
+        windows.append(tuple(source.name for source in request.sources))
+        if len(request.sources) > 1:
+            raise InferenceTimeoutError("generate", 60)
+        return await original(self, request)
+
+    monkeypatch.setattr(MemoryPipeline, "extract", bounded_extract)
+
+    async def scenario():
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'timeout.db'}"))
+        async with _open_sqlite(config, tables=BUILTIN_TABLES) as profile:
+            contexts, assignment = await prepare(profile, "memory")
+            for index in range(3):
+                await contexts.records.create_source(assignment.scope_id, "content", f"Additional fact {index}")
+            for _ in range(2):
+                with pytest.raises(InferenceTimeoutError):
+                    await process_family_invocation(contexts, assignment, config=config)
+                async with profile.database.transaction() as connection:
+                    cursor = await SourceCursorRepository().load(
+                        connection, assignment.scope_id, assignment.binding_name
+                    )
+                    intent = await ArtifactProcessingIntentRepository().load(
+                        connection, assignment.scope_id, assignment.binding_name
+                    )
+                assert cursor is not None and cursor.cursor.sequence == 0
+                assert intent is not None and intent.handled_generation == 0
+            for position in range(1, 5):
+                assert (await process_family_invocation(contexts, assignment, config=config)).outcome == "succeeded"
+                # Replaying an acknowledged invocation cannot process its successor.
+                await process_family_invocation(contexts, assignment, config=config)
+                async with profile.database.transaction() as connection:
+                    cursor = await SourceCursorRepository().load(
+                        connection, assignment.scope_id, assignment.binding_name
+                    )
+                    assert cursor is not None and cursor.cursor.sequence == position
+                    intent = await ArtifactProcessingIntentRepository().load(
+                        connection, assignment.scope_id, assignment.binding_name
+                    )
+                    assert intent is not None and intent.handled_generation == assignment.claimed_request_generation
+                    if position < 4:
+                        assert intent.dirty_generation > intent.clean_generation
+                        request = await ArtifactProcessingIntentRepository().request(
+                            connection, assignment.scope_id, assignment.binding_name
+                        )
+                        assignment = replace(assignment, claimed_request_generation=request.requested_generation)
+                    else:
+                        assert intent.dirty_generation == intent.clean_generation
+            assert tuple(item for window in windows[2:] for item in window) == windows[0]
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("family", ["memory", "experience", "profile"])
@@ -324,6 +417,101 @@ def test_spawned_family_restores_trusted_identity_and_persists_noop_ack(tmp_path
                 )
                 assert intent is not None and intent.handled_generation == assignment.claimed_request_generation
                 assert intent.clean_generation == intent.dirty_generation
+
+    asyncio.run(scenario())
+
+
+def test_spawned_memory_worker_reconstructs_configured_write_gate(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    async def fake_generation_pipelines(*_args, **_kwargs):
+        return (None, MemoryPipeline(), None, None, None, None, None, _FakeDecisionModel(), None, None, None)
+
+    async def fake_embedding_models(*_args, **_kwargs):
+        return object(), None
+
+    def fake_usage_reporting_embedding_model(value):
+        return value
+
+    def fake_prompt_registry(*_args, **_kwargs):
+        return object()
+
+    @asynccontextmanager
+    async def fake_open_builtin_contexts(*_args, **kwargs):
+        captured.update(kwargs)
+        yield _WorkerContexts()
+
+    async def fake_process_family_invocation(contexts, assignment, *, config, security=None, dream_generator=None):
+        assert contexts is not None
+        assert assignment.artifact_family == "memory"
+        assert config.runtime.memory_write_gate_enabled is True
+        assert security is None
+        assert dream_generator is None
+        return ArtifactProcessingWorkerCompletion()
+
+    monkeypatch.setattr(composition, "_generation_pipelines", fake_generation_pipelines)
+    monkeypatch.setattr(composition, "_embedding_models", fake_embedding_models)
+    monkeypatch.setattr(composition, "_usage_reporting_embedding_model", fake_usage_reporting_embedding_model)
+    monkeypatch.setattr(composition, "_prompt_registry", fake_prompt_registry)
+    monkeypatch.setattr(composition, "open_builtin_contexts", fake_open_builtin_contexts)
+    monkeypatch.setattr(family_processing, "process_family_invocation", fake_process_family_invocation)
+
+    async def scenario():
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'worker-gate.db'}"),
+            runtime=RuntimeConfig(memory_write_gate_enabled=True),
+        )
+        assignment = ArtifactProcessingWorkAssignment(
+            binding_name=FAMILY_BINDINGS["memory"],
+            scope_id="scope-a",
+            artifact_family="memory",
+            claimed_request_generation=1,
+            fence=ArtifactProcessingFence(
+                supervisor_group="global",
+                holder_id="worker-test",
+                supervisor_generation=1,
+                lease_mode="single-process",
+            ),
+            worker_id="worker-1",
+        )
+
+        result = await family_processing._run_family_worker(FamilyWorkerSpec(config=config), assignment)
+
+        assert result.outcome == ArtifactProcessingWorkerOutcome.SUCCEEDED
+        assert captured["decision_model"] is not None
+        assert captured["memory_write_gate"] is not None
+
+    asyncio.run(scenario())
+
+
+def test_memory_worker_completion_preserves_hold_details(tmp_path):
+    async def scenario():
+        assignment = ArtifactProcessingWorkAssignment(
+            binding_name=FAMILY_BINDINGS["memory"],
+            scope_id="scope-a",
+            artifact_family="memory",
+            claimed_request_generation=1,
+            fence=ArtifactProcessingFence(
+                supervisor_group="global",
+                holder_id="worker-test",
+                supervisor_generation=1,
+                lease_mode="single-process",
+            ),
+            worker_id="worker-1",
+        )
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'held-worker.db'}"))
+
+        result = await _process_family_invocation(
+            cast(RelationalContexts, _HeldMemoryContexts()),
+            assignment,
+            config=config,
+            security=None,
+            dream_generator=None,
+        )
+
+        assert result.outcome == ArtifactProcessingWorkerOutcome.SUCCEEDED
+        assert result.held_count == 1
+        assert result.hold_codes == ("evidence_limit_exceeded",)
 
     asyncio.run(scenario())
 

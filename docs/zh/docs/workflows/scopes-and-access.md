@@ -33,5 +33,5 @@ Scope 选择项目上下文边界。其不透明 ID 用于标识数据，不负�
 
 ## 团队使用入口
 
-团队通过 API、MCP 或宿主集成使用各自的身份与权限。Dashboard 仅用于静态 token 鉴权的个人和演示部署，
+团队通过 API、MCP 或宿主集成使用各自的身份与权限。Dashboard 仅用于个人和演示部署，可选用静态 token 鉴权，
 不作为 RBAC 团队入口；团队部署保持 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false`。

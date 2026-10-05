@@ -911,6 +911,13 @@ class ArtifactProcessingSupervisor:
                         raise ArtifactProcessingLeadershipLostError(  # noqa: TRY301
                             self._supervisor_group, self.holder_id, 0
                         )
+                    if completion.held_count:
+                        self._log_completion_hold(binding, assignment, completion)
+                        if span is not None:
+                            span.set_attributes({
+                                "powercontext.artifact_processing.held_count": completion.held_count,
+                                "powercontext.artifact_processing.hold_codes": ",".join(completion.hold_codes),
+                            })
                     if completion.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED:
                         # A successful process exit is not a successful invocation.
                         # Check the durable acknowledgement before finishing the trace;
@@ -931,6 +938,27 @@ class ArtifactProcessingSupervisor:
                     cleanup = asyncio.create_task(self._terminate_worker(handle))
                     await _complete_spawn_cleanup(cleanup)
                 raise
+
+    def _log_completion_hold(
+        self,
+        binding: ArtifactProcessingBinding,
+        assignment: ArtifactProcessingWorkAssignment,
+        completion: ArtifactProcessingWorkerCompletion,
+    ) -> None:
+        log_safely(
+            logger,
+            logging.INFO,
+            "Artifact processing worker reported a held Memory write",
+            extra={
+                "event": "artifact_processing.worker.memory_hold",
+                "outcome": "hold",
+                "code": completion.hold_codes[0] if len(completion.hold_codes) == 1 else None,
+                "held_count": completion.held_count,
+                "hold_codes": completion.hold_codes,
+                "family": binding.artifact_family,
+                "binding": assignment.binding_name,
+            },
+        )
 
     async def _verify_acknowledgement(self, assignment: ArtifactProcessingWorkAssignment) -> None:
         async with self._database.transaction() as connection:
