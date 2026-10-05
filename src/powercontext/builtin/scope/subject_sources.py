@@ -111,7 +111,7 @@ class SubjectSourceService:
                 target = generate_scope_id() if requested_scope is None else requested_scope
             if target == scope_id:
                 raise InvalidBaseAccessRequestError("scope_id", "distinct_scopes_required")
-            # Authorize before revealing a persisted binding's target or its state.
+            # Authorize before revealing a persisted binding's target identity.
             # Checks and the new Scope's access relationship share this transaction.
             if authorize is not None:
                 await authorize(connection, target, new_binding, new_scope)
