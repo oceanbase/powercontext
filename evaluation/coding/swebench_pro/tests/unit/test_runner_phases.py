@@ -291,6 +291,50 @@ def test_run_configuration_rejects_shared_oceanbase_before_gold(tmp_path: Path) 
     assert not (tmp_path / "eval").exists()
 
 
+@pytest.mark.parametrize(
+    "option",
+    [
+        "host",
+        "port",
+        "user",
+        "username",
+        "password",
+        "passwd",
+        "db",
+        "database",
+        "unix_socket",
+        "read_default_file",
+        "read_default_group",
+        "init_command",
+        "sql_mode",
+        "PASSWORD",
+        "%70assword",
+        "%64%62",
+        "Read_Default_File",
+        "%69nit_command",
+        "unused=value#fragment&password",
+        "password=first&password",
+        "PaSsWd",
+        "UNIX_SOCKET",
+    ],
+)
+def test_run_configuration_rejects_oceanbase_query_overrides_before_gold(tmp_path: Path, option: str) -> None:
+    password = "private-query-value"
+    on_url = f"mysql+aoceanbase://eval@database.test/on?charset=utf8mb4&{option}={password}"
+    with pytest.raises(UnsafeSutConfiguration) as raised:
+        replace(
+            _config(tmp_path),
+            database_configs={
+                Arm.OFF: {"kind": "oceanbase", "url": "mysql+aoceanbase://eval:off-secret@database.test/off"},
+                Arm.ON: {"kind": "oceanbase", "url": on_url},
+            },
+        )
+
+    assert password not in str(raised.value)
+    assert on_url not in str(raised.value)
+    assert not (tmp_path / "eval").exists()
+
+
 def _run_with_fakes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

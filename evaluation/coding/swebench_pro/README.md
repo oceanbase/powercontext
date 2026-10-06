@@ -105,6 +105,14 @@ processing configuration in a database-wide manifest, so separate Scopes in the 
 isolate these configurations. The runner rejects OFF/ON configurations that point to the same OceanBase host,
 port, and database, even when they use different credentials.
 
+OceanBase URLs must put credentials and the host/port in the authority and the database name in the path.
+Query options such as `charset=utf8mb4` remain supported. The runner rejects query parameters that override
+connection identity (`host`, `port`, `user`, `username`, `password`, `passwd`, `db`, `database`, `unix_socket`),
+load external connection defaults (`read_default_file`, `read_default_group`), or run initialization SQL
+(`init_command`, `sql_mode`). Query keys are checked after URL decoding, regardless of case. Percent-encode
+`@` inside passwords and any `#`, tab, carriage return, or newline characters because URL parsers interpret
+their raw forms differently. Usernames such as `user@tenant` remain supported.
+
 When deriving the configurations from `.env`, serialize each actual URL, not the masked `SecretStr`
 representation, and replace its database name with the corresponding newly created evaluation database. Keep the
 file private (mode `0600`) and delete it after the run. The runner does not create or drop external databases.

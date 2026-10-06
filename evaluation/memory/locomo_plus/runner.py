@@ -32,7 +32,9 @@ from uuid import uuid4
 from pydantic import ValidationError
 from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ModelMessagesTypeAdapter
-from sqlalchemy.engine import make_url
+from pyobvector import AsyncOceanBaseDialect
+from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import ArgumentError
 
 from evaluation.memory.locomo.dataset import LoCoMoSession
 from evaluation.memory.locomo.metrics import retrieval_metrics
@@ -280,28 +282,68 @@ def _database_config(settings: ServerSettings, output_directory: Path) -> Databa
     return settings.database
 
 
+def _oceanbase_target(url: URL) -> dict[str, Any]:
+    if any(not isinstance(value, str) for value in url.query.values()):
+        raise ValueError("OceanBase URL query parameters must not be repeated")  # noqa: TRY003
+    if {key.casefold() for key in url.query} & {"read_default_file", "read_default_group", "sql_mode"}:
+        raise ValueError("OceanBase external defaults and SQL mode overrides are not supported for resumable runs")  # noqa: TRY003
+    try:
+        # URL query values override the translated authority/path in the installed dialect.
+        _, options = AsyncOceanBaseDialect().create_connect_args(url)
+        username = options.get("user")
+        database = options.get("db")
+        host = options.get("host")
+        port = int(options.get("port", 3306))
+        if (
+            not isinstance(host, str)
+            or not host
+            or not all(isinstance(value, str) and value for value in (username, database))
+            or not 1 <= port <= 65535
+        ):
+            raise ValueError  # noqa: TRY301
+    except (ArgumentError, TypeError, ValueError):
+        raise ValueError(  # noqa: TRY003
+            "OceanBase connection target must explicitly identify its host, port, user and database"
+        ) from None
+    socket = options.get("unix_socket")
+    # Passwords, TLS/authentication material and tuning options do not identify the database.
+    # init_command is replaced by the runtime's fixed SET autocommit = 0 command.
+    return {
+        "driver": url.drivername,
+        "username": username,
+        "database": database,
+        "host": None if socket else host.lower(),
+        "port": None if socket else port,
+        "unix_socket": str(Path(socket).resolve()) if socket else None,
+    }
+
+
 def _database_identity(database: DatabaseConfig) -> dict[str, str]:
+    if database.kind == "oceanbase":
+        target = _oceanbase_target(make_url(database.url.get_secret_value()))
+        return {
+            "database_kind": database.kind,
+            "database_fingerprint_version": "oceanbase-target-v2",
+            "database_fingerprint": _digest(json.dumps(target, sort_keys=True)),
+        }
     target: dict[str, Any]
     if database.kind == "seekdb":
         target = {"path": str(database.path.resolve()), "database": database.database}
     else:
-        value = database.url if database.kind == "sqlite" else database.url.get_secret_value()
-        url = make_url(value)
-        if database.kind == "sqlite":
-            name = url.database
-            if name and name != ":memory:" and not name.startswith("file:"):
-                name = str(Path(name).resolve())
-            url = url.set(database=name)
-        # The OceanBase username can select a tenant. Password rotation does not change database identity.
+        url = make_url(database.url)
+        name = url.database
+        if name and name != ":memory:" and not name.startswith("file:"):
+            name = str(Path(name).resolve())
+        url = url.set(database=name)
         target = {
             "driver": url.drivername,
             "host": (url.host or "").lower(),
-            "port": url.port or (3306 if database.kind == "oceanbase" else None),
+            "port": url.port or None,
             "username": url.username,
             "database": url.database,
             "query": dict(url.query),
         }
-        if database.kind == "sqlite" and (url.database or "").startswith("file:"):
+        if (url.database or "").startswith("file:"):
             target["working_directory"] = str(Path.cwd().resolve())
     return {
         "database_kind": database.kind,

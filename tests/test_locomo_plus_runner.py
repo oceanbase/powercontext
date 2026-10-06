@@ -40,6 +40,7 @@ from powercontext.builtin.artifacts.memory import (
 )
 from powercontext.builtin.inference import EmbeddingResult, InvalidInferenceOutputError
 from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, InferenceConfig, open_builtin_runtime
 from powercontext.builtin.sources import ContentSource
@@ -432,6 +433,177 @@ def test_legacy_manifest_remains_replayable_but_cannot_resume(
 
     def unexpected_service(*args, **kwargs):
         pytest.fail("legacy artifact replay and rejected resume must not open services")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    assert runner.replay_results(tmp_path)["overall"]["completed_count"] == 1
+    with pytest.raises(ValueError, match="new output directory"):
+        asyncio.run(runner.run_benchmark(**parameters))
+
+
+@pytest.mark.parametrize(
+    ("original_url", "resumed_url"),
+    [
+        (
+            "mysql+aoceanbase://tenant:authority-secret@db.example:2881/benchmark?charset=utf8mb4&password=old-secret",
+            "mysql+aoceanbase://tenant:authority-secret@db.example:2881/benchmark?charset=utf8mb4&password=new-secret",
+        ),
+        (
+            "mysql+aoceanbase://tenant:old-secret@db.example:2881/benchmark?charset=utf8mb4",
+            "mysql+aoceanbase://tenant:new-secret@db.example:2881/benchmark?charset=utf8mb4",
+        ),
+        (
+            "mysql+aoceanbase://tenant:old-secret@db.example:2881/benchmark?charset=utf8mb4",
+            "mysql+aoceanbase://ignored:new-secret@other.example:2882/ignored"
+            "?charset=utf8mb4&user=tenant&host=db.example&port=2881&db=benchmark",
+        ),
+        (
+            "mysql+aoceanbase://tenant:password@db.example:2881/benchmark"
+            "?charset=utf8mb4&ssl_key=old-secret&auth_plugin=old-auth&server_public_key=old-key",
+            "mysql+aoceanbase://tenant:password@db.example:2881/benchmark"
+            "?charset=utf8mb4&ssl_key=new-secret&auth_plugin=new-auth&server_public_key=new-key",
+        ),
+        (
+            "mysql+aoceanbase://tenant:password@db.example:2881/benchmark"
+            "?charset=utf8mb4&unix_socket=/evaluation/database.sock",
+            "mysql+aoceanbase://tenant:password@ignored.example:2882/benchmark"
+            "?charset=utf8mb4&unix_socket=/evaluation/database.sock&init_command=USE+ignored",
+        ),
+    ],
+    ids=["query-password", "authority-password", "effective-target-overrides", "authentication-options", "unix-socket"],
+)
+def test_oceanbase_resume_preserves_effective_target_when_credentials_or_spelling_change(
+    tmp_path: Path,
+    offline_benchmark: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    original_url: str,
+    resumed_url: str,
+) -> None:
+    settings = _settings()
+    settings.database = OceanBaseConfig.model_validate({"url": original_url})
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "output_directory": tmp_path,
+        "run_id": "credential-rotation",
+        "judge_model": "test-judge",
+        "arm": "query-only",
+        "limit": 1,
+    }
+    completed = asyncio.run(runner.run_benchmark(**parameters))
+    assert completed["overall"]["completed_count"] == 1
+    manifest_path = tmp_path / "run.json"
+    original_manifest = manifest_path.read_bytes()
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("resuming a completed run must not open a database or model")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    settings.database = OceanBaseConfig.model_validate({"url": resumed_url})
+
+    assert asyncio.run(runner.run_benchmark(**parameters)) == completed
+    assert manifest_path.read_bytes() == original_manifest
+    assert completed["configuration"]["database_fingerprint_version"] == "oceanbase-target-v2"
+    assert all(secret not in original_manifest for secret in (b"old-secret", b"new-secret", b"authority-secret"))
+
+
+@pytest.mark.parametrize(
+    "target_override",
+    ["host=other.example", "port=2882", "user=other-tenant", "db=other-database", "unix_socket=/other/database.sock"],
+)
+def test_oceanbase_resume_rejects_effective_target_changes_before_opening_services(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch, target_override: str
+) -> None:
+    url = "mysql+aoceanbase://tenant:password@db.example:2881/benchmark?charset=utf8mb4"
+    settings = _settings()
+    settings.database = OceanBaseConfig.model_validate({"url": url})
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "output_directory": tmp_path,
+        "run_id": "database-routing",
+        "judge_model": "test-judge",
+        "arm": "query-only",
+        "limit": 1,
+    }
+    assert asyncio.run(runner.run_benchmark(**parameters))["overall"]["completed_count"] == 1
+    original_manifest = (tmp_path / "run.json").read_bytes()
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("a changed target must be rejected before opening a database or model")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    settings.database = OceanBaseConfig.model_validate({"url": f"{url}&{target_override}"})
+    with pytest.raises(ValueError, match="run identity changed"):
+        asyncio.run(runner.run_benchmark(**parameters))
+    assert (tmp_path / "run.json").read_bytes() == original_manifest
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        "db=first&db=private-secret",
+        "password=first&password=private-secret",
+        "read_default_file=private-secret",
+        "read_default_group=private-secret",
+        "sql_mode=private-secret",
+    ],
+)
+def test_oceanbase_rejects_ambiguous_routing_before_opening_services(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: str
+) -> None:
+    settings = _settings()
+    settings.database = OceanBaseConfig.model_validate({
+        "url": f"mysql+aoceanbase://tenant:password@db.example:2881/benchmark?charset=utf8mb4&{options}"
+    })
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("ambiguous routing must be rejected before opening a database or model")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    with pytest.raises(ValueError, match="OceanBase") as error:
+        asyncio.run(
+            runner.run_benchmark(
+                _dataset(),
+                settings=settings,
+                output_directory=tmp_path,
+                run_id="ambiguous-routing",
+                judge_model="test-judge",
+                arm="query-only",
+                limit=1,
+            )
+        )
+    assert "private-secret" not in str(error.value)
+    assert not (tmp_path / "run.json").exists()
+
+
+def test_unversioned_oceanbase_manifest_is_replayable_but_cannot_resume(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _settings()
+    settings.database = OceanBaseConfig.model_validate({
+        "url": "mysql+aoceanbase://tenant:password@db.example:2881/benchmark?charset=utf8mb4"
+    })
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "output_directory": tmp_path,
+        "run_id": "old-oceanbase-identity",
+        "judge_model": "test-judge",
+        "arm": "query-only",
+        "limit": 1,
+    }
+    assert asyncio.run(runner.run_benchmark(**parameters))["overall"]["completed_count"] == 1
+    manifest_path = tmp_path / "run.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["configuration"].pop("database_fingerprint_version")
+    manifest_path.write_text(json.dumps(manifest))
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("legacy replay or rejected resume must not open a database or model")
 
     monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
     monkeypatch.setattr(runner, "open_model", unexpected_service)

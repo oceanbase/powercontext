@@ -101,8 +101,14 @@ so separate runs remain isolated even when they share a database and the same `-
 that database for resume; dispose of a dedicated evaluation database only after its runs are no longer needed.
 
 `run.json` and the summaries record the actual backend and a database target fingerprint. Connection credentials and
-the raw database URL are excluded. The fingerprint binds the run to the host, port, tenant/user, database and routing
-parameters (or the local database path); changing the password alone does not change it. Reusing a results directory
+the raw database URL are excluded. OceanBase fingerprints use the installed dialect's effective host, port,
+tenant/user and database, including query-string overrides such as `db`, `user`, `host` and `port`. When a Unix socket
+is configured, its resolved path replaces the TCP host and port. Passwords in either the URL authority or query string,
+TLS/authentication material and connection tuning options do not affect the fingerprint. The runtime overrides
+`init_command` with its fixed transaction initialization command. Duplicate query parameters, `read_default_file`,
+`read_default_group` and `sql_mode` are rejected before opening services because their routing is ambiguous or can
+depend on external configuration or SQL. SQLite and seekdb fingerprints continue to identify the local database path.
+Reusing a results directory
 with a different database target is rejected before opening the database or calling models. Pending Memory runs
 also verify that their saved Scopes still exist, including judge-only retries; missing Scopes are not recreated.
 Completed runs can regenerate their summary without opening the database; use `replay` for explicitly offline checks.
@@ -205,6 +211,9 @@ location with the same settings to resume. Successful cases are retained; failed
 failure reuses the frozen generated answer. Configuration or dataset changes require a separate run.
 Runs without a saved database fingerprint and Scope namespace cannot be resumed; their saved results remain
 available through `replay`. Preserve `ingestion.json` alongside `run.json` to retain the original Scope identities.
+OceanBase manifests must also record `database_fingerprint_version: oceanbase-target-v2`. Unversioned OceanBase
+fingerprints are not reinterpreted or migrated: their saved results remain replayable, but a new run needs a new
+output directory. This version requirement does not apply to SQLite or seekdb manifests.
 The run command exits with status `1` if cases fail to execute or remain unobserved. A completed evaluation with an
 incorrect model answer still exits with status `0`; answer quality is recorded in the report.
 

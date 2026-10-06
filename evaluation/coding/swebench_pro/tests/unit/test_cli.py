@@ -31,13 +31,22 @@ from powercontext_eval_swebench_pro.models import Arm
 from powercontext_eval_swebench_pro.runner import MinimalRunResult, RunConfig
 
 
-def test_swebench_pro_run_derives_portable_paths_from_explicit_root(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("username", "password"),
+    [("eval", "private-test-password"), ("eval@tenant", "private-test-password%40%23%0A%0D%09")],
+)
+def test_swebench_pro_run_derives_portable_paths_from_explicit_root(
+    monkeypatch, tmp_path: Path, username: str, password: str
+) -> None:
     calls: list[tuple[object, object]] = []
     instance = object()
     databases = {
         arm: {
             "kind": "oceanbase",
-            "url": f"mysql+aoceanbase://eval:private-test-password@localhost/test_{arm.value}",
+            "url": (
+                f"mysql+aoceanbase://{username}:{password}@localhost/test_{arm.value}"
+                "?charset=utf8mb4&connect_timeout=10"
+            ),
         }
         for arm in Arm
     }
@@ -120,6 +129,33 @@ def test_swebench_pro_run_derives_portable_paths_from_explicit_root(monkeypatch,
                 },
             }
         ),
+        *(
+            json.dumps(
+                {
+                    arm.value: {
+                        "kind": "oceanbase",
+                        "url": f"mysql+aoceanbase://eval@localhost/test_{arm.value}?charset=utf8mb4&{query}",
+                    }
+                    for arm in Arm
+                }
+            )
+            for query in (
+                "password=private-test-password",
+                "db=shared-private-test-password",
+            )
+        ),
+        *(
+            json.dumps(
+                {
+                    arm.value: {
+                        "kind": "oceanbase",
+                        "url": f"mysql+aoceanbase://eval:private-test-password{character}suffix@localhost/test_{arm.value}",
+                    }
+                    for arm in Arm
+                }
+            )
+            for character in ("@", "\n", "\r", "\t")
+        ),
     ],
     ids=[
         "missing-file",
@@ -130,6 +166,12 @@ def test_swebench_pro_run_derives_portable_paths_from_explicit_root(monkeypatch,
         "invalid-arm",
         "invalid-kind",
         "same-db",
+        "query-password",
+        "query-shared-db",
+        "raw-at-password",
+        "raw-newline-password",
+        "raw-carriage-return-password",
+        "raw-tab-password",
     ],
 )
 def test_swebench_pro_run_rejects_invalid_database_config_without_exposing_secrets(
@@ -148,7 +190,7 @@ def test_swebench_pro_run_rejects_invalid_database_config_without_exposing_secre
         [
             "run",
             "--root",
-            "/srv/evaluation",
+            str(tmp_path / "evaluation"),
             "--instance-id",
             "instance_owner__repo-b",
             "--database-config",
@@ -162,6 +204,7 @@ def test_swebench_pro_run_rejects_invalid_database_config_without_exposing_secre
     assert "Database configuration" in output
     assert "private-test-password" not in output
     assert "another-private-password" not in output
+    assert not (tmp_path / "evaluation").exists()
 
 
 def test_swebench_pro_run_defaults_optional_integrations_off(monkeypatch) -> None:

@@ -52,7 +52,7 @@ from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Protocol
-from urllib.parse import quote, quote_plus, unquote, urlsplit
+from urllib.parse import parse_qsl, quote, quote_plus, unquote, urlsplit
 
 from powercontext_eval_swebench_pro import docker_pressure
 from powercontext_eval_swebench_pro.artifacts import ArtifactStore
@@ -89,6 +89,23 @@ from powercontext_eval_swebench_pro.tokensflow import (
 PLUGIN_ID = "powercontext@powercontext"
 _SAFE_RUN_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 _SAFE_DOCKER_NETWORK = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+_OCEANBASE_QUERY_OVERRIDES = frozenset(
+    {
+        "host",
+        "port",
+        "user",
+        "username",
+        "password",
+        "passwd",
+        "db",
+        "database",
+        "unix_socket",
+        "read_default_file",
+        "read_default_group",
+        "init_command",
+        "sql_mode",
+    }
+)
 _SHA = re.compile(r"[0-9a-f]{40}")
 _INVALID_DOCKER_COPY_SYMLINK = re.compile(r'invalid symlink "[^"\r\n]+" -> "[^"\r\n]+"')
 _DOCKER_NETWORK_CONTROL_LOCK = threading.Lock()
@@ -2940,8 +2957,24 @@ def validated_database_config(config: Mapping[str, object] | None) -> Mapping[st
         raise UnsafeSutConfiguration("Evaluation database configuration is invalid")
     try:
         json.dumps(dict(config), allow_nan=False)
-        if kind == "oceanbase" and (not urlsplit(url).hostname or not urlsplit(url).path.strip("/")):
-            raise ValueError
+        if kind == "oceanbase":
+            parsed = urlsplit(url)
+            # Keep urllib's authority/query interpretation aligned with the
+            # database driver's URL parser; encoded password bytes are safe.
+            if (
+                not parsed.hostname
+                or not parsed.path.strip("/")
+                or any(character in url for character in "#\r\n\t")
+                or "@" in (parsed.password or "")
+            ):
+                raise ValueError
+            # Query overrides, option files and initial SQL can change the
+            # credentials or target beyond the authority/path we audit.
+            if any(
+                key.casefold() in _OCEANBASE_QUERY_OVERRIDES
+                for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+            ):
+                raise ValueError
     except (TypeError, ValueError):
         raise UnsafeSutConfiguration("Evaluation database configuration is invalid") from None
     return MappingProxyType(dict(config))
