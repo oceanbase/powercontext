@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import SecretStr
 from pydantic_ai.messages import ModelResponse, RetryPromptPart, TextPart
 from pydantic_ai.models.function import FunctionModel
 
@@ -40,6 +41,7 @@ from powercontext.builtin.artifacts.memory import (
 )
 from powercontext.builtin.inference import EmbeddingResult, InvalidInferenceOutputError
 from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, InferenceConfig, open_builtin_runtime
 from powercontext.builtin.sources import ContentSource
@@ -96,6 +98,11 @@ def _rows(directory: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in (directory / "observations.jsonl").read_text().splitlines()]
 
 
+def _judge_reply(messages, verdict):
+    payload = json.loads(messages[-1].parts[-1].content)
+    return json.dumps({"claims": [payload["response"]]}) if "response" in payload else verdict
+
+
 def test_judge_failure_resumes_frozen_answer_and_replay_never_calls_models(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -110,10 +117,12 @@ def test_judge_failure_resumes_frozen_answer_and_replay_never_calls_models(
             else:
                 calls["judge"] += 1
                 output = (
-                    '{"label":"correct","reason":"Uses the earlier walking experience."}'
+                    '{"label":"correct","reason":"Uses the earlier walking experience.",'
+                    '"prediction_support":"walking helpful before","historical_support":"Walking helped my mood."}'
                     if valid_judge
                     else "unparseable verdict"
                 )
+                output = _judge_reply(messages, output)
             return ModelResponse(parts=[TextPart(output)])
 
         return FunctionModel(respond, model_name=name)
@@ -131,15 +140,16 @@ def test_judge_failure_resumes_frozen_answer_and_replay_never_calls_models(
     failed = asyncio.run(runner.run_benchmark(**parameters))
     assert failed["overall"]["completed_count"] == 0
     assert failed["overall"]["failures_by_stage"]["judge"] == 1
-    assert calls == {"answer": 1, "judge": 1}
+    assert calls == {"answer": 1, "judge": 2}
     frozen = _rows(tmp_path)[-1]
     assert frozen["generated_answer"]
     assert frozen["context"]["text"] == ""
     valid_judge = True
     completed = asyncio.run(runner.run_benchmark(**parameters))
     assert completed["overall"]["completed_count"] == 1
-    assert calls == {"answer": 1, "judge": 2}
+    assert calls == {"answer": 1, "judge": 3}
     assert _rows(tmp_path)[-1]["answer_input"] == frozen["answer_input"]
+    assert _rows(tmp_path)[-1]["judge_projection"] == frozen["judge_projection"]
 
     async def no_models(*args, **kwargs):
         pytest.fail("completed runs and deterministic replay must not open models")
@@ -170,6 +180,107 @@ def test_smoke_and_full_preserve_identical_complete_histories_for_selected_cases
     assert full["scope"] == "full"
 
 
+def test_scope_fair_scheduler_round_robins_conversations() -> None:
+    template = _dataset().cases[0]
+    cases = (
+        replace(template, case_id="a-1", sample_id="a"),
+        replace(template, case_id="a-2", sample_id="a"),
+        replace(template, case_id="b-1", sample_id="b"),
+        replace(template, case_id="b-2", sample_id="b"),
+    )
+    assert [case.case_id for case in runner._fair_cases(cases)] == ["a-1", "b-1", "a-2", "b-2"]
+
+
+def test_oceanbase_selection_uses_configured_database_without_serializing_url(tmp_path: Path) -> None:
+    database = OceanBaseConfig(
+        url=SecretStr("mysql+aoceanbase://user:password@127.0.0.1:2881/powercontext?charset=utf8mb4")
+    )
+    settings = _settings().model_copy(update={"database": database})
+    assert runner._database_config(settings, "oceanbase", tmp_path) is database
+    configuration = runner._configuration(settings, "test-judge", 512, "oceanbase", "test-extractor", 120.0)
+    assert configuration["database_kind"] == "oceanbase"
+    assert configuration["generation_model"] == "test-answer"
+    assert configuration["memory_extraction_model"] == "test-extractor"
+    assert configuration["memory_extraction_shares_generator_model"] is False
+    assert configuration["memory_extraction_timeout_seconds"] == 120.0
+    assert "configured OceanBase" in configuration["persistence"]
+    assert "password" not in json.dumps(configuration)
+
+
+def test_memory_extraction_model_is_isolated_from_answer_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime_models: list[str | None] = []
+
+    @asynccontextmanager
+    async def runtime_factory(config: BuiltinConfig):
+        runtime_models.append(config.inference.generation_model)
+        raise RuntimeError
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", runtime_factory)
+    summary = asyncio.run(
+        runner.run_benchmark(
+            _dataset(),
+            settings=_settings(),
+            output_directory=tmp_path,
+            run_id="separate-extraction-model",
+            judge_model="test-judge",
+            memory_extraction_model="test-extractor",
+            memory_extraction_timeout_seconds=120.0,
+            arm="memory",
+            limit=1,
+        )
+    )
+    assert summary["overall"]["failures_by_stage"]["infrastructure"] == 1
+    assert runtime_models == ["test-extractor"]
+    assert summary["configuration"]["generation_model"] == "test-answer"
+    assert summary["configuration"]["judge_model"] == "test-judge"
+    assert summary["configuration"]["memory_extraction_model"] == "test-extractor"
+    assert summary["configuration"]["memory_extraction_timeout_seconds"] == 120.0
+    assert summary["configuration"]["memory_extraction_shares_generator_model"] is False
+
+
+def test_query_only_honors_case_concurrency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    active = 0
+    maximum_active = 0
+
+    async def open_model(name, settings, resources):
+        async def respond(messages, info):
+            nonlocal active, maximum_active
+            active += 1
+            maximum_active = max(maximum_active, active)
+            try:
+                await asyncio.sleep(0.01)
+                output = (
+                    "A quiet walk may help."
+                    if name == "test-answer"
+                    else '{"label":"correct","reason":"ok","prediction_support":"walk",'
+                    '"historical_support":"Walking helped my mood."}'
+                )
+                if name != "test-answer":
+                    output = _judge_reply(messages, output)
+                return ModelResponse(parts=[TextPart(output)])
+            finally:
+                active -= 1
+
+        return FunctionModel(respond, model_name=name)
+
+    monkeypatch.setattr(runner, "open_model", open_model)
+    summary = asyncio.run(
+        runner.run_benchmark(
+            _dataset(),
+            settings=_settings(),
+            output_directory=tmp_path,
+            run_id="concurrent-query-only",
+            judge_model="test-judge",
+            arm="query-only",
+            concurrency=2,
+        )
+    )
+    assert summary["overall"]["completed_count"] == 4
+    assert maximum_active == 2
+    assert json.loads((tmp_path / "run.json").read_text())["concurrency"] == 2
+
+
 class _CandidatePipeline:
     async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
         return tuple(
@@ -188,14 +299,38 @@ class _EmbeddingModel:
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
 
 
+@pytest.mark.parametrize("decision_backend", [False, True])
 def test_memory_source_arm_captures_flushes_searches_and_expands_real_sqlite_sources(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, decision_backend: bool
 ) -> None:
+    from benchmark.locomo_plus.decision import AuditedDecisionModel, AuditedDecisionReranker, ConcurrentDecisionReranker
+    from powercontext.builtin.inference import InferenceUsage
+    from powercontext.builtin.runtime import DecisionOutcome, DecisionResult
+
+    class Decision:
+        policy_id = "test.decision"
+
+        async def evaluate(self, request, /):
+            # A backend may spend more than one request on a logical decision.
+            return DecisionResult(DecisionOutcome.YES, self.policy_id, InferenceUsage(requests=2))
+
+    custom = (
+        ConcurrentDecisionReranker(
+            AuditedDecisionReranker(AuditedDecisionModel(Decision(), tmp_path / "decisions.jsonl"), timeout_seconds=10),
+            tmp_path,
+        )
+        if decision_backend
+        else None
+    )
+
     @asynccontextmanager
-    async def runtime_factory(config: BuiltinConfig):
+    async def runtime_factory(config: BuiltinConfig, *, memory_reranker=None):
         offline = config.model_copy(update={"inference": InferenceConfig()})
         async with open_builtin_runtime(
-            offline, candidate_pipeline=_CandidatePipeline(), embedding_model=_EmbeddingModel()
+            offline,
+            candidate_pipeline=_CandidatePipeline(),
+            embedding_model=_EmbeddingModel(),
+            memory_reranker=memory_reranker,
         ) as runtime:
             yield runtime
 
@@ -204,8 +339,11 @@ def test_memory_source_arm_captures_flushes_searches_and_expands_real_sqlite_sou
             output = (
                 "A walk could help; it helped your mood before."
                 if name == "test-answer"
-                else '{"label":"correct","reason":"Mentions the prior walk."}'
+                else '{"label":"correct","reason":"Mentions the prior walk.",'
+                '"prediction_support":"it helped your mood before","historical_support":"Walking helped my mood."}'
             )
+            if name != "test-answer":
+                output = _judge_reply(messages, output)
             return ModelResponse(parts=[TextPart(output)])
 
         return FunctionModel(respond, model_name=name)
@@ -221,6 +359,10 @@ def test_memory_source_arm_captures_flushes_searches_and_expands_real_sqlite_sou
             judge_model="test-judge",
             arm="memory-source",
             limit=1,
+            memory_rerank=decision_backend,
+            rerank_model="test-decision" if decision_backend else None,
+            memory_reranker=custom,
+            rerank_identity={"backend": "offline-decision"} if decision_backend else None,
         )
     )
     assert summary["overall"]["completed_count"] == 1, _rows(tmp_path)
@@ -233,6 +375,87 @@ def test_memory_source_arm_captures_flushes_searches_and_expands_real_sqlite_sou
     assert [session["source_id"] for session in inputs[0]["sessions"]] == ["D1", "D2", "D3"]
     assert summary["ingestion"]["scopes"] == 1
     assert (tmp_path / "state.sqlite3").exists()
+    if decision_backend:
+        decisions = [json.loads(line) for line in (tmp_path / "decisions.jsonl").read_text().splitlines()]
+        assert decisions
+        assert all(item["case_id"] == row["case_id"] for item in decisions)
+        assert row["rerank"]["usage"]["requests"] == 2 * len(decisions)
+        assert row["usage"]["rerank"]["model"] == "test-decision"
+        searches = [json.loads(line) for line in (tmp_path / "decision-searches.jsonl").read_text().splitlines()]
+        assert len(searches) == 1
+        assert searches[0]["case_id"] == row["case_id"]
+        assert searches[0]["decision_count"] == len(decisions)
+        assert searches[0]["requests"] == 2 * len(decisions)
+        manifest = json.loads((tmp_path / "run.json").read_text())
+        assert manifest["retrieval"]["custom_reranker"]["backend"] == "offline-decision"
+
+    class NoExtraction:
+        async def extract(self, request):
+            pytest.fail("reusing a complete scope must not extract Memory again")
+
+    @asynccontextmanager
+    async def reused_runtime(config: BuiltinConfig):
+        offline = config.model_copy(update={"inference": InferenceConfig()})
+        async with open_builtin_runtime(
+            offline, candidate_pipeline=NoExtraction(), embedding_model=_EmbeddingModel()
+        ) as runtime:
+            yield runtime
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", reused_runtime)
+    reused_path = tmp_path / "reused"
+    reused = asyncio.run(
+        runner.run_benchmark(
+            _dataset(),
+            settings=_settings(),
+            output_directory=reused_path,
+            run_id="reuse",
+            judge_model="test-judge",
+            arm="memory-source",
+            limit=1,
+            reuse_ingestion_directory=tmp_path,
+        )
+    )
+    assert reused["overall"]["completed_count"] == 1, _rows(reused_path)
+    reused_row = _rows(reused_path)[-1]
+    assert reused_row["scope_id"] == row["scope_id"]
+    assert reused_row["context"] == row["context"]
+    assert reused["ingestion"]["usage"]["requests"] == 0
+    assert not (reused_path / "state.sqlite3").exists()
+    assert json.loads(reused_row["judge_projection"]["input"]["input"])["current_request"].endswith(row["question"])
+
+    with pytest.raises(ValueError, match="history mismatch"):
+        asyncio.run(
+            runner.run_benchmark(
+                _dataset(),
+                settings=_settings(),
+                output_directory=tmp_path / "bad-history",
+                run_id="bad",
+                judge_model="test-judge",
+                arm="memory",
+                limit=1,
+                max_history_sessions=1,
+                reuse_ingestion_directory=tmp_path,
+            )
+        )
+
+    donor_ingestion = tmp_path / "ingestion.json"
+    changed = json.loads(donor_ingestion.read_text())
+    next(iter(changed.values()))["memories"] = []
+    donor_ingestion.write_text(json.dumps(changed))
+    mismatch = asyncio.run(
+        runner.run_benchmark(
+            _dataset(),
+            settings=_settings(),
+            output_directory=tmp_path / "bad-snapshot",
+            run_id="bad-snapshot",
+            judge_model="test-judge",
+            arm="memory",
+            limit=1,
+            reuse_ingestion_directory=tmp_path,
+        )
+    )
+    assert mismatch["overall"]["failure_count"] == 1
+    assert "generated_answer" not in _rows(tmp_path / "bad-snapshot")[-1]
 
 
 def test_generation_errors_are_redacted_and_not_judged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -303,8 +526,11 @@ def test_extraction_corrects_invalid_json_within_the_configured_request_budget(
             output = (
                 "Walking helped Alice before."
                 if name == "test-answer"
-                else '{"label":"correct","reason":"Uses the walking memory."}'
+                else '{"label":"correct","reason":"Uses the walking memory.",'
+                '"prediction_support":"Walking helped Alice before.","historical_support":"Walking helped my mood."}'
             )
+            if name != "test-answer":
+                output = _judge_reply(messages, output)
             return ModelResponse(parts=[TextPart(output)])
 
         return FunctionModel(respond, model_name=name)
@@ -367,8 +593,11 @@ def test_failed_extraction_usage_remains_unknown_after_successful_resume(
             output = (
                 "A walk helped your mood before."
                 if name == "test-answer"
-                else '{"label":"correct","reason":"Uses the recorded experience."}'
+                else '{"label":"correct","reason":"Uses the recorded experience.",'
+                '"prediction_support":"A walk helped your mood before.","historical_support":"Walking helped my mood."}'
             )
+            if name != "test-answer":
+                output = _judge_reply(messages, output)
             return ModelResponse(parts=[TextPart(output)])
 
         return FunctionModel(respond, model_name=name)

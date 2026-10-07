@@ -105,7 +105,7 @@ def test_inspection_and_planning_need_no_credentials_or_models(
         assert output["plan"]
 
 
-@pytest.mark.parametrize("flag", ["--limit", "--top-k", "--max-tokens", "--max-history-sessions"])
+@pytest.mark.parametrize("flag", ["--limit", "--top-k", "--max-tokens", "--max-history-sessions", "--concurrency"])
 def test_nonpositive_resource_bounds_are_rejected(flag: str) -> None:
     with pytest.raises(SystemExit, match="2"):
         cli.main(["run", "--dry-run", flag, "0"])
@@ -138,8 +138,25 @@ def test_full_profile_passes_explicit_case_and_history_bounds(
             "1",
             "--judge-model",
             "openai:test-judge",
+            "--memory-extraction-model",
+            "openai:test-extractor",
+            "--memory-extraction-timeout-seconds",
+            "120",
             "--arm",
-            "query-only",
+            "memory-source",
+            "--reuse-ingestion-directory",
+            str(tmp_path / "donor"),
+            "--memory-rerank",
+            "--rerank-model",
+            "openai:test-reranker",
+            "--rerank-candidate-limit",
+            "40",
+            "--top-k",
+            "8",
+            "--database",
+            "oceanbase",
+            "--concurrency",
+            "3",
             "--output-directory",
             str(tmp_path),
             "--run-id",
@@ -151,7 +168,16 @@ def test_full_profile_passes_explicit_case_and_history_bounds(
     assert received["limit"] == 1
     assert received["max_history_sessions"] == 1
     assert received["judge_model"] == "openai:test-judge"
-    assert received["arm"] == "query-only"
+    assert received["memory_extraction_model"] == "openai:test-extractor"
+    assert received["memory_extraction_timeout_seconds"] == 120.0
+    assert received["arm"] == "memory-source"
+    assert received["reuse_ingestion_directory"] == tmp_path / "donor"
+    assert received["memory_rerank"] is True
+    assert received["rerank_model"] == "openai:test-reranker"
+    assert received["rerank_candidate_limit"] == 40
+    assert received["top_k"] == 8
+    assert received["database"] == "oceanbase"
+    assert received["concurrency"] == 3
     assert '"planned_cases": 1' in capsys.readouterr().out
 
 

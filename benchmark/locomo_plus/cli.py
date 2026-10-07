@@ -64,11 +64,32 @@ def _parser() -> argparse.ArgumentParser:
         help="selected-case limit; smoke limits above 4 extend the fixed anchors evenly across cognitive relations",
     )
     run.add_argument("--arm", choices=ARMS, default="memory")
+    run.add_argument(
+        "--database",
+        choices=("sqlite", "oceanbase"),
+        default="sqlite",
+        help="persistence backend; oceanbase uses the configured database with run-isolated scopes",
+    )
+    run.add_argument("--concurrency", type=_positive_int, default=1, help="maximum concurrent case evaluations")
     run.add_argument("--env-file", type=Path, default=Path(".env"))
     run.add_argument("--judge-model", type=_nonempty_text, help="explicit judge model, for example openai:gpt-4o-mini")
+    run.add_argument(
+        "--memory-extraction-model",
+        type=_nonempty_text,
+        help="optional model used only for Memory extraction; defaults to the configured generation model",
+    )
+    run.add_argument(
+        "--memory-extraction-timeout-seconds",
+        type=_positive_float,
+        help="optional timeout used only for Memory extraction; defaults to the configured generation timeout",
+    )
     run.add_argument("--run-id", type=_nonempty_text, help="stable isolated namespace; reuse it to resume")
     run.add_argument("--output-directory", type=Path, help="defaults to benchmark/locomo_plus/results/<run-id>")
     run.add_argument("--top-k", type=_positive_int, default=5)
+    run.add_argument("--reuse-ingestion-directory", type=Path, help="reuse verified Memory scopes from an existing run")
+    run.add_argument("--memory-rerank", action="store_true", help="rerank hybrid candidates before selecting Top-K")
+    run.add_argument("--rerank-model", type=_nonempty_text, help="reranker model; defaults to the answer model")
+    run.add_argument("--rerank-candidate-limit", type=_positive_int, default=30)
     run.add_argument(
         "--max-tokens", type=_positive_int, default=512, help="output cap for each answer and judge request"
     )
@@ -135,9 +156,17 @@ def _run(arguments: argparse.Namespace) -> int:
             output_directory=output_directory,
             run_id=run_id,
             judge_model=arguments.judge_model,
+            memory_extraction_model=arguments.memory_extraction_model,
+            memory_extraction_timeout_seconds=arguments.memory_extraction_timeout_seconds,
             top_k=arguments.top_k,
+            reuse_ingestion_directory=arguments.reuse_ingestion_directory,
+            memory_rerank=arguments.memory_rerank,
+            rerank_model=arguments.rerank_model,
+            rerank_candidate_limit=arguments.rerank_candidate_limit,
             max_tokens=arguments.max_tokens,
             prices=arguments.prices,
+            database=arguments.database,
+            concurrency=arguments.concurrency,
             **selection,
         )
     )
@@ -159,6 +188,13 @@ def _print(value: dict[str, Any]) -> None:
 def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be positive")  # noqa: TRY003
+    return parsed
+
+
+def _positive_float(value: str) -> float:
+    parsed = float(value)
+    if not parsed > 0:
         raise argparse.ArgumentTypeError("value must be positive")  # noqa: TRY003
     return parsed
 

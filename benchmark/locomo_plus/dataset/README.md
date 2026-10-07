@@ -22,8 +22,8 @@ identical to the corresponding histories constructed from the pinned full datase
 
 Source: [xjtuleeyf/Locomo-Plus](https://github.com/xjtuleeyf/Locomo-Plus/tree/059f4e3d38f7f1f96765e8e2cb7de3097551bffb),
 commit `059f4e3d38f7f1f96765e8e2cb7de3097551bffb`.
-The snapshot manifest records the source revision, seed, original sample identities, data exclusions, and
-history coverage. [`../dataset.py`](../dataset.py) contains the download revision and default sample selection.
+The snapshot manifest records the source revision, seed, original sample identities, cue parsing policy, and history
+coverage. [`../dataset.py`](../dataset.py) contains the download revision and default sample selection.
 Loading validates the JSON structure without comparing file hashes.
 The upstream data retains its original provenance; the pinned upstream revision supplies no explicit dataset license.
 

@@ -99,29 +99,37 @@ def test_factual_and_cognitive_sources_preserve_dates_and_citations_without_labe
         )
 
 
-def test_malformed_cues_are_reported_and_do_not_shift_seeded_assignment(tmp_path: Path) -> None:
-    malformed = _cognitive(cue_dialogue="A: A cue with literal escapes.\\nB: A response.")
+def test_cues_follow_the_upstream_line_parser_without_exclusions(tmp_path: Path) -> None:
+    escaped = _cognitive(cue_dialogue="A: A cue with literal escapes.\\nB: A response.")
+    multi_turn = _cognitive(
+        relation_type="state",
+        cue_dialogue="A: First turn.\nB: Second turn.\nignored metadata\nA: Third turn.\nB: Fourth turn.",
+        time_gap="several months later",
+    )
     _write_dataset(
-        tmp_path, [_cognitive(), malformed, _cognitive(relation_type="state", time_gap="several months later")]
+        tmp_path,
+        [_cognitive(), escaped, multi_turn],
     )
     dataset = load_locomo_plus(tmp_path, seed=17)
-    assert len(dataset.exclusions) == 1
-    assert dataset.exclusions[0]["case_id"] == "cognitive:0001"
-    assert dataset.exclusions[0]["source_index"] == 1
-    assert "exactly two" in dataset.exclusions[0]["reason"]
+    assert dataset.exclusions == ()
+    assert dataset.manifest["excluded_count"] == 0
     assert dataset.manifest["raw_cognitive_count"] == 3
-    assert dataset.manifest["eligible_relation_counts"] == {"causal": 1, "state": 1}
-    case = dataset.cases[-1]
+    assert dataset.manifest["eligible_relation_counts"] == {"causal": 2, "state": 1}
+
+    escaped_case = next(case for case in dataset.cases if case.case_id == "cognitive:0001")
+    assert escaped_case.evidence == ("D4:1",)
+    assert escaped_case.evidence_text.endswith(r"Alice: A cue with literal escapes.\nB: A response.")
+
+    case = next(case for case in dataset.cases if case.case_id == "cognitive:0002")
+    assert case.evidence == ("D4:1", "D4:2", "D4:3", "D4:4")
+    cue_session = next(session for session in case.sessions if session.session_id == case.cue_session_id)
+    assert [turn.speaker for turn in cue_session.turns] == ["Alice", "Bob", "Alice", "Bob"]
+    assert "ignored metadata" not in case.evidence_text
     assert case.metadata["time_gap"] == "several months later"
     assert case.metadata["time_gap_parsed"] is False
     assert case.metadata["cue_time"] == case.query_time
     assert dataset.manifest["unparsed_time_gap_case_ids"] == ["cognitive:0002"]
-    _write_dataset(
-        tmp_path, [_cognitive(), _cognitive(), _cognitive(relation_type="state", time_gap="several months later")]
-    )
-    repaired = load_locomo_plus(tmp_path, seed=17)
-    assert repaired.cases[-1] == case
-    assert repaired == load_locomo_plus(tmp_path, seed=17)
+    assert dataset == load_locomo_plus(tmp_path, seed=17)
 
 
 def test_selection_limits_questions_without_shortening_histories(tmp_path: Path) -> None:
@@ -168,7 +176,12 @@ def test_bundled_data_can_be_reformatted_without_changing_cases(tmp_path: Path) 
     path = tmp_path / DEFAULT_SMOKE_PATH.name
     raw = json.loads(DEFAULT_SMOKE_PATH.read_text(encoding="utf-8"))
     path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-    assert load_smoke_dataset(path).cases == load_smoke_dataset().cases
+    loaded = load_smoke_dataset(path)
+    assert loaded.cases == load_smoke_dataset().cases
+    assert loaded.exclusions == ()
+    assert loaded.manifest["adapter_version"] == "powercontext-locomo-plus-v2"
+    assert loaded.manifest["excluded_count"] == 0
+    assert "malformed_cue_policy" not in loaded.manifest
 
 
 def test_relation_labels_are_never_inferred_from_record_order(tmp_path: Path) -> None:

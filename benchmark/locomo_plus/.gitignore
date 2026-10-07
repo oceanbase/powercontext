@@ -1,3 +1,5 @@
 cache/
+.env_jev
+.env_jev.*
 results/*
 !results/.gitkeep

@@ -1,8 +1,9 @@
 # LoCoMo-Plus benchmark
 
 The default `memory` arm captures timestamped dialogue Sources, extracts conversational Memory, retrieves Memory
-with hybrid search, generates an answer, and grades it with an explicitly selected judge model. Each run uses its own
-SQLite database inside its results directory; the database configuration in the supplied environment file is not used.
+with hybrid search, generates an answer, and grades it with an explicitly selected judge model. Runs use an isolated
+SQLite database by default. `--database oceanbase` instead uses the OceanBase configuration in the environment file
+and isolates data with a stable run-specific benchmark namespace.
 
 ## Dataset and evaluation contract
 
@@ -21,18 +22,17 @@ pinned to commit `059f4e3d38f7f1f96765e8e2cb7de3097551bffb`. The loader validate
 The factual file is the copy in the pinned LoCoMo-Plus release. Its content differs from the existing LoCoMo
 benchmark's file, so the two files and their results must not be treated as interchangeable.
 
-The cognitive release contains causal (101), state (100), goal (100), and value (100) cases. The loader excludes
-44 malformed cue dialogues instead of constructing empty prompts or repairing annotations silently. Every exclusion
-retains its original case identity and reason in the audit. The full profile selects the 1,986 factual and
-357 valid cognitive cases: **2,343 evaluated cases from 2,387 published cases**. It is labelled a subset of the
-published release even when no user limit is applied.
+The cognitive release contains causal (101), state (100), goal (100), and value (100) cases. Matching the upstream
+implementation, the loader scans each physical cue line, retains lines beginning with `A:` or `B:`, and ignores other
+lines. It does not require exactly one `A:`/`B:` pair and does not exclude records based on cue turn count. The full
+profile therefore selects all 1,986 factual and 401 cognitive cases: **2,387 evaluated cases**.
 
 | Cognitive relation | Published | Eligible |
 | --- | ---: | ---: |
-| causal | 101 | 85 |
-| state | 100 | 95 |
-| goal | 100 | 91 |
-| value | 100 | 86 |
+| causal | 101 | 101 |
+| state | 100 | 100 |
+| goal | 100 | 100 |
+| value | 100 | 100 |
 
 Cognitive histories restore dates from the pinned factual conversation data. History assignment uses a deterministic
 seed (default `42`), and the resulting session and source mapping is recorded. Fifteen eligible cases have time-gap
@@ -41,10 +41,96 @@ being described as known temporal gaps. Gold answers, relation labels, and
 judge rubrics are excluded from normal captured Sources and generator prompts. The generator receives a common
 answer policy without a cognitive-task hint. The diagnostic `oracle-cue` arm explicitly supplies the gold-selected cue.
 
-This is a **PowerContext evaluation protocol**, not a paper-comparable reproduction. Cue exclusions, restored dates,
+This is a **PowerContext evaluation protocol**, not a paper-comparable reproduction. Cue line parsing, restored dates,
 prompt policy, model choice, and history limits all affect the result. Upstream anomalies are documented in
 [cue-format issue #2](https://github.com/xjtuleeyf/Locomo-Plus/issues/2) and
 [timestamp issue #3](https://github.com/xjtuleeyf/Locomo-Plus/issues/3).
+
+## Benchmark-only Jev reranking
+
+Jev integration lives entirely in this benchmark; it does not modify `src/powercontext` or enable a global Runtime
+default. `memory_reranking.py` implements `DecisionMemoryReranker` against the existing `MemoryReranker` port.
+`jev.py` maps native SystemOne Choice responses to the existing `DecisionRequest`/`DecisionResult` types;
+`jev_transport.py` owns the bounded connection pool, `jev_diagnostics.py` captures sanitized transport events, and
+`decision.py` assembles the provider and isolates per-case audit state.
+
+The consumer sends the current query as `subject` and one Memory as `evidence`. It retains `yes` and healthy `abstain`
+results in coarse retrieval order, skips `no`, and stops after a completed batch provides enough results. An all-`no`
+scan uses a marked coarse fallback. Sparse results are not padded unless `fill_to_limit=True` is explicitly selected.
+Provider errors, degraded decisions, and timeouts fail the search; cancellation propagates. Connection retries are
+disabled by default. An explicit `connect_attempts=2` or `3` permits retries only when transport evidence proves that
+the POST has not started; it never retries an already-sent request or disables TLS verification.
+
+Use the Python assembly API; passing `decision_model=` alone does not enable reranking, and the generic CLI's
+`--rerank-model` selects a listwise LLM, not Jev. The following example runs the bundled smoke selection with up to
+8 concurrent cases and 8 in-flight Jev decisions, with at most 4 decisions per case at a time:
+
+```python
+import asyncio
+import hashlib
+from contextlib import AsyncExitStack
+from pathlib import Path
+
+from benchmark.locomo_plus.dataset import load_smoke_dataset
+from benchmark.locomo_plus.decision import ConcurrentDecisionReranker, open_decision_reranker
+from benchmark.locomo_plus.jev import JevConfig
+from benchmark.locomo_plus.runner import load_settings, run_benchmark
+
+
+async def main():
+    settings = load_settings(Path(".env"))
+    # A local dotenv file containing JEV_API_KEY, JEV_BASE_URL, and JEV_MODEL.
+    # Do not execute a curl example as a configuration file.
+    jev = JevConfig.from_env_file("benchmark/locomo_plus/.env_jev")
+    output = Path("benchmark/locomo_plus/results/jev-smoke")
+    output.mkdir(parents=True, exist_ok=True)
+    limits = {
+        "concurrency": 4,
+        "max_inflight": 8,
+        "timeout_seconds": 240,
+        "request_timeout_seconds": 60,
+        "connect_attempts": 1,
+        "fill_to_limit": False,
+    }
+    async with AsyncExitStack() as resources:
+        template = await open_decision_reranker(
+            "jev", inference=settings.inference, jev=jev,
+            output_directory=output, resources=resources, **limits,
+        )
+        await run_benchmark(
+            load_smoke_dataset(), settings=settings, output_directory=output,
+            run_id="jev-smoke", judge_model="openai:YOUR_JUDGE_MODEL",
+            arm="memory-source", concurrency=8, top_k=8,
+            memory_rerank=True, rerank_candidate_limit=30,
+            rerank_model=jev.model,
+            memory_reranker=ConcurrentDecisionReranker(template, output),
+            rerank_identity={
+                "backend": "jev", "model": jev.model,
+                "endpoint_sha256": hashlib.sha256(jev.base_url.encode()).hexdigest(),
+                **limits,
+            },
+        )
+
+
+asyncio.run(main())
+```
+
+This example defaults to isolated SQLite. Pass `database="oceanbase"` to use the environment's OceanBase settings.
+For a full run, load the complete upstream dataset and set `profile="full"`; the smoke snapshot is not the full dataset.
+An injected reranker requires `memory_rerank=True` and a nonempty, credential-free `rerank_identity`. Set `rerank_model`
+to the actual decision model so usage is not attributed to the answer model. Record all provider, budget, timeout,
+fallback, and retry settings in the identity; changed identities cannot resume an existing run.
+
+`decisions.jsonl` records each logical decision attempt, including failures. `decision-searches.jsonl` records each
+case's candidate pool, selection, `decision_count`, and request usage. These contain query/Memory text and stay in the
+ignored results directory. Runtime `generation_calls` still counts one rerank operation, **not** the number of
+per-candidate decisions. Read `decision_count` for logical decisions and `usage.requests`/transport traces for HTTP
+attempts; a request count is not proof of provider receipt or billing. Unknown token counts remain unknown.
+
+Keep `.env_jev` local and untracked; `.env.example` contains only optional placeholder settings. No historical logs,
+database snapshots, or credentials are required to import these modules. Tests under `tests/test_locomo_plus_*` cover
+the benchmark-only consumer, provider mapping, transport failures, cancellation, and Runtime injection with SQLite;
+offline tests do not establish current availability or scores of a real Jev service.
 
 ## Inspect and plan without model calls
 
@@ -85,7 +171,8 @@ cp benchmark/locomo_plus/.env.example benchmark/locomo_plus/.env
 ```
 
 The commands below use `--env-file benchmark/locomo_plus/.env`; an existing compatible environment file can also be
-passed directly. No external database configuration is needed because each run uses its own SQLite database.
+passed directly. No external database configuration is needed for the default SQLite mode. To use OceanBase, set
+`POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase` and its URL in the environment, then pass `--database oceanbase`.
 Keep credentials outside tracked files. The judge model must be passed explicitly on every paid run. To use an
 independent judge, choose a different model from the configured generator; explicit selection alone does not establish
 judge independence or human agreement. Using the same model is supported and flagged in the manifest.
@@ -128,13 +215,23 @@ uv run python -m benchmark.locomo_plus run \
   --profile full \
   --env-file benchmark/locomo_plus/.env \
   --judge-model "openai:YOUR_JUDGE_MODEL" \
-  --run-id locomo-plus-full
+  --memory-extraction-model "openai:YOUR_EXTRACTION_MODEL" \
+  --memory-extraction-timeout-seconds 120 \
+  --run-id locomo-plus-full \
+  --database oceanbase \
+  --concurrency 4
 ```
 
 A full run can incur substantial extraction, embedding, generation, and judge cost. Use `--profile full --limit 2`
 for a small run through the full-profile configuration; the manifest records the subset. `--max-history-sessions N`
 is an explicit shortened-history diagnostic, recorded as a subset that is not equivalent to a full-history run. `--top-k` defaults to `5`; `--max-tokens` defaults to `512` for each
-answer and judge response. The response cap does not bound ingestion requests or input tokens. Cases run sequentially.
+answer and judge response. The response cap does not bound ingestion requests or input tokens. `--concurrency N`
+controls the maximum number of in-flight cases and defaults to `1`. Memory preparation and retrieval for the same
+conversation scope remain serialized to prevent duplicate extraction and usage-accounting races; different scopes
+run concurrently and are scheduled round-robin.
+`--memory-extraction-model` overrides the model used by the Memory extraction runtime without changing the configured
+answer model or the explicit judge model. When omitted, extraction uses the configured generation model.
+`--memory-extraction-timeout-seconds` similarly overrides only the extraction request timeout.
 Memory extraction honors the configured `generation_max_requests` (PowerContext default: `2`) for both smoke and full.
 This allows the normal structured-output correction attempt when a response fails schema validation; it does not
 silently add retries beyond the configured limit. Semantic evidence validation errors still fail the case.
@@ -178,12 +275,13 @@ Outputs default to `benchmark/locomo_plus/results/<run-id>/`:
 - `observations.jsonl`: frozen retrieval/context, rendered generator and judge inputs, answers, judgments, usage,
   latency, and classified errors.
 - `summary.json` and `summary.md`: grouped quality, completion, retrieval, usage, and cost reports.
-- `state.sqlite3`: the run's isolated local PowerContext database for Memory arms.
+- `state.sqlite3`: the run's isolated local PowerContext database for Memory arms when `--database sqlite` is used.
 
 The benchmark-local `.gitignore` ignores generated results while retaining `results/.gitkeep`.
 
 Artifacts contain dataset text and model output, so keep them local unless deliberately sharing a reviewed result.
-Credentials and the environment database URL are not included in run manifests. Reuse the same run ID and output
+Credentials and the environment database URL are not included in run manifests. OceanBase runs share the configured
+database but use run-isolated benchmark scopes; changing the run ID creates a new logical namespace. Reuse the same run ID and output
 location with the same settings to resume. Successful cases are retained; failed cases are retried. A judge-only
 failure reuses the frozen generated answer. Configuration or dataset changes require a separate run.
 The run command exits with status `1` if cases fail to execute or remain unobserved. A completed evaluation with an
@@ -220,6 +318,36 @@ record versioned per-model USD prices for available provider-reported usage:
 The numbers above illustrate the schema and are not provider prices. Missing model prices or missing usage cannot
 be interpreted as free inference. Provider token counts and context byte counts have different meanings; neither a
 partial usage report nor an output-token cap establishes a total run budget.
+
+## Reusing ingestion and retrieval comparisons
+
+`--reuse-ingestion-directory PATH` reads complete Memory scopes from an existing run. The runner verifies
+history hashes, extraction and embedding settings, the live cursor, and the saved Memory snapshot before use.
+It does not capture or extract Sources again. OceanBase reuse keeps the tenant's processing Family declarations
+and uses the API-only role to prevent supervisor execution; SQLite reuse disables processing Families instead
+because its role must remain `all`. Use a new output directory and run ID for each treatment. SQLite
+reuse opens the donor database; OceanBase reuse uses the configured tenant and the donor's exact scope IDs.
+Keep the donor's Sources and Memory unchanged during a comparison. Recall statistics still accumulate in that
+database; the new run records only its own retrieval usage and zero ingestion usage.
+
+`--memory-rerank --rerank-model openai:gpt-4o-mini --rerank-candidate-limit 30` enables the built-in listwise
+reranker. Its model uses the configured generation endpoint and headers. The hybrid backend candidate budget is
+`max(4 * max(top_k, rerank_candidate_limit), 32)` with reranking, or `max(4 * top_k, 32)` without it. `--top-k`
+controls final hits, while `--arm memory-source` expands their original sessions. Saved observations contain
+the reranker candidate pool, selected ranks, fallback status, latency, and reported token usage.
+
+Answer protocol v2 resolves relative dates using Source dates and connects present requests to relevant earlier
+experiences. Judge protocol v7 recognizes equivalent normalized dates. For Cognitive cases it first projects
+specific claims added by the answer beyond the current request, without access to historical evidence. A second
+call compares those claims to the historical evidence. This isolates present-situation paraphrases from Memory
+use. Both stages are saved; copied claims and positive verdicts' supporting quotes are validated against their
+original texts (case, whitespace and terminal punctuation are normalized). Negative verdict annotations are
+preserved verbatim and do not establish a positive claim. A malformed projection or fabricated credited quote is a
+judge failure, never a wrong-answer score. Judge retries reuse a valid frozen projection. A single true historical
+connection can earn credit even if the answer also contains unrelated details. The projection adds one Judge
+request per Cognitive case and is recorded separately in usage. Older frozen judgments remain replayable with
+their original instructions and digest. Scores produced by different judge
+protocols must be labelled separately; use the same protocol and judge model in controlled retrieval comparisons.
 
 ## Local validation
 

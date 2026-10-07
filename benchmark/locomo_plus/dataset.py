@@ -41,14 +41,15 @@ _MANIFEST: dict[str, Any] = {
     "commit": "059f4e3d38f7f1f96765e8e2cb7de3097551bffb",
     "files": ["locomo10.json", "locomo_plus.json"],
     "license": "No dataset or code license is present at the pinned upstream commit.",
-    "adapter_version": "powercontext-locomo-plus-v1",
-    "conversation_assignment": "random.Random(seed).randrange, once for each original cognitive index before exclusions",
+    "adapter_version": "powercontext-locomo-plus-v2",
+    "conversation_assignment": "random.Random(seed).randrange, once for each original cognitive index",
     "time_policy": (
         "Upstream: query is seven days after the final session; week=7, month=30, year=365 days. "
         "Unrecognized gaps use zero days and are flagged. Dates have no declared timezone."
     ),
-    "malformed_cue_policy": (
-        "Exclude records without exactly two nonempty lines, A: followed by B:, and report original indices. No repairs."
+    "cue_dialogue_policy": (
+        "Match the upstream parser: scan each physical line, retain lines beginning with A: or B:, and ignore other "
+        "lines. Records are not excluded based on cue turn count."
     ),
     "smoke_case_ids": ["cognitive:0000", "cognitive:0101", "cognitive:0188", "cognitive:0301"],
     "smoke_dataset": {
@@ -95,7 +96,7 @@ class LoCoMoPlusCase:
 
 @dataclass(frozen=True, slots=True)
 class LoCoMoPlusDataset:
-    """Validated inputs, explicit exclusions and JSON-serializable provenance."""
+    """Validated inputs, compatibility exclusions and JSON-serializable provenance."""
 
     cases: tuple[LoCoMoPlusCase, ...]
     exclusions: tuple[dict[str, Any], ...]
@@ -165,22 +166,13 @@ def load_locomo_plus(
     if not isinstance(raw, list) or not raw:
         raise ValueError("LoCoMo-Plus data must be a non-empty JSON array")  # noqa: TRY003
     cases = [case for conversation in locomo.conversations for case in _factual_cases(conversation)]
-    exclusions: list[dict[str, Any]] = []
     relation_counts: Counter[str] = Counter()
     randomizer = random.Random(seed)  # noqa: S311 - reproducible benchmark selection, not cryptography
     for index, raw_item in enumerate(raw):
         conversation = locomo.conversations[randomizer.randrange(len(locomo.conversations))]
         item = _validate_cognitive_item(raw_item, index)
         relation_counts[item["relation_type"]] += 1
-        cue = _cue_turns(item["cue_dialogue"])
-        if cue is None:
-            exclusions.append({
-                "case_id": f"cognitive:{index:04d}",
-                "source_index": index,
-                "relation_type": item["relation_type"],
-                "reason": "cue_dialogue must contain exactly two nonempty lines: A: then B:",
-            })
-            continue
+        cue = _parse_ab_dialogue(item["cue_dialogue"])
         cases.append(_cognitive_case(item, index, conversation, cue))
     cognitive = [case for case in cases if case.category == 6]
     manifest = {
@@ -192,11 +184,11 @@ def load_locomo_plus(
         "eligible_count": len(cases),
         "category_counts": dict(Counter(CATEGORY_NAMES[case.category] for case in cases)),
         "eligible_relation_counts": dict(Counter(case.relation_type for case in cognitive)),
-        "excluded_count": len(exclusions),
-        "exclusions": exclusions,
+        "excluded_count": 0,
+        "exclusions": [],
         "unparsed_time_gap_case_ids": [case.case_id for case in cognitive if not case.metadata["time_gap_parsed"]],
     }
-    return LoCoMoPlusDataset(cases=tuple(cases), exclusions=tuple(exclusions), manifest=manifest)
+    return LoCoMoPlusDataset(cases=tuple(cases), exclusions=(), manifest=manifest)
 
 
 def load_smoke_dataset(path: Path = DEFAULT_SMOKE_PATH, *, seed: int = 42) -> LoCoMoPlusDataset:
@@ -209,14 +201,16 @@ def load_smoke_dataset(path: Path = DEFAULT_SMOKE_PATH, *, seed: int = 42) -> Lo
         )
     payload = path.read_bytes()
     dataset = TypeAdapter(LoCoMoPlusDataset).validate_json(payload)
-    return replace(
-        dataset,
-        manifest={
-            **dataset.manifest,
-            "data_directory": str(path.parent.resolve()),
-            "smoke_dataset": {**expected, "path": str(path.resolve())},
-        },
-    )
+    manifest = {
+        **dataset.manifest,
+        **_MANIFEST,
+        "data_directory": str(path.parent.resolve()),
+        "excluded_count": 0,
+        "exclusions": [],
+        "smoke_dataset": {**expected, "path": str(path.resolve())},
+    }
+    manifest.pop("malformed_cue_policy", None)
+    return replace(dataset, exclusions=(), manifest=manifest)
 
 
 def render_case_session(case: LoCoMoPlusCase, session: LoCoMoSession) -> str:
@@ -269,7 +263,7 @@ def _cognitive_case(
     item: dict[str, Any],
     index: int,
     conversation: LoCoMoConversation,
-    cue: tuple[str, str],
+    cue: tuple[tuple[str, str], ...],
 ) -> LoCoMoPlusCase:
     session_dates = [_session_date(session.date_time) for session in conversation.sessions]
     query_date = max(session_dates) + timedelta(days=7)
@@ -281,9 +275,13 @@ def _cognitive_case(
         session_id=cue_session_id,
         session_number=number,
         date_time=cue_date.strftime("%Y-%m-%d %H:%M"),
-        turns=(
-            LoCoMoTurn(f"{cue_session_id}:1", conversation.speaker_a, cue[0]),
-            LoCoMoTurn(f"{cue_session_id}:2", conversation.speaker_b, cue[1]),
+        turns=tuple(
+            LoCoMoTurn(
+                f"{cue_session_id}:{turn_index}",
+                conversation.speaker_a if speaker == "A" else conversation.speaker_b,
+                text,
+            )
+            for turn_index, (speaker, text) in enumerate(cue, start=1)
         ),
     )
     events = [*zip(session_dates, conversation.sessions, strict=True), (cue_date, cue_session)]
@@ -325,12 +323,17 @@ def _validate_cognitive_item(item: Any, index: int) -> dict[str, Any]:
     return item
 
 
-def _cue_turns(value: str) -> tuple[str, str] | None:
-    lines = value.strip().splitlines()
-    if len(lines) != 2 or not lines[0].startswith("A:") or not lines[1].startswith("B:"):
-        return None
-    first, second = lines[0][2:].strip(), lines[1][2:].strip()
-    return (first, second) if first and second else None
+def _parse_ab_dialogue(value: str) -> tuple[tuple[str, str], ...]:
+    """Match the upstream LoCoMo-Plus line parser exactly."""
+
+    turns: list[tuple[str, str]] = []
+    for raw_line in value.split("\n"):
+        line = raw_line.strip()
+        if line.startswith("A:"):
+            turns.append(("A", line[2:].strip()))
+        elif line.startswith("B:"):
+            turns.append(("B", line[2:].strip()))
+    return tuple(turns)
 
 
 def _time_gap(value: str) -> tuple[int, bool]:
