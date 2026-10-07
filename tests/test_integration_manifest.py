@@ -27,6 +27,7 @@ from integration_manifest import (
     IntegrationAvailability,
     IntegrationManifest,
     evidence_path_errors,
+    integration_directory_errors,
     load_integration_manifest,
     release_tag_errors,
     render_integration_capability_reference,
@@ -44,6 +45,7 @@ def test_manifest_matches_setup_catalog_evidence_and_actual_tool_surfaces() -> N
     setup_targets = {command.name for command in setup_app.registered_commands if command.name != "select"}
 
     assert agent_hosts == setup_targets
+    assert integration_directory_errors(manifest) == ()
     assert evidence_path_errors(manifest) == ()
     assert release_tag_errors(manifest) == ()
     assert tool_surface_errors(manifest) == ()
@@ -353,3 +355,87 @@ def test_released_entries_need_a_resolvable_tag() -> None:
     manifest = IntegrationManifest.model_validate(payload)
 
     assert release_tag_errors(manifest) == ("codex: release tag does not resolve: not-a-powercontext-release",)
+
+
+@pytest.fixture
+def integration_tree(tmp_path: Path) -> Path:
+    """A real filesystem fixture with the manifest's directory and evidence contract."""
+    manifest = load_integration_manifest()
+    for integration in manifest.integrations:
+        (tmp_path / "integrations" / integration.id).mkdir(parents=True)
+        for paths in integration.evidence.model_dump().values():
+            for pointer in paths:
+                path = tmp_path / pointer
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("evidence\n", encoding="utf-8")
+    for name in manifest.directory_exclusions:
+        (tmp_path / "integrations" / name).mkdir(parents=True)
+    return tmp_path
+
+
+def test_directory_gate_reports_both_directions_without_writing(integration_tree: Path) -> None:
+    manifest = load_integration_manifest()
+    assert integration_directory_errors(manifest, integration_tree) == ()
+    (integration_tree / "integrations/newhost").mkdir()
+    destination = integration_tree / "codex-evidence"
+    assert destination.resolve().is_relative_to(integration_tree.resolve())
+    (integration_tree / "integrations/codex").rename(destination)
+    before = {
+        path: (path.read_bytes(), path.stat().st_mtime_ns) for path in integration_tree.rglob("*") if path.is_file()
+    }
+
+    assert integration_directory_errors(manifest, integration_tree) == (
+        "integrations/newhost/: present but undeclared",
+        "integrations/codex/: declared but absent",
+    )
+    assert before == {
+        path: (path.read_bytes(), path.stat().st_mtime_ns) for path in integration_tree.rglob("*") if path.is_file()
+    }
+
+
+def test_removing_a_declaration_does_not_hide_its_directory(integration_tree: Path) -> None:
+    manifest = load_integration_manifest()
+    manifest = manifest.model_copy(
+        update={"integrations": tuple(item for item in manifest.integrations if item.id != "pi")}
+    )
+    assert integration_directory_errors(manifest, integration_tree) == ("integrations/pi/: present but undeclared",)
+
+
+def test_stale_directory_exclusion_is_reported(integration_tree: Path) -> None:
+    manifest = load_integration_manifest()
+    (integration_tree / "integrations/minimax").rmdir()
+    assert integration_directory_errors(manifest, integration_tree) == ("integrations/minimax/: excluded but absent",)
+
+
+@pytest.mark.parametrize("locale", ["en", "zh"])
+def test_each_documentation_locale_is_required(integration_tree: Path, locale: str) -> None:
+    pointer = f"docs/{locale}/docs/integrations/codex.md"
+    (integration_tree / pointer).unlink()
+    assert integration_directory_errors(load_integration_manifest(), integration_tree) == (
+        f"codex: missing {locale} integration documentation: {pointer}",
+    )
+
+
+@pytest.mark.parametrize("category", ["implementation", "documentation", "tests"])
+def test_missing_declared_evidence_is_reported(integration_tree: Path, category: str) -> None:
+    manifest = load_integration_manifest()
+    pointer = getattr(manifest.integrations[0].evidence, category)[0]
+    (integration_tree / pointer).unlink()
+    assert f"codex: missing {category} evidence: {pointer}" in evidence_path_errors(manifest, integration_tree)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("directory_exclusions", {"minimax": "  "}),
+        ("directory_exclusions", {"../other": "outside"}),
+        ("directory_exclusions", {"codex": "already declared"}),
+        ("documentation_waivers", {"evaluation_harness": "\n"}),
+        ("documentation_waivers", {"unknown_kind": "not a declared kind"}),
+    ],
+)
+def test_exclusions_and_waivers_require_unambiguous_rationales(field: str, value: dict[str, str]) -> None:
+    payload = load_integration_manifest().model_dump(mode="json")
+    payload[field] = value
+    with pytest.raises(ValidationError):
+        IntegrationManifest.model_validate(payload)
