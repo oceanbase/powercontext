@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="458" viewBox="0 0 960 458" role="img" aria-labelledby="title description">
+  <title id="title">LoCoMo Plus: native PowerContext and PowerContext with Jev</title>
+  <desc id="description">Paired horizontal bars on a shared 0–100 percent scale. GPT-4o-mini: 40.855% native, 49.78% with Jev, +8.925 percentage points. Qwen3.7-plus: 60.37% native, 68.947% with Jev, +8.577 percentage points. GPT-4o: 65.082% native, 69.28% with Jev, +4.198 percentage points. Each model is used for both memory extraction and answering. Embedding: qwen3.7-text-embedding, 1024 dimensions.</desc>
+  <style>
+    .background { fill: #ffffff; }
+    .frame { fill: none; stroke: #d0d7de; }
+    .heading { fill: #1f2328; }
+    .secondary { fill: #59636e; }
+    .track { fill: #eaeef2; }
+    .primary { fill: #0969da; }
+    .comparison { fill: #398c8c; }
+    .delta { fill: #0969da; }
+    @media (prefers-color-scheme: dark) {
+      .background { fill: #0d1117; }
+      .frame { stroke: #30363d; }
+      .heading { fill: #f0f6fc; }
+      .secondary { fill: #8b949e; }
+      .track { fill: #21262d; }
+      .primary { fill: #58a6ff; }
+      .comparison { fill: #56b6b6; }
+      .delta { fill: #58a6ff; }
+    }
+  </style>
+  <rect class="background" width="960" height="458" rx="12" />
+  <rect class="frame" x="0.5" y="0.5" width="959" height="457" rx="11.5" />
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text class="heading" x="28" y="30" font-size="17" font-weight="500">LoCoMo Plus</text>
+    <text class="secondary" x="932" y="30" font-size="14" text-anchor="end">Score · shared 0–100% scale · higher is better</text>
+    <text class="secondary" x="28" y="55" font-size="14">Each model is used for both Memory extraction and answering.</text>
+
+    <!-- Full tracks represent 100%; score bars use 6.5 pixels per percentage point. -->
+    <text class="heading" x="28" y="90" font-size="17" font-weight="500">GPT-4o-mini</text>
+    <text class="delta" x="932" y="90" font-size="14" font-weight="500" text-anchor="end">+8.925 points with Jev</text>
+    <text class="secondary" x="28" y="121" font-size="14">PowerContext</text>
+    <rect class="track" x="178" y="106" width="650" height="18" rx="3" />
+    <rect class="primary" x="178" y="106" width="265.5575" height="18" rx="3" />
+    <text class="heading" x="932" y="121" font-size="14" font-weight="500" text-anchor="end">40.855%</text>
+    <text class="secondary" x="28" y="155" font-size="14">PowerContext + Jev</text>
+    <rect class="track" x="178" y="140" width="650" height="18" rx="3" />
+    <rect class="comparison" x="178" y="140" width="323.57" height="18" rx="3" />
+    <text class="heading" x="932" y="155" font-size="14" font-weight="500" text-anchor="end">49.78%</text>
+
+    <line class="frame" x1="28" y1="179" x2="932" y2="179" />
+
+    <text class="heading" x="28" y="208" font-size="17" font-weight="500">Qwen3.7-plus</text>
+    <text class="delta" x="932" y="208" font-size="14" font-weight="500" text-anchor="end">+8.577 points with Jev</text>
+    <text class="secondary" x="28" y="239" font-size="14">PowerContext</text>
+    <rect class="track" x="178" y="224" width="650" height="18" rx="3" />
+    <rect class="primary" x="178" y="224" width="392.405" height="18" rx="3" />
+    <text class="heading" x="932" y="239" font-size="14" font-weight="500" text-anchor="end">60.37%</text>
+    <text class="secondary" x="28" y="273" font-size="14">PowerContext + Jev</text>
+    <rect class="track" x="178" y="258" width="650" height="18" rx="3" />
+    <rect class="comparison" x="178" y="258" width="448.1555" height="18" rx="3" />
+    <text class="heading" x="932" y="273" font-size="14" font-weight="500" text-anchor="end">68.947%</text>
+
+    <line class="frame" x1="28" y1="297" x2="932" y2="297" />
+
+    <text class="heading" x="28" y="326" font-size="17" font-weight="500">GPT-4o</text>
+    <text class="delta" x="932" y="326" font-size="14" font-weight="500" text-anchor="end">+4.198 points with Jev</text>
+    <text class="secondary" x="28" y="357" font-size="14">PowerContext</text>
+    <rect class="track" x="178" y="342" width="650" height="18" rx="3" />
+    <rect class="primary" x="178" y="342" width="423.033" height="18" rx="3" />
+    <text class="heading" x="932" y="357" font-size="14" font-weight="500" text-anchor="end">65.082%</text>
+    <text class="secondary" x="28" y="391" font-size="14">PowerContext + Jev</text>
+    <rect class="track" x="178" y="376" width="650" height="18" rx="3" />
+    <rect class="comparison" x="178" y="376" width="450.32" height="18" rx="3" />
+    <text class="heading" x="932" y="391" font-size="14" font-weight="500" text-anchor="end">69.28%</text>
+
+    <line class="frame" x1="28" y1="415" x2="932" y2="415" />
+    <text class="secondary" x="28" y="440" font-size="14">Embedding: qwen3.7-text-embedding (1024 dimensions) · differences in percentage points</text>
+  </g>
+</svg>

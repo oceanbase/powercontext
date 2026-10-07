@@ -32,7 +32,6 @@ import { baseOptions } from '@/lib/site';
 const pageCopy = {
   en: {
     title: 'Benchmarks',
-    heroLink: 'Review both evaluations',
     heroChartTitle: 'LoCoMo accuracy and search latency',
     heroChartCount: '1,540 scored questions',
     compositionTitle: 'Question mix',
@@ -46,7 +45,6 @@ const pageCopy = {
   },
   zh: {
     title: '基准测试',
-    heroLink: '查看两项评测',
     heroChartTitle: 'LoCoMo 准确率与搜索延迟',
     heroChartCount: '1,540 道计分题',
     compositionTitle: '问题构成',
@@ -101,6 +99,9 @@ export default async function BenchmarksPage({ params }: PageProps) {
   const text = pageCopy[lang];
   const accuracy = benchmark.locomo.metrics.find((metric) => metric.id === 'accuracy');
   const latency = benchmark.locomo.metrics.find((metric) => metric.id === 'latency');
+  const plus = benchmark.locomo_plus;
+  const bestJev = plus.rows.reduce((best, row) => row.jev > best.jev ? row : best);
+  const largestGain = plus.rows.reduce((best, row) => row.jev - row.baseline > best.jev - best.baseline ? row : best);
   return (
     <HomeLayout {...baseOptions(lang)}>
       <main lang={lang === 'zh' ? 'zh-CN' : 'en'}>
@@ -112,7 +113,11 @@ export default async function BenchmarksPage({ params }: PageProps) {
                 {benchmark.hero.title.map((line) => <span className="block" key={line}>{line}</span>)}
               </DocsTitle>
               <DocsDescription className="mb-0">{benchmark.hero.lead}</DocsDescription>
-              <a className="inline-flex text-fd-primary hover:underline" href="#locomo">{text.heroLink} ↓</a>
+              <nav aria-label={benchmark.hero.actions_label} className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+                {benchmark.hero.actions.map((action) => (
+                  <a className="text-fd-primary hover:underline" href={`#${action.target}`} key={action.target}>{action.label} ↓</a>
+                ))}
+              </nav>
             </header>
             {accuracy && latency ? (
               <div className="lg:col-span-2">
@@ -137,6 +142,57 @@ export default async function BenchmarksPage({ params }: PageProps) {
                   <p><strong className="text-fd-primary">{text.resultValue}</strong></p>
                   <p className="text-fd-muted-foreground">{text.resultSummary}</p>
                 </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="mt-16 grid scroll-mt-20 gap-10 border-t border-fd-border pt-10 lg:grid-cols-3" id="locomo-plus">
+            <div>
+              <SectionHeader description={plus.lead}>{plus.title}</SectionHeader>
+              <p className="mt-5 text-sm leading-relaxed text-fd-muted-foreground">{plus.model_note}</p>
+              <dl className="mt-6 border-t border-fd-border pt-4 text-sm">
+                <dt className="text-fd-muted-foreground">{plus.embedding_label}</dt>
+                <dd className="mt-1 font-medium">{plus.embedding_model}</dd>
+                <dd className="mt-1 text-fd-muted-foreground">{plus.embedding_dimensions}</dd>
+              </dl>
+            </div>
+            <div className="grid min-w-0 gap-6 lg:col-span-2">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-xl border border-fd-border p-5">
+                  <p className="text-sm text-fd-muted-foreground">{plus.best_label}</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{`${bestJev.jev}%`}</p>
+                  <p className="mt-2 text-xs text-fd-muted-foreground">{bestJev.model} · PowerContext + Jev</p>
+                </div>
+                <div className="rounded-xl border border-fd-primary/20 bg-fd-primary/8 p-5">
+                  <p className="text-sm text-fd-muted-foreground">{plus.gain_label}</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight text-fd-primary tabular-nums">{`+${(largestGain.jev - largestGain.baseline).toFixed(3)}`}</p>
+                  <p className="mt-2 text-xs text-fd-muted-foreground">{largestGain.model} · {plus.points_label}</p>
+                </div>
+              </div>
+              <div aria-label={plus.table_label} className="overflow-x-auto rounded-xl border border-fd-border" role="region" tabIndex={0}>
+                <table className="w-full border-collapse text-sm">
+                  <caption className="px-4 py-4 text-left font-medium">{plus.results_title}</caption>
+                  <thead>
+                    <tr className="border-y border-fd-border bg-fd-muted/40 text-left text-fd-muted-foreground">
+                      {(['model', 'baseline', 'jev', 'gain'] as const).map((key) => (
+                        <th className="px-4 py-3 font-medium" key={key} scope="col">{plus.columns[key]}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plus.rows.map((row) => (
+                      <tr className="border-b border-fd-border last:border-0" key={row.model}>
+                        <th className="whitespace-nowrap px-4 py-5 text-left font-medium" scope="row">{row.model}</th>
+                        <td className="px-4 py-5 tabular-nums text-fd-muted-foreground">{`${row.baseline}%`}</td>
+                        <td className="bg-fd-primary/8 px-4 py-5 font-semibold tabular-nums">{`${row.jev}%`}</td>
+                        <td className="whitespace-nowrap px-4 py-5 text-fd-primary tabular-nums">
+                          {`+${(row.jev - row.baseline).toFixed(3)}`}
+                          <span className="mt-1 block text-xs text-fd-muted-foreground">{plus.points_label}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </section>

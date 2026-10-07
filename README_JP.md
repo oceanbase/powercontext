@@ -93,6 +93,12 @@ Python で段階的に試すには、チーム作業の一連の流れも学べ�
 
 比較に用いた評価方法、詳細な結果、適用範囲は[公式ベンチマークページ](https://powercontext.oceanbase.io/en/benchmarks/)を参照してください。
 
+### LoCoMo Plus：Jev 導入による比較
+
+![GPT-4o-mini、Qwen3.7-plus、GPT-4o における PowerContext 単体と PowerContext + Jev の LoCoMo Plus スコア比較](docs/assets/readme-locomo-plus.svg)
+
+*検索後の候補選別に Jev を使用した場合と使用しない場合の LoCoMo Plus スコア。各モデルは Memory 抽出と回答生成の両方に使用し、埋め込みには qwen3.7-text-embedding（1024 次元）を使用。スコア差は順に +8.925、+8.577、+4.198 パーセントポイント。*
+
 ## PowerContext を開発する
 
 ```bash

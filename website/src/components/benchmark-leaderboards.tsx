@@ -117,6 +117,57 @@ function LocomoResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang:
   );
 }
 
+function LocomoPlusResults({ benchmark }: { benchmark: BenchmarkContent }) {
+  const board = benchmark.leaderboards.locomo_plus;
+  const experiment = benchmark.locomo_plus;
+  const spotlight = experiment.rows.find((row) => row.model === board.spotlight.model);
+
+  return (
+    <div aria-labelledby="locomo-plus-results-tab" id="locomo-plus-results-panel" role="tabpanel">
+      {spotlight && (
+        <section className="mb-6 bg-fd-primary/10 p-4" aria-label={board.spotlight.title}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+            <strong className="font-medium">{board.spotlight.title}</strong>
+            <a className="text-fd-primary underline underline-offset-4" href="#locomo-plus">{board.spotlight.link_label}</a>
+          </div>
+          <dl className="mt-4 grid grid-cols-2 gap-4">
+            {(['baseline', 'jev'] as const).map((kind) => (
+              <div key={kind}>
+                <dt className="text-xs text-fd-muted-foreground">{experiment.columns[kind]}</dt>
+                <dd className="mt-1 text-2xl font-medium tabular-nums text-fd-primary">{`${spotlight[kind]}%`}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-medium">{board.title}</h3>
+        <span className="text-xs text-fd-muted-foreground">{board.count} · {board.updated}</span>
+      </div>
+      <figure aria-label={board.table_label}>
+        <div aria-hidden="true" className="grid grid-cols-12 gap-2 py-3 text-xs text-fd-muted-foreground">
+          <span className="col-span-5 col-start-6 flex justify-between"><span>0</span><span>{board.score_label}</span><span>100%</span></span>
+        </div>
+        <ul className="grid divide-y divide-fd-border">
+          {board.rows.map((row) => (
+            <li className="grid grid-cols-12 items-center gap-x-2 gap-y-2 py-3" key={row.name}>
+              <span className="col-span-5 min-w-0 text-sm font-medium">
+                <a className="hover:text-fd-primary" href={row.source} rel="noreferrer" target="_blank">{row.name}</a>
+              </span>
+              <span aria-hidden="true" className="col-span-5"><ResultBar value={percentage(row.score)} /></span>
+              <strong className="col-span-2 text-right text-sm font-medium tabular-nums">{row.score}</strong>
+              <div className="col-span-12 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-fd-muted-foreground">
+                <a className="bg-fd-muted px-1.5 py-0.5 hover:text-fd-primary" href={row.source} rel="noreferrer" target="_blank">{row.evidence}</a>
+                <span>{row.protocol}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </figure>
+    </div>
+  );
+}
+
 function SweResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang: 'en' | 'zh' }) {
   const board = benchmark.leaderboards.swe;
   const pairedScores = [...benchmark.swe.scores].sort((left) => (left.kind === 'on' ? -1 : 1));
@@ -193,35 +244,42 @@ function SweResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang: 'e
 }
 
 export function BenchmarkLeaderboards({ benchmark, lang }: { benchmark: BenchmarkContent; lang: 'en' | 'zh' }) {
-  const [activeTab, setActiveTab] = useState<'locomo' | 'swe'>('locomo');
+  const tabs = ['locomo', 'locomo_plus', 'swe'] as const;
+  const [activeTab, setActiveTab] = useState<typeof tabs[number]>('locomo');
 
   return (
     <div>
       <div aria-label={benchmark.leaderboards.tabs_label} className="mb-6 flex gap-6 overflow-x-auto border-b border-fd-border" role="tablist">
-        <button
-          aria-controls="locomo-results-panel"
-          aria-selected={activeTab === 'locomo'}
-          className={`whitespace-nowrap border-b-2 pb-2.5 text-sm ${activeTab === 'locomo' ? 'border-fd-primary font-medium text-fd-foreground' : 'border-transparent text-fd-muted-foreground'}`}
-          id="locomo-results-tab"
-          onClick={() => setActiveTab('locomo')}
-          role="tab"
-          type="button"
-        >
-          {benchmark.leaderboards.locomo.tab}
-        </button>
-        <button
-          aria-controls="swe-results-panel"
-          aria-selected={activeTab === 'swe'}
-          className={`whitespace-nowrap border-b-2 pb-2.5 text-sm ${activeTab === 'swe' ? 'border-fd-primary font-medium text-fd-foreground' : 'border-transparent text-fd-muted-foreground'}`}
-          id="swe-results-tab"
-          onClick={() => setActiveTab('swe')}
-          role="tab"
-          type="button"
-        >
-          {benchmark.leaderboards.swe.tab}
-        </button>
+        {tabs.map((tab, index) => (
+          <button
+            aria-controls={`${tab.replace('_', '-')}-results-panel`}
+            aria-selected={activeTab === tab}
+            className={`whitespace-nowrap border-b-2 pb-2.5 text-sm ${activeTab === tab ? 'border-fd-primary font-medium text-fd-foreground' : 'border-transparent text-fd-muted-foreground'}`}
+            id={`${tab.replace('_', '-')}-results-tab`}
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            onKeyDown={(event) => {
+              let next: number;
+              if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+              else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+              else if (event.key === 'Home') next = 0;
+              else if (event.key === 'End') next = tabs.length - 1;
+              else return;
+              event.preventDefault();
+              setActiveTab(tabs[next]);
+              document.getElementById(`${tabs[next].replace('_', '-')}-results-tab`)?.focus();
+            }}
+            role="tab"
+            tabIndex={activeTab === tab ? 0 : -1}
+            type="button"
+          >
+            {benchmark.leaderboards[tab].tab}
+          </button>
+        ))}
       </div>
-      {activeTab === 'locomo' ? <LocomoResults benchmark={benchmark} lang={lang} /> : <SweResults benchmark={benchmark} lang={lang} />}
+      <div hidden={activeTab !== 'locomo'}><LocomoResults benchmark={benchmark} lang={lang} /></div>
+      <div hidden={activeTab !== 'locomo_plus'}><LocomoPlusResults benchmark={benchmark} /></div>
+      <div hidden={activeTab !== 'swe'}><SweResults benchmark={benchmark} lang={lang} /></div>
     </div>
   );
 }

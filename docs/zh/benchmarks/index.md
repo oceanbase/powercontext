@@ -1,17 +1,19 @@
 ---
 title: 基准测试
-description: 查看 PowerContext 能否找回长期上下文，以及这些上下文能否帮助 Codex 解决代码仓库问题。
+description: 查看 PowerContext 的长期事实记忆、隐含认知约束记忆，以及上下文辅助代码任务的评测结果。
 benchmark:
   hero:
     label: 产品评测
     title:
       - 衡量上下文
       - 带来的改变。
-    lead: LoCoMo 衡量 PowerContext 能否从长期对话中找回正确依据；SWE-bench Pro 衡量项目上下文能否帮助 Codex 解决更多代码仓库问题。
+    lead: LoCoMo 衡量长期对话的事实回忆；LoCoMo Plus 检验系统能否记住并运用隐含约束；SWE-bench Pro 衡量项目上下文能否帮助 Codex 解决更多代码仓库问题。
     actions_label: 跳转到具体评测
     actions:
       - label: LoCoMo 结果
         target: locomo
+      - label: LoCoMo Plus 结果
+        target: locomo-plus
       - label: SWE-bench Pro 结果
         target: swe-bench
       - label: 方法与来源
@@ -33,14 +35,19 @@ benchmark:
         accessible: 任务解决率 86.73%
         metric: 开启 PowerContext 后的任务解决率
   orientation:
-    title: 两项评测，两个问题。
-    lead: Agent 先要找回发生过什么，再要把上下文用于真实工作。两项评测分别检验这两层能力。
+    title: 三项评测，三个问题。
+    lead: 从事实回忆、隐含约束到真实任务，分别检验上下文的不同作用。
     tests:
       - name: LoCoMo
         question: 系统能记住一段长期对话吗？
         answer: 评测直接回忆、时间推理、多步推理，以及结合对话证据的开放域回答。
         target: locomo
         link: 查看记忆评测
+      - name: LoCoMo Plus
+        question: 系统能在新问题中运用早先的隐含约束吗？
+        answer: 检验因果、状态、目标与价值约束在长对话中的保留和应用。
+        target: locomo-plus
+        link: 查看认知记忆评测
       - name: SWE-bench Pro
         question: Agent 能把上下文变成可用补丁吗？
         answer: 给 Codex 一个真实仓库和 Issue，再用可执行测试评判最终补丁。
@@ -133,6 +140,33 @@ benchmark:
             value: 26000
     scope_title: 结果覆盖范围
     scope: 90.78% 来自类别 1-4 的 1,540 个问题，其中答对 1,398 个。该结果不代表 LoCoMo 的事件总结或多模态对话生成任务。
+  locomo_plus:
+    title: LoCoMo Plus：运用隐含的记忆约束
+    lead: 当新问题与早先线索并不相似，系统仍需要记住并运用用户的状态、目标、价值取向与因果背景。这里对比三个模型下，原生 PowerContext 与接入 Jev 候选筛选后的测试得分。
+    results_title: 同模型，Jev 接入前后
+    table_label: 三个模型下原生 PowerContext 与 PowerContext 加 Jev 的得分对比
+    best_label: 本组最高得分
+    gain_label: 最大得分差
+    points_label: 个百分点
+    columns:
+      model: 抽取与回答模型
+      baseline: 原生 PowerContext
+      jev: PowerContext + Jev
+      gain: 得分差
+    rows:
+      - model: GPT-4o-mini
+        baseline: 40.855
+        jev: 49.78
+      - model: Qwen3.7-plus
+        baseline: 60.37
+        jev: 68.947
+      - model: GPT-4o
+        baseline: 65.082
+        jev: 69.28
+    model_note: 每行模型同时用于 Memory 抽取与回答；Jev 用于检索后的候选筛选，不替换抽取或回答模型。
+    embedding_label: 向量模型
+    embedding_model: qwen3.7-text-embedding
+    embedding_dimensions: 1024 维
   swe:
     title: SWE-bench Pro：把上下文转化为可用补丁
     lead: 为了衡量 PowerContext 对结果的影响，我们用同一套 Codex 配置在 public v2 的 731 个任务上完成两次运行。两组仅改变是否启用 PowerContext。
@@ -163,9 +197,9 @@ benchmark:
     scope: 这是一组固定任务集上的配对运行，不是 SWE-bench Pro 官方提交。Agent 运行存在随机性，因此分数只描述这两次运行。
   leaderboards:
     title: 与公开结果对照
-    lead: LoCoMo 结果采用的 Reader、Judge 与答案匹配规则并不统一。SWE-bench Pro 数据来自官方 Public 榜单，因此两组榜单需要按各自口径解读。
+    lead: 汇集 LoCoMo、LoCoMo Plus 的公开评测结果，以及 SWE-bench Pro 官方 Public 榜单。各条目附有评测配置与来源链接。
     tabs_label: 选择评测榜单
-    updated: 数据核验于 2026 年 8 月 31 日
+    updated: LoCoMo / SWE-bench Pro：2026 年 8 月 31 日核验
     source_label: 查看来源
     locomo:
       id: locomo-rankings
@@ -274,6 +308,58 @@ benchmark:
           protocol: 1,540 题；共享宽松评测工具
           evidence: 第三方实测
           source: https://github.com/buildingjoshbetter/TrueMemory/blob/main/benchmarks/locomo/BENCHMARK_RESULTS.md
+    locomo_plus:
+      tab: LoCoMo Plus
+      title: 公开 Cognitive 成绩
+      count: 8 个公开条目
+      updated: 2026 年 10 月 7 日核验
+      table_label: LoCoMo Plus Cognitive 公开得分与评测配置
+      score_label: Cognitive 得分
+      spotlight:
+        title: PowerContext · GPT-4o
+        model: GPT-4o
+        link_label: 查看三个模型完整对比
+      rows:
+        - name: T-Mem
+          score: 74.81%
+          evidence: T-Mem 论文 · 表 3
+          protocol: Cognitive；GPT-4.1-mini 构建；GPT-4o 回答；Gemini-2.5-Flash Judge
+          source: https://arxiv.org/html/2606.15405v1#S3.T3
+        - name: HyperMem
+          score: 48.63%
+          evidence: T-Mem 论文 · 表 3
+          protocol: Cognitive；T-Mem 论文中的基线实验
+          source: https://arxiv.org/html/2606.15405v1#S3.T3
+        - name: MemOS
+          score: 32.67%
+          evidence: T-Mem 论文 · 表 3
+          protocol: Cognitive；T-Mem 论文中的基线实验
+          source: https://arxiv.org/html/2606.15405v1#S3.T3
+        - name: Gemini-2.5-Pro
+          score: 26.06%
+          evidence: LoCoMo Plus 论文 · 表 1
+          protocol: Cognitive；完整上下文；Gemini-2.5-Flash Judge
+          source: https://aclanthology.org/2026.acl-long.1150.pdf#page=6
+        - name: GPT-4o
+          score: 21.05%
+          evidence: LoCoMo Plus 论文 · 表 1
+          protocol: Cognitive；完整上下文；Gemini-2.5-Flash Judge
+          source: https://aclanthology.org/2026.acl-long.1150.pdf#page=6
+        - name: A-Mem
+          score: 17.20%
+          evidence: LoCoMo Plus 论文 · 表 1
+          protocol: Cognitive；GPT-4o 回答；Gemini-2.5-Flash Judge
+          source: https://aclanthology.org/2026.acl-long.1150.pdf#page=6
+        - name: Mem0
+          score: 15.80%
+          evidence: LoCoMo Plus 论文 · 表 1
+          protocol: Cognitive；GPT-4o 回答；Gemini-2.5-Flash Judge
+          source: https://aclanthology.org/2026.acl-long.1150.pdf#page=6
+        - name: SeCom
+          score: 14.90%
+          evidence: LoCoMo Plus 论文 · 表 1
+          protocol: Cognitive；GPT-4o 回答；Gemini-2.5-Flash Judge
+          source: https://aclanthology.org/2026.acl-long.1150.pdf#page=6
     swe:
       id: swe-rankings
       tab: SWE-bench Pro
@@ -451,7 +537,7 @@ benchmark:
         swe: 正式可执行测试是否通过
   sources:
     title: 评测方法与来源
-    lead: 两项评测的方法依据与复现资源。
+    lead: 三项评测的方法依据与评测工具；模型、评分规则与数据范围必须一并阅读。
     groups:
       - id: locomo
         title: LoCoMo
@@ -462,6 +548,18 @@ benchmark:
           - type: 数据集
             label: snap-research/locomo
             href: https://github.com/snap-research/locomo
+      - id: locomo-plus
+        title: LoCoMo Plus
+        items:
+          - type: 论文与任务定义
+            label: Beyond-Factual Cognitive Memory Evaluation Framework
+            href: https://arxiv.org/abs/2602.10715
+          - type: 固定版本数据与官方评测器
+            label: xjtuleeyf/Locomo-Plus · 059f4e3
+            href: https://github.com/xjtuleeyf/Locomo-Plus/tree/059f4e3d38f7f1f96765e8e2cb7de3097551bffb
+          - type: PowerContext 评测工具与评分说明
+            label: benchmark/locomo_plus
+            href: https://github.com/Teingi/powercontext/tree/master/benchmark/locomo_plus
       - id: swe
         title: SWE-bench Pro
         items:

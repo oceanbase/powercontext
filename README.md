@@ -116,6 +116,12 @@ Explore the [22 Chinese Jupyter tutorials and a complete team workflow](examples
 
 See the [methods, full results, and limitations](https://powercontext.oceanbase.io/en/benchmarks/) behind these comparisons.
 
+### LoCoMo Plus: comparison with Jev
+
+![LoCoMo Plus scores for native PowerContext and PowerContext + Jev across GPT-4o-mini, Qwen3.7-plus, and GPT-4o](docs/assets/readme-locomo-plus.svg)
+
+*LoCoMo Plus scores with and without Jev candidate filtering after retrieval. Each model is used for both Memory extraction and answering; embeddings use qwen3.7-text-embedding (1024 dimensions). Jev score differences are +8.925, +8.577, and +4.198 percentage points, respectively.*
+
 ## Build PowerContext
 
 ```bash
