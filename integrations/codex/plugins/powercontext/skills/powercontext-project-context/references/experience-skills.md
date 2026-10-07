@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Experience and Skills
 
 ## Read or synthesize managed content
@@ -31,3 +33,4 @@ package into a pending managed Skill candidate without model generation. `mode: 
 adaptation and requires Skill generation to be configured. Import requires contribution access to the bound Scope.
 Neither mode installs, publishes, approves or executes a Skill. An external entrypoint is local to its registered
 host; never present it as an executable path on another machine.
+<!-- POWERCONTEXT-GUIDANCE:END -->

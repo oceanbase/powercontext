@@ -37,14 +37,15 @@ from uuid import uuid4
 
 from powercontext.cli.git_source import InvalidGitHubSourceError, clone_github_source, github_clone_url
 from powercontext.cli.git_source import is_local_source as _is_local_source
+from powercontext.cli.guidance import HOST_GUIDANCE, SKILL_FILE, GuidanceError, refresh_skill, write_if_changed
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.paths import powercontext_data_dir
 
 OPENCODE_PLUGIN_NAME = "powercontext-opencode"
-OPENCODE_PLUGIN_RELATIVE = Path("integrations") / "opencode" / "plugins" / "powercontext"
+OPENCODE_PLUGIN_RELATIVE = Path(HOST_GUIDANCE["opencode"].plugin)
 OPENCODE_BUNDLE = Path("lib") / "index.js"
 OPENCODE_TUI_BUNDLE = Path("lib") / "tui.js"
-OPENCODE_SKILL = Path("skills") / "powercontext-project-context" / "SKILL.md"
+OPENCODE_SKILL = SKILL_FILE
 SKILL_MANIFEST = ".powercontext.json"
 PLUGIN_MANIFEST = ".powercontext-opencode.json"
 MINIMUM_VERSION = (1, 18, 21)
@@ -203,10 +204,17 @@ def _install_skill(source: Path, target: Path) -> None:
     staging = target.parent / f".{target.name}.{uuid4().hex}.tmp"
     backup: Path | None = None
     try:
-        shutil.copytree(source, staging)
-        (staging / SKILL_MANIFEST).write_text(
-            json.dumps({"schema": 1, "owner": "powercontext", "integration": "opencode"}, indent=2) + "\n",
-            encoding="utf-8",
+        if target.exists():
+            shutil.copytree(target, staging)
+        try:
+            refresh_skill(source, staging)
+        except GuidanceError as error:
+            raise OSError(str(error)) from error
+        write_if_changed(
+            staging / SKILL_MANIFEST,
+            (json.dumps({"schema": 1, "owner": "powercontext", "integration": "opencode"}, indent=2) + "\n").encode(
+                "utf-8"
+            ),
         )
         if target.exists():
             backup = target.parent / f".{target.name}.{uuid4().hex}.bak"

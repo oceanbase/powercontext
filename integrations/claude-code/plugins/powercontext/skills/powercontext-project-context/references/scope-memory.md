@@ -1,11 +1,13 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Scope and Memory
 
 ## Resolve scope
 
-Before the first memory tool call, run:
+Before the first memory tool call, locate this installed Skill file. Its plugin root is two directories above the Skill directory. Set `PLUGIN_ROOT` to that absolute path; do not assume a hook-only environment variable is available in an ordinary tool shell. Then run:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" --cwd "$PWD"
+python3 "${PLUGIN_ROOT}/scripts/workspace_scope.py" --cwd "$PWD"
 ```
 
 Reuse that exact `scope_id` for the task.
@@ -15,7 +17,7 @@ bindings, and finally its default Scope. When the user explicitly asks to bind
 the current checkout to a known Scope, run:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" \
+python3 "${PLUGIN_ROOT}/scripts/workspace_scope.py" \
   --cwd "$PWD" --bind-scope "SCOPE_ID"
 ```
 
@@ -52,3 +54,4 @@ check. After a conflict, refresh the head and retry once only if the user's
 requested change still applies.
 
 Automatic hooks attempt bounded context and Source capture; neither substitutes for an explicit Memory save.
+<!-- POWERCONTEXT-GUIDANCE:END -->

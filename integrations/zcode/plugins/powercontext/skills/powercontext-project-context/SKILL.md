@@ -1,4 +1,5 @@
 ---
+# POWERCONTEXT-GUIDANCE:START
 name: powercontext-project-context
 description: Search/save project memory, resolve Scope, transfer/continue work and inspect candidates (搜索记忆、记住、交接、接续、审核). Use for explicit requests or missing project history.
 ---
@@ -50,3 +51,6 @@ states exactly. Never enable boundary flush or clear its pause to manufacture su
 accepting an unknown flush retry authorizes the metadata's `pending_script resume-flush` control, with exact current
 Scope/session/data and `--accept-unknown-outcome`. It releases a local pause only; a later Stop may process receipts.
 Do not clear tracking guards or capacity markers automatically. Stop never creates Handoff, Receipt or TaskOutcome.
+
+Semantic recall or vector indexing may use the configured embedding provider and incur external API cost; cached embeddings can be reused, and preparing context reuses the query embedding. Respect the configured budget and existing authorization before starting additional indexing.
+<!-- POWERCONTEXT-GUIDANCE:END -->

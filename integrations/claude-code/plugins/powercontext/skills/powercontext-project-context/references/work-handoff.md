@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Work Handoff
 
 ## Current-work Handoff input
@@ -65,3 +67,4 @@ the exact Receipt SourceRef as `handoff_receipt_ref`. Preserve failed, skipped,
 timed-out, unavailable, cancelled, and unknown checks exactly.
 
 For a preview, use inspected current facts without capture, prepare, or commit. Preserve the complete returned carrier, including required nullable fields and generation receipts.
+<!-- POWERCONTEXT-GUIDANCE:END -->

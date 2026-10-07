@@ -35,13 +35,14 @@ from powercontext.cli.git_source import (
 from powercontext.cli.git_source import (
     is_local_source as _is_local_source,
 )
+from powercontext.cli.guidance import HOST_GUIDANCE, SKILL_FILE
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.paths import powercontext_data_dir
 
 PI_PACKAGE_NAME = "powercontext-pi"
-PI_PLUGIN_RELATIVE = Path("integrations") / "pi" / "plugins" / "powercontext"
+PI_PLUGIN_RELATIVE = Path(HOST_GUIDANCE["pi"].plugin)
 PI_EXTENSION = Path("extensions") / "powercontext.ts"
-PI_SKILL = Path("skills") / "powercontext-project-context" / "SKILL.md"
+PI_SKILL = SKILL_FILE
 
 
 @dataclass(frozen=True, slots=True)

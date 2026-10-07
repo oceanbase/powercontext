@@ -1,0 +1,42 @@
+{% extends "base/references/work-handoff.md.j2" %}
+{% block part_use_handoff_current_work_with_a_unique_source_id_and_a_hando %}Use `powercontext_handoff_current_work` with a unique `source_id` and a `handoff` object
+containing `schema: "powercontext.current-work-handoff.v1"`, `trust: "untrusted_input"`,
+`objective`, `state`, `disposition`, `next_action`, and `omissions`. Both state
+items and a non-null next action are WorkClaims: `{text, basis, evidence}`.
+Use `basis: "declared"` and `evidence: []` for facts inspected in the current
+conversation or repository without an existing exact PowerContext citation.
+Do not use `citations` in a WorkClaim, invent evidence for the new `source_id`,
+or call a fact `verified` merely because the user checked it. Preserve the
+returned carrier unchanged, including its Server-created evidence references.
+
+## Continuity
+
+For work that may cross sessions, use a Work Contract or Handoff operation with
+structured, evidence-backed objects:
+
+1. Describe the objective, facts, scope, exclusions, completion criteria, and
+   authorization notes in a Work Contract.
+2. Use the Handoff prepare/activate flow to create an inspectable draft from
+   exact evidence.
+3. Finalize only after inspecting the draft. Return the complete temporary carrier.
+   Commit only when the user explicitly requests a durable milestone; ordinary
+   handoff requests and temporary transfers do not authorize a commit.
+4. On receipt, use continue or acknowledge after checking the selected evidence
+   and current capabilities.
+5. Record a Task Outcome when the work completes, is blocked, or is cancelled.
+
+Do not claim that a task is complete merely because a Handoff or Outcome was
+written.
+
+{% endblock %}
+{% block part_complete_a_one_turn_durable_handoff %}{% endblock %}
+{% block part_use_this_flow_only_when_the_user_explicitly_requests_a_durab %}{% endblock %}
+{% block part_for_an_ordinary_transfer_inspect_the_facts_call_handoff_curr %}{% endblock %}
+{% block part_when_the_one_turn_flow_applies %}{% endblock %}
+{% block part_1_resolve_and_verify_the_exact_scope_using_scope_resolution_ %}{% endblock %}
+{% block part_if_preparation_succeeds_but_commit_fails_report_the_partial_ %}{% endblock %}
+{% block part_continue_and_acknowledge_a_handoff %}{% endblock %}
+{% block part_use_continue_handoff_with_a_prepared_carrier_or_an_exact_com %}{% endblock %}
+{% block part_call_acknowledge_handoff_with_that_same_prepared_or_exact_ta %}{% endblock %}
+{% block part_record_the_outcome %}{% endblock %}
+{% block part_at_an_actual_completion_or_interruption_boundary_call_record %}{% endblock -%}

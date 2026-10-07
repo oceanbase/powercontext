@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Review and publication
 
 ## Inspect and decide
@@ -8,3 +10,4 @@ and the host exposes the operation, use `approve_artifact_candidate`, `reject_ar
 `revise_artifact_candidate` with the exact current `candidate_id` and `expected_version`. After a version conflict,
 read the changed proposal again; authorization for an old proposal does not silently approve new content.
 Approval does not install, publish, or execute an artifact. Preserve any stricter host review policy.
+<!-- POWERCONTEXT-GUIDANCE:END -->

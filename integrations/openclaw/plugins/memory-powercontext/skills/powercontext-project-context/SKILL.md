@@ -1,4 +1,5 @@
 ---
+# POWERCONTEXT-GUIDANCE:START
 name: powercontext-project-context
 description: PowerContext memory search/save and work handoff (搜索记忆、记住、纠正、交接、接续). Use for explicit operations or missing project history, not routine coding or current-context summaries. Candidate review and Memory inventory are unavailable in this integration.
 ---
@@ -21,3 +22,6 @@ Automatic Source capture is not an explicit Memory save. Empty search is normal 
 A temporary Handoff is not a durable commit; a preview makes no write. Check returned results before reporting success.
 For failure or unavailable resources, name the operation or resource and safe returned reason; do not invent causes.
 A timeout can leave a write outcome unknown. Check status if available instead of claiming failure or blindly retrying.
+
+Semantic recall or vector indexing may use the configured embedding provider and incur external API cost; cached embeddings can be reused, and preparing context reuses the query embedding. Respect the configured budget and existing authorization before starting additional indexing.
+<!-- POWERCONTEXT-GUIDANCE:END -->

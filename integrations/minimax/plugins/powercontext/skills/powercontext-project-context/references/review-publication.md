@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Candidate review and publication
 
 ## Read candidates
@@ -21,3 +23,4 @@ Check the returned status before reporting approval, rejection, or revision. App
 The source address and target Revision are different references. Preserve source provenance and the returned target reference. Do not describe publication as a modification to the original Scope.
 
 Do not bypass dedicated Prompt management through generic Artifact publication or replacement. Remote distribution of managed Skills uses dedicated HTTP or Client operations; see [HTTP and MCP boundaries](http-boundaries.md).
+<!-- POWERCONTEXT-GUIDANCE:END -->

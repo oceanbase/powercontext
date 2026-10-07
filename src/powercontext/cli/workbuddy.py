@@ -41,15 +41,23 @@ from powercontext.cli.git_source import (
 from powercontext.cli.git_source import (
     is_local_source as _is_local_source,
 )
+from powercontext.cli.guidance import (
+    ENTRY_NAME,
+    HOST_GUIDANCE,
+    SKILL_DIRECTORY,
+    GuidanceError,
+    refresh_skill,
+    write_if_changed,
+)
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.paths import powercontext_data_dir
 
 WORKBUDDY_HOME_ENV = "WORKBUDDY_HOME"
 WORKBUDDY_PLUGIN_NAME = "powercontext"
-WORKBUDDY_PLUGIN_RELATIVE = Path("integrations") / "workbuddy" / "plugins" / "powercontext"
+WORKBUDDY_PLUGIN_RELATIVE = Path(HOST_GUIDANCE["workbuddy"].plugin)
 WORKBUDDY_HOOKS_DIRNAME = "hooks"
-WORKBUDDY_SKILLS_DIRNAME = "skills"
-WORKBUDDY_SKILL_NAME = "powercontext-project-context"
+WORKBUDDY_SKILLS_DIRNAME = SKILL_DIRECTORY.parent.name
+WORKBUDDY_SKILL_NAME = ENTRY_NAME
 WORKBUDDY_SKILL_MANIFEST = ".powercontext.json"
 WORKBUDDY_PYTHON_PLACEHOLDER = "${POWERCONTEXT_PYTHON}"
 WORKBUDDY_SCOPE_BINDING_PLACEHOLDER = "${POWERCONTEXT_SCOPE_BINDING_SCRIPT}"
@@ -337,23 +345,24 @@ def _install_workbuddy_skill(plugin_dir: Path, skills_dir: Path, hooks_dir: Path
     target = skills_dir / WORKBUDDY_SKILL_NAME
     try:
         skills_dir.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            shutil.rmtree(target)
-        shutil.copytree(source, target)
-        for skill_markdown in target.rglob("*.md"):
-            content = skill_markdown.read_text(encoding="utf-8")
-            content = content.replace(WORKBUDDY_PYTHON_PLACEHOLDER, _shell_argument(_python_executable()))
-            content = content.replace(
-                WORKBUDDY_SCOPE_BINDING_PLACEHOLDER,
-                _shell_argument((hooks_dir / WORKBUDDY_SCOPE_RESOLVER).as_posix()),
-            )
-            skill_markdown.write_text(content, encoding="utf-8")
-        (target / WORKBUDDY_SKILL_MANIFEST).write_text(
-            json.dumps({"schema": 1, "owner": "powercontext", "integration": "workbuddy"}, indent=2) + "\n",
-            encoding="utf-8",
+        refresh_skill(
+            source,
+            target,
+            replacements={
+                WORKBUDDY_PYTHON_PLACEHOLDER: _shell_argument(_python_executable()),
+                WORKBUDDY_SCOPE_BINDING_PLACEHOLDER: _shell_argument((hooks_dir / WORKBUDDY_SCOPE_RESOLVER).as_posix()),
+            },
+        )
+        write_if_changed(
+            target / WORKBUDDY_SKILL_MANIFEST,
+            (json.dumps({"schema": 1, "owner": "powercontext", "integration": "workbuddy"}, indent=2) + "\n").encode(
+                "utf-8"
+            ),
         )
     except OSError as error:
         raise SetupError.workbuddy_skill_write(target, error) from error
+    except GuidanceError as error:
+        raise SetupError(str(error)) from error
 
 
 def _upsert_powercontext_hook(matchers: list[Any], hooks_dir: Path, settings_file: Path) -> None:

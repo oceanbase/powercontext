@@ -1,0 +1,6 @@
+{% extends "base/references/review-publication.md.j2" %}
+{% block part_inspect_and_decide %}Use `pc_review_list` and `pc_review_get` for requested candidate inspection. Use `pc_experience_get` or `pc_skill_get`
+with exact returned artifact references. Candidate decision mutations are not model tools in this host. Generation,
+inspection, and suggested edits never grant approval, publication, installation, or execution authority.
+{% endblock %}
+{% block part_use_list_artifact_candidates_and_get_artifact_candidate_for_ %}{% endblock -%}

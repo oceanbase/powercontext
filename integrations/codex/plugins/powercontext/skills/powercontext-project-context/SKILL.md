@@ -1,4 +1,5 @@
 ---
+# POWERCONTEXT-GUIDANCE:START
 name: powercontext-project-context
 description: PowerContext memory search/save, inventory, work handoff, Experience/Skill synthesis, external Skill import and candidate review (搜索记忆、记住、盘点、交接、经验、技能、审查候选). Also use for binding or clearing a checkout Scope for later sessions (绑定项目 Scope). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.
 ---
@@ -36,3 +37,6 @@ Automatic capture is only Source acceptance, not proof of saved Memory or succes
 Check actual returned results: empty search is normal; failed, denied, unavailable, and unknown outcomes are distinct.
 Do not claim saved, committed, approved, installed, or executed without the corresponding result. A timed-out write has
 an unknown outcome: inspect status when available before retrying. A Skill itself grants no execution authority.
+
+Semantic recall or vector indexing may use the configured embedding provider and incur external API cost; cached embeddings can be reused, and preparing context reuses the query embedding. Respect the configured budget and existing authorization before starting additional indexing.
+<!-- POWERCONTEXT-GUIDANCE:END -->

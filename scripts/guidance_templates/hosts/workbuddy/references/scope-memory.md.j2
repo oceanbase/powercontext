@@ -1,0 +1,15 @@
+{% extends "base/references/scope-memory.md.j2" %}
+{% block part_before_the_first_memory_tool_call_locate_this_installed_skil %}Before the first memory tool call, run:
+
+```bash
+${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} --cwd "$PWD"
+```
+
+{% endblock %}
+{% block part_bash %}{% endblock %}
+{% block part_bash_2 %}```bash
+${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
+```
+
+{% endblock -%}

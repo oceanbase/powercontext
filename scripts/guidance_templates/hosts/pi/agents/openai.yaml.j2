@@ -1,0 +1,6 @@
+{% extends "base/agents/openai.yaml.j2" %}
+{% block part_interface %}interface:
+  display_name: "Project Context"
+  short_description: "Restore and maintain PowerContext project memory."
+  default_prompt: "Use PowerContext to restore project context or prepare a handoff."
+{% endblock -%}

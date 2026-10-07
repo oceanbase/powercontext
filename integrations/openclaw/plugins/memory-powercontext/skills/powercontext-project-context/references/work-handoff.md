@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Work Handoff
 
 These tools are available only in eligible private sessions and remain subject to actual host permissions.
@@ -25,3 +27,4 @@ needs_clarification or declined. Acknowledgement is a Receipt, not execution or 
 Use `powercontext_work_contract_create` only for an explicitly delegated work baseline that needs recording; it is not
 a mandatory step before coding. Use `powercontext_task_outcome` at a real, requested completion/interruption boundary,
 retaining failed, skipped, unavailable and unknown checks. Neither operation grants additional authority or approves artifacts.
+<!-- POWERCONTEXT-GUIDANCE:END -->
