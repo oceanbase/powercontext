@@ -206,7 +206,7 @@ def test_continuation_tasks_cannot_gate_the_recall_step_behind_an_earlier_reward
         ({"exception_types": ("EnvironmentStartTimeoutError",)}, "error"),
         ({"harness_failed": True, "reward": 1.0}, "error"),
         ({"treatment_failures": ("no context",), "reward": 1.0}, "integration_failed"),
-        # A timed-out ON run has no final snapshot; it still counts as a failed attempt, as it would with OFF.
+        # A timed-out ON run counts as a failed attempt, as it would with OFF, even when it also missed the treatment.
         ({"exception_types": ("AgentTimeoutError",), "treatment_failures": ("not observed",)}, "timeout"),
     ],
 )

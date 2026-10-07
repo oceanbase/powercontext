@@ -31,6 +31,7 @@ from .harbor_codex import CODEX_VERSION
 from .harbor_opencode import OPENCODE_VERSION
 from .harbor_pi import PI_VERSION
 from .settings import (
+    agent_secret,
     bub_environment,
     codex_auth_path,
     powercontext_bub_environment,
@@ -135,7 +136,7 @@ class BubHost:
                 "POWERCONTEXT_BUB_SCOPE_ID": scope_id,
             })
             if (token := server_api_token()) is not None:
-                env["POWERCONTEXT_BUB_API_TOKEN"] = token
+                env["POWERCONTEXT_BUB_API_TOKEN"] = agent_secret("POWERCONTEXT_BUB_API_TOKEN", token)
             if invocation_scopes is not None:
                 env.pop("POWERCONTEXT_BUB_SCOPE_ID")
                 kwargs["invocation_scopes"] = invocation_scopes
@@ -201,7 +202,8 @@ class PluginHost:
             env = {**self._plugin_environment(), f"{self.plugin_prefix}SCOPE_ID": scope_id}
             if (token := server_api_token()) is not None:
                 # Each plugin sends this value as its Authorization header.
-                env[f"{self.plugin_prefix}AUTHORIZATION"] = f"Bearer {token}"
+                authorization = f"{self.plugin_prefix}AUTHORIZATION"
+                env[authorization] = agent_secret(authorization, f"Bearer {token}")
         return AgentConfig(
             import_path=self.agent_import_path,
             model_name=self.agent_model(),

@@ -61,7 +61,7 @@ from .models import (
     TaskObservation,
 )
 from .report import render_evaluation_summary
-from .settings import HarnessSettings, ModelNotConfiguredError
+from .settings import HarnessSettings, ModelNotConfiguredError, agent_secret
 
 FailurePolicy = Literal["fail-fast", "collect-all"]
 TaskStatus = Literal["completed", "failed", "skipped"]
@@ -439,7 +439,8 @@ def _job_config(
         invocation_scopes=invocation_scopes if runtime is not None else None,
     )
     if settings.agent_proxy_url is not None:
-        proxy_url = settings.agent_proxy_url.get_secret_value()
+        # Harbor writes a literal under these names to its job files in full, and the URL can carry credentials.
+        proxy_url = agent_secret("PROXY_URL", settings.agent_proxy_url.get_secret_value())
         agent.env.update({
             "HTTP_PROXY": proxy_url,
             "HTTPS_PROXY": proxy_url,

@@ -28,6 +28,8 @@ from harbor.models.agent.context import AgentContext
 AGENT_ID = "powercontext-bub-acp"
 REMOTE_BIN_DIR = "/installed-agent/bin"
 REMOTE_BUB_HOME = "/installed-agent/bub-home"
+# Bub keeps every session's messages as JSONL in its home, and nothing else clears them between the steps of a trial.
+BUB_TAPES = '"${BUB_HOME:?}/tapes"'
 REMOTE_BUB_PROJECT = "/installed-agent/bub-project"
 REMOTE_CODEX_AUTH = "/run/agent-auth/codex-auth.json"
 REMOTE_CODEX_HOME = "/installed-agent/codex"
@@ -41,7 +43,10 @@ STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
 
 
 class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
-    """Install Bub through its supported uv tool and plugin commands."""
+    """Install Bub through its supported uv tool and plugin commands, and start every session without Bub's tapes.
+
+    Bub does not search another session's tape, but an agent can read the files, so each session starts without them.
+    """
 
     def __init__(self, **kwargs: Any) -> None:
         self._invocation_scopes = tuple(kwargs.pop("invocation_scopes", ()))
@@ -64,7 +69,10 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
     @override
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
         try:
+            # The marker comes first: the verifier reads a missing marker as a passed step, so every failure
+            # after this line, including a failed removal, must leave it in place.
             await environment.exec(command=f"touch {STEP_FAILURE_MARKER}")
+            await self.exec_as_agent(environment, command=f"rm -rf {BUB_TAPES}")
             if not self._invocation_scopes:
                 await super().run(instruction, environment, context)
             else:

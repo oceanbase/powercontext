@@ -73,6 +73,10 @@ def test_resolved_instruction_evidence_matches_harbor_acp_summaries(
                 "HF_TOKEN",
                 "AWS_SECRET_ACCESS_KEY",
                 "POWERCONTEXT_PI_AUTHORIZATION",
+                # Harbor's Claude Code agent forwards this one, which names the token in the middle.
+                "AWS_BEARER_TOKEN_BEDROCK",
+                # Settings read their variables in any case.
+                "powercontext_client_api_token",
             )
         ),
         # The Client and the Server accept a token of any length.
@@ -152,8 +156,25 @@ def test_short_placeholder_credentials_do_not_corrupt_evidence(monkeypatch) -> N
     monkeypatch.setenv("LOCAL_API_KEY", "1")
     monkeypatch.setenv("OLLAMA_API_KEY", "ollama")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-provider-secret")
-    evidence = json.dumps({"reward": 1, "provider": "ollama", "error": "rejected sk-or-provider-secret"})
+    # A plural names a count, which Harbor's Claude Code agent also forwards.
+    monkeypatch.setenv("MAX_THINKING_TOKENS", "8192")
+    # CI sets these to where a token is, not to the token: a path CI logs and an agent can print.
+    monkeypatch.setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "/var/run/secrets/eks.amazonaws.com/serviceaccount/token")
+    monkeypatch.setenv("HF_TOKEN_PATH", "/home/runner/.cache/huggingface/token")
+    evidence = json.dumps({
+        "reward": 1,
+        "provider": "ollama",
+        "max_bytes": 8192,
+        "error": "rejected sk-or-provider-secret",
+        "stderr": "open /var/run/secrets/eks.amazonaws.com/serviceaccount/token: no such file",
+    })
 
     redacted = json.loads(redact(evidence, HarnessSettings()))
 
-    assert redacted == {"reward": 1, "provider": "ollama", "error": "rejected [REDACTED]"}
+    assert redacted == {
+        "reward": 1,
+        "provider": "ollama",
+        "max_bytes": 8192,
+        "error": "rejected [REDACTED]",
+        "stderr": "open /var/run/secrets/eks.amazonaws.com/serviceaccount/token: no such file",
+    }

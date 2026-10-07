@@ -139,7 +139,9 @@ Each selected workload writes the same layout:
 Shared runs write the same v1 files per source task under `batch-<name>/tasks/<workload-id>/`, plus one aggregate
 evaluation and report at `batch-<name>/`. `collect-all` reports every failed task; `fail-fast` stops only that shared
 Harbor trial at its first failed step. Runtime batch steps are flat and task-prefixed. Each agent invocation starts an
-independent ACP session and Bub tape.
+independent ACP session and Bub tape. Bub keeps every tape as a file in its home, which Harbor does not clear between
+steps, so before each invocation the harness removes the earlier tapes: Bub does not search another session's tape, but
+an agent could read the files.
 
 ## Compare PowerContext off and on
 
@@ -176,7 +178,9 @@ therefore runs only against a Server that requires authentication: it stops befo
 its Scopes to a client without a token. Start the Server with `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and a
 `POWERCONTEXT_SERVER_AUTH_TOKEN`, and give the harness the same value as `POWERCONTEXT_CLIENT_API_TOKEN`; the harness
 passes it to the ON arm's integration as `POWERCONTEXT_BUB_API_TOKEN` or `POWERCONTEXT_<HOST>_AUTHORIZATION`. The
-token still lets an ON agent read other Scopes on the same Server, including earlier trials'.
+harness holds that value in its own environment and gives Harbor a reference to it, so Harbor's job files record the
+reference and no part of the token. The token still lets an ON agent read other Scopes on the same Server, including
+earlier trials'.
 
 After each ON session the harness records the Scope's Server statistics. When another session follows, it first
 flushes the Scope, standing in for the time that passes between real sessions, and repeats the flush until the Scope
@@ -192,7 +196,10 @@ and that the integration asked PowerContext for context during it. Otherwise it 
 flush creates Memory and whether recall returns content are PowerContext's own behavior, so the snapshots record them
 but a run that gets nothing useful still counts as an ON attempt.
 Integration failures and harness or infrastructure errors are reported but left out of success rates and paired
-differences. An agent timeout counts as a failed attempt in either arm.
+differences. A session whose model request failed is such an error on every host: Codex and Claude Code exit non-zero,
+Harbor reads OpenCode's error events, and the harness reads Pi's last message, because Pi exits 0 in the JSON mode
+Harbor uses. The harness reads Pi's output through the logs that Harbor's Docker environment mounts and stops with an
+error when the file is not there. An agent timeout counts as a failed attempt in either arm.
 
 The harness Client waits for each flush, which runs the Server's generation model, so raise its 10-second default
 timeout; the Bub plugin also flushes during a session.
@@ -356,8 +363,8 @@ forwards other native `BUB_*` values without translating them.
 
 If the agent task container requires an outbound proxy, set `POWERCONTEXT_E2E_AGENT_PROXY_URL` to a URL reachable
 from that container. In the fixed nested-container harness, `host-gateway` addresses the harness container, so a
-proxy exposed there can be passed as `http://host-gateway:<port>`. The typed setting is also treated as a secret when
-evidence is written.
+proxy exposed there can be passed as `http://host-gateway:<port>`. The URL can carry credentials, so the harness
+treats it as a secret when evidence is written and gives Harbor a reference to it rather than the value.
 
 The agent container sees only the repository files that installation needs: the `powercontext` package and the host
 integration, and none of them in a paired OFF arm. Workload files, answer keys, and benchmark data stay on the host,
@@ -397,8 +404,12 @@ The harness does not mirror PowerContext Server, PowerContext Client, Bub, Harbo
 loads its native parameters, and the adapter only forwards the native values needed across the nested-container
 boundary. The Bub plugin uses Bub's Pydantic settings extension and accepts the same fields in the `powercontext`
 section of `bub.yml`. Every `*_API_KEY`, `*_TOKEN`, `*_AUTHORIZATION`, and `*_SECRET_ACCESS_KEY` value in the harness
-environment, including Bub's API keys and the PowerContext Client token, is redacted at every final evidence sink,
-whatever its length. Only common placeholders for local model servers, such as `1` or `ollama`, are left in place,
-because they protect nothing and redacting them by substring would rewrite the evidence. CI scans evidence with
-TruffleHog before publishing it. Native ACP artifacts can contain arbitrary command output and should be reviewed before
-sharing.
+environment, including Bub's API keys and the PowerContext Client token, is redacted in every file the harness writes,
+whatever its length. A name with `_TOKEN_` in the middle, such as `AWS_BEARER_TOKEN_BEDROCK`, counts too, and names
+match in any case, but a name ending in `_FILE`, `_PATH`, or `_URL`, such as `AWS_WEB_IDENTITY_TOKEN_FILE`, says
+where a token is and is left alone. Only common placeholders for local model servers, such as `1` or `ollama`, are
+left in place, because they protect nothing and redacting them by substring would rewrite the evidence. CI scans
+evidence with TruffleHog before publishing it. Harbor writes the files under `harbor-jobs/` itself, and the harness
+does not redact them: the job configuration holds references to secrets rather than their values, but every host's
+own output there can contain arbitrary command output, such as an agent printing its environment, and should be
+reviewed before sharing.
