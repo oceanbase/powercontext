@@ -4,7 +4,7 @@
 
 ## Resolve scope
 
-Before the first memory tool call, locate this installed Skill file. Its plugin root is two directories above the Skill directory. Set `PLUGIN_ROOT` to that absolute path; do not assume a hook-only environment variable is available in an ordinary tool shell. Then run:
+Before the first memory tool call, set `PLUGIN_ROOT` to the host-provided `CLAUDE_PLUGIN_ROOT` when available and verify that `scripts/workspace_scope.py` exists there. Otherwise, locate this installed Skill file: its plugin root is two directories above the Skill directory. Use that absolute path; do not assume a hook-only environment variable is available in an ordinary tool shell. Then run:
 
 ```bash
 python3 "${PLUGIN_ROOT}/scripts/workspace_scope.py" --cwd "$PWD"

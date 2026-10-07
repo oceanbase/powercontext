@@ -29,6 +29,10 @@ An edited document without markers is rejected rather than overwritten: identify
 range and add the matching markers, leaving personal notes outside. Host-managed package installation
 remains subject to that host's behavior; generation tests do not certify native discovery or execution.
 
-The shared embedding-cost note is an intentional content addition. Claude Code's resolver now uses a
-plugin root located from the installed Skill rather than assuming a hook-only environment variable is
-available in a model tool shell. Other existing host instructions are retained through template inheritance.
+The shared embedding-cost note is an intentional content addition. Claude Code's resolver accepts the
+host-provided plugin root, verifies its helper, and falls back to the installed Skill's plugin root when
+the environment variable is unavailable. Other existing host instructions are retained through template inheritance.
+
+After committing a Claude Code Skill change, refresh its pinned evaluation copy with
+`uv run python evaluation/skill-up/sync_skill.py --revision HEAD` and run that script with `--check`.
+The offline evaluation checks do not replace a new authenticated model run for the new pin.
