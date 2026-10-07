@@ -60,6 +60,8 @@ Dashboard 是 PowerContext 中供个人使用和演示的内容查看器，默�
 
 用户打开一条记录后，应能返回所属目录。更换搜索条件从第一页开始；切换范围清除上一范围的记录选择和分页位置，详情返回对应目录。单纯切换语言或主题则保留范围、周期和正在阅读的记录。
 
+记忆搜索默认遵循部署能力，也允许用户选择检索模式。展示实际模式、每条结果的命中通道与检索得分，帮助用户核对召回依据；得分不解释为相似度百分比。
+
 ### 原始材料支持就地核对
 
 原始材料列在记录正文之后，读者可以从经验、技能或交接直接打开对应材料。材料使用 Tabler 原生大尺寸弹窗阅读，小屏全屏显示；多份材料通过选单切换。关闭后回到原记录的阅读位置，键盘用户也能完成同样的过程。
@@ -154,7 +156,7 @@ Jinja2 组织内容与页面结构，HTMX 处理导航和片段替换。只有�
 | 页面能力 | 接口 | 需要保留的边界 |
 | --- | --- | --- |
 | 范围选择 | `GET /v1/scopes`、`GET /v1/scopes/default`、`GET /v1/scopes/{scope_id}` | 默认值、显式选择、父子关系和可读范围分别处理 |
-| 记忆目录与正文 | `POST /v1/memory/entries/list`、`POST /v1/memory/search`、`POST /v1/memory/entries/get` | 全文搜索使用 `fts`；最多 50 条匹配结果；正文按完整记忆引用读取 |
+| 记忆目录与正文 | `POST /v1/memory/entries/list`、`POST /v1/memory/search`、`POST /v1/memory/entries/get` | 保留搜索模式与命中依据；最多 50 条匹配结果；正文按完整记忆引用读取 |
 | 交接目录与正文 | `GET /v1/scopes/{scope_id}/artifacts/handoff` 及精确版本读取 | 保留游标；列表顺序不解释为时间顺序 |
 | 经验目录与正文 | `GET /v1/scopes/{scope_id}/artifacts/experience`、`POST /v1/experience/get` | 提供分页目录；当前没有公开 HTTP 搜索接口 |
 | 技能目录与正文 | `POST /v1/skill/library`、`POST /v1/skill/get` | 库检索最多 200 项，达到上限时提示缩小查询；保留来源身份 |
