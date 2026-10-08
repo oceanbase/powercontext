@@ -197,43 +197,30 @@ def test_sqlite_fence_lock_serializes_worker_commit_and_term_replacement(tmp_pat
     asyncio.run(scenario())
 
 
-def test_dream_counter_migration_preserves_pending_work_and_is_repeatable():
-    from powercontext.builtin.persistence.dream_schema import ensure_dream_schema
+def test_runtime_requires_explicit_counter_migration_without_changing_pending_work(tmp_path):
+    import sqlite3
 
-    async def scenario():
-        intents = ArtifactProcessingIntentRepository()
-        async with (
-            SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile,
-            profile.database.transaction() as connection,
-        ):
-            await intents.mark_dirty(connection, "migration", BINDING)
-            before = await intents.request(connection, "migration", BINDING)
-            await connection.exec_driver_sql(
-                "ALTER TABLE pc_artifact_processing_intents DROP COLUMN consecutive_dream_attempts"
-            )
-            await ensure_dream_schema(connection)
-            await ensure_dream_schema(connection)
-            restored = await intents.load(connection, "migration", BINDING)
-            assert restored is not None and restored == before
-            assert restored.consecutive_dream_attempts == 0
-
-    asyncio.run(scenario())
-
-
-def test_runtime_upgrades_dream_counter_before_validating_processing_schema(tmp_path):
+    from powercontext.builtin.persistence.dream_schema import DreamSchemaNotReadyError
     from powercontext.builtin.runtime.composition import open_builtin_contexts
     from powercontext.builtin.runtime.config import BuiltinConfig
 
     async def scenario():
-        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'upgrade.db'}"))
+        path = tmp_path / "upgrade.db"
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{path}"))
         async with open_builtin_contexts(config) as contexts, contexts.database.transaction() as connection:
             await ArtifactProcessingIntentRepository().request(connection, "upgrade", BINDING)
             await connection.exec_driver_sql(
                 "ALTER TABLE pc_artifact_processing_intents DROP COLUMN consecutive_dream_attempts"
             )
-        async with open_builtin_contexts(config) as contexts, contexts.database.transaction() as connection:
-            intent = await ArtifactProcessingIntentRepository().load(connection, "upgrade", BINDING)
-            assert intent is not None and intent.requested_generation == 1
-            assert intent.consecutive_dream_attempts == 0
+        with sqlite3.connect(path) as connection:
+            before = tuple(connection.iterdump())
+        with pytest.raises(DreamSchemaNotReadyError, match="migration_required"):
+            async with open_builtin_contexts(config):
+                pytest.fail("Pending work needs explicit migration")
+        with sqlite3.connect(path) as connection:
+            assert tuple(connection.iterdump()) == before
+            assert connection.execute(
+                "SELECT requested_generation FROM pc_artifact_processing_intents WHERE scope_id='upgrade'"
+            ).fetchone() == (1,)
 
     asyncio.run(scenario())

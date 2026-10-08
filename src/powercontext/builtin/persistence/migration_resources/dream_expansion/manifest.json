@@ -1,0 +1,92 @@
+{
+  "feature": "dream_expansion",
+  "rfc": 1715,
+  "migration_rfc": 1771,
+  "framework_implementation_pr": 1772,
+  "registration": {
+    "state": "awaiting_full_database_bundle",
+    "revision": null,
+    "down_revision": null,
+    "server_ready": false
+  },
+  "execution_mode": "maintenance",
+  "mixed_binaries": false,
+  "frozen_resources": [
+    "upgrade.py",
+    "schema.json",
+    "manifest.json"
+  ],
+  "affected_objects": [
+    "pc_artifact_candidate_heads",
+    "pc_artifact_candidate_versions",
+    "pc_candidate_heads",
+    "pc_candidate_versions",
+    "pc_profile_policies.pending_candidate_id",
+    "pc_dream_runs.proposal_fingerprint",
+    "ix_pc_dream_runs_proposal_fingerprint",
+    "pc_artifact_processing_intents.consecutive_dream_attempts"
+  ],
+  "retained_objects": [
+    {
+      "source": "pc_artifact_candidate_heads",
+      "name": "pc_retained_dream_candidate_heads",
+      "purpose": "Pre-upgrade Candidate heads without live foreign keys",
+      "cleanup": "Separate framework revision after recovery obligations expire"
+    },
+    {
+      "source": "pc_artifact_candidate_versions",
+      "name": "pc_retained_dream_candidate_versions",
+      "purpose": "Pre-upgrade immutable proposals without live foreign keys",
+      "cleanup": "Separate framework revision after recovery obligations expire"
+    }
+  ],
+  "api_changes": {
+    "removed": [
+      "/v1/artifact-candidates/*"
+    ],
+    "replacements": [
+      "/v1/candidates/list",
+      "/v1/candidates/get",
+      "/v1/candidates/history",
+      "/v1/candidates/revise",
+      "/v1/candidates/approve",
+      "/v1/candidates/reject"
+    ],
+    "deprecation_policy": "Explicit direct-removal exception in RFC 1715; coordinated client upgrade",
+    "aliases": false,
+    "removal_release": null,
+    "minimum_client_version": null
+  },
+  "task_formats": {
+    "dream_runs": {
+      "operations": [
+        "refine_experience",
+        "derive_skill"
+      ],
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed"
+      ],
+      "payload_schema": "schema.json#/task_payload_schema",
+      "strategy": "compatible_consumption",
+      "conversion": "none; preserve payload, identity, principal, idempotency and candidate references",
+      "unknown": "unsupported_task_format"
+    },
+    "processing_intents": "Preserve all fields; initialize consecutive_dream_attempts to zero",
+    "other_queues_and_leases": "Full framework inventory must validate, convert or drain before registration"
+  },
+  "framework_requirements": [
+    "Register a complete historical Server baseline and actual revision dependencies",
+    "Freeze and checksum this transformation and schema.json with the release bundle",
+    "Bind removal_release and minimum_client_version before production registration",
+    "Validate available backup policy, capacity for retained copies and restoration dependencies",
+    "Hold the framework maintenance lock and pinned connection with all writers stopped",
+    "Disable SQLite foreign keys before beginning the rebuild transaction; verify before revision advancement",
+    "Verify backend DDL and recovery on SQLite, seekdb and OceanBase MySQL mode",
+    "Run the legacy task recognizer during plan and locked execution before transformation",
+    "Run migration-only copy verification before revision advancement; use live invariants and current task recognizers for ordinary startup",
+    "Integrate complete runtime readiness before admitting a versioned database"
+  ]
+}

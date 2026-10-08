@@ -1660,8 +1660,10 @@ def test_restart_recovers_expired_run_with_its_pinned_input(database: DatabaseCo
     asyncio.run(scenario())
 
 
-def test_additive_migration_preserves_existing_experience_and_candidate(database: DatabaseConfig) -> None:
+def test_missing_provenance_requires_maintenance_without_changing_existing_records(database: DatabaseConfig) -> None:
     from sqlalchemy.ext.asyncio import create_async_engine
+
+    from powercontext.builtin.persistence.dream_schema import DreamSchemaNotReadyError
 
     async def scenario() -> None:
         settings = BuiltinConfig(database=database)
@@ -1673,7 +1675,7 @@ def test_additive_migration_preserves_existing_experience_and_candidate(database
                     sources=(root,),
                 )
             )
-            approved = await runtime.review.for_scope(scope).approve(
+            await runtime.review.for_scope(scope).approve(
                 ApproveCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
@@ -1686,33 +1688,19 @@ def test_additive_migration_preserves_existing_experience_and_candidate(database
                 await connection.exec_driver_sql("ALTER TABLE pc_artifacts DROP COLUMN memory_citations")
                 await connection.exec_driver_sql("ALTER TABLE pc_candidate_versions DROP COLUMN memory_citations")
                 await connection.exec_driver_sql("DROP TABLE pc_dream_runs")
+            async with engine.connect() as connection:
+                before = {
+                    name: (await connection.exec_driver_sql(f"SELECT * FROM {name}")).all()  # noqa: S608 - fixed names
+                    for name in ("pc_artifacts", "pc_candidate_heads", "pc_candidate_versions")
+                }
+            with pytest.raises(DreamSchemaNotReadyError, match="migration_required"):
+                async with open_builtin_runtime(settings, dream_generator=Generator()):
+                    pytest.fail("Legacy provenance requires explicit migration")
+            async with engine.connect() as connection:
+                for name, rows in before.items():
+                    assert (await connection.exec_driver_sql(f"SELECT * FROM {name}")).all() == rows  # noqa: S608 - fixed table names
         finally:
             await engine.dispose()
-        async with open_builtin_runtime(settings, dream_generator=Generator()) as runtime:
-            assert approved.result_artifact is not None
-            restored = await runtime.experience.for_scope(scope).get(
-                GetExperienceRequest(artifact=approved.result_artifact)
-            )
-            assert restored.content == experience()
-            assert restored.lineage.memory_citations == ()
-            assert restored.lineage.sources == (root,)
-            restored_candidate = await runtime.review.for_scope(scope).get(
-                GetCandidateRequest(
-                    candidate_id=candidate.candidate_id,
-                )
-            )
-            assert restored_candidate == approved
-            accepted = await runtime.dream.for_scope(scope).create(
-                CreateDreamRunRequest(
-                    operation="derive_skill",
-                    artifacts=(restored.as_ref(),),
-                    idempotency_key="after-migration",
-                )
-            )
-            await process_pending(runtime)
-            assert (
-                await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
-            ).status == "succeeded"
 
     asyncio.run(scenario())
 

@@ -28,8 +28,8 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
-from powercontext.builtin.persistence.candidate_schema import migrate_candidate_schema
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.dream_schema import assert_dream_schema_ready
 from powercontext.builtin.persistence.errors import PersistenceError
 from powercontext.builtin.persistence.schema import create_tables
 from powercontext.builtin.persistence.tables import MYSQL_IDENTITY_COLLATION
@@ -160,7 +160,7 @@ async def _initialized_profile(profile: OceanBaseProfile) -> AsyncIterator[Ocean
     try:
         async with profile.database.transaction() as connection:
             await _require_mysql_tenant(connection)
-        await migrate_candidate_schema(profile.database.engine)
+        await assert_dream_schema_ready(profile.database.engine)
         async with profile.database.transaction() as connection:
             await _require_compatible_identity_collations(connection, profile.tables)
             await create_tables(connection, profile.tables)

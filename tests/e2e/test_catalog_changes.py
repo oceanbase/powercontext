@@ -402,11 +402,15 @@ def test_catalog_memory_entry_changes_invalidate_pending_candidate(database, cha
     asyncio.run(scenario())
 
 
-def test_legacy_database_adds_catalog_review_without_losing_existing_tags(tmp_path):
+def test_legacy_database_requires_maintenance_and_keeps_existing_tags(tmp_path):
+    import sqlite3
+
+    from powercontext.builtin.persistence.dream_schema import DreamSchemaNotReadyError
+
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'legacy.db'}")
 
     async def scenario():
-        async with seed(database) as (contexts, scope, source, artifact):
+        async with seed(database) as (contexts, scope, _source, artifact):
             initial = await proposal(contexts, scope, artifact)
             await contexts.records.replace_tags(
                 scope, initial.target, ("existing",), expected_etag=initial.expected_etag
@@ -418,14 +422,16 @@ def test_legacy_database_adds_catalog_review_without_losing_existing_tags(tmp_pa
                 )
                 await connection.exec_driver_sql("DROP INDEX ix_pc_dream_runs_proposal_fingerprint")
                 await connection.exec_driver_sql("ALTER TABLE pc_dream_runs DROP COLUMN proposal_fingerprint")
+        path = tmp_path / "legacy.db"
+        with sqlite3.connect(path) as connection:
+            before = tuple(connection.iterdump())
         for _ in range(2):
-            async with open_builtin_contexts(BuiltinConfig(database=database)) as contexts:
-                tags = await contexts.records.get_tags(scope, initial.target)
-                assert tags.tags == ("existing",)
-                candidate = await contexts.catalog_changes(scope).propose(
-                    await proposal(contexts, scope, artifact), sources=(source,), reason="Migration preserves targets"
-                )
-                assert (await contexts.catalog_changes(scope).get(candidate.candidate_id)).status == "pending"
+            with pytest.raises(DreamSchemaNotReadyError, match="migration_required"):
+                async with open_builtin_contexts(BuiltinConfig(database=database)):
+                    pytest.fail("Legacy Candidate storage requires explicit migration")
+            with sqlite3.connect(path) as connection:
+                assert tuple(connection.iterdump()) == before
+                assert connection.execute("SELECT tag FROM pc_artifact_tags").fetchone() == ("existing",)
 
     asyncio.run(scenario())
 

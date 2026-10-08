@@ -17,7 +17,9 @@ Handoff approval publishes the new revision immediately. A subsequent explicit C
 
 ## Coordinated upgrade
 
-The unified Candidate routes and physical table rename ship together, including for A0/A1-only deployments with Tag disabled. Back up the database, stop old Servers and Workers, allow startup migration to finish, and upgrade Client/SDK/CLI/MCP/integrations before resuming traffic. The removed `/v1/artifact-candidates/*` routes have no aliases or compatibility filtering; automatic data migration does not preserve old clients. Tag enablement does not require another Candidate table rename.
+The unified Candidate routes and physical table rename ship together, including for A0/A1-only deployments with Tag disabled. Existing databases require explicit maintenance through the [unified migration framework (RFC #1771)](https://github.com/oceanbase/powercontext/pull/1771): stop writers, apply the selected backup policy, migrate and verify, then start the matching Server and upgrade Client/SDK/CLI/MCP/integrations before resuming traffic. Dream startup checks its required storage without renaming tables, adding columns, or creating its deduplication index. The removed `/v1/artifact-candidates/*` routes have no aliases or compatibility filtering; direct removal is an explicit release exception to the usual deprecation period. Database migration does not preserve old clients. Tag enablement does not require another Candidate table rename.
+
+Production upgrade is not enabled by the Dream contribution alone. [PR #1772](https://github.com/oceanbase/powercontext/pull/1772) must register the complete Server baseline, revision chain, legacy-task checks and backend acceptance. Its four-table SQLite prototype does not establish Server readiness. This branch rejects legacy Dream storage with `migration_required` and versioned databases with `migration_framework_not_ready` until full framework readiness is integrated; do not bypass these errors by stamping a revision or creating empty replacement tables. Registered retained tables and recovery objects remain under the framework's retention policy.
 
 ## Prompt configuration
 
