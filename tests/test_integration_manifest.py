@@ -25,6 +25,7 @@ from integration_manifest import (
     DOCUMENTATION_PATHS,
     MANIFEST_PATH,
     IntegrationAvailability,
+    IntegrationKind,
     IntegrationManifest,
     evidence_path_errors,
     integration_directory_errors,
@@ -414,6 +415,45 @@ def test_each_documentation_locale_is_required(integration_tree: Path, locale: s
     assert integration_directory_errors(load_integration_manifest(), integration_tree) == (
         f"codex: missing {locale} integration documentation: {pointer}",
     )
+
+
+@pytest.mark.parametrize("kind", list(IntegrationKind))
+def test_unsupported_directory_uses_rationale_without_claiming_documentation_evidence(
+    integration_tree: Path, kind: IntegrationKind
+) -> None:
+    payload = load_integration_manifest().model_dump(mode="json")
+    payload["integrations"].append({
+        "id": "unsupported-adapter",
+        "kind": kind,
+        "availability": "unsupported",
+        "rationale": "docs/unsupported-adapter-rationale.md",
+    })
+    directory = integration_tree / "integrations/unsupported-adapter"
+    directory.mkdir()
+    rationale = integration_tree / "docs/unsupported-adapter-rationale.md"
+    rationale.write_text("This adapter is not supported.\n", encoding="utf-8")
+    for locale in ("en", "zh"):
+        page = integration_tree / f"docs/{locale}/docs/integrations/unsupported-adapter.md"
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_text("Unsupported; see the local rationale.\n", encoding="utf-8")
+
+    manifest = IntegrationManifest.model_validate(payload)
+    assert integration_directory_errors(manifest, integration_tree) == ()
+    assert evidence_path_errors(manifest, integration_tree) == ()
+    if kind.value not in payload["documentation_waivers"]:
+        for locale in ("en", "zh"):
+            pointer = f"docs/{locale}/docs/integrations/unsupported-adapter.md"
+            page = integration_tree / pointer
+            page.unlink()
+            assert integration_directory_errors(manifest, integration_tree) == (
+                f"unsupported-adapter: missing {locale} integration documentation: {pointer}",
+            )
+            page.write_text("Unsupported.\n", encoding="utf-8")
+    rationale.unlink()
+    assert evidence_path_errors(manifest, integration_tree)
+    payload["integrations"][-1]["evidence"] = {"documentation": ["docs/en/docs/integrations/unsupported-adapter.md"]}
+    with pytest.raises(ValidationError, match="unsupported integrations cannot claim current support"):
+        IntegrationManifest.model_validate(payload)
 
 
 @pytest.mark.parametrize("category", ["implementation", "documentation", "tests"])

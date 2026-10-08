@@ -363,7 +363,10 @@ def integration_directory_errors(
             pointer = f"docs/{locale}/docs/integrations/{integration.id}.md"
             if not (repository_root / pointer).is_file():
                 errors.append(f"{integration.id}: missing {locale} integration documentation: {pointer}")
-            elif pointer not in integration.evidence.documentation:
+            elif (
+                integration.availability is not IntegrationAvailability.UNSUPPORTED
+                and pointer not in integration.evidence.documentation
+            ):
                 errors.append(f"{integration.id}: undocumented {locale} evidence: {pointer}")
     return tuple(errors)
 
