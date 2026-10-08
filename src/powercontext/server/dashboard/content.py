@@ -62,10 +62,11 @@ async def load_notes(api: DashboardAPI, ctx: dict[str, Any]) -> None:
         if ctx["page"] == "notes" and ctx["search_query"]:
             result = await api.read(
                 "/v1/memory/search",
-                {"scope_id": ctx["scope"], "query": ctx["search_query"], "mode": "fts", "limit": 50},
+                {"scope_id": ctx["scope"], "query": ctx["search_query"], "mode": ctx["search_mode"], "limit": 50},
             )
             ctx["data"]["notes"] = [{**hit, **hit["citation"]} for hit in result["hits"]]
             ctx["search_limited"] = len(result["hits"]) == 50
+            ctx["search_used_mode"] = result["mode"]
         else:
             ctx["data"]["notes"] = memory_view(await api.read("/v1/memory/entries/list", {"scope_id": ctx["scope"]}))
     except ReadError as error:
@@ -110,6 +111,8 @@ async def select_note(api: DashboardAPI, request: Request, ctx: dict[str, Any]) 
             raise ReadError(404, "not_found")
         entry = await api.read("/v1/memory/entries/get", {"scope_id": scope, "citation": citation})
         ctx["selected_note"] = {**entry, **entry["citation"]}
+        if current and current["citation"] == entry["citation"] and "matched_by" in current:
+            ctx["selected_note"].update(matched_by=current["matched_by"], score=current["score"])
     elif ctx["data"]["notes"]:
         ctx["selected_note"] = ctx["data"]["notes"][0]
 
@@ -152,7 +155,10 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
                     for hit in window["items"]
                 )
             )
-            ctx["data"]["notes"] = memory_view({"entries": entries})
+            ctx["data"]["notes"] = [
+                {**entry, "matched_by": hit["matched_by"], "score": hit["score"]}
+                for entry, hit in zip(memory_view({"entries": entries}), window["items"], strict=True)
+            ]
         ctx["notes_pager"] = list_links(ctx, "notes", window)
         ctx["notes_page_size"] = PAGE_SIZE
         await select_note(api, request, ctx)

@@ -31,6 +31,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffStatement,
     PreparedHandoff,
     PrepareHandoff,
+    PrepareHandoffHint,
 )
 from powercontext.builtin.artifacts.memory.models import MemoryChange
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
@@ -317,6 +318,7 @@ __all__ = [
     "PowerContextProvider",
     "PrepareContextRequest",
     "PrepareHandoff",
+    "PrepareHandoffHint",
     "PreparedContext",
     "PreparedHandoff",
     "ProposeExperienceRequest",

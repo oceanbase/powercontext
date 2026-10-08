@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from harbor.job import Job
+from powercontext.client import PowerContextClient, UnauthorizedResponseError
+from powercontext.client.settings import ClientSettings
 from powercontext.http import CreateScopeRequest
 
 from .catalog import ContinuationEvaluationSpec, E2ETask
@@ -62,6 +64,17 @@ SCORES: dict[ArmOutcome, int] = {"passed": 1, "failed": 0, "timeout": 0}
 AGENT_TIMEOUT = "AgentTimeoutError"
 
 
+class UnauthenticatedServerError(RuntimeError):
+    """Report a Server that answers without a token, which an OFF agent that reaches it could read."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The PowerContext Server answers unauthenticated requests, so an OFF agent that reaches it could read the "
+            "ON arm's Memory. Start it with POWERCONTEXT_SERVER_ACCESS_MODE=enforced and POWERCONTEXT_SERVER_AUTH_TOKEN, "
+            "and give the harness the same token as POWERCONTEXT_CLIENT_API_TOKEN"
+        )
+
+
 class MemoryExtractionUnavailableError(RuntimeError):
     """Report a Server that cannot turn captured Sources into Memory, which the ON arm depends on."""
 
@@ -92,6 +105,7 @@ async def run_paired(
     observations: list[PairedArmObservation] = []
     async with _powercontext_client() as client:
         await client.get_readiness()
+        await require_authenticated_server()
         if not (await client.get_capabilities()).memory_extraction:
             raise MemoryExtractionUnavailableError
         for task in tasks:
@@ -131,6 +145,22 @@ def _paired_agent(host: HostAdapter) -> PairedAgent:
         model=host.agent_model(),
         settings=host.agent_settings(),
     )
+
+
+async def require_authenticated_server() -> None:
+    """Refuse a Server that lists its Scopes to a client without a token.
+
+    Both arms' containers can reach the Server, so only authentication keeps the OFF arm out of the ON arm's Memory;
+    the token goes to the harness Client and the ON arm's integration only.
+    """
+
+    settings = ClientSettings()
+    async with PowerContextClient(settings.server_url, timeout=settings.timeout) as anonymous:
+        try:
+            await anonymous.list_scopes()
+        except UnauthorizedResponseError:
+            return
+    raise UnauthenticatedServerError
 
 
 def recall_session_index(task: E2ETask, settings: HarnessSettings) -> int:

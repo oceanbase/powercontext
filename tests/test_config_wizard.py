@@ -54,7 +54,7 @@ def test_local_port_is_saved_with_matching_connection_urls(
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"sqlite\n{database}\n{mode}local\nbase\ny\n{selected_port}\ncodex\ndefault\nnone\ny\n",
+        input=f"sqlite\n{database}\n{mode}local\nbase\ny\n{selected_port}\n\ncodex\ndefault\nnone\ny\n",
     )
     assert result.exit_code == 0, result.output
     values = parse_environment(output.read_text())
@@ -79,7 +79,7 @@ def test_edit_network_module_changes_existing_default_port(tmp_path: Path) -> No
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"sqlite\n{tmp_path / 'context.db'}\nedit\nnetwork\nlocal\ny\n18000\ndone\ny\n",
+        input=f"sqlite\n{tmp_path / 'context.db'}\nedit\nnetwork\nlocal\ny\n18000\n\ndone\ny\n",
     )
     assert result.exit_code == 0, result.output
     values = parse_environment(output.read_text())
@@ -262,7 +262,7 @@ def test_openclaw_next_steps_use_plugin_configuration_contract(tmp_path: Path) -
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\ny\n\nopenclaw\nnew\nnone\ny\n",
+        input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\ny\n\ny\nopenclaw\nnew\nnone\ny\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -440,7 +440,7 @@ def test_dashboard_finish_shows_new_token_once_and_clear_old_bindings(tmp_path: 
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\ny\n\ncodex\ndefault\nclaude-code\ndefault\nnone\ny\n",
+        input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\ny\n\ny\ncodex\ndefault\nclaude-code\ndefault\nnone\ny\n",
     )
     assert result.exit_code == 0, result.output
     server_values = parse_environment(output.read_text())

@@ -69,10 +69,31 @@ Setup configures both the native MCP URL and hook endpoint for Codex, Claude Cod
 Codex hooks intentionally use the installed plugin's `.mcp.json`; rerun setup after a plugin update that replaces
 that file. Do not change only a hook URL environment variable and assume the native MCP URL changed too.
 
-DSH custom `cordis.patch.yml` layers can override setup-managed settings. Setup accepts the standard empty
-profile patch, but stops before installation when custom overlays are present: align the endpoint/consent
-manually or remove those overrides before rerunning setup. Doctor reports unsupported native composition
-(including unsupported JSON5/includes) as unknown/failed instead of claiming a safe loopback connection.
+DSH setup preserves existing UI, model, and other unrelated `cordis.patch.yml` customizations. It uses the
+installed DSH's native parser and patch composition to check PowerContext's `baseUrl` and `allowInsecureHttp`,
+then checks the actual candidate against the complete bundle stack the native installer will enable, including
+installed but inactive dependencies on DSH versions that reactivate them. Existing bundle order and the selected
+CLI's activation rules are preserved. Matching settings pass; an override that would
+undo the selected endpoint or HTTP consent must be aligned or removed. The check does not rewrite user patches,
+start plugins, or evaluate `!!js`. Dynamic PowerContext transport fields, disabled/ambiguous entries, and unreadable
+bundles are reported explicitly. PowerContext's own version incompatibility blocks setup. On DSH versions that
+skip incompatible third-party bundles, setup warns and excludes their patch layers as the host does; explicit
+version exemptions retain those layers and their transport overrides. Unrelated dynamic plugin configuration
+does not block setup.
+
+After installation, setup reads the actual enabled configuration again before saving connection settings or
+credentials. If the result cannot be verified or disagrees with the selected transport, setup fails and leaves
+those settings unsaved; inspect the modified DSH profile before restarting. This readback does not roll back
+native package installation. Standalone doctor checks only currently enabled bundles.
+
+Configuration inspection requires Node.js and an npm/pnpm DSH installation exposing the native composition APIs.
+The APIs are loaded from that DSH installation's `@deepseek-ai/dsh-app-boot`, which DSH declares as its own
+dependency. PowerContext does not install a replacement parser into the plugin. Missing packages or required
+APIs produce upgrade/reinstallation guidance before installation effects. Profiles and credentials use the same
+`DSH_HOME`; an unset, empty, or whitespace-only value uses `~/.dsh`.
+The CLI observes the selected configuration files and its own environment, not a running DSH session's extra
+`--patch` arguments or environment; use `/pc doctor` inside that session. Doctor reports unsupported native
+composition (including unsupported JSON5/includes in other hosts) as unknown/failed rather than claiming safety.
 
 MiniMax and the generic Agent Plugin delegate MCP transport to the host and have no PowerContext setup subcommand
 or independent HTTP client. Their host may have its own restrictions; this flag cannot override host policy.

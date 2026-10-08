@@ -46,10 +46,15 @@ unit-test: ## Run tests that do not cross the Server boundary end to end.
 e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
 	@uv run python -m pytest tests/e2e
 
+.PHONY: evaluation-unit-test
+evaluation-unit-test: ## Run the evaluation project's unit tests, the work-continuity benchmark included.
+	@uv sync --project evaluation --frozen
+	@uv run --project evaluation pytest -c evaluation/pyproject.toml evaluation/tests/unit -m "not live" -q
+
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.
 	@uv sync --locked --extra seekdb --extra code
-	@uv run --locked --extra seekdb --extra code python -m pytest tests/e2e/test_native_code_seekdb.py
+	@uv run --locked --extra seekdb --extra code python -m pytest tests/e2e/test_mysql_source_roundtrip.py tests/e2e/test_native_code_seekdb.py
 
 .PHONY: real-e2e-test
 real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE defaults to all.
@@ -184,6 +189,17 @@ pi-test: ## Install and test the Pi package.
 	@pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile
 	@pnpm --dir integrations/pi/plugins/powercontext test
 	@pnpm --dir integrations/pi/plugins/powercontext run typecheck
+
+.PHONY: dify-test
+dify-test: ## Check the isolated Dify SDK plugin and real PowerContext HTTP/SQLite tools.
+	@uv sync --locked --project integrations/dify --python 3.12
+	@uv run --project integrations/dify python integrations/dify/generate_requirements.py --check
+	@uv run --project integrations/dify python -X utf8 integrations/dify/generate_contract.py --check
+	@uv run --project integrations/dify ruff check integrations/dify
+	@uv run --project integrations/dify ruff format --check integrations/dify
+	@uv run --project integrations/dify ty check --project integrations/dify --python integrations/dify/.venv
+	@uv run --project integrations/dify python -X utf8 -m pytest integrations/dify/tests
+	@uv run python -X utf8 -m pytest tests/e2e/test_dify_tools_http.py
 
 .PHONY: build
 build: clean-build ## Build wheel file

@@ -28,7 +28,7 @@ powercontext config init --language zh --output .env
 1. **存储**：SQLite 可直接开始；需要体验嵌入式 seekdb 时选择 seekdb，并同意后台安装缺失依赖。
 2. **使用场景**：Agent、浏览器和 Server 都在这台机器时选“只在当前机器”。Server 在另一台机器时，先看[连接远程 Server](../operate/connect-remote-server.md)。
 3. **记忆能力**：选择“完整记忆能力”，填写 Generation 和 Embedding API；不确定协议与维度时看[模型配置](configure-models.md)。
-4. **Dashboard**：开启，便于观察 Source 和记忆。向导会生成或沿用 Server Token。
+4. **Dashboard**：开启，便于观察 Source 和记忆。本地认证默认关闭，需要访问认证时再开启，见[可选认证](configure-server-environment.md#本地-dashboard-与可选认证)。
 5. **后台处理**：可先使用各制品的推荐周期。检查间隔不是完成时限，模型处理还需要时间。
 6. **Agent**：选择 Codex，规划新的独立 Scope；如需 Claude Code，再选择它，最后选择“结束 Agent 配置”。
 7. 核对并保存。
@@ -37,11 +37,11 @@ powercontext config init --language zh --output .env
 
 | 文件 | 用途 |
 | --- | --- |
-| `.env` | 本次安装使用的 Server、客户端、Agent、数据库和模型配置，包括凭据与 Server Token |
+| `.env` | 本次安装使用的 Server、客户端、Agent、数据库和模型配置，包括已配置的凭据 |
 | `.env.next-steps.md` | 与本次选择对应的启动、Scope 创建、插件连接和验收说明 |
 
-向导会打印 Dashboard 地址、新生成的 Token，以及所选 SSH 转发命令。以后可在 `.env` 中查看
-`POWERCONTEXT_SERVER_AUTH_TOKEN`。文件包含凭据，不要提交到 Git。
+向导会打印 Dashboard 地址和所选 SSH 转发命令。启用认证时，还会显示一次新生成的 Server Token，
+以后可在 `.env` 中查看 `POWERCONTEXT_SERVER_AUTH_TOKEN`。文件可能包含凭据，不要提交到 Git。
 若 seekdb 仍在安装，向导会在当前界面显示活动进度并等待；安装失败时先按提示完成依赖安装。
 保存配置或装好依赖，都不代表 Server 已经启动。
 
@@ -55,7 +55,7 @@ powercontext server run --env-file .env
 ```
 
 保持终端运行。在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的
-`POWERCONTEXT_SERVER_HTTP_PORT` 为准。使用 **Server Token** 登录，不是模型 API key。
+`POWERCONTEXT_SERVER_HTTP_PORT` 为准。未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。
 首次没有数据是正常现象。需要关闭终端后继续运行时，先停止前台 Server，再通过
 `powercontext service install --env-file .env` 安装[个人后台服务](../operate/deploy-server.md#运行持久个人-server)，复用同一份配置。
 
@@ -98,11 +98,11 @@ codex
 ```
 
 在 Codex 中确认 PowerContext Hook 和 MCP 均已加载。非默认地址还需按 `.env.next-steps.md` 的 Codex 连接说明，
-检查已安装插件的 `.mcp.json`：MCP 的 URL 必须和 Hook 使用同一 Server，Authorization 从
-`POWERCONTEXT_CODEX_AUTHORIZATION` 读取。仅安装插件不会启动 Server。
+检查已安装插件的 `.mcp.json`：MCP 的 URL 必须和 Hook 使用同一 Server，启用认证时还需配置凭据。
+仅安装插件不会启动 Server。
 
 这些命令以 Codex CLI 为例。桌面 App 不一定继承终端的环境变量；在桌面中验收前，要确认 App 的 Hook 和 MCP
-都拿到了相同的地址、Token 和 Scope。更多宿主行为见[Codex](../integrations/codex.md)和[Claude Code](../integrations/claude-code.md)。
+都拿到了相同的地址和 Scope，启用认证时还需取得对应凭据。更多宿主行为见[Codex](../integrations/codex.md)和[Claude Code](../integrations/claude-code.md)。
 
 完整能力中的 Profile 还需要为这个真实 Scope 启用生成策略。按[Profile 策略步骤](configure-models.md#为-scope-启用-profile-策略)
 读取当前版本并更新；只生成配置文件不会自动完成它。

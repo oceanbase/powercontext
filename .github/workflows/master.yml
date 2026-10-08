@@ -59,11 +59,79 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up project tools
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+
+      - name: Install and resolve native DSH configuration test APIs
+        run: |
+          pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+          boot="$(node --input-type=module -e "import { createRequire } from 'node:module'; import { resolve } from 'node:path'; const require = createRequire(resolve('integrations/dsh/plugins/powercontext/tests/config-runtime/package.json')); process.stdout.write(require.resolve('@deepseek-ai/dsh-app-boot'))")"
+          test -n "$boot" && test -f "$boot" || { echo "DSH configuration runtime unresolved"; exit 1; }
+          echo "DSH_TEST_CONFIG_BOOT=$boot" >> "$GITHUB_ENV"
+
       - name: Run unit tests
+        env:
+          PYTEST_ADDOPTS: --require-dsh-config-runtime
         run: make unit-test
 
       - name: Run end-to-end tests
         run: make e2e-test
+
+  evaluation-tests:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      # `evaluation/` is its own uv project with its own `testpaths`, so the root
+      # unit-test job never collected it and the benchmark's own tests were only
+      # ever run by hand. The job starts at the unit subtree because that is the
+      # subtree this change owns; `evaluation/tests/web` and
+      # `evaluation/tests/contract` are already red on `master` for reasons
+      # unrelated to the benchmark, and gating them here would make this check
+      # red before it could report anything.
+      - name: Run the evaluation project unit tests
+        run: |
+          set -o pipefail
+          make evaluation-unit-test 2>&1 | tee evaluation/pytest.log
+
+      # A pull request from a fork cannot read this run's raw job log — the log
+      # endpoint answers `Must have admin rights to Repository` — so a red check
+      # is otherwise an exit code and nothing else. Both the step summary and an
+      # annotation are readable by the contributor, and the annotation is the one
+      # that still says something when the failure happened before the tests ran.
+      - name: Report the failing cases
+        if: failure()
+        run: |
+          {
+            echo "### evaluation unit tests"
+            echo
+            echo '```'
+            uv --version || true
+            python3 -V || true
+            echo '```'
+            echo
+            if grep -qE '^(FAILED|ERROR) ' evaluation/pytest.log; then
+              echo '```'
+              grep -E '^(FAILED|ERROR) ' evaluation/pytest.log
+              echo '```'
+            else
+              echo "No failing case was reported, so the run failed before the tests ran:"
+              echo
+              echo '```'
+              tail -n 40 evaluation/pytest.log
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          detail=$(tail -n 25 evaluation/pytest.log | awk '{gsub(/%/, "%25"); gsub(/\r/, "%0D"); printf "%s%%0A", $0}')
+          echo "::error title=evaluation unit tests failed::${detail}"
 
   code-seekdb:
     timeout-minutes: 20
@@ -143,6 +211,62 @@ jobs:
           tests/test_service_environment.py
           tests/test_cli_workbuddy.py::test_setup_workbuddy_remote_checkout_refreshes_the_requested_ref
 
+  dify-tools:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Check out the supported Dify host helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: langgenius/dify
+          ref: 8387590ace4a094de812b7847fc6a4c3a27cd52b # 1.17.1
+          path: .artifacts/dify-host
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            api/core/entities/parameter_entities.py
+            api/core/plugin/entities/parameters.py
+            api/core/tools/__base/tool.py
+            api/core/tools/entities/common_entities.py
+            api/core/tools/entities/tool_entities.py
+            docker/docker-compose.yaml
+            web/app/components/workflow/nodes/tool/default.ts
+            web/app/components/workflow/nodes/tool/output-schema-utils.ts
+            web/app/components/workflow/nodes/_base/components/variable/utils.ts
+
+      - name: Check out the default Dify plugin daemon entities
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: langgenius/dify-plugin-daemon
+          ref: 1310a18b2f6bc6f18768a0a6265484830891433c # 0.6.10 (Dify 1.17.1 compose default)
+          path: .artifacts/dify-daemon
+          persist-credentials: false
+
+      - name: Set up Go for daemon entity serialization
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .artifacts/dify-daemon/go.mod
+          cache-dependency-path: .artifacts/dify-daemon/go.sum
+
+      - name: Set up project tools
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+
+      - name: Check daemon serialization, host casting, Workflow selectors and SDK HTTP readback
+        env:
+          POWERCONTEXT_DIFY_SOURCE: ${{ github.workspace }}/.artifacts/dify-host
+          POWERCONTEXT_DIFY_DAEMON_SOURCE: ${{ github.workspace }}/.artifacts/dify-daemon
+        run: make dify-test
+
   hermes-skills:
     timeout-minutes: 15
     runs-on: ubuntu-latest
@@ -181,13 +305,28 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
 
       - name: Test DSH package
         run: make js-test
 
       - name: Test built plugin in the real DSH runtime
         run: make dsh-runtime-test
+
+      - name: Install native DSH configuration test APIs
+        run: pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+
+      - name: Resolve required DSH test runtimes
+        run: |
+          bin="$(node --input-type=module -e "import { dshBin } from './integrations/dsh/plugins/powercontext/tests/runtime/fixture.mjs'; process.stdout.write(dshBin)")"
+          test -n "$bin" && test -f "$bin" || { echo "DSH test executable unresolved"; exit 1; }
+          boot="$(node --input-type=module -e "import { createRequire } from 'node:module'; import { resolve } from 'node:path'; const require = createRequire(resolve('integrations/dsh/plugins/powercontext/tests/config-runtime/package.json')); process.stdout.write(require.resolve('@deepseek-ai/dsh-app-boot'))")"
+          test -n "$boot" && test -f "$boot" || { echo "DSH configuration runtime unresolved"; exit 1; }
+          echo "DSH_TEST_EXECUTABLE=$bin" >> "$GITHUB_ENV"
+          echo "DSH_TEST_CONFIG_BOOT=$boot" >> "$GITHUB_ENV"
+
+      - name: Verify DSH setup with customized profiles
+        run: uv run pytest tests/test_dsh_transport.py --require-dsh-runtime
 
       - name: Verify DSH guidance adapter requests and results
         run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[dsh]"
@@ -205,7 +344,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
 
       - name: Test Pi package
         run: make pi-test
@@ -223,7 +362,7 @@ jobs:
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
 
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
       - name: Test OpenCode package
         run: make opencode-test
 
@@ -240,7 +379,7 @@ jobs:
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
 
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
       - run: mise install node@24.15.0
       - name: Test OpenClaw package
@@ -277,7 +416,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up website tools
-        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
 
       - name: Install website dependencies
         run: pnpm --dir website install --frozen-lockfile
@@ -298,7 +437,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up website tools
-        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
 
       - name: Check website
         run: make docs-test

@@ -43,10 +43,11 @@ MCP_URL_REWRITE = (
 
 
 class PowerContextCodexAgent(Codex):
-    """Install the PowerContext Codex plugin in both arms and enable Codex plugins only in the ON arm.
+    """Run Codex with the local PowerContext Codex plugin installed and enabled only in the ON arm.
 
-    This follows the published SWE-bench Pro protocol: both arms run the same installation, and the arm switch is
-    Codex's own ``plugins`` feature. Hooks run without interactive trust, as an unattended run cannot grant it.
+    The OFF arm is Codex as a user without PowerContext has it, with nothing of the plugin in its container, so its
+    agent cannot find PowerContext and search for it. The ON arm's hooks run without interactive trust, as an
+    unattended run cannot grant it.
     """
 
     CLI_FLAGS: ClassVar[list[CliFlag]] = [
@@ -57,16 +58,19 @@ class PowerContextCodexAgent(Codex):
 
     def __init__(self, *, server_url: str, powercontext: bool = True, **kwargs: Any) -> None:
         self._server_url = server_url
+        self._powercontext = powercontext
         super().__init__(
             version=CODEX_VERSION,
-            plugins="enable" if powercontext else "disable",
-            bypass_hook_trust=True,
+            plugins="enable" if powercontext else None,
+            bypass_hook_trust=powercontext,
             **kwargs,
         )
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
         await super().install(environment)
+        if not self._powercontext:
+            return
         await self.exec_as_root(environment, command=_install_plugin_runtime_command())
         agent_user = shlex.quote(str(environment.default_user or "root"))
         await self.exec_as_root(environment, command=f"chown -R {agent_user} {REMOTE_PLUGIN_ENV} {REMOTE_UV_PYTHON}")
@@ -74,10 +78,10 @@ class PowerContextCodexAgent(Codex):
     @override
     def _build_register_mcp_servers_command(self) -> str | None:
         # Harbor removes CODEX_HOME after every step, so the plugin is added again before each Codex session.
-        commands = [install_plugin_command(self._server_url)]
+        commands = [install_plugin_command(self._server_url)] if self._powercontext else []
         if task_servers := super()._build_register_mcp_servers_command():
             commands.append(task_servers)
-        return "\n".join(commands)
+        return "\n".join(commands) or None
 
 
 def _install_plugin_runtime_command() -> str:

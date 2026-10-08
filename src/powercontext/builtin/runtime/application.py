@@ -52,6 +52,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffStatement,
     PreparedHandoff,
     PrepareHandoff,
+    PrepareHandoffHint,
 )
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
@@ -2072,6 +2073,17 @@ class ScopedHandoffApplication:
     async def finalize(self, draft: HandoffDraft, /) -> PreparedHandoff:
         async with self._runtime._context(self.scope_id) as context:
             return await context.artifacts.handoff.finalize(draft)
+
+    async def hint(self, request: PrepareHandoffHint, /) -> PreparedContext:
+        """Prepare optional historical orientation for direct host delivery."""
+
+        async with self._runtime._context(self.scope_id) as context:
+            content = await context.artifacts.handoff.hint(request)
+        return PreparedContext(
+            status="empty" if content is None else "ready",
+            content=content,
+            content_bytes=0 if content is None else len(content.encode("utf-8")),
+        )
 
     async def commit(self, prepared: PreparedHandoff, /) -> Handoff:
         async with self._runtime._context(self.scope_id) as context, self._runtime._locked(self.scope_id):

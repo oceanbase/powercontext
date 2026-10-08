@@ -75,14 +75,18 @@ Without environment variables or an environment file, the Server:
 `Ctrl-C` performs a clean shutdown. Restarting the command reopens the same database.
 
 The Dashboard is an optional content viewer for personal use and demonstrations. It is disabled by default and needs
-no separate frontend installation or model configuration. To enable it, put these settings in a protected environment
-file and replace the token example with your own long random credential:
+no separate frontend installation or model configuration. To enable it locally without a token, save these settings
+in an environment file:
 
 ```dotenv
+POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1
 POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
-POWERCONTEXT_SERVER_ACCESS_MODE=enforced
-POWERCONTEXT_SERVER_AUTH_TOKEN=replace-with-your-random-token
+POWERCONTEXT_SERVER_ACCESS_MODE=disabled
 ```
+
+To require authentication, set `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and set `POWERCONTEXT_SERVER_AUTH_TOKEN` to
+your own long random credential. The [configuration wizard](configure-server-environment.md#local-dashboard-and-optional-authentication)
+also offers this choice when enabling Dashboard locally.
 
 ```bash
 chmod 600 /path/to/powercontext.env
@@ -90,11 +94,11 @@ powercontext config validate --env-file /path/to/powercontext.env
 powercontext server run --env-file /path/to/powercontext.env
 ```
 
-Open `http://127.0.0.1:8000/dashboard/home` and enter the same token. Use the actual port if you change it.
-The token also protects the Server API and MCP, so connected Agents need it too. The CLI does not automatically load
-a directory's `.env` file.
+Open `http://127.0.0.1:8000/dashboard/home`, using the actual port if you change it. With authentication disabled, the
+page opens directly. When enabled, sign in with the Server token and configure connected Agents to use it for API
+and MCP requests. The CLI does not automatically load a directory's `.env` file.
 
-The first sign-in selects the Server default Scope. Pages are empty until content is saved. Save a Memory through an
+The first visit selects the Server default Scope. Pages are empty until content is saved. Save a Memory through an
 Agent or public API, then refresh Memories in the same Scope. Experiences, skills, handoffs, and usage also come from
 saved records. The Dashboard does not capture sessions, run generation, or approve candidates. The Dashboard and Agent
 must use the same Server and Scope.
@@ -104,8 +108,9 @@ revision does not change the current profile. In **Handoff**, use **Export Markd
 detail page to download that exact revision, including its full text, omissions, and citations. If sign-in expires,
 sign in again to return to the selected detail, then repeat the download.
 
-All token holders use one identity. Multi-user RBAC deployments should leave the Dashboard disabled and use the API,
-MCP, or host integrations. See [Deploy the Server](../operate/deploy-server.md) for network and credential configuration.
+When authentication is enabled, all token holders use one identity. Multi-user RBAC deployments should leave the
+Dashboard disabled and use the API, MCP, or host integrations. See [Deploy the Server](../operate/deploy-server.md)
+for network and credential configuration.
 
 This minimal launch does not enable model-backed extraction or vector search. To generate and validate one explicit
 environment file for those capabilities, continue with the
@@ -170,7 +175,7 @@ tag-table constraints during Server startup to support Topic Memory tags. Stop t
 one upgraded instance first so the schema upgrade completes before other instances connect. Databases from before
 1.0.0 also need the [Artifact processing migration](../operate/artifact-processing-migration.md) if it has not already
 been completed. Upgrade the Server, clients, and Agent integrations together.
-The Dashboard must be explicitly enabled with static Bearer authentication; see
+The Dashboard must be explicitly enabled; static Bearer authentication is optional for local use. See
 [Deploy the Server](../operate/deploy-server.md). Remote plaintext HTTP connections require explicit client consent;
 see [Connect to a remote Server](../operate/connect-remote-server.md).
 

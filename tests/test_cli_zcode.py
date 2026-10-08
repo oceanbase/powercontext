@@ -17,9 +17,9 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from contextlib import nullcontext
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -27,7 +27,7 @@ from typer.testing import CliRunner
 
 from powercontext.cli import zcode
 from powercontext.cli.app import create_cli
-from powercontext.cli.system import SetupError, doctor_app
+from powercontext.cli.system import SetupError, doctor_app, setup_app
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows desktop installation path")
@@ -48,8 +48,23 @@ def _checkout(root: Path) -> Path:
     (plugin / ".zcode-plugin" / "plugin.json").write_text('{"name":"powercontext"}', encoding="utf-8")
     (plugin / "hooks").mkdir()
     (plugin / "hooks" / "user_prompt_submit.mjs").write_text("// hook", encoding="utf-8")
+    for name in ("session_start.mjs", "stop.mjs"):
+        (plugin / "hooks" / name).write_text("// hook", encoding="utf-8")
+    for folder, names in {
+        "shared": ("settings.mjs", "transport.mjs", "scope.mjs", "observations.mjs", "context.mjs", "pending.mjs"),
+        "scripts": ("scope.mjs", "status.mjs", "doctor.mjs", "pending.mjs"),
+    }.items():
+        (plugin / folder).mkdir()
+        for name in names:
+            source = Path(__file__).parents[1] / "integrations/zcode/plugins/powercontext" / folder / name
+            shutil.copyfile(source, plugin / folder / name)
     (plugin / "hooks" / "hooks.json").write_text(
-        '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"process"}]}]}}', encoding="utf-8"
+        json.dumps({
+            "hooks": {
+                event: [{"hooks": [{"type": "process"}]}] for event in ("UserPromptSubmit", "SessionStart", "Stop")
+            }
+        }),
+        encoding="utf-8",
     )
     (plugin / ".mcp.json").write_text(
         '{"mcpServers":{"powercontext":{"type":"http","url":"http://127.0.0.1:8000/mcp"}}}',
@@ -129,17 +144,48 @@ def test_zcode_doctor_uses_installed_url_with_stale_environment_override(tmp_pat
     monkeypatch.setattr(zcode, "zcode_executable", lambda: "zcode")
     checkout = tmp_path / "checkout"
     _checkout(checkout)
-    zcode.install_zcode_plugin(source=str(checkout), ref="unused", server_url="https://installed.example")
-    monkeypatch.setattr(zcode, "urlopen", lambda *_args, **_kwargs: nullcontext(SimpleNamespace(status=200)))
-    monkeypatch.setenv("POWERCONTEXT_ZCODE_SERVER_URL", "http://127.0.0.1:1")
-    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "http://127.0.0.1:2")
 
-    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "zcode", "--json"])
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
 
-    assert result.exit_code == 0, result.output
-    report = json.loads(result.output)
-    assert report["ok"] is True
-    assert "transport" not in report["checks"]
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"scope_id":"scope-probe"}')
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - stdlib override signature.
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}"
+        zcode.install_zcode_plugin(source=str(checkout), ref="unused", server_url=endpoint)
+        monkeypatch.setenv("POWERCONTEXT_ZCODE_SERVER_URL", "http://127.0.0.1:1")
+        monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "http://127.0.0.1:2")
+        result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "zcode", "--json"])
+        assert result.exit_code == 0, result.output
+        report = json.loads(result.output)
+        assert report["ok"] is True
+        assert "transport" not in report["checks"]
+        assert report["checks"]["protected_api"]["status"] == "ok"
+        assert report["checks"]["mcp_session"]["status"] == "skipped"
+        monkeypatch.delenv("POWERCONTEXT_ZCODE_SERVER_URL")
+        monkeypatch.delenv("POWERCONTEXT_CLIENT_SERVER_URL")
+        setup = CliRunner().invoke(
+            create_cli([setup_app]), ["setup", "zcode", "--source", str(checkout), "--server-url", endpoint]
+        )
+        assert setup.exit_code == 0, setup.output
+        assert "setup complete" in setup.output
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
 
 
 def test_zcode_install_restores_config_and_plugin_when_config_write_fails(tmp_path: Path, monkeypatch) -> None:
@@ -187,10 +233,6 @@ def test_zcode_remote_http_requires_consent_and_auth_uses_runtime_env(tmp_path: 
     assert entry["headers"] == {"Authorization": "${POWERCONTEXT_ZCODE_AUTHORIZATION}"}
     assert "test-value" not in (Path(result.plugin_path) / ".mcp.json").read_text(encoding="utf-8")
 
-    def offline(*_args, **_kwargs):
-        raise OSError("offline")
-
-    monkeypatch.setattr(zcode, "urlopen", offline)
     assert zcode.run_zcode_diagnostics()["mcp"].ok
     monkeypatch.delenv("POWERCONTEXT_ZCODE_AUTHORIZATION")
     assert not zcode.run_zcode_diagnostics()["mcp"].ok
@@ -218,3 +260,32 @@ def test_zcode_git_ref_route_and_later_setup_failure_restore_prior_state(tmp_pat
     assert requested == [("owner/powercontext", "v1.2.3")] * 2
     assert zcode.zcode_config_file().read_bytes() == config_before
     assert (Path(first.plugin_path) / "keep.txt").read_text(encoding="utf-8") == "previous"
+
+
+def test_zcode_diagnostics_detect_missing_installed_scope_dependency(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(zcode, "zcode_config_file", lambda: tmp_path / "home/.zcode/cli/config.json")
+    monkeypatch.setattr(zcode, "zcode_executable", lambda: "zcode")
+    checkout = tmp_path / "checkout"
+    _checkout(checkout)
+    result = zcode.install_zcode_plugin(source=str(checkout), ref="unused")
+    (Path(result.plugin_path) / "shared/scope.mjs").unlink()
+    assert not zcode.run_zcode_diagnostics()["hooks"].ok
+
+
+def test_zcode_upgrade_keeps_saved_capture_and_boundary_options(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(zcode, "zcode_config_file", lambda: tmp_path / "home/.zcode/cli/config.json")
+    monkeypatch.setattr(zcode, "zcode_executable", lambda: "zcode")
+    monkeypatch.delenv("POWERCONTEXT_ZCODE_BOUNDARY_FLUSH", raising=False)
+    checkout = tmp_path / "checkout"
+    _checkout(checkout)
+    first = zcode.install_zcode_plugin(source=str(checkout), ref="unused", capture_prompts=False, boundary_flush=True)
+    zcode.install_zcode_plugin(source=str(checkout), ref="unused")
+    saved = json.loads((Path(first.plugin_path) / "powercontext.json").read_text(encoding="utf-8"))
+    assert saved["capture_prompts"] is False
+    assert saved["boundary_flush"] is True
+    monkeypatch.setenv("POWERCONTEXT_ZCODE_BOUNDARY_FLUSH", "false")
+    zcode.install_zcode_plugin(source=str(checkout), ref="unused")
+    assert (
+        json.loads((Path(first.plugin_path) / "powercontext.json").read_text(encoding="utf-8"))["boundary_flush"]
+        is False
+    )

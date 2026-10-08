@@ -1,6 +1,6 @@
 # Dashboard 设计原则
 
-Dashboard 是 PowerContext 中供个人使用和演示的内容查看器，使用静态 token 鉴权，默认关闭。这份文档供开发和评审人员判断页面该展示什么、如何组织阅读，以及一次改动是否保留了用户需要的行为。接口能力以 `openapi/powercontext.yaml` 和服务实现为依据。
+Dashboard 是 PowerContext 中供个人使用和演示的内容查看器，默认关闭，与 Server 共用访问模式：本地可免认证访问，启用认证时要求静态 token。这份文档供开发和评审人员判断页面该展示什么、如何组织阅读，以及一次改动是否保留了用户需要的行为。接口能力以 `openapi/powercontext.yaml` 和服务实现为依据。
 
 ## Dashboard 帮助用户完成什么
 
@@ -60,6 +60,8 @@ Dashboard 是 PowerContext 中供个人使用和演示的内容查看器，使�
 
 用户打开一条记录后，应能返回所属目录。更换搜索条件从第一页开始；切换范围清除上一范围的记录选择和分页位置，详情返回对应目录。单纯切换语言或主题则保留范围、周期和正在阅读的记录。
 
+记忆搜索默认遵循部署能力，也允许用户选择检索模式。展示实际模式、每条结果的命中通道与检索得分，帮助用户核对召回依据；得分不解释为相似度百分比。
+
 ### 原始材料支持就地核对
 
 原始材料列在记录正文之后，读者可以从经验、技能或交接直接打开对应材料。材料使用 Tabler 原生大尺寸弹窗阅读，小屏全屏显示；多份材料通过选单切换。关闭后回到原记录的阅读位置，键盘用户也能完成同样的过程。
@@ -96,9 +98,10 @@ Dashboard 是 PowerContext 中供个人使用和演示的内容查看器，使�
 
 页面显示真实可读的数据，操作入口对应已有能力。某个区块失败时，其他可独立读取的内容继续显示。读取错误、权限不足和生成配置缺失各有不同含义，不能合并成无内容。
 
-Dashboard 仅支持内置静态 Bearer 身份，所有 token 持有者共享同一权限。启用需要
-`POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`、`ACCESS_MODE=enforced` 和 `AUTH_TOKEN`；注入认证或授权
-Provider 的团队部署必须关闭它。页面读取复用现有 API 并继续执行服务鉴权，不新增数据接口，也不实现成员或角色管理。
+通过 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true` 启用 Dashboard。本地 `ACCESS_MODE=disabled` 时直接访问，
+无需 token；`ACCESS_MODE=enforced` 时要求 `AUTH_TOKEN`，使用内置静态 Bearer 身份，所有 token 持有者共享同一权限。
+注入认证或授权 Provider 的团队部署必须关闭它。页面读取复用现有 API，并遵循服务的访问模式，不新增数据接口，
+也不实现成员或角色管理。
 个人启用步骤见[安装和运行](../docs/get-started/install-and-run.md)。
 
 目录可以随保存和修订而变化，精确引用仍指向对应的历史版本。引用不存在或无权访问时，应明确处理该结果，不能用当前版本或相似记录代替。
@@ -153,7 +156,7 @@ Jinja2 组织内容与页面结构，HTMX 处理导航和片段替换。只有�
 | 页面能力 | 接口 | 需要保留的边界 |
 | --- | --- | --- |
 | 范围选择 | `GET /v1/scopes`、`GET /v1/scopes/default`、`GET /v1/scopes/{scope_id}` | 默认值、显式选择、父子关系和可读范围分别处理 |
-| 记忆目录与正文 | `POST /v1/memory/entries/list`、`POST /v1/memory/search`、`POST /v1/memory/entries/get` | 全文搜索使用 `fts`；最多 50 条匹配结果；正文按完整记忆引用读取 |
+| 记忆目录与正文 | `POST /v1/memory/entries/list`、`POST /v1/memory/search`、`POST /v1/memory/entries/get` | 保留搜索模式与命中依据；最多 50 条匹配结果；正文按完整记忆引用读取 |
 | 交接目录与正文 | `GET /v1/scopes/{scope_id}/artifacts/handoff` 及精确版本读取 | 保留游标；列表顺序不解释为时间顺序 |
 | 经验目录与正文 | `GET /v1/scopes/{scope_id}/artifacts/experience`、`POST /v1/experience/get` | 提供分页目录；当前没有公开 HTTP 搜索接口 |
 | 技能目录与正文 | `POST /v1/skill/library`、`POST /v1/skill/get` | 库检索最多 200 项，达到上限时提示缩小查询；保留来源身份 |

@@ -36,6 +36,7 @@ from referencing.exceptions import Unresolvable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext._logging import log_safely
 from powercontext.artifacts import Artifact, ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
@@ -114,7 +115,13 @@ from powercontext.builtin.dream.generation import DreamGenerator
 from powercontext.builtin.dream.models import DreamBudget, DreamOperation
 from powercontext.builtin.dream.service import CandidateAttester, DreamAuthorizer, DreamService
 from powercontext.builtin.evidence.resolver import AuthorizationContext, EvidenceAuthorizer, EvidenceResolver
-from powercontext.builtin.inference import EmbeddingModel, InferenceUsage, InvalidInferenceOutputError, TokenEstimator
+from powercontext.builtin.inference import (
+    EmbeddingModel,
+    InferenceTimeoutError,
+    InferenceUsage,
+    InvalidInferenceOutputError,
+    TokenEstimator,
+)
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTargetRepository
 from powercontext.builtin.persistence.artifact_governance import (
     ArtifactGovernance,
@@ -125,7 +132,7 @@ from powercontext.builtin.persistence.artifact_readers import TopicMemoryArtifac
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
-from powercontext.builtin.persistence.cursors import SourceCursorRepository
+from powercontext.builtin.persistence.cursors import SourceCursorRepository, StoredSourceCursor
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
@@ -145,6 +152,7 @@ from powercontext.builtin.persistence.handoff import (
 )
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
+from powercontext.builtin.persistence.memory_windows import MemorySourceWindowRepository
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.records import RelationalRecordService
@@ -728,6 +736,9 @@ class RelationalContexts:
         self._source_locks.pop(scope, None)
         self._activation_locks.pop(scope, None)
         self._experience_locks.pop(scope, None)
+        for key in tuple(self._skill_publication_locks):
+            if key[0] == scope:
+                self._skill_publication_locks.pop(key, None)
 
     def review(self, scope_id: str, /) -> ReviewService:
         """Return Candidate and reviewed Artifact operations bound to one scope."""
@@ -1704,7 +1715,12 @@ class _RelationalTriggers:
                     connection,
                     self._services.scope_id,
                 )
+                # Validate the caller's limit before applying a persisted reduction.
                 signal = SourceHighWatermark(sequence=high_watermark, limit=limit)
+                windows = MemorySourceWindowRepository()
+                signal = signal.model_copy(
+                    update={"limit": await windows.limit(connection, self._services.scope_id, state.sequence, limit)}
+                )
                 transition = self._trigger.activate(signal, state)
                 sources = () if not transition.actions else await self._sources(connection, transition.actions[0])
                 if not transition.actions and processing is not None:
@@ -1719,9 +1735,14 @@ class _RelationalTriggers:
                 )
 
             action = transition.actions[0]
-            prepared = (
-                None if not sources else await self._prepare_memory(sources, authorize_snapshot=authorize_snapshot)
-            )
+            try:
+                prepared = (
+                    None if not sources else await self._prepare_memory(sources, authorize_snapshot=authorize_snapshot)
+                )
+            except InferenceTimeoutError as error:
+                if error.operation == "generate" and action.through - action.after > 1:
+                    await self._reduce_memory_window(action, high_watermark, state_row, processing)
+                raise
             held = _is_held_write(prepared)
             commit = None if prepared is None else prepared.commit
             with self._stage(
@@ -1745,6 +1766,7 @@ class _RelationalTriggers:
                         transition.state,
                         expected_generation=None if state_row is None else state_row.generation,
                     )
+                    await windows.clear_consumed(connection, self._services.scope_id, action.through)
                     if on_commit is not None and prepared is not None:
                         before = prepared.result if prepared.commit is None else prepared.commit.base
                         await on_commit(connection, before, updated)
@@ -1759,6 +1781,45 @@ class _RelationalTriggers:
                 held_count=1 if held else 0,
                 hold_codes=_hold_codes(prepared),
             )
+
+    async def _reduce_memory_window(
+        self,
+        action: ProcessSourceWindow,
+        high_watermark: int,
+        state_row: StoredSourceCursor | None,
+        processing: ScopeInvocation | None,
+    ) -> None:
+        reduced_limit = max(1, (action.through - action.after) // 2)
+        async with self._services.database.transaction() as connection:
+            if processing is not None:
+                await processing.guard(connection)
+            # Preserve the position, but invalidate stale publishers before
+            # changing the window used by a new Worker or SDK flush.
+            await self._services.repositories.cursors.save(
+                connection,
+                self._services.scope_id,
+                SOURCE_WINDOW_TRIGGER_NAME,
+                SourceCursor(sequence=action.after),
+                expected_generation=None if state_row is None else state_row.generation,
+            )
+            await MemorySourceWindowRepository().reduce(
+                connection,
+                self._services.scope_id,
+                source_through=high_watermark,
+                window_limit=reduced_limit,
+            )
+        log_safely(
+            logger,
+            logging.WARNING,
+            "Memory extraction timed out; reduced the next Source window",
+            extra={
+                "event": "memory.window_reduced",
+                "scope_id": self._services.scope_id,
+                "source_after": action.after,
+                "source_through": action.through,
+                "window_limit": reduced_limit,
+            },
+        )
 
     async def _sources(
         self,

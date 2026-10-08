@@ -1,6 +1,6 @@
 # Dashboard design principles
 
-The Dashboard is a content viewer for personal use and demonstrations, authenticated by a static token and disabled by default. This document helps developers and reviewers decide what a page should show, how to organize reading, and whether a change preserves the behavior users need. The API contract in `openapi/powercontext.yaml` and the service implementation define the available capabilities.
+The Dashboard is a content viewer for personal use and demonstrations, disabled by default. It shares the Server access mode: local access can be anonymous, while enforced access requires a static token. This document helps developers and reviewers decide what a page should show, how to organize reading, and whether a change preserves the behavior users need. The API contract in `openapi/powercontext.yaml` and the service implementation define the available capabilities.
 
 ## What the Dashboard helps users do
 
@@ -60,6 +60,8 @@ Memories use a list and reading pane. Experiences, skills and handoffs lead from
 
 After opening a record, the user should be able to return to its collection. A new search starts on the first page. Switching scopes clears the previous scope's record selection and pagination position, returning detail pages to the corresponding collection. Changing only the language or theme preserves the scope, period and record being read.
 
+Memory search follows the deployment's capabilities by default and allows users to choose a retrieval mode. Show the actual mode, each result's matching channels and retrieval score so users can inspect why it was recalled; the score is not a similarity percentage.
+
 ### Source material supports checking in context
 
 Sources appear after the record's text and can be opened directly from an experience, skill or handoff. They use Tabler's large modal, which fills the screen on smaller devices. A menu switches between sources. Closing the reader returns to the user's place in the record. The same actions are available from the keyboard.
@@ -96,9 +98,10 @@ Chinese, English, light and dark settings apply across the Dashboard, including 
 
 Pages show actual readable data, and actions correspond to existing capabilities. If one section fails, other independently readable content remains visible. Read errors, insufficient permissions and missing generation configuration have different meanings and must not collapse into an empty state.
 
-The Dashboard supports the built-in static Bearer identity, with the same permissions for every token holder. Enabling it
-requires `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`, `ACCESS_MODE=enforced`, and `AUTH_TOKEN`. Team deployments that
-inject authentication or authorization Providers must disable it. Pages reuse the existing API and its access checks;
+Enable Dashboard with `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`. Local `ACCESS_MODE=disabled` opens directly without
+a token. With `ACCESS_MODE=enforced`, it requires `AUTH_TOKEN` and uses the built-in static Bearer identity, with the
+same permissions for every token holder. Team deployments that inject authentication or authorization Providers must
+disable it. Pages reuse the existing API and follow the Server access mode;
 they add no data endpoints or member and role management. See [Install and run](../docs/get-started/install-and-run.md)
 for personal setup.
 
@@ -154,7 +157,7 @@ Use this section to locate the implementation. The code and API specification de
 | Page capability | API | Boundary to preserve |
 | --- | --- | --- |
 | Scope selection | `GET /v1/scopes`, `GET /v1/scopes/default`, `GET /v1/scopes/{scope_id}` | Treat defaults, explicit selection, hierarchy and readable scopes separately |
-| Memory collection and text | `POST /v1/memory/entries/list`, `POST /v1/memory/search`, `POST /v1/memory/entries/get` | Full-text search uses `fts`, with up to 50 matches; read text through a complete memory citation |
+| Memory collection and text | `POST /v1/memory/entries/list`, `POST /v1/memory/search`, `POST /v1/memory/entries/get` | Preserve the selected search mode and hit evidence; return up to 50 matches and read text through a complete memory citation |
 | Handoff collection and text | `GET /v1/scopes/{scope_id}/artifacts/handoff` and exact revision reads | Retain cursors; list order does not imply chronological order |
 | Experience collection and text | `GET /v1/scopes/{scope_id}/artifacts/experience`, `POST /v1/experience/get` | Provide paged browsing; there is currently no public HTTP search endpoint |
 | Skill collection and text | `POST /v1/skill/library`, `POST /v1/skill/get` | Library queries return up to 200 entries; suggest a narrower query at the limit and preserve source identities |

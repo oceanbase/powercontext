@@ -1,5 +1,10 @@
 # PowerContext evaluation console
 
+For Claude Code + MCP Skill instruction regressions, see the separate [skill-up guidance suite](skill-up/README.md).
+It grades tool routing and authorization boundaries against a pinned Skill with controlled MCP replies and a no-Skill
+baseline. Its scores complement the integration-guidance record and must not be combined with SWE-bench Pro task
+outcomes or LoCoMo memory-quality measurements.
+
 This directory contains a self-progressing SWE-bench Pro evaluation service. A batch can run the paired OFF/ON
 experiment or only one Arm to reduce cost and latency. The web process owns the HTTP API and report UI; the worker
 owns task execution, retries, resource cleanup, and durable recovery.

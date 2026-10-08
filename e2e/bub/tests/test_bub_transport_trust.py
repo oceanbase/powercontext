@@ -25,6 +25,7 @@ import pytest
 from powercontext_bub import plugin as plugin_module
 from powercontext_bub import tools as tools_module
 from powercontext_bub.plugin import STATE_KEY, PowerContextPlugin, PowerContextSettings
+from pydantic import ValidationError
 
 
 def _plugin_with(settings: PowerContextSettings, monkeypatch, tmp_path: Path) -> PowerContextPlugin:
@@ -55,6 +56,7 @@ class RecordingClient:
         self,
         base_url: str,
         *,
+        token: str | None = None,
         http_client: httpx.AsyncClient | None = None,
         trust_transport_security: bool = False,
         timeout: float | None = None,
@@ -62,6 +64,7 @@ class RecordingClient:
     ) -> None:
         RecordingClient.constructions.append({
             "base_url": base_url,
+            "token": token,
             "http_client": http_client,
             "trust_transport_security": trust_transport_security,
             "timeout": timeout,
@@ -163,6 +166,46 @@ def test_tools_honour_the_operator_transport_vouch(
     assert construction["base_url"] == "http://host-gateway:8000"
     assert isinstance(construction["http_client"], httpx.AsyncClient)
     assert construction["trust_transport_security"] is True
+
+
+@pytest.mark.parametrize("trust_transport_security", [False, True])
+def test_api_token_reaches_both_plugin_and_tools(
+    monkeypatch,
+    tmp_path: Path,
+    constructions: list[dict[str, Any]],
+    trust_transport_security: bool,
+) -> None:
+    # An authenticated Server rejects a client without the token, so both the hooks and the tools must send it.
+    monkeypatch.setenv("POWERCONTEXT_BUB_API_TOKEN", "bub-server-token")
+    settings = PowerContextSettings(
+        base_url="https://powercontext.example",
+        scope_id="test:scope",
+        trust_transport_security=trust_transport_security,
+    )
+    monkeypatch.setattr(plugin_module, "PowerContextClient", RecordingClient)
+    plugin = _plugin_with(settings, monkeypatch, tmp_path)
+
+    async def open_clients() -> None:
+        async with plugin._client():
+            pass
+        async with tools_module._client(_tool_settings(plugin)):
+            pass
+
+    asyncio.run(open_clients())
+
+    assert [construction["token"] for construction in constructions] == ["bub-server-token", "bub-server-token"]
+    assert "bub-server-token" not in repr(settings)
+
+
+def test_invalid_settings_do_not_reveal_the_api_token() -> None:
+    # Bub logs a plugin's configuration error and keeps it in the plugin status.
+    with pytest.raises(ValidationError) as error:
+        PowerContextSettings(
+            base_url="http://127.0.0.1:8000?x=1",
+            api_token="bub-server-token",  # noqa: S106 - test credential.
+        )
+
+    assert "bub-server-token" not in str(error.value)
 
 
 def test_plaintext_opt_in_reaches_both_plugin_and_tools(monkeypatch, tmp_path: Path) -> None:

@@ -4233,6 +4233,27 @@ class ContinueHandoffRequest(BaseModel):
     revision: ArtifactReference | None = None
 
 
+class PrepareHandoffHintRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    selection: HandoffSelection
+    prepared: Annotated[
+        PreparedHandoff | None,
+        Field(description="Required only for prepared selection; retain this complete value for continuation."),
+    ] = None
+    revision: Annotated[ArtifactReference | None, Field(description="Required only for exact selection.")] = None
+    max_bytes: Annotated[
+        StrictInt,
+        Field(
+            description="Complete rendered UTF-8 text budget including notice, boundaries, and exact references.",
+            ge=1,
+            le=4000,
+        ),
+    ] = 2000
+
+
 class FinalizeHandoffRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

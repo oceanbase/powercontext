@@ -32,6 +32,7 @@ validated by Pydantic before the plugin starts.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `POWERCONTEXT_BUB_BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server URL |
+| `POWERCONTEXT_BUB_API_TOKEN` | unset | Bearer token for a Server that requires authentication |
 | `POWERCONTEXT_BUB_ALLOW_INSECURE_HTTP` | `false` | Explicitly allow non-loopback HTTP for recall, capture, and tools; HTTPS certificate validation stays enabled |
 | `POWERCONTEXT_BUB_SCOPE_ID` | unset | Explicit Scope resolved and validated by the Server before use |
 | `POWERCONTEXT_BUB_TIMEOUT` | `10` | Client timeout in seconds |

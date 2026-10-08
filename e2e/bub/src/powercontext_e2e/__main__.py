@@ -102,7 +102,7 @@ def main() -> None:
     paired_parser.add_argument("--trials", type=int, default=2, help="Trials per arm; the arm order alternates.")
     paired_parser.add_argument(
         "--host",
-        choices=("bub", "codex"),
+        choices=("bub", "codex", "claude-code", "opencode", "pi"),
         default="bub",
         help="Agent host that runs both arms with its own PowerContext integration.",
     )

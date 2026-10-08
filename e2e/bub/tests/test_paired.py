@@ -27,7 +27,9 @@ import pytest
 from harbor.models.task.task import Task as HarborTask
 from harbor.models.trial.result import StepResult
 from harbor.models.verifier.result import VerifierResult
+from powercontext.client import UnauthorizedResponseError
 
+from powercontext_e2e import paired as paired_module
 from powercontext_e2e.catalog import load_tasks
 from powercontext_e2e.models import (
     HarborTrialObservation,
@@ -37,9 +39,11 @@ from powercontext_e2e.models import (
     SessionSnapshot,
 )
 from powercontext_e2e.paired import (
+    UnauthenticatedServerError,
     arm_outcome,
     classify_outcome,
     recall_session_index,
+    require_authenticated_server,
     summarize,
     treatment_failures,
 )
@@ -202,7 +206,7 @@ def test_continuation_tasks_cannot_gate_the_recall_step_behind_an_earlier_reward
         ({"exception_types": ("EnvironmentStartTimeoutError",)}, "error"),
         ({"harness_failed": True, "reward": 1.0}, "error"),
         ({"treatment_failures": ("no context",), "reward": 1.0}, "integration_failed"),
-        # A timed-out ON run has no final snapshot; it still counts as a failed attempt, as it would with OFF.
+        # A timed-out ON run counts as a failed attempt, as it would with OFF, even when it also missed the treatment.
         ({"exception_types": ("AgentTimeoutError",), "treatment_failures": ("not observed",)}, "timeout"),
     ],
 )
@@ -337,3 +341,37 @@ def test_recorder_records_a_failed_settle_instead_of_raising() -> None:
     assert recorder.failures == ["Settling the Scope after session 0 failed: TimeoutError: flush timed out"]
     assert [snapshot.session for snapshot in recorder.snapshots] == [1]
     assert any("not observed" in reason for reason in treatment_failures(recorder.snapshots, recall_session=1))
+
+
+class _AnonymousClient:
+    """Answer the harness's unauthenticated probe the way a Server with or without enforced access would."""
+
+    answers = False
+
+    def __init__(self, *_: object, **__: object) -> None:
+        pass
+
+    async def __aenter__(self) -> _AnonymousClient:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        del exc_info
+
+    async def list_scopes(self) -> list[object]:
+        if not self.answers:
+            raise UnauthorizedResponseError(status_code=401, request_id=None)
+        return []
+
+
+def test_paired_accepts_a_server_that_requires_a_token(monkeypatch) -> None:
+    monkeypatch.setattr(paired_module, "PowerContextClient", _AnonymousClient)
+
+    asyncio.run(require_authenticated_server())
+
+
+def test_paired_refuses_a_server_that_answers_without_a_token(monkeypatch) -> None:
+    # Both arms can reach the Server, so an OFF agent could read the ON arm's Memory from an open Server.
+    monkeypatch.setattr(paired_module, "PowerContextClient", type("OpenServer", (_AnonymousClient,), {"answers": True}))
+
+    with pytest.raises(UnauthenticatedServerError):
+        asyncio.run(require_authenticated_server())

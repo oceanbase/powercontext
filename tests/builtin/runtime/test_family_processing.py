@@ -29,6 +29,7 @@ import powercontext.builtin.runtime.composition as composition
 import powercontext.builtin.runtime.family_processing as family_processing
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput, ExperienceContent
 from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.builtin.inference import InferenceTimeoutError
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
 from powercontext.builtin.inference.usage import UsageReportingStructuredGenerator
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
@@ -158,6 +159,62 @@ def security_spec(*, allowed=True):
         deployment_id="test",
         static_preset=allowed,
     ).model_dump(mode="json")
+
+
+def test_memory_timeout_retries_shrink_without_acknowledging_or_skipping_input(tmp_path, monkeypatch):
+    windows = []
+    original = MemoryPipeline.extract
+
+    async def bounded_extract(self, request):
+        windows.append(tuple(source.name for source in request.sources))
+        if len(request.sources) > 1:
+            raise InferenceTimeoutError("generate", 60)
+        return await original(self, request)
+
+    monkeypatch.setattr(MemoryPipeline, "extract", bounded_extract)
+
+    async def scenario():
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'timeout.db'}"))
+        async with _open_sqlite(config, tables=BUILTIN_TABLES) as profile:
+            contexts, assignment = await prepare(profile, "memory")
+            for index in range(3):
+                await contexts.records.create_source(assignment.scope_id, "content", f"Additional fact {index}")
+            for _ in range(2):
+                with pytest.raises(InferenceTimeoutError):
+                    await process_family_invocation(contexts, assignment, config=config)
+                async with profile.database.transaction() as connection:
+                    cursor = await SourceCursorRepository().load(
+                        connection, assignment.scope_id, assignment.binding_name
+                    )
+                    intent = await ArtifactProcessingIntentRepository().load(
+                        connection, assignment.scope_id, assignment.binding_name
+                    )
+                assert cursor is not None and cursor.cursor.sequence == 0
+                assert intent is not None and intent.handled_generation == 0
+            for position in range(1, 5):
+                assert (await process_family_invocation(contexts, assignment, config=config)).outcome == "succeeded"
+                # Replaying an acknowledged invocation cannot process its successor.
+                await process_family_invocation(contexts, assignment, config=config)
+                async with profile.database.transaction() as connection:
+                    cursor = await SourceCursorRepository().load(
+                        connection, assignment.scope_id, assignment.binding_name
+                    )
+                    assert cursor is not None and cursor.cursor.sequence == position
+                    intent = await ArtifactProcessingIntentRepository().load(
+                        connection, assignment.scope_id, assignment.binding_name
+                    )
+                    assert intent is not None and intent.handled_generation == assignment.claimed_request_generation
+                    if position < 4:
+                        assert intent.dirty_generation > intent.clean_generation
+                        request = await ArtifactProcessingIntentRepository().request(
+                            connection, assignment.scope_id, assignment.binding_name
+                        )
+                        assignment = replace(assignment, claimed_request_generation=request.requested_generation)
+                    else:
+                        assert intent.dirty_generation == intent.clean_generation
+            assert tuple(item for window in windows[2:] for item in window) == windows[0]
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("family", ["memory", "experience", "profile"])

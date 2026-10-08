@@ -57,6 +57,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffScopeMismatchError,
     InvalidHandoffGenerationError,
     InvalidHandoffReferenceError,
+    PrepareHandoffHint,
 )
 from powercontext.builtin.artifacts.memory.errors import (
     CapabilityNotSupportedError,
@@ -490,6 +491,7 @@ from powercontext.http import (
     PrepareContextRequest,
     PreparedContext,
     PreparedWorkHandoff,
+    PrepareHandoffHintRequest,
     PrepareHandoffRequest,
     ProfilePolicyResponse,
     PromptConfiguration,
@@ -714,6 +716,7 @@ from powercontext.http._generated.operations import (
     OPENAPI_VERSION,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
+    PREPARE_HANDOFF_HINT,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
     PROPOSE_SKILL_PACKAGE,
@@ -1120,6 +1123,8 @@ class _ScopedHandoffApplication(Protocol):
 
     async def commit(self, prepared: PreparedHandoff, /) -> Handoff: ...
 
+    async def hint(self, request: PrepareHandoffHint, /) -> RuntimePreparedContext: ...
+
     async def continue_from(
         self,
         handoff: PreparedHandoff | ArtifactRef,
@@ -1432,6 +1437,7 @@ def create_app(
     _add_route(app, FINALIZE_HANDOFF, finalize_handoff)
     _add_route(app, COMMIT_HANDOFF, commit_handoff)
     _add_route(app, CONTINUE_HANDOFF, continue_handoff)
+    _add_route(app, PREPARE_HANDOFF_HINT, prepare_handoff_hint)
     _add_route(app, LIST_MEMORY_ENTRIES, list_memory_entries)
     _add_route(app, GET_MEMORY_CAPACITY, get_memory_capacity)
     _add_route(app, GET_MEMORY_ENTRY, get_memory_entry)
@@ -3092,6 +3098,23 @@ async def continue_handoff(
             raise InvalidRuntimeRequestError("handoff-selection")
         result = await handoff.continue_from(mapping.runtime_artifact_reference(revision))
     return mapping.handoff_resolution_response(result)
+
+
+async def prepare_handoff_hint(
+    request: PrepareHandoffHintRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> PreparedContext:
+    try:
+        action = PrepareHandoffHint(
+            selection=request.selection.value,
+            prepared=None if request.prepared is None else mapping.runtime_prepared_handoff(request.prepared),
+            revision=None if request.revision is None else mapping.runtime_artifact_reference(request.revision),
+            max_bytes=request.max_bytes,
+        )
+    except ValueError as error:
+        raise InvalidRuntimeRequestError("handoff-hint") from error
+    result = await application.handoff.for_scope(request.scope_id).hint(action)
+    return mapping.prepared_context_response(result)
 
 
 async def get_memory_capacity(

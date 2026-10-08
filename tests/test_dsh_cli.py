@@ -120,7 +120,7 @@ def test_doctor_dsh_requires_the_plugin_id_field(monkeypatch) -> None:
     import powercontext.cli.dsh as dsh_cli
 
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
-    monkeypatch.setattr(dsh_cli, "_run_dsh", lambda *_args: "name: powercontext-dsh\n")
+    monkeypatch.setattr(dsh_cli, "_run_dsh", lambda *_args, **_kwargs: "name: powercontext-dsh\n")
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh"])
 
@@ -135,7 +135,7 @@ def test_doctor_dsh_reports_an_installed_plugin(monkeypatch) -> None:
     monkeypatch.setattr(
         dsh_cli,
         "_run_dsh",
-        lambda *_args: "- id: powercontext-dsh\n  name: powercontext-dsh\n",
+        lambda *_args, **_kwargs: "- id: powercontext-dsh\n  name: powercontext-dsh\n",
     )
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--json"])
@@ -159,7 +159,7 @@ def test_doctor_dsh_does_not_expose_host_config_or_claim_to_check_its_server(mon
     monkeypatch.setattr(
         dsh_cli,
         "_run_dsh",
-        lambda *_args: f"- id: powercontext-dsh\n  config:\n    baseUrl: http://unreachable/{marker}\n",
+        lambda *_args, **_kwargs: f"- id: powercontext-dsh\n  config:\n    baseUrl: http://unreachable/{marker}\n",
     )
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--json"])
     assert result.exit_code == 0

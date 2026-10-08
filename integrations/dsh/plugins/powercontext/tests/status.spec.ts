@@ -68,10 +68,12 @@ async function fixture(handler: (path: string, init: RequestInit) => Response | 
   let turn = 0
   const owner = (sessionId = 'session-one', cwd = '/workspace') => ({ session: { header: { id: sessionId, cwd } } })
   const run = (options: { sessionId?: string; cwd?: string; messages?: PromptMessage[]; signal?: AbortSignal;
-    next?: () => Promise<PreStepDecision> } = {}) => hook!({ agent: owner(options.sessionId, options.cwd),
-    turn: ++turn, messages: options.messages ?? [textMessage(PRIVATE)],
-    signal: options.signal ?? new AbortController().signal,
-  }, options.next ?? (async () => ({ kind: 'enter', messages: [] })))
+    next?: () => Promise<PreStepDecision> } = {}) => {
+    const messages = options.messages ?? [textMessage(PRIVATE)]
+    return hook!({ agent: owner(options.sessionId, options.cwd), turn: ++turn, messages,
+      signal: options.signal ?? new AbortController().signal,
+    }, options.next ?? (async () => ({ kind: 'enter', messages })))
+  }
   const status = async (sessionId?: string, cwd?: string) => {
     const result = await command!({ rawInput: '', agent: owner(sessionId, cwd), signal: new AbortController().signal })
     return { ...result, automatic: JSON.parse(result.text.split('\nautomatic=')[1]) }
@@ -224,12 +226,19 @@ describe('registered /pc automatic status', () => {
   it('does not call a ready result injected when downstream rejects, cancels, or fails', async () => {
     const h = await fixture()
     await h.run({ next: async () => ({ kind: 'reject' }) })
-    expect((await h.status()).automatic.stages.injection).toMatchObject({ state: 'skipped', code: 'downstream_rejected' })
+    const rejected = (await h.status()).automatic.stages
+    for (const stage of ['scope', 'prepare', 'capture', 'flush', 'injection'] as const) {
+      expect(rejected[stage]).toMatchObject({ state: 'skipped', code: 'downstream_rejected' })
+    }
     const controller = new AbortController()
     await h.run({ signal: controller.signal, next: async () => { controller.abort(); return { kind: 'enter', messages: [] } } })
     expect((await h.status()).automatic.stages.injection).toMatchObject({ state: 'skipped', code: 'cancelled' })
     await expect(h.run({ next: async () => { throw new Error(PRIVATE) } })).rejects.toThrow(PRIVATE)
-    expect((await h.status()).automatic.stages.injection).toMatchObject({ state: 'unavailable', code: 'downstream_failed' })
+    const failed = (await h.status()).automatic.stages
+    for (const stage of ['scope', 'prepare', 'capture', 'flush'] as const) {
+      expect(failed[stage]).toMatchObject({ state: 'skipped', code: 'downstream_failed' })
+    }
+    expect(failed.injection).toMatchObject({ state: 'unavailable', code: 'downstream_failed' })
     peers.createUserMessage.mockImplementation(() => { throw new Error(PRIVATE) })
     await h.run()
     const status = await h.status()
