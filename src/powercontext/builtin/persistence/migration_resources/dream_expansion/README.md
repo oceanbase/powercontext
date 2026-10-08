@@ -18,13 +18,18 @@ does not implement its own lock, backup, retry, cleanup or recovery protocol.
 
 For SQLite, the caller disables foreign keys before starting its explicit rebuild transaction. The transformation keeps
 copies without live foreign keys, renames the live tables so Profile references follow them, rebuilds Candidate constraints,
-adds the deduplication column/index and fairness counter, compares copied fields and checks live foreign keys. The caller
+adds the deduplication column/index and fairness counter, converts the frozen processing manifest, compares copied fields
+and checks live foreign keys. The caller
 owns commit/rollback and restores connection settings. For seekdb/OceanBase MySQL mode, the supplied DDL alters constraints
 and retains snapshots; it requires real backend DDL, locking and recovery acceptance in #1772. An interrupted remote
 transformation is not automatically resumable, and this module must not be called again to guess recovery steps.
 
 `validate_dream_tasks(connection)` recognizes the two released operations before DDL, including payload shape, semantic
-selection rules, identity, principal and Candidate references. Known payloads are not rewritten. The full framework owns
+selection rules, identity, principal and Candidate references. Queued/running runs block planning and execution before any
+writes with `dream_tasks_require_drain`. Stop new admissions and finish them with the old runtime before stopping all
+writers. This includes unstarted runs, retries, running leases and expired deadlines; migration never changes their
+prompt/model identity, budget, deadline or status. Terminal payloads are not rewritten, and pending Candidates need not
+be approved before migration. The full framework owns
 other queues, delayed/retry/dead-letter work and leases. Unknown or unobservable task formats cannot be treated as no work.
 
 `verify_dream_storage(connection)` compares the retained Candidate fields against the newly copied rows and validates the
@@ -38,3 +43,8 @@ bundle to grow into a Server through `create_all`. Existing development database
 shape and fresh development initialization retain their ordinary domain behavior; they are not production migration
 acceptance evidence. Enabling the production upgrade requires SQLite, seekdb and OceanBase acceptance, packaging checks,
 full baseline registration, task validation and startup readiness together.
+
+The frozen processing manifest transformation preserves ownership mode and automatic bindings, adds Handoff/Prompt
+bindings, and adds their capabilities only when legacy Skill Dream capability was enabled. An unknown manifest or an
+incomplete processing migration fails with `unknown_processing_manifest` before writes. Startup only checks the result;
+it does not repair or extend manifests. The framework must compare the resulting manifest with deployment configuration.

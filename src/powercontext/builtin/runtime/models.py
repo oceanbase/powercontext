@@ -119,7 +119,6 @@ class DreamOperationCapability(BaseModel):
     output_kind: Literal["candidate", "tag_candidate"] = "candidate"
     effect: Literal[
         "review_then_publish",
-        "review_then_commit_without_activation",
         "review_then_publish_configuration",
         "review_then_replace_tags",
     ] = "review_then_publish"

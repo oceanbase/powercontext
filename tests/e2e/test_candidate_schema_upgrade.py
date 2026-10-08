@@ -39,6 +39,13 @@ FIXTURES = Path(__file__).parents[1] / "builtin/review/fixtures"
 def legacy_schema(path):
     with sqlite3.connect(path) as connection:
         connection.execute("PRAGMA foreign_keys=OFF")
+        manifest = json.loads(
+            connection.execute("SELECT config_manifest FROM pc_artifact_processing_schema").fetchone()[0]
+        )
+        for binding in ("handoff.dream.v1", "prompt.dream.v1"):
+            manifest["bindings"].pop(binding, None)
+        manifest["capabilities"] = [item for item in manifest["capabilities"] if item not in {"handoff", "prompt"}]
+        connection.execute("UPDATE pc_artifact_processing_schema SET config_manifest=?", (json.dumps(manifest),))
         for suffix in ("heads", "versions"):
             connection.execute(f"ALTER TABLE pc_candidate_{suffix} RENAME TO pc_artifact_candidate_{suffix}")
         for suffix in ("versions", "heads"):
@@ -171,7 +178,10 @@ def test_domain_transformation_preserves_review_history_and_profile_pointer(tmp_
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("failure_point", ["RENAME TO pc_candidate_heads", "DROP TABLE pc_candidate_heads"])
+@pytest.mark.parametrize(
+    "failure_point",
+    ["RENAME TO pc_candidate_heads", "DROP TABLE pc_candidate_heads", "UPDATE pc_artifact_processing_schema"],
+)
 def test_failed_transformation_leaves_framework_transaction_recoverable(tmp_path, failure_point):
     async def scenario():
         path = tmp_path / "interrupted.db"
@@ -220,6 +230,7 @@ def seed_run(path, scope, candidate, *, operation="refine_experience", status="q
             "run_id": "legacy-run",
             "operation": operation,
             "status": status,
+            "prompt_version": "powercontext.dream.v1",
             "accepted_at": datetime.now(UTC).isoformat(),
             "candidate": {"candidate_id": candidate.candidate_id, "version": candidate.version}
             if status == "succeeded"
@@ -250,7 +261,7 @@ def seed_run(path, scope, candidate, *, operation="refine_experience", status="q
         )
 
 
-@pytest.mark.parametrize("status", ["queued", "running", "succeeded", "failed"])
+@pytest.mark.parametrize("status", ["succeeded", "failed"])
 def test_historical_tasks_remain_readable_with_identity_and_candidate_refs(tmp_path, status):
     async def scenario():
         from powercontext.builtin.persistence.dream import DreamRepository
@@ -276,6 +287,7 @@ def test_historical_tasks_remain_readable_with_identity_and_candidate_refs(tmp_p
         ):
             record = await DreamRepository().get(connection, scope, "legacy-run")
             assert record.run.status == status
+            assert record.run.prompt_version == "powercontext.dream.v1"
             assert record.principal_id == "owner" and record.request_generation == 1
             assert await DreamRepository().find_request(connection, scope, "owner", record.request) == record
             if status == "succeeded":
@@ -343,14 +355,20 @@ def test_partial_framework_bundle_cannot_become_a_server_database(tmp_path):
     asyncio.run(scenario())
 
 
-def test_pending_legacy_run_resumes_and_replays_after_domain_transformation(tmp_path):
-    from powercontext.builtin.runtime import CreateDreamRunRequest, GetDreamRunRequest, ListCandidatesRequest
-    from tests.e2e.dream_support import open_dream_runtime, process_pending
+@pytest.mark.parametrize("state", ["queued", "retry", "running", "expired"])
+def test_pending_legacy_run_requires_drain_before_domain_transformation(tmp_path, state):
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import create_engine
+
+    from powercontext.builtin.persistence.migration_resources.dream_expansion.upgrade import validate_dream_tasks
+    from powercontext.builtin.runtime import CreateDreamRunRequest
+    from tests.e2e.dream_support import open_dream_runtime
     from tests.e2e.test_artifact_dreaming import Generator, MemoryPipeline, config
     from tests.e2e.test_artifact_dreaming import seed as seed_dream
 
     async def scenario():
-        path = tmp_path / "resume.db"
+        path = tmp_path / "drain.db"
         settings = config(SQLiteConfig(url=f"sqlite+aiosqlite:///{path}"))
         async with open_dream_runtime(
             settings, candidate_pipeline=MemoryPipeline(), dream_generator=Generator()
@@ -359,36 +377,104 @@ def test_pending_legacy_run_resumes_and_replays_after_domain_transformation(tmp_
             request = CreateDreamRunRequest(
                 operation="refine_experience", memory_citations=(citation,), idempotency_key="pending-before-upgrade"
             )
-            accepted = await runtime.dream.for_scope(scope).create(request)
+            await runtime.dream.for_scope(scope).create(request)
         legacy_schema(path)
-        # Represent the historical writer's payload without newly added fields.
-        # Candidate SQL comes from the frozen historical fixture, not autogenerate.
         with sqlite3.connect(path) as connection:
-            rows = connection.execute("SELECT run_id, payload FROM pc_dream_runs").fetchall()
-            for run_id, raw in rows:
-                payload = json.loads(raw)
-                payload["request"].pop("tag_target", None)
-                payload["run"].pop("tag_target", None)
-                payload["run"].pop("reused", None)
-                payload.pop("profile_policy", None)
-                payload.pop("proposal_fingerprint", None)
-                connection.execute(
-                    "UPDATE pc_dream_runs SET payload=? WHERE run_id=?", (json.dumps(payload).encode(), run_id)
+            payload = json.loads(connection.execute("SELECT payload FROM pc_dream_runs").fetchone()[0])
+            payload["request"].pop("tag_target", None)
+            payload["run"].pop("tag_target", None)
+            payload["run"].pop("reused", None)
+            payload.pop("profile_policy", None)
+            payload.pop("proposal_fingerprint", None)
+            payload["run"]["prompt_version"] = "powercontext.dream.v1"
+            if state != "queued":
+                now = datetime.now(UTC)
+                payload["run"].update(
+                    status="queued" if state == "retry" else "running",
+                    model_config_id=Generator.config_id,
+                    started_at=(now - timedelta(seconds=30)).isoformat(),
+                    attempt_count=1,
                 )
-            intents = connection.execute("SELECT * FROM pc_artifact_processing_intents").fetchall()
+                payload["deadline_at"] = (now + timedelta(seconds=-1 if state == "expired" else 90)).isoformat()
+            connection.execute(
+                "UPDATE pc_dream_runs SET status=?, payload=?",
+                (payload["run"]["status"], json.dumps(payload).encode()),
+            )
+        before = snapshot(path)
+        engine = create_engine(f"sqlite:///{path}")
+        try:
+            with engine.connect() as connection, pytest.raises(DreamUpgradeError, match="dream_tasks_require_drain"):
+                validate_dream_tasks(connection)
+        finally:
+            engine.dispose()
+        for _ in range(2):
+            with pytest.raises(DreamUpgradeError, match="dream_tasks_require_drain"):
+                transform(path)
+            assert snapshot(path) == before
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_migration_upgrades_processing_manifest_and_startup_only_checks_it(tmp_path, enabled):
+    from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
+    from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
+
+    async def scenario():
+        path = tmp_path / "manifest.db"
+        await populate(path)
+        settings = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{path}"),
+            inference=InferenceConfig(generation_model="openai:gpt-4o-mini" if enabled else None),
+            runtime=RuntimeConfig(dream_enabled=enabled),
+        )
+        expected = canonical_processing_manifest(settings)
+        expected["legacy_automatic_bindings"] = ["topic-memory-source-window", "memory-source-window"]
+        legacy = {**expected, "bindings": dict(expected["bindings"])}
+        legacy["bindings"].pop("handoff.dream.v1")
+        legacy["bindings"].pop("prompt.dream.v1")
+        legacy["capabilities"] = [value for value in legacy["capabilities"] if value not in {"handoff", "prompt"}]
+        with sqlite3.connect(path) as connection:
+            connection.execute("UPDATE pc_artifact_processing_schema SET config_manifest=?", (json.dumps(legacy),))
+            before = connection.execute("SELECT * FROM pc_artifact_processing_schema").fetchone()
         transform(path)
         with sqlite3.connect(path) as connection:
-            assert [row[:-1] for row in connection.execute("SELECT * FROM pc_artifact_processing_intents")] == intents
-        async with open_dream_runtime(
-            settings, candidate_pipeline=MemoryPipeline(), dream_generator=Generator()
-        ) as runtime:
-            dream = runtime.dream.for_scope(scope)
-            assert (await dream.create(request)).run_id == accepted.run_id
-            await process_pending(runtime)
-            result = await dream.get(GetDreamRunRequest(run_id=accepted.run_id))
-            assert result.status == "succeeded" and result.candidate is not None
-            assert (await dream.create(request)).candidate == result.candidate
-            candidates = await runtime.review.for_scope(scope).list(ListCandidatesRequest())
-            assert len(candidates.candidates) == 1
+            migrated = connection.execute("SELECT * FROM pc_artifact_processing_schema").fetchone()
+        assert migrated[:-1] == before[:-1]
+        assert json.loads(migrated[-1]) == expected
+        for _ in range(2):
+            async with open_builtin_contexts(settings):
+                pass
+            with sqlite3.connect(path) as connection:
+                assert connection.execute("SELECT * FROM pc_artifact_processing_schema").fetchone() == migrated
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("invalid", ["binding", "capability", "mode", "phase", "malformed"])
+def test_unknown_processing_manifest_blocks_migration_before_ddl(tmp_path, invalid):
+    async def scenario():
+        path = tmp_path / "unknown-manifest.db"
+        await populate(path)
+        with sqlite3.connect(path) as connection:
+            manifest = json.loads(
+                connection.execute("SELECT config_manifest FROM pc_artifact_processing_schema").fetchone()[0]
+            )
+            if invalid == "binding":
+                manifest["bindings"]["skill.dream.v1"] = "prompt"
+            elif invalid == "capability":
+                manifest["capabilities"] = ["future-family"]
+            elif invalid == "mode":
+                manifest["mode"] = "unknown"
+            elif invalid == "phase":
+                connection.execute("UPDATE pc_artifact_processing_schema SET phase='backfill'")
+            connection.execute(
+                "UPDATE pc_artifact_processing_schema SET config_manifest=?",
+                ("not JSON" if invalid == "malformed" else json.dumps(manifest),),
+            )
+        before = snapshot(path)
+        with pytest.raises(DreamUpgradeError, match="unknown_processing_manifest"):
+            transform(path)
+        assert snapshot(path) == before
 
     asyncio.run(scenario())

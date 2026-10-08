@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -117,33 +116,28 @@ def test_fresh_sqlite_bootstraps_and_reopens_after_business_data_is_written(tmp_
     asyncio.run(scenario())
 
 
-def test_startup_upgrades_manifest_written_by_pre_handoff_prompt_runtime(tmp_path: Path) -> None:
+def test_startup_rejects_legacy_dream_manifest_without_rewriting_it(tmp_path: Path) -> None:
     async def scenario() -> None:
         database = _sqlite(tmp_path / "pre-dream-bindings.db")
         config = BuiltinConfig(database=database, runtime=RuntimeConfig(dream_enabled=False))
-        # This is the completed manifest emitted by the pre-Handoff/Prompt runtime,
-        # bootstrapped through the same SQLite schema path used by that version.
         async with (
             SQLiteProfile.open(database, tables=SHARED_TABLES) as profile,
             profile.database.transaction() as connection,
         ):
             await bootstrap_processing_schema(connection, _PRE_HANDOFF_PROMPT_MANIFEST)
+            before = (await connection.execute(select(ARTIFACT_PROCESSING_SCHEMA_TABLE))).mappings().one()
 
-        async with open_builtin_contexts(config):
-            pass
+        for _ in range(2):
+            with pytest.raises(ProcessingSchemaNotReadyError, match="configuration differs"):
+                async with open_builtin_contexts(config):
+                    pytest.fail("Legacy Dream bindings require explicit maintenance")
 
         async with (
             SQLiteProfile.open(database, tables=SHARED_TABLES) as profile,
             profile.database.transaction() as connection,
         ):
-            marker = (await connection.execute(select(ARTIFACT_PROCESSING_SCHEMA_TABLE))).mappings().one()
-        stored = json.loads(marker["config_manifest"])
-        current = canonical_processing_manifest(config)
-        assert marker["phase"] == "complete"
-        assert marker["migration_id"] == "fresh"
-        assert stored["bindings"] == current["bindings"]
-        assert stored["capabilities"] == current["capabilities"]
-        assert stored["legacy_automatic_bindings"] == _PRE_HANDOFF_PROMPT_MANIFEST["legacy_automatic_bindings"]
+            after = (await connection.execute(select(ARTIFACT_PROCESSING_SCHEMA_TABLE))).mappings().one()
+        assert after == before
 
     asyncio.run(scenario())
 

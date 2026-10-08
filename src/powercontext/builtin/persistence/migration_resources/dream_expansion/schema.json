@@ -797,5 +797,75 @@
     ],
     "title": "DreamRecord",
     "type": "object"
+  },
+  "processing_manifest": {
+    "schema_version": 1515,
+    "bindings": {
+      "memory-source-window": "memory",
+      "topic-memory-source-window": "topic-memory",
+      "experience-incubation": "experience",
+      "profile-source-window": "profile",
+      "skill.dream.v1": "skill"
+    },
+    "binding_additions": {
+      "handoff.dream.v1": "handoff",
+      "prompt.dream.v1": "prompt"
+    },
+    "capability_additions": [
+      "handoff",
+      "prompt"
+    ],
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "bindings",
+        "capabilities",
+        "legacy_automatic_bindings"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "global",
+            "dedicated"
+          ]
+        },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "memory",
+              "experience",
+              "profile",
+              "topic-memory",
+              "skill",
+              "handoff",
+              "prompt"
+            ]
+          }
+        },
+        "legacy_automatic_bindings": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "memory-source-window",
+              "topic-memory-source-window",
+              "experience-incubation",
+              "profile-source-window",
+              "skill.dream.v1"
+            ]
+          }
+        }
+      }
+    }
   }
 }

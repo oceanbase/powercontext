@@ -776,6 +776,12 @@ def test_handoff_dream_publishes_for_explicit_continue(database: DatabaseConfig,
     async def scenario() -> None:
         generator = HandoffDreamGenerator()
         async with open_builtin_runtime(config(database), dream_generator=generator) as runtime:
+            capability = next(
+                item
+                for item in (await runtime.capabilities()).artifact_dreaming_operations
+                if item.operation == "refresh_handoff"
+            )
+            assert capability.effect == "review_then_publish"
             assert runtime.scopes is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Handoff Dream", summary="Review before publication", idempotency_key="handoff-dream")

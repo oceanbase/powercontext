@@ -38,7 +38,6 @@ PROMPT_DREAM_BINDING = "prompt.dream.v1"
 
 DreamEffect = Literal[
     "review_then_publish",
-    "review_then_commit_without_activation",
     "review_then_publish_configuration",
     "review_then_replace_tags",
 ]
@@ -136,7 +135,6 @@ DREAM_OPERATIONS = (
         HandoffContent,
         "_approve_handoff_dream",
         "handoff.commit_reviewed",
-        "review_then_commit_without_activation",
     ),
     DreamOperationSpec(
         "revise_prompt",

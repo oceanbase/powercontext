@@ -24,7 +24,8 @@
     "pc_profile_policies.pending_candidate_id",
     "pc_dream_runs.proposal_fingerprint",
     "ix_pc_dream_runs_proposal_fingerprint",
-    "pc_artifact_processing_intents.consecutive_dream_attempts"
+    "pc_artifact_processing_intents.consecutive_dream_attempts",
+    "pc_artifact_processing_schema.config_manifest"
   ],
   "retained_objects": [
     {
@@ -70,12 +71,15 @@
         "failed"
       ],
       "payload_schema": "schema.json#/task_payload_schema",
-      "strategy": "compatible_consumption",
-      "conversion": "none; preserve payload, identity, principal, idempotency and candidate references",
-      "unknown": "unsupported_task_format"
+      "strategy": "drain_before_upgrade",
+      "conversion": "none; preserve terminal payload, identity, principal, idempotency and candidate references",
+      "unknown": "unsupported_task_format",
+      "nonterminal": "dream_tasks_require_drain; stop admissions and finish queued/running work with the old runtime before stopping writers",
+      "frozen_execution": "Never rewrite prompt/model identity, started_at, deadline_at, retry counters or failure outcomes"
     },
     "processing_intents": "Preserve all fields; initialize consecutive_dream_attempts to zero",
-    "other_queues_and_leases": "Full framework inventory must validate, convert or drain before registration"
+    "other_queues_and_leases": "Full framework inventory must validate, convert or drain before registration",
+    "processing_manifest": "Frozen additive Handoff/Prompt binding transformation; add capabilities only when legacy Skill Dream was enabled; preserve ownership mode and automatic bindings"
   },
   "framework_requirements": [
     "Register a complete historical Server baseline and actual revision dependencies",

@@ -19,6 +19,8 @@ Handoff 批准即发布新版本，后续显式 Continue 按既有 latest 规则
 
 统一 Candidate 接口与物理表改名一起发布，仅启用 A0/A1、关闭 Tag 的部署也需升级。已有数据库通过[统一迁移框架（RFC #1771）](https://github.com/oceanbase/powercontext/pull/1771)显式维护：停止写入，执行选定的备份策略，迁移并验证后启动匹配版本的 Server，在恢复流量前同步升级 Client、SDK、CLI、MCP 和集成。Dream 启动只检查所需存储，不改名、补列或创建去重索引。移除的 `/v1/artifact-candidates/*` 不保留别名或兼容过滤，直接下线是本次发布明确跳过通常弃用期的例外；数据迁移不等于兼容旧客户端。后续启用 Tag 不需要再次改名候选表。
 
+停止全部写入前，先停止新增 Dream 请求，并由旧程序将 queued/running Dream Run 处理到终态。未完成任务会使迁移返回 `dream_tasks_require_drain`；迁移不改写冻结的提示词、模型配置、重试预算或截止时间。已完成 Run 和 pending Candidate 保留，升级后可继续读取与审核。Handoff/Prompt 的 Processing 绑定也由显式迁移更新，普通启动不修补 manifest；不支持的 manifest 返回 `unknown_processing_manifest` 并阻止迁移。
+
 Dream 提供的变更资源本身不启用生产升级。[PR #1772](https://github.com/oceanbase/powercontext/pull/1772) 还需完成完整 Server 基线、revision 链登记、历史任务检查与后端验收，其四表 SQLite 原型不代表 Server 就绪。在完整框架就绪检查接入前，本分支对旧 Dream 结构返回 `migration_required`，对已登记 revision 的数据库返回 `migration_framework_not_ready`；不能通过手工 stamp 或创建空替代表绕过。已登记旧表与恢复对象按统一框架的保留策略管理。
 
 ## Prompt 配置

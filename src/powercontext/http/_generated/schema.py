@@ -5506,7 +5506,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "string",
                         "enum": [
                             "review_then_publish",
-                            "review_then_commit_without_activation",
                             "review_then_publish_configuration",
                             "review_then_replace_tags",
                         ],

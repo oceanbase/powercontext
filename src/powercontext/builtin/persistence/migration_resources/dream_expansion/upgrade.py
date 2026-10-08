@@ -84,6 +84,11 @@ def validate_dream_tasks(connection: Connection) -> None:
             raise DreamUpgradeError("unsupported_task_format") from None
         if not valid:
             raise DreamUpgradeError("unsupported_task_format")
+        # The target release cannot execute the frozen legacy prompt contract.
+        # Check this before any DDL, including queued retries and expired runs;
+        # only the old runtime may finish them under their original budget.
+        if row["status"] in {"queued", "running"}:
+            raise DreamUpgradeError("dream_tasks_require_drain")
         candidate = run.get("candidate")
         if (
             candidate is not None
@@ -139,6 +144,19 @@ def upgrade_dream_storage(connection: Connection) -> None:
         raise DreamUpgradeError("maintenance_connection_required")
     _validate_source(connection, schema)
     validate_dream_tasks(connection)
+    previous_manifest = _processing_manifest(connection, schema, upgraded=False)
+    upgraded_manifest = {
+        **previous_manifest,
+        "bindings": {**previous_manifest["bindings"], **schema["processing_manifest"]["binding_additions"]},
+        "capabilities": sorted({
+            *previous_manifest["capabilities"],
+            *(
+                schema["processing_manifest"]["capability_additions"]
+                if "skill" in previous_manifest["capabilities"]
+                else []
+            ),
+        }),
+    }
 
     for entry in schema["tables"].values():
         # Retained copies have no live FKs: deleting a Scope or Artifact must
@@ -157,7 +175,45 @@ def upgrade_dream_storage(connection: Connection) -> None:
     for table, addition in schema["add_columns"].items():
         connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {addition['ddl'][dialect]}")
     connection.exec_driver_sql(schema["indexes"][dialect])
+    connection.execute(
+        text("UPDATE pc_artifact_processing_schema SET config_manifest=:manifest WHERE singleton=1"),
+        {"manifest": json.dumps(upgraded_manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)},
+    )
+    if _processing_manifest(connection, schema, upgraded=True) != upgraded_manifest:
+        raise DreamUpgradeError("processing_manifest_verification_failed")
     verify_dream_storage(connection)
+
+
+def _processing_manifest(connection: Connection, schema: dict[str, Any], *, upgraded: bool) -> dict[str, Any]:
+    """Recognize the frozen ownership manifest without reading runtime configuration."""
+    if "pc_artifact_processing_schema" not in inspect(connection).get_table_names():
+        raise DreamUpgradeError("unknown_processing_manifest")
+    rows = (
+        connection
+        .exec_driver_sql("SELECT singleton, schema_version, phase, config_manifest FROM pc_artifact_processing_schema")
+        .mappings()
+        .all()
+    )
+    contract = schema["processing_manifest"]
+    if (
+        len(rows) != 1
+        or rows[0]["singleton"] != 1
+        or rows[0]["schema_version"] != contract["schema_version"]
+        or rows[0]["phase"] != "complete"
+    ):
+        raise DreamUpgradeError("unknown_processing_manifest")
+    try:
+        manifest = json.loads(rows[0]["config_manifest"])
+    except (ValueError, TypeError):
+        raise DreamUpgradeError("unknown_processing_manifest") from None
+    bindings = {**contract["bindings"], **(contract["binding_additions"] if upgraded else {})}
+    if not Draft202012Validator(contract["schema"]).is_valid(manifest) or manifest["bindings"] != bindings:
+        raise DreamUpgradeError("unknown_processing_manifest")
+    additions = set(contract["capability_additions"])
+    expected_additions = additions if upgraded and "skill" in manifest["capabilities"] else set()
+    if set(manifest["capabilities"]) & additions != expected_additions:
+        raise DreamUpgradeError("unknown_processing_manifest")
+    return manifest
 
 
 def _validate_source(connection: Connection, schema: dict[str, Any]) -> None:
@@ -236,6 +292,7 @@ def _mysql_candidates(connection: Connection, schema: dict[str, Any]) -> None:
 def verify_dream_storage(connection: Connection) -> None:
     """Check copied values and domain links; not a declaration of Server readiness."""
     schema = _schema()
+    _processing_manifest(connection, schema, upgraded=True)
     for entry in schema["tables"].values():
         fields = ", ".join(entry["source_columns"])
         order = "scope_id, candidate_id" + (", version" if entry["target_name"].endswith("versions") else "")

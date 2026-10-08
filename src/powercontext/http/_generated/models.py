@@ -515,7 +515,6 @@ class OutputKind(StrEnum):
 
 class Effect(StrEnum):
     REVIEW_THEN_PUBLISH = "review_then_publish"
-    REVIEW_THEN_COMMIT_WITHOUT_ACTIVATION = "review_then_commit_without_activation"
     REVIEW_THEN_PUBLISH_CONFIGURATION = "review_then_publish_configuration"
     REVIEW_THEN_REPLACE_TAGS = "review_then_replace_tags"
 
