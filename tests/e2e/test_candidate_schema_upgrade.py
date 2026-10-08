@@ -21,7 +21,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, event, insert, select
+from sqlalchemy import create_engine, event, insert, inspect, select
 
 from powercontext.builtin.persistence.dream_schema import DreamSchemaNotReadyError
 from powercontext.builtin.persistence.migration_resources.dream_expansion.upgrade import (
@@ -125,6 +125,43 @@ def transform(path, interrupt=None, *, target_manifest=None):
                 raise
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("replacement", [None, "CASCADE"])
+def test_seekdb_reopen_requires_restrictive_candidate_result_foreign_key(tmp_path, replacement):
+    pytest.importorskip("pylibseekdb")
+    from powercontext.builtin.persistence.seekdb import SeekDBConfig
+
+    async def scenario():
+        config = BuiltinConfig(database=SeekDBConfig(path=tmp_path / "seekdb"))
+        async with open_builtin_contexts(config):
+            pass
+        # A real MySQL-compatible server may omit its default RESTRICT action
+        # from reflection, but that must not prevent reopening a valid database.
+        async with open_builtin_contexts(config) as contexts, contexts.database.transaction() as connection:
+
+            def change_foreign_key(sync_connection):
+                inspector = inspect(sync_connection)
+                key = next(
+                    key
+                    for key in inspector.get_foreign_keys("pc_candidate_heads")
+                    if key["referred_table"] == "pc_artifacts"
+                )
+                name = sync_connection.dialect.identifier_preparer.quote(key["name"])
+                sync_connection.exec_driver_sql(f"ALTER TABLE pc_candidate_heads DROP FOREIGN KEY {name}")
+                if replacement is not None:
+                    sync_connection.exec_driver_sql(
+                        "ALTER TABLE pc_candidate_heads ADD CONSTRAINT test_candidate_result "
+                        "FOREIGN KEY (scope_id, result_family, result_artifact_id, result_revision) "
+                        "REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE CASCADE"
+                    )
+
+            await connection.run_sync(change_foreign_key)
+        with pytest.raises(DreamSchemaNotReadyError, match="migration_required"):
+            async with open_builtin_contexts(config):
+                pytest.fail("A missing or cascading result reference must fail readiness")
+
+    asyncio.run(scenario())
 
 
 def test_legacy_startup_is_read_only_and_preserves_candidates(tmp_path):

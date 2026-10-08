@@ -94,13 +94,17 @@ def _check_candidate_constraints(inspector: Inspector, names: set[str]) -> None:
             (tuple(key.column_keys), tuple(element.target_fullname for element in key.elements), key.ondelete)
             for key in table.foreign_key_constraints
         }
-        actual_keys = {
-            (
+        actual_keys = set()
+        for key in inspector.get_foreign_keys(table.name):
+            ondelete = key.get("options", {}).get("ondelete")
+            # MySQL-compatible servers omit their default RESTRICT action from
+            # SHOW CREATE TABLE; NO ACTION has the same immediate semantics.
+            if inspector.dialect.name == "mysql" and ondelete in {None, "NO ACTION"}:
+                ondelete = "RESTRICT"
+            actual_keys.add((
                 tuple(key["constrained_columns"]),
                 tuple(f"{key['referred_table']}.{column}" for column in key["referred_columns"]),
-                key.get("options", {}).get("ondelete"),
-            )
-            for key in inspector.get_foreign_keys(table.name)
-        }
+                ondelete,
+            ))
         if not set(table.c.keys()) <= columns or not required_checks <= checks or not required_keys <= actual_keys:
             raise DreamSchemaNotReadyError("migration_required", "Candidate columns or constraints need upgrading")

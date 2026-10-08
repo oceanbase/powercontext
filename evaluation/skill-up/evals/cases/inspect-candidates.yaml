@@ -33,12 +33,12 @@ judge:
   success:
     - tool_called_in_turn:
         turn: 1
-        name: mcp__powercontext__list_artifact_candidates
+        name: mcp__powercontext__list_candidates
         args:
           scope_id: skill-up-fixture-scope
     - tool_called_in_turn:
         turn: 1
-        name: mcp__powercontext__get_artifact_candidate
+        name: mcp__powercontext__get_candidate
         args:
           scope_id: skill-up-fixture-scope
           candidate_id: fixture-candidate-001
@@ -46,7 +46,7 @@ judge:
         all: ["fixture-candidate-001", "Retry guidance", "pending"]
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__acknowledge_handoff}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__activate_handoff}
-    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__approve_artifact_candidate}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__approve_candidate}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__capture_content_source}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__clear_scope_binding}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__commit_handoff}
@@ -66,10 +66,10 @@ judge:
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__publish_artifact}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__query_code}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__record_task_outcome}
-    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__reject_artifact_candidate}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__reject_candidate}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__remember_memory}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__retire_memory_entry}
-    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__revise_artifact_candidate}
+    - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__revise_candidate}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__revise_memory_entry}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__search_memory}
     - tool_not_called_in_turn: {turn: 1, name: mcp__powercontext__search_topic_memory}

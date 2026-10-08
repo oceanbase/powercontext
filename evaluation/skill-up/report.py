@@ -36,7 +36,7 @@ FIXTURE_SCOPE = "skill-up-fixture-scope"
 REQUIRED_CALLS = {
     "explicit-save": {"remember_memory"},
     "empty-search": {"search_memory"},
-    "inspect-candidates": {"list_artifact_candidates", "get_artifact_candidate"},
+    "inspect-candidates": {"list_candidates", "get_candidate"},
     "failed-save": {"remember_memory"},
 }
 LIMITATIONS = {
