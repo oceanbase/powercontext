@@ -252,10 +252,18 @@ Inside DeepSeek Harness:
 | `unavailable` | Connection failure, timeout, cancellation, or HTTP 503. Native diagnostics use `server_unavailable`. |
 | `unscoped` | The resolver completed without a Scope. |
 | `invalid_response` | The client detected an invalid Server response. |
+| `precondition_failed` | The Server rejected a write because a tag or revision precondition no longer matches the current state. Re-read the current reference, then retry with the fresh value. A 412 that carries a published business code reports that code instead. |
+| `precondition_required` | The Server requires the current ETag in `If-Match` for this mutation. Read the resource, then retry with its ETag. |
+| `cursor_expired` | The Server rejected a pagination cursor. Restart the listing from the beginning. |
+| `request_too_large` | The result exceeds the response limit. Narrow the selection and retry. |
+| `capacity_exceeded` | The Server reached a capacity limit. Retry after a short delay. |
 
-Existing conflict and validation codes, such as `revision_conflict` and `invalid_request`, retain their meaning. Failure
-results preserve available HTTP status and request ID, but use fixed messages instead of Server-provided text. Unknown
-error codes are omitted from `error_code` and diagnostics; their presence alone does not imply a version mismatch.
+Existing conflict and validation codes, such as `revision_conflict` and `invalid_request`, retain their meaning. A domain
+status keeps its own result code and recovery action: only transport failures and HTTP 5xx use the `unavailable` wording,
+so a recoverable rejection is never reported as an outage. A response body that carries `error.details` preserves that
+object on the tool result. Failure results preserve available HTTP status and request ID, but use fixed messages instead
+of Server-provided text. Unknown error codes are omitted from `error_code` and diagnostics; their presence alone does not
+imply a version mismatch.
 
 ## Diagnose automatic recall and capture
 

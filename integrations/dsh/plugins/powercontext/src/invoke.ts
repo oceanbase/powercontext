@@ -39,6 +39,7 @@ export interface ToolResult extends BodyFailureDetails {
   status?: number
   request_id?: string
   data?: unknown
+  details?: Record<string, unknown>
 }
 
 const WRITE_OPS = new Set<OperationId>([
@@ -61,6 +62,7 @@ export function toolResultSchema(): Record<string, unknown> {
       failure_phase: { type: 'string' },
       response_body_error: { type: 'string' },
       data: { type: 'object', additionalProperties: true },
+      details: { type: 'object', additionalProperties: true },
     },
   }
 }
@@ -74,8 +76,21 @@ function requestIdField(requestId: string | undefined): { request_id?: string } 
   return requestId === undefined ? {} : { request_id: requestId }
 }
 
-function mapServerError(error: ServerResponseError): ToolResult {
+/**
+ * Maps a Server response error onto the tool result the host sees.
+ *
+ * Every status `src/powercontext/server/app.py` maps a domain error to gets a branch of
+ * its own, because the tail message ("PowerContext is unavailable, continue the task.")
+ * is only true for an availability outcome. Reaching the tail with a domain error tells
+ * the model to abandon an operation that a retry would have completed, and records an
+ * outage that never happened. 5xx deliberately falls through: those are availability
+ * outcomes, not domain outcomes.
+ */
+function mapServerErrorCore(error: ServerResponseError): ToolResult {
   const code = publicErrorCode(error.code)
+  if (error.statusCode === 400) {
+    return { ok: false, code: code ?? 'invalid_request', message: 'PowerContext rejected the request as malformed.', status: 400, ...requestIdField(error.requestId) }
+  }
   if (error.statusCode === 401) {
     return { ok: false, code: 'authentication_failed', message: 'PowerContext authentication failed. Check Authorization.', status: 401, ...requestIdField(error.requestId) }
   }
@@ -91,8 +106,26 @@ function mapServerError(error: ServerResponseError): ToolResult {
   if (error.statusCode === 409) {
     return { ok: false, code: code ?? 'conflict', message: 'PowerContext operation conflicts with the current state. Inspect the current reference before retrying.', status: 409, ...requestIdField(error.requestId) }
   }
+  if (error.statusCode === 410) {
+    return { ok: false, code: code ?? 'cursor_expired', message: 'PowerContext rejected an expired pagination cursor. Restart the listing from the beginning.', status: 410, ...requestIdField(error.requestId) }
+  }
+  if (error.statusCode === 412) {
+    // Both codes the Server returns at 412 mean the same thing to the caller: the state
+    // this request was built against has moved, so re-read it and retry. Neither is an
+    // outage, and `revision_conflict` arrives here even though it is already published.
+    return { ok: false, code: code ?? 'precondition_failed', message: 'PowerContext rejected the request because a precondition no longer matches the current state. Re-read the current revision or tag, then retry with the fresh value.', status: 412, ...requestIdField(error.requestId) }
+  }
+  if (error.statusCode === 413) {
+    return { ok: false, code: code ?? 'request_too_large', message: 'PowerContext rejected the request because the result exceeds the response limit. Narrow the selection and retry.', status: 413, ...requestIdField(error.requestId) }
+  }
   if (error.statusCode === 422) {
     return { ok: false, code: code ?? 'invalid_request', message: 'PowerContext rejected the request.', status: 422, ...requestIdField(error.requestId) }
+  }
+  if (error.statusCode === 428) {
+    return { ok: false, code: code ?? 'precondition_required', message: 'PowerContext requires the current ETag in If-Match for this mutation. Read the resource, then retry with its ETag.', status: 428, ...requestIdField(error.requestId) }
+  }
+  if (error.statusCode === 429) {
+    return { ok: false, code: code ?? 'capacity_exceeded', message: 'PowerContext reached a capacity limit. Retry after a short delay.', status: 429, ...requestIdField(error.requestId) }
   }
   if (error.statusCode === 503) {
     return { ok: false, code: 'unavailable', message: 'PowerContext is unavailable, continue the task.', status: 503, ...requestIdField(error.requestId) }
@@ -104,6 +137,11 @@ function mapServerError(error: ServerResponseError): ToolResult {
     status: error.statusCode,
     ...requestIdField(error.requestId),
   }
+}
+
+function mapServerError(error: ServerResponseError): ToolResult {
+  const mapped = mapServerErrorCore(error)
+  return error.serverDetails === undefined ? mapped : { ...mapped, details: error.serverDetails }
 }
 
 export function toToolResult(error: unknown): ToolResult {

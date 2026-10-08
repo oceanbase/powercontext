@@ -241,10 +241,16 @@ Scope 解析失败时，具名工具和依赖 Scope 的 `/pc` 命令会返回受
 | `unavailable` | 连接失败、超时、取消或 HTTP 503。原生诊断使用 `server_unavailable`。 |
 | `unscoped` | resolver 执行完成，但没有返回 Scope。 |
 | `invalid_response` | 客户端识别到无效的 Server 响应。 |
+| `precondition_failed` | tag 或 revision 前置条件已不匹配当前状态，Server 拒绝了本次写入。应重新读取当前引用，用最新的值重试；若 412 响应体带有已公开的业务码，则报告该业务码。 |
+| `precondition_required` | 该变更操作要求携带当前 ETag 的 `If-Match`。应读取资源，再用其 ETag 重试。 |
+| `cursor_expired` | Server 拒绝了分页 cursor。应从列表开头重新请求。 |
+| `request_too_large` | 结果超出响应大小上限。应收窄筛选范围后重试。 |
+| `capacity_exceeded` | Server 达到容量上限。应稍后重试。 |
 
-已有冲突和校验错误码（如 `revision_conflict`、`invalid_request`）保持原有含义。失败结果保留可用的 HTTP status 和
-request ID，提示文字使用固定内容，不透传 Server message。未知错误码不会出现在 `error_code` 或诊断中，
-也不会仅因无法识别就被判为版本不匹配。
+已有冲突和校验错误码（如 `revision_conflict`、`invalid_request`）保持原有含义。业务状态码各自保留结果 code 与恢复
+动作，只有传输失败和 HTTP 5xx 才使用 `unavailable` 的措辞，因此可恢复的拒绝不会被报告为服务中断。响应体带有
+`error.details` 时，该对象会保留在工具结果上。失败结果保留可用的 HTTP status 和 request ID，提示文字使用固定内容，
+不透传 Server message。未知错误码不会出现在 `error_code` 或诊断中，也不会仅因无法识别就被判为版本不匹配。
 
 ## 排查自动召回和采集
 

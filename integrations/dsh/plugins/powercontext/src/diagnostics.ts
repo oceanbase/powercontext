@@ -38,6 +38,7 @@ const PUBLIC_ERROR_CODES = new Set([
   'not_found', 'scope_not_found', 'memory_not_found', 'artifact_not_found',
   'candidate_not_found', 'handoff_evidence_not_found', 'source_definition_not_found',
   'external_skill_not_found', 'conflict', 'revision_conflict', 'memory_entry_inactive',
+  'memory_capacity_exceeded', 'tag_precondition_failed',
   'source_conflict', 'candidate_conflict', 'artifact_conflict', 'candidate_terminal',
   'scope_version_conflict', 'scope_idempotency_conflict', 'artifact_publication_conflict',
   'connector_checkpoint_conflict', 'generation_conflict', 'external_skill_snapshot_unavailable',
