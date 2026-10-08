@@ -27,6 +27,7 @@ from powercontext.builtin.persistence.dream_schema import DreamSchemaNotReadyErr
 from powercontext.builtin.persistence.migration_resources.dream_expansion.upgrade import (
     DreamUpgradeError,
     upgrade_dream_storage,
+    validate_dream_processing_manifest,
 )
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import PROFILE_POLICIES_TABLE
@@ -101,7 +102,11 @@ def snapshot(path):
         return tuple(connection.iterdump())
 
 
-def transform(path, interrupt=None):
+def transform(path, interrupt=None, *, target_manifest=None):
+    from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
+
+    if target_manifest is None:
+        target_manifest = canonical_processing_manifest(BuiltinConfig())
     # The unified runner owns this transaction in production. This harness
     # exercises only the domain contribution, without stamping or claiming ready.
     engine = create_engine(f"sqlite:///{path}")
@@ -113,7 +118,7 @@ def transform(path, interrupt=None):
             connection.commit()
             connection.exec_driver_sql("BEGIN IMMEDIATE")
             try:
-                upgrade_dream_storage(connection)
+                upgrade_dream_storage(connection, target_manifest=target_manifest)
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -415,8 +420,18 @@ def test_pending_legacy_run_requires_drain_before_domain_transformation(tmp_path
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_migration_upgrades_processing_manifest_and_startup_only_checks_it(tmp_path, enabled):
+@pytest.mark.parametrize(
+    ("enabled", "families"),
+    [
+        (False, None),
+        (True, None),
+        (True, ("skill",)),
+        (True, ()),
+        (True, ("skill", "handoff")),
+        (True, ("prompt",)),
+    ],
+)
+def test_migration_upgrades_processing_manifest_and_startup_only_checks_it(tmp_path, enabled, families):
     from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
     from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
 
@@ -426,9 +441,10 @@ def test_migration_upgrades_processing_manifest_and_startup_only_checks_it(tmp_p
         settings = BuiltinConfig(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{path}"),
             inference=InferenceConfig(generation_model="openai:gpt-4o-mini" if enabled else None),
-            runtime=RuntimeConfig(dream_enabled=enabled),
+            runtime=RuntimeConfig(dream_enabled=enabled, artifact_processing_families=families),
         )
-        expected = canonical_processing_manifest(settings)
+        target = canonical_processing_manifest(settings)
+        expected = target.copy()
         expected["legacy_automatic_bindings"] = ["topic-memory-source-window", "memory-source-window"]
         legacy = {**expected, "bindings": dict(expected["bindings"])}
         legacy["bindings"].pop("handoff.dream.v1")
@@ -437,7 +453,7 @@ def test_migration_upgrades_processing_manifest_and_startup_only_checks_it(tmp_p
         with sqlite3.connect(path) as connection:
             connection.execute("UPDATE pc_artifact_processing_schema SET config_manifest=?", (json.dumps(legacy),))
             before = connection.execute("SELECT * FROM pc_artifact_processing_schema").fetchone()
-        transform(path)
+        transform(path, target_manifest=target)
         with sqlite3.connect(path) as connection:
             migrated = connection.execute("SELECT * FROM pc_artifact_processing_schema").fetchone()
         assert migrated[:-1] == before[:-1]
@@ -447,6 +463,58 @@ def test_migration_upgrades_processing_manifest_and_startup_only_checks_it(tmp_p
                 pass
             with sqlite3.connect(path) as connection:
                 assert connection.execute("SELECT * FROM pc_artifact_processing_schema").fetchone() == migrated
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("invalid", ["mode", "binding", "removed", "unrelated", "unknown", "missing"])
+def test_incompatible_target_manifest_blocks_plan_and_upgrade_before_writes(tmp_path, invalid):
+    from powercontext.builtin.runtime import RuntimeConfig
+    from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
+
+    async def scenario():
+        path = tmp_path / "incompatible-target.db"
+        await populate(path)
+        target = canonical_processing_manifest(
+            BuiltinConfig(runtime=RuntimeConfig(artifact_processing_families=("skill",)))
+        )
+        with sqlite3.connect(path) as connection:
+            legacy = json.loads(
+                connection.execute("SELECT config_manifest FROM pc_artifact_processing_schema").fetchone()[0]
+            )
+            legacy["capabilities"] = ["skill"]
+            connection.execute("UPDATE pc_artifact_processing_schema SET config_manifest=?", (json.dumps(legacy),))
+        if invalid == "mode":
+            target["mode"] = "dedicated"
+        elif invalid == "binding":
+            target["bindings"]["handoff.dream.v1"] = "skill"
+        elif invalid == "removed":
+            target["capabilities"] = []
+        elif invalid == "unrelated":
+            target["capabilities"] = ["memory", "skill"]
+        elif invalid == "unknown":
+            target["capabilities"] = ["future-family", "skill"]
+        else:
+            target = {}
+        before = snapshot(path)
+        engine = create_engine(f"sqlite:///{path}")
+        try:
+            with (
+                engine.connect() as connection,
+                pytest.raises(DreamUpgradeError, match="incompatible_target_processing_manifest"),
+            ):
+                validate_dream_processing_manifest(connection, target_manifest=target)
+        finally:
+            engine.dispose()
+        statements = []
+
+        def capture(connection, cursor, statement, parameters, context, executemany):
+            statements.append(statement.lstrip().split()[0].upper())
+
+        with pytest.raises(DreamUpgradeError, match="incompatible_target_processing_manifest"):
+            transform(path, capture, target_manifest=target)
+        assert not set(statements) & {"CREATE", "ALTER", "DROP", "INSERT", "UPDATE", "DELETE"}
+        assert snapshot(path) == before
 
     asyncio.run(scenario())
 

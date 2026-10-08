@@ -10,7 +10,8 @@ append it to #1772's four-table acceptance chain and claim complete Server readi
 must be bound before registration. No generic migration table is added; revision tracking belongs to the shared
 `pc_schema_revision` table. Production registration remains disabled in the manifest.
 
-The framework's Alembic revision calls `upgrade_dream_storage(op.get_bind())` from the frozen `upgrade.py` after baseline
+The framework's Alembic revision calls `upgrade_dream_storage(op.get_bind(), target_manifest=target_manifest)` from the
+frozen `upgrade.py` after baseline
 recognition, stopped-write checks, locking, backup policy and maintenance connection setup. Bundle this module, the SQL/
 task schema and manifest in the framework's immutable checksummed resources. Released resources must not import current
 repositories, runtime models or application metadata. This transformation neither commits nor stamps a revision, and
@@ -44,7 +45,17 @@ shape and fresh development initialization retain their ordinary domain behavior
 acceptance evidence. Enabling the production upgrade requires SQLite, seekdb and OceanBase acceptance, packaging checks,
 full baseline registration, task validation and startup readiness together.
 
-The frozen processing manifest transformation preserves ownership mode and automatic bindings, adds Handoff/Prompt
-bindings, and adds their capabilities only when legacy Skill Dream capability was enabled. An unknown manifest or an
-incomplete processing migration fails with `unknown_processing_manifest` before writes. Startup only checks the result;
-it does not repair or extend manifests. The framework must compare the resulting manifest with deployment configuration.
+The framework supplies the target deployment's canonical processing manifest as a required input bound to the maintenance
+plan. It must reflect explicit `artifact_processing_families` exactly; only deployments without an explicit declaration
+use the target release's inferred defaults. The migration process's incidental runtime configuration is not this input.
+`validate_dream_processing_manifest(connection, target_manifest=target_manifest)` validates it during planning, and
+`upgrade_dream_storage` repeats validation under the maintenance lock before any DDL or data writes.
+
+The frozen transformation preserves ownership mode and historical automatic bindings, adds the canonical Handoff/Prompt
+bindings and adopts the declared capability set. Existing capabilities must remain; only Handoff/Prompt capabilities may
+be added. Skill in the old record does not imply either addition. Removing existing capabilities or changing ownership
+requires separate maintenance. An incompatible or missing target manifest is rejected; incompatible content raises
+`incompatible_target_processing_manifest`. An unknown stored manifest or incomplete processing migration raises
+`unknown_processing_manifest`. The frozen module validates plain manifest data without importing live runtime models.
+Startup only checks the result; it does not repair or extend manifests. The framework must ensure all new hosts use the
+deployment configuration bound to the plan, then verify compatibility before advancing the shared revision.

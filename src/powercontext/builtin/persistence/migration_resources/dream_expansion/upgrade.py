@@ -127,7 +127,7 @@ def _valid_selection(request: dict[str, Any]) -> bool:
     )
 
 
-def upgrade_dream_storage(connection: Connection) -> None:
+def upgrade_dream_storage(connection: Connection, *, target_manifest: dict[str, Any]) -> None:
     """Transform the recognized legacy shape on the framework's pinned connection.
 
     SQLite needs foreign_keys disabled *before* the framework starts its transaction,
@@ -144,19 +144,7 @@ def upgrade_dream_storage(connection: Connection) -> None:
         raise DreamUpgradeError("maintenance_connection_required")
     _validate_source(connection, schema)
     validate_dream_tasks(connection)
-    previous_manifest = _processing_manifest(connection, schema, upgraded=False)
-    upgraded_manifest = {
-        **previous_manifest,
-        "bindings": {**previous_manifest["bindings"], **schema["processing_manifest"]["binding_additions"]},
-        "capabilities": sorted({
-            *previous_manifest["capabilities"],
-            *(
-                schema["processing_manifest"]["capability_additions"]
-                if "skill" in previous_manifest["capabilities"]
-                else []
-            ),
-        }),
-    }
+    upgraded_manifest = validate_dream_processing_manifest(connection, target_manifest=target_manifest)
 
     for entry in schema["tables"].values():
         # Retained copies have no live FKs: deleting a Scope or Artifact must
@@ -182,6 +170,36 @@ def upgrade_dream_storage(connection: Connection) -> None:
     if _processing_manifest(connection, schema, upgraded=True) != upgraded_manifest:
         raise DreamUpgradeError("processing_manifest_verification_failed")
     verify_dream_storage(connection)
+
+
+def validate_dream_processing_manifest(connection: Connection, *, target_manifest: dict[str, Any]) -> dict[str, Any]:
+    """Validate the deployment declaration for planning and again before writes.
+
+    The caller supplies the target deployment's canonical manifest. The legacy
+    record cannot distinguish explicit capabilities from inferred defaults.
+    This frozen contribution permits only its own additive capability changes;
+    ownership changes and removal of existing capabilities need separate maintenance.
+    """
+    schema = _schema()
+    previous = _processing_manifest(connection, schema, upgraded=False)
+    contract = schema["processing_manifest"]
+    if not Draft202012Validator(contract["schema"]).is_valid(target_manifest):
+        raise DreamUpgradeError("incompatible_target_processing_manifest")
+    old_capabilities = set(previous["capabilities"])
+    target_capabilities = set(target_manifest["capabilities"])
+    if (
+        target_manifest["mode"] != previous["mode"]
+        or target_manifest["bindings"] != {**contract["bindings"], **contract["binding_additions"]}
+        or not old_capabilities <= target_capabilities
+        or not target_capabilities - old_capabilities <= set(contract["capability_additions"])
+    ):
+        raise DreamUpgradeError("incompatible_target_processing_manifest")
+    return {
+        **target_manifest,
+        "capabilities": sorted(target_capabilities),
+        # Preserve historical recovery obligations regardless of new schedules.
+        "legacy_automatic_bindings": previous["legacy_automatic_bindings"],
+    }
 
 
 def _processing_manifest(connection: Connection, schema: dict[str, Any], *, upgraded: bool) -> dict[str, Any]:
@@ -210,8 +228,7 @@ def _processing_manifest(connection: Connection, schema: dict[str, Any], *, upgr
     if not Draft202012Validator(contract["schema"]).is_valid(manifest) or manifest["bindings"] != bindings:
         raise DreamUpgradeError("unknown_processing_manifest")
     additions = set(contract["capability_additions"])
-    expected_additions = additions if upgraded and "skill" in manifest["capabilities"] else set()
-    if set(manifest["capabilities"]) & additions != expected_additions:
+    if not upgraded and set(manifest["capabilities"]) & additions:
         raise DreamUpgradeError("unknown_processing_manifest")
     return manifest
 

@@ -79,7 +79,7 @@
     },
     "processing_intents": "Preserve all fields; initialize consecutive_dream_attempts to zero",
     "other_queues_and_leases": "Full framework inventory must validate, convert or drain before registration",
-    "processing_manifest": "Frozen additive Handoff/Prompt binding transformation; add capabilities only when legacy Skill Dream was enabled; preserve ownership mode and automatic bindings"
+    "processing_manifest": "Require the target deployment manifest; preserve explicit capabilities, ownership mode and historical automatic bindings; add canonical Handoff/Prompt bindings; allow only declared Handoff/Prompt capability additions and reject incompatible targets before writes"
   },
   "framework_requirements": [
     "Register a complete historical Server baseline and actual revision dependencies",
@@ -90,6 +90,7 @@
     "Disable SQLite foreign keys before beginning the rebuild transaction; verify before revision advancement",
     "Verify backend DDL and recovery on SQLite, seekdb and OceanBase MySQL mode",
     "Run the legacy task recognizer during plan and locked execution before transformation",
+    "Bind the canonical target deployment manifest to the plan; validate it during planning and locked execution before any DDL or data writes; all new hosts must use the bound configuration",
     "Run migration-only copy verification before revision advancement; use live invariants and current task recognizers for ordinary startup",
     "Integrate complete runtime readiness before admitting a versioned database"
   ]
