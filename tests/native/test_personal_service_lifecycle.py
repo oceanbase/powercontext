@@ -135,6 +135,58 @@ def test_native_maintenance_preserves_registration_and_original_running_state(tm
         _cleanup(adapter)
 
 
+def test_native_stopped_service_registration_updates_without_starting(tmp_path: Path) -> None:
+    """Updating a stopped registration must leave activation to an explicit start."""
+
+    adapter = _native_adapter(suffix="stopped-upgrade")
+    controller = ServiceController(adapter)
+    environment = _environment_file(tmp_path)
+    try:
+        assert controller.install(env_file=environment).ok
+        original = adapter.inspect().definition
+        assert original is not None and original.env_file is not None
+        controller.stop()
+        assert adapter.manager_state() is ManagerState.INACTIVE
+        assert controller.maintenance_path.exists()
+
+        # Keep the same valid configuration and permissions while changing its
+        # protected identity, as an upgrade may update the deployment file.
+        environment.write_text(environment.read_text(encoding="utf-8") + "# upgraded registration\n", encoding="utf-8")
+        controller.install(env_file=environment)
+        updated = adapter.inspect().definition
+        assert updated is not None and updated.env_file is not None
+        assert updated.env_file.path == original.env_file.path
+        assert updated.env_file != original.env_file
+        assert adapter.manager_state() is ManagerState.INACTIVE
+        assert controller.maintenance_path.exists()
+
+        controller.install(env_file=environment)
+        assert adapter.inspect().definition == updated
+        # Cross the native restart-policy boundary to catch accidental
+        # enablement during either registration update or its idempotent retry.
+        time.sleep(6)
+        assert adapter.manager_state() is ManagerState.INACTIVE
+        assert controller.maintenance_path.exists()
+        loaded = adapter.loaded_registration()
+        if isinstance(adapter, LaunchdUserAdapter):
+            assert loaded.state is ManagerOwnershipState.NOT_LOADED
+        else:
+            assert loaded.state is ManagerOwnershipState.OWNED
+            assert loaded.definition == updated
+
+        assert controller.start().ok
+        assert not controller.maintenance_path.exists()
+        loaded = adapter.loaded_registration()
+        assert loaded.state is ManagerOwnershipState.OWNED
+        assert loaded.definition == updated
+        assert adapter.manager_state() is ManagerState.ACTIVE
+    finally:
+        _capture_native_failure(adapter, tmp_path)
+        with suppress(Exception):
+            controller.uninstall()
+        _cleanup(adapter)
+
+
 def test_failure_diagnostics_reports_an_absent_service(tmp_path: Path) -> None:
     """The report must survive the state it exists to describe: nothing there.
 

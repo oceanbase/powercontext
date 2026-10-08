@@ -27,7 +27,7 @@ from powercontext.cli.inference_notice import write_inference_capability_notice
 from powercontext.server import cli as _server_role_dependency
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.service.controller import ServiceController
-from powercontext.service.model import ServiceError, ServiceStatus
+from powercontext.service.model import ManagerState, ServiceError, ServiceStatus
 
 del _server_role_dependency
 
@@ -60,7 +60,7 @@ def install(
         ),
     ] = None,
 ) -> None:
-    """Install the personal Server service and optionally start it at user login."""
+    """Install or update the personal Server service, preserving an explicit stop."""
 
     if start_on_login is None:
         start_on_login = (
@@ -88,11 +88,19 @@ def install(
         else:
             exit_code = 1
         raise typer.Exit(code=exit_code) from error
-    message = (
-        "PowerContext personal service installed with login auto-start."
-        if start_on_login
-        else "PowerContext personal service installed without login auto-start."
-    )
+    if status.manager in {ManagerState.INACTIVE, ManagerState.FAILED}:
+        message = (
+            "PowerContext personal service registration updated "
+            f"{'with login auto-start configured' if start_on_login else 'without login auto-start'}. "
+            "The service remains stopped with automatic activation suppressed. "
+            "Run `powercontext service start` when ready."
+        )
+    else:
+        message = (
+            "PowerContext personal service installed with login auto-start."
+            if start_on_login
+            else "PowerContext personal service installed without login auto-start."
+        )
     typer.echo(message)
     _write_environment_guidance(expanded_env_file)
     write_inference_capability_notice(

@@ -150,10 +150,15 @@ class ServiceController:
             )
 
         with _service_lock(self._adapter.lock_path):
-            if self._maintenance_record() is not None:
-                raise ServiceError(  # noqa: TRY003
-                    "the personal service is stopped for maintenance; finish migration or use service start first"
-                )
+            record = self._maintenance_record()
+            if record is not None:
+                if record.get("phase") not in {"manual_stopped", "manual_switching"}:
+                    raise ServiceError(  # noqa: TRY003
+                        "the personal service is stopped for maintenance; finish migration or use service start first"
+                    )
+                self._recover_definition_switch()
+                self._update_manually_stopped_definition(definition)
+                return self.status()
             registration = self._adapter.inspect()
             self._require_mutable_registration(registration)
             loaded = self._adapter.loaded_registration()
@@ -327,11 +332,41 @@ class ServiceController:
             self.maintenance_path.unlink(missing_ok=True)
         return self.status()
 
-    def _recover_definition_switch(self) -> None:
-        """Resume only a database-verified switch with intact original/target evidence."""
-        record = self._maintenance_record()
-        if record is None or record.get("phase") != "switching":
+    def _update_manually_stopped_definition(self, definition: ServiceDefinition) -> None:
+        """Update an owned registration without undoing the user's explicit stop."""
+
+        registration, _running = self._owned_registration()
+        self._adapter.suspend(self.maintenance_path)
+        self._adapter.stop()
+        self._require_stopped(registration.definition)
+        if registration.definition is None:
+            raise ServiceError("the installed service has no definition")  # noqa: TRY003
+        if definition.endpoint != registration.definition.endpoint:
+            self._require_stopped(definition)
+        target = self._adapter.render(definition)
+        if registration.definition == definition and registration.content == target:
             return
+        summary = ServiceMaintenanceSummary(
+            self._adapter.identifier,
+            str(self._adapter.artifact_path),
+            registration.definition,
+            definition,
+            False,
+            hashlib.sha256(registration.content or b"").hexdigest(),
+        )
+        self._write_maintenance_record({
+            "phase": "manual_switching",
+            "summary": summary.as_dict(),
+            "target_checksum": hashlib.sha256(target).hexdigest(),
+        })
+        self._recover_definition_switch()
+
+    def _recover_definition_switch(self) -> None:
+        """Resume a verified migration or explicit stopped-registration update."""
+        record = self._maintenance_record()
+        if record is None or record.get("phase") not in {"switching", "manual_switching"}:
+            return
+        manual_update = record.get("phase") == "manual_switching"
         try:
             payload = record["summary"]
             if not isinstance(payload, dict):
@@ -340,6 +375,8 @@ class ServiceController:
             originally_running = payload["originally_running"]
             if not isinstance(originally_running, bool):
                 raise TypeError("invalid original service state")  # noqa: TRY003, TRY301
+            if manual_update and originally_running:
+                raise ValueError("a manual registration update must preserve the stopped state")  # noqa: TRY003, TRY301
             summary = ServiceMaintenanceSummary(
                 str(payload["identifier"]),
                 str(payload["artifact_path"]),
@@ -372,10 +409,18 @@ class ServiceController:
             )
         ):
             raise ServiceError("the service registration changed outside the pending switch")  # noqa: TRY003
+        self._adapter.suspend(self.maintenance_path)
+        self._adapter.stop()
         self._require_stopped(summary.definition)
+        if summary.target_definition.endpoint != summary.definition.endpoint:
+            self._require_stopped(summary.target_definition)
         self._adapter.write(target)
         self._adapter.update_suspended()
-        self._write_maintenance_record({"phase": "database_ready", "summary": summary.as_dict()})
+        self._require_stopped(summary.target_definition)
+        if manual_update:
+            self._write_maintenance_record({"phase": "manual_stopped"})
+        else:
+            self._write_maintenance_record({"phase": "database_ready", "summary": summary.as_dict()})
 
     def _owned_registration(self) -> tuple[NativeRegistration, bool]:
         support, detail = self._adapter.support()
@@ -559,6 +604,17 @@ class ServiceController:
         probe = self._probe(registration.endpoint or "")
         liveness = LivenessState.LIVE if probe.state is ProbeState.LIVE else LivenessState.UNREACHABLE
         recovery = _recovery_action(registration.definition, manager, probe, loaded)
+        record = self._maintenance_record()
+        if (
+            loaded.state in {ManagerOwnershipState.OWNED, ManagerOwnershipState.NOT_LOADED}
+            and manager in {ManagerState.INACTIVE, ManagerState.FAILED}
+            and probe.state is ProbeState.UNREACHABLE
+            and record is not None
+        ):
+            if record.get("phase") == "manual_switching":
+                recovery = "run `powercontext service install` to finish the interrupted stopped-registration update"
+            elif record.get("phase") == "manual_stopped" and registration.definition is DefinitionState.CURRENT:
+                recovery = "run `powercontext service start` when ready to resume the manually stopped service"
         details = [detail for detail in (loaded.detail, probe.detail) if detail]
         return replace(
             registration,

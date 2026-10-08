@@ -75,6 +75,93 @@ def test_service_lifecycle_commands_preserve_registration_and_configuration(
     assert adapter.manager is ManagerState.ACTIVE
 
 
+@pytest.mark.parametrize("manager_loads_definition", [False, True])
+def test_install_updates_a_manually_stopped_service_without_starting_the_removed_old_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, manager_loads_definition: bool
+) -> None:
+    controller, adapter = _installed(tmp_path)
+    original = adapter.definition
+    assert original is not None
+    controller.stop()
+    Path(original.python_executable).unlink()
+    if not manager_loads_definition:
+        # An unloaded manager, like launchd after bootout, reads the new
+        # artifact only when the user explicitly starts the service.
+        monkeypatch.setattr(adapter, "update_suspended", lambda: None)
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+    runner = CliRunner()
+
+    updated = runner.invoke(service_cli.app, ["install", "--start-on-login"])
+
+    assert updated.exit_code == 0, updated.output
+    assert "remains stopped" in updated.output
+    assert "automatic activation suppressed" in updated.output
+    assert "powercontext service start" in updated.output
+    assert adapter.definition is not None
+    assert adapter.definition.python_executable == service_python_executable()
+    assert adapter.definition != original
+    assert adapter.manager is ManagerState.INACTIVE
+    assert adapter.suspended
+    assert json.loads(controller.maintenance_path.read_text())["phase"] == "manual_stopped"
+    assert "powercontext service start" in (controller.status().recovery_action or "")
+    assert runner.invoke(service_cli.app, ["start"]).exit_code == 0
+    assert adapter.manager is ManagerState.ACTIVE
+    assert not adapter.suspended
+    assert not controller.maintenance_path.exists()
+
+
+@pytest.mark.parametrize("error_type", [ServiceError, KeyboardInterrupt])
+@pytest.mark.parametrize("recovery_operation", ["install", "start"])
+def test_interrupted_manual_registration_update_remains_stopped_and_can_be_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_type: type[BaseException], recovery_operation: str
+) -> None:
+    controller, adapter = _installed(tmp_path)
+    original = adapter.definition
+    assert original is not None
+    controller.stop()
+    Path(original.python_executable).unlink()
+
+    def fail_update() -> None:
+        # A failed native replacement can retain the stopped old definition
+        # after the artifact already contains the accepted new definition.
+        adapter.loaded_definition = original
+        raise error_type("interrupted native registration update")  # noqa: TRY003
+
+    with monkeypatch.context() as injection:
+        injection.setattr(adapter, "update_suspended", fail_update)
+        with pytest.raises(error_type, match="interrupted native registration update"):
+            controller.install()
+
+    assert adapter.manager is ManagerState.INACTIVE
+    assert adapter.suspended
+    assert json.loads(controller.maintenance_path.read_text())["phase"] == "manual_switching"
+    if recovery_operation == "install":
+        assert controller.install().manager is ManagerState.INACTIVE
+        assert adapter.suspended
+        assert json.loads(controller.maintenance_path.read_text())["phase"] == "manual_stopped"
+    assert controller.start().ok
+    assert adapter.definition is not None
+    assert adapter.definition.python_executable == service_python_executable()
+    assert not adapter.suspended
+    assert not controller.maintenance_path.exists()
+
+
+def test_install_cannot_replace_a_service_with_an_unverified_migration(tmp_path: Path) -> None:
+    controller, adapter = _installed(tmp_path)
+    original = adapter.definition
+    summary = controller.maintenance_summary()
+    with controller.maintenance(expected_fingerprint=summary.fingerprint):
+        pass
+
+    with pytest.raises(ServiceError, match="finish migration"):
+        controller.install()
+
+    assert adapter.definition == original
+    assert adapter.manager is ManagerState.INACTIVE
+    assert adapter.suspended
+    assert json.loads(controller.maintenance_path.read_text())["phase"] == "stopped"
+
+
 def test_successful_maintenance_switches_to_confirmed_executable_and_preserves_configuration(tmp_path: Path) -> None:
     controller, adapter = _installed(tmp_path)
     original = adapter.definition
@@ -426,21 +513,32 @@ def test_stop_rejects_a_persistent_listener_after_wait_budget(tmp_path: Path, mo
     assert controller.maintenance_path.exists()
 
 
-def test_pending_switch_refuses_a_replaced_registration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("manual_update", [False, True], ids=["migration", "manual-update"])
+@pytest.mark.parametrize("changed_registration", ["artifact", "loaded"])
+def test_pending_switch_refuses_a_replaced_registration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, manual_update: bool, changed_registration: str
+) -> None:
     controller, adapter = _installed(tmp_path)
     summary = controller.maintenance_summary()
 
     def fail():
         raise OSError("reload failed")  # noqa: TRY003
 
-    with (
-        controller.maintenance(expected_fingerprint=summary.fingerprint) as session,
-        monkeypatch.context() as injection,
-    ):
+    with monkeypatch.context() as injection:
         injection.setattr(adapter, "update_suspended", fail)
-        with pytest.raises(OSError):
-            session.complete()
-    adapter.write(adapter.render(replace(summary.target_definition, endpoint="http://127.0.0.1:9010")))
+        if manual_update:
+            controller.stop()
+            with pytest.raises(OSError):
+                controller.install()
+        else:
+            with controller.maintenance(expected_fingerprint=summary.fingerprint) as session, pytest.raises(OSError):
+                session.complete()
+    assert adapter.definition is not None
+    replacement = replace(adapter.definition, endpoint="http://127.0.0.1:9010")
+    if changed_registration == "artifact":
+        adapter.write(adapter.render(replacement))
+    else:
+        adapter.loaded_definition = replacement
     events = list(adapter.events)
     with pytest.raises(ServiceError, match="changed outside"):
         controller.start()

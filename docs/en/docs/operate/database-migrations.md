@@ -110,6 +110,10 @@ powercontext service start
 powercontext service restart
 ```
 
+After a manual `service stop`, `service install` from the new environment can update the stopped registration without
+starting the old executable. Pass the existing `--env-file` when configured. The service remains stopped with automatic
+activation suppressed until an explicit `service start`; an unverified migration continues to block registration updates.
+
 They manage only the current user's PC-owned local service, not a cluster or other clients. `stop` suppresses automatic
 restart during maintenance; `start` restores startup. One `restart` cannot replace stopped-write migration.
 
