@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -27,6 +28,8 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import Connection
 
 from .models import MigrationError, digest
+
+ALEMBIC_CONTEXT_LOCK = threading.RLock()
 
 
 class MigrationBundle:

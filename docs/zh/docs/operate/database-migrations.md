@@ -10,15 +10,15 @@ description: 了解数据库迁移命令、备份策略、服务启停及当前�
 
 ## 当前可用范围
 
-本分支提供 `powercontext server db-migrate status/plan/apply/verify`，读取与 Server 相同的部署配置，不接受任意测试 bundle 路径。随 wheel 发布的冻结资源目前用于阶段 A 的 Artifact 四表迁移验收；只有已登记结构的持久 SQLite 数据库可以执行。完整 Server 数据库含有尚未纳管的对象时返回 `unknown_baseline`，seekdb 和 OceanBase 统一迁移返回 `unsupported_backend`。
+`powercontext server db-migrate status/plan/apply/verify` 使用部署配置中的持久 SQLite、嵌入式 seekdb 或 OceanBase MySQL 模式数据库，不接受任意测试 bundle 路径。维护命令以显式环境文件为准，应使用部署的环境文件，不依赖临时 shell 环境覆盖。随 wheel 发布的冻结资源用于阶段 A 的 Artifact 四表迁移：`pc_artifacts`、`pc_artifact_heads`、`pc_artifact_candidate_versions`、`pc_artifact_tags`。仅接受空目标和已登记的历史结构；完整 Server 数据库含有尚未纳管的对象时拒绝执行。
 
-输出中的 `ready` 仅表示当前迁移 bundle 已通过结构和数据验证；`readiness_scope=registered_bundle`、`server_ready=false` 明确区分它与完整 Server、索引、旧任务及集群可用。不要以此替代生产升级或完整业务库初始化。普通业务启动的全面版本门禁和完整历史基线仍须在三后端验收后接入。
+输出中的 `ready` 仅表示当前迁移 bundle 已通过结构和数据验证；`readiness_scope=registered_bundle`、`server_ready=false` 明确区分它与完整 Server、索引、旧任务及集群可用。不要以此替代生产升级或完整业务库初始化。普通业务启动的全面版本门禁和完整历史基线尚未纳管。OceanBase 实际执行和完整 Fork 恢复仍需专用真实环境验收；本地测试与已有适配器不能证明生产可用。
 
 原有 `server processing-migrate` 保留，请按[迁移 Artifact 处理状态](artifact-processing-migration.md)使用。它尚未自动转发到统一入口。服务部署参考[部署 Server](deploy-server.md)。
 
 ## 只读检查与一次确认
 
-先检查目标或预览计划；这些命令不会创建缺失数据库、父目录或控制表：
+下面的 `deployment.env` 示例使用 SQLite；OceanBase 命令还须传入下一节的证据目录参数。先检查目标或预览计划，这些命令不会创建缺失数据库、父目录或控制表：
 
 ```bash
 powercontext server db-migrate status --env-file deployment.env
@@ -46,6 +46,46 @@ powercontext server db-migrate apply --env-file deployment.env --backup manual \
 
 `--yes` 仅接受计划，不隐含手动备份声明、无备份风险或所有节点已停写。`--shared-database` 将共享库维护责任加入计划，不使 SQLite 获得跨主机部署能力。数据库已达到 bundle 目标且无需持久化变更时，`apply` 返回 `changed=false`，不备份、不启停服务；程序版本切换仍须单独安排。
 
+## 目标配置与库外证据
+
+数据库通过现有 [Server 配置](configuration.md)选择。维护连接不使用当前应用 metadata 初始化业务表。OceanBase 须已有 MySQL 模式用户租户和用户数据库；迁移命令不创建集群、租户或数据库。
+
+OceanBase 维护须能通过 `effective_tenant_id()`、`oceanbase.GV$OB_PARAMETERS`、`oceanbase.DBA_OB_TENANTS` 读取租户 ID、集群 ID 和租户创建信息。权限不足或身份信息不完整时返回 `target_identity_unavailable`，不以代理主机名代替数据库身份。
+
+seekdb 只读检查遇到缺失路径或空目录时不启动引擎；非空目录缺少可识别的引擎结构时返回 `unsupported_target`。打开有效的已有引擎可能写入原生日志和引擎维护文件；只读迁移命令不执行业务 DDL、不初始化表。
+
+`--evidence-dir PATH` 指定目标库之外的持久目录，保存维护进度及恢复引用。`status`、`plan`、`apply`、`verify` 和重试必须使用同一目录；进程、容器或迁移 Job 退出后仍须保留。每个数据库使用独立目录，并限制为迁移操作者可访问。
+
+| 后端 | 证据目录 |
+| --- | --- |
+| SQLite | 默认在规范化后的数据库文件旁使用 `<数据库文件名>.pc-migration-state`，可用 `--evidence-dir` 覆盖 |
+| 嵌入式 seekdb | 默认在规范化后的引擎目录旁使用 `<目录名>.pc-migration-state`，可用 `--evidence-dir` 覆盖 |
+| OceanBase | 四个命令均须显式传入 `--evidence-dir`；同一数据库的所有迁移 Job 共享该持久目录 |
+
+seekdb 在 `seekdb.env` 中配置路径后使用同一组命令。下面的手动备份交互示例要求先完成备份并停止所有写入者：
+
+```bash
+powercontext server db-migrate status --env-file seekdb.env
+powercontext server db-migrate apply --env-file seekdb.env --backup manual
+powercontext server db-migrate verify --env-file seekdb.env
+```
+
+多个 Server 共用 OceanBase 时，先由用户手动备份，部署系统停止所有写入者。下面的自动化示例使用一个持久共享目录，并在计划和执行时使用相同范围：
+
+```bash
+powercontext server db-migrate status --env-file oceanbase.env \
+  --evidence-dir /mnt/shared/pc-migration-state
+powercontext server db-migrate plan --env-file oceanbase.env --backup manual \
+  --shared-database --evidence-dir /mnt/shared/pc-migration-state
+powercontext server db-migrate apply --env-file oceanbase.env --backup manual \
+  --shared-database --evidence-dir /mnt/shared/pc-migration-state \
+  --plan-id PLAN_ID --backup-confirmed --maintenance-confirmed --yes
+powercontext server db-migrate verify --env-file oceanbase.env \
+  --evidence-dir /mnt/shared/pc-migration-state
+```
+
+将 `PLAN_ID` 替换为返回的计划 ID。不能换到空目录绕过恢复错误：中断迁移的证据缺失或不一致时返回 `recovery_required`；选择手动备份或接受不备份风险，也不能授权未知结构或无法证明的 DDL 进度。
+
 ## 备份选择
 
 | 策略 | 行为 | 参数 |
@@ -56,16 +96,18 @@ powercontext server db-migrate apply --env-file deployment.env --backup manual \
 
 自动备份报告 `completed`，手动备份报告 `user_confirmed`，跳过报告 `skipped`；真正空库初始化报告 `not_required`。自动备份不支持、失败或未完成时停在迁移写入之前，返回 `backup_unsupported` 或备份失败类别，不能自动改成跳过。选择其他策略后需要重新确认计划。
 
-独立 `BackupProvider` 复用后端配置和维护连接。SQLite 使用 Online Backup API 创建独立文件，包含已提交 WAL，并检查文件完整性。seekdb 和 OceanBase 集群的设计采用原生 `FORK DATABASE`，在所有受影响表、依赖和跨表一致性均能覆盖且恢复路径经过验收时可选 `FORK TABLE`。PC 不将不支持 Fork 的远端引擎自动切换到物理备份。
+独立 `BackupProvider` 复用后端配置和维护连接。SQLite 使用 Online Backup API 创建独立文件，包含已提交 WAL，并检查文件完整性。seekdb 和 OceanBase 执行器复用 `ForkBackupProvider`，优先采用原生 `FORK DATABASE`。当前执行器拒绝自动 `FORK TABLE`；启用前须单独登记同库备份对象，并完成受影响依赖、跨表一致性和恢复路径的验收。对于需要备份的升级，实际引擎和结构缺少通过验收的恢复证据时，`--backup auto` 在迁移写入前返回 `backup_unsupported`。用户手动备份与明确接受风险的不备份路径不依赖 Fork 支持。PC 不替用户声明已完成验收，也不自动改为物理备份或其他策略。
 
 | 产品 | `FORK TABLE` 起始版本 | `FORK DATABASE` 起始版本 |
 | --- | --- | --- |
 | OceanBase AI 数据库 | V4.6.2 | V4.6.2 |
 | seekdb | V1.1.0 | V1.2.0 |
 
-版本满足只是能力检查的起点，还需检查实际产品、租户模式、权限、对象覆盖、后续 DDL 限制和恢复路径。多个表 Fork 不自动代表整库共同快照；Fork 共享底层存储，不提供磁盘损坏保护。当前远端统一迁移尚未通过完整验收，存在 provider 不等于可用生产升级。
+版本满足只是能力检查的起点，还需检查实际产品、租户模式、权限、对象覆盖、后续 DDL 限制和恢复路径。多个表 Fork 不自动代表整库共同快照；Fork 共享底层存储，不提供磁盘损坏保护。简单表的 Fork 探针不代表四表 bundle 的完整恢复能力；OceanBase 尚未完成真实环境验收，存在 provider 不等于可用生产升级。
 
 旧业务表、Fork 恢复点和 SQLite 备份本次保留，不在迁移成功、普通启动或重试时删除。旧表删除由后续版本单独 revision 实现；恢复点由显式维护操作清理，均需验证依赖、保留窗口及恢复责任。
+
+本 bundle 的 SQLite `p0003` 会重建标签表，将旧结构和数据保存在 `pc_retained_p0002_artifact_tags`。seekdb／OceanBase 的 `p0003` 原地修改 CHECK，不替换或删除业务表，因此不创建 SQLite 的历史副本。两条路径均不自动删除备份恢复点。
 
 ## 服务停止、启动与升级
 
@@ -95,7 +137,7 @@ powercontext server run --env-file deployment.env --role all
 
 ## 共享数据库、接口与旧任务
 
-多个 Server 共用一个数据库时，每库只执行一个迁移 Job。部署系统停止流量和任务生产、排空在途请求及需由旧处理器消费的任务、停止全部写入者，并暂停扩容和自动重启。迁移后协调全部相关节点升级，各节点通过自身 schema、任务和能力检查后才恢复流量。迁移锁只排斥迁移进程，不阻止未知外部客户端。
+多个 Server 共用一个数据库时，每库只执行一个迁移 Job。部署系统停止流量和任务生产、排空在途请求及需由旧处理器消费的任务、停止全部写入者，并暂停扩容和自动重启。替换的迁移 Job 继续使用同一个持久 `--evidence-dir`，保留原始恢复引用。迁移后协调全部相关节点升级，各节点通过自身 schema、任务和能力检查后才恢复流量。迁移锁只排斥迁移进程，不阻止未知外部客户端。
 
 发布作者应提供受影响对象、执行模式、程序／schema 兼容范围、API 变化和任务格式声明。公共 API 不兼容替换需标记弃用并说明替代入口和移除计划；同包内部入口可与调用方一起替换。保留的 API 可转换请求／响应后共用当前实现，不要求每个 handler 支持两套表结构。
 
@@ -103,8 +145,12 @@ powercontext server run --env-file deployment.env --role all
 
 ## 存储层与恢复边界
 
-维护执行器复用配置，使用专用连接承载 Alembic 和锁；冻结历史 SQL 不依赖当前 Repository 或应用 metadata。Repository 仅在结构满足后运行；全文／向量索引由版本化资源和受控重建管理。seekdb／OceanBase DDL 可能隐式提交，不能用 Python 事务承诺整个迁移原子化。
+维护执行器复用配置，使用专用连接承载 Alembic 和锁；冻结历史 SQL 不依赖当前 Repository 或应用 metadata。seekdb 从启动引擎前到关闭引擎后持有规范化目录的锁。OceanBase 在固定连接上持有命名锁，检查另一连接在提交前后仍被排斥，并在每条 DDL 前后验证持有权；失锁后阻止后续写入，不重连继续。这些锁不阻止业务写入者。
 
-单版本表不提供通用 run ID 续跑。中断后先用只读命令检查真实结构和数据；含混状态返回 `recovery_required`，不盲目 stamp、不用部分状态的备份替换原恢复点。库外摘要记录执行结果及备份信息。
+seekdb／OceanBase DDL 可能隐式提交，不能用 Python 事务承诺整个迁移原子化。恢复只识别已登记顺序：`p0001` 创建冻结四表及两个索引；`p0002` 添加两个可空的 `MEDIUMBLOB` 引用列；`p0003` 删除标签 family 的 CHECK。继续执行前须用实际结构、数据检查和持久维护证据证明已完成的已知前缀；revision 的后置条件通过后才推进 Alembic 版本。未知对象、结构或中间状态拒绝执行，不乐观 stamp。
+
+Repository 仅在结构满足后运行。完整业务的全文／向量索引版本管理及受控重建、旧任务 readiness 尚未包含在本验收 bundle 中。
+
+单版本表不提供通用 run ID 续跑。中断后先用只读命令检查真实结构和数据；含混状态返回 `recovery_required`，不盲目 stamp、不用部分状态的备份替换原恢复点。库外摘要在 DDL 前记录执行及备份信息；重试保留原维护窗口和恢复点。在恢复条件允许时可显式重新确认 manual／skip 策略，但不绕过结构验证，也不替代必需的进度证据。
 
 恢复独立、显式执行，并保持停写。恢复数据库、必要文件和匹配程序后重新验证；应用回退不等于数据库回滚。manual 不承诺已验证可恢复，skip 不承诺恢复原数据。

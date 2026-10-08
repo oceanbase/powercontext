@@ -12,11 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Packaged acceptance bundle, isolated from side-effectful runtime factories.
-
-This release does not register full Server baselines or remote executors. A
-complete deployment must not be optimistically stamped from a four-table test.
-"""
+"""Select maintenance adapters without initializing the business runtime."""
 
 from __future__ import annotations
 
@@ -26,10 +22,14 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.engine import make_url
 
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 
 from .bundle import MigrationBundle
+from .connections import MaintenanceConnections
 from .models import MigrationError
+from .mysql import MySQLMigrationRunner
 from .sqlite import SQLiteMigrationRunner
 
 if TYPE_CHECKING:
@@ -41,13 +41,29 @@ def production_bundle() -> MigrationBundle:
     return MigrationBundle(Path(__file__).parent / "resources")
 
 
-def deployment_runner(settings: ServerSettings) -> SQLiteMigrationRunner:
+MigrationRunner = SQLiteMigrationRunner | MySQLMigrationRunner
+
+
+def deployment_runner(settings: ServerSettings, *, evidence_dir: Path | None = None) -> MigrationRunner:
     """Use the real configured identity without opening a business profile."""
     database = settings.database
-    if not isinstance(database, SQLiteConfig):
-        raise MigrationError(
-            "unsupported_backend", "Remote and seekdb deployment migration awaits full-backend acceptance."
+    if isinstance(database, (SeekDBConfig, OceanBaseConfig)):
+        if evidence_dir is None:
+            if isinstance(database, OceanBaseConfig):
+                raise MigrationError(
+                    "evidence_required",
+                    "OceanBase maintenance requires --evidence-dir on durable storage shared by migration Jobs.",
+                )
+            target = database.path.expanduser().resolve()
+            evidence_dir = target.with_name(target.name + ".pc-migration-state")
+        return MySQLMigrationRunner(
+            MaintenanceConnections(database),
+            production_bundle(),
+            evidence_directory=evidence_dir,
+            configuration=database.model_dump(mode="json", exclude={"url", "echo"}),
         )
+    if not isinstance(database, SQLiteConfig):
+        raise MigrationError("unsupported_backend", "The database has no registered migration adapter.")
     url = make_url(database.url)
     if database.is_in_memory or url.query or not url.database or url.username or url.password or url.host or url.port:
         raise MigrationError(
@@ -56,5 +72,8 @@ def deployment_runner(settings: ServerSettings) -> SQLiteMigrationRunner:
     # Match SQLite's URL normalization before the runner expands standalone Path inputs.
     target = Path(os.path.abspath(url.database))
     return SQLiteMigrationRunner(
-        target, production_bundle(), configuration=database.model_dump(exclude={"url", "echo"})
+        target,
+        production_bundle(),
+        configuration=database.model_dump(exclude={"url", "echo"}),
+        evidence_directory=evidence_dir,
     )

@@ -154,13 +154,16 @@ jobs:
       - name: Test code indexing with embedded seekdb
         run: make code-seekdb-test
 
-      - name: Probe Alembic migrations with embedded seekdb
+      - name: Test unified migrations with embedded seekdb
         env:
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
         run: >-
           uv run --locked --extra seekdb pytest -q
           tests/builtin/persistence/test_database_migration_backends.py
-          tests/builtin/persistence/test_database_backup_providers.py -k seekdb
+          tests/builtin/persistence/test_database_backup_providers.py
+          tests/builtin/persistence/test_database_migration_connections.py
+          tests/builtin/persistence/test_mysql_migration_schema.py
+          tests/builtin/persistence/test_mysql_migration_runner.py -k seekdb
 
   windows-unit-portability:
     timeout-minutes: 20

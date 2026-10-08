@@ -27,8 +27,7 @@ import typer
 from sqlalchemy.exc import SQLAlchemyError
 
 from powercontext.builtin.persistence.migrations import MigrationError, MigrationPlan, MigrationResult
-from powercontext.builtin.persistence.migrations.deployment import deployment_runner
-from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
+from powercontext.builtin.persistence.migrations.deployment import MigrationRunner, deployment_runner
 from powercontext.server.configuration import (
     ServerConfigurationError,
     resolve_server_environment_file,
@@ -39,6 +38,10 @@ from powercontext.service.model import ServiceError
 
 BackupPolicy = Literal["auto", "manual", "skip"]
 EnvFile = Annotated[Path | None, typer.Option(help="Read the same environment file as the deployed Server.")]
+EvidenceDir = Annotated[
+    Path | None,
+    typer.Option(help="Persistent maintenance evidence directory; required and shared across Jobs for OceanBase."),
+]
 ManageService = Annotated[
     bool,
     typer.Option(help="Request local service maintenance; unavailable for the current partial acceptance bundle."),
@@ -62,27 +65,28 @@ def main() -> None:
 
 
 @app.command()
-def status(env_file: EnvFile = None) -> None:
+def status(env_file: EnvFile = None, evidence_dir: EvidenceDir = None) -> None:
     """Inspect the schema version without creating a database or control tables."""
-    _inspect(env_file, verify=False)
+    _inspect(env_file, evidence_dir=evidence_dir, verify=False)
 
 
 @app.command()
-def verify(env_file: EnvFile = None) -> None:
+def verify(env_file: EnvFile = None, evidence_dir: EvidenceDir = None) -> None:
     """Verify database readiness; this does not assert Server or cluster readiness."""
-    _inspect(env_file, verify=True)
+    _inspect(env_file, evidence_dir=evidence_dir, verify=True)
 
 
 @app.command()
 def plan(
     env_file: EnvFile = None,
+    evidence_dir: EvidenceDir = None,
     backup: Annotated[BackupPolicy, typer.Option(help="Bind the selected backup policy to the plan.")] = "auto",
     manage_service: ManageService = False,
     shared_database: SharedDatabase = False,
 ) -> None:
     """Preview the target, resource digests, backup policy, and maintenance scope."""
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
-        runner = deployment_runner(settings)
+        runner = deployment_runner(settings, evidence_dir=evidence_dir)
         service = _service_scope(_environment_file(env_file)) if manage_service else None
         reviewed = runner.plan(backup_policy=backup, service=service, shared_database=shared_database)
         _write_payload(reviewed)
@@ -91,6 +95,7 @@ def plan(
 @app.command()
 def apply(
     env_file: EnvFile = None,
+    evidence_dir: EvidenceDir = None,
     backup: Annotated[
         BackupPolicy | None,
         typer.Option(help="PC native backup, a user-declared manual backup, or explicit no-backup risk."),
@@ -117,7 +122,7 @@ def apply(
 ) -> None:
     """Review once, then stop writes, back up, migrate, verify, and optionally switch a local service."""
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
-        runner = deployment_runner(settings)
+        runner = deployment_runner(settings, evidence_dir=evidence_dir)
         policy: BackupPolicy = backup or "auto"
         initial = runner.plan(backup_policy=policy, shared_database=shared_database)
         if initial.state == "ready":
@@ -163,9 +168,9 @@ def apply(
         _write_payload(result)
 
 
-def _inspect(env_file: Path | None, *, verify: bool) -> None:
+def _inspect(env_file: Path | None, *, evidence_dir: Path | None, verify: bool) -> None:
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
-        runner = deployment_runner(settings)
+        runner = deployment_runner(settings, evidence_dir=evidence_dir)
         result = runner.verify() if verify else runner.plan()
         _write_payload(result)
 
@@ -218,7 +223,7 @@ def _service_scope(env_file: Path | None) -> dict[str, object]:
 
 
 def _apply_reviewed(
-    runner: SQLiteMigrationRunner,
+    runner: MigrationRunner,
     reviewed: MigrationPlan,
     *,
     maintenance_confirmed: bool,

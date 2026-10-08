@@ -19,12 +19,14 @@ import json
 import os
 import sqlite3
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 from typer.testing import CliRunner
 
+from powercontext.builtin.persistence.migrations.connections import BackendIdentity, MaintenanceConnections
 from powercontext.builtin.persistence.migrations.deployment import production_bundle
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
@@ -340,7 +342,7 @@ def test_partial_bundle_rejects_business_service_management_before_writing(tmp_p
     assert not database.exists()
 
 
-def test_remote_backend_is_not_reported_ready_without_acceptance(tmp_path, monkeypatch):
+def test_missing_seekdb_is_inspected_without_initializing_the_engine(tmp_path, monkeypatch):
     _database, command = _configure(tmp_path, monkeypatch)
     directory = tmp_path / "seekdb"
     (tmp_path / "deployment.env").write_text(
@@ -348,9 +350,120 @@ def test_remote_backend_is_not_reported_ready_without_acceptance(tmp_path, monke
         encoding="utf-8",
     )
     result = _invoke(command, "status", tmp_path)
-    assert result.exit_code == 1
-    assert json.loads(result.output)["error"] == "unsupported_backend"
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["state"] == "uninitialized"
+    assert json.loads(result.output)["server_ready"] is False
     assert not directory.exists()
+    assert not directory.with_name(directory.name + ".pc-migration.lock").exists()
+
+
+@pytest.mark.parametrize("action", ["status", "plan", "apply", "verify"])
+def test_oceanbase_requires_persistent_evidence_before_connecting(tmp_path, monkeypatch, action):
+    _database, command = _configure(tmp_path, monkeypatch)
+    private_value = "private-password-do-not-print"
+    private_host = "private-database-host.invalid"
+    (tmp_path / "deployment.env").write_text(
+        "POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase\n"
+        f"POWERCONTEXT_SERVER_DATABASE_URL=mysql+aoceanbase://operator:{private_value}@{private_host}:2881/pc_probe"
+        "?charset=utf8mb4\n",
+        encoding="utf-8",
+    )
+
+    def refuse_connection(*_args, **_kwargs):
+        pytest.fail("Missing persistent evidence must be rejected before contacting a database")
+
+    monkeypatch.setattr(MaintenanceConnections, "run", refuse_connection)
+    result = _invoke(command, action, tmp_path)
+    assert result.exit_code == 1, result.output
+    assert json.loads(result.output)["error"] == "evidence_required"
+    assert "--evidence-dir" in result.output
+    assert private_value not in result.output
+    assert private_host not in result.output
+    assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize("kind", ["seekdb", "oceanbase"])
+def test_remote_cli_uses_the_configured_maintenance_identity(
+    tmp_path, monkeypatch, kind: Literal["seekdb", "oceanbase"]
+):
+    _database, command = _configure(tmp_path, monkeypatch)
+    database_name = "test" if kind == "seekdb" else "pc_probe"
+    environment = f"POWERCONTEXT_SERVER_DATABASE_KIND={kind}\n"
+    if kind == "seekdb":
+        environment += f"POWERCONTEXT_SERVER_DATABASE_PATH={tmp_path / 'seekdb'}\n"
+    else:
+        environment += (
+            "POWERCONTEXT_SERVER_DATABASE_URL=mysql+aoceanbase://operator:secret@database.invalid:2881/pc_probe"
+            "?charset=utf8mb4\n"
+        )
+    (tmp_path / "deployment.env").write_text(environment, encoding="utf-8")
+    identity = BackendIdentity(kind, f"simulated-{kind}-database-identity", database_name)
+
+    def inspect_empty_database(_connections, operation, *, writable=False):
+        assert not writable
+        return operation(None, identity, lambda: None)
+
+    monkeypatch.setattr(MaintenanceConnections, "run", inspect_empty_database)
+    evidence = tmp_path / "persistent-evidence"
+    for action in ("status", "plan"):
+        options = ["--evidence-dir", str(evidence)]
+        if action == "plan":
+            options.extend(["--backup", "manual"])
+        result = _invoke(command, action, tmp_path, *options)
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["database_id"] == identity.database_id
+        assert payload["state"] == "uninitialized"
+        assert payload["readiness_scope"] == "registered_bundle"
+        assert payload["server_ready"] is False
+    assert not evidence.exists()
+
+
+def test_sqlite_commands_use_the_explicit_external_evidence_directory(tmp_path, monkeypatch):
+    database, command = _configure(tmp_path, monkeypatch, existing=True)
+    evidence = tmp_path / "persistent-evidence"
+    options = ["--evidence-dir", str(evidence)]
+    before = database.read_bytes()
+    inspected = _invoke(command, "status", tmp_path, *options)
+    assert inspected.exit_code == 0, inspected.output
+    assert json.loads(inspected.output)["state"] == "migration_required"
+    planned = _invoke(command, "plan", tmp_path, *options, "--backup", "manual")
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert not evidence.exists()
+    assert database.read_bytes() == before
+
+    applied = _invoke(
+        command,
+        "apply",
+        tmp_path,
+        *options,
+        "--yes",
+        "--backup",
+        "manual",
+        "--plan-id",
+        plan["plan_id"],
+        "--maintenance-confirmed",
+        "--backup-confirmed",
+    )
+    assert applied.exit_code == 0, applied.output
+    assert json.loads(applied.output)["backup_state"] == "user_confirmed"
+    assert (evidence / "maintenance.json").is_file()
+    assert not database.with_name(database.name + ".pc-migration-state").exists()
+    verified = _invoke(command, "verify", tmp_path, *options)
+    assert verified.exit_code == 0, verified.output
+    assert json.loads(verified.output)["revision"] == production_bundle().head
+
+    # All read paths must use the selected journal, rather than silently
+    # verifying against an empty default directory after the migration.
+    (evidence / "maintenance.json").write_text('{"state":"active"}', encoding="utf-8")
+    migrated = database.read_bytes()
+    for action in ("status", "plan", "verify"):
+        result = _invoke(command, action, tmp_path, *options)
+        assert result.exit_code == 1, result.output
+        assert json.loads(result.output)["error"] == "recovery_required"
+        assert "Traceback" not in result.output
+        assert database.read_bytes() == migrated
 
 
 def test_no_backup_requires_separate_risk_consent_and_policy_is_plan_bound(tmp_path, monkeypatch):

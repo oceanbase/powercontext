@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -37,7 +36,7 @@ from sqlalchemy import Connection, create_engine
 from sqlalchemy.exc import DatabaseError, OperationalError
 
 from .backup import BackupContext, BackupProvider, BackupRef, SQLiteBackupProvider
-from .bundle import MigrationBundle, sqlite_inventory
+from .bundle import ALEMBIC_CONTEXT_LOCK, MigrationBundle, sqlite_inventory
 from .locking import local_migration_lock
 from .models import MigrationError, MigrationPlan, MigrationResult, digest
 
@@ -46,7 +45,6 @@ _VERSION_DDL = (
     "CONSTRAINT pc_schema_revision_pkc PRIMARY KEY (version_num))"
 )
 _CONTROL_NAMES = frozenset({"pc_schema_revision"})
-_ALEMBIC_CONTEXT_LOCK = threading.RLock()
 BackupPolicy = Literal["auto", "manual", "skip"]
 
 
@@ -105,12 +103,14 @@ class SQLiteMigrationRunner:
         *,
         configuration: Mapping[str, Any] | None = None,
         backup_provider: BackupProvider | None = None,
+        evidence_directory: Path | None = None,
     ) -> None:
         self.database = database.expanduser().resolve()
         self.bundle = bundle
         self.configuration_digest = digest(configuration or {})
         self.backup_provider = backup_provider or SQLiteBackupProvider(self.database)
-        self.evidence_path = self.database.with_name(self.database.name + ".pc-migration-state") / "maintenance.json"
+        directory = evidence_directory or self.database.with_name(self.database.name + ".pc-migration-state")
+        self.evidence_path = directory.expanduser().resolve() / "maintenance.json"
 
     def plan(
         self,
@@ -186,7 +186,7 @@ class SQLiteMigrationRunner:
                 if not version_exists:
                     connection.exec_driver_sql(_VERSION_DDL)
                     if initial.adopt_baseline and initial.source_revision is not None:
-                        with _ALEMBIC_CONTEXT_LOCK:
+                        with ALEMBIC_CONTEXT_LOCK:
                             command.stamp(self.bundle.config(connection), initial.source_revision)
                 connection.commit()
                 self._upgrade(connection)
@@ -507,7 +507,7 @@ class SQLiteMigrationRunner:
         for revision in self.bundle.pending(current):
             self._begin(connection)
             self._verify_schema(connection, current)
-            with _ALEMBIC_CONTEXT_LOCK:
+            with ALEMBIC_CONTEXT_LOCK:
                 command.upgrade(self.bundle.config(connection), revision)
             self._verify_schema(connection, revision)
             connection.commit()
