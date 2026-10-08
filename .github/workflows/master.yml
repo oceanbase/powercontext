@@ -182,6 +182,12 @@ jobs:
           tests/builtin/test_native_code_multilanguage.py
           tests/e2e/test_native_code_multilanguage.py
 
+      - name: Verify managed guidance and exact rollback bytes on Windows
+        run: >-
+          uv run --locked --no-sync pytest -q
+          tests/test_guidance_generation.py
+          tests/test_setup_rollback.py
+
       - name: Exercise fixtures without Windows long-path support
         shell: pwsh
         run: |
