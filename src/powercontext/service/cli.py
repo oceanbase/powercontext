@@ -156,9 +156,15 @@ def _run_lifecycle(operation: str) -> None:
         service_status = getattr(controller, operation)()
     except (OSError, ServiceError) as error:
         typer.echo(f"PowerContext personal service {operation} failed: {error}", err=True)
+        for note in getattr(error, "__notes__", ()):
+            typer.echo(note, err=True)
         if isinstance(error, ServiceError) and error.status is not None:
             _write_status(error.status, json_output=False)
         raise typer.Exit(code=error.exit_code if isinstance(error, ServiceError) else 1) from error
+    except KeyboardInterrupt as error:
+        for note in getattr(error, "__notes__", ()):
+            typer.echo(note, err=True)
+        raise
     typer.echo(f"PowerContext personal service {operation} completed.")
     _write_status(service_status, json_output=False)
 

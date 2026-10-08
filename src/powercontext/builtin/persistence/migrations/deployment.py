@@ -20,6 +20,7 @@ complete deployment must not be optimistically stamped from a four-table test.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -48,10 +49,12 @@ def deployment_runner(settings: ServerSettings) -> SQLiteMigrationRunner:
             "unsupported_backend", "Remote and seekdb deployment migration awaits full-backend acceptance."
         )
     url = make_url(database.url)
-    if database.is_in_memory or url.query or not url.database:
+    if database.is_in_memory or url.query or not url.database or url.username or url.password or url.host or url.port:
         raise MigrationError(
-            "unsupported_target", "Use an explicitly configured regular SQLite file without URI options."
+            "unsupported_target", "Use a regular SQLite file URL without credentials, host, port or URI options."
         )
+    # Match SQLite's URL normalization before the runner expands standalone Path inputs.
+    target = Path(os.path.abspath(url.database))
     return SQLiteMigrationRunner(
-        Path(url.database), production_bundle(), configuration=database.model_dump(exclude={"url", "echo"})
+        target, production_bundle(), configuration=database.model_dump(exclude={"url", "echo"})
     )

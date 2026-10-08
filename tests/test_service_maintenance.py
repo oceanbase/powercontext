@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import subprocess
@@ -278,6 +279,126 @@ def test_startup_readiness_failure_is_separate_from_database_ready_and_keeps_ser
     assert adapter.manager is ManagerState.INACTIVE
     assert adapter.definition == summary.target_definition
     assert json.loads(controller.maintenance_path.read_text())["phase"] == "start_failed"
+
+
+def test_start_rejects_an_external_listener_after_the_managed_launcher_exits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, adapter = _installed(tmp_path, running=False)
+    adapter.definition = _definition(tmp_path, python_executable=service_python_executable())
+    adapter.content = adapter.render(adapter.definition)
+    adapter.loaded_definition = adapter.definition
+    external_listener = False
+
+    def probe(endpoint: str) -> ProbeResult:
+        state = ProbeState.LIVE if external_listener else ProbeState.UNREACHABLE
+        return ProbeResult(state, endpoint)
+
+    def start(*, reload_definition: bool) -> None:
+        nonlocal external_listener
+        # The launcher exits successfully when a foreground PC wins the port.
+        # systemd and Task Scheduler still retain the owned job definition.
+        external_listener = True
+        adapter.manager = ManagerState.INACTIVE
+        adapter.loaded_definition = adapter.definition
+
+    monkeypatch.setattr(adapter, "start", start)
+    controller = ServiceController(adapter, probe=probe, readiness_probe=probe)
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+
+    result = CliRunner().invoke(service_cli.app, ["start"])
+
+    assert result.exit_code != 0
+    assert "start completed" not in result.output
+    assert "not running" in result.output
+    assert adapter.manager is ManagerState.INACTIVE
+    assert adapter.suspended
+    assert controller.maintenance_path.exists()
+    assert external_listener
+
+
+def test_start_stops_the_service_when_restoring_automatic_activation_protection_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter = _installed(tmp_path)
+    controller.stop()
+
+    def fail_suspend(_marker: Path) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(adapter, "suspend", fail_suspend)
+    controller = ServiceController(
+        adapter,
+        probe=_manager_probe(adapter),
+        readiness_probe=lambda _: ProbeResult(ProbeState.CONFLICT, "schema is not ready"),
+    )
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+
+    result = CliRunner().invoke(service_cli.app, ["start"])
+
+    assert result.exit_code != 0
+    assert "failed readiness" in result.output
+    assert "automatic activation suppression could not be confirmed" in result.output
+    assert "No space left on device" in result.output
+    assert "start completed" not in result.output
+    assert adapter.manager is ManagerState.INACTIVE
+    assert not adapter.suspended
+    assert json.loads(controller.maintenance_path.read_text())["phase"] == "manual_stopped"
+
+
+def test_interrupted_start_reports_both_cleanup_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    controller, adapter = _installed(tmp_path)
+    controller.stop()
+    interruption = KeyboardInterrupt()
+
+    def fail_suspend(_marker: Path) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def readiness(_endpoint: str) -> ProbeResult:
+        raise interruption
+
+    monkeypatch.setattr(adapter, "suspend", fail_suspend)
+    adapter.fail_stop = True
+    controller = ServiceController(adapter, probe=_manager_probe(adapter), readiness_probe=readiness)
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+
+    result = CliRunner().invoke(service_cli.app, ["start"])
+
+    assert result.exit_code == 130
+    assert "automatic activation suppression could not be confirmed" in result.output
+    assert "stopping the managed service could not be confirmed" in result.output
+    assert "stop failed" in result.output
+    assert "start completed" not in result.output
+    assert adapter.manager is ManagerState.ACTIVE
+    assert not adapter.suspended
+    assert json.loads(controller.maintenance_path.read_text())["phase"] == "manual_stopped"
+
+
+def test_maintenance_startup_preserves_the_failure_when_its_recovery_record_cannot_be_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, adapter = _installed(tmp_path)
+    interruption = KeyboardInterrupt()
+
+    def fail_write(_record: dict[str, object]) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def readiness(_endpoint: str) -> ProbeResult:
+        monkeypatch.setattr(controller, "_write_maintenance_record", fail_write)
+        raise interruption
+
+    controller = ServiceController(adapter, probe=_manager_probe(adapter), readiness_probe=readiness)
+    summary = controller.maintenance_summary()
+    with controller.maintenance(expected_fingerprint=summary.fingerprint) as session:
+        with pytest.raises(KeyboardInterrupt) as caught:
+            session.complete()
+        assert caught.value is interruption
+        assert "could not record the failed startup" in "\n".join(interruption.__notes__)
+        assert not session.completed
+
+    assert adapter.manager is ManagerState.INACTIVE
+    assert adapter.suspended
+    assert json.loads(controller.maintenance_path.read_text())["phase"] == "database_ready"
 
 
 @pytest.mark.parametrize("startup_check", ["liveness", "readiness"])

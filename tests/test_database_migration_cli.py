@@ -19,7 +19,10 @@ import json
 import os
 import sqlite3
 from pathlib import Path
+from uuid import uuid4
 
+import pytest
+from sqlalchemy.ext.asyncio import create_async_engine
 from typer.testing import CliRunner
 
 from powercontext.builtin.persistence.migrations.deployment import production_bundle
@@ -79,6 +82,102 @@ def test_read_only_commands_never_create_missing_target(tmp_path, monkeypatch):
             assert result.exit_code == 0, result.output
             assert payload["state"] == "uninitialized"
         assert not database.parent.exists()
+
+
+def test_sqlite_url_authority_is_rejected_without_creating_a_local_target(tmp_path, monkeypatch):
+    _database, command = _configure(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    filename = f"pc-migration-{uuid4().hex}.db"
+    private_host = "private-database-host.example"
+    (tmp_path / "deployment.env").write_text(
+        "POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\n"
+        f"POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite://{private_host}/{filename}\n",
+        encoding="utf-8",
+    )
+    for action in ("plan", "apply"):
+        options = (
+            ["--yes", "--backup", "auto", "--plan-id", "unaccepted-plan", "--maintenance-confirmed"]
+            if action == "apply"
+            else []
+        )
+        result = _invoke(command, action, tmp_path, *options)
+        assert result.exit_code == 1, result.output
+        assert json.loads(result.output)["error"] == "unsupported_target"
+        assert private_host not in result.output
+        assert filename not in result.output
+        assert not list(tmp_path.glob(f"{filename}*"))
+
+
+@pytest.mark.parametrize(
+    ("directory", "url_directory"),
+    [
+        pytest.param("~", "~", id="literal-tilde"),
+        pytest.param("relative", "relative", id="relative-path"),
+        pytest.param(
+            "relative",
+            "linked/../relative",
+            id="lexical-parent-through-symlink",
+            marks=pytest.mark.skipif(
+                os.name == "nt", reason="creating symlinks may require elevated Windows privileges"
+            ),
+        ),
+    ],
+)
+def test_migration_commands_use_the_configured_sqlite_url_target(tmp_path, monkeypatch, directory, url_directory):
+    original_database, command = _configure(tmp_path, monkeypatch, existing=True)
+    monkeypatch.chdir(tmp_path)
+    filename = f"pc-migration-{uuid4().hex}.db"
+    home_database = Path.home() / filename
+    assert not home_database.exists()
+    database = tmp_path / directory / filename
+    database.parent.mkdir()
+    original_database.rename(database)
+    if url_directory != directory:
+        link_target = tmp_path / "other" / "link-target"
+        link_target.mkdir(parents=True)
+        (tmp_path / "linked").symlink_to(link_target, target_is_directory=True)
+    url = f"sqlite+aiosqlite:///{url_directory}/{filename}"
+    (tmp_path / "deployment.env").write_text(
+        f"POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_DATABASE_URL={url}\n",
+        encoding="utf-8",
+    )
+
+    planned = _invoke(command, "plan", tmp_path)
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["state"] == "migration_required"
+    assert plan["source_revision"] == "p0001"
+    applied = _invoke(
+        command,
+        "apply",
+        tmp_path,
+        "--yes",
+        "--backup",
+        "auto",
+        "--plan-id",
+        plan["plan_id"],
+        "--maintenance-confirmed",
+    )
+    assert applied.exit_code == 0, applied.output
+    assert json.loads(applied.output)["backup_state"] == "completed"
+
+    async def inspect_configured_database() -> tuple[Path, str]:
+        engine = create_async_engine(url)
+        try:
+            async with engine.connect() as connection:
+                target = (await connection.exec_driver_sql("PRAGMA database_list")).all()[0][2]
+                revision = (await connection.exec_driver_sql("SELECT version_num FROM pc_schema_revision")).scalar_one()
+                return Path(target), revision
+        finally:
+            await engine.dispose()
+
+    target, revision = asyncio.run(inspect_configured_database())
+    assert target == database
+    assert revision == production_bundle().head
+    verified = _invoke(command, "verify", tmp_path)
+    assert verified.exit_code == 0, verified.output
+    assert json.loads(verified.output)["state"] == "ready"
+    assert not home_database.exists()
 
 
 def test_apply_requires_exact_plan_and_explicit_noninteractive_consent(tmp_path, monkeypatch):

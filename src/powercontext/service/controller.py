@@ -216,6 +216,7 @@ class ServiceController:
                 definition = registration.definition
                 if definition is None or self._readiness_probe(definition.endpoint).state is not ProbeState.LIVE:
                     raise ServiceError("the running service is not ready; inspect its diagnostics")  # noqa: TRY003
+                self._require_running_definition(definition)
                 return self.status()
             if record is None:
                 # A failed start must also leave a durable activation guard;
@@ -325,9 +326,14 @@ class ServiceController:
         if summary.originally_running:
             try:
                 self._start_registered(summary.target_definition)
-            except BaseException:
+            except BaseException as error:
                 # Catchable interruptions need the same explicit recovery state as startup errors.
-                self._write_maintenance_record({"phase": "start_failed", "summary": summary.as_dict()})
+                try:
+                    self._write_maintenance_record({"phase": "start_failed", "summary": summary.as_dict()})
+                except BaseException as record_error:
+                    error.add_note(
+                        f"could not record the failed startup: {type(record_error).__name__}: {record_error}"
+                    )
                 raise
             self.maintenance_path.unlink(missing_ok=True)
         return self.status()
@@ -468,6 +474,13 @@ class ServiceController:
                 )
             self._sleep(0.1)
 
+    def _require_running_definition(self, definition: ServiceDefinition) -> None:
+        loaded = self._adapter.loaded_registration()
+        if loaded.state is not ManagerOwnershipState.OWNED or loaded.definition != definition:
+            raise ServiceError("the running service does not use the confirmed executable and configuration")  # noqa: TRY003
+        if self._adapter.manager_state() is not ManagerState.ACTIVE:
+            raise ServiceError("the managed service is not running; another listener may own the endpoint")  # noqa: TRY003
+
     def _start_registered(self, definition: ServiceDefinition | None) -> None:
         if definition is None:
             raise ServiceError("the installed service has no definition")  # noqa: TRY003
@@ -479,22 +492,32 @@ class ServiceController:
             result = self._wait_until_live(definition.endpoint)
             if result.state is not ProbeState.LIVE:
                 raise ServiceError("the registered service did not become live")  # noqa: TRY003, TRY301
-            loaded = self._adapter.loaded_registration()
-            if loaded.state is not ManagerOwnershipState.OWNED or loaded.definition != definition:
-                raise ServiceError("the running service does not use the confirmed executable and configuration")  # noqa: TRY003, TRY301
             deadline = time.monotonic() + _START_TIMEOUT_SECONDS
             while True:
                 readiness = self._readiness_probe(definition.endpoint)
                 if readiness.state is ProbeState.LIVE:
+                    self._require_running_definition(definition)
                     return
                 if readiness.state is ProbeState.CONFLICT or time.monotonic() >= deadline:
                     raise ServiceError(f"the service failed readiness: {readiness.detail}")  # noqa: TRY003, TRY301
                 self._sleep(0.1)
-        except BaseException:
+        except BaseException as error:
             # Restore the guard even on Ctrl+C during startup verification, then
-            # propagate the interruption. Never fall back to an old executable.
-            self._adapter.suspend(self.maintenance_path)
-            self._adapter.stop()
+            # stop independently: failure to restore protection must not skip
+            # stopping the process. Preserve the original failure and diagnostics.
+            try:
+                self._adapter.suspend(self.maintenance_path)
+            except BaseException as suspend_error:
+                error.add_note(
+                    "automatic activation suppression could not be confirmed: "
+                    f"{type(suspend_error).__name__}: {suspend_error}"
+                )
+            try:
+                self._adapter.stop()
+            except BaseException as stop_error:
+                error.add_note(
+                    f"stopping the managed service could not be confirmed: {type(stop_error).__name__}: {stop_error}"
+                )
             raise
 
     def _maintenance_record(self) -> dict[str, object] | None:
