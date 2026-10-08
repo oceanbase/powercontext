@@ -1,5 +1,6 @@
 - Proposal Name: `multi_artifact_dreaming`
 - Start Date: 2026-09-22
+- Migration dependency: [统一数据库迁移（RFC #1771）](https://github.com/oceanbase/powercontext/pull/1771)；实现基础：[PR #1772](https://github.com/oceanbase/powercontext/pull/1772)
 - Related RFCs: [Artifact Dreaming（1510）](https://github.com/oceanbase/powercontext/blob/master/docs/zh/rfcs/1510-artifact-dreaming.md)、[Candidate 与 Review Inbox（0050）](https://github.com/oceanbase/powercontext/blob/master/docs/zh/rfcs/0050_artifact_candidate_review_inbox.md)、[Profile（1485）](https://github.com/oceanbase/powercontext/blob/master/docs/zh/rfcs/1485_profile_artifact.md)、[Topic Memory（1417）](https://github.com/oceanbase/powercontext/blob/master/docs/zh/rfcs/1417_topic_memory.md)、[Prompt（1468）](https://github.com/oceanbase/powercontext/blob/master/docs/zh/rfcs/1468_scope_owned_prompt_management.md)、[Tag（1467）](https://github.com/oceanbase/powercontext/blob/master/docs/zh/rfcs/1467_artifact_tags.md)、[Processing Supervisor（1515）](https://github.com/oceanbase/powercontext/blob/master/docs/zh/rfcs/1515_artifact_processing_supervisor.md)
 
 # Summary
@@ -8,6 +9,8 @@
 Dream 负责提出可解释的变化，Family adapter 负责语义校验和提交，Reviewer 负责批准，应用负责后续实际业务验证。Source 保持原始证据身份，不被 Dream 改写；Tag 保持 catalog 属性身份，不伪装成 Artifact。第一阶段交付 Memory、Profile、Topic Memory，后续阶段扩展 Handoff、Skill、Prompt 和 Tag。自动发现、全量夜间扫描、多目标原子合并及无人值守发布不作为本提案的交付前提。
 
 本 PR 的所有扩展操作统一沿用 Experience 提炼、Skill 派生的证据驱动提案与人工审核逻辑。可信评测为后续可选增强，本 PR 不实现相关服务、接口、存储或审批门槛，也不以其配置作为能力启用条件。
+
+A0 对既有两张 Candidate 业务表改名、扩展结构并替换审核接口；C 阶段在同一结构上启用 Tag。数据库升级统一沿用 RFC #1771，Dream 仅定义受影响对象与领域验收要求，不自建迁移机制。已有数据库必须显式迁移，并安排维护窗口及 Server/Client 协调升级；仅启用 A0/A1 的部署也遵守此边界。
 
 # Motivation
 ## 现有能力与缺口
@@ -149,7 +152,7 @@ Candidate 统一表示待审核的变更提案。现有候选接口去掉 artifa
 
 所有单候选操作使用 scope_id、candidate_id；服务端从持久化候选读取 candidate_kind，不能信任调用方切换类型。list 未指定 candidate_kind 时返回两类候选，并沿用既有权限过滤；family 是目标所属 Artifact family，不新增 family=tag。Experience、Skill、外部技能导入、Profile 和 Dream 等已有业务入口继续负责创建候选，不新增通用 create 接口。
 
-直接移除 `/v1/artifact-candidates/*`，不保留别名、重定向或兼容过滤。本 PR 的 `/v1/catalog-change-candidates/*` 及 `/v1/catalog-candidates/*` 尚未发布，不提供这些入口或其兼容层。接口替换是显式破坏性变更，调用方必须与 Server 协调升级；旧接口不再可用。已有数据的自动迁移不等于旧 Client 兼容。
+直接移除 `/v1/artifact-candidates/*`，不保留别名、重定向或兼容过滤。本 PR 的 `/v1/catalog-change-candidates/*` 及 `/v1/catalog-candidates/*` 尚未发布，不提供这些入口或其兼容层。接口替换是显式破坏性变更，调用方必须与 Server 协调升级。相对于 RFC #1771 通常要求的公开接口弃用期，本次直接移除须作为明确的发布例外，登记替代路由、移除版本及配套最低 Client 版本。数据迁移与 API 兼容分开管理，迁移成功不代表旧 Client 仍可使用。
 
 `openapi/powercontext.yaml` 是源契约。交付时同步更新模型和 operationId，重新生成服务端代码及 Client，并更新 Python SDK、CLI、MCP、集成插件、Dashboard、示例和契约测试。官网的中英文 HTTP API、接口总览、候选审核指南及由 OpenAPI 生成的 API reference 同步更新；生成目录不手工修改。发布说明须明确旧路径移除及最低匹配 Client 版本。可信评测的注册、存储与审批门槛不在本 PR 范围内。
 
@@ -336,8 +339,8 @@ Tag 不是 Artifact Family。统一 Candidate 使用 `candidate_kind=tag`，复�
 
 发生冲突或校验失败时，候选保留 pending 并返回可操作原因，不自动 rebase。拒绝 Dream 候选不会修改 Artifact/Tag，也不会推进普通 Source cursor；既有 Source-window 候选仍按原有规则处理游标。修订不能换 target，目标变化需要新候选。候选正文修改会产生新 version，旧版本及其证据继续可追溯。
 
-## 12. 持久化、自动迁移与后台执行
-候选只使用两张业务表：将 `pc_artifact_candidate_heads` 改名为 `pc_candidate_heads`，将 `pc_artifact_candidate_versions` 改名为 `pc_candidate_versions`，在原表上扩展，不新增永久候选表或迁移记录表。不创建 `pc_catalog_change_candidate_heads`、`pc_catalog_change_candidate_versions`。`pc_dream_runs` 与各 Family 的存储继续复用。
+## 12. 持久化、统一迁移接入与后台执行
+候选使用两张当前业务表：将 `pc_artifact_candidate_heads` 改名为 `pc_candidate_heads`，将 `pc_artifact_candidate_versions` 改名为 `pc_candidate_versions`，在原表上扩展，不新增 Catalog Change 表或 Dream 专用迁移控制表。复用统一框架共享的 `pc_schema_revision(version_num)`；按 RFC #1771 保留的旧表与恢复对象不属于当前 Candidate 读写存储。`pc_dream_runs` 与各 Family 的存储继续复用。
 
 | 表 / 字段 | 设计 |
 | --- | --- |
@@ -350,26 +353,33 @@ Tag 不是 Artifact Family。统一 Candidate 使用 `candidate_kind=tag`，复�
 
 批准约束按 candidate_kind 分支：artifact 必须具有真实的 result revision 且无 Tag 结果；tag 必须具有有效 result_payload 且三个 Artifact 结果列均为空。pending/rejected 不保存成功结果，拒绝仍须保存理由。Tag 的正文基准使用真实引用及服务端类型校验，不使用 0、-1 或默认 1 伪造 revision。候选身份仍为 (scope_id, candidate_id)，版本身份仍为 (scope_id, candidate_id, version)。仅为筛选和事务校验增加必要索引。
 
-### 升级时自动处理已有数据
+### 与统一数据库迁移的接入契约
 
-物理表改名与接口替换是 A0 的明确发布决策，不是 Tag 本身要求的技术前提。保留 Artifact 命名的物理表、到 C 阶段再改名是可行替代方案，可以延后迁移工作；本方案选择在一次协调升级中确定最终 Candidate 命名、结构与客户端，避免后续为改名再安排一次 schema 升级，以及统一 API 与 Artifact 命名存储暂时不一致。接受的代价包括备份、停止旧 Server/Worker 的维护窗口、启动迁移校验，以及恢复流量前同步升级 Client、SDK、CLI、MCP 和集成。数据库迁移不能兼容旧路由。仅启用 A0/A1、尚未启用 Tag 的部署也承担这次升级成本；C 阶段不再改名候选表。发布说明必须明确此边界及配套的服务端、客户端版本。
+[RFC #1771](https://github.com/oceanbase/powercontext/pull/1771) 统一负责 revision 管理、基线识别、各后端 DDL、互斥、备份恢复、服务生命周期及启动就绪检查。本 RFC 不定义 Dream 迁移执行器、启动 DDL、逐步续跑协议或专用升级命令。安装新包不修改已有数据库；已有本地与远端数据库均通过 `powercontext server db-migrate` 显式执行迁移，普通启动只检查兼容性，不改名、重建或回填表。真正空库的初始化也遵守统一框架的初始化规则与 revision 链。
 
-自动迁移属于本功能的必交付实现：安装新包本身不修改数据库；新版 Runtime/Server 首次初始化持久化时，在候选表 create_all、读取候选、开放请求及启动 Worker 之前执行专用 schema migration。仅修改 SQLAlchemy 表名或调用 create_all 不能迁移已有表。
+Dream 根据受支持的发布基线与集成时的迁移 head，向共享 revision 链贡献不可变脚本、冻结资源、发布影响清单及下列领域校验器。脚本随包交付，不依赖会继续演进的 Runtime Repository 或模型 metadata。某项变更是否已存在由框架的基线登记判定，不并行保留另一条 Dream 迁移路径。
 
-1. 部署先停止旧 Server 和 Worker，备份数据库，再启动新版；不支持新旧二进制混跑或滚动跨越此次 schema/API 变更。部署级互斥保证仅一个迁移执行者，其他新版实例等待迁移完成。
-2. 检查旧表、新表、字段、外键和约束：空数据库直接建立新结构；旧结构原位改名并补充字段、回填 candidate_kind=artifact、调整结果约束；已完成结构校验后跳过。原本 nullable 的结果和来源保持原义。
-3. 保留所有候选 ID、当前版本、全部历史 proposal、状态、审核理由、批准结果、证据与来源。同步更新 Profile policy 的 pending_candidate_id 外键；保留 Dream run 引用和访问归属。历史载荷通过明确的 reader 规范化或无损转换读取，不能要求用户重新生成或审核已有候选。
-4. SQLite 的约束变更可使用事务内临时重建表，完成复制、外键与行级内容校验后替换；最终只保留两张候选表。OceanBase/MySQL 方言的 DDL 不能假定可整体回滚，逐步检查真实 schema、幂等续跑，并在任何中间状态阻止业务启动。
-5. 校验行数、候选/版本对应关系、批准结果、Profile 外键与历史引用后才允许服务就绪。失败时保留可恢复数据并输出可操作错误，不能静默跳过、清空旧表或创建空新表后继续服务。旧新表同时存在且无法证明迁移来源时停止，不能猜测覆盖。
-6. 本 PR 的独立 Catalog Change 存储尚未发布，不设计其生产兼容或数据合并；若检测到该实验结构，明确提示它不属于支持的发布升级路径，不自动删除。回退旧程序需要恢复升级前备份，不承诺旧程序可以读取新结构。
+| 接入项 | Dream 的责任 |
+| --- | --- |
+| `affected_objects` | 声明两张 Candidate 表的改名，kind/result 字段、约束、索引及外键，Profile 待审候选引用，以及 Processing Intent 的 `consecutive_dream_attempts` 列；依据受支持基线补齐实际需要转换的 Run/Candidate payload 和依赖对象。 |
+| `execution_mode` 与兼容范围 | A0 要求停止写入并协调升级，不允许新旧程序混用已变更的结构；向框架提供支持的程序/schema 组合和后端能力要求。 |
+| `api_changes` | 声明六个新 Candidate 路由及 Artifact 命名旧路由的直接移除、明确跳过弃用期的发布例外、移除版本、最低 Client 版本，以及 SDK/CLI/MCP/集成/Dashboard/文档的配套更新。 |
+| `task_formats` | 盘点受支持的历史 Dream Run、Processing Intent、排队/运行中/延迟/重试/死信任务及租约；按 RFC #1771 为各旧格式声明兼容消费、无损幂等转换或排空方式，未知格式阻止就绪。保留任务身份、请求者、幂等键、重试状态、回执与普通 Source 处理进度。 |
+| 领域后置条件 | 保留全部候选 ID、当前与历史版本、提案、证据、状态、审核理由、真实批准结果、Profile pending 指针、Dream 引用及访问归属。旧 pending 候选可继续审核、已批准结果可读取，不要求重新生成或审核；Artifact/Tag 结果约束及轮转计数初值正确。 |
 
-验收同时覆盖 SQLite 与 OceanBase：空库、旧库 pending/approved/rejected、多个历史版本、Profile 待审指针、Dream 运行引用、访问归属、重复启动、迁移中断重试、多实例启动和异常双表。验证历史已批准结果可读取、旧 pending 候选可继续审核，以及 Tag 批准不生成正文 Revision。
+物理表改名与路由替换仍在 A0 完成。仅启用 A0/A1、未启用 Tag 的部署也执行相同的显式迁移和 Client 协调升级；C 阶段不再改名候选表。历史 Profile Source-window 候选保留其 origin、pending 指针及游标语义，不能被重分类为 Dream 候选，也不能补造 Dream 配置快照。
 
-迁移与 API 替换在启用新 operation 前完成。持久化 reader、HTTP serializer、Client、Dashboard 同步识别 candidate_kind；保留原有非 Dream 自动生成策略。operation spec、target、origin、证据等优先使用已有类型化 payload，不新增评测表或预留接口。Dream 唯一约束继续使用 (scope_id, principal_key, idempotency_key)。
+业务只读写当前 Candidate 表。重建替换产生的已登记旧表与恢复对象按 RFC #1771 保留，迁移成功或服务启动不会将其删除。已登记保留对象与来源不明的旧新表并存必须区分，后者阻止就绪。未发布的 Catalog Change 表不属于受支持生产基线，不能静默导入或删除。恢复、迁移中断处理及后续清理由统一框架负责，本功能不承诺自动回滚或通用断点续跑。
+
+[PR #1772](https://github.com/oceanbase/powercontext/pull/1772) 当前为四张 Artifact 表在 SQLite 上的 Phase A 验收原型；`readiness_scope=registered_bundle`、`server_ready=false` 不代表完整 Server 就绪，完整 Server 数据库及 seekdb/OceanBase 部署迁移尚不在其已验收范围内。Dream 可以独立开发，但生产启用必须等待完整基线、Dream revisions、领域/任务校验器、启动门禁及后端验收完成；不能用局部 bundle 或回退到启动自动迁移来启用功能。
+
+通过统一框架在 SQLite、seekdb、OceanBase（MySQL 模式）验收 Dream 升级后置条件，使用真实受支持发布版本的结构与数据。覆盖空库初始化、pending/approved/rejected 及多个历史版本、Profile 指针、Dream 引用、归属、未完成任务、重复启动只读检查、中断恢复、并发迁移，以及已登记保留表和异常双表的区分；缺少某后端执行不算通过验收。同时验证 Tag 批准不产生正文 Revision，原有非 Dream 自动生成策略不变。新 operation 对外宣告可用前，完成持久化 reader、HTTP serializer、Client、Dashboard 的配套支持。
+
+operation spec、target、origin、证据等优先使用已有类型化 payload，不新增评测表或预留接口。Dream 唯一约束继续使用 (scope_id, principal_key, idempotency_key)。
 
 Supervisor 保持一个 processing family 一个 canonical binding，不为 Dream 另建常驻 scheduler。Memory、Profile、Topic、Experience、Skill 复用各自资源归属；Handoff、Prompt 等尚无完整后台 Dream 能力的 Family，须补齐规范 binding、Worker 配置与能力声明后才能启用。Tag 作业路由到其 owning Artifact family binding，并在注册表区分 operation，不能为 `tag` 伪造 Family。
 
-同一 binding 内显式 Run 按固定顺序执行。为避免普通 Source 处理饥饿，新增轮转策略：最多连续处理 4 个显式 Run 后，若存在可执行的 Source 工作则执行一次 Source pass，再继续 Dream。计数通过现有调用状态表的 `consecutive_dream_attempts` 列持久化，不新增表，不因 Worker 重启重置；启动先补齐该增量列，再执行 processing schema 完整性检查，旧数据库保留已有待处理请求；Source pass 完成时归零，并保留尚待处理的 Dream 请求。没有 Source 工作时不人为阻塞 Dream；现有 v1 Run 的语义与预算保持。
+同一 binding 内显式 Run 按固定顺序执行。为避免普通 Source 处理饥饿，新增轮转策略：最多连续处理 4 个显式 Run 后，若存在可执行的 Source 工作则执行一次 Source pass，再继续 Dream。计数通过现有调用状态表的 `consecutive_dream_attempts` 列持久化，不新增表，不因 Worker 重启重置；该列由 RFC #1771 管理的 revision 声明并初始化，保留旧数据库的待处理请求，启动仅校验结果、不自行补列；Source pass 完成时归零，并保留尚待处理的 Dream 请求。没有 Source 工作时不人为阻塞 Dream；现有 v1 Run 的语义与预算保持。
 
 Run 的候选落库、结果记录、租约 fence 检查、调用确认和后继调度意图在同一事务提交。Family 审核复用各自已有的投影发布契约，不统一引入异步 outbox；Topic Memory 按第 6 节在事务外准备完整投影，在批准事务内原子发布。只有既有 Family 已采用异步投影时才沿用其 processing intent，不为本次扩展新增通用索引任务表。审批等待不占 Dream Worker。查询只读取，不因 prepare_context 或 search 自动启动 Dream。
 
@@ -401,13 +411,13 @@ idempotency_key 按第 2 节包含请求者身份的唯一范围处理相同请�
 ## 15. 实现阶段与验收
 | 阶段 | 交付 | 启用条件 |
 | --- | --- | --- |
-| A0 | Operation registry、证据角色、typed target、统一 Candidate 表迁移与接口替换、共用审核扩展；复用现有 Run/Candidate 表 | 维护窗口内迁移与 Client/Server 协调升级通过，旧操作回归、请求者幂等隔离与统一锁顺序通过，未注册操作关闭 |
-| A1 | Memory、Profile、Topic Memory 显式复盘；不依赖 Tag 或可信评测存储 | 条目原子提交、Profile 游标隔离、Topic 完整投影原子发布及启动一致性通过 |
+| A0 | Operation registry、证据角色、typed target、统一框架下的 Dream revisions 与发布影响清单、统一 Candidate 接口与共用审核扩展 | RFC #1771 完整数据库就绪与 Dream 升级验收在三个后端通过；Client/Server 协调升级、旧操作回归、请求者幂等隔离与统一锁顺序通过，未注册操作关闭 |
+| A1 | Memory、Profile、Topic Memory 显式复盘；不依赖 Tag 或可信评测存储 | 条目原子提交、Profile 游标隔离、Topic 完整投影原子发布及启动一致性在 SQLite、seekdb、OceanBase 通过 |
 | B1 | Handoff 刷新、仅含 SKILL.md 的纯指令 Skill 包修订 | Handoff 发布/latest 选择、显式 Continue 与接收核验、包内容准入、证据校验与人工审核链路通过，真实任务端到端验证完成 |
 | B2 | Prompt 改进 | 同 key schema、证据校验、人工审核、配置发布权限及回滚通过 |
 | C | Tag 单 target 分类治理，复用统一 Candidate 接口、表与 Inbox | ETag/正文双基准、类型化结果、历史记录、幂等批准和权限校验通过 |
 
-代码分工：`builtin/dream` 承载 operation spec 和运行编排；`builtin/evidence` 增加严格 Family resolver；`builtin/review` 和 Family adapter 完成候选及事务提交；`builtin/persistence`、SQLite/OceanBase 实现记录与 CAS；`builtin/runtime` 接入 Supervisor 和投影更新。`openapi/powercontext.yaml` 是 HTTP 源契约，更新后运行 `make api-generate` 和 `make contract-test`，禁止手写 `_generated` 代码。
+代码分工：`builtin/dream` 承载 operation spec 和运行编排；`builtin/evidence` 增加严格 Family resolver；`builtin/review` 和 Family adapter 完成候选及事务提交；`builtin/persistence`、SQLite/seekdb/OceanBase 实现记录与 CAS，并向统一迁移框架交付 revisions、影响清单与领域校验器；`builtin/runtime` 接入 Supervisor 和投影更新。`openapi/powercontext.yaml` 是 HTTP 源契约，更新后运行 `make api-generate` 和 `make contract-test`，禁止手写 `_generated` 代码。
 
 测试验证公开行为和实际事务，不固化内部函数调用次数。新增公共契约、持久化与并发逻辑需完成相关单元/集成测试、`make check`、`make test`；涉及支持的 Python 版本时执行 tox。重要验收矩阵：
 
@@ -447,7 +457,7 @@ idempotency_key 按第 2 节包含请求者身份的唯一范围处理相同请�
 | 连续 Dream 请求与普通 Source 工作 | 两类工作均取得进展，普通游标仅由自身流程推进 |
 | 旧 Client 与替换路由后的 v1 Server | 旧候选路由不可用，无别名或兼容过滤；恢复流量前升级 Client，升级后可读取新增 Run 与 Candidate |
 
-SQLite 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复验收。使用隔离数据完成一条真实链路：原始会话写入、生成初始制品、追加纠正证据、Dream 提案、人工审核、后续任务使用、结果回查。工程测试验证公开行为、约束和事务正确性，不构成产品运行时的可信评测依赖，也不将模型提案或人工批准视为质量提升证明。
+SQLite、seekdb 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复验收。使用隔离数据完成一条真实链路：原始会话写入、生成初始制品、追加纠正证据、Dream 提案、人工审核、后续任务使用、结果回查。工程测试验证公开行为、约束和事务正确性，不构成产品运行时的可信评测依赖，也不将模型提案或人工批准视为质量提升证明。
 
 # Drawbacks
 + 每种 Family 都需要专门 writer 和校验，统一入口不能消除条目、游标、交接发布与接收核验、配置发布的语义差异。
@@ -455,7 +465,8 @@ SQLite 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复�
 + 完整 Profile/Topic 快照增加上下文和输出成本，预算可能使大型目标暂不可处理。
 + 人工审核增加等待和运营负担；模型提案与人工批准本身不能证明实际任务质量提升。
 + 扩展现有 v1 封闭枚举与 Profile generation 需要协调升级 Client；静默伪装成旧类型会更危险。
-+ 统一候选需要按类型校验结果约束和提交逻辑；从 A0 起，表改名及旧路径移除就需要维护窗口和协调升级，即使尚未启用 Tag，也不能依赖旧 Client 继续工作。
++ 统一候选需要按类型校验结果约束和提交逻辑；从 A0 起，表改名及旧路径移除就需要显式迁移、维护窗口和协调升级，即使尚未启用 Tag，也不能依赖旧 Client 继续工作。
++ 复用 RFC #1771 避免建设第二套升级机制，但生产启用依赖统一框架与 Dream 在三个后端的完整验收，不能以 #1772 的局部实现替代。
 
 # Rationale and alternatives
 | 方案 | 优点 | 不采用的原因 |
@@ -473,6 +484,7 @@ SQLite 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复�
 # Prior art
 本提案直接沿用 PowerContext 自身的设计，不以其他产品的宣传能力作为已验证依据。
 
++ [RFC #1771](https://github.com/oceanbase/powercontext/pull/1771)：统一数据库迁移、恢复与就绪契约；[PR #1772](https://github.com/oceanbase/powercontext/pull/1772) 为实现基础，第 12 节明确区分原型覆盖范围与发布要求。
 + [RFC 1510](https://github.com/oceanbase/powercontext/blob/master/docs/zh/rfcs/1510-artifact-dreaming.md)：精确证据、单候选、后台预算、根来源去重。
 + [RFC 0014](https://github.com/oceanbase/powercontext/blob/master/docs/zh/rfcs/0014_memory_layer_design.md)：Memory 条目修订需显式证据，forget 独立授权。
 + [RFC 1485](https://github.com/oceanbase/powercontext/blob/master/docs/zh/rfcs/1485_profile_artifact.md)：Scope Profile 快照、Policy 与 Source-window 审核。
@@ -486,13 +498,13 @@ SQLite 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复�
 # Unresolved questions
 下列问题应在对应阶段启用前由维护者决策，不能委托模型临时决定：
 
-1. 确定服务端、Client 和集成的协调发布版本号；旧路径直接移除，自动数据迁移不提供接口兼容。
+1. 确定服务端、Client 和集成的协调发布版本号，在发布影响清单登记直接移除旧路由的例外；数据迁移不提供接口兼容。
 2. Skill 与各 Prompt key 的证据展示、差异比较及配置发布影响提示应如何呈现给 Reviewer。
 3. Handoff 审核界面如何说明批准即发布，并引导接手方显式 Continue 和核验；批准不记录接收确认。
 4. 统一 Inbox 中 Tag 差异和正文变更的展示方式；分页使用同一存储、排序和游标，不再合并两套结果。
 5. 发布后质量异常由哪个应用监控并发起显式回滚；本 RFC 不承诺自动因果归因或无人值守回滚。
 
-这些问题不阻塞 A0/A1 的独立实现；涉及后续阶段的能力必须在问题解决、契约测试通过后才对外宣告可用。
+这些问题不阻塞 A0/A1 与统一框架并行开发，但生产启用必须通过第 12 节的共享迁移验收；涉及后续阶段的能力必须在问题解决、契约测试通过后才对外宣告可用。
 
 # Future possibilities
 + 可信评测作为后续可选增强，另行定义评测器注册与鉴权、独立保留集、版本化质量门槛、绑定精确候选版本的结果记录及隔离执行。是否接入由后续方案决定；本 PR 不实现，也不阻塞本 PR 的审核发布链路。
