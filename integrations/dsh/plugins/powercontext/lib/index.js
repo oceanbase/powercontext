@@ -1793,6 +1793,9 @@ const PUBLIC_ERROR_CODES = new Set([
 	"memory_entry_inactive",
 	"memory_capacity_exceeded",
 	"tag_precondition_failed",
+	"cursor_expired",
+	"precondition_required",
+	"capacity_exceeded",
 	"source_conflict",
 	"candidate_conflict",
 	"artifact_conflict",
@@ -2421,7 +2424,7 @@ function mapServerErrorCore(error) {
 	};
 	if (error.statusCode === 413) return {
 		ok: false,
-		code: code ?? "request_too_large",
+		code: code ?? "handoff_report_too_large",
 		message: "PowerContext rejected the request because the result exceeds the response limit. Narrow the selection and retry.",
 		status: 413,
 		...requestIdField(error.requestId)

@@ -77,6 +77,23 @@ describe('412 precondition failures', () => {
   })
 })
 
+describe('codes the server sends for the added statuses', () => {
+  const PUBLISHED: [number, string][] = [
+    [410, 'cursor_expired'],
+    [413, 'handoff_report_too_large'],
+    [428, 'precondition_required'],
+    [429, 'capacity_exceeded'],
+  ]
+
+  it.each(PUBLISHED)('status %s reports %s instead of dropping the code', (status, code) => {
+    expect(toToolResult(serverError(status, code))).toMatchObject({ ok: false, code, status })
+  })
+
+  it('names the Handoff Report limit when a 413 carries no code', () => {
+    expect(toToolResult(serverError(413))).toMatchObject({ code: 'handoff_report_too_large', status: 413 })
+  })
+})
+
 describe('409 capacity failures', () => {
   it('keeps the capacity code instead of degrading to a generic conflict', () => {
     expect(toToolResult(serverError(409, 'memory_capacity_exceeded'))).toMatchObject({

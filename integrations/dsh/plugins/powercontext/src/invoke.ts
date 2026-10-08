@@ -113,10 +113,13 @@ function mapServerErrorCore(error: ServerResponseError): ToolResult {
     // Both codes the Server returns at 412 mean the same thing to the caller: the state
     // this request was built against has moved, so re-read it and retry. Neither is an
     // outage, and `revision_conflict` arrives here even though it is already published.
+    // The fallback is the contract's own `precondition_failed` (docs/en/rfcs/1437_source_artifact_rest_api.md).
     return { ok: false, code: code ?? 'precondition_failed', message: 'PowerContext rejected the request because a precondition no longer matches the current state. Re-read the current revision or tag, then retry with the fresh value.', status: 412, ...requestIdField(error.requestId) }
   }
   if (error.statusCode === 413) {
-    return { ok: false, code: code ?? 'request_too_large', message: 'PowerContext rejected the request because the result exceeds the response limit. Narrow the selection and retry.', status: 413, ...requestIdField(error.requestId) }
+    // The Server's only 413 is the Handoff Report size limit, and that code is published,
+    // so the fallback names the same condition instead of inventing a code no Server sends.
+    return { ok: false, code: code ?? 'handoff_report_too_large', message: 'PowerContext rejected the request because the result exceeds the response limit. Narrow the selection and retry.', status: 413, ...requestIdField(error.requestId) }
   }
   if (error.statusCode === 422) {
     return { ok: false, code: code ?? 'invalid_request', message: 'PowerContext rejected the request.', status: 422, ...requestIdField(error.requestId) }

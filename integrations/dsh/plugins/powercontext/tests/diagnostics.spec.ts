@@ -91,6 +91,10 @@ describe('published error code filter', () => {
     expect(publicErrorCode('tag_precondition_failed')).toBe('tag_precondition_failed')
     expect(publicErrorCode('revision_conflict')).toBe('revision_conflict')
     expect(publicErrorCode('memory_capacity_exceeded')).toBe('memory_capacity_exceeded')
+    // The Server's sole codes for HTTP 410, 428 and 429.
+    expect(publicErrorCode('cursor_expired')).toBe('cursor_expired')
+    expect(publicErrorCode('precondition_required')).toBe('precondition_required')
+    expect(publicErrorCode('capacity_exceeded')).toBe('capacity_exceeded')
   })
 
   it('drops a code that is not published, so internal codes cannot cross the boundary', () => {

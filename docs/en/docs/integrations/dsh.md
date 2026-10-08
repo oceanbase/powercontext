@@ -255,7 +255,7 @@ Inside DeepSeek Harness:
 | `precondition_failed` | The Server rejected a write because a tag or revision precondition no longer matches the current state. Re-read the current reference, then retry with the fresh value. A 412 that carries a published business code reports that code instead. |
 | `precondition_required` | The Server requires the current ETag in `If-Match` for this mutation. Read the resource, then retry with its ETag. |
 | `cursor_expired` | The Server rejected a pagination cursor. Restart the listing from the beginning. |
-| `request_too_large` | The result exceeds the response limit. Narrow the selection and retry. |
+| `handoff_report_too_large` | The result exceeds the response limit; the Server's only 413 is the Handoff Report size limit. Narrow the selection and retry. |
 | `capacity_exceeded` | The Server reached a capacity limit. Retry after a short delay. |
 
 Existing conflict and validation codes, such as `revision_conflict` and `invalid_request`, retain their meaning. A domain

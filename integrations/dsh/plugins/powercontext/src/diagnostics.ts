@@ -39,6 +39,9 @@ const PUBLIC_ERROR_CODES = new Set([
   'candidate_not_found', 'handoff_evidence_not_found', 'source_definition_not_found',
   'external_skill_not_found', 'conflict', 'revision_conflict', 'memory_entry_inactive',
   'memory_capacity_exceeded', 'tag_precondition_failed',
+  // The Server's sole codes for HTTP 410, 428 and 429. Each was dropped before it reached
+  // the caller, so the mapping added for those statuses could not name the real condition.
+  'cursor_expired', 'precondition_required', 'capacity_exceeded',
   'source_conflict', 'candidate_conflict', 'artifact_conflict', 'candidate_terminal',
   'scope_version_conflict', 'scope_idempotency_conflict', 'artifact_publication_conflict',
   'connector_checkpoint_conflict', 'generation_conflict', 'external_skill_snapshot_unavailable',
