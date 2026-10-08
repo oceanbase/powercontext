@@ -160,19 +160,30 @@ def write_if_changed(path: Path, content: bytes) -> bool:
 
 
 def _render_installed_markdown(
-    content: bytes, current: Path, replacements: dict[str, str], legacy_hash: str | None
+    content: bytes,
+    current: Path,
+    replacements: dict[str, str],
+    legacy_hash: str | None,
+    legacy_replacements: dict[str, str],
 ) -> bytes:
     """Expand installation paths and safely migrate or refresh one Markdown resource."""
     generated = content.decode("utf-8").replace("\r\n", "\n")
     for placeholder, replacement in replacements.items():
         generated = generated.replace(placeholder, replacement)
-    if current.is_file() and guidance_region(generated) is not None:
+    if current.is_file():
         existing = current.read_bytes().decode("utf-8")
-        unexpanded = existing
-        for placeholder, replacement in replacements.items():
-            unexpanded = unexpanded.replace(replacement, placeholder)
-        if hashlib.sha256(unexpanded.replace("\r\n", "\n").encode("utf-8")).hexdigest() == legacy_hash:
-            legacy_hash = hashlib.sha256(existing.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+        if guidance_region(generated) is None:
+            if existing.replace("\r\n", "\n") == generated:
+                return existing.encode("utf-8")
+            message = "incoming unmarked guidance cannot safely replace existing content"
+            raise GuidanceError(message)
+        for substitutions in (legacy_replacements, replacements):
+            unexpanded = existing
+            for placeholder, replacement in substitutions.items():
+                unexpanded = unexpanded.replace(replacement, placeholder)
+            if hashlib.sha256(unexpanded.replace("\r\n", "\n").encode("utf-8")).hexdigest() == legacy_hash:
+                legacy_hash = hashlib.sha256(existing.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+                break
         generated = merge_guidance(
             existing,
             generated,
@@ -182,7 +193,12 @@ def _render_installed_markdown(
 
 
 def refresh_skill(
-    source: Path, target: Path, *, replacements: dict[str, str] | None = None, previous: Path | None = None
+    source: Path,
+    target: Path,
+    *,
+    replacements: dict[str, str] | None = None,
+    previous: Path | None = None,
+    legacy_replacements: dict[str, str] | None = None,
 ) -> None:
     """Refresh packaged resources without deleting user files or changing unchanged mtimes.
 
@@ -208,7 +224,9 @@ def refresh_skill(
             raise GuidanceError(message)
         content = path.read_bytes()
         if path.suffix == ".md":
-            content = _render_installed_markdown(content, current, replacements or {}, legacy.get(relative.as_posix()))
+            content = _render_installed_markdown(
+                content, current, replacements or {}, legacy.get(relative.as_posix()), legacy_replacements or {}
+            )
         writes[destination] = content
     for destination, content in writes.items():
         old = previous / destination.relative_to(target)
@@ -223,7 +241,10 @@ def preserve_installed_guidance(previous_plugin: Path, staged_plugin: Path) -> N
     """Merge managed guidance during a host's existing staged plugin upgrade."""
     previous = previous_plugin / SKILL_DIRECTORY
     staged = staged_plugin / SKILL_DIRECTORY
-    if previous.is_dir() and (staged / RESOURCE_MANIFEST).is_file():
+    if previous.is_dir():
+        if not (staged / "SKILL.md").is_file():
+            message = "incoming package omits existing guidance; cannot safely replace a pre-marker or managed Skill"
+            raise GuidanceError(message)
         refresh_skill(staged, staged, previous=previous)
         for path in previous.rglob("*"):
             destination = staged / path.relative_to(previous)

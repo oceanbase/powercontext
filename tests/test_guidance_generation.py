@@ -15,7 +15,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -195,3 +197,127 @@ def test_staged_plugin_upgrade_keeps_user_guidance(tmp_path: Path, host: str) ->
     preserve_installed_guidance(previous, staged)
     assert (staged / SKILL_DIRECTORY / "SKILL.md").read_bytes() == skill.read_bytes()
     assert snapshot(previous) == before
+
+
+@pytest.fixture
+def pre_marker_packages(tmp_path: Path) -> dict[str, Path]:
+    """Real pre-marker Skill bytes; unrelated plugin files supply the installation layout."""
+    fixture = ROOT / "tests/fixtures/integration-guidance/pre-marker-skills.json"
+    skills = json.loads(fixture.read_text(encoding="utf-8"))["skills"]
+    packages = {}
+    for host, files in skills.items():
+        plugin = tmp_path / "old-packages" / host
+        shutil.copytree(
+            ROOT / HOST_GUIDANCE[host].plugin, plugin, ignore=shutil.ignore_patterns("skills", "__pycache__")
+        )
+        for name, content in files.items():
+            destination = plugin / "skills/powercontext-project-context" / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(content.encode("utf-8"))
+        packages[host] = plugin
+    return packages
+
+
+@pytest.mark.parametrize("host", ["workbuddy", "opencode", "hermes", "zcode"])
+def test_pre_marker_downgrade_rejects_before_losing_user_content(
+    tmp_path: Path, monkeypatch, pre_marker_packages: dict[str, Path], host: str
+) -> None:
+    from powercontext.cli.guidance import SKILL_DIRECTORY, preserve_installed_guidance
+    from powercontext.cli.opencode import _install_skill
+    from powercontext.cli.system import SetupError
+    from powercontext.cli.workbuddy import install_workbuddy_plugin
+
+    home = tmp_path / "installed"
+    target = home / SKILL_DIRECTORY
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    if host == "workbuddy":
+        install_workbuddy_plugin(source=str(ROOT), ref="master")
+    elif host == "opencode":
+        _install_skill(ROOT / FILE_HOSTS[host], target)
+    else:
+        shutil.copytree(ROOT / FILE_HOSTS[host], target)
+    skill = target / "SKILL.md"
+    skill.write_bytes(skill.read_bytes() + b"\r\nUser notes must survive a downgrade.\r\n")
+    (target / "my-notes.md").write_text("Keep my additional file.\n", encoding="utf-8")
+    before = {path: data for path, (data, _) in snapshot(home).items()}
+    with pytest.raises((GuidanceError, SetupError, OSError), match=r"unmarked|pre-marker"):
+        if host == "workbuddy":
+            install_workbuddy_plugin(source=str(pre_marker_packages[host]), ref="master")
+        elif host == "opencode":
+            _install_skill(pre_marker_packages[host] / SKILL_DIRECTORY, target)
+        else:
+            preserve_installed_guidance(home, pre_marker_packages[host])
+    assert {path: data for path, (data, _) in snapshot(home).items()} == before
+
+
+@pytest.mark.parametrize("edited", [False, True])
+def test_workbuddy_legacy_upgrade_uses_previous_interpreter_without_accepting_edits(
+    tmp_path: Path, monkeypatch, pre_marker_packages: dict[str, Path], edited: bool
+) -> None:
+    import powercontext.cli.workbuddy as workbuddy
+    from powercontext.cli.system import SetupError
+
+    home = tmp_path / "workbuddy home"
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    old_python = (tmp_path / "old environment/python").as_posix()
+    new_python = (tmp_path / "new environment/python3").as_posix()
+    monkeypatch.setattr(workbuddy, "_python_executable", lambda: old_python)
+    workbuddy.install_workbuddy_plugin(source=str(pre_marker_packages["workbuddy"]), ref="master")
+    scope = home / "skills/powercontext-project-context/references/scope-memory.md"
+    assert old_python in scope.read_text(encoding="utf-8")
+    if edited:
+        scope.write_bytes(scope.read_bytes() + b"\nRetain my unmarked edits.\n")
+    before = {path: data for path, (data, _) in snapshot(home).items()}
+    monkeypatch.setattr(workbuddy, "_python_executable", lambda: new_python)
+    if edited:
+        with pytest.raises(SetupError, match="unrecognized content"):
+            workbuddy.install_workbuddy_plugin(source=str(ROOT), ref="master")
+        assert {path: data for path, (data, _) in snapshot(home).items()} == before
+    else:
+        workbuddy.install_workbuddy_plugin(source=str(ROOT), ref="master")
+        updated = scope.read_text(encoding="utf-8")
+        assert new_python in updated
+        assert old_python not in updated
+        assert START in updated and END in updated
+
+
+def test_git_crlf_checkout_passes_generation_without_rewriting_user_bytes(guidance_tree: Path) -> None:
+    shutil.copy2(ROOT / ".gitattributes", guidance_tree / ".gitattributes")
+    git = shutil.which("git")
+    assert git is not None, "Git is required to exercise checkout conversion"
+    for args in (
+        ["init", "--quiet"],
+        ["add", "."],
+        ["checkout-index", "--all", "--prefix=checkout/"],
+    ):
+        subprocess.run(
+            [git, "-c", "core.autocrlf=true", "-c", "core.safecrlf=false", *args],
+            cwd=guidance_tree,
+            check=True,
+            capture_output=True,
+        )
+    checkout = guidance_tree / "checkout"
+    skill = checkout / FILE_HOSTS["codex"] / "SKILL.md"
+    skill.write_bytes(skill.read_bytes() + b"\r\nLocal notes retain CRLF.\r\n")
+    before = snapshot(checkout)
+    assert refresh_generated_guidance(checkout, check=True) == ()
+    assert refresh_generated_guidance(checkout) == ()
+    assert snapshot(checkout) == before
+
+
+@pytest.mark.parametrize("host", ["hermes", "zcode"])
+def test_unchanged_pre_marker_staging_keeps_additional_user_files(
+    tmp_path: Path, pre_marker_packages: dict[str, Path], host: str
+) -> None:
+    from powercontext.cli.guidance import SKILL_DIRECTORY, preserve_installed_guidance
+
+    staged = pre_marker_packages[host]
+    previous = tmp_path / "previous"
+    shutil.copytree(staged / SKILL_DIRECTORY, previous / SKILL_DIRECTORY)
+    note = previous / SKILL_DIRECTORY / "personal/notes.md"
+    note.parent.mkdir()
+    note.write_bytes(b"Keep this extra file.\r\n")
+    preserve_installed_guidance(previous, staged)
+    assert (staged / SKILL_DIRECTORY / "personal/notes.md").read_bytes() == note.read_bytes()

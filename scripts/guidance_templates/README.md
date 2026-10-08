@@ -29,6 +29,15 @@ An edited document without markers is rejected rather than overwritten: identify
 range and add the matching markers, leaving personal notes outside. Host-managed package installation
 remains subject to that host's behavior; generation tests do not certify native discovery or execution.
 
+Reinstalling an older, unmarked package is allowed only where its existing Markdown is identical.
+An incompatible downgrade fails before replacing installed guidance; staged upgrades retain additional
+user files even when the incoming package predates managed-refresh metadata. WorkBuddy uses the previous
+owned hook's interpreter substitution to recognize untouched legacy guidance across environment changes;
+the complete normalized document must still match its frozen migration hash.
+
+Git attributes keep packaged guidance resources in LF form, including on `core.autocrlf=true` checkouts.
+This checkout policy does not normalize local notes outside the managed region during refresh.
+
 The shared embedding-cost note is an intentional content addition. Claude Code's resolver accepts the
 host-provided plugin root, verifies its helper, and falls back to the installed Skill's plugin root when
 the environment variable is unavailable. Other existing host instructions are retained through template inheritance.

@@ -102,6 +102,28 @@ def test_setup_hermes_copies_provider_from_a_local_checkout(tmp_path: Path, monk
     assert (unrelated_plugin / "keep.txt").read_text(encoding="utf-8") == "keep\n"
 
 
+def test_setup_hermes_refuses_package_omitting_installed_guidance(tmp_path: Path, monkeypatch) -> None:
+    checkout = tmp_path / "powercontext"
+    _write_plugin(checkout)
+    home = tmp_path / "hermes"
+    installed = _write_installed_plugins(home)
+    guidance = installed / "skills/powercontext-project-context/SKILL.md"
+    guidance.parent.mkdir(parents=True)
+    original = b"Preserve these installed instructions and notes.\r\n"
+    guidance.write_bytes(original)
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(hermes_cli, "which", lambda _name: "/usr/bin/hermes")
+    monkeypatch.setattr(hermes_cli.subprocess, "run", _successful_hermes_run)
+
+    result = CliRunner().invoke(create_cli([setup_app]), ["setup", "hermes", "--source", str(checkout)])
+
+    assert result.exit_code == 1
+    assert "omits existing guidance" in result.output
+    assert guidance.read_bytes() == original
+    assert sorted(path.name for path in (home / "plugins").iterdir()) == ["powercontext", "powercontext-command"]
+
+
 def test_setup_hermes_restores_both_plugins_when_second_replace_fails(tmp_path: Path, monkeypatch) -> None:
     checkout = tmp_path / "powercontext"
     _write_plugin(checkout)

@@ -2428,7 +2428,7 @@ def _write_bytes_atomically(path: Path, content: bytes) -> None:
     temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     descriptor: int | None = None
     try:
-        descriptor = os.open(temporary_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        descriptor = os.open(temporary_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o600)
         os.write(descriptor, content)
         os.fsync(descriptor)
         os.close(descriptor)

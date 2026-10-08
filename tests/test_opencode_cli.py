@@ -426,19 +426,20 @@ def test_remote_checkout_refresh_failure_keeps_previous_commit(short_tmp_path: P
 
 def test_opencode_skill_refresh_replaces_only_an_owned_installation(tmp_path: Path) -> None:
     import powercontext.cli.opencode as opencode_cli
+    from powercontext.cli.guidance import END, START
 
     first = tmp_path / "first"
     second = tmp_path / "second"
     first.mkdir()
     second.mkdir()
-    (first / "SKILL.md").write_text("first\n", encoding="utf-8")
-    (second / "SKILL.md").write_text("second\n", encoding="utf-8")
+    (first / "SKILL.md").write_text(f"{START}\nfirst\n{END}\n", encoding="utf-8")
+    (second / "SKILL.md").write_text(f"{START}\nsecond\n{END}\n", encoding="utf-8")
     target = tmp_path / "config" / "skills" / "powercontext-project-context"
 
     opencode_cli._install_skill(first, target)
     opencode_cli._install_skill(second, target)
 
-    assert (target / "SKILL.md").read_text(encoding="utf-8") == "second\n"
+    assert (target / "SKILL.md").read_text(encoding="utf-8") == f"{START}\nsecond\n{END}\n"
     assert not list(target.parent.glob(".powercontext-project-context.*"))
 
 

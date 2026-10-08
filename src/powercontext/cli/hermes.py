@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 
-from powercontext.cli.guidance import HOST_GUIDANCE, preserve_installed_guidance
+from powercontext.cli.guidance import HOST_GUIDANCE, GuidanceError, preserve_installed_guidance
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.paths import powercontext_data_dir
 
@@ -73,6 +73,8 @@ def install_hermes_plugin(*, source: str, ref: str) -> HermesSetupResult:
         )
     except OSError as error:
         raise SetupError.hermes_plugin_write(target, error) from error
+    except GuidanceError as error:
+        raise SetupError(str(error)) from error
 
     return HermesSetupResult(
         plugin=HERMES_PLUGIN_NAME,
