@@ -102,6 +102,8 @@ export async function handlePcCommand(
   cwd?: string,
   signal?: AbortSignal,
   sessionId?: string,
+  getToolCatalog?: () => unknown,
+  toolScope?: unknown,
 ): Promise<CommandResult> {
   const tokens = rawInput.trim().split(/\s+/).filter(Boolean)
   const command = tokens[0]
@@ -115,7 +117,13 @@ export async function handlePcCommand(
     }
   }
   if (command === 'doctor') {
-    const report = await diagnoseServer(runtime, cwd, signal)
+    let toolCatalog: unknown
+    try {
+      toolCatalog = getToolCatalog?.()
+    } catch {
+      // Doctor reports an unavailable catalog without failing HTTP checks.
+    }
+    const report = await diagnoseServer(runtime, cwd, signal, toolCatalog, toolScope)
     return { kind: report.ok ? 'success' : 'error', text: JSON.stringify(report, null, 2) }
   }
   if (command === 'search') {
@@ -160,6 +168,7 @@ export function registerCommands(
     input: { hint: 'doctor | capabilities | search <query> | remember <text> | flush | review | stats | skills scan' },
     handler: async (invocation) => handlePcCommand(
       invocation.rawInput, runtime, invocation.agent.session.header.cwd, invocation.signal, invocation.agent.session.header.id,
+      () => ctx.get('tools'), invocation.agent,
     ),
   })
 }

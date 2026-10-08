@@ -17,7 +17,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PowerContextClient } from '../src/client.ts'
 import { PLUGIN_USER_AGENT, PLUGIN_VERSION, ServerResponseError, UnavailableError, UnknownOperationError } from '../src/errors.ts'
 
@@ -29,6 +29,76 @@ function jsonResponse(status: number, body: unknown, headers?: Record<string, st
 }
 
 describe('PowerContextClient', () => {
+  describe('operation deadlines', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      // Native AbortSignal.timeout uses timers outside Vitest's fake clock.
+      vi.spyOn(AbortSignal, 'timeout').mockImplementation(ms => {
+        const controller = new AbortController()
+        setTimeout(() => controller.abort(new DOMException('Deadline exceeded', 'TimeoutError')), ms)
+        return controller.signal
+      })
+    })
+
+    afterEach(() => {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+      vi.restoreAllMocks()
+    })
+
+    it.each(['get_liveness', 'prepare_context', 'openapi_document'])('keeps the configured deadline for %s', async operation => {
+      let signal!: AbortSignal
+      const client = new PowerContextClient({
+        baseUrl: 'http://127.0.0.1:8000', requestTimeoutMs: 1000,
+        fetch: async (_url, init) => {
+          signal = init.signal!
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+          })
+        },
+      })
+      const pending = operation === 'openapi_document' ? client.readOpenApi() : client.request(operation)
+      const rejected = expect(pending).rejects.toMatchObject({ cause: { name: 'TimeoutError' } })
+      await vi.advanceTimersByTimeAsync(999)
+      expect(signal.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await rejected
+    })
+
+    it('preserves a longer configured readiness deadline for ordinary tool calls', async () => {
+      const client = new PowerContextClient({
+        baseUrl: 'http://127.0.0.1:8000', requestTimeoutMs: 60_000,
+        fetch: async (_url, init) => new Promise<Response>((resolve, reject) => {
+          const abort = () => reject(init.signal!.reason)
+          init.signal!.addEventListener('abort', abort, { once: true })
+          setTimeout(() => {
+            init.signal!.removeEventListener('abort', abort)
+            resolve(jsonResponse(200, { status: 'ready' }))
+          }, 45_000)
+        }),
+      })
+      const result = expect(client.request('get_readiness')).resolves.toMatchObject({
+        status: 200, value: { status: 'ready' },
+      })
+      await vi.advanceTimersByTimeAsync(45_000)
+      await result
+    })
+
+    it('honors caller cancellation during the longer readiness budget', async () => {
+      const controller = new AbortController()
+      const client = new PowerContextClient({
+        baseUrl: 'http://127.0.0.1:8000', requestTimeoutMs: 1000,
+        fetch: async (_url, init) => new Promise<Response>((_resolve, reject) => {
+          init.signal!.addEventListener('abort', () => reject(init.signal!.reason), { once: true })
+        }),
+      })
+      const pending = client.request('get_readiness', {}, controller.signal).catch(error => error)
+      await vi.advanceTimersByTimeAsync(2000)
+      controller.abort()
+      expect(await pending).toMatchObject({ cause: { name: 'AbortError' } })
+    })
+  })
+
   it('preserves repeated tag filters and the opaque ETag for conditional tag writes', async () => {
     const requests: Array<{ url: string; init: RequestInit }> = []
     const client = new PowerContextClient({

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -76,3 +77,12 @@ def hook_module(plugin_imports: None) -> ModuleType:
         "powercontext_workbuddy_hook",
         PLUGIN_ROOT / "hooks" / "workbuddy_powercontext_hook.py",
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_plugin_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the plugin defaults under test rather than the host's environment."""
+
+    for name in tuple(os.environ):
+        if name.startswith("POWERCONTEXT_"):
+            monkeypatch.delenv(name, raising=False)

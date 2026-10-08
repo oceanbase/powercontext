@@ -52,21 +52,27 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffStatement,
     PreparedHandoff,
     PrepareHandoff,
+    PrepareHandoffHint,
 )
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     Memory,
+    MemoryCapacity,
     MemoryCitation,
+    MemoryCompactionResult,
     MemoryEntryInput,
     MemoryEntryVersion,
     MemoryHit,
     MemoryQueryEmbedding,
     MemoryService,
+    MemoryWritePlan,
+    MemoryWriteVerdict,
 )
 from powercontext.builtin.artifacts.memory.errors import (
     CapabilityNotSupportedError,
     InvalidMemoryCitationError,
     MemoryEntryNotFoundError,
+    MemoryWriteRejectedError,
 )
 from powercontext.builtin.artifacts.profile.service import RelationalProfileService
 from powercontext.builtin.artifacts.prompt import (
@@ -166,6 +172,7 @@ from powercontext.builtin.runtime._scope_cache import (
     ScopeCacheObserver,
     ScopeEvictor,
 )
+from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.models import (
     ApproveCandidateRequest,
@@ -747,28 +754,23 @@ class ScopedStatisticsApplication:
         usage: InferenceUsage,
         /,
     ) -> None:
-        try:
-            async with self._runtime._scope_operation(self.scope_id):
-                await self._runtime._statistics(self.scope_id).record(
-                    purpose,
-                    operation,
-                    usage,
-                    self._runtime._clock().astimezone(UTC).date(),
-                )
-        except Exception as error:
-            log_safely(
-                logger,
-                logging.ERROR,
-                "Model usage recording failed",
-                exc_info=error,
-                extra={
-                    "event": "statistics.model_usage.failed",
-                    "purpose": purpose.value,
-                    "operation": operation.value,
-                    "outcome": "failure",
-                    "unit": "statistics",
-                },
-            )
+        """Freeze usage for this Scope; the recorder owns the write.
+
+        The enclosing operation already validated and leased the Scope, so this
+        callback performs no I/O. The runtime-owned recorder writes the record in
+        an independent short transaction outside the caller's model deadline.
+        A Runtime without statistics has no recorder, and accounting must never
+        turn a successful model call into a failure.
+        """
+
+        if self._runtime._statistics_service is None:
+            return
+        self._runtime._statistics(self.scope_id).offer_model_usage(
+            purpose,
+            operation,
+            usage,
+            self._runtime._clock().astimezone(UTC).date(),
+        )
 
     async def record_recall(self, measurement: RecallTokenMeasurement, /) -> None:
         try:
@@ -2077,6 +2079,17 @@ class ScopedHandoffApplication:
         async with self._runtime._context(self.scope_id) as context:
             return await context.artifacts.handoff.finalize(draft)
 
+    async def hint(self, request: PrepareHandoffHint, /) -> PreparedContext:
+        """Prepare optional historical orientation for direct host delivery."""
+
+        async with self._runtime._context(self.scope_id) as context:
+            content = await context.artifacts.handoff.hint(request)
+        return PreparedContext(
+            status="empty" if content is None else "ready",
+            content=content,
+            content_bytes=0 if content is None else len(content.encode("utf-8")),
+        )
+
     async def commit(self, prepared: PreparedHandoff, /) -> Handoff:
         async with self._runtime._context(self.scope_id) as context, self._runtime._locked(self.scope_id):
             return await context.artifacts.handoff.commit(prepared)
@@ -2451,7 +2464,9 @@ class ScopedMemoryApplication:
                 service = context.artifacts.memory
                 current = await _head_or_none(service, context.artifacts.memory_artifact_id)
                 _validate_expected_revision(current, request.expected_revision)
-                updated = await service.remember(memory=current, entries=request.entries, mode="append")
+                plan = await service.plan_remember(memory=current, entries=request.entries, mode="append")
+                _raise_if_held(plan)
+                updated = await service.apply(plan)
             if updated is None:
                 raise _RuntimeStateError("empty-write")
             return MemoryMutationResult(
@@ -2517,6 +2532,36 @@ class ScopedMemoryApplication:
                         rerank=result.rerank,
                     )
 
+    async def capacity(self) -> MemoryCapacity:
+        """Read capacity of the Scope's current Memory, or raise when it does not exist."""
+
+        async with self._runtime._context(self.scope_id) as context:
+            service = context.artifacts.memory
+            current = await service.head(context.artifacts.memory_artifact_id)
+            _validate_memory_identity(context.artifacts.memory_artifact_id, current)
+            return await service.capacity(current)
+
+    async def compact(
+        self,
+        *,
+        dry_run: bool = False,
+        limit: int | None = None,
+        reason: str | None = None,
+        expected_revision: int | None = None,
+    ) -> MemoryCompactionResult:
+        """Explicitly compact the Scope's current Memory under the configured policy.
+
+        Enablement permits commits; it does not schedule them. Previews also work
+        while disabled. Pass the preview's revision to reject a changed head.
+        """
+
+        async with self._runtime._context(self.scope_id) as context, self._runtime._locked(self.scope_id):
+            service = context.artifacts.memory
+            current = await service.head(context.artifacts.memory_artifact_id)
+            _validate_memory_identity(context.artifacts.memory_artifact_id, current)
+            _validate_expected_revision(current, expected_revision)
+            return await service.compact(current, dry_run=dry_run, limit=limit, reason=reason)
+
     async def list(self, *, include_inactive: bool = False, tag_filter: TagFilter | None = None) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:
             service = context.artifacts.memory
@@ -2553,7 +2598,7 @@ class ScopedMemoryApplication:
                     context.artifacts.memory_artifact_id,
                     request.citation,
                 )
-                updated = await service.remember(
+                plan = await service.plan_remember(
                     memory=current,
                     entries=(
                         MemoryEntryInput(
@@ -2565,6 +2610,8 @@ class ScopedMemoryApplication:
                     ),
                     mode="append",
                 )
+                _raise_if_held(plan)
+                updated = await service.apply(plan)
             if updated is None:
                 raise _RuntimeStateError("empty-write")
             revised = next(item for item in await service.entries(updated) if item.entry_id == entry.entry_id)
@@ -2881,16 +2928,22 @@ class ScheduledSourceProcessor:
                         if span is not None:
                             span.set_outcome("failure")
                     else:
-                        outcome = "success" if result.processed else "noop"
+                        outcome = "hold" if result.held_count else "success" if result.processed else "noop"
                         _log_scheduled_processing(
                             outcome,
                             operation="process_source_window",
                             started_at=started_at,
                             source_count=result.source_count,
+                            held_count=result.held_count,
+                            hold_codes=result.hold_codes,
                         )
                         if span is not None:
                             span.set_outcome(outcome)
-                            span.set_attributes({"powercontext.background.source_count": result.source_count})
+                            span.set_attributes({
+                                "powercontext.background.source_count": result.source_count,
+                                "powercontext.background.memory_held_count": result.held_count,
+                                "powercontext.background.memory_hold_codes": ",".join(result.hold_codes),
+                            })
 
 
 class ScheduledExperienceProcessor:
@@ -2960,6 +3013,8 @@ def _log_scheduled_processing(
     error: Exception | None = None,
     source_count: int | None = None,
     candidate_count: int | None = None,
+    held_count: int | None = None,
+    hold_codes: tuple[str, ...] = (),
 ) -> None:
     extra = {
         "event": "background.operation.completed",
@@ -2972,6 +3027,10 @@ def _log_scheduled_processing(
         extra["source_count"] = source_count
     if candidate_count is not None:
         extra["candidate_count"] = candidate_count
+    if held_count is not None:
+        extra["held_count"] = held_count
+    if hold_codes:
+        extra["hold_codes"] = hold_codes
     level = logging.ERROR if error is not None else logging.INFO
     log_safely(
         logger,
@@ -3030,6 +3089,7 @@ class BuiltinRuntime:
         prompt_service: PromptService | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
         recall_effort_sink: RecallEffortSink | None = None,
+        decision_model: DecisionModel | None = None,
         publication_application: ArtifactPublicationApplication | None = None,
         scope_application: ScopeApplication | None = None,
         readiness: RuntimeReadinessChecks | None = None,
@@ -3088,6 +3148,9 @@ class BuiltinRuntime:
         self._prompt_service = prompt_service
         self._recall_token_estimator = recall_token_estimator
         self._recall_effort_sink = recall_effort_sink
+        # Public read-only seam for the cross-family decision role; deterministic Runtime callers
+        # (and tests) read it directly, and it is always fail-open wrapped before it gets here.
+        self.decision_model = decision_model
         self.publications = publication_application
         self.scopes = scope_application
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
@@ -3341,7 +3404,17 @@ class BuiltinRuntime:
                 raise _RuntimeStateError("scope")
             registered = await self.scopes.get(scope)
             with self._scope_cache.lease(scope):
-                yield registered
+                try:
+                    yield registered
+                finally:
+                    # Every scoped operation, read or write, is a completion
+                    # boundary for the usage it accepted. The recorder owns its
+                    # own budget, so this never widens the operation's model
+                    # deadlines, and a Runtime without statistics has no recorder
+                    # to drain. One flush here covers the nested _scoped_operation
+                    # rather than paying for it twice.
+                    if self._statistics_service is not None:
+                        await self._statistics(scope).flush_model_usage()
 
     @asynccontextmanager
     async def _scoped_operation(
@@ -3554,6 +3627,16 @@ def _is_stale_memory_search(error: CapabilityNotSupportedError | InvalidMemoryCi
     return (isinstance(error, CapabilityNotSupportedError) and error.capability == "head") or (
         isinstance(error, InvalidMemoryCitationError) and error.code == "memory-mismatch"
     )
+
+
+def _raise_if_held(plan: MemoryWritePlan) -> None:
+    """Surface a gate refusal as a structured error so the caller can read code and reason."""
+
+    decision = plan.decision
+    if decision is None or decision.verdict is not MemoryWriteVerdict.HOLD:
+        return
+    code = "unspecified" if decision.code is None else decision.code.value
+    raise MemoryWriteRejectedError(code, decision.reason)
 
 
 def _validate_expected_revision(memory: Memory | None, expected_revision: int | None) -> None:

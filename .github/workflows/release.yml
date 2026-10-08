@@ -55,6 +55,14 @@ jobs:
               )
           PY
 
+      - name: Set up website tools
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+
+      - name: Verify synchronized release references and release notes
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: make release-check
+
       - name: Build release distributions
         run: |
           uv build --out-dir dist
@@ -134,7 +142,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up website tools
-        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
 
       - name: Build website
         run: make docs-build

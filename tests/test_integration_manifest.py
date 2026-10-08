@@ -20,6 +20,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
+import yaml
 from integration_manifest import (
     DOCUMENTATION_PATHS,
     MANIFEST_PATH,
@@ -65,6 +66,15 @@ def test_pi_declares_full_profile_after_external_skill_support_is_merged() -> No
     assert all(tool.capabilities == ("external_skill",) for tool in pi_tools.tools if tool.id in external_tools)
 
 
+def test_codex_full_profile_includes_managed_and_external_skill_operations() -> None:
+    manifest = load_integration_manifest()
+    codex = next(integration for integration in manifest.integrations if integration.id == "codex")
+    assert "full" in codex.profiles
+    assert {"experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill"} <= set(
+        codex.capabilities
+    )
+
+
 @pytest.mark.parametrize("missing_operation", [False, True])
 def test_tool_surface_probe_handles_long_descriptions_without_borrowing_operations(
     tmp_path: Path,
@@ -91,6 +101,42 @@ def test_tool_surface_probe_handles_long_descriptions_without_borrowing_operatio
         )
     else:
         assert errors == ()
+
+
+def test_dify_declares_the_dsh_tool_surface_without_host_lifecycle_claims() -> None:
+    manifest = load_integration_manifest()
+    toolsets = {item.id: item for item in manifest.toolsets}
+    assert {tool.id for tool in toolsets["dify-tools"].tools} == {tool.id for tool in toolsets["dsh-tools"].tools}
+    dify = next(item for item in manifest.integrations if item.id == "dify")
+    assert dify.availability is IntegrationAvailability.EXPERIMENTAL
+    assert dify.profiles == ()
+    assert not {"acknowledge", "work_contract", "external_skill"} & set(dify.capabilities)
+
+
+@pytest.mark.parametrize("change", ["missing", "operation"])
+def test_dify_probe_checks_provider_entries_and_their_operation_bindings(tmp_path: Path, change: str) -> None:
+    source_root = MANIFEST_PATH.parent.parent
+    plugin = tmp_path / "integrations/dify/plugin"
+    shutil.copytree(source_root / "integrations/dify/plugin", plugin, ignore=shutil.ignore_patterns("__pycache__"))
+    if change == "missing":
+        provider_path = plugin / "provider/powercontext.yaml"
+        provider = yaml.safe_load(provider_path.read_text(encoding="utf-8"))
+        provider["tools"].remove("tools/pc_skill_generate.yaml")
+        provider_path.write_text(yaml.safe_dump(provider), encoding="utf-8")
+    else:
+        entry = plugin / "tools/pc_skill_generate.py"
+        entry.write_text(
+            entry.read_text(encoding="utf-8").replace('"generate_skill"', '"approve_candidate"'),
+            encoding="utf-8",
+        )
+    manifest = load_integration_manifest()
+    toolset = next(item for item in manifest.toolsets if item.id == "dify-tools")
+    isolated = manifest.model_copy(update={"toolsets": (toolset,), "integrations": ()})
+    errors = tool_surface_errors(isolated, tmp_path)
+    assert len(errors) == 1
+    assert "pc_skill_generate:generate_skill" in errors[0]
+    if change == "operation":
+        assert "pc_skill_generate:approve_candidate" in errors[0]
 
 
 def test_manifest_defines_each_availability_state() -> None:

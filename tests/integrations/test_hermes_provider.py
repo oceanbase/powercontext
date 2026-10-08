@@ -179,6 +179,11 @@ def provider_and_client(tmp_path, hermes_modules):
     provider.shutdown()
 
 
+def hermes_provider_module(provider):
+    """The loaded plugin module, so tests can reach its public error types."""
+    return sys.modules[type(provider).__module__]
+
+
 def test_prefetch_uses_profile_and_user_scoped_context(provider_and_client):
     provider, client = provider_and_client
 
@@ -602,6 +607,63 @@ def test_pre_compress_filters_roles_and_redacts_secrets(provider_and_client):
     assert "deployment" in content
 
 
+@pytest.fixture
+def make_provider(tmp_path, hermes_modules):
+    """Build an initialized provider for a specific agent context; shut it down after the test."""
+    provider_module, _cli_module = hermes_modules
+    initialized = []
+
+    def _make(config=None, **kwargs):
+        client = FakeClient()
+        provider = provider_module.PowerContextMemoryProvider(config or {}, client_factory=lambda _config: client)
+        provider.initialize(
+            kwargs.pop("session_id", "session-1"),
+            hermes_home=str(tmp_path),
+            agent_identity="coder",
+            **kwargs,
+        )
+        initialized.append(provider)
+        return provider, client
+
+    yield _make
+    for provider in initialized:
+        provider.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("agent_context", "platform"),
+    [("cron", "cli"), ("flush", "cli"), ("subagent", "cli"), ("", "cron"), ("", "subagent")],
+)
+def test_non_primary_agent_context_skips_automatic_writes(make_provider, agent_context, platform):
+    provider, client = make_provider(agent_context=agent_context, platform=platform)
+
+    provider.sync_turn("Scheduled check.", "Everything is green.", session_id="session-1")
+    provider.on_memory_write("add", "user", "The scheduled run prefers uv.")
+    provider._wait_for_background()
+
+    assert [call[0] for call in client.calls] == []
+
+
+@pytest.mark.parametrize(("agent_context", "platform"), [("", ""), ("primary", "cli"), ("primary", "telegram")])
+def test_primary_agent_context_still_writes_turns_and_memories(make_provider, agent_context, platform):
+    provider, client = make_provider(agent_context=agent_context, platform=platform)
+
+    provider.sync_turn("Use uv for the integration.", "I will add a uv check.", session_id="session-1")
+    provider.on_memory_write("add", "user", "The user prefers uv.")
+    provider._wait_for_background()
+
+    assert [call[0] for call in client.calls] == ["capture_content", "remember_memory"]
+
+
+def test_non_primary_agent_context_keeps_recall_available(make_provider):
+    provider, client = make_provider(agent_context="cron", platform="cron")
+
+    recalled = provider.prefetch("What did we decide about the deployment?")
+
+    assert "remembered project context" in recalled
+    assert client.calls[0][0] == "prepare_context"
+
+
 def test_pre_compress_captures_only_new_overlapping_windows(provider_and_client):
     provider, client = provider_and_client
     provider._config["capture_pre_compress"] = True
@@ -635,6 +697,154 @@ def test_pre_compress_captures_only_new_overlapping_windows(provider_and_client)
     assert "Third user turn" in capture_calls[2][1][2]
     assert "Second user turn" not in capture_calls[2][1][2]
     assert len({call[1][1] for call in capture_calls}) == 3
+
+
+def test_provider_advertises_the_fail_closed_checkpoint_contract(provider_and_client):
+    provider, _client = provider_and_client
+
+    assert provider.pre_compress_checkpoint_api_version == 2
+
+
+def test_pre_compress_prefers_host_normalized_evidence(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+
+    provider.on_pre_compress(
+        [{"role": "user", "content": "raw transcript turn"}],
+        evidence_messages=[{"role": "user", "content": "normalized evidence turn"}],
+    )
+
+    content = client.calls[0][1][2]
+    assert "normalized evidence turn" in content
+    assert "raw transcript turn" not in content
+
+
+def test_required_checkpoint_raises_when_capture_is_disabled(provider_and_client):
+    provider, client = provider_and_client
+
+    with pytest.raises(hermes_provider_module(provider).PreCompressCheckpointError):
+        provider.on_pre_compress(
+            [{"role": "user", "content": "Not captured by default."}],
+            require_checkpoint=True,
+        )
+
+    assert client.calls == []
+
+
+def test_required_checkpoint_raises_when_the_transcript_cannot_be_stored(provider_and_client, monkeypatch):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    provider_module = hermes_provider_module(provider)
+    failure = provider_module.PowerContextTransportError("server unreachable")
+
+    def capture_fails(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(client, "capture_content", capture_fails)
+
+    with pytest.raises(provider_module.PreCompressCheckpointError):
+        provider.on_pre_compress(
+            [{"role": "user", "content": "Capture me before compression."}],
+            require_checkpoint=True,
+        )
+
+
+def test_optional_checkpoint_still_fails_open_when_the_transcript_cannot_be_stored(provider_and_client, monkeypatch):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+
+    failure = hermes_provider_module(provider).PowerContextTransportError("server unreachable")
+
+    def capture_fails(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(client, "capture_content", capture_fails)
+
+    assert provider.on_pre_compress([{"role": "user", "content": "Capture me."}]) == ""
+
+
+def test_required_checkpoint_succeeds_when_the_transcript_is_stored(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+
+    provider.on_pre_compress(
+        [{"role": "user", "content": "The service must stay backward compatible."}],
+        require_checkpoint=True,
+    )
+
+    assert [call[0] for call in client.calls] == ["capture_content", "get_capabilities", "flush_memory"]
+
+
+def test_required_checkpoint_raises_when_the_transcript_would_be_truncated(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    provider_module = hermes_provider_module(provider)
+
+    with pytest.raises(provider_module.PreCompressCheckpointError):
+        provider.on_pre_compress(
+            [{"role": "user", "content": "x" * 30_001}],
+            require_checkpoint=True,
+        )
+
+    assert client.calls == []
+    assert provider._precompress_snapshot == []
+
+
+def test_required_checkpoint_accepts_a_window_that_is_already_captured(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    window = [
+        {"role": "user", "content": "Only user turn."},
+        {"role": "assistant", "content": "Only assistant turn."},
+    ]
+
+    provider.on_pre_compress(window, require_checkpoint=True)
+    provider.on_pre_compress(window, require_checkpoint=True)
+
+    capture_calls = [call for call in client.calls if call[0] == "capture_content"]
+    assert len(capture_calls) == 1
+
+
+def test_required_checkpoint_raises_when_scope_changes_during_capture(provider_and_client, monkeypatch):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    provider_module = hermes_provider_module(provider)
+    capture_content = client.capture_content
+
+    def capture_switches_scope(*args, **kwargs):
+        capture_content(*args, **kwargs)
+        provider._switch_scope("scp_other_scope")
+
+    monkeypatch.setattr(client, "capture_content", capture_switches_scope)
+
+    with pytest.raises(provider_module.PreCompressCheckpointError):
+        provider.on_pre_compress(
+            [{"role": "user", "content": "Capture before the scope switch."}],
+            require_checkpoint=True,
+        )
+
+    assert [call[0] for call in client.calls] == ["capture_content"]
+    assert provider._precompress_snapshot == []
+
+
+def test_committed_checkpoint_survives_a_memory_extraction_failure(provider_and_client, monkeypatch):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+
+    failure = hermes_provider_module(provider).PowerContextTransportError("flush unavailable")
+
+    def flush_fails(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(client, "flush_memory", flush_fails)
+
+    # The transcript is already stored, so the required checkpoint is still satisfied.
+    provider.on_pre_compress(
+        [{"role": "user", "content": "Capture me before compression."}],
+        require_checkpoint=True,
+    )
+
+    assert [call[0] for call in client.calls] == ["capture_content", "get_capabilities"]
 
 
 def test_memory_write_retires_mapped_entries_for_replace_and_remove(provider_and_client):

@@ -154,9 +154,17 @@ profiles, users, repositories, or directories.
 - `on_session_end()` waits for queued writes and calls `/v1/memory/flush`.
 - `on_pre_compress()` optionally persists only filtered new user/assistant turns
   and flushes them before Hermes discards old messages. It is disabled by
-  default and uses stable source IDs for overlapping compression windows.
+  default and uses stable source IDs for overlapping compression windows. The
+  provider advertises the pre-compress checkpoint API v2 contract: it captures
+  the host-normalized evidence list when Hermes supplies one, and a checkpoint
+  that cannot be committed raises, so `compression.checkpoint_required` keeps the
+  uncompressed transcript instead of discarding it behind a failed capture.
 - `on_memory_write()` mirrors built-in Hermes memory additions as explicit
   entries and retires the mapped PowerContext entry for replacements/removals.
+- Automatic writes stay off outside a primary agent context: an `agent_context` of
+  `cron`, `flush` or `subagent`, or a `cron`/`subagent` session platform, disables
+  turn capture and memory mirroring so scheduled runs and delegated children do
+  not write into the user's own memory. Recall is unaffected.
 - Agent tools expose the complete PowerContext operation groups: Memory
   search/list/read/write/change tracking, Work Contract and Handoff flows,
   Experience/Skill proposal and generation, External Skills discovery/import,

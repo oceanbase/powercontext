@@ -439,6 +439,15 @@ PROFILE_POLICIES_TABLE = Table(
     CheckConstraint("version > 0", name="ck_pc_profile_policies_version_positive"),
 )
 
+MEMORY_SOURCE_WINDOWS_TABLE = Table(
+    "pc_memory_source_windows",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_through", BigInteger, nullable=False),
+    Column("window_limit", BigInteger, nullable=False),
+    CheckConstraint("source_through > 0 AND window_limit > 0", name="ck_pc_memory_source_window_positive"),
+)
+
 SOURCE_CURSORS_TABLE = Table(
     "pc_source_cursors",
     SHARED_METADATA,
@@ -916,6 +925,7 @@ SHARED_TABLES = (
     CANDIDATE_HEADS_TABLE,
     PROFILE_POLICIES_TABLE,
     SOURCE_CURSORS_TABLE,
+    MEMORY_SOURCE_WINDOWS_TABLE,
     ARTIFACT_PROCESSING_LEASES_TABLE,
     ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     TOPIC_MEMORY_WORK_BUDGETS_TABLE,

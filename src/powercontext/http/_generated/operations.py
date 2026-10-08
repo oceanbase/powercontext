@@ -71,6 +71,7 @@ from powercontext.http._generated.models import (
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
+    GetMemoryCapacityRequest,
     GetMemoryEntryRequest,
     GetSkillPackageRequest,
     GetSkillRequest,
@@ -104,12 +105,14 @@ from powercontext.http._generated.models import (
     ListRemoteSkillTargetsResponse,
     ListScopesRequest,
     ListSourcesRequest,
+    MemoryCapacity,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
     PreparedWorkHandoff,
+    PrepareHandoffHintRequest,
     PrepareHandoffRequest,
     ProfilePolicyResponse,
     PromptConfiguration,
@@ -178,7 +181,7 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "1.1.0"
+API_VERSION = "1.2.0"
 
 RequestT = TypeVar("RequestT")
 ResponseT = TypeVar("ResponseT")
@@ -1091,6 +1094,33 @@ CONTINUE_HANDOFF = Operation[ContinueHandoffRequest, HandoffResolution](
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="continue_handoff_access"),
 )
 
+PREPARE_HANDOFF_HINT = Operation[PrepareHandoffHintRequest, PreparedContext](
+    method="POST",
+    path="/v1/handoff/hint",
+    operation_id="prepare_handoff_hint",
+    request_type=PrepareHandoffHintRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=PreparedContext,
+    success_status=200,
+    summary="Prepare optional compact continuity hints from a selected Handoff",
+    tags=("handoff",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "Bounded orientation text, or empty when no complete supported hint can be delivered.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="continue_handoff_access"),
+)
+
 FLUSH_TOPIC_MEMORY = Operation[FlushTopicMemoryRequest, FlushTopicMemoryResponse](
     method="POST",
     path="/v1/topic-memory/flush",
@@ -1247,6 +1277,33 @@ SEARCH_MEMORY = Operation[SearchMemoryRequest, SearchMemoryResponse](
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+GET_MEMORY_CAPACITY = Operation[GetMemoryCapacityRequest, MemoryCapacity](
+    method="POST",
+    path="/v1/memory/capacity",
+    operation_id="get_memory_capacity",
+    request_type=GetMemoryCapacityRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=MemoryCapacity,
+    success_status=200,
+    summary="Read Memory capacity",
+    tags=("memory",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "Capacity of one exact current Memory Revision.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
         422: {"$ref": "#/components/responses/InvalidRequest"},

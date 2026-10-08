@@ -28,8 +28,10 @@ from harbor.models.agent.context import AgentContext
 AGENT_ID = "powercontext-bub-acp"
 REMOTE_BIN_DIR = "/installed-agent/bin"
 REMOTE_BUB_HOME = "/installed-agent/bub-home"
+# Bub keeps every session's messages as JSONL in its home, and nothing else clears them between the steps of a trial.
+BUB_TAPES = '"${BUB_HOME:?}/tapes"'
 REMOTE_BUB_PROJECT = "/installed-agent/bub-project"
-REMOTE_CODEX_AUTH = "/run/powercontext/codex-auth.json"
+REMOTE_CODEX_AUTH = "/run/agent-auth/codex-auth.json"
 REMOTE_CODEX_HOME = "/installed-agent/codex"
 REMOTE_SOURCE = "/opt/powercontext/source"
 REMOTE_SOURCE_OVERRIDE = f"{REMOTE_SOURCE}/e2e/bub/source-overrides.txt"
@@ -41,10 +43,14 @@ STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
 
 
 class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
-    """Install Bub through its supported uv tool and plugin commands."""
+    """Install Bub through its supported uv tool and plugin commands, and start every session without Bub's tapes.
+
+    Bub does not search another session's tape, but an agent can read the files, so each session starts without them.
+    """
 
     def __init__(self, **kwargs: Any) -> None:
         self._invocation_scopes = tuple(kwargs.pop("invocation_scopes", ()))
+        self._powercontext = bool(kwargs.pop("powercontext", True))
         self._step_index = 0
         super().__init__(
             registry_entry={
@@ -63,7 +69,10 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
     @override
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
         try:
+            # The marker comes first: the verifier reads a missing marker as a passed step, so every failure
+            # after this line, including a failed removal, must leave it in place.
             await environment.exec(command=f"touch {STEP_FAILURE_MARKER}")
+            await self.exec_as_agent(environment, command=f"rm -rf {BUB_TAPES}")
             if not self._invocation_scopes:
                 await super().run(instruction, environment, context)
             else:
@@ -86,7 +95,7 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
             command=self._build_dependencies_command("uvx"),
             env={"DEBIAN_FRONTEND": "noninteractive"},
         )
-        await self.exec_as_root(environment, command=_install_bub_command())
+        await self.exec_as_root(environment, command=_install_bub_command(powercontext=self._powercontext))
         await self.exec_as_root(environment, command=_install_acp_server_command())
         agent_user = shlex.quote(str(environment.default_user or "root"))
         await self.exec_as_root(
@@ -119,8 +128,9 @@ def _tool_environment() -> str:
     return f"UV_TOOL_BIN_DIR={shlex.quote(REMOTE_BIN_DIR)} UV_TOOL_DIR={shlex.quote(REMOTE_TOOL_DIR)}"
 
 
-def _install_bub_command() -> str:
+def _install_bub_command(*, powercontext: bool = True) -> str:
     uv = f"{harbor_acp.AcpAgent._RUNNER_VENV_PATH}/bin/uv"
+    plugin = f"--overrides {REMOTE_SOURCE_OVERRIDE} --with {REMOTE_SOURCE}/integrations/bub " if powercontext else ""
     return (
         "set -eu; "
         f"mkdir -p {REMOTE_BIN_DIR} {REMOTE_BUB_HOME} {REMOTE_BUB_PROJECT} {REMOTE_CODEX_HOME}; "
@@ -129,18 +139,19 @@ def _install_bub_command() -> str:
         f"chmod 600 {REMOTE_CODEX_HOME}/auth.json; "
         "fi; "
         f"SETUPTOOLS_SCM_PRETEND_VERSION={shlex.quote(POWERCONTEXT_VERSION)} {_tool_environment()} "
-        f"{uv} tool install --force "
-        f"--overrides {REMOTE_SOURCE_OVERRIDE} --with {REMOTE_SOURCE}/integrations/bub "
+        f"{uv} tool install --force {plugin}"
         f"{shlex.quote(f'bub=={BUB_VERSION}')}"
     )
 
 
 def _install_acp_server_command() -> str:
     runner_bin = f"{harbor_acp.AcpAgent._RUNNER_VENV_PATH}/bin"
+    # Bub initializes its plugin project with an unpinned requirement, so retain the harness version here.
     return (
         "set -eu; "
         f"PATH={runner_bin}:$PATH BUB_HOME={REMOTE_BUB_HOME} CODEX_HOME={REMOTE_CODEX_HOME} "
         f"BUB_PROJECT={REMOTE_BUB_PROJECT} "
         f"{_tool_environment()} {REMOTE_BIN_DIR}/bub install "
-        f"{shlex.quote(f'bub-acp-server=={BUB_ACP_SERVER_VERSION}')}"
+        f"{shlex.quote(f'bub-acp-server=={BUB_ACP_SERVER_VERSION}')} "
+        f"{shlex.quote(f'bub=={BUB_VERSION}')}"
     )

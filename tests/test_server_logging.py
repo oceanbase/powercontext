@@ -83,6 +83,9 @@ def test_json_formatter_emits_stable_operational_fields() -> None:
         "request_id": "request-123",
         "transport": "http",
         "mode": "fts",
+        "code": "insufficient_coverage",
+        "held_count": 1,
+        "hold_codes": ("insufficient_coverage",),
         "ignored": "not serialized",
     })
     OperationalContextFilter().filter(record)
@@ -95,6 +98,9 @@ def test_json_formatter_emits_stable_operational_fields() -> None:
     assert payload["request_id"] == "request-123"
     assert payload["transport"] == "http"
     assert payload["mode"] == "fts"
+    assert payload["code"] == "insufficient_coverage"
+    assert payload["held_count"] == 1
+    assert payload["hold_codes"] == ["insufficient_coverage"]
     assert "ignored" not in payload
 
 

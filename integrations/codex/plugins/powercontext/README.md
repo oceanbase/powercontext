@@ -7,8 +7,13 @@ The integration uses each public surface for the job it fits:
 
 - the `UserPromptSubmit` hook first calls `POST /v1/context/prepare`, then
   independently captures the current prompt with `POST /v1/sources/content`;
-- Streamable HTTP MCP at `http://127.0.0.1:8000/mcp/` gives Codex the curated
-  Memory and work-continuity tools.
+- Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives Codex the curated
+  Memory, work-continuity, Experience, managed Skill, candidate review, and external Skill tools for the full profile.
+
+Generation and import create pending candidates. Approval, installation and execution remain separate operations.
+External Skills are scanned from configured roots on the Server host; a remote Server cannot read the Codex
+workstation's directories. See [Codex configuration](../../../../docs/en/docs/integrations/codex.md) for tool names,
+model requirements, and access control.
 
 Codex does not expose a plugin-defined status-line item. Its `tui.status_line`
 setting accepts only Codex's built-in identifiers, so this plugin does not write
@@ -136,7 +141,7 @@ Review Inbox. It never approves an Experience, creates or installs a managed
 Skill, or grants Codex execution authority.
 
 All hook configuration uses the `POWERCONTEXT_CODEX_` prefix. The default
-request timeout is one second, the shared HTTP budget is four seconds, and a
+request timeout is three seconds, the shared HTTP budget is six seconds, and a
 flush performs at most four calls. These can be tuned with
 `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS`,
 `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS`, and

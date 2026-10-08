@@ -17,7 +17,7 @@ Choose the integration mechanism, then the host or framework:
 
 ## Agent Hosts
 
-The 8 Agent Hosts use `official` for PowerContext project maintenance and `community` for community contributions.
+The 9 Agent Hosts use `official` for PowerContext project maintenance and `community` for community contributions.
 `official` does not imply endorsement by a host vendor.
 
 | Agent Host | Stewardship | Integration |
@@ -30,6 +30,7 @@ The 8 Agent Hosts use `official` for PowerContext project maintenance and `commu
 | [OpenCode](opencode.md) | `community` | HTTP plugin + pc_* |
 | [Pi Coding Agent](pi.md) | `community` | Extension + pc_* + /pc |
 | [WorkBuddy](workbuddy.md) | `community` | Prompt Hook + MCP + Skill |
+| [ZCode](zcode.md) | `community` | Prompt Hook + MCP + Skill |
 
 Each integration connects to a separately running Server. Follow its guide in the table for installation, connection settings, authentication, and diagnostics.
 
@@ -42,7 +43,7 @@ To select multiple hosts interactively, run:
 powercontext setup select
 ```
 
-Use the same ref as the Server. The selector lists hosts in the CLI catalog; consult each Agent guide for its supported installation path.
+Use the same ref as the Server. ZCode uses its dedicated `powercontext setup zcode` command and is not in the selector; consult each Agent guide for its supported installation path.
 
 ## Python Agent frameworks
 
@@ -62,7 +63,7 @@ All 3 adapters are `community`. Install them in the application environment; do 
 ## Capabilities and availability
 
 The [capability matrix](capabilities.md) is generated from `integrations/capabilities.toml`.
-The current capability sets for all 8 hosts and Bub are marked `master_only`; Pydantic AI is `experimental`.
+The 9 Agent Hosts and Bub are `master_only`; Pydantic AI is `experimental`.
 `released` means available from a specified release tag, `master_only` means implemented but unreleased, and
 `experimental` carries no stability guarantee. These labels are separate from stewardship and the
 Minimal / Recommended / Full capability profiles.

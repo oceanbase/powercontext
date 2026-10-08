@@ -319,3 +319,40 @@ def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(
             assert "rerank-secret" not in log_output
 
     asyncio.run(scenario())
+
+
+def test_embedding_requests_omit_dimensions_when_sending_is_disabled(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        with _model_server() as (embedding_server, embedding_url):
+            config = BuiltinConfig(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+                inference=InferenceConfig(
+                    embedding_model="openai:BAAI/bge-m3",
+                    embedding_base_url=AnyHttpUrl(embedding_url),
+                    embedding_model_settings={"dimensions": 99, "extra_body": {"route": "embedding"}},
+                    embedding_profile_id="bge-m3-3-unit",
+                    embedding_dimension=3,
+                    embedding_send_dimensions=False,
+                ),
+            )
+            async with open_builtin_runtime(config) as runtime:
+                assert runtime.scopes is not None
+                scope = await runtime.scopes.create(
+                    ScopeDraft(
+                        title="Fixed dimension",
+                        summary="Embedding requests omit dimensions",
+                        idempotency_key="omit-dimensions",
+                    )
+                )
+                await runtime.memory.for_scope(scope.scope_id).remember(
+                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="bge-m3 stores 1024 values."),))
+                )
+
+        assert embedding_server.requests
+        for embedding_request in embedding_server.requests:
+            assert embedding_request["path"] == "/v1/embeddings"
+            assert embedding_request["body"]["model"] == "BAAI/bge-m3"
+            assert "dimensions" not in embedding_request["body"]
+            assert embedding_request["body"]["route"] == "embedding"
+
+    asyncio.run(scenario())

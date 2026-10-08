@@ -23,7 +23,6 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Generic, TypeVar, cast
 from uuid import uuid4
@@ -1508,8 +1507,24 @@ def validate_topic_memory_provider_settings(inference: InferenceConfig) -> None:
         "openrouter",
     }
     embedding_providers = providers | {"minimax"}
+    generation_settings = dict(inference.generation_model_settings)
+    if "extra_body" in generation_settings:
+        body = generation_settings.pop("extra_body")
+        template = body.get("chat_template_kwargs") if isinstance(body, dict) else None
+        # Only this Chat Completions flag is allowed; extra_body can otherwise
+        # override SDK output limits, messages, or tools after budget validation.
+        if not (
+            inference.generation_model is not None
+            and inference.generation_model.startswith("openai-chat:")
+            and isinstance(body, dict)
+            and set(body) == {"chat_template_kwargs"}
+            and isinstance(template, dict)
+            and set(template) == {"enable_thinking"}
+            and template["enable_thinking"] is False
+        ):
+            raise BuiltinConfigurationError("topic-memory-provider-budget")
     for name, settings, allowed, provider_names in (
-        (inference.generation_model, inference.generation_model_settings, generation, providers),
+        (inference.generation_model, generation_settings, generation, providers),
         (
             inference.embedding_model,
             inference.embedding_model_settings,
@@ -1765,14 +1780,6 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             transcript_reserve=budget.transcript_reserve,
         )
 
-        async def report(purpose: ModelUsagePurpose, operation: ModelUsageOperation, usage: Any) -> None:
-            await contexts.statistics(scope_id).record(
-                purpose,
-                operation,
-                usage,
-                datetime.now(UTC).date(),
-            )
-
         from powercontext.builtin.runtime.topic_memory_scope import TopicMemoryScopeProcessor
 
         security = None
@@ -1801,26 +1808,33 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             stages=stages,
             publisher=publisher,
             embedding_model=embedding,
-            usage_reporter=report,
+            # The runtime-owned recorder writes this window's usage, so the
+            # worker's own deadline never covers a statistics transaction.
+            usage_reporter=contexts.model_usage_reporter(scope_id),
             history_max_candidates=config.runtime.topic_memory_history_max_candidates,
             history_rrf_threshold=config.runtime.topic_memory_history_rrf_threshold,
             history_min_candidates=config.runtime.topic_memory_history_min_candidates,
             prompt_refs=prompt_refs,
         )
-        yield TopicMemoryScopeProcessor(
-            contexts.database,
-            processor,
-            TopicMemoryWindowSelector(
+        try:
+            yield TopicMemoryScopeProcessor(
                 contexts.database,
-                contexts.repositories.sources,
-                contexts.token_estimator,
-                context_window_tokens=inference.generation_model_context_window_tokens,
-            ),
-            cursors=contexts.repositories.cursors,
-            leases=contexts.repositories.processing_leases,
-            commit_authorizer=commit_authorizer,
-            source_window_limit=config.runtime.topic_memory_source_window_limit,
-        )
+                processor,
+                TopicMemoryWindowSelector(
+                    contexts.database,
+                    contexts.repositories.sources,
+                    contexts.token_estimator,
+                    context_window_tokens=inference.generation_model_context_window_tokens,
+                ),
+                cursors=contexts.repositories.cursors,
+                leases=contexts.repositories.processing_leases,
+                commit_authorizer=commit_authorizer,
+                source_window_limit=config.runtime.topic_memory_source_window_limit,
+            )
+        finally:
+            # A completed window leaves its own usage readable, matching the
+            # family worker's completion boundary.
+            await contexts.flush_model_usage()
 
 
 __all__ = [

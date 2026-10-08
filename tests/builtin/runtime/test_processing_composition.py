@@ -74,6 +74,13 @@ _OCEANBASE = OceanBaseConfig(
 )
 
 
+class _InjectedGate:
+    policy_id = "test.injected.memory.write-gate.v1"
+
+    async def assess(self, request, /):
+        raise AssertionError
+
+
 def _sqlite(path: Path) -> SQLiteConfig:
     return SQLiteConfig(url=f"sqlite+aiosqlite:///{path}")
 
@@ -274,6 +281,20 @@ def test_dream_injection_requires_a_reconstructible_worker(tmp_path: Path, famil
         with pytest.raises(BuiltinConfigurationError, match="child-reconstructible inference resources"):
             async with open_builtin_runtime(config, dream_generator=AsyncMock()):
                 pytest.fail("a spawned Worker must not silently ignore an injected Dream generator")
+
+    asyncio.run(scenario())
+
+
+def test_injected_memory_write_gate_requires_a_reconstructible_worker(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        config = BuiltinConfig(
+            database=_sqlite(tmp_path / "memory-gate-injection.db"),
+            inference=InferenceConfig(generation_model="test"),
+            runtime=RuntimeConfig(artifact_processing_families=("memory",)),
+        )
+        with pytest.raises(BuiltinConfigurationError, match="child-reconstructible inference resources"):
+            async with open_builtin_runtime(config, memory_write_gate=_InjectedGate()):
+                pytest.fail("a spawned Worker must not silently ignore an injected Memory write gate")
 
     asyncio.run(scenario())
 

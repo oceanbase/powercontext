@@ -14,7 +14,7 @@ description: 选择插件、MCP、Skills、Agent Host 或 Python 框架接入。
 
 ## Agent Hosts
 
-8 个 Agent Host 按 `official`（PowerContext 项目维护）和 `community`（社区贡献）标注。
+9 个 Agent Host 按 `official`（PowerContext 项目维护）和 `community`（社区贡献）标注。
 `official` 不代表宿主厂商背书。
 
 | Agent Host | 维护归属 | 接入方式 |
@@ -27,6 +27,7 @@ description: 选择插件、MCP、Skills、Agent Host 或 Python 框架接入。
 | [OpenCode](opencode.md) | `community` | HTTP plugin + pc_* |
 | [Pi Coding Agent](pi.md) | `community` | Extension + pc_* + /pc |
 | [WorkBuddy](workbuddy.md) | `community` | Prompt Hook + MCP + Skill |
+| [ZCode](zcode.md) | `community` | Prompt Hook + MCP + Skill |
 
 所有集成都连接独立运行的 Server。安装、连接设置、认证和诊断步骤见上表中的各 Agent 文档。
 
@@ -39,7 +40,7 @@ description: 选择插件、MCP、Skills、Agent Host 或 Python 框架接入。
 powercontext setup select
 ```
 
-使用与 Server 相同的 ref。该选择器仅列出 CLI 目录中的宿主，完整支持情况见各 Agent 文档。
+使用与 Server 相同的 ref。ZCode 使用独立的 `powercontext setup zcode` 命令，不在该选择器中；完整支持情况见各 Agent 文档。
 
 ## Python Agent 框架
 
@@ -58,7 +59,7 @@ powercontext setup select
 ## 能力与发布状态
 
 [能力矩阵](capabilities.md)由 `integrations/capabilities.toml` 生成。
-当前 8 个 Host 和 Bub 的能力组合标为 `master_only`；Pydantic AI 标为 `experimental`。
+9 个 Agent Host 和 Bub 标为 `master_only`；Pydantic AI 标为 `experimental`。
 `released` 表示可从指定发布 tag 获取，`master_only` 表示当前实现尚未发布，`experimental` 不承诺稳定性。
 这些标签与维护归属、Minimal / Recommended / Full 能力等级分别表达不同信息。
 

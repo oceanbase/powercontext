@@ -16,6 +16,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from functools import partial
+from typing import Any
+
 import httpx
 from fastapi import FastAPI
 from fastmcp import FastMCP
@@ -43,27 +47,40 @@ from powercontext.http._generated.operations import (
     CREATE_SCOPE,
     CREATE_WORK_CONTRACT,
     FINALIZE_HANDOFF,
+    GENERATE_EXPERIENCE,
+    GENERATE_SKILL,
     GET_CANDIDATE,
     GET_CANDIDATE_HISTORY,
     GET_DREAM_RUN,
+    GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
+    GET_MEMORY_CAPACITY,
     GET_MEMORY_ENTRY,
     GET_SCOPE,
+    GET_SKILL,
     GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
+    IMPORT_EXTERNAL_SKILL,
     LIST_CANDIDATES,
     LIST_DREAM_RUNS,
+    LIST_EXTERNAL_SKILLS,
+    LIST_MANAGED_SKILLS,
     LIST_MEMORY_ENTRIES,
     LIST_SCOPES,
+    PREPARE_HANDOFF_HINT,
+    PROPOSE_EXPERIENCE,
+    PROPOSE_SKILL,
     PUBLISH_ARTIFACT,
     QUERY_CODE,
     RECORD_TASK_OUTCOME,
     REJECT_CANDIDATE,
     REMEMBER_MEMORY,
+    RESOLVE_EXTERNAL_SKILL,
     RESOLVE_SCOPE_BINDING,
     RETIRE_MEMORY_ENTRY,
     REVISE_CANDIDATE,
     REVISE_MEMORY_ENTRY,
+    SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
     SEARCH_TOPIC_MEMORY,
     SET_SCOPE_BINDING,
@@ -96,6 +113,14 @@ Current-turn instructions, conceptual questions, and previews do not authorize w
 For requested transfer, handoff_current_work records an inspected boundary and returns a temporary handoff. Commit
 only when a durable milestone is requested; continue from the exact selected value and verify historical claims.
 Prepared content is not proof of injection, a committed milestone, acceptance, or work execution.
+When available, prepare_handoff_hint provides optional bounded historical orientation for the selected Handoff.
+Hints never replace the complete Handoff, evidence checks, current instructions, or live validation.
+For requested Experience or Skill synthesis use generate_experience or generate_skill; caller-authored content uses
+propose_experience or propose_skill. These create pending candidates, not approved artifacts. Read an exact approved
+revision with get_experience or get_skill; use list_managed_skills to discover approved Skills.
+For external Skills, scan_external_skills refreshes configured Server-host roots; list_external_skills and
+resolve_external_skill inspect exact host-local fingerprints. import_external_skill creates a pending candidate.
+A remote Server cannot scan the Codex workstation. Resolution is not installation or execution permission.
 Inspect candidates before an explicitly authorized review decision for their exact version. Generation, listing,
 reading, and assessing are not approval, installation, publication, or execution authority. Preserve host approval
 checks and exact citations for Memory changes. A Skill is useful for detailed workflows only if present in the host
@@ -104,6 +129,17 @@ Empty retrieval is a valid result. On failure identify the operation and safe re
 claim saved/restored context, or repeatedly retry. Continue ordinary work when the requested operation is unavailable.
 """
 _MCP_OPERATION_IDS = frozenset({
+    GENERATE_EXPERIENCE.operation_id,
+    GET_EXPERIENCE.operation_id,
+    PROPOSE_EXPERIENCE.operation_id,
+    GENERATE_SKILL.operation_id,
+    GET_SKILL.operation_id,
+    PROPOSE_SKILL.operation_id,
+    LIST_MANAGED_SKILLS.operation_id,
+    SCAN_EXTERNAL_SKILLS.operation_id,
+    LIST_EXTERNAL_SKILLS.operation_id,
+    RESOLVE_EXTERNAL_SKILL.operation_id,
+    IMPORT_EXTERNAL_SKILL.operation_id,
     CREATE_DREAM_RUN.operation_id,
     GET_DREAM_RUN.operation_id,
     LIST_DREAM_RUNS.operation_id,
@@ -116,11 +152,13 @@ _MCP_OPERATION_IDS = frozenset({
     FINALIZE_HANDOFF.operation_id,
     COMMIT_HANDOFF.operation_id,
     CONTINUE_HANDOFF.operation_id,
+    PREPARE_HANDOFF_HINT.operation_id,
     SEARCH_MEMORY.operation_id,
     QUERY_CODE.operation_id,
     SEARCH_TOPIC_MEMORY.operation_id,
     GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
+    GET_MEMORY_CAPACITY.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     REMEMBER_MEMORY.operation_id,
     REVISE_MEMORY_ENTRY.operation_id,
@@ -141,14 +179,21 @@ _MCP_OPERATION_IDS = frozenset({
     PUBLISH_ARTIFACT.operation_id,
 })
 _MCP_READ_ONLY_OPERATION_IDS = frozenset({
+    GET_EXPERIENCE.operation_id,
+    GET_SKILL.operation_id,
+    LIST_MANAGED_SKILLS.operation_id,
+    LIST_EXTERNAL_SKILLS.operation_id,
+    RESOLVE_EXTERNAL_SKILL.operation_id,
     GET_DREAM_RUN.operation_id,
     LIST_DREAM_RUNS.operation_id,
     CONTINUE_HANDOFF.operation_id,
+    PREPARE_HANDOFF_HINT.operation_id,
     SEARCH_MEMORY.operation_id,
     QUERY_CODE.operation_id,
     SEARCH_TOPIC_MEMORY.operation_id,
     GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
+    GET_MEMORY_CAPACITY.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     GET_HANDOFF_REPORT.operation_id,
     LIST_CANDIDATES.operation_id,
@@ -157,6 +202,19 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     LIST_SCOPES.operation_id,
     GET_SCOPE.operation_id,
     RESOLVE_SCOPE_BINDING.operation_id,
+})
+_MCP_CANDIDATE_WRITE_OPERATION_IDS = frozenset({
+    GENERATE_EXPERIENCE.operation_id,
+    PROPOSE_EXPERIENCE.operation_id,
+    GENERATE_SKILL.operation_id,
+    PROPOSE_SKILL.operation_id,
+    IMPORT_EXTERNAL_SKILL.operation_id,
+})
+_MCP_EXTERNAL_SKILL_OPERATION_IDS = frozenset({
+    SCAN_EXTERNAL_SKILLS.operation_id,
+    LIST_EXTERNAL_SKILLS.operation_id,
+    RESOLVE_EXTERNAL_SKILL.operation_id,
+    IMPORT_EXTERNAL_SKILL.operation_id,
 })
 _MCP_REVIEW_WRITE_OPERATION_IDS = frozenset({
     APPROVE_CANDIDATE.operation_id,
@@ -171,14 +229,96 @@ def _select_mcp_type(route: HTTPRoute, _: MCPType) -> MCPType:
     return MCPType.EXCLUDE
 
 
+def _resolve_openapi_schema(original: Mapping[str, Any], definitions: Mapping[str, Any]) -> Mapping[str, Any]:
+    source_reference = original.get("$ref")
+    if isinstance(source_reference, str) and source_reference.startswith("#/components/schemas/"):
+        definition = definitions.get(source_reference.rsplit("/", 1)[-1])
+        if isinstance(definition, Mapping):
+            return {**definition, **{key: value for key, value in original.items() if key != "$ref"}}
+    return original
+
+
+def _allow_null(projected: dict[str, Any]) -> None:
+    projected_type = projected.get("type")
+    if isinstance(projected_type, str):
+        projected["type"] = [projected_type, "null"]
+    elif isinstance(projected_type, list) and "null" not in projected_type:
+        projected["type"] = [*projected_type, "null"]
+    else:
+        for keyword in ("anyOf", "oneOf"):
+            branches = projected.get(keyword)
+            if isinstance(branches, list) and {"type": "null"} not in branches:
+                branches.append({"type": "null"})
+                break
+
+
+def _preserve_nullable_input(
+    projected: dict[str, Any],
+    original: Mapping[str, Any],
+    definitions: Mapping[str, Any],
+    projected_definitions: Mapping[str, Any],
+    visited: set[tuple[str, str]],
+) -> None:
+    """Keep OpenAPI 3.0 nullable values valid after FastMCP flattens request schemas."""
+
+    source_reference = original.get("$ref")
+    original = _resolve_openapi_schema(original, definitions)
+
+    target_reference = projected.get("$ref")
+    if isinstance(target_reference, str) and target_reference.startswith("#/$defs/"):
+        if original.get("nullable") is True:
+            projected.clear()
+            projected["anyOf"] = [{"$ref": target_reference}, {"type": "null"}]
+        key = (source_reference or "", target_reference)
+        if key not in visited:
+            visited.add(key)
+            target = projected_definitions.get(target_reference.rsplit("/", 1)[-1])
+            if isinstance(target, dict):
+                _preserve_nullable_input(
+                    target,
+                    {key: value for key, value in original.items() if key != "nullable"},
+                    definitions,
+                    projected_definitions,
+                    visited,
+                )
+        return
+
+    if original.get("nullable") is True:
+        _allow_null(projected)
+
+    properties = projected.get("properties")
+    if isinstance(properties, dict):
+        for name, source in original.get("properties", {}).items():
+            target = properties.get(name)
+            if isinstance(source, Mapping) and isinstance(target, dict):
+                _preserve_nullable_input(target, source, definitions, projected_definitions, visited)
+
+    source_items = original.get("items")
+    target_items = projected.get("items")
+    if isinstance(source_items, Mapping) and isinstance(target_items, dict):
+        _preserve_nullable_input(target_items, source_items, definitions, projected_definitions, visited)
+
+
 def _annotate_mcp_component(
     route: HTTPRoute,
     component: OpenAPITool | OpenAPIResource | OpenAPIResourceTemplate,
+    *,
+    openapi_spec: Mapping[str, Any],
 ) -> None:
     """Describe the side effects that an MCP host should use for approval decisions."""
 
     if not isinstance(component, OpenAPITool):
         return
+    operation = openapi_spec["paths"][route.path][route.method.lower()]
+    request_schema = operation.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema")
+    if isinstance(request_schema, Mapping):
+        _preserve_nullable_input(
+            component.parameters,
+            request_schema,
+            openapi_spec["components"]["schemas"],
+            component.parameters.get("$defs", {}),
+            set(),
+        )
     if route.operation_id == GET_HANDOFF_REPORT.operation_id:
         # This operation returns either a JSON object or Markdown text. MCP's
         # object output schema would require structured content for both formats.
@@ -188,7 +328,17 @@ def _annotate_mcp_component(
             readOnlyHint=True,
             destructiveHint=False,
             idempotentHint=True,
-            openWorldHint=False,
+            openWorldHint=route.operation_id in _MCP_EXTERNAL_SKILL_OPERATION_IDS,
+        )
+    elif (
+        route.operation_id in _MCP_CANDIDATE_WRITE_OPERATION_IDS
+        or route.operation_id == SCAN_EXTERNAL_SKILLS.operation_id
+    ):
+        component.annotations = ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=route.operation_id in _MCP_EXTERNAL_SKILL_OPERATION_IDS,
         )
     elif route.operation_id == HANDOFF_CURRENT_WORK.operation_id:
         component.annotations = ToolAnnotations(
@@ -233,11 +383,12 @@ def create_mcp_server(
         base_url="http://fastapi",
         headers={"X-PowerContext-Dream-Contract": "2"},
     )
+    openapi_spec = server_app.openapi()
     provider = OpenAPIProvider(
-        openapi_spec=server_app.openapi(),
+        openapi_spec=openapi_spec,
         client=client,
         route_map_fn=_select_mcp_type,
-        mcp_component_fn=_annotate_mcp_component,
+        mcp_component_fn=partial(_annotate_mcp_component, openapi_spec=openapi_spec),
         # FastAPI has already validated the response model. A second JSON Schema
         # pass rejects valid OpenAPI 3.0 nullable references in empty results.
         validate_output=False,

@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 import typer
 
 if TYPE_CHECKING:
+    from powercontext.cli.dsh_runtime import DshTarget
     from powercontext.cli.system import Diagnostic
     from powercontext.cli.transport import SetupTransport
 
@@ -245,6 +246,7 @@ def setup_host(
     capture_prompts: bool = True,
     allow_insecure_http: bool | None = None,
     json_output: bool = False,
+    dsh_target: DshTarget | None = None,
 ) -> HostInstallation:
     """Resolve, install, and persist one Agent using the common connection policy.
 
@@ -254,7 +256,11 @@ def setup_host(
     from powercontext.cli.transport import prepare_setup_transport, save_setup_transport
 
     transport = prepare_setup_transport(
-        name, server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
+        name,
+        server_url=server_url,
+        allow_insecure_http=allow_insecure_http,
+        json_output=json_output,
+        **({"dsh_target": dsh_target} if dsh_target else {}),
     )
     result = install_host(
         name,
@@ -263,6 +269,7 @@ def setup_host(
         server_url=transport.server_url,
         capture_prompts=capture_prompts,
         allow_insecure_http=transport.allow_insecure_http,
+        **({"dsh_target": dsh_target} if dsh_target else {}),
     )
     save_setup_transport(transport)
     return HostInstallation(result, transport)
@@ -314,6 +321,7 @@ def install_host(
     server_url: str | None,
     capture_prompts: bool,
     allow_insecure_http: bool = False,
+    dsh_target: DshTarget | None = None,
 ) -> object:
     """Call the existing installer for one first-class host."""
 
@@ -334,7 +342,13 @@ def install_host(
     if name == "dsh":
         from powercontext.cli.dsh import install_dsh_plugin
 
-        return install_dsh_plugin(source=source, ref=ref, server_url=server_url or "http://127.0.0.1:8000")
+        return install_dsh_plugin(
+            source=source,
+            ref=ref,
+            server_url=server_url or "http://127.0.0.1:8000",
+            allow_insecure_http=allow_insecure_http,
+            **({"target": dsh_target} if dsh_target else {}),
+        )
     if name == "openclaw":
         from powercontext.cli.openclaw import install_openclaw_plugin
         from powercontext.cli.system import DEFAULT_OPENCLAW_SERVER_URL
@@ -361,6 +375,16 @@ def install_host(
         from powercontext.cli.workbuddy import install_workbuddy_plugin
 
         return install_workbuddy_plugin(source=source, ref=ref, server_url=server_url)
+    if name == "zcode":
+        from powercontext.cli.zcode import install_zcode_plugin
+
+        return install_zcode_plugin(
+            source=source,
+            ref=ref,
+            server_url=server_url or "http://127.0.0.1:8000",
+            capture_prompts=capture_prompts,
+            allow_insecure_http=allow_insecure_http,
+        )
     raise SetupSelectError.unknown_host(name)
 
 
@@ -370,9 +394,9 @@ def verify_host(name: str) -> None:
     from powercontext.cli.system import SetupError
 
     if name == "codex":
-        from powercontext.cli.system import run_codex_diagnostics
+        from powercontext.cli.system import codex_setup_checks, run_codex_diagnostics
 
-        diagnostics = run_codex_diagnostics()
+        diagnostics = codex_setup_checks(run_codex_diagnostics())
     elif name == "dsh":
         from powercontext.cli.dsh import run_dsh_diagnostics
 

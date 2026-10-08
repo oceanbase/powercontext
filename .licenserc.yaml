@@ -43,6 +43,7 @@ header:
     - '**/.gitignore'
     - '**/.dockerignore'
     - '**/.env.example'
+    - '**/*.example.env'
     - '**/LICENSE'
     - 'NOTICE'
     - '**/LICENSE.oceanbase-design'
@@ -72,5 +73,7 @@ header:
     - '**/*.mermaid'
     # license-eye cannot determine the comment style of uv requirements files.
     - 'e2e/bub/source-overrides.txt'
+    - 'integrations/dify/plugin/requirements.txt'
+    - 'integrations/dify/plugin/.difyignore'
 
   comment: on-failure

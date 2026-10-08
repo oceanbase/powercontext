@@ -1,0 +1,46 @@
+# PowerContext code review ownership.
+# Roles and appointments follow GOVERNANCE.md. Owners must have write access.
+# The last matching rule wins.
+
+# Default owners.
+* @Teingi @PsiACE @AlexStocks @frostming
+
+# Integrations.
+/integrations/ @Teingi @PsiACE @yihong0618
+
+/integrations/agent-plugin/ @curryxjh @PsiACE
+/integrations/bub/ @PsiACE @Teingi
+/integrations/claude-code/ @XnLemon @frf12
+/integrations/codex/ @PsiACE @Alanxtl
+/integrations/dsh/ @knqiufan @Teingi
+/integrations/hermes/ @Alanxtl @Teingi
+/integrations/langchain/ @Teingi @PsiACE
+/integrations/langgraph/ @larry-zy @PsiACE
+/integrations/minimax/ @PsiACE @Teingi
+/integrations/openclaw/ @XnLemon @Teingi
+/integrations/opencode/ @happy-v587 @Zxf-xufeng
+/integrations/opendal/ @PsiACE @Teingi
+/integrations/pi/ @pi-dal @wutongyuonce @Zxf-xufeng
+/integrations/pydantic-ai/ @thunguo @PsiACE
+/integrations/workbuddy/ @AlexStocks @Teingi
+
+# Tests and evaluation.
+/tests/ @Teingi @PsiACE
+/e2e/ @PsiACE @AlexStocks
+/evaluation/ @PsiACE @frf12
+/benchmark/ @Teingi @Alanxtl
+
+# Documentation, website, and examples.
+/docs/ @zhanghuidinah @PsiACE
+/website/ @zhanghuidinah @PsiACE
+/examples/ @Teingi @PsiACE
+/README*.md @zhanghuidinah @PsiACE
+
+# CI, tooling, and deployment.
+/.github/ @PsiACE @AlexStocks
+/scripts/ @PsiACE @AlexStocks
+/docker/ @Teingi @PsiACE
+
+# Governance and ownership.
+/.github/CODEOWNERS @zhanghuidinah @PsiACE
+/GOVERNANCE*.md @zhanghuidinah @PsiACE

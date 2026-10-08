@@ -32,14 +32,79 @@ from urllib.request import Request, urlopen
 import typer
 from pydantic import ValidationError
 
-from powercontext_eval.benchmarks.longmemeval_v2.catalog import LongMemEvalV2CatalogError
+from powercontext_eval.benchmarks.longmemeval_v2.adapter import PowerContextMemoryAdapterError
+from powercontext_eval.benchmarks.longmemeval_v2.arms import DEFAULT_EXPERIMENT_ARM_ID, ExperimentArmError
+from powercontext_eval.benchmarks.longmemeval_v2.catalog import (
+    LongMemEvalV2CatalogError,
+    LongMemEvalV2EnvironmentError,
+    LongMemEvalV2InputError,
+)
+from powercontext_eval.benchmarks.longmemeval_v2.costs import (
+    CostPolicyError,
+    ModelPricePolicy,
+    parse_cost_policy,
+)
+from powercontext_eval.benchmarks.longmemeval_v2.prepare_smoke import (
+    DEFAULT_PROCESSOR_MODEL,
+    PrepareSmokeError,
+    prepare_reader_inputs_smoke,
+)
+from powercontext_eval.benchmarks.longmemeval_v2.reader_smoke import (
+    DEFAULT_ANTHROPIC_BASE_URL_ENV,
+    ReaderSmokeError,
+    run_reader_smoke,
+)
+from powercontext_eval.benchmarks.longmemeval_v2.replay_score import ReplayScoreError, replay_score_smoke
+from powercontext_eval.benchmarks.longmemeval_v2.report import ReportError, build_report
+from powercontext_eval.benchmarks.longmemeval_v2.retrieval_smoke import RetrievalSmokeError, run_retrieval_smoke
+from powercontext_eval.benchmarks.longmemeval_v2.run_smoke import RunSmokeError, run_smoke
+from powercontext_eval.benchmarks.longmemeval_v2.score_smoke import (
+    DEFAULT_DEEPSEEK_BASE_URL as SCORE_DEFAULT_DEEPSEEK_BASE_URL,
+)
+from powercontext_eval.benchmarks.longmemeval_v2.score_smoke import (
+    DEFAULT_DEEPSEEK_MODEL as SCORE_DEFAULT_DEEPSEEK_MODEL,
+)
+from powercontext_eval.benchmarks.longmemeval_v2.score_smoke import (
+    DEFAULT_DEEPSEEK_TOKEN_ENV as SCORE_DEFAULT_DEEPSEEK_TOKEN_ENV,
+)
+from powercontext_eval.benchmarks.longmemeval_v2.score_smoke import (
+    ScoreSmokeError,
+    run_score_smoke,
+)
 from powercontext_eval.benchmarks.longmemeval_v2.smoke import prepare_smoke_run
 from powercontext_eval.benchmarks.swebench_pro.catalog import PUBLIC_V2_TASK_SET, SweBenchProCatalog, TaskSet
+from powercontext_eval.benchmarks.work_continuity.arms import (
+    DEFAULT_ASSEMBLY_MAX_BYTES,
+    ContinuationArmError,
+    declared_run_arm_ids,
+    ensure_comparable_work_continuity_runs,
+    supported_continuation_arm_ids,
+)
+from powercontext_eval.benchmarks.work_continuity.attempts import (
+    AttemptInputError,
+    load_attempts,
+)
+from powercontext_eval.benchmarks.work_continuity.catalog import (
+    TaskCatalog,
+    WorkContinuityCatalogError,
+    WorkContinuityInputError,
+)
+from powercontext_eval.benchmarks.work_continuity.report import (
+    ReportError as WorkContinuityReportError,
+)
+from powercontext_eval.benchmarks.work_continuity.report import (
+    build_report as build_work_continuity_report,
+)
+from powercontext_eval.benchmarks.work_continuity.runner import (
+    WorkContinuityRunError,
+    execution_configuration,
+    require_recording_bindings,
+    run_summary,
+    run_work_continuity,
+    write_run_artifacts,
+)
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT
 from powercontext_eval.models import TreatmentMode
-from powercontext_eval.powercontext_sut import DEFAULT_DOCKER_NETWORK_POOL, run_codex_contract_smoke
-from powercontext_eval.runner import RunConfig, run_swebench_pro_instance
-from powercontext_eval.web.batches import BatchCreate
 
 if TYPE_CHECKING:
     from powercontext_eval.web.config import WebConfig
@@ -47,8 +112,14 @@ if TYPE_CHECKING:
 app = typer.Typer(no_args_is_help=True, help="PowerContext evaluation runner.")
 swebench_pro_app = typer.Typer(no_args_is_help=True, help="Pinned SWE-bench Pro evaluation.")
 longmemeval_v2_app = typer.Typer(no_args_is_help=True, help="Pinned LongMemEval-V2 evaluation.")
+work_continuity_app = typer.Typer(
+    no_args_is_help=True,
+    help="Continuation-method evaluation for Rollover Handoff and its alternatives.",
+)
 app.add_typer(swebench_pro_app, name="swebench-pro")
 app.add_typer(longmemeval_v2_app, name="longmemeval-v2")
+app.add_typer(work_continuity_app, name="work-continuity")
+DEFAULT_DOCKER_NETWORK_POOL = "172.30.0.0/15"
 
 
 @app.callback()
@@ -58,6 +129,37 @@ def root() -> None:
 
 class _Stoppable(Protocol):
     def stop(self) -> None: ...
+
+
+def run_codex_contract_smoke(**kwargs: Any) -> Any:
+    """Load the platform-specific contract runner only when its command is used."""
+
+    from powercontext_eval.powercontext_sut import run_codex_contract_smoke as implementation
+
+    return implementation(**kwargs)
+
+
+def run_swebench_pro_instance(*args: Any, **kwargs: Any) -> Any:
+    """Load the platform-specific SWE-bench runner only when its command is used."""
+
+    from powercontext_eval.runner import run_swebench_pro_instance as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def _parse_price_policy_option(value: str | None, *, label: str) -> ModelPricePolicy | None:
+    """Parse an explicitly passed JSON price policy, or keep costs unconfigured as null."""
+
+    if value is None:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise typer.BadParameter(f"{label} must be a JSON object: {error}") from None
+    try:
+        return parse_cost_policy(parsed, label=label)
+    except CostPolicyError as error:
+        raise typer.BadParameter(str(error)) from None
 
 
 def _request_worker_stop(worker: _Stoppable, _signum: int, _frame: FrameType | None) -> None:
@@ -175,11 +277,11 @@ def codex_contract_smoke(
 
 @longmemeval_v2_app.command("smoke")
 def longmemeval_v2_smoke(
-    data_root: Path = typer.Option(..., "--data-root"),
-    dataset_lock: Path = typer.Option(..., "--dataset-lock"),
-    harness_root: Path = typer.Option(..., "--harness-root"),
-    smoke_manifest: Path = typer.Option(..., "--smoke-manifest"),
-    output_dir: Path = typer.Option(..., "--output-dir"),
+    data_root: Annotated[Path, typer.Option("--data-root")],
+    dataset_lock: Annotated[Path, typer.Option("--dataset-lock")],
+    harness_root: Annotated[Path, typer.Option("--harness-root")],
+    smoke_manifest: Annotated[Path, typer.Option("--smoke-manifest")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
 ) -> None:
     """Validate fixed LongMemEval-V2 inputs and write smoke artifacts without calling a model."""
 
@@ -191,14 +293,552 @@ def longmemeval_v2_smoke(
             smoke_manifest=smoke_manifest,
             output_dir=output_dir,
         )
-    except LongMemEvalV2CatalogError as error:
+    except LongMemEvalV2InputError as error:
         raise typer.BadParameter(str(error)) from None
+    except LongMemEvalV2EnvironmentError as error:
+        typer.echo(f"LongMemEval-V2 smoke failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
     typer.echo(
         json.dumps(
             {
                 "classification": "smoke-subset",
                 "manifest": str(prepared.manifest_path),
                 "subset": str(prepared.subset_path),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+@longmemeval_v2_app.command("retrieval-smoke")
+def longmemeval_v2_retrieval_smoke(
+    data_root: Annotated[Path, typer.Option("--data-root")],
+    dataset_lock: Annotated[Path, typer.Option("--dataset-lock")],
+    harness_root: Annotated[Path, typer.Option("--harness-root")],
+    smoke_manifest: Annotated[Path, typer.Option("--smoke-manifest")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+    run_id: Annotated[str, typer.Option("--run-id")],
+    powercontext_revision: Annotated[str, typer.Option("--powercontext-revision")],
+    integration_revision: Annotated[str, typer.Option("--integration-revision")],
+    base_url: Annotated[str, typer.Option("--base-url")] = "http://127.0.0.1:8000",
+    token_env: Annotated[str, typer.Option("--token-env")] = "POWERCONTEXT_TOKEN",
+    experiment_arm: Annotated[str, typer.Option("--experiment-arm")] = DEFAULT_EXPERIMENT_ARM_ID,
+    search_limit: Annotated[int, typer.Option("--search-limit", min=1, max=50)] = 10,
+    timeout_seconds: Annotated[float, typer.Option("--timeout-seconds", min=0.1)] = 30.0,
+) -> None:
+    """Run the fixed LongMemEval-V2 subset through Memory retrieval without a model."""
+
+    try:
+        result = run_retrieval_smoke(
+            data_root=data_root,
+            dataset_lock=dataset_lock,
+            harness_root=harness_root,
+            smoke_manifest=smoke_manifest,
+            output_dir=output_dir,
+            run_id=run_id,
+            powercontext_revision=powercontext_revision,
+            integration_revision=integration_revision,
+            base_url=base_url,
+            token_env=token_env,
+            experiment_arm=experiment_arm,
+            search_limit=search_limit,
+            timeout_seconds=timeout_seconds,
+        )
+    except ExperimentArmError as error:
+        raise typer.BadParameter(str(error)) from None
+    except (LongMemEvalV2CatalogError, RetrievalSmokeError, PowerContextMemoryAdapterError) as error:
+        typer.echo(f"LongMemEval-V2 retrieval smoke failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "smoke-subset-retrieval-only",
+                "manifest": str(result.manifest_path),
+                "results": str(result.results_path),
+                "summary": str(result.summary_path),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+@longmemeval_v2_app.command("prepare-smoke")
+def longmemeval_v2_prepare_smoke(
+    retrieval_dir: Annotated[Path, typer.Option("--retrieval-dir")],
+    harness_root: Annotated[Path, typer.Option("--harness-root")],
+    harness_python: Annotated[Path, typer.Option("--harness-python")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+    processor_revision: Annotated[str, typer.Option("--processor-revision")],
+    processor_model: Annotated[str, typer.Option("--processor-model")] = DEFAULT_PROCESSOR_MODEL,
+    memory_context_max_tokens: Annotated[int, typer.Option("--memory-context-max-tokens", min=1)] = 200_000,
+) -> None:
+    """Build pinned, bounded Reader inputs from retrieval-only smoke artifacts."""
+
+    try:
+        result = prepare_reader_inputs_smoke(
+            retrieval_dir=retrieval_dir,
+            harness_root=harness_root,
+            harness_python=harness_python,
+            output_dir=output_dir,
+            processor_model=processor_model,
+            processor_revision=processor_revision,
+            memory_context_max_tokens=memory_context_max_tokens,
+        )
+    except PrepareSmokeError as error:
+        typer.echo(f"LongMemEval-V2 prompt preparation failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "smoke-subset-prepare-only",
+                "manifest": str(result.manifest_path),
+                "prompts": str(result.prompts_path),
+                "summary": str(result.summary_path),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+@longmemeval_v2_app.command("reader-smoke")
+def longmemeval_v2_reader_smoke(
+    prepared_dir: Annotated[Path, typer.Option("--prepared-dir")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+    provider: Annotated[str, typer.Option("--provider")] = "anthropic-compatible",
+    model: Annotated[str | None, typer.Option("--model")] = None,
+    base_url: Annotated[str | None, typer.Option("--base-url")] = None,
+    base_url_env: Annotated[str, typer.Option("--base-url-env")] = DEFAULT_ANTHROPIC_BASE_URL_ENV,
+    token_env: Annotated[str | None, typer.Option("--token-env")] = None,
+    max_tokens: Annotated[int, typer.Option("--max-tokens", min=1)] = 512,
+    temperature: Annotated[float, typer.Option("--temperature", min=0.0, max=2.0)] = 0.0,
+    timeout_seconds: Annotated[float, typer.Option("--timeout-seconds", min=1.0)] = 120.0,
+    max_questions: Annotated[int | None, typer.Option("--max-questions", min=1)] = None,
+    price_policy: Annotated[str | None, typer.Option("--price-policy")] = None,
+) -> None:
+    """Call a configured Reader over prepared smoke prompts without scoring."""
+
+    resolved_price_policy = _parse_price_policy_option(price_policy, label="--price-policy")
+    try:
+        result = run_reader_smoke(
+            prepared_dir=prepared_dir,
+            output_dir=output_dir,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            base_url_env=base_url_env,
+            token_env=token_env,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout_seconds=timeout_seconds,
+            max_questions=max_questions,
+            price_policy=resolved_price_policy,
+        )
+    except ReaderSmokeError as error:
+        typer.echo(f"LongMemEval-V2 Reader failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "smoke-subset-reader-only",
+                "manifest": str(result.manifest_path),
+                "outputs": str(result.outputs_path),
+                "summary": str(result.summary_path),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+@longmemeval_v2_app.command("score-smoke")
+def longmemeval_v2_score_smoke(
+    reader_dir: Annotated[Path, typer.Option("--reader-dir")],
+    data_root: Annotated[Path, typer.Option("--data-root")],
+    dataset_lock: Annotated[Path, typer.Option("--dataset-lock")],
+    smoke_manifest: Annotated[Path, typer.Option("--smoke-manifest")],
+    harness_root: Annotated[Path, typer.Option("--harness-root")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+    judge_model: Annotated[str, typer.Option("--judge-model")] = SCORE_DEFAULT_DEEPSEEK_MODEL,
+    judge_token_env: Annotated[str, typer.Option("--judge-token-env")] = SCORE_DEFAULT_DEEPSEEK_TOKEN_ENV,
+    judge_base_url: Annotated[str, typer.Option("--judge-base-url")] = SCORE_DEFAULT_DEEPSEEK_BASE_URL,
+    judge_max_tokens: Annotated[int, typer.Option("--judge-max-tokens", min=1)] = 256,
+    judge_temperature: Annotated[float, typer.Option("--judge-temperature", min=0.0, max=2.0)] = 0.0,
+    judge_timeout_seconds: Annotated[float, typer.Option("--judge-timeout-seconds", min=1.0)] = 120.0,
+    price_policy: Annotated[str | None, typer.Option("--judge-price-policy")] = None,
+) -> None:
+    """Score Reader smoke outputs with pinned rules and DeepSeek only where upstream requires a judge."""
+
+    resolved_price_policy = _parse_price_policy_option(price_policy, label="--judge-price-policy")
+    try:
+        result = run_score_smoke(
+            reader_dir=reader_dir,
+            data_root=data_root,
+            dataset_lock=dataset_lock,
+            smoke_manifest=smoke_manifest,
+            harness_root=harness_root,
+            output_dir=output_dir,
+            judge_model=judge_model,
+            judge_token_env=judge_token_env,
+            judge_base_url=judge_base_url,
+            judge_max_tokens=judge_max_tokens,
+            judge_temperature=judge_temperature,
+            judge_timeout_seconds=judge_timeout_seconds,
+            judge_price_policy=resolved_price_policy,
+        )
+    except ScoreSmokeError as error:
+        typer.echo(f"LongMemEval-V2 scoring failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "smoke-subset-score-only",
+                "manifest": str(result.manifest_path),
+                "results": str(result.results_path),
+                "summary": str(result.summary_path),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+@longmemeval_v2_app.command("replay-score")
+def longmemeval_v2_replay_score(
+    score_dir: Annotated[Path, typer.Option("--score-dir")],
+    harness_root: Annotated[Path, typer.Option("--harness-root")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+) -> None:
+    """Replay saved deterministic and Judge score decisions without model calls."""
+
+    try:
+        result = replay_score_smoke(score_dir=score_dir, harness_root=harness_root, output_dir=output_dir)
+    except ReplayScoreError as error:
+        typer.echo(f"LongMemEval-V2 score replay failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "smoke-subset-score-replay",
+                "manifest": str(result.manifest_path),
+                "results": str(result.results_path),
+                "summary": str(result.summary_path),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+@longmemeval_v2_app.command("run-smoke")
+def longmemeval_v2_run_smoke(
+    data_root: Annotated[Path, typer.Option("--data-root")],
+    dataset_lock: Annotated[Path, typer.Option("--dataset-lock")],
+    smoke_manifest: Annotated[Path, typer.Option("--smoke-manifest")],
+    harness_root: Annotated[Path, typer.Option("--harness-root")],
+    harness_python: Annotated[Path, typer.Option("--harness-python")],
+    processor_revision: Annotated[str, typer.Option("--processor-revision")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+    powercontext_revision: Annotated[str, typer.Option("--powercontext-revision")],
+    integration_revision: Annotated[str, typer.Option("--integration-revision")],
+    run_id: Annotated[str | None, typer.Option("--run-id")] = None,
+    processor_model: Annotated[str, typer.Option("--processor-model")] = DEFAULT_PROCESSOR_MODEL,
+    memory_context_max_tokens: Annotated[int, typer.Option("--memory-context-max-tokens", min=1)] = 200_000,
+    powercontext_base_url: Annotated[str, typer.Option("--powercontext-base-url")] = "http://127.0.0.1:8000",
+    powercontext_token_env: Annotated[str, typer.Option("--powercontext-token-env")] = "POWERCONTEXT_TOKEN",
+    experiment_arm: Annotated[str, typer.Option("--experiment-arm")] = DEFAULT_EXPERIMENT_ARM_ID,
+    search_limit: Annotated[int, typer.Option("--search-limit", min=1, max=50)] = 10,
+    timeout_seconds: Annotated[float, typer.Option("--timeout-seconds", min=0.1)] = 30.0,
+    reader_provider: Annotated[str, typer.Option("--reader-provider")] = "deepseek-openai",
+    reader_model: Annotated[str | None, typer.Option("--reader-model")] = None,
+    reader_base_url: Annotated[str | None, typer.Option("--reader-base-url")] = None,
+    reader_base_url_env: Annotated[str, typer.Option("--reader-base-url-env")] = DEFAULT_ANTHROPIC_BASE_URL_ENV,
+    reader_token_env: Annotated[str | None, typer.Option("--reader-token-env")] = None,
+    reader_max_tokens: Annotated[int, typer.Option("--reader-max-tokens", min=1)] = 512,
+    reader_temperature: Annotated[float, typer.Option("--reader-temperature", min=0.0, max=2.0)] = 0.0,
+    reader_timeout_seconds: Annotated[float, typer.Option("--reader-timeout-seconds", min=1.0)] = 120.0,
+    judge_provider: Annotated[str, typer.Option("--judge-provider")] = "deepseek-openai",
+    judge_model: Annotated[str, typer.Option("--judge-model")] = SCORE_DEFAULT_DEEPSEEK_MODEL,
+    judge_token_env: Annotated[str, typer.Option("--judge-token-env")] = SCORE_DEFAULT_DEEPSEEK_TOKEN_ENV,
+    judge_base_url: Annotated[str, typer.Option("--judge-base-url")] = SCORE_DEFAULT_DEEPSEEK_BASE_URL,
+    judge_max_tokens: Annotated[int, typer.Option("--judge-max-tokens", min=1)] = 256,
+    judge_temperature: Annotated[float, typer.Option("--judge-temperature", min=0.0, max=2.0)] = 0.0,
+    judge_timeout_seconds: Annotated[float, typer.Option("--judge-timeout-seconds", min=1.0)] = 120.0,
+    price_policy: Annotated[str | None, typer.Option("--price-policy")] = None,
+    judge_price_policy: Annotated[str | None, typer.Option("--judge-price-policy")] = None,
+    skip_reader: Annotated[bool, typer.Option("--skip-reader")] = False,
+    skip_score: Annotated[bool, typer.Option("--skip-score")] = False,
+) -> None:
+    """Run the whole LongMemEval-V2 smoke workload into one fail-closed run directory."""
+
+    resolved_price_policy = _parse_price_policy_option(price_policy, label="--price-policy")
+    resolved_judge_price_policy = _parse_price_policy_option(judge_price_policy, label="--judge-price-policy")
+    try:
+        result = run_smoke(
+            data_root=data_root,
+            dataset_lock=dataset_lock,
+            smoke_manifest=smoke_manifest,
+            harness_root=harness_root,
+            harness_python=harness_python,
+            processor_revision=processor_revision,
+            output_dir=output_dir,
+            powercontext_revision=powercontext_revision,
+            integration_revision=integration_revision,
+            run_id=run_id,
+            processor_model=processor_model,
+            memory_context_max_tokens=memory_context_max_tokens,
+            powercontext_base_url=powercontext_base_url,
+            powercontext_token_env=powercontext_token_env,
+            experiment_arm=experiment_arm,
+            search_limit=search_limit,
+            timeout_seconds=timeout_seconds,
+            reader_provider=reader_provider,
+            reader_model=reader_model,
+            reader_base_url=reader_base_url,
+            reader_base_url_env=reader_base_url_env,
+            reader_token_env=reader_token_env,
+            reader_max_tokens=reader_max_tokens,
+            reader_temperature=reader_temperature,
+            reader_timeout_seconds=reader_timeout_seconds,
+            judge_provider=judge_provider,
+            judge_model=judge_model,
+            judge_token_env=judge_token_env,
+            judge_base_url=judge_base_url,
+            judge_max_tokens=judge_max_tokens,
+            judge_temperature=judge_temperature,
+            judge_timeout_seconds=judge_timeout_seconds,
+            reader_price_policy=resolved_price_policy,
+            judge_price_policy=resolved_judge_price_policy,
+            skip_reader=skip_reader,
+            skip_score=skip_score,
+        )
+    except (RunSmokeError, LongMemEvalV2CatalogError, ExperimentArmError) as error:
+        typer.echo(f"LongMemEval-V2 smoke run failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "smoke-subset",
+                "status": result.status,
+                "manifest": str(result.manifest_path),
+                "summary": str(result.summary_path),
+                "completed_phases": list(result.completed_phases),
+                "skipped_phases": list(result.skipped_phases),
+                "failed_phase": result.failed_phase,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    if result.status != "completed":
+        raise typer.Exit(code=1)
+
+
+@longmemeval_v2_app.command("report")
+def longmemeval_v2_report(
+    run_dir: Annotated[Path, typer.Option("--run-dir")],
+    output_dir: Annotated[Path | None, typer.Option("--output-dir")] = None,
+) -> None:
+    """Summarize one saved smoke run into a single unified report without a model or server."""
+
+    try:
+        result = build_report(run_dir=run_dir, output_dir=output_dir)
+    except ReportError as error:
+        typer.echo(f"LongMemEval-V2 report failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "smoke-subset",
+                "report": str(result.report_path),
+                "markdown": str(result.markdown_path),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+@work_continuity_app.command("validate")
+def work_continuity_validate(
+    task_lock: Annotated[Path, typer.Option("--task-lock")],
+    attempts: Annotated[Path | None, typer.Option("--attempts")] = None,
+) -> None:
+    """Validate the pinned task lock and any recorded attempts without writing anything."""
+
+    try:
+        catalog = TaskCatalog.load(task_lock)
+        recorded = load_attempts(attempts, catalog=catalog) if attempts is not None else None
+        if recorded is not None:
+            # The documented preflight has to reject what `run` would reject:
+            # a recording bound to another task lock or another context is not
+            # scoreable, and finding that out here is the point of the command.
+            require_recording_bindings(catalog=catalog, attempts=recorded)
+    except (WorkContinuityInputError, AttemptInputError) as error:
+        raise typer.BadParameter(str(error)) from None
+    except (WorkContinuityCatalogError, WorkContinuityRunError) as error:
+        typer.echo(f"Work-continuity validation failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "work-continuity-input-validation",
+                "task_set_id": catalog.task_set_id,
+                "task_count": len(catalog.tasks),
+                "task_ids": list(catalog.task_ids),
+                "task_lock_sha256": catalog.content_sha256,
+                "supported_arms": list(supported_continuation_arm_ids()),
+                "attempt_count": None if recorded is None else len(recorded.attempts),
+                "hosts": None if recorded is None else list(recorded.hosts),
+                "recording_protocol": (
+                    None
+                    if recorded is None
+                    else {
+                        "task_set_id": recorded.protocol.task_set_id,
+                        "task_lock_sha256": recorded.protocol.task_lock_sha256,
+                        "assembly_max_bytes": recorded.protocol.assembly_max_bytes,
+                    }
+                ),
+                "execution_configuration": None if recorded is None else execution_configuration(recorded),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+def _run_manifest(path: Path) -> dict[str, object]:
+    """Read one run manifest from a run directory or from a manifest file.
+
+    A published run is a directory, so accepting the directory is what makes the
+    command usable on the artifacts a run actually writes.
+    """
+
+    candidate = path / "run-manifest.json" if path.is_dir() else path
+    if not candidate.is_file():
+        raise WorkContinuityRunError(f"no run manifest at {candidate}")
+    try:
+        payload = json.loads(candidate.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise WorkContinuityRunError(f"cannot read run manifest {candidate}: {error}") from None
+    if not isinstance(payload, dict):
+        raise WorkContinuityRunError(f"run manifest {candidate} is not a JSON object")
+    return cast("dict[str, object]", payload)
+
+
+@work_continuity_app.command("compare")
+def work_continuity_compare(
+    baseline: Annotated[Path, typer.Option("--baseline")],
+    treatment: Annotated[Path, typer.Option("--treatment")],
+) -> None:
+    """Decide whether two recorded runs may be compared, and refuse when they may not."""
+
+    try:
+        first = _run_manifest(baseline)
+        second = _run_manifest(treatment)
+        # The gate is the whole point of the command: it is the only supported way
+        # to have the documented comparison rules applied to two published runs.
+        ensure_comparable_work_continuity_runs(first, second)
+    except ContinuationArmError as error:
+        typer.echo(f"Work-continuity comparison refused: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    except WorkContinuityRunError as error:
+        typer.echo(f"Work-continuity comparison failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    first_arms = declared_run_arm_ids(first) or ()
+    second_arms = declared_run_arm_ids(second) or ()
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "work-continuity-comparability",
+                "comparable": True,
+                "baseline_run_id": first.get("run_id"),
+                "treatment_run_id": second.get("run_id"),
+                "task_set_id": first.get("task_set_id"),
+                "baseline_arms": list(first_arms),
+                "treatment_arms": list(second_arms),
+                "shared_arms": sorted(set(first_arms) & set(second_arms)),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
+def _method_rows(summary: dict[str, object]) -> list[dict[str, object]]:
+    """Return one per-method echo row, rejecting a summary that lost its shape."""
+
+    arms = summary.get("arms")
+    if not isinstance(arms, list):
+        raise WorkContinuityRunError("work-continuity run summary is missing its per-method rows")
+    rows: list[dict[str, object]] = []
+    for arm in arms:
+        if not isinstance(arm, dict):
+            raise WorkContinuityRunError("work-continuity run summary holds a malformed method row")
+        method = cast("dict[str, object]", arm)
+        injected = method.get("injected_bytes")
+        outcome = method.get("outcome")
+        if not isinstance(injected, dict) or not isinstance(outcome, dict):
+            raise WorkContinuityRunError("work-continuity run summary holds a malformed method row")
+        rows.append(
+            {
+                "arm_id": method["arm_id"],
+                "injected_bytes_total": cast("dict[str, object]", injected)["total"],
+                "task_success": cast("dict[str, object]", outcome)["task_success"],
+            }
+        )
+    return rows
+
+
+@work_continuity_app.command("run")
+def work_continuity_run(
+    task_lock: Annotated[Path, typer.Option("--task-lock")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+    run_id: Annotated[str, typer.Option("--run-id")],
+    max_bytes: Annotated[int, typer.Option("--max-bytes", min=1)] = DEFAULT_ASSEMBLY_MAX_BYTES,
+    arm: Annotated[list[str] | None, typer.Option("--arm")] = None,
+    task_id: Annotated[list[str] | None, typer.Option("--task-id")] = None,
+    attempts: Annotated[Path | None, typer.Option("--attempts")] = None,
+    powercontext_revision: Annotated[str | None, typer.Option("--powercontext-revision")] = None,
+    integration_revision: Annotated[str | None, typer.Option("--integration-revision")] = None,
+) -> None:
+    """Assemble every selected method, score any recorded attempts, and write one run directory."""
+
+    try:
+        result = run_work_continuity(
+            task_lock=task_lock,
+            run_id=run_id,
+            max_bytes=max_bytes,
+            arm_ids=tuple(arm) if arm else None,
+            task_ids=tuple(task_id) if task_id else None,
+            attempts_path=attempts,
+            powercontext_revision=powercontext_revision,
+            integration_revision=integration_revision,
+        )
+        artifacts = write_run_artifacts(result, output_dir)
+        report = build_work_continuity_report(result, output_dir=artifacts.output_dir)
+        methods = _method_rows(run_summary(result))
+    except ContinuationArmError as error:
+        raise typer.BadParameter(str(error)) from None
+    except (WorkContinuityInputError, AttemptInputError) as error:
+        raise typer.BadParameter(str(error)) from None
+    except (WorkContinuityRunError, WorkContinuityReportError, WorkContinuityCatalogError) as error:
+        typer.echo(f"Work-continuity run failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": result.classification,
+                "run_id": result.run_id,
+                "manifest": str(artifacts.manifest_path),
+                "assembly": str(artifacts.assembly_path),
+                "scores": str(artifacts.scores_path),
+                "summary": str(artifacts.summary_path),
+                "report": str(report.report_path),
+                "markdown": str(report.markdown_path),
+                "methods": methods,
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -231,6 +871,8 @@ def swebench_pro_run(
     run_id: str | None = typer.Option(None),
 ) -> None:
     """Run Gold, PowerContext OFF/ON, official grading, and report generation."""
+
+    from powercontext_eval.runner import RunConfig
 
     root = Path(root_path)
     harness = Path(harness_root) if harness_root is not None else root / "cache" / "swebench-pro.git"
@@ -296,11 +938,13 @@ def swebench_pro_create_batch(
     powercontext_ref: str = typer.Option("latest", "--powercontext-ref"),
     task_set: str = typer.Option(PUBLIC_V2_TASK_SET, "--task-set"),
     model: str = typer.Option(DEFAULT_CODEX_MODEL, "--model"),
-    treatment_mode: TreatmentMode = typer.Option(TreatmentMode.OFF_ON, "--treatment-mode"),
+    treatment_mode: Annotated[TreatmentMode, typer.Option("--treatment-mode")] = TreatmentMode.OFF_ON,
     usage_pause_percent: int = typer.Option(80, "--usage-pause-percent", min=1, max=100),
     start_paused: bool = typer.Option(False, "--start-paused/--start-running"),
 ) -> None:
     """Create one full batch through the console API, optionally atomically paused."""
+
+    from powercontext_eval.web.batches import BatchCreate
 
     endpoint = _batch_api_endpoint(console_url)
     try:

@@ -200,20 +200,14 @@ class WorkerSecurity:
                 idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
             )
 
-    async def topic_commit(self, connection: AsyncConnection, scope_id: str, operations: Sequence[Any]) -> None:
-        bound = self.access.with_connection(connection)
-        await self._authorize_scope(bound, scope_id)
-        for operation in operations:
-            resource = ResourceRef.artifact(scope_id, family="topic-memory", artifact_id=operation.artifact_id)
-            if operation.current is not None:
-                await bound.require(self.principal, AccessAction.ARTIFACT_WRITE, resource, context=self.context)
-            else:
-                await bound.establish_artifact_owner(
-                    resource,
-                    self.principal,
-                    idempotency_key=f"background-topic-owner:{scope_id}:{operation.artifact_id}",
-                    context=self.context,
-                )
+    async def topic_commit(self, connection: AsyncConnection, scope_id: str, _operations: Sequence[Any]) -> None:
+        """Authorize one Scope-owned Topic Memory publication.
+
+        Topic Memory is shared Scope knowledge: it registers no Artifact Family
+        Access Profile and carries no per-topic owner, so its publications are
+        authorized by Scope authority alone. The batch is accepted unchanged.
+        """
+        await self._authorize_scope(self.access.with_connection(connection), scope_id)
 
 
 @asynccontextmanager

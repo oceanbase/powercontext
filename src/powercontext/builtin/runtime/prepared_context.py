@@ -46,6 +46,11 @@ _MIN_TRUNCATED_CONTENT_BYTES = 64
 _ELLIPSIS = "…"
 _BEGIN_MARKER = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1"
 _END_MARKER = "END_POWERCONTEXT_PREPARED_CONTEXT_V1"
+# ``str.splitlines()`` ends a line at these characters, but ``json.dumps(ensure_ascii=False)`` emits them raw, so a
+# body could carry one inside its JSON string literal and still end a line for a line-oriented reader. The remaining
+# ``splitlines()`` boundaries (``\n``, ``\v``, ``\f``, ``\r``, ``\x1c``-``\x1e``) are already escaped by
+# ``json.dumps``. RFC 1489 escapes U+2028 and U+2029 the same way for identity fields.
+_LINE_BOUNDARY_ESCAPES = {ord(char): f"\\u{ord(char):04x}" for char in "\u0085\u2028\u2029"}
 _Item = TypeVar("_Item")
 
 
@@ -685,12 +690,24 @@ def _interleave_groups(groups: Sequence[Sequence[_Item]]) -> tuple[_Item, ...]:
     return tuple(ordered)
 
 
+def _escape_line_boundaries(encoded: str) -> str:
+    """Keep untrusted text from ending a line of the line-oriented envelope.
+
+    RFC 0028 asks the Builder to prevent Memory newlines and ``BEGIN``/``END`` text from crossing data boundaries,
+    and to deliver ``truncated=false`` content exactly equal to the Memory hit text. Rewriting the body cannot
+    satisfy both, so the escape happens on the encoded envelope instead: every other character stays byte for byte
+    as the Memory holds it, and a parser decodes the line boundaries back to the original code points.
+    """
+
+    return encoded.translate(_LINE_BOUNDARY_ESCAPES)
+
+
 def _render(entries: Sequence[_PreparedContextEntry]) -> str:
     envelope = {
         "trust": "untrusted_history",
         "items": [_render_entry(entry) for entry in entries],
     }
-    encoded = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
+    encoded = _escape_line_boundaries(json.dumps(envelope, ensure_ascii=False, separators=(",", ":")))
     return "\n\n".join((TRUST_POLICY, f"{_BEGIN_MARKER}\n{encoded}\n{_END_MARKER}"))
 
 

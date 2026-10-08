@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PowerContextClient, type FetchFn } from '../src/client.ts'
 import { handlePcCommand } from '../src/commands.ts'
 import { resolveConfig, type PluginConfig } from '../src/config.ts'
@@ -58,14 +58,98 @@ function fixture(override?: FetchFn, config: PluginConfig = {}, env: NodeJS.Proc
   }
   return {
     calls, runtime,
-    async doctor(signal?: AbortSignal) {
-      const result = await handlePcCommand('doctor', runtime, '/fixture/workspace', signal)
+    async doctor(signal?: AbortSignal, toolCatalog?: unknown) {
+      const result = await handlePcCommand('doctor', runtime, '/fixture/workspace', signal, undefined, () => toolCatalog)
       return { kind: result.kind, ...JSON.parse(result.text) }
     },
   }
 }
 
 describe('read-only DSH Doctor', () => {
+  describe('cold readiness deadlines', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      // Native AbortSignal.timeout uses timers outside Vitest's fake clock.
+      vi.spyOn(AbortSignal, 'timeout').mockImplementation(ms => {
+        const controller = new AbortController()
+        setTimeout(() => controller.abort(new DOMException('Deadline exceeded', 'TimeoutError')), ms)
+        return controller.signal
+      })
+    })
+
+    afterEach(() => {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+      vi.restoreAllMocks()
+    })
+
+    function delayedReadiness(delayMs: number, status: number, body: unknown): FetchFn {
+      return async (url, init) => {
+        if (new URL(url).pathname !== '/health/ready') return healthy(new URL(url).pathname)
+        return new Promise<Response>((resolve, reject) => {
+          const abort = () => {
+            clearTimeout(timer)
+            reject(init.signal!.reason)
+          }
+          const timer = setTimeout(() => {
+            init.signal!.removeEventListener('abort', abort)
+            resolve(Response.json(body, { status }))
+          }, delayMs)
+          init.signal!.addEventListener('abort', abort, { once: true })
+        })
+      }
+    }
+
+    it.each([1600, 36_000])('accepts healthy cold readiness after %i ms with the shipped request timeout', async delayMs => {
+      const h = fixture(delayedReadiness(delayMs, 200, {
+        status: 'ready', checks: { runtime: 'ready', database: 'ready', 'inference.generation': 'ready' },
+      }))
+      const pending = h.doctor()
+      await vi.advanceTimersByTimeAsync(delayMs)
+      expect(await pending).toMatchObject({
+        ok: true,
+        configuration: { request_timeout_ms: 1000, readiness_request_timeout_ms: 40_000 },
+        checks: { readiness: { state: 'ok', code: 'ready' } },
+      })
+      expect(h.calls.filter(call => call.path === '/health/ready')).toHaveLength(1)
+    })
+
+    it.each([
+      [200, 'degraded', 'degraded'],
+      [503, 'not_ready', 'failed'],
+    ] as const)('preserves a slow HTTP %i readiness result', async (status, readiness, state) => {
+      const h = fixture(delayedReadiness(36_000, status, {
+        status: readiness, checks: { runtime: 'ready', database: 'ready', 'inference.generation': 'timeout' },
+      }))
+      const pending = h.doctor()
+      await vi.advanceTimersByTimeAsync(36_000)
+      expect(await pending).toMatchObject({
+        ok: false, checks: { readiness: {
+          state, code: readiness, http_status: status, dependencies: { 'inference.generation': 'timeout' },
+        } },
+      })
+      expect(h.calls.filter(call => call.path === '/health/ready')).toHaveLength(1)
+    })
+
+    it('reports a request timeout when readiness exceeds its own deadline', async () => {
+      const h = fixture(delayedReadiness(40_001, 200, {
+        status: 'ready', checks: { runtime: 'ready', database: 'ready' },
+      }))
+      let completed = false
+      const pending = h.doctor().then(result => {
+        completed = true
+        return result
+      })
+      await vi.advanceTimersByTimeAsync(39_999)
+      expect(completed).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await pending).toMatchObject({
+        ok: false, checks: { readiness: { state: 'failed', code: 'request_timeout', operation: 'get_readiness' } },
+      })
+      expect(h.calls.filter(call => call.path === '/health/ready')).toHaveLength(1)
+    })
+  })
+
   it('separates model-disabled capabilities and empty prepare from failed infrastructure', async () => {
     const h = fixture()
     const result = await h.doctor()
@@ -76,6 +160,7 @@ describe('read-only DSH Doctor', () => {
         routes: { state: 'ok', code: 'routes_declared' }, scope: { state: 'ok', code: 'scope_resolved' },
         capabilities: { state: 'ok', code: 'extraction_disabled' },
         prepare: { state: 'ok', code: 'empty' },
+        mcp_catalog: { state: 'skipped', code: 'tool_catalog_unavailable' },
       },
     })
     expect(result.coverage).toContain('not executed')
@@ -86,6 +171,26 @@ describe('read-only DSH Doctor', () => {
     const payload = JSON.parse(String(h.calls.find(c => c.path.endsWith('/prepare'))!.init.body))
     expect(payload.scope_id).toBe('scp_fixture')
     expect(payload.query).not.toContain('/fixture/workspace')
+  })
+
+  it('reports visible native PowerContext MCP tools separately from HTTP health', async () => {
+    const h = fixture()
+    const result = await h.doctor(undefined, {
+      schemas: () => [{ name: 'mcp__powercontext__search_memory' }, { name: 'pc_search' }],
+    })
+    expect(result).toMatchObject({ ok: true, kind: 'success', checks: {
+      mcp_catalog: { state: 'ok', code: 'native_mcp_tools_visible', tools: ['mcp__powercontext__search_memory'] },
+    } })
+  })
+
+  it.each([
+    ['unconfigured', { schemas: () => [] }, 'skipped', 'native_mcp_unconfigured'],
+    ['missing PowerContext', { schemas: () => [{ name: 'mcp__other__search' }] }, 'degraded', 'native_mcp_powercontext_missing'],
+    ['unreadable', { schemas: () => { throw new Error(PRIVATE) } }, 'degraded', 'tool_catalog_unreadable'],
+  ])('keeps healthy HTTP diagnostics successful when MCP catalog is %s', async (_case, catalog, state, code) => {
+    const result = await fixture().doctor(undefined, catalog)
+    expect(result).toMatchObject({ ok: true, kind: 'success', checks: { mcp_catalog: { state, code } } })
+    expect(JSON.stringify(result)).not.toContain(PRIVATE)
   })
 
   it.each([

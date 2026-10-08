@@ -203,6 +203,8 @@ def test_server_cli_routes_split_role_with_a_migrated_schedule(monkeypatch) -> N
 
     run_background = Mock()
     monkeypatch.setattr("powercontext.server.cli._run_background", run_background)
+    # Foreground logging must not retain CliRunner's temporary stdout after it closes.
+    monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)
     result = CliRunner().invoke(create_cli([server_app]), ["server", "run", "--role", "background"])
 
     assert result.exit_code == 0, result.output

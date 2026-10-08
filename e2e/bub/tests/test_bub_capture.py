@@ -32,7 +32,9 @@ def test_tool_capture_redacts_credentials_before_crossing_the_client_boundary(
     captured_requests: list[Any] = []
 
     class RecordingClient:
-        def __init__(self, base_url: str, *, timeout: float, allow_insecure_http: bool = False) -> None:
+        def __init__(
+            self, base_url: str, *, token: str | None = None, timeout: float, allow_insecure_http: bool = False
+        ) -> None:
             del base_url, timeout, allow_insecure_http
 
         async def __aenter__(self) -> RecordingClient:

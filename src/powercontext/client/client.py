@@ -93,6 +93,7 @@ from powercontext.http import (
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
+    GetMemoryCapacityRequest,
     GetMemoryEntryRequest,
     GetSkillPackageRequest,
     GetSkillRequest,
@@ -126,12 +127,14 @@ from powercontext.http import (
     ListRemoteSkillTargetsResponse,
     ListScopesRequest,
     ListSourcesRequest,
+    MemoryCapacity,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
     PreparedWorkHandoff,
+    PrepareHandoffHintRequest,
     PrepareHandoffRequest,
     ProfilePolicyResponse,
     PromptConfiguration,
@@ -242,6 +245,7 @@ from powercontext.http._generated.operations import (
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
     GET_LIVENESS,
+    GET_MEMORY_CAPACITY,
     GET_MEMORY_ENTRY,
     GET_MEMORY_ENTRY_TAGS,
     GET_PROFILE_POLICY,
@@ -272,6 +276,7 @@ from powercontext.http._generated.operations import (
     LIST_SOURCES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
+    PREPARE_HANDOFF_HINT,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
     PROPOSE_SKILL_PACKAGE,
@@ -952,6 +957,16 @@ class PowerContextClient:
         """Resolve temporary or committed Handoff content as untrusted history."""
 
         return await self._request(CONTINUE_HANDOFF, request)
+
+    async def prepare_handoff_hint(self, request: PrepareHandoffHintRequest) -> PreparedContext:
+        """Prepare optional orientation; read the full Handoff before continuing work."""
+
+        return await self._request(PREPARE_HANDOFF_HINT, request)
+
+    async def get_memory_capacity(self, request: GetMemoryCapacityRequest) -> MemoryCapacity:
+        """Read capacity of the current Memory head."""
+
+        return await self._request(GET_MEMORY_CAPACITY, request)
 
     async def list_memory_entries(self, request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
         """List active entries, optionally including inactive entries for audit."""

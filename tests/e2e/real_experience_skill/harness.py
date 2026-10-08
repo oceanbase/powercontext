@@ -116,6 +116,7 @@ _SCOPE_TABLES = (
     "pc_artifacts",
     "pc_skill_packages",
     "pc_source_cursors",
+    "pc_memory_source_windows",
     "pc_external_skill_registrations",
     "pc_sources",
     "pc_source_journal_heads",
