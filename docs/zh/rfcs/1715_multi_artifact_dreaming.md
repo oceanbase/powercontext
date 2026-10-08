@@ -224,7 +224,7 @@ Dream 不推进 Topic Source Cursor。后续正常融合以新 head 作为基准
 ## 7. Handoff 刷新契约
 只针对精确 Handoff Revision，保持 work identity、目标任务与原有结构化内容约束。生成输出、候选修订及最终提交均要求 objective 与目标版本一致；改变任务应走独立的显式操作。对已完成、未完成、阻塞和下一步的每一项变更提供结果来源。没有新的状态证据时返回 no_change 或 needs_evidence，不能仅凭时间流逝宣称任务完成。
 
-候选生成不改变正式 Handoff 或 latest 选择结果。批准在同一事务内提交并发布新 Handoff Revision 和 Candidate 审核结果；新版本立即进入既有 latest 读取规则，后续显式调用 `continue_latest()` 时，只要没有更新的合格版本，就会选中它。不存在“已批准但未激活”的中间状态，也不要求再激活该已提交版本。现有 `ActivateHandoff` 根据 `boundary_source` 和 `objective` 生成新草稿，不是激活某个已提交 Revision 的接口；Dream 批准不调用它。
+候选生成不改变正式 Handoff 或 latest 选择结果。批准在同一事务内提交并发布新 Handoff Revision 和 Candidate 审核结果；新版本立即进入既有 latest 读取规则，后续显式调用 `continue_latest()` 时，只要没有更新的合格版本，就会选中它。能力声明使用 `effect=review_then_publish`。不存在“已批准但未激活”的中间状态，也不要求再激活该已提交版本。现有 `ActivateHandoff` 根据 `boundary_source` 和 `objective` 生成新草稿，不是激活某个已提交 Revision 的接口；Dream 批准不调用它。
 
 将可复用的内容、basis、引用与条件提交校验提取到事务内 writer。既有 prepare/commit 入口保留其 token 校验；Dream adapter 通过精确候选版本、当前目标、证据与 Reviewer 权限授权发布。批准本身不调用 Continue、不写 accepted acknowledgement、不授予任务权限、不执行业务动作。接手任务仍须显式 Continue，并按既有流程核验 live state、capability 和 authorization。已被接收的历史 Revision 及其接收记录保持不变，旧版本的 accepted 不代表新版本已被接收。本期不增加激活 API、激活表或新的 latest 过滤规则。
 
@@ -361,11 +361,27 @@ Dream 根据受支持的发布基线与集成时的迁移 head，向共享 revis
 
 | 接入项 | Dream 的责任 |
 | --- | --- |
-| `affected_objects` | 声明两张 Candidate 表的改名，kind/result 字段、约束、索引及外键，Profile 待审候选引用，以及 Processing Intent 的 `consecutive_dream_attempts` 列；依据受支持基线补齐实际需要转换的 Run/Candidate payload 和依赖对象。 |
+| `affected_objects` | 声明两张 Candidate 表的改名，kind/result 字段、约束、索引及外键，Profile 待审候选引用，以及 Processing Intent 的 `consecutive_dream_attempts` 列和 Processing manifest 的 Handoff/Prompt 绑定转换；依据受支持基线补齐实际需要转换的 Run/Candidate payload 和依赖对象。 |
 | `execution_mode` 与兼容范围 | A0 要求停止写入并协调升级，不允许新旧程序混用已变更的结构；向框架提供支持的程序/schema 组合和后端能力要求。 |
 | `api_changes` | 声明六个新 Candidate 路由及 Artifact 命名旧路由的直接移除、明确跳过弃用期的发布例外、移除版本、最低 Client 版本，以及 SDK/CLI/MCP/集成/Dashboard/文档的配套更新。 |
 | `task_formats` | 盘点受支持的历史 Dream Run、Processing Intent、排队/运行中/延迟/重试/死信任务及租约；按 RFC #1771 为各旧格式声明兼容消费、无损幂等转换或排空方式，未知格式阻止就绪。保留任务身份、请求者、幂等键、重试状态、回执与普通 Source 处理进度。 |
 | 领域后置条件 | 保留全部候选 ID、当前与历史版本、提案、证据、状态、审核理由、真实批准结果、Profile pending 指针、Dream 引用及访问归属。旧 pending 候选可继续审核、已批准结果可读取，不要求重新生成或审核；Artifact/Tag 结果约束及轮转计数初值正确。 |
+
+### 历史 Dream 任务与执行契约
+
+本次升级对历史 Dream Run 采用升级前排空，不将旧版生成协议直接交给新版执行器。停用旧服务的新增 Dream 请求后，保留旧 Worker 处理既有任务；只有所有 Run 都到达 succeeded/failed，才能停止全部写入并进入迁移。统一框架在只读计划检查和持锁执行前均调用 Dream 任务校验器；发现 queued/running 返回 `dream_tasks_require_drain`，在任何 DDL 或数据改写前停止。迁移器不代替 Worker 标记成功、失败或取消。
+
+| 历史任务状态 | 处理规则 |
+| --- | --- |
+| queued，尚未执行 | 由旧 Worker 使用旧版协议处理到终态；不在升级时重新绑定新版提示词 |
+| queued，已执行过且等待重试 | 保留已冻结的提示词、模型配置、尝试次数、已消耗预算及原截止时间，由旧 Worker 完成 |
+| running，包括租约接管或已过截止时间 | 按旧 Supervisor 的恢复、fence、重试和超时规则处理到终态；维护窗口不重置截止时间或延长预算 |
+| succeeded/failed | 原样保留载荷、请求者、幂等键、结果及候选引用；新版支持读取和同请求重放，不重新执行 |
+| 未知格式或无法判断的状态 | `unsupported_task_format`，阻止迁移，不假定队列为空 |
+
+排空 Dream Run 不要求审批全部 pending Candidate。已经生成的候选及其历史继续迁移，升级后仍可审核。普通 Source 的 Processing Intent、游标及其他队列按统一框架各自的兼容策略保留，不以排空 Dream 为由清除。若旧服务无法将任务处理到终态，应先恢复旧执行环境或按明确的人工恢复方案处理，不能直接改写任务状态、提示词版本、模型配置或超时时间绕过校验。
+
+Dream revision 同时转换 `pc_artifact_processing_schema.config_manifest`：保留 Supervisor mode 和 `legacy_automatic_bindings`，只补充 Handoff/Prompt 的规范 binding；仅当旧 manifest 已声明 Skill Dream capability 时补充对应的 Handoff/Prompt capabilities。该推导使用冻结的旧格式，不读取升级进程的 Runtime 配置。未知 ownership 映射、未完成迁移标记或不支持的格式在写库前拒绝；升级后检查 manifest 与新版配置相容。普通启动不得自动补充这些绑定或改写 manifest。
 
 物理表改名与路由替换仍在 A0 完成。仅启用 A0/A1、未启用 Tag 的部署也执行相同的显式迁移和 Client 协调升级；C 阶段不再改名候选表。历史 Profile Source-window 候选保留其 origin、pending 指针及游标语义，不能被重分类为 Dream 候选，也不能补造 Dream 配置快照。
 
