@@ -405,6 +405,7 @@ class SQLiteMigrationRunner:
                 "backup_state": "pending",
                 "backup": None,
                 "release_checksums": previous.get("release_checksums", {}) if previous else {},
+                "retained_objects": previous.get("retained_objects", []) if previous else [],
             }
         )
         self._write_evidence(evidence)
@@ -527,9 +528,17 @@ class SQLiteMigrationRunner:
             if objects and digest(objects) not in self.bundle.retained_fingerprints.get(name, []):
                 raise MigrationError("incompatible_schema", "A retained historical object has an unregistered shape.")
         evidence = self._evidence()
-        if evidence and any(not any(row[1] == name for row in inventory) for name in evidence["retained_objects"]):
+        required = set(evidence["retained_objects"]) if evidence else set()
+        if evidence:
+            # A revision can commit before its retained inventory is recorded.
+            # Adoption at the current revision did not execute that revision.
+            committed = set(self.bundle.pending(evidence["source_revision"])) - set(self.bundle.pending(revision))
+            required.update(
+                name for name, introduced in self.bundle.retained_revisions.items() if introduced in committed
+            )
+        if any(not any(row[1] == name for row in inventory) for name in required):
             raise MigrationError(
-                "recovery_required", "A registered retained table was removed without a cleanup revision."
+                "recovery_required", "A required retained table was removed without a cleanup revision."
             )
 
     def _verify_integrity(self, connection: Connection) -> None:

@@ -605,6 +605,102 @@ def test_replaced_table_is_retained_across_verification_and_retry(tmp_path: Path
     assert rows(database, "SELECT tag FROM pc_retained_p0002_artifact_tags") == expected
 
 
+@pytest.mark.parametrize("remove_retained", [False, True])
+def test_committed_revision_retains_old_table_before_completion_evidence(
+    tmp_path: Path, bundle: MigrationBundle, remove_retained: bool
+) -> None:
+    database = tmp_path / "pc.sqlite3"
+    load_schema(database)
+    populate(database)
+    code = """
+import os
+import sys
+from pathlib import Path
+from sqlalchemy import Connection
+from powercontext.builtin.persistence.migrations import MigrationBundle, SQLiteMigrationRunner
+
+commit = Connection.commit
+def crash_after_commit(connection):
+    present = connection.exec_driver_sql("SELECT name FROM sqlite_schema WHERE name='pc_schema_revision'").first()
+    current = connection.exec_driver_sql("SELECT version_num FROM pc_schema_revision").scalar() if present else None
+    commit(connection)
+    if current == 'p0003':
+        os._exit(73)
+Connection.commit = crash_after_commit
+runner = SQLiteMigrationRunner(Path(sys.argv[1]), MigrationBundle(Path(sys.argv[2])))
+runner.apply(plan_id=runner.plan().plan_id, accepted=True, maintenance_confirmed=True)
+"""
+    process = subprocess.run([sys.executable, "-c", code, str(database), str(FIXTURE)], check=False, timeout=30)
+    assert process.returncode == 73
+    assert rows(database, "SELECT version_num FROM pc_schema_revision") == [("p0003",)]
+    assert rows(database, "SELECT tag FROM pc_retained_p0002_artifact_tags") == [("Keep",)]
+    runner = SQLiteMigrationRunner(database, bundle)
+    evidence = runner.evidence_path.read_bytes()
+
+    if remove_retained:
+        with sqlite3.connect(database) as connection:
+            connection.execute("DROP TABLE pc_retained_p0002_artifact_tags")
+        for operation in (runner.plan, lambda: apply(runner), runner.verify):
+            with pytest.raises(MigrationError, match="recovery_required"):
+                operation()
+        assert runner.evidence_path.read_bytes() == evidence
+        assert rows(database, "SELECT tag FROM pc_artifact_tags") == [("Keep",)]
+    else:
+        assert runner.plan().state == "recovery_required"
+        assert apply(runner).state == "ready"
+        assert runner.verify().state == "ready"
+        assert rows(database, "SELECT tag FROM pc_retained_p0002_artifact_tags") == [("Keep",)]
+
+
+def test_adopting_current_baseline_does_not_require_an_unexecuted_retention_revision(
+    tmp_path: Path, bundle: MigrationBundle
+) -> None:
+    database = tmp_path / "pc.sqlite3"
+    load_schema(database, "v1_1_0")
+    populate(database)
+    runner = SQLiteMigrationRunner(database, bundle)
+    assert runner.plan().source_revision == "p0003"
+    assert apply(runner).state == "ready"
+    assert runner.verify().state == "ready"
+    assert rows(database, "SELECT name FROM sqlite_schema WHERE name='pc_retained_p0002_artifact_tags'") == []
+    assert rows(database, "SELECT tag FROM pc_artifact_tags") == [("Keep",)]
+
+
+def test_a_new_maintenance_window_preserves_existing_retention_requirements(
+    tmp_path: Path, bundle: MigrationBundle, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = tmp_path / "pc.sqlite3"
+    load_schema(database)
+    populate(database)
+    apply(SQLiteMigrationRunner(database, bundle))
+    copied = tmp_path / "bundle"
+    shutil.copytree(FIXTURE, copied)
+    (copied / "versions/p0004.py").write_text(
+        'revision = "p0004"\ndown_revision = "p0003"\ndef upgrade():\n    pass\n', encoding="utf-8"
+    )
+    manifest = json.loads((copied / "manifest.json").read_text())
+    manifest["revision_resources"]["p0004"] = []
+    manifest["sqlite_fingerprints"]["p0004"] = manifest["sqlite_fingerprints"]["p0003"]
+    (copied / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    runner = SQLiteMigrationRunner(database, MigrationBundle(copied))
+
+    def interrupt(config, target, **kwargs):
+        raise InterruptedError
+
+    with monkeypatch.context() as injection:
+        injection.setattr(command, "upgrade", interrupt)
+        with pytest.raises(InterruptedError):
+            apply(runner)
+    assert rows(database, "SELECT version_num FROM pc_schema_revision") == [("p0003",)]
+    evidence = runner.evidence_path.read_bytes()
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP TABLE pc_retained_p0002_artifact_tags")
+    for operation in (runner.plan, lambda: apply(runner), runner.verify):
+        with pytest.raises(MigrationError, match="recovery_required"):
+            operation()
+    assert runner.evidence_path.read_bytes() == evidence
+
+
 def test_retained_table_cannot_precede_its_revision(tmp_path: Path, bundle: MigrationBundle) -> None:
     database = tmp_path / "pc.sqlite3"
     load_schema(database)
