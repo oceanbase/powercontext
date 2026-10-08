@@ -320,7 +320,8 @@ class ServiceController:
         if summary.originally_running:
             try:
                 self._start_registered(summary.target_definition)
-            except (OSError, ServiceError):
+            except BaseException:
+                # Catchable interruptions need the same explicit recovery state as startup errors.
                 self._write_maintenance_record({"phase": "start_failed", "summary": summary.as_dict()})
                 raise
             self.maintenance_path.unlink(missing_ok=True)
@@ -444,9 +445,9 @@ class ServiceController:
                 if readiness.state is ProbeState.CONFLICT or time.monotonic() >= deadline:
                     raise ServiceError(f"the service failed readiness: {readiness.detail}")  # noqa: TRY003, TRY301
                 self._sleep(0.1)
-        except (OSError, ServiceError):
-            # Restore the guard even if startup partially succeeded. Never fall
-            # back to an old executable after the database changed.
+        except BaseException:
+            # Restore the guard even on Ctrl+C during startup verification, then
+            # propagate the interruption. Never fall back to an old executable.
             self._adapter.suspend(self.maintenance_path)
             self._adapter.stop()
             raise

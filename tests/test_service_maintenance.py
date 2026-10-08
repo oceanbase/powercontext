@@ -30,6 +30,7 @@ from powercontext.service.adapters.systemd import SystemdUserAdapter
 from powercontext.service.adapters.windows import WindowsTaskSchedulerAdapter
 from powercontext.service.controller import ServiceController
 from powercontext.service.model import (
+    LivenessState,
     ManagerOwnershipState,
     ManagerRegistration,
     ManagerState,
@@ -190,6 +191,79 @@ def test_startup_readiness_failure_is_separate_from_database_ready_and_keeps_ser
     assert adapter.manager is ManagerState.INACTIVE
     assert adapter.definition == summary.target_definition
     assert json.loads(controller.maintenance_path.read_text())["phase"] == "start_failed"
+
+
+@pytest.mark.parametrize("startup_check", ["liveness", "readiness"])
+def test_cancelled_maintenance_startup_stays_stopped_until_explicit_recovery(
+    tmp_path: Path, startup_check: str
+) -> None:
+    _, adapter = _installed(tmp_path)
+    manager_probe = _manager_probe(adapter)
+    interrupt_pending = False
+
+    def probe(endpoint: str) -> ProbeResult:
+        nonlocal interrupt_pending
+        result = manager_probe(endpoint)
+        if startup_check == "liveness" and interrupt_pending and result.state is ProbeState.LIVE:
+            interrupt_pending = False
+            raise KeyboardInterrupt
+        return result
+
+    def readiness_probe(endpoint: str) -> ProbeResult:
+        nonlocal interrupt_pending
+        if startup_check == "readiness" and interrupt_pending:
+            interrupt_pending = False
+            raise KeyboardInterrupt
+        return manager_probe(endpoint)
+
+    controller = ServiceController(adapter, probe=probe, readiness_probe=readiness_probe)
+    summary = controller.maintenance_summary()
+    with controller.maintenance(expected_fingerprint=summary.fingerprint) as session:
+        # Only the new service's startup check is interrupted, after migration
+        # has stopped the old service and the caller has verified the database.
+        interrupt_pending = True
+        with pytest.raises(KeyboardInterrupt):
+            session.complete()
+        assert not session.completed
+
+    assert adapter.manager is ManagerState.INACTIVE
+    assert adapter.suspended
+    assert adapter.definition == summary.target_definition
+    assert json.loads(controller.maintenance_path.read_text())["phase"] == "start_failed"
+    assert controller.start().ok
+    assert adapter.definition == summary.target_definition
+    assert not adapter.suspended
+    assert not controller.maintenance_path.exists()
+
+
+def test_cancelled_public_start_restores_stopped_service_and_allows_explicit_retry(tmp_path: Path) -> None:
+    controller, adapter = _installed(tmp_path)
+    controller.stop()
+    original = adapter.definition
+    manager_probe = _manager_probe(adapter)
+    interrupt_pending = True
+
+    def readiness_probe(endpoint: str) -> ProbeResult:
+        nonlocal interrupt_pending
+        if interrupt_pending:
+            interrupt_pending = False
+            raise KeyboardInterrupt
+        return manager_probe(endpoint)
+
+    controller = ServiceController(adapter, probe=manager_probe, readiness_probe=readiness_probe)
+    with pytest.raises(KeyboardInterrupt):
+        controller.start()
+
+    assert adapter.manager is ManagerState.INACTIVE
+    assert adapter.suspended
+    assert adapter.definition == original
+    assert json.loads(controller.maintenance_path.read_text())["phase"] == "manual_stopped"
+    recovered = controller.start()
+    assert recovered.manager is ManagerState.ACTIVE
+    assert recovered.server_liveness is LivenessState.LIVE
+    assert adapter.definition == original
+    assert not adapter.suspended
+    assert not controller.maintenance_path.exists()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="requires creating a symlink without elevation")
