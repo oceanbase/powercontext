@@ -17,6 +17,7 @@
 import asyncio
 import json
 import os
+import socket
 import sqlite3
 from pathlib import Path
 from typing import Literal
@@ -28,6 +29,8 @@ from typer.testing import CliRunner
 
 from powercontext.builtin.persistence.migrations.connections import BackendIdentity, MaintenanceConnections
 from powercontext.builtin.persistence.migrations.deployment import production_bundle
+from powercontext.builtin.persistence.migrations.models import MigrationResult
+from powercontext.builtin.persistence.migrations.mysql import MySQLMigrationRunner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.cli.app import create_cli
@@ -69,6 +72,40 @@ def _invoke(command: list[str], action: str, tmp_path: Path, *options: str, prom
         create_cli([app]),
         [*command, action, "--env-file", str(tmp_path / "deployment.env"), *options],
         input=prompt_input,
+    )
+
+
+def _configure_oceanbase_inspection(tmp_path: Path, monkeypatch) -> tuple[list[str], list[str], Path]:
+    _database, command = _configure(tmp_path, monkeypatch)
+    (tmp_path / "deployment.env").write_text(
+        "POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase\n"
+        "POWERCONTEXT_SERVER_DATABASE_URL=mysql+aoceanbase://operator:secret@database.invalid:2881/pc_probe"
+        "?charset=utf8mb4\n",
+        encoding="utf-8",
+    )
+    identity = BackendIdentity("oceanbase", "simulated-oceanbase-database-identity", "pc_probe")
+
+    def inspect_empty_database(_connections, operation, *, writable=False):
+        assert not writable, "This CLI fixture must never connect to or mutate a real database"
+        return operation(None, identity, lambda: None)
+
+    monkeypatch.setattr(MaintenanceConnections, "run", inspect_empty_database)
+    evidence = tmp_path / "persistent-evidence"
+    options = ["--evidence-dir", str(evidence), "--lock-coordination", "single-host"]
+    return command, options, evidence / identity.database_id / "active-run.json"
+
+
+def _record_pending_run(path: Path, token: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "version": 1,
+            "database_id": path.parent.name,
+            "hostname": socket.gethostname().casefold(),
+            "token": token,
+            "previous_run": None,
+        }),
+        encoding="utf-8",
     )
 
 
@@ -358,7 +395,10 @@ def test_missing_seekdb_is_inspected_without_initializing_the_engine(tmp_path, m
 
 
 @pytest.mark.parametrize("action", ["status", "plan", "apply", "verify"])
-def test_oceanbase_requires_persistent_evidence_before_connecting(tmp_path, monkeypatch, action):
+@pytest.mark.parametrize("missing", ["evidence", "coordination"])
+def test_oceanbase_requires_evidence_and_explicit_coordination_before_connecting(
+    tmp_path, monkeypatch, action, missing
+):
     _database, command = _configure(tmp_path, monkeypatch)
     private_value = "private-password-do-not-print"
     private_host = "private-database-host.invalid"
@@ -370,20 +410,23 @@ def test_oceanbase_requires_persistent_evidence_before_connecting(tmp_path, monk
     )
 
     def refuse_connection(*_args, **_kwargs):
-        pytest.fail("Missing persistent evidence must be rejected before contacting a database")
+        pytest.fail("Missing migration coordination must be rejected before contacting a database")
 
     monkeypatch.setattr(MaintenanceConnections, "run", refuse_connection)
-    result = _invoke(command, action, tmp_path)
+    evidence = tmp_path / "persistent-evidence"
+    options = ["--evidence-dir", str(evidence)] if missing == "coordination" else []
+    result = _invoke(command, action, tmp_path, *options)
     assert result.exit_code == 1, result.output
-    assert json.loads(result.output)["error"] == "evidence_required"
-    assert "--evidence-dir" in result.output
+    assert json.loads(result.output)["error"] == f"{missing}_required"
+    assert ("--lock-coordination single-host" if missing == "coordination" else "--evidence-dir") in result.output
     assert private_value not in result.output
     assert private_host not in result.output
     assert "Traceback" not in result.output
+    assert not evidence.exists()
 
 
 @pytest.mark.parametrize("kind", ["seekdb", "oceanbase"])
-def test_remote_cli_uses_the_configured_maintenance_identity(
+def test_remote_cli_uses_the_configured_maintenance_identity_and_coordination_scope(
     tmp_path, monkeypatch, kind: Literal["seekdb", "oceanbase"]
 ):
     _database, command = _configure(tmp_path, monkeypatch)
@@ -407,6 +450,8 @@ def test_remote_cli_uses_the_configured_maintenance_identity(
     evidence = tmp_path / "persistent-evidence"
     for action in ("status", "plan"):
         options = ["--evidence-dir", str(evidence)]
+        if kind == "oceanbase":
+            options.extend(["--lock-coordination", "single-host"])
         if action == "plan":
             options.extend(["--backup", "manual"])
         result = _invoke(command, action, tmp_path, *options)
@@ -416,7 +461,141 @@ def test_remote_cli_uses_the_configured_maintenance_identity(
         assert payload["state"] == "uninitialized"
         assert payload["readiness_scope"] == "registered_bundle"
         assert payload["server_ready"] is False
+        if kind == "oceanbase":
+            assert payload["coordination"] == {
+                "mode": "single-host",
+                "host": socket.gethostname(),
+                "directory": str(evidence.resolve() / identity.database_id),
+            }
+        else:
+            assert payload["coordination"] == {
+                "mode": "engine-directory",
+                "directory": str((tmp_path / "seekdb").resolve()),
+            }
+    if kind == "oceanbase":
+        original_plan = payload["plan_id"]
+        relocated = _invoke(
+            command,
+            "plan",
+            tmp_path,
+            "--evidence-dir",
+            str(tmp_path / "other-evidence"),
+            "--lock-coordination",
+            "single-host",
+            "--backup",
+            "manual",
+        )
+        assert relocated.exit_code == 0, relocated.output
+        assert json.loads(relocated.output)["plan_id"] != original_plan
+        with monkeypatch.context() as patch:
+            patch.setattr(socket, "gethostname", lambda: "replacement-maintenance-host")
+            replanned = _invoke(command, "plan", tmp_path, *options)
+            assert replanned.exit_code == 0, replanned.output
+            assert json.loads(replanned.output)["plan_id"] != original_plan
+            refused = _invoke(
+                command,
+                "apply",
+                tmp_path,
+                *options,
+                "--yes",
+                "--plan-id",
+                original_plan,
+                "--backup-confirmed",
+                "--maintenance-confirmed",
+            )
+            assert refused.exit_code == 1, refused.output
+            assert json.loads(refused.output)["error"] == "plan_changed"
     assert not evidence.exists()
+    assert not (tmp_path / "other-evidence").exists()
+
+
+@pytest.mark.parametrize("kind", ["sqlite", "seekdb"])
+def test_previous_run_acknowledgement_is_rejected_for_other_backends_before_writing(tmp_path, monkeypatch, kind):
+    database, command = _configure(tmp_path, monkeypatch)
+    if kind == "seekdb":
+        (tmp_path / "deployment.env").write_text(
+            f"POWERCONTEXT_SERVER_DATABASE_KIND=seekdb\nPOWERCONTEXT_SERVER_DATABASE_PATH={tmp_path / 'seekdb'}\n",
+            encoding="utf-8",
+        )
+
+    def refuse_connection(*_args, **_kwargs):
+        pytest.fail("Unsupported acknowledgement must be rejected before opening a backend")
+
+    monkeypatch.setattr(MaintenanceConnections, "run", refuse_connection)
+    result = _invoke(command, "apply", tmp_path, "--acknowledge-previous-run", uuid4().hex)
+    assert result.exit_code == 1, result.output
+    assert json.loads(result.output)["error"] == "unsupported_option"
+    assert not database.parent.exists()
+    assert not (tmp_path / "seekdb").exists()
+
+
+@pytest.mark.parametrize("acknowledgement", [None, "incorrect-run-token"])
+def test_oceanbase_pending_run_requires_exact_acknowledgement_before_prompting(tmp_path, monkeypatch, acknowledgement):
+    command, options, receipt = _configure_oceanbase_inspection(tmp_path, monkeypatch)
+    _record_pending_run(receipt, uuid4().hex)
+    original = receipt.read_bytes()
+    monkeypatch.setattr(database_migration, "_interactive", lambda: True)
+    if acknowledgement is not None:
+        options.extend(["--acknowledge-previous-run", acknowledgement])
+    result = _invoke(command, "apply", tmp_path, *options, "--backup", "manual", prompt_input="y\n")
+    assert result.exit_code == 1, result.output
+    assert json.loads(result.output)["error"] == "recovery_required"
+    assert "Accept this plan" not in result.output
+    assert receipt.read_bytes() == original
+
+
+def test_oceanbase_rejects_a_stale_previous_run_acknowledgement(tmp_path, monkeypatch):
+    command, options, receipt = _configure_oceanbase_inspection(tmp_path, monkeypatch)
+    result = _invoke(command, "apply", tmp_path, *options, "--acknowledge-previous-run", uuid4().hex)
+    assert result.exit_code == 1, result.output
+    assert json.loads(result.output)["error"] == "stale_ack"
+    assert not receipt.parent.exists()
+
+
+def test_oceanbase_plan_binds_pending_run_and_forwards_explicit_acknowledgement_in_one_confirmation(
+    tmp_path, monkeypatch
+):
+    command, options, receipt = _configure_oceanbase_inspection(tmp_path, monkeypatch)
+    before = _invoke(command, "plan", tmp_path, *options, "--backup", "manual")
+    assert before.exit_code == 0, before.output
+    original_plan = json.loads(before.output)
+    token = uuid4().hex
+    _record_pending_run(receipt, token)
+    recorded = receipt.read_bytes()
+    planned = _invoke(command, "plan", tmp_path, *options, "--backup", "manual")
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["state"] == "recovery_required"
+    assert plan["coordination"]["pending_run_id"] == token
+    assert plan["plan_id"] != original_plan["plan_id"]
+    verified = _invoke(command, "verify", tmp_path, *options)
+    assert verified.exit_code == 1, verified.output
+    assert json.loads(verified.output)["error"] == "recovery_required"
+    assert receipt.read_bytes() == recorded
+
+    def accepted_migration(runner, **accepted):
+        assert runner.connections.acknowledge_previous_run == token
+        assert accepted["plan_id"] == plan["plan_id"]
+        return MigrationResult(revision=production_bundle().head, changed=True)
+
+    monkeypatch.setattr(MySQLMigrationRunner, "apply", accepted_migration)
+    monkeypatch.setattr(database_migration, "_interactive", lambda: True)
+    result = _invoke(
+        command,
+        "apply",
+        tmp_path,
+        *options,
+        "--backup",
+        "manual",
+        "--acknowledge-previous-run",
+        token,
+        prompt_input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.count("Accept this plan and the declarations above?") == 1
+    assert "DBA confirmed all previous remote execution and background DDL ended" in result.output
+    assert "PC does not verify that declaration" in result.output
+    assert '"server_ready": false' in result.output
 
 
 def test_sqlite_commands_use_the_explicit_external_evidence_directory(tmp_path, monkeypatch):

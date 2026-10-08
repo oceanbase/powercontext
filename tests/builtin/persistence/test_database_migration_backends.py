@@ -32,12 +32,11 @@ import pytest
 from alembic import command
 from sqlalchemy import Connection, inspect, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from powercontext.builtin.persistence.migrations import MigrationBundle
+from powercontext.builtin.persistence.migrations.connections import MaintenanceConnections
 from powercontext.builtin.persistence.migrations.locking import local_migration_lock
-from powercontext.builtin.persistence.migrations.oceanbase import oceanbase_migration_lock
-from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 
 FIXTURE = Path(__file__).resolve().parents[2] / "fixtures/database_migrations"
@@ -89,16 +88,6 @@ def exercise_revisions(connection: Connection, bundle: MigrationBundle) -> None:
     }
 
 
-async def exercise_oceanbase(engine: AsyncEngine, database_name: str) -> None:
-    async with (
-        engine.connect() as connection,
-        engine.connect() as contender,
-        oceanbase_migration_lock(connection, contender, database_id=database_name) as lock,
-    ):
-        await connection.run_sync(lambda sync: exercise_revisions(sync, MigrationBundle(FIXTURE)))
-        await lock.verify()
-
-
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekDB probe not enabled")
 def test_real_seekdb_revision_operations(tmp_path: Path) -> None:
     async def scenario() -> None:
@@ -116,7 +105,7 @@ def test_real_seekdb_revision_operations(tmp_path: Path) -> None:
     not os.environ.get("POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL"),
     reason="dedicated real OceanBase target not configured",
 )
-def test_real_oceanbase_revision_operations_and_named_lock() -> None:
+def test_real_oceanbase_revision_operations_and_single_host_coordination(tmp_path: Path) -> None:
     value = os.environ["POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL"]
     url = make_url(value)
     assert url.database and url.database.startswith("pc_migration_probe_"), (
@@ -124,8 +113,12 @@ def test_real_oceanbase_revision_operations_and_named_lock() -> None:
     )
     config = OceanBaseConfig.model_validate({"url": value})
 
-    async def scenario() -> None:
-        async with OceanBaseProfile.open(config, tables=()) as profile:
-            await exercise_oceanbase(profile.database.engine, str(url.database))
+    adapter = MaintenanceConnections(config, evidence_directory=tmp_path / "evidence", lock_coordination="single-host")
 
-    asyncio.run(scenario())
+    def exercise(connection, _identity, verify):
+        assert connection is not None
+        verify()
+        exercise_revisions(connection, MigrationBundle(FIXTURE))
+        verify()
+
+    adapter.run(exercise, writable=True)

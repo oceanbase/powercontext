@@ -17,12 +17,17 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
-from filelock import FileLock, SoftFileLock, Timeout
+from filelock import BaseFileLock, FileLock, SoftFileLock, Timeout
 
 from .models import MigrationError
+
+
+def _require_os_backed_lock(lock: BaseFileLock) -> None:
+    if isinstance(lock, SoftFileLock):
+        raise MigrationError("migration_lock_unsupported", "This platform does not provide an OS-backed file lock.")
 
 
 @contextmanager
@@ -35,13 +40,19 @@ def local_migration_lock(target: Path) -> Iterator[None]:
     target = target.expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     lock = FileLock(str(target.with_name(target.name + ".pc-migration.lock")), timeout=0, mode=0o600)
-    if isinstance(lock, SoftFileLock):
-        raise MigrationError("migration_lock_unsupported", "This platform does not provide an OS-backed file lock.")
+    _require_os_backed_lock(lock)
     try:
         lock.acquire()
     except Timeout as error:
         raise MigrationError("migration_locked", "Another process holds the migration lock.") from error
     try:
+        # filelock can switch to SoftFileLock during acquire when native locking is unsupported.
+        _require_os_backed_lock(lock)
         yield
-    finally:
+    except BaseException:
+        # Cleanup must not replace an unsupported-lock, migration, or interruption error.
+        with suppress(BaseException):
+            lock.release()
+        raise
+    else:
         lock.release()

@@ -17,7 +17,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,6 +29,7 @@ from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import Connection, event
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from powercontext.builtin.persistence.migrations import connections
@@ -194,7 +199,18 @@ class _RemoteSession:
         return operation(self.connection)
 
 
-def test_oceanbase_routes_to_different_database_identity_before_write_are_rejected(monkeypatch) -> None:
+def test_oceanbase_write_requires_an_explicit_single_host_coordinator() -> None:
+    config = OceanBaseConfig.model_validate({
+        "url": "mysql+aoceanbase://probe:secret@example.invalid:2881/scratch?charset=utf8mb4"
+    })
+    operation = Mock()
+    with pytest.raises(MigrationError) as error:
+        MaintenanceConnections(config).run(operation, writable=True)
+    assert error.value.code == "coordination_required"
+    operation.assert_not_called()
+
+
+def test_oceanbase_routes_to_different_database_identity_before_write_are_rejected(tmp_path: Path, monkeypatch) -> None:
     sessions = iter((_RemoteSession(1), _RemoteSession(2)))
     engine = Mock()
     engine.connect.side_effect = lambda: next(sessions)
@@ -209,7 +225,9 @@ def test_oceanbase_routes_to_different_database_identity_before_write_are_reject
         "url": "mysql+aoceanbase://private-user:private-password@private-route:2881/scratch?charset=utf8mb4"
     })
     with pytest.raises(MigrationError) as error:
-        MaintenanceConnections(config).run(operation, writable=True)
+        MaintenanceConnections(config, evidence_directory=tmp_path, lock_coordination="single-host").run(
+            operation, writable=True
+        )
     assert error.value.code == "target_identity_unavailable"
     assert "private" not in str(error.value)
     operation.assert_not_called()
@@ -253,3 +271,119 @@ def test_real_seekdb_maintenance_preserves_committed_data_without_initializing_b
 
     assert adapter.run(read) == written == missing[1]
     assert "preserved" not in caplog.text
+
+
+@pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")
+def test_real_seekdb_maintenance_excludes_another_process_and_reopens_after_release(tmp_path: Path) -> None:
+    pytest.importorskip("pylibseekdb")
+    path = tmp_path / "seekdb"
+    ready = tmp_path / "owner-ready"
+    code = """
+from pathlib import Path
+import sys
+from powercontext.builtin.persistence.migrations.connections import MaintenanceConnections
+from powercontext.builtin.persistence.seekdb import SeekDBConfig
+
+def own(connection, identity, verify):
+    verify()
+    connection.exec_driver_sql("CREATE TABLE pc_lock_probe (id INT PRIMARY KEY, value VARCHAR(32))")
+    connection.exec_driver_sql("INSERT INTO pc_lock_probe VALUES (1, 'preserved')")
+    connection.commit()
+    Path(sys.argv[2]).write_text("ready", encoding="utf-8")
+    sys.stdin.read()
+    verify()
+
+MaintenanceConnections(SeekDBConfig(path=Path(sys.argv[1]))).run(own, writable=True)
+"""
+    process = subprocess.Popen(
+        [sys.executable, "-c", code, str(path), str(ready)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 60
+        while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert ready.exists(), "The isolated seekdb owner did not become ready"
+        alias = tmp_path / "seekdb-alias"
+        alias.symlink_to(path, target_is_directory=True)
+        operation = Mock()
+        with pytest.raises(MigrationError) as locked:
+            MaintenanceConnections(SeekDBConfig(path=alias)).run(operation, writable=True)
+        assert locked.value.code == "migration_locked"
+        operation.assert_not_called()
+    finally:
+        try:
+            _, stderr = process.communicate(input="", timeout=30)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate(timeout=10)
+            pytest.fail("The isolated seekdb owner did not release its maintenance resources")
+        assert process.returncode == 0, stderr
+
+    def read(connection: Connection | None, _identity: BackendIdentity, verify: Callable[[], None]) -> str:
+        assert connection is not None
+        verify()
+        return connection.exec_driver_sql("SELECT value FROM pc_lock_probe WHERE id = 1").scalar_one()
+
+    assert MaintenanceConnections(SeekDBConfig(path=path)).run(read) == "preserved"
+
+
+@pytest.mark.skipif(
+    not os.environ.get("POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL"),
+    reason="dedicated real OceanBase target not configured",
+)
+def test_real_oceanbase_single_host_coordinator_excludes_other_maintenance_and_survives_commit(tmp_path: Path) -> None:
+    """Run maintenance only on one host and evidence directory, without business DDL."""
+    value = os.environ["POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL"]
+    url = make_url(value)
+    assert url.database and url.database.startswith("pc_migration_probe_"), (
+        "Only a dedicated scratch database is allowed"
+    )
+    config = OceanBaseConfig.model_validate({"url": value})
+    adapter = MaintenanceConnections(config, evidence_directory=tmp_path, lock_coordination="single-host")
+    identity = adapter.run(lambda _connection, target, _verify: target)
+    assert identity.product == "oceanbase"
+    assert identity.database_name == url.database
+
+    def diagnostic(error: MigrationError) -> str:
+        details = f"code={error.code}: {error}"
+        cause = error.__cause__
+        if cause is not None:
+            details += f"; cause={type(cause).__name__}: {cause}"
+        for secret in (value, url.render_as_string(hide_password=False), url.password):
+            if secret:
+                details = details.replace(secret, "[redacted]")
+        return details
+
+    def maintain(connection: Connection | None, target: BackendIdentity, verify: Callable[[], None]) -> BackendIdentity:
+        assert connection is not None
+        assert target == identity
+        verify()
+        contender = MaintenanceConnections(config, evidence_directory=tmp_path, lock_coordination="single-host")
+        operation = Mock()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            attempt = executor.submit(contender.run, operation, writable=True)
+            with pytest.raises(MigrationError) as locked:
+                attempt.result(timeout=30)
+        assert locked.value.code == "migration_locked", diagnostic(locked.value)
+        operation.assert_not_called()
+        connection.commit()
+        verify()
+        assert connection.exec_driver_sql("SELECT DATABASE()").scalar_one() == target.database_name
+        return target
+
+    assert adapter.run(maintain, writable=True) == identity
+
+    def reacquire(
+        connection: Connection | None, target: BackendIdentity, verify: Callable[[], None]
+    ) -> BackendIdentity:
+        assert connection is not None
+        verify()
+        connection.commit()
+        verify()
+        return target
+
+    assert adapter.run(reacquire, writable=True) == identity

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import socket
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -152,6 +153,21 @@ class MySQLMigrationRunner:
         self.schema = MySQLSchema(bundle)
         self.evidence_directory = evidence_directory.expanduser().resolve()
         self.configuration_digest = digest(configuration or {})
+        if connections.config.kind == "oceanbase":
+            if (
+                connections.lock_coordination != "single-host"
+                or connections.evidence_directory != self.evidence_directory
+            ):
+                raise MigrationError(
+                    "coordination_required",
+                    "Use single-host coordination and the same evidence directory for this runner.",
+                )
+            self.configuration_digest = digest({
+                "configuration": configuration or {},
+                "coordination": "single-host",
+                "host": socket.gethostname(),
+                "evidence_directory": str(self.evidence_directory),
+            })
         self.backup_factory = backup_factory or _fork_provider
         self._history_directory = Path(__file__).parent / "mysql_resources"
         resources = {
@@ -233,6 +249,15 @@ class MySQLMigrationRunner:
             "shared_database": shared_database,
         }
         initial = self.plan(**options)
+        previous_run = (initial.coordination or {}).get("pending_run_id")
+        acknowledgement = self.connections.acknowledge_previous_run
+        if previous_run is not None and acknowledgement != previous_run:
+            raise MigrationError(
+                "recovery_required",
+                "Confirm that the previous remote operation has ended, then acknowledge its exact pending run ID.",
+            )
+        if previous_run is None and acknowledgement is not None:
+            raise MigrationError("stale_ack", "There is no pending run matching this acknowledgement.")
         if initial.state == "ready":
             return MigrationResult(revision=self.bundle.head, changed=False)
         self._check_consent(
@@ -303,6 +328,13 @@ class MySQLMigrationRunner:
         ):
             raise MigrationError("plan_changed", "The database changed before the maintenance lock was acquired.")
         journal = _Journal(self.evidence_directory, identity)
+        previous = journal.read()
+        if not initial.revisions and not initial.adopt_baseline and (previous is None or previous.state == "complete"):
+            # A completed migration can retain its run receipt after an
+            # interrupted connection close. Acknowledgement still requires
+            # the lock and full schema/data reinspection, but no new backup.
+            guard()
+            return MigrationResult(revision=self.bundle.head, changed=False)
         provider = self.backup_factory(connection, identity, journal.path.parent / "backups")
         evidence = self._prepare_evidence(initial, journal, provider, manual_ref=manual_ref)
         guard()
@@ -451,6 +483,9 @@ class MySQLMigrationRunner:
         available, reasons = self._backup_availability(
             connection, identity, journal, evidence, current, backup_policy=backup_policy, ready=state == "ready"
         )
+        coordination = self.connections.coordination(identity)
+        if coordination.get("pending_run_id"):
+            state = "recovery_required"
         fields = {
             "database_id": identity.database_id,
             "source_revision": current,
@@ -468,6 +503,7 @@ class MySQLMigrationRunner:
             "retained_objects": (),
             "service": service,
             "shared_database": shared_database,
+            "coordination": coordination,
         }
         return MigrationPlan.model_validate({"plan_id": digest(fields), **fields})
 

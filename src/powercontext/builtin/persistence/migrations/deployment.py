@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy.engine import make_url
 
@@ -44,20 +44,38 @@ def production_bundle() -> MigrationBundle:
 MigrationRunner = SQLiteMigrationRunner | MySQLMigrationRunner
 
 
-def deployment_runner(settings: ServerSettings, *, evidence_dir: Path | None = None) -> MigrationRunner:
+def deployment_runner(
+    settings: ServerSettings,
+    *,
+    evidence_dir: Path | None = None,
+    lock_coordination: Literal["single-host"] | None = None,
+    acknowledge_previous_run: str | None = None,
+) -> MigrationRunner:
     """Use the real configured identity without opening a business profile."""
     database = settings.database
+    if acknowledge_previous_run is not None and not isinstance(database, OceanBaseConfig):
+        raise MigrationError("unsupported_option", "--acknowledge-previous-run is supported only for OceanBase.")
     if isinstance(database, (SeekDBConfig, OceanBaseConfig)):
         if evidence_dir is None:
             if isinstance(database, OceanBaseConfig):
                 raise MigrationError(
                     "evidence_required",
-                    "OceanBase maintenance requires --evidence-dir on durable storage shared by migration Jobs.",
+                    "OceanBase maintenance requires --evidence-dir on one fixed host, shared by all migration Jobs.",
                 )
             target = database.path.expanduser().resolve()
             evidence_dir = target.with_name(target.name + ".pc-migration-state")
+        if isinstance(database, OceanBaseConfig) and lock_coordination != "single-host":
+            raise MigrationError(
+                "coordination_required",
+                "OceanBase requires --lock-coordination single-host; run all migrators on one fixed host and evidence directory.",
+            )
         return MySQLMigrationRunner(
-            MaintenanceConnections(database),
+            MaintenanceConnections(
+                database,
+                evidence_directory=evidence_dir,
+                lock_coordination=lock_coordination,
+                acknowledge_previous_run=acknowledge_previous_run,
+            ),
             production_bundle(),
             evidence_directory=evidence_dir,
             configuration=database.model_dump(mode="json", exclude={"url", "echo"}),

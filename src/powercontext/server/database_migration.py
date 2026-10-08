@@ -40,7 +40,13 @@ BackupPolicy = Literal["auto", "manual", "skip"]
 EnvFile = Annotated[Path | None, typer.Option(help="Read the same environment file as the deployed Server.")]
 EvidenceDir = Annotated[
     Path | None,
-    typer.Option(help="Persistent maintenance evidence directory; required and shared across Jobs for OceanBase."),
+    typer.Option(
+        help="Persistent maintenance evidence directory; OceanBase Jobs must use the same directory on one fixed host."
+    ),
+]
+LockCoordination = Annotated[
+    Literal["single-host"] | None,
+    typer.Option(help="OceanBase: run all migrators on one fixed host using the same evidence directory."),
 ]
 ManageService = Annotated[
     bool,
@@ -65,28 +71,33 @@ def main() -> None:
 
 
 @app.command()
-def status(env_file: EnvFile = None, evidence_dir: EvidenceDir = None) -> None:
+def status(
+    env_file: EnvFile = None, evidence_dir: EvidenceDir = None, lock_coordination: LockCoordination = None
+) -> None:
     """Inspect the schema version without creating a database or control tables."""
-    _inspect(env_file, evidence_dir=evidence_dir, verify=False)
+    _inspect(env_file, evidence_dir=evidence_dir, lock_coordination=lock_coordination, verify=False)
 
 
 @app.command()
-def verify(env_file: EnvFile = None, evidence_dir: EvidenceDir = None) -> None:
+def verify(
+    env_file: EnvFile = None, evidence_dir: EvidenceDir = None, lock_coordination: LockCoordination = None
+) -> None:
     """Verify database readiness; this does not assert Server or cluster readiness."""
-    _inspect(env_file, evidence_dir=evidence_dir, verify=True)
+    _inspect(env_file, evidence_dir=evidence_dir, lock_coordination=lock_coordination, verify=True)
 
 
 @app.command()
 def plan(
     env_file: EnvFile = None,
     evidence_dir: EvidenceDir = None,
+    lock_coordination: LockCoordination = None,
     backup: Annotated[BackupPolicy, typer.Option(help="Bind the selected backup policy to the plan.")] = "auto",
     manage_service: ManageService = False,
     shared_database: SharedDatabase = False,
 ) -> None:
     """Preview the target, resource digests, backup policy, and maintenance scope."""
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
-        runner = deployment_runner(settings, evidence_dir=evidence_dir)
+        runner = deployment_runner(settings, evidence_dir=evidence_dir, lock_coordination=lock_coordination)
         service = _service_scope(_environment_file(env_file)) if manage_service else None
         reviewed = runner.plan(backup_policy=backup, service=service, shared_database=shared_database)
         _write_payload(reviewed)
@@ -96,6 +107,13 @@ def plan(
 def apply(
     env_file: EnvFile = None,
     evidence_dir: EvidenceDir = None,
+    lock_coordination: LockCoordination = None,
+    acknowledge_previous_run: Annotated[
+        str | None,
+        typer.Option(
+            help="OceanBase only: declare a DBA confirmed previous remote execution and background DDL ended; use its run token."
+        ),
+    ] = None,
     backup: Annotated[
         BackupPolicy | None,
         typer.Option(help="PC native backup, a user-declared manual backup, or explicit no-backup risk."),
@@ -122,14 +140,21 @@ def apply(
 ) -> None:
     """Review once, then stop writes, back up, migrate, verify, and optionally switch a local service."""
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
-        runner = deployment_runner(settings, evidence_dir=evidence_dir)
+        runner = deployment_runner(
+            settings,
+            evidence_dir=evidence_dir,
+            lock_coordination=lock_coordination,
+            acknowledge_previous_run=acknowledge_previous_run,
+        )
         policy: BackupPolicy = backup or "auto"
         initial = runner.plan(backup_policy=policy, shared_database=shared_database)
+        _check_previous_run(initial, acknowledge_previous_run)
         if initial.state == "ready":
             _write_payload(runner.verify())
             return
         service = _service_scope(_environment_file(env_file)) if manage_service else None
         reviewed = runner.plan(backup_policy=policy, service=service, shared_database=shared_database)
+        _check_previous_run(reviewed, acknowledge_previous_run)
         if policy == "auto" and not reviewed.backup_available and reviewed.state != "uninitialized":
             raise MigrationError(
                 "backup_unsupported",
@@ -168,9 +193,15 @@ def apply(
         _write_payload(result)
 
 
-def _inspect(env_file: Path | None, *, evidence_dir: Path | None, verify: bool) -> None:
+def _inspect(
+    env_file: Path | None,
+    *,
+    evidence_dir: Path | None,
+    lock_coordination: Literal["single-host"] | None,
+    verify: bool,
+) -> None:
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
-        runner = deployment_runner(settings, evidence_dir=evidence_dir)
+        runner = deployment_runner(settings, evidence_dir=evidence_dir, lock_coordination=lock_coordination)
         result = runner.verify() if verify else runner.plan()
         _write_payload(result)
 
@@ -199,6 +230,14 @@ def _write_confirmation(reviewed: MigrationPlan, policy: BackupPolicy) -> None:
     )
     typer.echo("Maintenance pauses writes. Stop all other Servers, Workers, SDK clients and automatic restarts first.")
     typer.echo("PC cannot automatically discover every node or client connected to this database.")
+    if reviewed.coordination and reviewed.coordination.get("mode") == "single-host":
+        typer.echo(
+            "All migration commands must use this fixed maintenance host and evidence directory. This is not a cross-host database lock."
+        )
+        if reviewed.coordination.get("pending_run_id"):
+            typer.echo(
+                "The supplied previous-run token declares a DBA confirmed all previous remote execution and background DDL ended. PC does not verify that declaration."
+            )
     if reviewed.shared_database:
         typer.echo("You are responsible for upgrading every affected shared-database node before restoring traffic.")
     if reviewed.service is not None:
@@ -280,6 +319,17 @@ def _check_declarations(
         raise MigrationError("confirmation_required", "Manual backup requires --backup-confirmed.")
     if reviewed.backup_policy == "skip" and not accept_no_backup:
         raise MigrationError("confirmation_required", "Skipping backup requires --accept-no-backup.")
+
+
+def _check_previous_run(reviewed: MigrationPlan, acknowledged: str | None) -> None:
+    pending = (reviewed.coordination or {}).get("pending_run_id")
+    if pending is not None and acknowledged != pending:
+        raise MigrationError(
+            "recovery_required",
+            "A DBA must confirm previous remote execution and background DDL ended; provide its exact --acknowledge-previous-run token and review a new plan.",
+        )
+    if pending is None and acknowledged is not None:
+        raise MigrationError("stale_ack", "There is no pending run matching --acknowledge-previous-run.")
 
 
 @contextmanager

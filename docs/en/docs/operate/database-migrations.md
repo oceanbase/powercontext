@@ -22,9 +22,10 @@ A complete Server database containing unmanaged objects is rejected.
 `ready` means this migration bundle passed its schema and data checks. Output explicitly includes
 `readiness_scope=registered_bundle` and `server_ready=false`: it does not establish complete Server, index, legacy-task, or
 cluster readiness. Do not substitute it for a production upgrade or initialization of the complete business database.
-Full startup gates and complete historical baselines remain outside this bundle. OceanBase execution and full Fork
-recovery acceptance require a dedicated real test environment; local tests and an implemented adapter do not establish
-production readiness.
+Full startup gates and complete historical baselines remain outside this bundle. Isolated four-table acceptance passed
+through an ODP endpoint on OceanBase AI Database 4.6.3, covering coordinator exclusion, acknowledged recovery after
+committed DDL, data preservation, and repeat execution. This does not establish complete Server readiness, automatic
+detection of unfinished remote DDL after a crash, or full Fork restoration acceptance.
 
 The existing `server processing-migrate` remains available. Follow
 [Migrate Artifact processing state](artifact-processing-migration.md); it does not yet forward to the unified entry point.
@@ -32,8 +33,8 @@ See [Deploy the Server](deploy-server.md) for service deployment.
 
 ## Read-only inspection and one confirmation
 
-The `deployment.env` examples below use SQLite. OceanBase commands also require the evidence-directory option shown
-in the next section. Inspect the target or preview a plan; these commands never create a missing database, parent
+The `deployment.env` examples below use SQLite. OceanBase commands also require the evidence-directory and fixed-host
+coordination options shown in the next section. Inspect the target or preview a plan; these commands never create a missing database, parent
 directory, or control table:
 
 ```bash
@@ -43,7 +44,7 @@ powercontext server db-migrate verify --env-file deployment.env
 ```
 
 Plans bind target identity, source/target revisions, actual schema, frozen resources, configuration digests, backup policy,
-and service scope. Diagnostics do not print configuration or credential values. Expected failures return stable JSON
+service scope, and migration coordination. Diagnostics do not print configuration or credential values. Expected failures return stable JSON
 categories and a nonzero exit status.
 
 Within the supported acceptance scope, interactive users can invoke `apply` directly. PC-managed backup is the default.
@@ -94,7 +95,40 @@ container, or migration Job exits. Give each database its own directory and rest
 | --- | --- |
 | SQLite | Defaults to `<database-file>.pc-migration-state` beside the canonical target file; override with `--evidence-dir` |
 | Embedded seekdb | Defaults to `<directory-name>.pc-migration-state` beside the canonical engine directory; override with `--evidence-dir` |
-| OceanBase | Explicit `--evidence-dir` is required by all four commands; every migration Job for the same database must share this durable directory |
+| OceanBase | All four commands require explicit `--evidence-dir` and `--lock-coordination single-host`; every migration Job for the same database uses this durable directory on one fixed maintenance host |
+
+OceanBase uses an OS-backed file lock in `<evidence-dir>/<database-id>`, rather than a database named lock. Pin all
+migration Jobs, retries, and inspections to one fixed maintenance host and the same canonical persistent directory.
+Keep the hostname stable across replacement containers or Jobs as well; a different hostname conflicts with the durable host binding.
+Several business Servers may share the database; migration commands remain on this one host. A shared filesystem,
+replicated evidence directory, or identical directory name on another host does not establish supported cross-host
+locking. Do not run migration Jobs concurrently on different hosts.
+
+The plan's `coordination` records `mode=single-host`, the host name, and the canonical database-specific directory.
+Changing host or directory changes the plan and requires review again. The explicit option selects this deployment
+contract; it does not replace stopped-write responsibilities. Interactive `apply` includes it in the existing single
+confirmation. Missing evidence returns `evidence_required`; with evidence supplied but no coordination option,
+`coordination_required` is returned before contacting OceanBase.
+
+OceanBase coordination works with the configured direct or ODP connection without using physical session IDs,
+`PROCESS`, or process-list visibility. A durable run receipt stays outside the database alongside recovery evidence;
+no extra control table or special Alembic revision row is added. Acquiring a released local lock does not prove previous
+remote execution or background DDL has ended. PC does not automatically verify remote quiescence after interruption.
+
+Keep `<evidence-dir>/coordinator.json`, which binds the maintenance host, its `coordinator.lock`, and the database-specific `migration.lock`,
+`active-run.json`, and recovery summaries. Unsupported OS locking returns `migration_lock_unsupported`; contention
+returns `migration_locked`. An unresolved previous run, damaged run evidence, or conflicting host binding returns
+`recovery_required`; lock-file or maintenance-connection loss returns `migration_lock_lost`. None of these errors
+authorizes deleting the coordination files or continuing on another host.
+
+Only a normal return followed by successful primary-connection closure clears `active-run.json`. Execution interruption
+or connection-close failure, including Ctrl+C after a known DDL completed, retains it. A read-only plan exposes its token as
+`coordination.pending_run_id`, binds it to `plan_id`, and reports `state=recovery_required`. A DBA must first confirm
+all execution and background DDL from that run have ended. Then review a new plan and explicitly supply its exact token
+to `apply --acknowledge-previous-run TOKEN`. This is a manual declaration, not a PC verification, automatic approval,
+schema bypass, or generic run-ID resume. `--yes` and the interactive confirmation never supply this token for you.
+Missing or mismatched acknowledgement returns `recovery_required`; an acknowledgement without a pending run returns
+`stale_ack`. The option is supported only by OceanBase `apply`; SQLite and seekdb reject it.
 
 For seekdb, configure its path in `seekdb.env` and use the same commands. Before this interactive manual-backup example,
 complete your backup and stop every writer:
@@ -105,24 +139,42 @@ powercontext server db-migrate apply --env-file seekdb.env --backup manual
 powercontext server db-migrate verify --env-file seekdb.env
 ```
 
-For multiple Servers sharing OceanBase, make a manual backup and stop all writers through deployment tooling. The
-following automation uses one persistent shared directory and the same scope when planning and applying:
+For multiple Servers sharing OceanBase, make a manual backup and stop all writers through deployment tooling. Run every
+command below on the fixed maintenance host, using its one persistent directory and the same scope when planning and applying:
 
 ```bash
 powercontext server db-migrate status --env-file oceanbase.env \
-  --evidence-dir /mnt/shared/pc-migration-state
+  --evidence-dir /var/lib/powercontext/migration-state --lock-coordination single-host
 powercontext server db-migrate plan --env-file oceanbase.env --backup manual \
-  --shared-database --evidence-dir /mnt/shared/pc-migration-state
+  --shared-database --evidence-dir /var/lib/powercontext/migration-state --lock-coordination single-host
 powercontext server db-migrate apply --env-file oceanbase.env --backup manual \
-  --shared-database --evidence-dir /mnt/shared/pc-migration-state \
+  --shared-database --evidence-dir /var/lib/powercontext/migration-state --lock-coordination single-host \
   --plan-id PLAN_ID --backup-confirmed --maintenance-confirmed --yes
 powercontext server db-migrate verify --env-file oceanbase.env \
-  --evidence-dir /mnt/shared/pc-migration-state
+  --evidence-dir /var/lib/powercontext/migration-state --lock-coordination single-host
 ```
 
 Replace `PLAN_ID` with the returned plan ID. Do not move evidence to an empty directory to bypass a recovery error.
 Missing or inconsistent evidence for an interrupted migration returns `recovery_required`; selecting manual backup or
 accepting no-backup risk does not authorize an unknown schema or an unproven DDL transition.
+
+After an interrupted OceanBase run, keep every writer stopped and retain the same host and directory. Have a DBA confirm
+the previous remote execution and background DDL have ended, then inspect and review the recovery plan:
+
+```bash
+powercontext server db-migrate plan --env-file oceanbase.env --backup manual \
+  --shared-database --evidence-dir /var/lib/powercontext/migration-state --lock-coordination single-host
+powercontext server db-migrate apply --env-file oceanbase.env --backup manual \
+  --shared-database --evidence-dir /var/lib/powercontext/migration-state --lock-coordination single-host \
+  --plan-id NEW_PLAN_ID --acknowledge-previous-run PENDING_RUN_ID \
+  --backup-confirmed --maintenance-confirmed --yes
+powercontext server db-migrate verify --env-file oceanbase.env \
+  --evidence-dir /var/lib/powercontext/migration-state --lock-coordination single-host
+```
+
+Use the latest plan's `plan_id` and `coordination.pending_run_id`. Reconfirm the existing manual backup; do not replace
+the original recovery point with a backup of partial state. Normal upgrades still use one confirmation. Recovery requires
+the additional explicit DBA declaration; PC never invents it when showing the plan.
 
 ## Backup choices
 
@@ -155,8 +207,8 @@ or another policy.
 Version eligibility is only the start: capability checks also consider actual product, tenant mode, permissions, objects,
 subsequent DDL limits, and restoration. Several table Forks do not automatically constitute one database snapshot. Fork
 shares underlying storage and does not protect against disk failure. A simple-table Fork probe does not establish
-recovery of this four-table bundle. OceanBase has not completed real environment acceptance; an implemented provider
-is not a production-upgrade guarantee.
+recovery of this four-table bundle. Full Fork restoration acceptance remains outstanding for OceanBase; an implemented
+provider is not a production-upgrade guarantee.
 
 Retain old business tables, Fork recovery points, and SQLite backups during this upgrade. Migration success, normal
 startup, and retry do not delete them. A later independent revision removes old tables; explicit maintenance removes
@@ -206,7 +258,8 @@ powercontext server run --env-file deployment.env --role all
 
 For multiple Servers sharing one database, run one migration Job per database. Deployment tooling stops traffic and task
 production, drains requests and tasks requiring old handlers, stops all writers, and suspends scaling and automatic
-restarts. Replacement migration Jobs use the same persistent `--evidence-dir`; the original recovery reference must
+restarts. OceanBase replacement migration Jobs stay on the fixed maintenance host and use the same persistent
+`--evidence-dir` and `--lock-coordination single-host`; the original recovery reference and active-run evidence must
 survive Job replacement. Coordinate subsequent node upgrades; each node passes its schema, task, and capability checks
 before traffic returns. A migration lock excludes other migrators, not unknown external clients.
 
@@ -222,11 +275,16 @@ receipts. The Phase A bundle does not yet cover these complete business checks.
 
 ## Storage layers and recovery boundaries
 
-Maintenance reuses configuration and keeps Alembic and locking on a dedicated connection. Frozen historical SQL does not
-depend on current Repositories or application metadata. seekdb holds its canonical engine-directory lock before startup
-until engine shutdown. OceanBase holds a named lock on a pinned connection, checks that a second connection is excluded
-across commits, and verifies ownership before and after each DDL. Lock loss blocks further writes; it does not reconnect
-and continue. These locks do not stop business writers.
+Maintenance reuses configuration and uses a dedicated connection for Alembic. Frozen historical SQL does not depend on
+current Repositories or application metadata. seekdb holds its canonical engine-directory lock before startup until
+engine shutdown. OceanBase verifies the OS lock, host binding, durable run receipt, and maintenance connection before
+and after each DDL. On normal completion it closes the primary maintenance connection before clearing its receipt and
+releasing the file lock; the engine closes afterward. Execution interruption or connection-close failure retains the receipt, including a connection-close
+failure. Later execution requires the exact previous-run token and a DBA's declaration that remote work has ended.
+PC does not infer completion from local process exit or lock availability. Replacing the lock file, losing the connection,
+or finding an unacknowledged previous run blocks continuation.
+Unavailable native file locking is rejected, including runtime fallback to a soft lock; it does not reconnect or silently
+weaken coordination and continue. These locks do not stop business writers.
 
 seekdb/OceanBase DDL may commit implicitly, so one Python transaction cannot make the entire upgrade atomic. Recovery
 recognizes only the registered sequence: `p0001` creates the four frozen tables and two indexes; `p0002` adds the two

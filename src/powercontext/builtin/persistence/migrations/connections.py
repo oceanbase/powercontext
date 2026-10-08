@@ -17,14 +17,15 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, TypeVar
 
-from sqlalchemy import Connection, text
-from sqlalchemy.exc import DBAPIError, SQLAlchemyError
+from sqlalchemy import Connection
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -35,7 +36,7 @@ from powercontext.builtin.persistence.seekdb import profile as seekdb_profile
 
 from .locking import local_migration_lock
 from .models import MigrationError, digest
-from .oceanbase import PinnedOceanBaseLock, oceanbase_migration_lock
+from .oceanbase import oceanbase_migration_lock, pending_run
 
 _T = TypeVar("_T")
 
@@ -58,8 +59,32 @@ class MaintenanceConnections:
     connection and does not start an engine or create any directory.
     """
 
-    def __init__(self, config: SeekDBConfig | OceanBaseConfig) -> None:
+    def __init__(
+        self,
+        config: SeekDBConfig | OceanBaseConfig,
+        *,
+        evidence_directory: Path | None = None,
+        lock_coordination: Literal["single-host"] | None = None,
+        acknowledge_previous_run: str | None = None,
+    ) -> None:
         self.config = config
+        self.evidence_directory = evidence_directory.expanduser().resolve() if evidence_directory is not None else None
+        self.lock_coordination = lock_coordination
+        self.acknowledge_previous_run = acknowledge_previous_run
+
+    def coordination(self, identity: BackendIdentity) -> dict[str, str]:
+        if isinstance(self.config, SeekDBConfig):
+            return {"mode": "engine-directory", "directory": str(self.config.path.expanduser().resolve())}
+        coordination = {
+            "mode": self.lock_coordination or "unselected",
+            "host": socket.gethostname(),
+            "directory": str(self.evidence_directory / identity.database_id) if self.evidence_directory else "",
+        }
+        if self.evidence_directory is not None:
+            previous = pending_run(self.evidence_directory, identity.database_id)
+            if previous is not None:
+                coordination["pending_run_id"] = previous
+        return coordination
 
     def run(
         self,
@@ -141,6 +166,11 @@ class MaintenanceConnections:
         *,
         writable: bool,
     ) -> _T:
+        evidence_directory = self.evidence_directory
+        if writable and (self.lock_coordination != "single-host" or evidence_directory is None):
+            raise MigrationError(
+                "coordination_required", "Select single-host coordination and one persistent evidence directory."
+            )
         oceanbase_profile._register_official_dialect()
         engine = create_async_engine(
             config.url.get_secret_value(),
@@ -155,6 +185,8 @@ class MaintenanceConnections:
                 identity = await connection.run_sync(_oceanbase_identity)
                 if not writable:
                     return await connection.run_sync(lambda sync: operation(sync, identity, lambda: None))
+                if evidence_directory is None:
+                    raise MigrationError("coordination_required", "Select one persistent evidence directory.")
                 async with engine.connect() as contender:
                     other_identity = await contender.run_sync(_oceanbase_identity)
                     if other_identity != identity:
@@ -162,12 +194,15 @@ class MaintenanceConnections:
                             "target_identity_unavailable", "Maintenance sessions reached different database identities."
                         )
                     async with oceanbase_migration_lock(
-                        connection, contender, database_id=identity.database_id
+                        connection,
+                        database_id=identity.database_id,
+                        directory=evidence_directory,
+                        acknowledged_run=self.acknowledge_previous_run,
                     ) as lock:
 
                         def execute(sync: Connection) -> _T:
                             def verify() -> None:
-                                _verify_remote_lock(sync, lock)
+                                lock.verify_sync(sync)
 
                             verify()
                             result = operation(sync, identity, verify)
@@ -231,18 +266,6 @@ def _oceanbase_identity(connection: Connection) -> BackendIdentity:
         raise MigrationError(
             "target_identity_unavailable", "The connected OceanBase identity could not be verified."
         ) from error
-
-
-def _verify_remote_lock(connection: Connection, lock: PinnedOceanBaseLock) -> None:
-    try:
-        if connection.invalidated or connection.closed:
-            raise MigrationError("migration_lock_lost", "The lock connection was lost; inspect DDL before recovery.")
-        session = connection.scalar(text("SELECT CONNECTION_ID()"))
-        owner = connection.scalar(text("SELECT IS_USED_LOCK(:name)"), {"name": lock.name})
-        if session != lock.session_id or owner != lock.session_id:
-            raise MigrationError("migration_lock_lost", "The pinned session no longer owns the migration lock.")
-    except DBAPIError as error:
-        raise MigrationError("migration_lock_lost", "The database migration lock could not be verified.") from error
 
 
 async def _dispose_engine(engine: AsyncEngine) -> None:

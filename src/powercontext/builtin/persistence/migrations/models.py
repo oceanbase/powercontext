@@ -55,6 +55,7 @@ class MigrationPlan(BaseModel):
     affected_objects: tuple[str, ...] = ()
     retained_objects: tuple[str, ...] = ()
     shared_database: bool = False
+    coordination: dict[str, str] | None = None
     service: dict[str, Any] | None = None
     execution_mode: Literal["offline"] = "offline"
     readiness_scope: Literal["registered_bundle"] = "registered_bundle"
