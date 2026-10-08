@@ -381,7 +381,9 @@ Dream 根据受支持的发布基线与集成时的迁移 head，向共享 revis
 
 排空 Dream Run 不要求审批全部 pending Candidate。已经生成的候选及其历史继续迁移，升级后仍可审核。普通 Source 的 Processing Intent、游标及其他队列按统一框架各自的兼容策略保留，不以排空 Dream 为由清除。若旧服务无法将任务处理到终态，应先恢复旧执行环境或按明确的人工恢复方案处理，不能直接改写任务状态、提示词版本、模型配置或超时时间绕过校验。
 
-Dream revision 同时转换 `pc_artifact_processing_schema.config_manifest`：保留 Supervisor mode 和 `legacy_automatic_bindings`，只补充 Handoff/Prompt 的规范 binding；仅当旧 manifest 已声明 Skill Dream capability 时补充对应的 Handoff/Prompt capabilities。该推导使用冻结的旧格式，不读取升级进程的 Runtime 配置。未知 ownership 映射、未完成迁移标记或不支持的格式在写库前拒绝；升级后检查 manifest 与新版配置相容。普通启动不得自动补充这些绑定或改写 manifest。
+Dream revision 同时转换 `pc_artifact_processing_schema.config_manifest`。统一框架必须将目标部署的规范 processing manifest 绑定到维护计划，并显式传入冻结转换脚本。若配置了 `artifact_processing_families`，严格采用该显式能力集合；仅未显式配置时采用目标版本的自动推导结果。旧 manifest 无法区分这两种情况，声明 Skill 不代表启用 Handoff 或 Prompt，不能使用升级进程自身的临时 Runtime 配置代替目标部署声明。
+
+转换保留 Supervisor mode 和历史 `legacy_automatic_bindings`，补充 Handoff/Prompt 的规范 binding，并采用目标声明的能力集合。既有能力必须保留，只允许新增目标明确声明的 Handoff/Prompt 能力；移除能力、改变 ownership 或新增无关能力需另行维护。计划阶段和持有维护锁的执行阶段都要校验目标的冻结格式、binding 映射及相容性，在任何 DDL 或数据写入前以 `incompatible_target_processing_manifest` 拒绝不相容声明。未知的旧 ownership 映射、未完成迁移标记或不支持的格式同样在写库前拒绝。冻结脚本只校验传入的 manifest 数据，不导入实时 Runtime 模型。统一框架确保新版各主机使用计划绑定的配置，并在推进共享 revision 前验证转换结果。普通启动只检查相容性，不得自动补充绑定或改写 manifest。
 
 物理表改名与路由替换仍在 A0 完成。仅启用 A0/A1、未启用 Tag 的部署也执行相同的显式迁移和 Client 协调升级；C 阶段不再改名候选表。历史 Profile Source-window 候选保留其 origin、pending 指针及游标语义，不能被重分类为 Dream 候选，也不能补造 Dream 配置快照。
 
