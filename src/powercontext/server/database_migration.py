@@ -60,7 +60,7 @@ SharedDatabase = Annotated[
 app = typer.Typer(
     name="db-migrate",
     context_settings={"help_option_names": ("-h", "--help")},
-    help="Inspect and explicitly migrate the configured persistent database.",
+    help="Inspect and explicitly migrate the registered Phase A tables; this does not establish full Server readiness.",
     no_args_is_help=True,
 )
 
@@ -82,7 +82,7 @@ def status(
 def verify(
     env_file: EnvFile = None, evidence_dir: EvidenceDir = None, lock_coordination: LockCoordination = None
 ) -> None:
-    """Verify database readiness; this does not assert Server or cluster readiness."""
+    """Verify the registered bundle's schema and data, not complete Server or cluster readiness."""
     _inspect(env_file, evidence_dir=evidence_dir, lock_coordination=lock_coordination, verify=True)
 
 
@@ -138,7 +138,10 @@ def apply(
     manage_service: ManageService = False,
     shared_database: SharedDatabase = False,
 ) -> None:
-    """Review once, then stop writes, back up, migrate, verify, and optionally switch a local service."""
+    """Review once and migrate the registered bundle after the operator stops all writers.
+
+    Local service switching is unavailable for this partial acceptance bundle.
+    """
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
         runner = deployment_runner(
             settings,

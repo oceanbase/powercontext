@@ -31,6 +31,31 @@ The existing `server processing-migrate` remains available. Follow
 [Migrate Artifact processing state](artifact-processing-migration.md); it does not yet forward to the unified entry point.
 See [Deploy the Server](deploy-server.md) for service deployment.
 
+### Capabilities and acceptance scope
+
+| Capability | Current scope | Remaining acceptance |
+| --- | --- | --- |
+| Four-table migration | Registered historical layouts, empty targets, data checks, and interruption recovery | Independently validate every newly supported engine/version combination |
+| Complete Server database | Complete business databases with unmanaged objects are unsupported | Complete baselines from actual historical releases, object ownership, and data invariants |
+| Legacy tasks and indexes | Does not establish legacy-task consumability or full-text/vector projection readiness | Format recognition, conversion/draining, projection rebuilding, and business validation |
+| Startup gates and legacy entry points | Complete Server/Worker/SDK startup is not integrated; `processing-migrate` remains separate | Read-only checks before initialization; remove adopted startup DDL and unify maintenance entry points |
+| Managed service switching | Independent lifecycle commands are available; this bundle does not authorize automatic business-service switching | Startup and readiness acceptance after complete migration |
+| Automatic backup | SQLite Online Backup; Fork upgrade backup is unavailable without full restoration acceptance | Actual Fork restoration and operation with the matching program, beyond successful creation |
+| Standard change gate | Four-table tests do not establish migration coverage for every model change | Require managed-model differences, corresponding revisions, frozen resources, and three-backend acceptance |
+
+`server_ready=false` means this command does not establish complete Server readiness; it is not a health diagnosis of an
+already-running service. Phase A `ready` or a zero exit code must not automatically start business services, restore
+cluster traffic, or declare a complete upgrade successful. `apply` does not stop external writers: the operator must
+stop them before accepting the plan.
+
+Production enablement requires complete databases and task formats from supported historical releases; schema,
+data/legacy-task, and projection migration; and Server/Worker/SDK compatibility checks before table creation and business
+initialization, with adopted implicit startup changes removed. Validate the complete workflow on three real backends:
+old-release creation and writes → stopped writers → migration → new-version startup → API reads/writes, task consumption,
+and retrieval, including interruption recovery and repeat execution. Automatic backup additionally requires actual
+restoration acceptance. Only then enable complete managed service switching and the standard change gate together with
+contributor guidance and the PR template.
+
 ## Read-only inspection and one confirmation
 
 The `deployment.env` examples below use SQLite. OceanBase commands also require the evidence-directory and fixed-host
