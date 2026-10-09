@@ -170,7 +170,7 @@ jobs:
             # bounded native logs from its isolated data directories as well
             # as the Python stack and SQL trace.
             find "$TMPDIR" -type f \( -name '*.log' -o -name '*.log.wf' \) \
-              -print -exec tail -c 262144 {} \; > seekdb-native.log
+              -print -exec tail -c 8388608 {} \; > seekdb-native.log
           }
           trap collect_diagnostics EXIT
           df -h . /tmp
