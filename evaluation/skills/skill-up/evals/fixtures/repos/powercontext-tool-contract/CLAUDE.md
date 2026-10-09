@@ -3,7 +3,8 @@
 This API reference is identical in both evaluation configurations. It supplies the top-level JSON argument
 names and types omitted by the built-in mock tool schemas. It does not prescribe which operations to select.
 
-Source: `openapi/powercontext.yaml`; validated by `validate_suite.py`.
+Sources: `openapi/powercontext.yaml` and the Server's MCP tool selection/specialization;
+validated by `validate_suite.py`.
 
 Fields listed as required must be present in the tool's argument object. Optional fields may be omitted.
 Defaults are shown after `=`. Named types refer to OpenAPI component schemas; this concise reference does
@@ -28,6 +29,11 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 
 - Required: `content: string`, `scope_id: string`, `source_id: string`.
 - Optional: `metadata: object | null`.
+
+## mcp__powercontext__change_atomic_memory_lifecycle
+
+- Required: `scope_id: string`, `state: "forgotten"`, `target: AtomicMemoryInput`.
+- Optional: (none).
 
 ## mcp__powercontext__clear_scope_binding
 
@@ -64,14 +70,44 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `draft: HandoffDraft`, `scope_id: string`.
 - Optional: (none).
 
+## mcp__powercontext__generate_experience
+
+- Required: `artifact_refs: array<ArtifactReference>`, `scope_id: string`, `source_refs: array<SourceReference>`.
+- Optional: `reason: string | null`, `target: ArtifactReference | null`.
+
+## mcp__powercontext__generate_skill
+
+- Required: `artifact_refs: array<ArtifactReference>`, `origin: "experience" | "source" | "usage"`, `scope_id: string`, `source_refs: array<SourceReference>`.
+- Optional: `reason: string | null`, `target: ArtifactReference | null`.
+
+## mcp__powercontext__get_artifact
+
+- Required: `artifact_id: string`, `family: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory"`, `scope_id: string`.
+- Optional: `If-None-Match: string`.
+
 ## mcp__powercontext__get_artifact_candidate
 
 - Required: `candidate_id: string`, `scope_id: string`.
 - Optional: (none).
 
+## mcp__powercontext__get_artifact_revision
+
+- Required: `artifact_id: string`, `family: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory"`, `revision: integer`, `scope_id: string`.
+- Optional: (none).
+
+## mcp__powercontext__get_atomic_memory_state
+
+- Required: `artifact_id: string`, `scope_id: string`.
+- Optional: `If-None-Match: string`.
+
 ## mcp__powercontext__get_dream_run
 
 - Required: `run_id: string`, `scope_id: string`.
+- Optional: (none).
+
+## mcp__powercontext__get_experience
+
+- Required: `artifact: ArtifactReference`, `scope_id: string`.
 - Optional: (none).
 
 ## mcp__powercontext__get_handoff_report
@@ -81,12 +117,17 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 
 ## mcp__powercontext__get_memory_entry
 
-- Required: `citation: MemoryCitation`, `scope_id: string`.
-- Optional: (none).
+- Required: `scope_id: string`.
+- Optional: `citation: MemoryCitation`, `target: LegacyMemoryTarget`.
 
 ## mcp__powercontext__get_scope
 
 - Required: `scope_id: string`.
+- Optional: (none).
+
+## mcp__powercontext__get_skill
+
+- Required: `artifact: ArtifactReference`, `scope_id: string`.
 - Optional: (none).
 
 ## mcp__powercontext__get_topic_memory
@@ -99,25 +140,70 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `handoff: CurrentWorkHandoff`, `scope_id: string`, `source_id: string`.
 - Optional: (none).
 
+## mcp__powercontext__import_external_skill
+
+- Required: `external_skill_id: string`, `fingerprint: string`, `mode: "import" | "fork"`, `scope_id: string`.
+- Optional: `reason: string | null`.
+
 ## mcp__powercontext__list_artifact_candidates
 
 - Required: `scope_id: string`.
 - Optional: `cursor: string | null`, `family: "experience" | "skill" | "profile" | null`, `limit: integer = 50`, `status: "pending" | "approved" | "rejected" = "pending"`.
+
+## mcp__powercontext__list_atomic_memories
+
+- Required: `scope_id: string`.
+- Optional: `cursor: string | null`, `kind: string | null`, `limit: integer = 50`, `states: array<"active" | "forgotten" | "merged" | "retired">`, `tag_match: "all" | "any"`, `tags: array<string>`.
 
 ## mcp__powercontext__list_dream_runs
 
 - Required: `scope_id: string`.
 - Optional: `cursor: string`, `limit: integer = 20`, `operation: "refine_experience" | "derive_skill"`, `status: "queued" | "running" | "succeeded" | "failed"`.
 
+## mcp__powercontext__list_external_skills
+
+- Required: `scope_id: string`.
+- Optional: `include_unavailable: boolean = false`.
+
+## mcp__powercontext__list_managed_skills
+
+- Required: `scope_id: string`.
+- Optional: `include_deprecated: boolean = false`, `limit: integer = 100`, `query: string | null`.
+
 ## mcp__powercontext__list_memory_entries
 
 - Required: `scope_id: string`.
-- Optional: `include_inactive: boolean = false`, `tag_filter: TagFilter`.
+- Optional: `cursor: string | null`, `include_inactive: boolean = false`, `limit: integer = 50`, `tag_filter: TagFilter`.
 
 ## mcp__powercontext__list_scopes
 
 - Required: (none).
 - Optional: `binding_integration: string`, `binding_kind: string`, `cursor: string`, `external_reference_kind: string`, `limit: integer = 50`, `parent_scope_id: string`, `query: string`, `query_field: "scope_id" | "title" | "summary" | "external_reference_value" | "binding_external_id"`.
+
+## mcp__powercontext__merge_atomic_memories
+
+- Required: `content: AtomicMemoryWriteContent`, `inputs: array<AtomicMemoryInput>`, `scope_id: string`.
+- Optional: `artifact_refs: array<ArtifactReference>`, `source_refs: array<SourceReference>`.
+
+## mcp__powercontext__prepare_handoff_hint
+
+- Required: `scope_id: string`, `selection: "prepared" | "exact" | "latest"`.
+- Optional: `max_bytes: integer = 2000`, `prepared: PreparedHandoff | null`, `revision: ArtifactReference | null`.
+
+## mcp__powercontext__preview_atomic_memory_restoration
+
+- Required: `scope_id: string`, `target: AtomicMemoryTarget`.
+- Optional: `operation: "restore" | "undo_merge" = "restore"`.
+
+## mcp__powercontext__propose_experience
+
+- Required: `artifact_refs: array<ArtifactReference>`, `proposal: ExperienceProposal`, `scope_id: string`, `source_refs: array<SourceReference>`.
+- Optional: `memory_citations: array<MemoryCitation> = []`, `reason: string | null`, `target: ArtifactReference | null`.
+
+## mcp__powercontext__propose_skill
+
+- Required: `artifact_refs: array<ArtifactReference>`, `proposal: SkillProposal`, `scope_id: string`, `source_refs: array<SourceReference>`.
+- Optional: `reason: string | null`, `target: ArtifactReference | null`.
 
 ## mcp__powercontext__publish_artifact
 
@@ -144,25 +230,40 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `kind: string`, `scope_id: string`, `text: string`.
 - Optional: `expected_revision: integer | null`, `reason: string | null`.
 
+## mcp__powercontext__replace_artifact
+
+- Required: `If-Match: string`, `artifact_id: string`, `content: AtomicMemoryWriteContent`, `family: "atomic-memory"`, `scope_id: string`.
+- Optional: (none).
+
+## mcp__powercontext__resolve_external_skill
+
+- Required: `external_skill_id: string`, `fingerprint: string`, `scope_id: string`.
+- Optional: (none).
+
 ## mcp__powercontext__resolve_scope_binding
 
 - Required: (none).
 - Optional: `allow_default: boolean = true`, `binding_keys: array<ScopeBindingKey> = []`, `explicit_scope_id: string | null`.
 
-## mcp__powercontext__retire_memory_entry
+## mcp__powercontext__restore_atomic_memory
 
-- Required: `citation: MemoryCitation`, `scope_id: string`.
-- Optional: `reason: string | null`.
+- Required: `scope_id: string`, `target: AtomicMemoryTarget`.
+- Optional: `operation: "restore" | "undo_merge" = "restore"`, `preview_token: string | null`.
 
 ## mcp__powercontext__revise_artifact_candidate
 
 - Required: `artifact_refs: array<ArtifactReference>`, `candidate_id: string`, `expected_version: integer`, `proposal: ExperienceProposal | SkillProposal | ProfileWriteContent`, `scope_id: string`, `source_refs: array<SourceReference>`.
 - Optional: `memory_citations: array<MemoryCitation> | null`, `reason: string | null`, `target: ArtifactReference | null`.
 
-## mcp__powercontext__revise_memory_entry
+## mcp__powercontext__scan_external_skills
 
-- Required: `citation: MemoryCitation`, `kind: string`, `scope_id: string`, `text: string`.
-- Optional: `reason: string | null`.
+- Required: `scope_id: string`.
+- Optional: (none).
+
+## mcp__powercontext__search_atomic_memory
+
+- Required: `query: string`, `scope_id: string`.
+- Optional: `kind: string | null`, `limit: integer = 20`, `mode: "text" | "vector" | "hybrid" = "text"`, `tag_match: "all" | "any"`, `tags: array<string>`.
 
 ## mcp__powercontext__search_memory
 

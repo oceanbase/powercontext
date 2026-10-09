@@ -21,8 +21,101 @@ use reqwest::{
     Method,
     header::{AUTHORIZATION, HeaderValue},
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use ts_rs::TS;
+
+// This adapter retains the qualified pre-Atomic Memory wire contract.
+pub const LEGACY_MEMORY_CONTRACT_SHA256: &str =
+    "9af88b2b779c372a21ae9f398d0ca75b333f2e5da2afa3626df879911a442edd";
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum MemoryReference {
+    Citation { citation: MemoryCitation },
+    Artifact { artifact: ArtifactReference },
+}
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct LegacyMemoryMutationResponse {
+    pub memory: ArtifactReference,
+    #[ts(optional = nullable)]
+    pub entry: Option<MemoryEntry>,
+}
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(untagged)]
+pub enum MemoryMutationResult {
+    Atomic(MemoryMutationResponse),
+    Legacy(Box<LegacyMemoryMutationResponse>),
+}
+impl MemoryMutationResult {
+    pub fn references(&self) -> Vec<MemoryReference> {
+        match self {
+            Self::Atomic(result) => result
+                .records
+                .iter()
+                .map(|record| MemoryReference::Artifact {
+                    artifact: record.artifact.clone(),
+                })
+                .collect(),
+            Self::Legacy(result) => result
+                .entry
+                .iter()
+                .map(|entry| MemoryReference::Citation {
+                    citation: entry.citation.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct LegacySearchMemoryResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub memory: Option<ArtifactReference>,
+    pub mode: Option<MemoryUsedSearchMode>,
+    pub hits: Vec<SearchMemoryHit>,
+}
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(untagged)]
+pub enum MemorySearchResponse {
+    Atomic(SearchMemoryResponse),
+    Legacy(LegacySearchMemoryResponse),
+}
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct AtomicMemoryCreation {
+    pub r#type: String,
+    pub input_artifact_ids: Vec<String>,
+}
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct AtomicMemoryContent {
+    pub schema: String,
+    pub kind: String,
+    pub text: String,
+    pub creation: Option<AtomicMemoryCreation>,
+}
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct AtomicMemoryRevision {
+    pub scope_id: String,
+    pub family: String,
+    pub artifact_id: String,
+    pub revision: i64,
+    pub content: AtomicMemoryContent,
+    pub sources: Vec<SourceTypeReference>,
+    pub artifacts: Vec<ArtifactReference>,
+    #[serde(default)]
+    pub memory_citations: Vec<MemoryCitation>,
+    pub content_digest: String,
+}
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
+#[serde(untagged)]
+pub enum MemoryEntryResult {
+    Legacy(MemoryEntry),
+    Atomic(AtomicMemoryRevision),
+}
 
 #[derive(Clone, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -67,7 +160,7 @@ impl ServerApi {
     async fn execute<T: DeserializeOwned>(
         &self,
         operation: &str,
-        scope: Option<&str>,
+        path_parameters: &[(&str, &str)],
         query: &[(String, String)],
         body: Option<serde_json::Value>,
         allow_not_ready: bool,
@@ -86,19 +179,32 @@ impl ServerApi {
         let method =
             Method::from_bytes(method.as_bytes()).map_err(|_| SafeError::InvalidResponse)?;
         let mut url = self.endpoint.operation_url(operation)?;
-        if let Some(id) = scope {
-            validate_scope(id)?;
-            // Replace the generated placeholder using URL path-segment encoding, never string interpolation.
-            if !descriptor["path"]
+        if !path_parameters.is_empty() {
+            // The fixed native operation owns parameter names; URL segments encode their values.
+            let path = descriptor["path"]
                 .as_str()
-                .is_some_and(|p| p.ends_with("/{scope_id}"))
-            {
-                return Err(SafeError::InvalidResponse.into());
-            }
+                .ok_or(SafeError::InvalidResponse)?;
+            let segments = path
+                .trim_start_matches('/')
+                .split('/')
+                .map(|segment| {
+                    if segment.starts_with('{') && segment.ends_with('}') {
+                        let name = &segment[1..segment.len() - 1];
+                        path_parameters
+                            .iter()
+                            .find(|(key, _)| *key == name)
+                            .map(|(_, value)| *value)
+                            .ok_or(SafeError::InvalidInput)
+                    } else {
+                        Ok(segment)
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            url = self.endpoint.0.clone();
             url.path_segments_mut()
                 .map_err(|_| SafeError::InvalidEndpoint)?
-                .pop()
-                .push(id);
+                .pop_if_empty()
+                .extend(segments);
         }
         if !query.is_empty() {
             url.query_pairs_mut()
@@ -173,18 +279,18 @@ impl ServerApi {
         serde_json::from_slice(&bytes).map_err(|_| failure(SafeError::InvalidResponse, request_id))
     }
     pub async fn live(&self) -> Result<HealthResponse, ApiFailure> {
-        let result: HealthResponse = self.execute("get_liveness", None, &[], None, false).await?;
+        let result: HealthResponse = self.execute("get_liveness", &[], &[], None, false).await?;
         if result.status != "ok" {
             return Err(SafeError::InvalidResponse.into());
         }
         Ok(result)
     }
     pub async fn readiness(&self) -> Result<ReadinessResponse, ApiFailure> {
-        self.execute("get_readiness", None, &[], None, true).await
+        self.execute("get_readiness", &[], &[], None, true).await
     }
     pub async fn principal(&self) -> Result<AccessMeResponse, ApiFailure> {
         let result: AccessMeResponse = self
-            .execute("get_access_principal", None, &[], None, false)
+            .execute("get_access_principal", &[], &[], None, false)
             .await?;
         if result.principal.id.is_empty()
             || result.principal.id.chars().count() > 255
@@ -195,7 +301,7 @@ impl ServerApi {
         Ok(result)
     }
     pub async fn capabilities(&self) -> Result<Capabilities, ApiFailure> {
-        self.execute("get_capabilities", None, &[], None, false)
+        self.execute("get_capabilities", &[], &[], None, false)
             .await
     }
     pub async fn scopes(
@@ -217,7 +323,7 @@ impl ServerApi {
             query.push(("cursor".into(), cursor.into()));
         }
         let result: ScopePage = self
-            .execute("list_scopes", None, &query, None, false)
+            .execute("list_scopes", &[], &query, None, false)
             .await?;
         if result.items.len() > 50
             || result
@@ -233,8 +339,9 @@ impl ServerApi {
         Ok(result)
     }
     pub async fn scope(&self, id: &str) -> Result<ScopeDescriptor, ApiFailure> {
+        validate_scope(id)?;
         let result: ScopeDescriptor = self
-            .execute("get_scope", Some(id), &[], None, false)
+            .execute("get_scope", &[("scope_id", id)], &[], None, false)
             .await?;
         if result.scope_id != id {
             return Err(SafeError::InvalidResponse.into());
@@ -242,31 +349,36 @@ impl ServerApi {
         Ok(result)
     }
     pub async fn default_scope(&self) -> Result<ScopeDescriptor, ApiFailure> {
-        self.execute("get_default_scope", None, &[], None, false)
+        self.execute("get_default_scope", &[], &[], None, false)
             .await
     }
     pub async fn remember(
         &self,
         scope: &str,
         text: &str,
-    ) -> Result<MemoryMutationResponse, ApiFailure> {
+    ) -> Result<MemoryMutationResult, ApiFailure> {
         validate_scope(scope)?;
         validate_text(text)?;
-        let result: MemoryMutationResponse = self
+        let result: MemoryMutationResult = self
             .execute(
                 "remember_memory",
-                None,
+                &[],
                 &[],
                 Some(serde_json::json!({"scope_id":scope,"kind":"note","text":text})),
                 false,
             )
             .await?;
-        if !valid_reference(&result.memory)
-            || result.memory.family != "memory"
-            || result.entry.as_ref().is_some_and(|entry| {
-                !valid_entry(entry) || entry.citation.memory_ref != result.memory
-            })
-        {
+        let valid = match &result {
+            MemoryMutationResult::Atomic(value) => value.records.iter().all(valid_atomic_record),
+            MemoryMutationResult::Legacy(value) => {
+                valid_reference(&value.memory)
+                    && value.memory.family == "memory"
+                    && value.entry.as_ref().is_none_or(|entry| {
+                        valid_entry(entry) && entry.citation.memory_ref == value.memory
+                    })
+            }
+        };
+        if !valid {
             return Err(invalid_received());
         }
         Ok(result)
@@ -276,28 +388,40 @@ impl ServerApi {
         &self,
         scope: &str,
         query: &str,
-    ) -> Result<SearchMemoryResponse, ApiFailure> {
+    ) -> Result<MemorySearchResponse, ApiFailure> {
         validate_scope(scope)?;
         validate_text(query)?;
-        let result: SearchMemoryResponse = self
+        let result: MemorySearchResponse = self
             .execute(
                 "search_memory",
-                None,
+                &[],
                 &[],
                 Some(serde_json::json!({"scope_id":scope,"query":query,"mode":"fts","limit":10})),
                 false,
             )
             .await?;
-        if result.hits.len() > 10
-            || result
-                .hits
-                .iter()
-                .any(|hit| validate_citation(&hit.citation).is_err())
-            || result
-                .mode
-                .as_ref()
-                .is_some_and(|mode| *mode != MemoryUsedSearchMode::Fts)
-        {
+        let valid = match &result {
+            MemorySearchResponse::Atomic(value) => {
+                value.hits.len() <= 10
+                    && value.mode == AtomicMemorySearchMode::Text
+                    && value
+                        .hits
+                        .iter()
+                        .all(|hit| valid_atomic_record(&hit.memory))
+            }
+            MemorySearchResponse::Legacy(value) => {
+                value.hits.len() <= 10
+                    && value
+                        .mode
+                        .as_ref()
+                        .is_none_or(|mode| *mode == MemoryUsedSearchMode::Fts)
+                    && value
+                        .hits
+                        .iter()
+                        .all(|hit| validate_citation(&hit.citation).is_ok())
+            }
+        };
+        if !valid {
             return Err(SafeError::InvalidResponse.into());
         }
         Ok(result)
@@ -305,23 +429,66 @@ impl ServerApi {
     pub async fn entry(
         &self,
         scope: &str,
-        citation: &MemoryCitation,
-    ) -> Result<MemoryEntry, ApiFailure> {
+        reference: &MemoryReference,
+    ) -> Result<MemoryEntryResult, ApiFailure> {
         validate_scope(scope)?;
-        validate_citation(citation)?;
-        let result: MemoryEntry = self
-            .execute(
-                "get_memory_entry",
-                None,
-                &[],
-                Some(serde_json::json!({"scope_id":scope,"citation":citation})),
-                false,
-            )
-            .await?;
-        if result.citation != *citation || !valid_entry(&result) {
-            return Err(SafeError::InvalidResponse.into());
+        match reference {
+            MemoryReference::Citation { citation } => {
+                validate_citation(citation)?;
+                let result: GetMemoryEntryResponse = self
+                    .execute(
+                        "get_memory_entry",
+                        &[],
+                        &[],
+                        Some(serde_json::json!({"scope_id":scope,"citation":citation})),
+                        false,
+                    )
+                    .await?;
+                let GetMemoryEntryResponse::MemoryEntry(entry) = result else {
+                    return Err(invalid_received());
+                };
+                if entry.citation != *citation || !valid_entry(&entry) {
+                    return Err(invalid_received());
+                }
+                Ok(MemoryEntryResult::Legacy(entry))
+            }
+            MemoryReference::Artifact { artifact } => {
+                if artifact.family != "atomic-memory" || !valid_reference(artifact) {
+                    return Err(SafeError::InvalidInput.into());
+                }
+                let revision = artifact.revision.to_string();
+                let result: AtomicMemoryRevision = self
+                    .execute(
+                        "get_artifact_revision",
+                        &[
+                            ("scope_id", scope),
+                            ("family", &artifact.family),
+                            ("artifact_id", &artifact.artifact_id),
+                            ("revision", &revision),
+                        ],
+                        &[],
+                        None,
+                        false,
+                    )
+                    .await?;
+                if result.scope_id != scope
+                    || result.family != artifact.family
+                    || result.artifact_id != artifact.artifact_id
+                    || result.revision != artifact.revision
+                    || result.content.schema != "powercontext.atomic-memory.v1"
+                    || result.content.kind.trim().is_empty()
+                    || result.content.text.trim().is_empty()
+                    || !result.artifacts.iter().all(valid_reference)
+                    || !result
+                        .memory_citations
+                        .iter()
+                        .all(|citation| validate_citation(citation).is_ok())
+                {
+                    return Err(invalid_received());
+                }
+                Ok(MemoryEntryResult::Atomic(result))
+            }
         }
-        Ok(result)
     }
 }
 pub fn validate_scope(id: &str) -> Result<(), SafeError> {
@@ -361,6 +528,14 @@ fn valid_entry(entry: &MemoryEntry) -> bool {
     validate_citation(&entry.citation).is_ok()
         && (1..=9_007_199_254_740_991).contains(&entry.version)
         && entry.artifact_refs.iter().all(valid_reference)
+}
+fn valid_atomic_record(record: &AtomicMemoryRecord) -> bool {
+    record.artifact.family == "atomic-memory"
+        && valid_reference(&record.artifact)
+        && !record.kind.trim().is_empty()
+        && !record.text.trim().is_empty()
+        && (0..=9_007_199_254_740_991).contains(&record.state_version)
+        && (record.state == AtomicMemoryState::Merged) == record.merged_into_id.is_some()
 }
 fn invalid_received() -> ApiFailure {
     ApiFailure {

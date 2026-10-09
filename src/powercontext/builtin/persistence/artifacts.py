@@ -299,6 +299,46 @@ class ArtifactRepository:
             for_update=for_update,
         )
 
+    async def lock_heads(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        refs: Sequence[ArtifactRef],
+        /,
+    ) -> None:
+        """Lock current logical identities in deterministic order, independent of revisions.
+
+        A no-op UPDATE takes a write lock on SQLite as well as row locks on
+        OceanBase. Callers must perform current reads and validate their saved
+        revisions after all of these locks have been acquired.
+        """
+
+        _require_scope(scope_id)
+        for family, artifact_id in sorted({(ref.family, ref.artifact_id) for ref in refs}):
+            locked = await connection.execute(
+                update(ARTIFACT_HEADS_TABLE)
+                .where(
+                    ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                    ARTIFACT_HEADS_TABLE.c.family == family,
+                    ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
+                )
+                .values(revision=ARTIFACT_HEADS_TABLE.c.revision)
+            )
+            if locked.rowcount != 1:
+                raise RepositoryNotFoundError("artifact-head", (scope_id, family, artifact_id))
+
+    async def validate_lineage_sources(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        target: ArtifactRef,
+        sources: tuple[SourceRef, ...],
+        /,
+    ) -> None:
+        """Validate prospective evidence using the same rules as create/revise."""
+
+        await self._validate_lineage_sources(connection, scope_id, target, sources)
+
     async def revisions(
         self,
         connection: AsyncConnection,

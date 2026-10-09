@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -24,11 +25,14 @@ from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemory, AtomicMemoryContent
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.handoff import Handoff
-from powercontext.builtin.artifacts.memory import Memory, MemoryContent
+from powercontext.builtin.artifacts.memory import Memory
 from powercontext.builtin.artifacts.skill import Skill
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
+from powercontext.builtin.persistence.atomic_memory_identity import legacy_entry_artifact_id
+from powercontext.builtin.persistence.atomic_memory_schema import ATOMIC_MEMORY_STATES_TABLE
 from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
 from powercontext.builtin.persistence.family_management import (
     ExperienceManagementWriter,
@@ -48,8 +52,6 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACTS_TABLE,
     BUILTIN_TABLES,
-    MEMORY_ENTRY_HEADS_TABLE,
-    MEMORY_ENTRY_VERSIONS_TABLE,
     SKILL_PACKAGES_TABLE,
     SOURCES_TABLE,
 )
@@ -60,6 +62,9 @@ from powercontext.builtin.records import (
     InvalidBaseAccessRequestError,
     InvalidCursorError,
 )
+from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
+from powercontext.builtin.runtime.atomic_memory import AtomicMemoryApplication
+from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.source_eligibility import SourceNotEligibleError
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, ContentSource
 from powercontext.builtin.tags import ArtifactTagTarget, MemoryEntryTagTarget, TagFilter, TagPreconditionError, TagQuery
@@ -77,7 +82,18 @@ class _FailingExperienceIndex(NoExperienceIndex):
 
 
 def _memory_content() -> dict[str, JsonValue]:
-    return {"entries": [{"kind": "preference", "text": "用户偏好使用中文回答"}]}
+    return {"kind": "preference", "text": "用户偏好使用中文回答"}
+
+
+@asynccontextmanager
+async def _atomic_record_services(config=None, *, atomic_artifact_id=None):
+    async with open_builtin_contexts(BuiltinConfig(database=config or SQLiteConfig())) as contexts:
+        yield (
+            contexts,
+            *_services(
+                contexts, atomic_memory_application=contexts.atomic_memory, atomic_artifact_id=atomic_artifact_id
+            ),
+        )
 
 
 def test_receipt_migration_batches_and_recovers_missing_commit_proof() -> None:
@@ -140,13 +156,15 @@ def test_receipt_provenance_is_server_owned_and_legacy_replay_is_idempotent() ->
 
 def test_empty_tag_set_has_one_concurrent_winner_across_connections(tmp_path: Path) -> None:
     async def scenario() -> None:
-        async with SQLiteProfile.open(
-            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'tag-race.db'}"), tables=BUILTIN_TABLES
-        ) as profile:
-            first, _, _ = _services(profile)
-            second, _, _ = _services(profile)
-            created = await first.create_artifact("scope", "memory", ArtifactWrite(content=_memory_content()))
-            target = ArtifactTagTarget(family="memory", artifact_id=created.artifact_id)
+        async with _atomic_record_services(SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'tag-race.db'}")) as (
+            contexts,
+            first,
+            _,
+            _,
+        ):
+            second, _, _ = _services(contexts, atomic_memory_application=contexts.atomic_memory)
+            created = await first.create_artifact("scope", "atomic-memory", ArtifactWrite(content=_memory_content()))
+            target = ArtifactTagTarget(family="atomic-memory", artifact_id=created.artifact_id)
             empty = await first.get_tags("scope", target)
             outcomes = await asyncio.gather(
                 first.replace_tags("scope", target, ("one",), expected_etag=empty.etag),
@@ -161,11 +179,12 @@ def test_empty_tag_set_has_one_concurrent_winner_across_connections(tmp_path: Pa
 
 def test_tag_cursor_is_bound_to_filter_scope_and_caller() -> None:
     async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            records, _, _ = _services(profile)
+        async with _atomic_record_services() as (_, records, _, _):
             for _ in range(2):
-                created = await records.create_artifact("scope", "memory", ArtifactWrite(content=_memory_content()))
-                target = ArtifactTagTarget(family="memory", artifact_id=created.artifact_id)
+                created = await records.create_artifact(
+                    "scope", "atomic-memory", ArtifactWrite(content=_memory_content())
+                )
+                target = ArtifactTagTarget(family="atomic-memory", artifact_id=created.artifact_id)
                 empty = await records.get_tags("scope", target)
                 await records.replace_tags("scope", target, ("shared",), expected_etag=empty.etag)
             page = await records.query_tags("scope", TagQuery(tags=("shared",), limit=1), caller="a")
@@ -183,10 +202,9 @@ def test_tag_cursor_is_bound_to_filter_scope_and_caller() -> None:
 
 def test_in_memory_sqlite_supports_concurrent_tag_reads() -> None:
     async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            records, _, _ = _services(profile)
-            created = await records.create_artifact("scope", "memory", ArtifactWrite(content=_memory_content()))
-            target = ArtifactTagTarget(family="memory", artifact_id=created.artifact_id)
+        async with _atomic_record_services() as (_, records, _, _):
+            created = await records.create_artifact("scope", "atomic-memory", ArtifactWrite(content=_memory_content()))
+            target = ArtifactTagTarget(family="atomic-memory", artifact_id=created.artifact_id)
             values = await asyncio.gather(*(records.get_tags("scope", target) for _ in range(3)))
             assert len({value.etag for value in values}) == 1
 
@@ -195,24 +213,61 @@ def test_in_memory_sqlite_supports_concurrent_tag_reads() -> None:
 
 def test_artifact_and_entry_tags_preserve_content_and_query_independently() -> None:
     async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            records, _, _ = _services(profile)
-            created = await records.create_artifact("scope-a", "memory", ArtifactWrite(content=_memory_content()))
-            before = await records.get_artifact("scope-a", "memory", created.artifact_id)
-            artifact = ArtifactTagTarget(family="memory", artifact_id=created.artifact_id)
-            entry_id = MemoryContent.model_validate(before.content).manifest.entries[0].entry_id
-            entry = MemoryEntryTagTarget(artifact_id=created.artifact_id, entry_id=entry_id)
+        mapped_id = legacy_entry_artifact_id("scope-a", "legacy-memory", "entry-1")
+        async with _atomic_record_services(atomic_artifact_id=mapped_id) as (contexts, records, artifacts, _):
+            created = await records.create_artifact(
+                "scope-a", "atomic-memory", ArtifactWrite(content=_memory_content())
+            )
+            before = await records.get_artifact("scope-a", "atomic-memory", created.artifact_id)
+            # Retained legacy membership and its migrated identity are distinct from new writes.
+            async with contexts.database.transaction() as connection:
+                legacy = await artifacts.create(
+                    connection,
+                    "scope-a",
+                    "legacy-memory",
+                    artifacts.draft(
+                        "memory",
+                        {
+                            "manifest": {
+                                "entries": [
+                                    {
+                                        "entry_id": "entry-1",
+                                        "entry_version_id": "entry-1-v1",
+                                        "entry_content_hash": "a" * 64,
+                                        "state": "active",
+                                    }
+                                ]
+                            }
+                        },
+                    ),
+                )
+            collection = ArtifactTagTarget(family="memory", artifact_id=legacy.artifact_id)
+            collection_empty = await records.get_tags("scope-a", collection)
+            collection_tags = await records.replace_tags(
+                "scope-a", collection, ("collection-only",), expected_etag=collection_empty.etag
+            )
+            independent = await contexts.records.create_artifact(
+                "scope-a", "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": "Independent artifact."})
+            )
+            artifact = ArtifactTagTarget(family="atomic-memory", artifact_id=independent.artifact_id)
+            entry = MemoryEntryTagTarget(artifact_id=legacy.artifact_id, entry_id="entry-1")
+            mapped = ArtifactTagTarget(family="atomic-memory", artifact_id=created.artifact_id)
             empty = await records.get_tags("scope-a", artifact)
             tagged = await records.replace_tags("scope-a", artifact, ("Project", "中文"), expected_etag=empty.etag)
             entry_empty = await records.get_tags("scope-a", entry)
             assert entry_empty.tags == ()
             assert entry_empty.etag != empty.etag
             await records.replace_tags("scope-a", entry, ("project",), expected_etag=entry_empty.etag)
-            assert await records.get_artifact("scope-a", "memory", created.artifact_id) == before
+            assert await records.get_artifact("scope-a", "atomic-memory", created.artifact_id) == before
+            assert (await records.get_artifact_revision("scope-a", "memory", legacy.artifact_id, 1)).content == (
+                legacy.content.model_dump(mode="json", by_alias=True)
+            )
+            assert (await records.get_tags("scope-a", mapped)).tags == ("project",)
+            assert await records.get_tags("scope-a", collection) == collection_tags
             page = await records.query_tags("scope-a", TagQuery(tags=("PROJECT",), limit=1))
             assert len(page.items) == 1 and page.next_cursor
             second = await records.query_tags("scope-a", TagQuery(tags=("project",), limit=1, cursor=page.next_cursor))
-            assert {page.items[0].target.type, second.items[0].target.type} == {"artifact", "memory_entry"}
+            assert {page.items[0].target, second.items[0].target} == {artifact, mapped}
             assert second.next_cursor is None
             assert (await records.query_tags("other-scope", TagQuery(tags=("project",)))).items == ()
             all_tags = await records.query_tags("scope-a", TagQuery(tags=("project", "中文")))
@@ -222,14 +277,14 @@ def test_artifact_and_entry_tags_preserve_content_and_query_independently() -> N
             )
             assert (
                 await records.query_artifacts(
-                    "scope-a", "memory", limit=1, cursor=None, tag_filter=TagFilter(tags=("missing",))
+                    "scope-a", "atomic-memory", limit=1, cursor=None, tag_filter=TagFilter(tags=("missing",))
                 )
             ).items == ()
             assert (
                 len(
                     (
                         await records.query_artifacts(
-                            "scope-a", "memory", limit=1, cursor=None, tag_filter=TagFilter(tags=("project",))
+                            "scope-a", "atomic-memory", limit=1, cursor=None, tag_filter=TagFilter(tags=("project",))
                         )
                     ).items
                 )
@@ -265,19 +320,32 @@ def _handoff_content(objective: str = "Transfer the API test result.") -> dict[s
 
 
 def _services(
-    profile: SQLiteProfile,
+    profile: SQLiteProfile | RelationalContexts,
     *,
     experience_index: ExperienceIndex | None = None,
+    atomic_memory_application: AtomicMemoryApplication | None = None,
+    atomic_artifact_id: str | None = None,
 ) -> tuple[RelationalRecordService, ArtifactRepository, SourceRepository]:
     counters: defaultdict[str, int] = defaultdict(int)
 
     def new_id(kind: str) -> str:
         counters[kind] += 1
-        prefixes = {"source": "src", "memory": "mem", "experience": "exp", "skill": "skill"}
+        if kind == "atomic-memory" and atomic_artifact_id is not None:
+            return atomic_artifact_id
+        prefixes = {"source": "src", "memory": "mem", "atomic-memory": "mem", "experience": "exp", "skill": "skill"}
         return f"{prefixes.get(kind, kind)}-{counters[kind]}"
 
+    if atomic_memory_application is not None:
+        contexts = RelationalContexts(
+            database=profile.database,
+            atomic_memory_index=atomic_memory_application.index,
+            id_factory=new_id,
+            cursor_secret=b"record-test-secret-at-least-32-bytes",
+        )
+        return contexts.records, contexts.repositories.artifacts, contexts.repositories.sources
+
     sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
-    artifacts = ArtifactRepository((Handoff, Memory, Experience, Skill), sources=sources)
+    artifacts = ArtifactRepository((Handoff, Memory, AtomicMemory, Experience, Skill), sources=sources)
     memory_index = NoMemoryIndex()
     selected_experience_index = NoExperienceIndex() if experience_index is None else experience_index
     packages = SkillPackageRepository()
@@ -404,40 +472,42 @@ def test_source_list_stops_decoding_when_the_response_budget_is_full(monkeypatch
 
 def test_artifact_create_is_atomic_and_binds_its_system_source() -> None:
     async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            records, artifacts, sources = _services(profile)
-            created = await records.create_artifact("scope-a", "memory", ArtifactWrite(content=_memory_content()))
+        async with _atomic_record_services() as (contexts, records, artifacts, sources):
+            created = await records.create_artifact(
+                "scope-a", "atomic-memory", ArtifactWrite(content=_memory_content())
+            )
 
-            assert (created.family, created.artifact_id, created.revision) == ("memory", "mem-1", 1)
+            assert (created.family, created.artifact_id, created.revision) == ("atomic-memory", "mem-1", 1)
             assert created.artifacts == ()
             assert len(created.sources) == 1
             assert created.sources[0].source_id == "src-1"
 
             loaded_source = await records.get_source("scope-a", "content", "src-1")
-            assert loaded_source.content == _memory_content()
-            async with profile.database.transaction() as connection:
+            assert loaded_source.content == _memory_content() | {"schema": "powercontext.atomic-memory.v1"}
+            async with contexts.database.transaction() as connection:
                 stored = await sources.get(connection, "scope-a", created.sources[0])
                 assert isinstance(stored.value, ContentSource)
                 assert stored.value.internal is not None
                 assert stored.value.internal.target.model_dump() == {
                     "scope_id": "scope-a",
-                    "family": "memory",
+                    "family": "atomic-memory",
                     "artifact_id": "mem-1",
                     "revision": 1,
                 }
                 lineage = (await connection.execute(select(ARTIFACT_LINEAGE_SOURCES_TABLE))).mappings().one()
                 assert lineage["ordinal"] == 0
-                entry = (await connection.execute(select(MEMORY_ENTRY_VERSIONS_TABLE))).mappings().one()
-                assert (entry["kind"], entry["text"]) == ("preference", "用户偏好使用中文回答")
-                projection = (await connection.execute(select(MEMORY_ENTRY_HEADS_TABLE))).mappings().one()
+                state = (await connection.execute(select(ATOMIC_MEMORY_STATES_TABLE))).mappings().one()
+                assert (state["artifact_id"], state["state"], state["state_version"]) == ("mem-1", "active", 0)
+                projection = (await connection.execute(select(contexts.atomic_memory.index.table))).mappings().one()
+                assert (projection["kind"], projection["text"]) == ("preference", "用户偏好使用中文回答")
                 assert projection["searchable_text"]
 
-            async with profile.database.transaction() as connection:
+            async with contexts.database.transaction() as connection:
                 assert await connection.scalar(select(func.count()).select_from(SOURCES_TABLE)) == 1
                 assert await connection.scalar(select(func.count()).select_from(ARTIFACTS_TABLE)) == 1
                 assert await connection.scalar(select(func.count()).select_from(ARTIFACT_HEADS_TABLE)) == 1
-                stored_memory = await records.get_artifact("scope-a", "memory", created.artifact_id)
-                foreign = artifacts.draft("memory", stored_memory.content, sources=created.sources)
+                stored_memory = await records.get_artifact("scope-a", "atomic-memory", created.artifact_id)
+                foreign = artifacts.draft("atomic-memory", stored_memory.content, sources=created.sources)
                 with pytest.raises(SourceNotEligibleError):
                     await artifacts.create(connection, "scope-a", "mem-foreign", foreign)
 
@@ -446,11 +516,12 @@ def test_artifact_create_is_atomic_and_binds_its_system_source() -> None:
 
 def test_artifact_get_list_replace_use_family_models_and_opaque_etags() -> None:
     async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            records, _, sources = _services(profile)
-            created = await records.create_artifact("scope-a", "memory", ArtifactWrite(content=_memory_content()))
-            head = await records.get_artifact("scope-a", "memory", created.artifact_id)
-            page = await records.query_artifacts("scope-a", "memory", limit=10, cursor=None)
+        async with _atomic_record_services() as (contexts, records, _, sources):
+            created = await records.create_artifact(
+                "scope-a", "atomic-memory", ArtifactWrite(content=_memory_content())
+            )
+            head = await records.get_artifact("scope-a", "atomic-memory", created.artifact_id)
+            page = await records.query_artifacts("scope-a", "atomic-memory", limit=10, cursor=None)
 
             assert head.revision == 1
             assert head.sources == created.sources
@@ -458,41 +529,42 @@ def test_artifact_get_list_replace_use_family_models_and_opaque_etags() -> None:
             assert "content" not in page.items[0].model_dump()
             replaced = await records.replace_artifact(
                 "scope-a",
-                "memory",
+                "atomic-memory",
                 created.artifact_id,
                 '"revision:1"',
-                ArtifactWrite(content={"entries": [{"kind": "working_note", "text": "继续验证 API"}]}),
+                ArtifactWrite(content={"kind": "working_note", "text": "继续验证 API"}),
             )
             assert replaced.revision == 2
             assert replaced.sources[0].source_id == "src-2"
-            original = await records.get_artifact_revision("scope-a", "memory", created.artifact_id, 1)
+            original = await records.get_artifact_revision("scope-a", "atomic-memory", created.artifact_id, 1)
             assert original.sources == created.sources
-            async with profile.database.transaction() as connection:
+            async with contexts.database.transaction() as connection:
                 replacement_source = await sources.get(connection, "scope-a", replaced.sources[0])
                 versions = (
-                    (
-                        await connection.execute(
-                            select(MEMORY_ENTRY_VERSIONS_TABLE).order_by(MEMORY_ENTRY_VERSIONS_TABLE.c.entry_version_id)
-                        )
-                    )
+                    (await connection.execute(select(ARTIFACTS_TABLE).order_by(ARTIFACTS_TABLE.c.revision)))
                     .mappings()
                     .all()
                 )
-                projections = (await connection.execute(select(MEMORY_ENTRY_HEADS_TABLE))).mappings().all()
+                projections = (await connection.execute(select(contexts.atomic_memory.index.table))).mappings().all()
             assert isinstance(replacement_source.value, ContentSource)
             assert replacement_source.value.internal is not None
             assert replacement_source.value.internal.operation == "artifact_replace"
             assert replacement_source.value.internal.target.revision == 2
-            assert [(row["kind"], row["text"]) for row in versions] == [
-                ("preference", "用户偏好使用中文回答"),
-                ("working_note", "继续验证 API"),
+            assert [AtomicMemoryContent.model_validate_json(row["content"]).text for row in versions] == [
+                "用户偏好使用中文回答",
+                "继续验证 API",
             ]
-            assert len(projections) == 2
+            assert len(projections) == 1
+            assert (projections[0]["revision"], projections[0]["kind"], projections[0]["text"]) == (
+                2,
+                "working_note",
+                "继续验证 API",
+            )
 
             with pytest.raises(ArtifactRevisionPreconditionError):
                 await records.replace_artifact(
                     "scope-a",
-                    "memory",
+                    "atomic-memory",
                     created.artifact_id,
                     '"opaque-stale"',
                     ArtifactWrite(content=_memory_content()),
@@ -500,7 +572,7 @@ def test_artifact_get_list_replace_use_family_models_and_opaque_etags() -> None:
             with pytest.raises(InvalidBaseAccessRequestError):
                 await records.create_artifact("scope-a", "document", ArtifactWrite(content={}))
             with pytest.raises(InvalidBaseAccessRequestError):
-                await records.create_artifact("scope-a", "memory", ArtifactWrite(content={"invalid": True}))
+                await records.create_artifact("scope-a", "atomic-memory", ArtifactWrite(content={"invalid": True}))
 
     asyncio.run(scenario())
 
@@ -554,21 +626,20 @@ def test_artifact_create_and_replace_validate_handoff_as_json() -> None:
 
 def test_artifact_list_batches_revision_and_lineage_reads() -> None:
     async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            records, _, _ = _services(profile)
+        async with _atomic_record_services() as (contexts, records, _, _):
             for _ in range(3):
-                await records.create_artifact("scope-a", "memory", ArtifactWrite(content=_memory_content()))
+                await records.create_artifact("scope-a", "atomic-memory", ArtifactWrite(content=_memory_content()))
 
             statements: list[str] = []
 
             def record_statement(*args: object) -> None:
                 statements.append(str(args[2]))
 
-            event.listen(profile.database.engine.sync_engine, "before_cursor_execute", record_statement)
+            event.listen(contexts.database.engine.sync_engine, "before_cursor_execute", record_statement)
             try:
-                page = await records.query_artifacts("scope-a", "memory", limit=10, cursor=None)
+                page = await records.query_artifacts("scope-a", "atomic-memory", limit=10, cursor=None)
             finally:
-                event.remove(profile.database.engine.sync_engine, "before_cursor_execute", record_statement)
+                event.remove(contexts.database.engine.sync_engine, "before_cursor_execute", record_statement)
 
             assert len(page.items) == 3
             assert len([statement for statement in statements if statement.lstrip().upper().startswith("SELECT")]) == 4

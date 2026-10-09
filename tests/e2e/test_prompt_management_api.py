@@ -37,6 +37,7 @@ from powercontext.http import (
     FlushProfileRequest,
     GeneratePromptDemonstrationsRequest,
     ListArtifactRevisionsRequest,
+    ListMemoryEntriesRequest,
     PutProfilePolicyRequest,
     ReplaceArtifactRequest,
 )
@@ -131,13 +132,13 @@ def test_prompt_publication_is_rejected_without_target_state(tmp_path: Path, acc
             content = _content("Keep stable preferences.", mode="custom")
             created = await transport.post(
                 f"/v1/scopes/{source_scope}/artifacts",
-                json={"family": "prompt", "prompt_key": "memory.extract", "content": content},
+                json={"family": "prompt", "prompt_key": "atomic_memory.extract", "content": content},
             )
             assert created.status_code == 201, created.text
             publication = {
                 "source": {
                     "scope_id": source_scope,
-                    "artifact": {"family": "prompt", "artifact_id": "memory.extract", "revision": 1},
+                    "artifact": {"family": "prompt", "artifact_id": "atomic_memory.extract", "revision": 1},
                 },
                 "target_scope_id": target_scope,
                 "idempotency_key": "publish-prompt",
@@ -150,20 +151,20 @@ def test_prompt_publication_is_rejected_without_target_state(tmp_path: Path, acc
             records = await transport.get(f"/v1/scopes/{target_scope}/artifacts/prompt")
             assert records.status_code == 200, records.text
             assert records.json()["items"] == []
-            configuration = await transport.get(f"/v1/scopes/{target_scope}/prompts/memory.extract")
+            configuration = await transport.get(f"/v1/scopes/{target_scope}/prompts/atomic_memory.extract")
             assert configuration.status_code == 200, configuration.text
             assert configuration.json()["mode"] == "auto"
             assert configuration.json()["artifact"] is None
 
             created = await transport.post(
                 f"/v1/scopes/{target_scope}/artifacts",
-                json={"family": "prompt", "prompt_key": "memory.extract", "content": content},
+                json={"family": "prompt", "prompt_key": "atomic_memory.extract", "content": content},
             )
             assert created.status_code == 201, created.text
-            assert created.json()["artifact_id"] == "memory.extract"
+            assert created.json()["artifact_id"] == "atomic_memory.extract"
             updated_content = _content("Keep explicit long-term preferences.", mode="custom")
             replaced = await transport.put(
-                f"/v1/scopes/{target_scope}/artifacts/prompt/memory.extract",
+                f"/v1/scopes/{target_scope}/artifacts/prompt/atomic_memory.extract",
                 headers={"If-Match": '"revision:1"'},
                 json={"content": updated_content},
             )
@@ -171,14 +172,14 @@ def test_prompt_publication_is_rejected_without_target_state(tmp_path: Path, acc
             assert replaced.json()["revision"] == 2
             rejected = await transport.post("/v1/artifact-publications", json=publication)
             assert rejected.status_code == 422, rejected.text
-            configuration = await transport.get(f"/v1/scopes/{target_scope}/prompts/memory.extract")
+            configuration = await transport.get(f"/v1/scopes/{target_scope}/prompts/atomic_memory.extract")
             assert configuration.status_code == 200, configuration.text
             assert configuration.json()["mode"] == "custom"
             assert configuration.json()["artifact"]["revision"] == 2
             assert configuration.json()["effective"]["instructions"] == updated_content["instructions"]
             records = await transport.get(f"/v1/scopes/{target_scope}/artifacts/prompt")
             assert records.status_code == 200, records.text
-            assert [item["artifact_id"] for item in records.json()["items"]] == ["memory.extract"]
+            assert [item["artifact_id"] for item in records.json()["items"]] == ["atomic_memory.extract"]
 
     asyncio.run(scenario())
 
@@ -206,10 +207,19 @@ def test_prompt_http_history_generation_and_scoped_inference(
                 }
             else:
                 demonstration = {
-                    "input": {"evidence": [], "current_entries": []},
+                    "input": {"evidence": []},
                     "expected_output": {"candidates": []},
                 }
             value = {"demonstrations": [demonstration for _ in range(request["demonstration_count"])]}
+        elif "proposal" in request:
+            proposal = request["proposal"]
+            value = {
+                "action": "create",
+                "compared_ids": [item["item_id"] for item in request["related"]],
+                "content": {"kind": proposal["kind"], "text": proposal["text"]},
+                "evidence_ids": proposal["evidence_ids"],
+                "reason": "Retain the independently scoped preference.",
+            }
         elif "sources" in request:
             assert "PROFILE_ALPHA_RULE" in info.instructions
             value = {"content": "# Profile\n\n- Custom profile guidance applied."}
@@ -218,7 +228,6 @@ def test_prompt_http_history_generation_and_scoped_inference(
             value = {
                 "candidates": [
                     {
-                        "intent": "add",
                         "kind": "preference",
                         "text": text,
                         "evidence_ids": [request["evidence"][0]["evidence_id"]],
@@ -268,11 +277,11 @@ def test_prompt_http_history_generation_and_scoped_inference(
                 for label in ("Alpha", "Beta")
             ]
             capabilities = (await transport.get("/v1/capabilities")).json()
-            assert len(capabilities["prompts"]) == 14
+            assert len(capabilities["prompts"]) == 16
             assert capabilities["prompts"]["profile.generate"]["status"] == "supported"
-            assert capabilities["prompts"]["memory.extract"]["status"] == "supported"
+            assert capabilities["prompts"]["atomic_memory.extract"]["status"] == "supported"
             scope = scopes[0]
-            initial = await client.get_prompt_configuration(scope, "memory.extract")
+            initial = await client.get_prompt_configuration(scope, "atomic_memory.extract")
             assert initial.mode == "auto" and initial.artifact is None
             assert initial.effective is not None and initial.builtin is not None
             assert initial.effective.instructions == initial.builtin.instructions
@@ -281,28 +290,28 @@ def test_prompt_http_history_generation_and_scoped_inference(
                     scoped,
                     CreateArtifactRequest.model_validate({
                         "family": "prompt",
-                        "prompt_key": "memory.extract",
+                        "prompt_key": "atomic_memory.extract",
                         "content": _content(f"{label} rule.", mode="custom"),
                     }),
                 )
-                assert created.artifact_id == "memory.extract"
+                assert created.artifact_id == "atomic_memory.extract"
                 assert created.revision == 1
-                configuration = await client.get_prompt_configuration(scoped, "memory.extract")
+                configuration = await client.get_prompt_configuration(scoped, "atomic_memory.extract")
                 assert configuration.mode == "custom" and configuration.artifact is not None
                 assert configuration.artifact.revision == 1
                 assert configuration.artifact_etag == '"revision:1"'
                 assert configuration.effective is not None
                 assert configuration.effective.instructions == f"{label} rule."
                 assert configuration.builtin == initial.builtin
-            before = await client.get_artifact(scope, "prompt", "memory.extract")
+            before = await client.get_artifact(scope, "prompt", "atomic_memory.extract")
             assert before is not None
             generated = await client.generate_prompt_demonstrations(
                 scope,
-                "memory.extract",
+                "atomic_memory.extract",
                 GeneratePromptDemonstrationsRequest(instructions="Keep stable preferences.", demonstration_count=2),
             )
             assert len(generated.demonstrations) == 2
-            assert await client.get_artifact(scope, "prompt", "memory.extract") == before
+            assert await client.get_artifact(scope, "prompt", "atomic_memory.extract") == before
             assert capabilities["prompts"]["topic_memory.probe"]["status"] == "supported"
             topic_generated = await client.generate_prompt_demonstrations(
                 scope,
@@ -315,7 +324,7 @@ def test_prompt_http_history_generation_and_scoped_inference(
                     scope,
                     CreateArtifactRequest.model_validate({
                         "family": "prompt",
-                        "prompt_key": "memory.extract",
+                        "prompt_key": "atomic_memory.extract",
                         "content": _content(),
                     }),
                 )
@@ -324,10 +333,17 @@ def test_prompt_http_history_generation_and_scoped_inference(
             for scoped in scopes:
                 await client.create_source(scoped, CreateSourceRequest(content="I prefer reproducible builds."))
                 flushed = await client.flush_memory(FlushMemoryRequest(scope_id=scoped))
-                assert flushed.memory is not None
-                memory = await client.get_artifact(scoped, "memory", flushed.memory.artifact_id)
+                assert flushed.memory is None
+                assert flushed.processed_source_count == 1
+                entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scoped))
+                assert len(entries.entries) == 1
+                ref = entries.entries[0].artifact
+                memory = await client.get_artifact_revision(scoped, ref.family, ref.artifact_id, ref.revision)
                 assert memory is not None
-                assert any(ref.family == "prompt" and ref.revision == 1 for ref in memory.artifacts)
+                assert any(
+                    ref.family == "prompt" and ref.artifact_id == "atomic_memory.extract" and ref.revision == 1
+                    for ref in memory.artifacts
+                )
 
             profile_prompt = await client.create_artifact(
                 scope,
@@ -357,12 +373,12 @@ def test_prompt_http_history_generation_and_scoped_inference(
             auto = await client.replace_artifact(
                 scope,
                 "prompt",
-                "memory.extract",
+                "atomic_memory.extract",
                 ReplaceArtifactRequest.model_validate({"content": _content()}),
                 expected_etag='"revision:1"',
             )
             assert auto.revision == 2
-            auto_configuration = await client.get_prompt_configuration(scope, "memory.extract")
+            auto_configuration = await client.get_prompt_configuration(scope, "atomic_memory.extract")
             assert auto_configuration.mode == "auto" and auto_configuration.artifact is not None
             assert auto_configuration.artifact.revision == 2
             assert auto_configuration.effective == initial.effective
@@ -371,7 +387,7 @@ def test_prompt_http_history_generation_and_scoped_inference(
                 await client.replace_artifact(
                     scope,
                     "prompt",
-                    "memory.extract",
+                    "atomic_memory.extract",
                     ReplaceArtifactRequest.model_validate({"content": before.content}),
                     expected_etag='"revision:1"',
                 )
@@ -379,43 +395,43 @@ def test_prompt_http_history_generation_and_scoped_inference(
             restored = await client.replace_artifact(
                 scope,
                 "prompt",
-                "memory.extract",
+                "atomic_memory.extract",
                 ReplaceArtifactRequest.model_validate({"content": before.content}),
                 expected_etag='"revision:2"',
             )
             assert restored.revision == 3
             assert restored.content_digest == before.content_digest
-            restored_configuration = await client.get_prompt_configuration(scope, "memory.extract")
+            restored_configuration = await client.get_prompt_configuration(scope, "atomic_memory.extract")
             assert restored_configuration.artifact is not None and restored_configuration.artifact.revision == 3
             assert restored_configuration.effective is not None
             assert restored_configuration.effective.instructions == "Alpha rule."
             assert restored_configuration.builtin == initial.builtin
             page = await client.list_artifact_revisions(
-                scope, "prompt", "memory.extract", ListArtifactRevisionsRequest(limit=1)
+                scope, "prompt", "atomic_memory.extract", ListArtifactRevisionsRequest(limit=1)
             )
             assert [item.revision for item in page.items] == [3]
             assert page.next_cursor is not None
             assert "content" not in page.items[0].model_dump()
             tail = await client.list_artifact_revisions(
-                scope, "prompt", "memory.extract", ListArtifactRevisionsRequest(cursor=page.next_cursor)
+                scope, "prompt", "atomic_memory.extract", ListArtifactRevisionsRequest(cursor=page.next_cursor)
             )
             assert [item.revision for item in tail.items] == [2, 1]
             with pytest.raises(ServerResponseError) as wrong_scope:
                 await client.list_artifact_revisions(
-                    scopes[1], "prompt", "memory.extract", ListArtifactRevisionsRequest(cursor=page.next_cursor)
+                    scopes[1], "prompt", "atomic_memory.extract", ListArtifactRevisionsRequest(cursor=page.next_cursor)
                 )
             assert wrong_scope.value.status_code == 400
-            other_scope_prompt = await client.get_artifact(scopes[1], "prompt", "memory.extract")
+            other_scope_prompt = await client.get_artifact(scopes[1], "prompt", "atomic_memory.extract")
             assert other_scope_prompt is not None and other_scope_prompt.revision == 1
             assert (
                 await transport.post(
-                    f"/v1/scopes/{scope}/prompts/memory.extract/demonstrations",
+                    f"/v1/scopes/{scope}/prompts/atomic_memory.extract/demonstrations",
                     json={"instructions": "valid", "demonstration_count": 21},
                 )
             ).status_code == 422
             assert (
                 await transport.post(
-                    "/v1/scopes/missing/prompts/memory.extract/demonstrations",
+                    "/v1/scopes/missing/prompts/atomic_memory.extract/demonstrations",
                     json={"instructions": "valid", "demonstration_count": 1},
                 )
             ).status_code == 404

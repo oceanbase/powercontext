@@ -401,7 +401,8 @@ class PowerContextPlugin:
             current_cursor=response.current_cursor,
             high_watermark=response.high_watermark,
             processed_source_count=response.processed_source_count,
-            memory_created=response.memory is not None,
+            cursor_advanced=response.current_cursor > response.previous_cursor,
+            remaining_work=response.remaining_work,
         )
 
     def _write_capture_record(self, *, event: str, status: str, **values: Any) -> None:

@@ -24,13 +24,12 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
-from powercontext.artifacts import MemoryCitation
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     BuiltinRuntime,
-    GetMemoryEntryRequest,
     PrepareContextRequest,
     RememberMemoryRequest,
     open_builtin_runtime,
@@ -53,11 +52,12 @@ async def _prepare(runtime: BuiltinRuntime, scope_id: str, query: str) -> dict[s
             citation = item["citation"]
             # The current renderer uses relative citations for the requested Scope.
             # Resolving through that Scope validates ownership as well as entry identity.
-            record = await runtime.memory.for_scope(scope_id).get(
-                GetMemoryEntryRequest(citation=MemoryCitation.model_validate(citation))
-            )
-            if item.get("truncated") or record.entry.text != item["content"]:
-                raise ValueError("Prepared evidence does not match its complete persisted Memory entry")  # noqa: TRY003
+            ref = ArtifactRef.model_validate(citation["artifact_ref"])
+            if runtime.atomic_memory is None:
+                raise RuntimeError("Atomic Memory is unavailable")  # noqa: TRY003
+            record = await runtime.atomic_memory.for_scope(scope_id).get(ref.artifact_id, revision=ref.revision)
+            if item.get("truncated") or record.artifact.content.text != item["content"]:
+                raise ValueError("Prepared evidence does not match its persisted Atomic Memory")  # noqa: TRY003
             citations.append({"scope_id": scope_id, **citation})
     return {"prepared": prepared.model_dump(mode="json"), "citations": citations, "pid": os.getpid()}
 
@@ -107,8 +107,8 @@ async def execute(request: dict[str, Any]) -> dict[str, Any]:
             return {
                 "scope_id": scope.scope_id,
                 "other_scope_id": other.scope_id,
-                "memory_ref": saved.memory_ref.model_dump(mode="json"),
-                "other_memory_ref": other_saved.memory_ref.model_dump(mode="json"),
+                "artifact_ref": saved.primary.ref.model_dump(mode="json"),
+                "other_artifact_ref": other_saved.primary.ref.model_dump(mode="json"),
                 "pid": os.getpid(),
             }
         if request["mode"] == "recall":
@@ -135,9 +135,9 @@ async def execute(request: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(summary, str) or not summary.strip():
                 raise ValueError("An observed outcome summary is required")  # noqa: TRY003
             saved = await runtime.memory.for_scope(request["scope_id"]).remember(
-                RememberMemoryRequest(entries=(MemoryEntryInput(kind="outcome", text=f"invoice-outcome {summary}"),))
+                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text=f"invoice-outcome {summary}"),))
             )
-            return {"memory_ref": saved.memory_ref.model_dump(mode="json"), "pid": os.getpid()}
+            return {"artifact_ref": saved.primary.ref.model_dump(mode="json"), "pid": os.getpid()}
         if request["mode"] == "resume":
             return await _prepare(runtime, request["scope_id"], "invoice-outcome")
         raise ValueError("Unknown Memory worker mode")  # noqa: TRY003

@@ -85,10 +85,24 @@ export async function environment({ realModel } = {}) {
       let content = 'OK' // The real Server also probes generation readiness with a plain-text prompt.
       if (text.startsWith('{')) {
         const input = JSON.parse(text)
-        const candidates = input.current_entries?.length || !JSON.stringify(input.evidence).includes(CANARY) ? [] : [{
-          intent: 'add', kind: 'decision', text: CANARY, evidence_ids: ['source:0'], reason: 'runtime fixture',
-        }]
-        content = JSON.stringify({ candidates })
+        if (input.proposal) {
+          const duplicate = input.related.find(item => item.text === input.proposal.text)
+          content = JSON.stringify({
+            action: duplicate ? 'noop' : 'create',
+            compared_ids: input.related.map(item => item.item_id),
+            ...(duplicate ? { target_ids: [duplicate.item_id] } : {
+              content: { kind: input.proposal.kind, text: input.proposal.text },
+              evidence_ids: input.proposal.evidence_ids,
+            }),
+            reason: 'Preserve the runtime fixture fact without duplicating it.',
+          })
+        } else {
+          const evidence = input.evidence.find(item => JSON.stringify(item).includes(CANARY))
+          const candidates = evidence ? [{
+            kind: 'decision', text: CANARY, evidence_ids: [evidence.evidence_id],
+          }] : []
+          content = JSON.stringify({ candidates })
+        }
       }
       json(res, {
         id: 'inference-fixture', object: 'chat.completion', model: body.model, created: 0,

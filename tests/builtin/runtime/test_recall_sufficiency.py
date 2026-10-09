@@ -20,7 +20,6 @@ import pytest
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceSearchHit
-from powercontext.builtin.artifacts.memory import MemoryHit
 from powercontext.builtin.artifacts.memory.fusion import _MIN_SEMANTIC_SIMILARITY, admit_vector_candidates
 from powercontext.builtin.artifacts.memory.models import MemoryChannelHit, MemoryMatchedBy
 from powercontext.builtin.artifacts.search import (
@@ -33,10 +32,12 @@ from powercontext.builtin.artifacts.search import (
     fts_query_requirements,
 )
 from powercontext.builtin.artifacts.topic_memory import TopicMemorySearchHit
+from powercontext.builtin.persistence.atomic_memory_index import AtomicMemoryIndexHit
 from powercontext.builtin.runtime.application import (
     _families_with_recoverable_candidates,
     _families_with_retrieved_candidates,
 )
+from powercontext.builtin.runtime.atomic_memory import AtomicMemorySearchHit
 from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.builtin.runtime.prepared_context import PreparedContextOmissions
 from powercontext.builtin.runtime.recall_sufficiency import (
@@ -66,7 +67,7 @@ from powercontext.builtin.runtime.recall_sufficiency import (
     recall_effort,
 )
 
-MEMORY_REF = ArtifactRef(family="memory", artifact_id="memory", revision=3)
+MEMORY_REF = ArtifactRef(family="atomic-memory", artifact_id="memory", revision=3)
 
 
 def _budget_bound_view() -> RecallBudgetView:
@@ -86,8 +87,8 @@ def _memory_candidate(text: str, *, artifact_id: str = "memory", revision: int =
         family="memory",
         artifact_id=artifact_id,
         revision=revision,
-        entry_id="entry",
-        entry_version_id="entry-v1",
+        entry_id=None,
+        entry_version_id=None,
         score=1.0,
         text=text,
     )
@@ -123,13 +124,21 @@ def _experience_candidate(text: str, *, artifact_id: str = "experience") -> Reca
     )
 
 
-def _memory_hit(*, score: float, matched_by: tuple[MemoryMatchedBy, ...], text: str = "alpha beta") -> MemoryHit:
-    return MemoryHit(
-        memory_ref=MEMORY_REF,
-        entry_id="entry",
-        entry_version_id="entry-v1",
-        text=text,
-        score=score,
+def _memory_hit(
+    *,
+    score: float,
+    matched_by: tuple[MemoryMatchedBy, ...],
+    text: str = "alpha beta",
+    artifact_ref: ArtifactRef = MEMORY_REF,
+) -> AtomicMemorySearchHit:
+    return AtomicMemorySearchHit(
+        hit=AtomicMemoryIndexHit(
+            artifact_ref=artifact_ref,
+            state_version=0,
+            kind="fact",
+            text=text,
+            score=score,
+        ),
         matched_by=matched_by,
     )
 
@@ -520,13 +529,13 @@ def test_lexical_overlap_selects_the_maximum_over_candidates() -> None:
 # ── Candidate projection and identity ───────────────────────────────────────────────────────
 
 
-def test_candidate_identity_matches_the_builder_origin_identity() -> None:
+def test_candidate_identity_preserves_the_exact_artifact_revision() -> None:
     memory = build_recall_candidates(
         memory_hits=(_memory_hit(score=1 / 61, matched_by=("fts",)),),
         topic_memory_hits=(),
         experience_hits=(),
     )[0]
-    assert candidate_identity(memory) == ("memory", "memory", 3, "entry", "entry-v1")
+    assert candidate_identity(memory) == ("memory", "memory", 3, None, None)
 
     experience = build_recall_candidates(
         memory_hits=(),
@@ -536,12 +545,10 @@ def test_candidate_identity_matches_the_builder_origin_identity() -> None:
     assert candidate_identity(experience) == ("experience", "experience", 1, None, None)
 
 
-def test_distinct_source_count_uses_the_memory_entry_identity() -> None:
+def test_distinct_source_count_uses_each_atomic_memory_identity() -> None:
     memory_hits = tuple(
-        MemoryHit(
-            memory_ref=MEMORY_REF,
-            entry_id=f"entry-{index}",
-            entry_version_id=f"entry-{index}-v1",
+        _memory_hit(
+            artifact_ref=ArtifactRef(family="atomic-memory", artifact_id=f"memory-{index}", revision=3),
             text="alpha beta",
             score=1 / (61 + index),
             matched_by=("fts",),
@@ -564,9 +571,7 @@ def test_distinct_source_count_uses_the_memory_entry_identity() -> None:
         )
         .signals
     )
-    # Three distinct Memory entries share one memory_ref revision, so the coarse
-    # (family, artifact_id, revision) tuple the RFC warns against would report 2 here; the
-    # family-specific identity counts the entries independently, plus the one Experience Artifact.
+    # Independent Atomic artifacts remain distinct even when they share a revision number.
     assert signals.distinct_source_count == 4
 
 

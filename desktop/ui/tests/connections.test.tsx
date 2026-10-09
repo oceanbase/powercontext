@@ -15,12 +15,21 @@
  */
 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  within,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "../src/app/App";
 import { Connections } from "../src/app/Connections";
 import { desktopApi } from "../src/shared/ipc";
 import type { DesktopState, ProfileView } from "../src/generated/ipc";
+import { contractSha256 } from "../src/generated/operations";
+import qualifications from "../../src-tauri/src/connections/compatibility.json";
 vi.mock("../src/shared/ipc", () => ({
   getFoundationInfo: vi.fn().mockResolvedValue(null),
   desktopApi: {
@@ -64,12 +73,135 @@ function show(p = profile) {
   );
   return onState;
 }
+const currentCompatibility = qualifications.find(
+  (p) => p.contractSha256 === contractSha256,
+)!;
+const historicalCompatibility = qualifications.find(
+  (p) => p.contractSha256 !== contractSha256,
+)!;
+function qualifiedState(p = profile): DesktopState {
+  return {
+    ...state(p),
+    compatibilityProfiles: [historicalCompatibility, currentCompatibility],
+  };
+}
 beforeEach(() => {
   vi.clearAllMocks();
 });
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+test("new connections offer only current-contract profiles and keep no selection by default", async () => {
+  const user = userEvent.setup();
+  render(
+    <Connections
+      state={qualifiedState()}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  const selector = screen.getByLabelText(
+    "Verified compatibility profile",
+  ) as HTMLSelectElement;
+  expect(selector.value).toBe("");
+  expect(
+    (
+      within(selector).getByRole("option", {
+        name: (text) => text.includes(historicalCompatibility.id),
+      }) as HTMLOptionElement
+    ).disabled,
+  ).toBe(true);
+  const current = within(selector).getByRole("option", {
+    name: currentCompatibility.id,
+  }) as HTMLOptionElement;
+  expect(current.disabled).toBe(false);
+  expect(current.closest("optgroup")?.label).toBe(
+    "Available for this Desktop build",
+  );
+  await user.selectOptions(selector, current);
+  expect(selector.value).toBe(currentCompatibility.id);
+  expect(desktopApi.save).not.toHaveBeenCalled();
+  expect(desktopApi.check).not.toHaveBeenCalled();
+});
+test("a saved historical profile shows the contract mismatch and can be explicitly replaced before rechecking", async () => {
+  const user = userEvent.setup();
+  const saved = { ...profile, compatibility: historicalCompatibility.id };
+  const next = qualifiedState({
+    ...saved,
+    revision: 2,
+    compatibility: currentCompatibility.id,
+  });
+  const onState = vi.fn();
+  vi.mocked(desktopApi.save).mockResolvedValue(next);
+  vi.mocked(desktopApi.check).mockResolvedValue(next);
+  render(
+    <Connections
+      state={qualifiedState(saved)}
+      language="en"
+      onState={onState}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: /Original/ }));
+  const selector = screen.getByLabelText(
+    "Verified compatibility profile",
+  ) as HTMLSelectElement;
+  expect(selector.value).toBe(historicalCompatibility.id);
+  expect(screen.getByRole("alert").textContent).toMatch(
+    /different API contract from this Desktop build/,
+  );
+  expect(desktopApi.save).not.toHaveBeenCalled();
+  expect(desktopApi.check).not.toHaveBeenCalled();
+  await user.selectOptions(selector, currentCompatibility.id);
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Check connection",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Save configuration" }));
+  expect(desktopApi.save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      id: saved.id,
+      revision: saved.revision,
+      compatibility: currentCompatibility.id,
+    }),
+  );
+  expect(onState).toHaveBeenCalledWith(next);
+  await user.click(screen.getByRole("button", { name: "Check connection" }));
+  expect(desktopApi.check).toHaveBeenCalledWith(saved.id, false);
+});
+test("an unrecognized saved profile remains visible and requires explicit replacement", async () => {
+  const user = userEvent.setup();
+  render(
+    <Connections
+      state={qualifiedState({ ...profile, compatibility: "removed-profile" })}
+      language="zh"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: /Original/ }));
+  const selector = screen.getByLabelText("已验证兼容配置") as HTMLSelectElement;
+  expect(selector.value).toBe("removed-profile");
+  expect(
+    (
+      within(selector).getByRole("option", {
+        name: /removed-profile/,
+      }) as HTMLOptionElement
+    ).disabled,
+  ).toBe(true);
+  expect(screen.getByRole("alert").textContent).toMatch(
+    /此 Desktop 未包含该兼容配置的验证记录/,
+  );
+  await user.selectOptions(selector, currentCompatibility.id);
+  expect(selector.value).toBe(currentCompatibility.id);
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(desktopApi.save).not.toHaveBeenCalled();
 });
 test("canceling discard leaves the saved connection and its draft intact", async () => {
   const user = userEvent.setup();
@@ -175,12 +307,17 @@ test("a save from the previous connection editor cannot dismiss a new draft", as
     }),
   );
   await user.click(screen.getByRole("button", { name: "总览" }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { level: 1, name: "总览" }),
+    ),
+  );
   await user.click(screen.getByRole("button", { name: "连接" }));
-  await waitFor(() => {
+  await waitFor(() =>
     expect(document.activeElement).toBe(
       screen.getByRole("heading", { level: 1, name: "连接" }),
-    );
-  });
+    ),
+  );
   await user.type(screen.getByLabelText("连接名称"), "New draft");
   await act(async () => {
     finish(state({ ...profile, name: "First" }));

@@ -17,6 +17,7 @@
 import type { JsonObject, PowerContextClient } from './client.ts'
 import { InvalidResponseError, ServerResponseError, UnknownOperationError } from './errors.ts'
 import { OPERATIONS, type OperationId } from './operations.generated.ts'
+import { MemoryOperationError, requestMemoryOperation } from './memory-operations.ts'
 import { containsSecret } from './secrets.ts'
 
 export interface ToolResult {
@@ -25,6 +26,7 @@ export interface ToolResult {
   message?: string
   status?: number
   request_id?: string
+  etag?: string
   data?: unknown
 }
 
@@ -33,6 +35,8 @@ const WRITE_OPERATIONS = new Set<OperationId>([
   'capture_content_source',
   'revise_memory_entry',
   'retire_memory_entry',
+  'replace_artifact',
+  'change_atomic_memory_lifecycle',
   'activate_handoff',
   'commit_handoff',
   'generate_experience',
@@ -50,6 +54,7 @@ function hasSecret(value: unknown): boolean {
 }
 
 function errorResult(error: unknown): ToolResult {
+  if (error instanceof MemoryOperationError) return { ok: false, code: error.code, message: error.message }
   if (error instanceof ServerResponseError) {
     if (error.statusCode === 401) {
       return { ok: false, code: 'authentication_failed', message: 'PowerContext authentication failed.', status: 401 }
@@ -86,15 +91,17 @@ export async function invokeOperation(
   const mode = OPERATIONS[operationId].scopeMode
   const body = mode === 'selection'
     ? { ...payload, selection: { mode: 'exact', scope_ids: [scopeId] } }
-    : mode === 'current'
+    : mode === 'current' || operationId === 'get_atomic_memory_state'
       ? { ...payload, scope_id: scopeId }
       : payload
   if (operationMutates(operationId) && hasSecret(body)) {
     return { ok: false, code: 'secret_rejected', message: 'Refused to send secret-like content to PowerContext.' }
   }
   try {
-    const result = await client.request(operationId, body, signal)
-    return { ok: true, status: result.status, request_id: result.requestId, data: result.value }
+    const memory = await requestMemoryOperation(client, operationId, body, scopeId, signal)
+    const result = memory ?? await client.request(operationId, body, signal)
+    return { ok: true, status: result.status, request_id: result.requestId,
+      ...(result.etag === undefined ? {} : { etag: result.etag }), data: result.value }
   } catch (error) {
     return errorResult(error)
   }

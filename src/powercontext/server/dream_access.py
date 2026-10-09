@@ -25,8 +25,9 @@ from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.dream.models import DreamError, DreamRecord
 from powercontext.builtin.dream.service import DreamPermission
 from powercontext.builtin.evidence.resolver import EvidenceReference
+from powercontext.builtin.persistence.atomic_memory_identity import legacy_entry_artifact_id
 from powercontext.server.authz.errors import AccessControlError, AccessDeniedError, AccessIdentityRequiredError
-from powercontext.server.authz.models import AccessAction, MemoryEntrySelector, PrincipalRef, ResourceRef
+from powercontext.server.authz.models import AccessAction, PrincipalRef, ResourceRef
 from powercontext.server.authz.service import AccessAuditContext, AccessControlService
 from powercontext.server.context import current_principal, current_request_id
 
@@ -55,9 +56,8 @@ def _resource(scope_id: str, ref: EvidenceReference | None) -> ResourceRef:
     if isinstance(ref, MemoryCitation):
         return ResourceRef.artifact(
             scope_id,
-            family="memory",
-            artifact_id=ref.memory_ref.artifact_id,
-            selector=MemoryEntrySelector(entry_id=ref.entry_id),
+            family="atomic-memory",
+            artifact_id=legacy_entry_artifact_id(scope_id, ref.memory_ref.artifact_id, ref.entry_id),
         )
     if isinstance(ref, ArtifactRef) and ref.family != "memory":
         return ResourceRef.artifact(scope_id, family=ref.family, artifact_id=ref.artifact_id)

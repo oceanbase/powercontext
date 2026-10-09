@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
@@ -26,12 +27,19 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from powercontext import PowerContext
+from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryExtractionOutput
+from powercontext.builtin.inference import GenerationResult
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
+    BuiltinConfig,
     BuiltinRuntime,
+    CaptureSource,
     ExperienceIncubationResult,
     MemoryFlushResult,
     RuntimeCapabilities,
+    open_builtin_runtime,
 )
+from powercontext.builtin.runtime.application import ScheduledSourceProcessor
 from powercontext.builtin.runtime.scheduler import (
     EXPERIENCE_INCUBATION_JOB_ID,
     SOURCE_WINDOW_JOB_ID,
@@ -39,9 +47,10 @@ from powercontext.builtin.runtime.scheduler import (
     SchedulerStateError,
     scheduler_database_path,
 )
-from powercontext.builtin.scope import ScopeDescriptor
+from powercontext.builtin.scope import ScopeDescriptor, ScopeDraft
 from powercontext.builtin.sources import SourceCursor
 from powercontext.server.tracing import ServerTracing
+from tests.e2e.dream_support import atomic_memory_pipeline
 
 
 class _Provider:
@@ -63,8 +72,8 @@ class _ScheduledTriggers:
         self.dispatched = asyncio.Event()
         self.source_count = source_count
 
-    async def flush(self, *, limit: int) -> MemoryFlushResult:
-        del limit
+    async def flush(self, *, limit: int, atomic_context=None) -> MemoryFlushResult:
+        del limit, atomic_context
         self.dispatched.set()
         return MemoryFlushResult(
             previous_cursor=0,
@@ -79,8 +88,8 @@ class _ScheduledTriggers:
 
 
 class _FailingTriggers:
-    async def flush(self, *, limit: int) -> MemoryFlushResult:
-        del limit
+    async def flush(self, *, limit: int, atomic_context=None) -> MemoryFlushResult:
+        del limit, atomic_context
         raise RuntimeError("flush failed")  # noqa: TRY003
 
     async def cursor(self) -> SourceCursor:
@@ -91,8 +100,8 @@ class _BlockingTriggers:
     def __init__(self) -> None:
         self.entered = asyncio.Event()
 
-    async def flush(self, *, limit: int) -> MemoryFlushResult:
-        del limit
+    async def flush(self, *, limit: int, atomic_context=None) -> MemoryFlushResult:
+        del limit, atomic_context
         self.entered.set()
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
@@ -309,13 +318,46 @@ async def _private_scope_ids() -> tuple[str, ...]:
     return ("project:private-scheduled-scope",)
 
 
-def test_scheduled_processor_records_root_and_flush_spans() -> None:
+class _MemoryExtractor:
+    def __init__(self, *, fail=False):
+        self.fail = fail
+
+    async def generate(self, request):
+        if self.fail:
+            raise RuntimeError("flush failed")  # noqa: TRY003 - injected generation failure
+        return GenerationResult(output=AtomicMemoryExtractionOutput())
+
+
+@asynccontextmanager
+async def _memory_runtime(tmp_path, tracing, *, source_count=0, fail=False):
+    async with open_builtin_runtime(
+        BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'tracing.db'}")),
+        candidate_pipeline=atomic_memory_pipeline(_MemoryExtractor(fail=fail)),
+        tracing=tracing,
+    ) as runtime:
+        assert runtime.scopes is not None
+        scope = await runtime.scopes.create(
+            ScopeDraft(title="Private scheduled scope", summary="Scheduled processor trace", idempotency_key="trace")
+        )
+        for position in range(source_count):
+            await runtime.sources.for_scope(scope.scope_id).capture(
+                CaptureSource(source_id=str(position), content=f"Fact {position}", metadata={})
+            )
+
+        async def scope_ids():
+            return (scope.scope_id,)
+
+        runtime.processor = ScheduledSourceProcessor(runtime, scope_ids)
+        yield runtime
+
+
+def test_scheduled_processor_records_root_and_flush_spans(tmp_path) -> None:
     tracing, exporter = _tracing()
 
     async def scenario() -> None:
-        runtime = _runtime(_ScheduledTriggers(), tracing=tracing, scope_ids=_private_scope_ids)
-        assert runtime.processor is not None
-        await runtime.processor.run()
+        async with _memory_runtime(tmp_path, tracing) as runtime:
+            assert runtime.processor is not None
+            await runtime.processor.run()
 
     asyncio.run(scenario())
 
@@ -336,13 +378,13 @@ def test_scheduled_processor_records_root_and_flush_spans() -> None:
     assert "project:private-scheduled-scope" not in _scope_id_leak(exporter.get_finished_spans())
 
 
-def test_scheduled_processor_records_success_outcome() -> None:
+def test_scheduled_processor_records_success_outcome(tmp_path) -> None:
     tracing, exporter = _tracing()
 
     async def scenario() -> None:
-        runtime = _runtime(_ScheduledTriggers(source_count=3), tracing=tracing)
-        assert runtime.processor is not None
-        await runtime.processor.run()
+        async with _memory_runtime(tmp_path, tracing, source_count=3) as runtime:
+            assert runtime.processor is not None
+            await runtime.processor.run()
 
     asyncio.run(scenario())
 
@@ -355,13 +397,13 @@ def test_scheduled_processor_records_success_outcome() -> None:
     assert flush.attributes["powercontext.memory.flush.source_count"] == 3
 
 
-def test_scheduled_processor_records_failure_and_swallows_error() -> None:
+def test_scheduled_processor_records_failure_and_swallows_error(tmp_path) -> None:
     tracing, exporter = _tracing()
 
     async def scenario() -> None:
-        runtime = _runtime(_FailingTriggers(), tracing=tracing)
-        assert runtime.processor is not None
-        await runtime.processor.run()
+        async with _memory_runtime(tmp_path, tracing, source_count=1, fail=True) as runtime:
+            assert runtime.processor is not None
+            await runtime.processor.run()
 
     asyncio.run(scenario())
 

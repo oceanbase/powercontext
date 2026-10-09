@@ -122,6 +122,14 @@ def _generate_models(
     transport_contract.paths = {}
     if transport_contract.components is None or transport_contract.components.schemas is None:
         raise ContractGenerationError("components.schemas", None)
+    exclusive_schemas = {
+        name: schema
+        for name, schema in transport_contract.components.schemas.items()
+        if isinstance(schema, Schema) and (schema.model_extra or {}).get("x-powercontext-exclusive-fields")
+    }
+    # Keep address alternatives as fields in the SDK; the generated validator retains their exclusivity.
+    for schema in exclusive_schemas.values():
+        schema.oneOf = None
     result = generate(
         transport_contract.model_dump(mode="json", by_alias=True, exclude_none=True),
         config=GenerateConfig(
@@ -146,6 +154,7 @@ def _generate_models(
     source = _with_nested_model_defaults(f"{result.rstrip()}\n")
     source = _with_code_validation(source, transport_contract.components.schemas)
     source = _with_artifact_search_validation(source, transport_contract.components.schemas)
+    source = _with_exclusive_fields(source, exclusive_schemas)
     return _with_candidate_evidence_limits(source, evidence_models)
 
 
@@ -203,6 +212,31 @@ def _with_artifact_search_validation(source: str, schemas: dict[str, Schema | Re
 """
                 + validator
             )
+        source = f"{source[:insert_at].rstrip()}\n{validator.rstrip()}\n\n{source[insert_at:].lstrip()}"
+    return source
+
+
+def _with_exclusive_fields(source: str, schemas: dict[str, Schema]) -> str:
+    for name, schema in schemas.items():
+        fields = (schema.model_extra or {})["x-powercontext-exclusive-fields"]
+        if not isinstance(fields, list) or not all(isinstance(field, str) for field in fields):
+            raise ContractGenerationError("x-powercontext-exclusive-fields", fields)
+        source = _with_model_validator_import(source)
+        header = f"class {name}(BaseModel):"
+        start = source.find(header)
+        if start < 0:
+            raise ContractGenerationError("generated model class", name)  # noqa: TRY003
+        next_class = source.find("\nclass ", start + len(header))
+        insert_at = next_class if next_class >= 0 else len(source.rstrip())
+        validator = f"""
+    @model_validator(mode="after")
+    def _validate_exclusive_fields(self):
+        fields = {tuple(fields)!r}
+        present = tuple(field for field in fields if field in self.model_fields_set)
+        if len(present) != 1 or getattr(self, present[0]) is None:
+            raise ValueError("exactly one non-null address is required")  # noqa: TRY003
+        return self
+"""
         source = f"{source[:insert_at].rstrip()}\n{validator.rstrip()}\n\n{source[insert_at:].lstrip()}"
     return source
 

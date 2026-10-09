@@ -96,21 +96,30 @@ def _add_common_options(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_citation_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("family")
-    parser.add_argument("artifact_id")
-    parser.add_argument("revision", type=int)
-    parser.add_argument("entry_id")
-    parser.add_argument("entry_version_id")
+    parser.add_argument("family", help="Exact Atomic reference JSON, or legacy citation family.")
+    parser.add_argument("artifact_id", nargs="?")
+    parser.add_argument("revision", type=int, nargs="?")
+    parser.add_argument("entry_id", nargs="?")
+    parser.add_argument("entry_version_id", nargs="?")
+    parser.add_argument("--state-version", type=int, default=None)
 
 
 def _citation_args(args: argparse.Namespace) -> dict[str, Any]:
-    return {
+    if args.family.lstrip().startswith("{"):
+        value = json.loads(args.family)
+        if not isinstance(value, dict):
+            raise ValueError("reference must be a JSON object")  # noqa: TRY003
+        return {"reference": value}
+    fields = {
         "family": args.family,
         "artifact_id": args.artifact_id,
         "revision": args.revision,
-        "entry_id": args.entry_id,
-        "entry_version_id": args.entry_version_id,
     }
+    if args.entry_id is not None or args.entry_version_id is not None:
+        fields.update(entry_id=args.entry_id, entry_version_id=args.entry_version_id)
+    if args.state_version is not None:
+        fields["state_version"] = args.state_version
+    return fields
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -232,7 +241,7 @@ def register_cli(subparser: argparse.ArgumentParser) -> None:
     _add_common_options(get)
     get.set_defaults(func=cmd_get)
 
-    retire = commands.add_parser("retire", help="Retire one exact memory citation.")
+    retire = commands.add_parser("retire", help="Forget one exact Atomic Memory snapshot.")
     _add_citation_options(retire)
     retire.add_argument("--reason", default=None)
     _add_common_options(retire)

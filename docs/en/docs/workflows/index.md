@@ -26,7 +26,7 @@ those belong to [deployment and operations](../operate/index.md), outside this d
 | Isolate projects and control access | Scope | [Scopes and access](scopes-and-access.md) |
 | Capture raw evidence or references to external material | Source | [Sources and capture](sources.md), [Ingest text files](ingest-text-files-with-opendal.md) |
 | Read revisions and choose a write workflow | Artifact | [Artifacts](artifacts.md) |
-| Find relevant current artifacts and configure Topic fusion | Artifact search | [Search Artifacts](search-artifacts.md), [Fusion algorithms and parameters](search-fusion.md) |
+| Find relevant current artifacts and configure Topic or Atomic fusion | Artifact search | [Search Artifacts](search-artifacts.md), [Fusion algorithms and parameters](search-fusion.md) |
 | Save and recall durable facts, decisions, and constraints | Memory | [Memory and context](memory-and-context.md) |
 | Build a reusable lesson and review it | Experience | [Create and review Experience](create-and-review-experience.md), [Experience lifecycle](experience-and-skill-lifecycle.md) |
 | Manage an exportable instruction set | Skill | [Create and export Skill](create-and-export-skill.md), [Configure Skill targets](configure-agent-skill-targets.md) |
@@ -38,8 +38,8 @@ those belong to [deployment and operations](../operate/index.md), outside this d
 | Select and render context for one Agent turn | PreparedContext | [Prepare context text](prepare-context-text.md) |
 | Enable optional vector or hybrid retrieval | Retrieval deployment option | [Configure vector search](configure-vector-search.md) |
 
-The implementation currently writes these Artifact families: `memory`, `experience`, `skill`, `handoff`, `profile`, and
-`prompt`. Artifact reads also expose the specialized `topic-memory` family. A Source is evidence, not an Artifact; a Tag
+The implementation currently writes these Artifact families: `atomic-memory`, `topic-memory`, `experience`, `skill`,
+`handoff`, `profile`, and `prompt`. The `memory` family retains frozen legacy collection reads. A Source is evidence, not an Artifact; a Tag
 is metadata, not an Artifact family. Confirm the actual surface in [integration capabilities](../integrations/capabilities.md).
 
 These guides describe the current implementation. Do not assume an Agent exposes every operation available through HTTP.

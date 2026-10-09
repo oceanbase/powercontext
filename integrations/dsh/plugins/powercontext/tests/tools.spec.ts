@@ -46,6 +46,7 @@ describe('agent tool surface', () => {
       'pc_remember',
       'pc_memory_list',
       'pc_memory_get',
+      'pc_memory_state',
       'pc_memory_revise',
       'pc_memory_retire',
       'pc_prepare_context',

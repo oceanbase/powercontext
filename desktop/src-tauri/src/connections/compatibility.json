@@ -19,6 +19,26 @@
     "evidence": "desktop/VALIDATION.md"
   },
   {
+    "id": "sqlite-atomic-7bd5b85c-v1",
+    "serverCommit": "7bd5b85c154c284d0ad550de31ecf8aa629d8ccf",
+    "contractSha256": "0807df984ba706b505d4fff0cb849d4566222f10572d91a5e03399b833d1fe4f",
+    "artifactSha256": "057eca5de29961684bfea8ea8aece7c133b3d8b46a024db69a944519bc5b2746",
+    "operations": [
+      "get_liveness",
+      "get_readiness",
+      "get_access_principal",
+      "get_capabilities",
+      "list_scopes",
+      "get_scope",
+      "get_default_scope",
+      "remember_memory",
+      "search_memory",
+      "get_memory_entry",
+      "get_artifact_revision"
+    ],
+    "evidence": "desktop/VALIDATION.md"
+  },
+  {
     "id": "sqlite-legacy-58f7f4f6-v1",
     "serverCommit": "58f7f4f6cbadd698bac35b3fca019d9f48f55b81",
     "contractSha256": "9f4ba7b35ecd3b3639af4e648aff84b713a7f30b51d5a4c30c8809aeb8dc8024",

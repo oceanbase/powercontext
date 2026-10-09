@@ -166,7 +166,10 @@ def test_definition_change_does_not_hide_history_or_partially_commit_a_failed_ro
             )
             original = await records.get_artifact("scope-a", "prompt", "memory.extract")
             definitions = builtin_prompt_definitions()
-            changed = (replace(definitions[0], input_type=IncompatibleInput), *definitions[1:])
+            changed = tuple(
+                replace(definition, input_type=IncompatibleInput) if definition.key == "memory.extract" else definition
+                for definition in definitions
+            )
             upgraded = _records(profile, PromptRegistry(changed, supported=frozenset(PROMPT_KEYS)))
             assert await upgraded.get_artifact_revision("scope-a", "prompt", "memory.extract", 1) == original
             with pytest.raises(PromptError) as failure:

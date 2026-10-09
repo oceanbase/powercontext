@@ -19,32 +19,27 @@ import asyncio
 import httpx
 import pytest
 
-from powercontext.builtin.artifacts.memory import (
-    CapabilityNotSupportedError,
-    MemoryCapacityExceededError,
-    MemoryEntryInput,
-)
+from powercontext.builtin.artifacts.memory import MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import BaseOperationNotSupportedError
 from powercontext.builtin.runtime import (
     BuiltinConfig,
-    GetMemoryEntryRequest,
-    RetireMemoryEntryRequest,
     open_builtin_runtime,
 )
 from powercontext.builtin.runtime import RememberMemoryRequest as RuntimeRememberMemoryRequest
 from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.client import PowerContextClient, ServerResponseError
-from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
-from powercontext.http import GetMemoryCapacityRequest, RememberMemoryRequest
+from powercontext.http import GetMemoryCapacityRequest, ListMemoryEntriesRequest, RememberMemoryRequest
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
 from powercontext.server.authz import PrincipalRef
+from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 
 
 @pytest.mark.parametrize("enabled", [False, True])
-def test_runtime_compaction_requires_enablement_and_recovers_capacity(tmp_path, enabled):
+def test_runtime_collection_compaction_is_unsupported_without_mutation(tmp_path, enabled):
     async def scenario():
         config = BuiltinConfig(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime-capacity.db'}"),
@@ -58,43 +53,33 @@ def test_runtime_compaction_requires_enablement_and_recovers_capacity(tmp_path, 
         async with open_builtin_runtime(config) as runtime:
             assert runtime.scopes is not None
             scope = await runtime.scopes.create(
-                ScopeDraft(title="Capacity", summary="Runtime compaction", idempotency_key="capacity")
+                ScopeDraft(title="Capacity", summary="Retired collection operations", idempotency_key="capacity")
             )
             memory = runtime.memory.for_scope(scope.scope_id)
-            with pytest.raises(ArtifactNotFoundError):
+            with pytest.raises(BaseOperationNotSupportedError, match="collection compaction"):
                 await memory.compact(dry_run=True)
-            assert (await memory.list()).memory_ref is None
-            await memory.remember(
+            assert (await memory.list()).items == ()
+            written = await memory.remember(
                 RuntimeRememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Old fact"),))
             )
-            entry = (await memory.list()).entries[0]
-            retired = await memory.retire(RetireMemoryEntryRequest(citation=entry.citation))
-            request = RuntimeRememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="New fact"),))
-            with pytest.raises(MemoryCapacityExceededError):
-                await memory.remember(request)
-            before = await memory.capacity()
-            preview = await memory.compact(dry_run=True, limit=1, reason="Recover capacity")
-            assert preview.entry_ids == (entry.entry.entry_id,)
-            assert preview.memory.as_ref() == retired.memory_ref
-            assert await memory.capacity() == before
-            if not enabled:
-                with pytest.raises(CapabilityNotSupportedError, match="compaction"):
-                    await memory.compact()
-                assert await memory.capacity() == before
-                return
-            with pytest.raises(RevisionConflictError):
-                await memory.compact(expected_revision=entry.memory_ref.revision)
-            assert await memory.capacity() == before
-            result = await memory.compact(expected_revision=preview.memory.revision, limit=1, reason="Recover capacity")
-            assert result.entry_ids == preview.entry_ids
-            assert result.reclaimed_bytes == preview.reclaimed_bytes
-            assert result.memory.revision == retired.memory_ref.revision + 1
-            assert (await memory.capacity()).manifest_entry_count == 0
-            assert await memory.get(GetMemoryEntryRequest(citation=entry.citation)) == entry
-            changes = await memory.changes(since_revision=retired.memory_ref.revision)
-            assert changes.revisions[0].changes[0].op == "compact"
-            await memory.remember(request)
-            assert (await memory.capacity()).manifest_entry_count == 1
+            before = await memory.list(include_inactive=True)
+            for dry_run in (False, True):
+                with pytest.raises(BaseOperationNotSupportedError, match="collection compaction"):
+                    await memory.compact(dry_run=dry_run, expected_revision=1, limit=1, reason="Recover capacity")
+            with pytest.raises(BaseOperationNotSupportedError, match="collection capacity"):
+                await memory.capacity()
+            with pytest.raises(BaseOperationNotSupportedError, match="continuous collection changes"):
+                await memory.changes(since_revision=1)
+            assert await memory.list(include_inactive=True) == before
+            assert runtime.atomic_memory is not None
+            assert (
+                await runtime.atomic_memory.for_scope(scope.scope_id).get(written.primary.ref.artifact_id)
+                == written.primary
+            )
+            await memory.remember(
+                RuntimeRememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="New fact"),))
+            )
+            assert len((await memory.list()).items) == 2
 
     asyncio.run(scenario())
 
@@ -111,82 +96,91 @@ def test_capacity_and_refusal_through_server_and_client(tmp_path):
         )
         async with (
             app.router.lifespan_context(app),
-            httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app),
-                base_url="http://testserver",
-            ) as transport,
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             scope_id = (await client.get_default_scope()).scope_id
             request = GetMemoryCapacityRequest(scope_id=scope_id)
             with pytest.raises(ServerResponseError) as missing:
                 await client.get_memory_capacity(request)
-            assert missing.value.status_code == 404
+            assert (missing.value.status_code, missing.value.code) == (422, "legacy_memory_operation_unsupported")
             written = await client.remember_memory(
                 RememberMemoryRequest(scope_id=scope_id, kind="fact", text="First fact.")
             )
-            capacity = await client.get_memory_capacity(request)
-            assert capacity.memory_ref == written.memory
-            assert capacity.active_entry_count == capacity.manifest_entry_count == 1
-            assert capacity.budget.max_manifest_entries == 1
-            assert capacity.exceeded == []
-            rejected = await transport.post(
-                "/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": "Second fact."}
+            before = await client.list_memory_entries(
+                ListMemoryEntriesRequest(scope_id=scope_id, include_inactive=True)
             )
-            assert rejected.status_code == 409, rejected.text
-            error = rejected.json()["error"]
-            assert error["code"] == "memory_capacity_exceeded"
-            assert error["details"] == {"dimension": "manifest_entries", "limit": 1, "observed": 2}
-            assert await client.get_memory_capacity(request) == capacity
-            # Generic Artifact management must inherit the same deployment limit.
+            with pytest.raises(ServerResponseError) as capacity:
+                await client.get_memory_capacity(request)
+            assert (capacity.value.status_code, capacity.value.code) == (422, "legacy_memory_operation_unsupported")
+            second = await client.remember_memory(
+                RememberMemoryRequest(scope_id=scope_id, kind="fact", text="Second fact.")
+            )
+            assert second.records[0].artifact != written.records[0].artifact
+            current = await client.list_memory_entries(
+                ListMemoryEntriesRequest(scope_id=scope_id, include_inactive=True)
+            )
+            assert len(current.entries) == 2
             create = await transport.post(
                 f"/v1/scopes/{scope_id}/artifacts",
-                json={
-                    "family": "memory",
-                    "content": {
-                        "entries": [{"kind": "fact", "text": "Generic one."}, {"kind": "fact", "text": "Generic two."}]
-                    },
-                },
+                json={"family": "memory", "content": {"entries": [{"kind": "fact", "text": "Generic one."}]}},
             )
-            assert create.status_code == 409, create.text
-            assert create.json()["error"]["code"] == "memory_capacity_exceeded"
-            record = await transport.get(f"/v1/scopes/{scope_id}/artifacts/memory/{written.memory.artifact_id}")
+            assert create.status_code == 422, create.text
+            assert create.json()["error"]["code"] == "legacy_memory_operation_unsupported"
             replace = await transport.put(
-                f"/v1/scopes/{scope_id}/artifacts/memory/{written.memory.artifact_id}",
-                headers={"If-Match": record.headers["etag"]},
+                f"/v1/scopes/{scope_id}/artifacts/memory/legacy-collection",
+                headers={"If-Match": '"legacy-revision"'},
                 json={"content": {"entries": [{"kind": "fact", "text": "Generic append."}]}},
             )
-            assert replace.status_code == 409, replace.text
-            assert replace.json()["error"]["code"] == "memory_capacity_exceeded"
-            assert await client.get_memory_capacity(request) == capacity
+            assert replace.status_code == 422, replace.text
+            assert replace.json()["error"]["code"] == "legacy_memory_operation_unsupported"
+            assert (
+                await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id, include_inactive=True))
+                == current
+            )
+            assert before.entries == written.records
 
     asyncio.run(scenario())
 
 
-def test_capacity_requires_scope_access(tmp_path):
+def test_legacy_capacity_authentication_and_explicit_refusal(tmp_path):
+    """Retired capacity authenticates; supported context reads keep Scope permissions."""
+
     async def scenario():
-        app = create_server_app(
-            settings=ServerSettings(
-                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'access.db'}"),
-                access=AccessControlConfig(mode="enforced"),
-                mcp=McpConfig(enabled=False),
-            ),
-            authentication_provider=StaticBearerAuthenticationProvider(
-                "test-token", PrincipalRef(type="user", id="outsider")
-            ),
-        )
-        async with (
-            app.router.lifespan_context(app),
-            httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app),
-                base_url="http://testserver",
-            ) as client,
-        ):
-            anonymous = await client.post("/v1/memory/capacity", json={"scope_id": "private"})
-            assert anonymous.status_code == 401
-            denied = await client.post(
-                "/v1/memory/capacity", json={"scope_id": "private"}, headers={"Authorization": "Bearer test-token"}
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'access.db'}")
+        async with open_builtin_access_control(database) as access:
+            app = create_server_app(
+                settings=ServerSettings(
+                    database=database,
+                    access=AccessControlConfig(mode="enforced"),
+                    mcp=McpConfig(enabled=False),
+                ),
+                access_control=access,
+                authentication_provider=StaticBearerAuthenticationProvider(
+                    "test-token", PrincipalRef(type="user", id="outsider")
+                ),
             )
-            assert denied.status_code == 403
+            async with (
+                app.router.lifespan_context(app),
+                httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client,
+            ):
+                private = await app.state.application.scopes.create(
+                    ScopeDraft(title="Private", summary="No outsider access", idempotency_key="private-read")
+                )
+                anonymous = await client.post("/v1/memory/capacity", json={"scope_id": private.scope_id})
+                assert anonymous.status_code == 401
+                denied = await client.post(
+                    "/v1/context/prepare",
+                    json={"scope_id": private.scope_id, "query": "private"},
+                    headers={"Authorization": "Bearer test-token"},
+                )
+                assert denied.status_code == 403
+                unsupported = await client.post(
+                    "/v1/memory/capacity",
+                    json={"scope_id": private.scope_id},
+                    headers={"Authorization": "Bearer test-token"},
+                )
+                assert unsupported.status_code == 422
+                assert unsupported.json()["error"]["code"] == "legacy_memory_operation_unsupported"
 
     asyncio.run(scenario())

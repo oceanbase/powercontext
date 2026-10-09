@@ -107,7 +107,7 @@ class DefaultHandoffEvidenceProjector:
             "artifact_id": artifact.artifact_id,
             "revision": artifact.revision,
             "family": artifact.family,
-            "content": artifact.content,
+            "content": artifact.model_dump(mode="json")["content"],
         })
 
     def project_memory_entry(self, entry: MemoryEntryVersion, /) -> JsonValue:

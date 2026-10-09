@@ -180,7 +180,7 @@ pub async fn search_memory<R: tauri::Runtime>(
     state: tauri::State<'_, HostState>,
     generation: u32,
     query: String,
-) -> Result<crate::transport::wire::SearchMemoryResponse, ApiFailure> {
+) -> Result<crate::transport::MemorySearchResponse, ApiFailure> {
     manager(&window, &state)?
         .search_memory(generation, &query)
         .await
@@ -190,10 +190,10 @@ pub async fn memory_entry<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,
     state: tauri::State<'_, HostState>,
     generation: u32,
-    citation: crate::transport::wire::MemoryCitation,
-) -> Result<crate::transport::wire::MemoryEntry, ApiFailure> {
+    reference: crate::transport::MemoryReference,
+) -> Result<crate::transport::MemoryEntryResult, ApiFailure> {
     manager(&window, &state)?
-        .memory_entry(generation, &citation)
+        .memory_entry(generation, &reference)
         .await
 }
 #[tauri::command]

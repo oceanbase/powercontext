@@ -23,7 +23,7 @@ limitations under the License.
   {% if caller is defined %}{{ caller() }}{% endif %}
   {% if record.artifact_id %}<code class="d-block text-reset bg-transparent p-0 mb-2">{{ family }}/{{ record.artifact_id }}{% if record.revision %}@{{ record.revision }}{% endif %}</code>{% endif %}
   {% for source in record.sources if source.source_id %}<code class="d-block text-reset bg-transparent p-0 mb-2">{{ source.source_type }}/{{ source.source_id }}</code>{% endfor %}
-  {% set pages = {'experience': 'experience', 'skill': 'skill', 'handoff': 'handoff-detail'} %}
+  {% set pages = {'atomic-memory': 'notes', 'experience': 'experience', 'skill': 'skill', 'handoff': 'handoff-detail'} %}
   {% for artifact in record.artifacts if artifact.artifact_id %}
     {% if artifact.family in pages and artifact.revision %}
     <a class="d-block mb-2" href="{{ link(pages[artifact.family], artifact=artifact.artifact_id, revision=artifact.revision) }}"><code class="text-reset bg-transparent p-0">{{ artifact.family }}/{{ artifact.artifact_id }}@{{ artifact.revision }}</code></a>

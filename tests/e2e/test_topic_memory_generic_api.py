@@ -95,6 +95,60 @@ def _create(client, scope, word):
     return response
 
 
+@pytest.mark.parametrize("mode", ["text", "hybrid"])
+@pytest.mark.parametrize("floor", [4, 2**63 - 1, 2**63, 10**100], ids=["four", "sqlite-max", "sqlite-overflow", "huge"])
+def test_topic_search_impossible_lexical_floor_keeps_semantic_candidates(tmp_path, mode, floor):
+    embedding = Embeddings() if mode == "hybrid" else None
+    with TestClient(_app(tmp_path, embedding), raise_server_exceptions=False) as client:
+        scope = _scope(client, "impossible-floor")
+        path = f"/v1/scopes/{scope}/artifacts/topic-memory/search"
+        request = {
+            "query": "alpha beta gamma",
+            "mode": mode,
+            "admission": {"lexical_min_matched_terms": floor},
+            "include_scores": True,
+        }
+        empty = client.post(path, json=request)
+        assert empty.status_code == 200, empty.text
+        assert empty.json() == {"results": []}
+
+        topic = _create(client, scope, "alpha beta gamma").json()
+        ordinary = client.post(path, json={"query": "alpha beta gamma", "mode": mode, "include_scores": True})
+        assert ordinary.status_code == 200, ordinary.text
+        assert ordinary.json()["results"][0]["artifact_id"] == topic["artifact_id"]
+        assert {"topic_fts", "detail_fts"} <= ordinary.json()["results"][0]["scores"]["channels"].keys()
+
+        response = client.post(path, json=request)
+        assert response.status_code == 200, response.text
+        if mode == "text":
+            assert response.json() == {"results": []}
+        else:
+            result = response.json()["results"][0]
+            assert result["artifact_id"] == topic["artifact_id"]
+            assert result["content"] == _content("alpha beta gamma")
+            assert set(result["scores"]["channels"]) == {"topic_vector", "detail_vector"}
+
+
+@pytest.mark.parametrize("query", ["alpha", "alpha beta"])
+def test_topic_search_large_floor_preserves_short_query_admission(tmp_path, query):
+    with TestClient(_app(tmp_path)) as client:
+        scope = _scope(client, "short-floor")
+        topic = _create(client, scope, "alpha beta gamma").json()
+        response = client.post(
+            f"/v1/scopes/{scope}/artifacts/topic-memory/search",
+            json={
+                "query": query,
+                "mode": "text",
+                "admission": {"lexical_min_matched_terms": 2**63},
+                "include_scores": True,
+            },
+        )
+        assert response.status_code == 200, response.text
+        result = response.json()["results"][0]
+        assert result["artifact_id"] == topic["artifact_id"]
+        assert set(result["scores"]["channels"]) == {"topic_fts", "detail_fts"}
+
+
 def _topic_embedding_requests(database, scope=None):
     """Read the recorded topic-memory embedding requests directly from the store."""
 

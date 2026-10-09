@@ -38,6 +38,15 @@ SCOPE = {
     "version": 1,
 }
 ERROR = {"error": {"code": "rejected", "message": "do not expose test-only-secret", "details": None}}
+ATOMIC_REF = {"family": "atomic-memory", "artifact_id": "am-1", "revision": 1}
+ATOMIC_REVISION = {
+    "scope_id": "scope-A",
+    **ATOMIC_REF,
+    "content": {"kind": "decision", "text": "Use fixed Scope."},
+    "sources": [],
+    "artifacts": [],
+    "content_digest": "sha256:" + "a" * 64,
+}
 
 
 @pytest.fixture(scope="module")
@@ -77,6 +86,97 @@ def transport(monkeypatch):
 
 def run(registry, tool, parameters, credentials=None):
     return invoke(registry, {"tool": tool, "parameters": parameters, "credentials": credentials or CREDENTIALS})
+
+
+@pytest.mark.parametrize("historical", [False, True])
+def test_atomic_read_keeps_exact_revision_and_only_current_content_etag(registry, transport, historical):
+    def respond(request):
+        assert request.method == "GET" and not request.content
+        if request.url.path.endswith("/revisions/1"):
+            return httpx.Response(200, json=ATOMIC_REVISION)
+        return httpx.Response(
+            200,
+            json={**ATOMIC_REVISION, "revision": 2 if historical else 1},
+            headers={"ETag": '"revision:2"' if historical else '"revision:1"'},
+        )
+
+    transport(respond)
+    result = run(registry, "pc_memory_get", {"artifact": json.dumps(ATOMIC_REF)})
+    assert result["ok"] is True
+    assert result["data"]["revision"] == 1 and result["data"]["content"] == ATOMIC_REVISION["content"]
+    if historical:
+        assert "etag" not in result["data"]
+    else:
+        assert result["data"]["etag"] == '"revision:1"'
+
+
+def test_atomic_revise_sends_content_cas_and_preserves_precondition_conflict(registry, transport):
+    def respond(request):
+        assert request.method == "PUT" and request.url.path.endswith("/atomic-memory/am-1")
+        assert request.headers["If-Match"] == '"revision:1"'
+        assert json.loads(request.content) == {"content": {"kind": "constraint", "text": "Retain scope."}}
+        return httpx.Response(412, json=ERROR)
+
+    transport(respond)
+    result = run(
+        registry,
+        "pc_memory_revise",
+        {
+            "artifact": json.dumps(ATOMIC_REF),
+            "if_match": '"revision:1"',
+            "kind": "constraint",
+            "text": "Retain scope.",
+        },
+    )
+    assert result["status"] == "error" and result["error"]["code"] == "conflict"
+
+
+def test_atomic_retire_uses_zero_state_version_and_recoverable_forgotten_state(registry, transport):
+    receipt = {
+        "changed": True,
+        "records": [
+            {
+                "artifact": ATOMIC_REF,
+                "kind": "decision",
+                "text": "Use fixed Scope.",
+                "state": "forgotten",
+                "state_version": 1,
+                "merged_into_id": None,
+            }
+        ],
+    }
+
+    def respond(request):
+        assert request.url.path == "/v1/atomic-memory/lifecycle"
+        assert json.loads(request.content) == {
+            "scope_id": "scope-A",
+            "target": {"artifact": ATOMIC_REF, "state_version": 0},
+            "state": "forgotten",
+        }
+        return httpx.Response(200, json=receipt)
+
+    transport(respond)
+    result = run(registry, "pc_memory_retire", {"artifact": json.dumps(ATOMIC_REF), "state_version": 0})
+    assert result["ok"] is True and result["data"] == receipt
+
+
+@pytest.mark.parametrize("tool", ["pc_memory_revise", "pc_memory_retire"])
+def test_legacy_citations_remain_read_only(registry, transport, tool):
+    calls = transport(lambda _request: pytest.fail("Legacy citation mutations must not reach HTTP"))
+    parameters = {
+        "citation": json.dumps(
+            {
+                "memory_ref": {"family": "memory", "artifact_id": "m-1", "revision": 1},
+                "entry_id": "entry-1",
+                "entry_version_id": "v-1",
+            }
+        )
+    }
+    if tool == "pc_memory_revise":
+        parameters.update(kind="decision", text="Read only.")
+    result = run(registry, tool, parameters)
+    assert result["ok"] is False and result["error"]["code"] == "invalid_request"
+    assert [path for path, _ in calls] == ["/v1/scope-bindings/resolve"]
 
 
 def test_sdk_registers_exact_catalog_and_json_text_inputs(registry):
@@ -250,7 +350,7 @@ def test_invalid_memory_inputs_cannot_write_or_override_scope(registry, transpor
 
 
 def test_query_has_character_budget_and_empty_search_is_success(registry, transport):
-    calls = transport(lambda _request: httpx.Response(200, json={"hits": []}))
+    calls = transport(lambda _request: httpx.Response(200, json={"mode": "text", "hits": []}))
     result = run(registry, "pc_search", {"query": "中" * 4000})
     assert result["ok"] is True and result["status"] == "empty"
     assert calls[-1][1]["limit"] == 8

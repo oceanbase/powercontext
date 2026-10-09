@@ -2,7 +2,7 @@
 
 Connect Dify tools to a separate PowerContext Server for persistent Memory, bounded context, explicit Source evidence, Handoff, Experience and managed Skills. Select only the tools your application needs.
 
-This is an experimental tool plugin. It does not provide automatic recall or capture, an Agent strategy, a model loop, or native Agent V2 memory callbacks. The provider has 19 tools; candidate inspection is read-only. Server administration, candidate approval, external Skills and code indexing are outside this tool surface.
+This is an experimental tool plugin. It does not provide automatic recall or capture, an Agent strategy, a model loop, or native Agent V2 memory callbacks. The provider has 20 tools; candidate inspection is read-only. Server administration, candidate approval, external Skills and code indexing are outside this tool surface.
 
 ## Install and authorize
 
@@ -30,14 +30,15 @@ The model cannot supply the top-level Scope, URL, token, binding, context assemb
 
 ## Tools
 
-| Tool | HTTP operationId | Behavior |
+| Tool | Tool operation ID | Behavior |
 | --- | --- | --- |
 | `pc_search` | `search_memory` | Memory search; default and maximum 8 hits |
-| `pc_memory_list` | `list_memory_entries` | List Memory entries, optionally including inactive entries |
-| `pc_memory_get` | `get_memory_entry` | Read an exact Memory citation |
-| `pc_remember` | `remember_memory` | Save an explicitly chosen Memory entry |
-| `pc_memory_revise` | `revise_memory_entry` | Revise an exact citation |
-| `pc_memory_retire` | `retire_memory_entry` | Retire an exact citation |
+| `pc_memory_list` | `list_memory_entries` | Page through Atomic Memory, optionally including inactive states |
+| `pc_memory_get` | `get_memory_entry` | Read an exact Atomic ArtifactRef or a full historical legacy citation |
+| `pc_memory_state` | `get_atomic_memory_state` | Read the current Atomic reference, lifecycle and state version |
+| `pc_remember` | `remember_memory` | Save explicitly chosen Atomic Memory; return `changed` and `records` |
+| `pc_memory_revise` | `revise_memory_entry` | Replace exact current Atomic content using its content ETag |
+| `pc_memory_retire` | `retire_memory_entry` | Set guarded, recoverable forgotten state for Atomic Memory |
 | `pc_prepare_context` | `prepare_context` | Prepare bounded context |
 | `pc_capture_source` | `capture_content_source` | Capture an explicit Source |
 | `pc_handoff_activate` | `activate_handoff` | Activate from a boundary Source |
@@ -52,7 +53,13 @@ The model cannot supply the top-level Scope, URL, token, binding, context assemb
 | `pc_review_list` | `list_artifact_candidates` | List candidates; explicit family experience / skill |
 | `pc_review_get` | `get_artifact_candidate` | Read a candidate |
 
+Memory tools retain their logical operation IDs. The adapter routes listing to `list_atomic_memories`, Atomic reads to the current or exact historical Artifact endpoint, revision to `replace_artifact`, and forgetting to the Atomic lifecycle endpoint. Legacy citations support exact historical reads only.
+
 Memory kinds are `decision`, `constraint`, `current-state`, `task-outcome`, `next-step` and `agent-note`. Memory text is checked after NFC normalization and trimming and must fit 8192 UTF-8 bytes. Search query length follows its HTTP character limit, with a default/maximum of 8 hits.
+
+Preserve each Atomic Memory record's complete `artifact` and `state_version`. `pc_remember` returns `changed` and `records`. `pc_memory_list` supports state filters and cursor pagination; active entries are the default, while an explicit audit can include `forgotten`, `merged` and `retired`. `pc_memory_state(artifact_id)` returns the current `artifact`, `state`, `state_version` and nullable `merged_into_id`.
+
+For `pc_memory_get`, supply exactly one JSON-encoded Atomic `artifact` or full historical legacy `citation`. An Atomic ArtifactRef contains `family=atomic-memory`, `artifact_id` and `revision`. A current read returns the complete `ArtifactRevision`, including `content.kind` and `content.text`, and adds the actual Server content ETag as `etag`. An exact historical read has no current write ETag. To correct Memory, pass the exact current `artifact`, its returned ETag as `if_match`, and complete `kind`/`text` to `pc_memory_revise`. To remove Memory from active search, pass the exact current `artifact` and a nonnegative `state_version` from search, list or `pc_memory_state` to `pc_memory_retire`. This sets recoverable `forgotten` state and preserves history. Conflicts require a fresh read and confirmation that the requested change still applies.
 
 Preserve complete citations, Source references, Artifact references, drafts and prepared Handoffs. Every object, array and nullable input is a **string containing one JSON-encoded value**. Ordinary nonnullable scalars keep their declared types. The parameter description includes the full decoded JSON Schema, and the plugin decodes once and validates against the HTTP contract before sending the request. Do not reconstruct, flatten, truncate or encode an already encoded value again. Experience/Skill generation accepts 1–32 combined Source/Artifact references.
 
@@ -79,7 +86,7 @@ Each invocation emits text and one JSON envelope:
 
 `data` preserves the complete public HTTP success response. `status` is `success`, `empty`, `error` or `unknown`; `empty` is a successful empty read. `error` includes a safe code/message and, when available, HTTP status and a validated request ID. Raw Server/transport errors and credentials are not emitted.
 
-The six named output variables are `ok`, `operation`, `status`, `data`, `error` and `result`. `result` exposes the successful response as an object with operation-specific fields in the Workflow variable picker: select `result.content` for context, `result.citation` for an exact Memory read, `result.candidate.candidate_id` for candidate lookup, or the complete `result` from Handoff prepare/finalize. Nested objects such as `result.draft` can be expanded without replacing null values in the response. Successful empty reads preserve their response, including nullable context content. On `error` or `unknown`, `result` is `{}`; branch on `ok` before using it, and inspect any partial receipt in `data` for recovery. A successful no-op generation may have `result.candidate=null`; check the operation's status before dereferencing it.
+The six named output variables are `ok`, `operation`, `status`, `data`, `error` and `result`. `result` exposes the successful response as an object with operation-specific fields in the Workflow variable picker. Select `result.content` for prepared context; `result.content.kind`, `result.content.text` and `result.etag` for a current Atomic Memory read; `result.artifact`, `result.state`, `result.state_version` and `result.merged_into_id` for Memory state; `result.candidate.candidate_id` for candidate lookup; or the complete `result` from Handoff prepare/finalize. A legacy Memory read retains `result.citation`. Nested objects such as `result.draft` can be expanded without replacing null values in the response. Successful empty reads preserve their response, including nullable context content. On `error` or `unknown`, `result` is `{}`; branch on `ok` before using it, and inspect any partial receipt in `data` for recovery. A successful no-op generation may have `result.candidate=null`; check the operation's status before dereferencing it.
 
 Before passing a structured or nullable output to another tool, connect it to a Workflow Code node's `value` input, serialize it once, and connect the string output `json_text` to the next tool's parameter:
 
@@ -90,7 +97,7 @@ def main(value) -> dict:
     return {"json_text": json.dumps(value, ensure_ascii=False, allow_nan=False)}
 ```
 
-For example, serialize the complete `pc_handoff_prepare.result` for `pc_handoff_finalize.draft`, then serialize its complete `result` for commit/continue. Outputs retain native JSON values; the conversion is only at the next tool's input.
+For example, serialize a complete Atomic `artifact` from search, list or state for `pc_memory_get.artifact`, then pass the returned `result.etag` directly to `pc_memory_revise.if_match`. For Handoff, serialize the complete `pc_handoff_prepare.result` for `pc_handoff_finalize.draft`, then serialize its complete `result` for commit/continue. Outputs retain native JSON values; the conversion is only at the next tool's input.
 
 `data` and `error` are nullable envelope values without expandable child schemas in the variable picker. Use `result.*` selectors to connect individual response fields to downstream nodes.
 

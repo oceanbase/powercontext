@@ -165,11 +165,14 @@ describe("PowerContext tools", () => {
     expect(notFound.details).toMatchObject({ path: citation, text: "", status: "not_found", code: "not_found" });
     expect(notFound.details).not.toHaveProperty("unavailable");
 
+    const atomicCitation = encodeCitation({
+      artifact: { family: "atomic-memory", artifact_id: "artifact-1", revision: 1 }, state_version: 0,
+    });
     const conflict = await createMemoryReviseTool(context, {
       client: domainClient(409),
       getConfig: config,
       isPrivateSession: () => true,
-    })!.execute("call-2", { citation, text: "new text", kind: "fact" });
+    })!.execute("call-2", { citation: atomicCitation, text: "new text", kind: "fact" });
     expect(conflict.details).toMatchObject({ status: "conflict", code: "conflict" });
 
     const invalidRequest = await createMemoryStoreTool(context, {
@@ -189,8 +192,11 @@ describe("PowerContext tools", () => {
           return { scope_id: "scp_resolved" } as T;
         }
         return {
-          memory: { family: "memory", artifact_id: "artifact-1", revision: 1 },
-          entry: null,
+          changed: true,
+          records: [{
+            artifact: { family: "atomic-memory", artifact_id: "artifact-1", revision: 1 },
+            state: "active", state_version: 0, merged_into_id: null, kind: "fact", text: "durable fact",
+          }],
         } as T;
       },
     } as unknown as PowerContextClient;
@@ -207,7 +213,10 @@ describe("PowerContext tools", () => {
 
     const result = await createMemoryStoreTool(context, deps)!.execute("call-1", { text: "durable fact" });
 
-    expect(result.details).toMatchObject({ status: "stored", revision: 1 });
+    expect(result.details).toMatchObject({
+      status: "stored", changed: true,
+      records: [{ artifact: { family: "atomic-memory", artifact_id: "artifact-1", revision: 1 }, state_version: 0 }],
+    });
     expect(requests.map((request) => request.path)).toEqual([
       "/v1/scope-bindings/resolve",
       "/v1/memory/remember",

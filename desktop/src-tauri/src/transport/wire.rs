@@ -134,11 +134,88 @@ pub struct ArtifactFamilyAccessCapability {
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+pub enum ArtifactReadFamily {
+    #[serde(rename = "memory")]
+    Memory,
+    #[serde(rename = "atomic-memory")]
+    AtomicMemory,
+    #[serde(rename = "experience")]
+    Experience,
+    #[serde(rename = "skill")]
+    Skill,
+    #[serde(rename = "handoff")]
+    Handoff,
+    #[serde(rename = "profile")]
+    Profile,
+    #[serde(rename = "prompt")]
+    Prompt,
+    #[serde(rename = "topic-memory")]
+    TopicMemory,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactReference {
     pub r#family: String,
     pub r#artifact_id: String,
     pub r#revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactRevision {
+    pub r#scope_id: String,
+    pub r#family: ArtifactReadFamily,
+    pub r#artifact_id: String,
+    pub r#revision: i64,
+    pub r#content: std::collections::BTreeMap<String, serde_json::Value>,
+    pub r#sources: Vec<SourceTypeReference>,
+    pub r#artifacts: Vec<ArtifactReference>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#memory_citations: Option<Vec<MemoryCitation>>,
+    pub r#content_digest: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
+pub struct AtomicMemoryRecord {
+    pub r#artifact: ArtifactReference,
+    pub r#kind: String,
+    pub r#text: String,
+    pub r#state: AtomicMemoryState,
+    pub r#state_version: i64,
+    pub r#merged_into_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
+pub struct AtomicMemorySearchHit {
+    pub r#memory: AtomicMemoryRecord,
+    pub r#score: f64,
+    pub r#matched_by: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+pub enum AtomicMemorySearchMode {
+    #[serde(rename = "text")]
+    Text,
+    #[serde(rename = "vector")]
+    Vector,
+    #[serde(rename = "hybrid")]
+    Hybrid,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+pub enum AtomicMemoryState {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "forgotten")]
+    Forgotten,
+    #[serde(rename = "merged")]
+    Merged,
+    #[serde(rename = "retired")]
+    Retired,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
@@ -171,7 +248,19 @@ pub struct Capabilities {
 #[serde(deny_unknown_fields)]
 pub struct GetMemoryEntryRequest {
     pub r#scope_id: String,
-    pub r#citation: MemoryCitation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#citation: Option<MemoryCitation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#target: Option<LegacyMemoryTarget>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(untagged)]
+pub enum GetMemoryEntryResponse {
+    MemoryEntry(MemoryEntry),
+    AtomicMemoryRecord(AtomicMemoryRecord),
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
@@ -179,6 +268,8 @@ pub struct GetMemoryEntryRequest {
 pub struct HealthResponse {
     pub r#status: String,
 }
+
+pub type LegacyMemoryTarget = MemoryEntryTagTarget;
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
@@ -209,6 +300,15 @@ pub enum MemoryEntryState {
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryEntryTagTarget {
+    pub r#type: String,
+    pub r#family: String,
+    pub r#artifact_id: String,
+    pub r#entry_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
 pub enum MemoryMatchedBy {
     #[serde(rename = "fts")]
     Fts,
@@ -219,10 +319,8 @@ pub enum MemoryMatchedBy {
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct MemoryMutationResponse {
-    pub r#memory: ArtifactReference,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub r#entry: Option<MemoryEntry>,
+    pub r#changed: bool,
+    pub r#records: Vec<AtomicMemoryRecord>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
@@ -366,19 +464,21 @@ pub struct SearchMemoryRequest {
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct SearchMemoryResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub r#memory: Option<ArtifactReference>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub r#mode: Option<MemoryUsedSearchMode>,
-    pub r#hits: Vec<SearchMemoryHit>,
+    pub r#mode: AtomicMemorySearchMode,
+    pub r#hits: Vec<AtomicMemorySearchHit>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct SourceReference {
     pub r#name: String,
+    pub r#source_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
+pub struct SourceTypeReference {
+    pub r#source_type: String,
     pub r#source_id: String,
 }
 
@@ -402,6 +502,7 @@ pub enum TagMatch {
 #[rustfmt::skip]
 pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
     vec![
+        <serde_json::Value as ts_rs::TS>::decl(config),
         <AccessAction as ts_rs::TS>::decl(config),
         <AccessControlMode as ts_rs::TS>::decl(config),
         <AccessMeResponse as ts_rs::TS>::decl(config),
@@ -410,13 +511,22 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <AccessResourceType as ts_rs::TS>::decl(config),
         <AccessRole as ts_rs::TS>::decl(config),
         <ArtifactFamilyAccessCapability as ts_rs::TS>::decl(config),
+        <ArtifactReadFamily as ts_rs::TS>::decl(config),
         <ArtifactReference as ts_rs::TS>::decl(config),
+        <ArtifactRevision as ts_rs::TS>::decl(config),
+        <AtomicMemoryRecord as ts_rs::TS>::decl(config),
+        <AtomicMemorySearchHit as ts_rs::TS>::decl(config),
+        <AtomicMemorySearchMode as ts_rs::TS>::decl(config),
+        <AtomicMemoryState as ts_rs::TS>::decl(config),
         <Capabilities as ts_rs::TS>::decl(config),
         <GetMemoryEntryRequest as ts_rs::TS>::decl(config),
+        <GetMemoryEntryResponse as ts_rs::TS>::decl(config),
         <HealthResponse as ts_rs::TS>::decl(config),
+        String::from("type LegacyMemoryTarget = MemoryEntryTagTarget;"),
         <MemoryCitation as ts_rs::TS>::decl(config),
         <MemoryEntry as ts_rs::TS>::decl(config),
         <MemoryEntryState as ts_rs::TS>::decl(config),
+        <MemoryEntryTagTarget as ts_rs::TS>::decl(config),
         <MemoryMatchedBy as ts_rs::TS>::decl(config),
         <MemoryMutationResponse as ts_rs::TS>::decl(config),
         <MemorySearchMode as ts_rs::TS>::decl(config),
@@ -434,6 +544,7 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <SearchMemoryRequest as ts_rs::TS>::decl(config),
         <SearchMemoryResponse as ts_rs::TS>::decl(config),
         <SourceReference as ts_rs::TS>::decl(config),
+        <SourceTypeReference as ts_rs::TS>::decl(config),
         <TagFilter as ts_rs::TS>::decl(config),
         <TagMatch as ts_rs::TS>::decl(config),
     ]

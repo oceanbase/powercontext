@@ -54,16 +54,37 @@ capabilities = ["memory_read"]
 id = "get_memory_entry"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
-id = "get_memory_capacity"
+id = "get_atomic_memory_state"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "list_atomic_memories"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "search_atomic_memory"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "preview_atomic_memory_restoration"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "get_artifact"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "get_artifact_revision"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
 id = "remember_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
-id = "revise_memory_entry"
+id = "replace_artifact"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
-id = "retire_memory_entry"
+id = "merge_atomic_memories"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "change_atomic_memory_lifecycle"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "restore_atomic_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
 id = "capture_content_source"
@@ -230,6 +251,9 @@ capabilities = ["memory_read"]
 id = "pc_memory_get:get_memory_entry"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
+id = "pc_memory_state:get_atomic_memory_state"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "pc_remember:remember_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
@@ -289,6 +313,9 @@ id = "pc_memory_list:list_memory_entries"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
 id = "pc_memory_get:get_memory_entry"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_memory_state:get_atomic_memory_state"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
 id = "pc_remember:remember_memory"
@@ -495,6 +522,9 @@ capabilities = ["memory_read"]
 id = "pc_memory_get:get_memory_entry"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
+id = "pc_memory_state:get_atomic_memory_state"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "pc_remember:remember_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
@@ -556,8 +586,8 @@ capabilities = ["memory_read"]
 id = "pc_memory_get:get_memory_entry"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
-id = "pc_memory_changes:list_memory_changes"
-non_profile_reason = "Memory change history is not a profile capability."
+id = "pc_memory_state:get_atomic_memory_state"
+capabilities = ["memory_read"]
 [[toolsets.tools]]
 id = "pc_stats:get_stats"
 non_profile_reason = "Diagnostics are not a profile capability."

@@ -28,8 +28,14 @@ import pytest
 from pydantic import SecretStr
 from sqlalchemy.engine import make_url
 
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+)
 from powercontext.builtin.artifacts.experience import ExperienceContent
-from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.artifacts.memory import MemoryEntryInput
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.dream.generation import DreamGenerationInput
 from powercontext.builtin.dream.models import DreamError, DreamPlan
@@ -37,6 +43,7 @@ from powercontext.builtin.evidence.models import EvidenceResolutionError
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest,
     BuiltinConfig,
@@ -53,14 +60,13 @@ from powercontext.builtin.runtime import (
     ProposeExperienceRequest,
     ProposeSkillRequest,
     RememberMemoryRequest,
-    RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     RuntimeConfig,
 )
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.server.app import ServerApplication
+from tests.e2e.dream_support import atomic_memory_pipeline, process_pending
 from tests.e2e.dream_support import open_dream_runtime as open_builtin_runtime
-from tests.e2e.dream_support import process_pending
 
 DatabaseConfig = SQLiteConfig | OceanBaseConfig
 
@@ -141,12 +147,18 @@ class Generator:
 
 
 class MemoryPipeline:
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        return tuple(
-            MemoryEntryInput(
-                kind="task_record", text="The replay test passed without duplicate writes.", sources=(source,)
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        return GenerationResult(
+            output=AtomicMemoryExtractionOutput(
+                candidates=tuple(
+                    AtomicMemoryCandidate(
+                        kind="working_note",
+                        text="The replay test passed without duplicate writes.",
+                        evidence_ids=(evidence.evidence_id,),
+                    )
+                    for evidence in request.evidence
+                )
             )
-            for source in request.sources
         )
 
 
@@ -190,10 +202,10 @@ def test_wizard_skill_selection_accepts_dream_derivation(
         # model request stays local instead of reaching the wizard's provider.
         inference = settings.inference.model_copy(update={"generation_base_url": "http://127.0.0.1:9/v1"})
         configuration = BuiltinConfig(database=settings.database, runtime=settings.runtime, inference=inference)
-        async with open_runtime(configuration, candidate_pipeline=MemoryPipeline()) as runtime:
+        async with open_runtime(configuration, candidate_pipeline=atomic_memory_pipeline(MemoryPipeline())) as runtime:
             scope, _, citation = await seed(runtime)
             candidate = await runtime.experience.for_scope(scope).propose(
-                ProposeExperienceRequest(proposal=experience(), memory_citations=(citation,))
+                ProposeExperienceRequest(proposal=experience(), artifacts=(citation,))
             )
             approved = await runtime.review.for_scope(scope).approve(
                 ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
@@ -229,19 +241,28 @@ async def seed(runtime: BuiltinRuntime):
         RememberMemoryRequest(entries=(MemoryEntryInput(kind="private_note", text="UNSELECTED_SIBLING_SENTINEL"),))
     )
     entries = await runtime.memory.for_scope(scope.scope_id).list()
-    citation = next(item.citation for item in entries.entries if item.entry.kind == "task_record")
+    citation = next(item.ref for item in entries.items if item.artifact.content.kind == "working_note")
     return scope.scope_id, captured.source_ref, citation
+
+
+async def forget_memory(runtime: BuiltinRuntime, scope_id: str, ref):
+    assert runtime.atomic_memory is not None
+    memories = runtime.atomic_memory.for_scope(scope_id)
+    current = await memories.get(ref.artifact_id)
+    return await memories.forget(
+        ref.artifact_id, expected_revision=current.ref.revision, expected_state_version=current.state.state_version
+    )
 
 
 def test_memory_dream_approval_and_skill_preserve_exact_provenance(database: DatabaseConfig) -> None:
     async def scenario() -> None:
         generator = Generator()
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=generator
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
         ) as runtime:
             scope, root, citation = await seed(runtime)
             request = CreateDreamRunRequest(
-                operation="refine_experience", memory_citations=(citation, citation), idempotency_key="memory"
+                operation="refine_experience", artifacts=(citation, citation), idempotency_key="memory"
             )
             accepted = await runtime.dream.for_scope(scope).create(request)
             assert accepted.status == "queued"
@@ -259,7 +280,8 @@ def test_memory_dream_approval_and_skill_preserve_exact_provenance(database: Dat
             candidate = await runtime.review.for_scope(scope).get(
                 GetArtifactCandidateRequest(candidate_id=run.candidate.candidate_id)
             )
-            assert candidate.memory_citations == (citation,)
+            assert candidate.memory_citations == ()
+            assert candidate.artifacts == (citation,)
             assert candidate.sources == (root,)
             followup = PrepareContextRequest(query=experience().lesson)
             pending_context = await runtime.context.for_scope(scope).prepare(followup)
@@ -274,7 +296,8 @@ def test_memory_dream_approval_and_skill_preserve_exact_provenance(database: Dat
             artifact = await runtime.experience.for_scope(scope).get(
                 GetExperienceRequest(artifact=approved.result_artifact)
             )
-            assert artifact.lineage.memory_citations == (citation,)
+            assert artifact.lineage.memory_citations == ()
+            assert artifact.lineage.artifacts == (citation,)
             approved_context = await runtime.context.for_scope(scope).prepare(followup)
             assert approved_context.status == "ready" and approved_context.content is not None
             assert artifact.artifact_id in approved_context.content
@@ -334,13 +357,13 @@ def test_split_roles_accept_declared_dream_work(database: DatabaseConfig, role: 
             }
         )
         async with open_builtin_runtime(
-            configured, candidate_pipeline=MemoryPipeline(), dream_generator=Generator()
+            configured, candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=Generator()
         ) as runtime:
             scope, _, citation = await seed(runtime)
             assert (await runtime.capabilities()).artifact_dreaming
             accepted = await runtime.dream.for_scope(scope).create(
                 CreateDreamRunRequest(
-                    operation="refine_experience", memory_citations=(citation,), idempotency_key="split-role"
+                    operation="refine_experience", artifacts=(citation,), idempotency_key="split-role"
                 )
             )
             assert accepted.status == "queued"
@@ -359,16 +382,16 @@ def test_retirement_during_generation_prevents_candidate_commit(database: Databa
     async def scenario() -> None:
         generator = Generator(blocked=True)
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=generator
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
         ) as runtime:
             scope, _, citation = await seed(runtime)
             request = CreateDreamRunRequest(
-                operation="refine_experience", memory_citations=(citation,), idempotency_key="retired"
+                operation="refine_experience", artifacts=(citation,), idempotency_key="retired"
             )
             accepted = await runtime.dream.for_scope(scope).create(request)
             worker = asyncio.create_task(process_pending(runtime))
             await asyncio.wait_for(generator.started.wait(), timeout=5)
-            await runtime.memory.for_scope(scope).retire(RetireMemoryEntryRequest(citation=citation))
+            await forget_memory(runtime, scope, citation)
             generator.release.set()
             await worker
             run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
@@ -381,12 +404,14 @@ def test_retirement_during_generation_prevents_candidate_commit(database: Databa
 
 def test_review_rechecks_memory_and_revision_omission_preserves_citations(database: DatabaseConfig) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(config(database), candidate_pipeline=MemoryPipeline()) as runtime:
+        async with open_builtin_runtime(
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline())
+        ) as runtime:
             scope, root, citation = await seed(runtime)
             candidate = await runtime.experience.for_scope(scope).propose(
                 ProposeExperienceRequest(
                     proposal=experience(),
-                    memory_citations=(citation,),
+                    artifacts=(citation,),
                 )
             )
             revised = await runtime.review.for_scope(scope).revise(
@@ -395,10 +420,12 @@ def test_review_rechecks_memory_and_revision_omission_preserves_citations(databa
                     expected_version=1,
                     proposal=experience(),
                     sources=(root,),
+                    artifacts=(citation,),
                 )
             )
-            assert revised.memory_citations == (citation,)
-            await runtime.memory.for_scope(scope).retire(RetireMemoryEntryRequest(citation=citation))
+            assert revised.memory_citations == ()
+            assert revised.artifacts == (citation,)
+            await forget_memory(runtime, scope, citation)
             with pytest.raises(EvidenceResolutionError, match="memory_entry_inactive"):
                 await runtime.review.for_scope(scope).approve(
                     ApproveArtifactCandidateRequest(
@@ -412,10 +439,11 @@ def test_review_rechecks_memory_and_revision_omission_preserves_citations(databa
                     expected_version=2,
                     proposal=experience(),
                     sources=(root,),
-                    memory_citations=(),
+                    artifacts=(),
                 )
             )
             assert cleared.memory_citations == ()
+            assert cleared.artifacts == ()
             approved = await runtime.review.for_scope(scope).approve(
                 ApproveArtifactCandidateRequest(
                     candidate_id=candidate.candidate_id,
@@ -430,13 +458,15 @@ def test_review_rechecks_memory_and_revision_omission_preserves_citations(databa
 def test_unknown_model_evidence_fails_without_a_candidate(database: DatabaseConfig) -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=Generator(unknown_id=True)
+            config(database),
+            candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+            dream_generator=Generator(unknown_id=True),
         ) as runtime:
             scope, _, citation = await seed(runtime)
             accepted = await runtime.dream.for_scope(scope).create(
                 CreateDreamRunRequest(
                     operation="refine_experience",
-                    memory_citations=(citation,),
+                    artifacts=(citation,),
                     idempotency_key="invalid",
                 )
             )
@@ -461,7 +491,7 @@ def test_dream_http_client_accepts_active_and_terminal_replays(database: Databas
     async def scenario() -> None:
         generator = Generator()
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=generator
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
         ) as runtime:
             scope, _, citation = await seed(runtime)
             app = create_app(application=cast(ServerApplication, runtime))
@@ -472,7 +502,7 @@ def test_dream_http_client_accepts_active_and_terminal_replays(database: Databas
                 request = TransportCreateDreamRunRequest.model_validate_json(
                     CreateDreamRunRequest(
                         operation="refine_experience",
-                        memory_citations=(citation,),
+                        artifacts=(citation,),
                         idempotency_key="http",
                     ).model_dump_json()
                 )
@@ -521,11 +551,11 @@ def test_concurrent_admission_and_workers_create_one_candidate(database: Databas
     async def scenario() -> None:
         generator = Generator()
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=generator
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
         ) as runtime:
             scope, _, citation = await seed(runtime)
             request = CreateDreamRunRequest(
-                operation="refine_experience", memory_citations=(citation,), idempotency_key="concurrent"
+                operation="refine_experience", artifacts=(citation,), idempotency_key="concurrent"
             )
             accepted = await asyncio.gather(*(runtime.dream.for_scope(scope).create(request) for _ in range(8)))
             assert len({run.run_id for run in accepted}) == 1
@@ -551,13 +581,11 @@ def test_transient_failure_retries_same_projection_with_bounded_calls(database: 
     async def scenario() -> None:
         generator = TransientGenerator()
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=generator
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
         ) as runtime:
             scope, _, citation = await seed(runtime)
             accepted = await runtime.dream.for_scope(scope).create(
-                CreateDreamRunRequest(
-                    operation="refine_experience", memory_citations=(citation,), idempotency_key="retry"
-                )
+                CreateDreamRunRequest(operation="refine_experience", artifacts=(citation,), idempotency_key="retry")
             )
             await process_pending(runtime)
             first = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
@@ -582,12 +610,14 @@ def test_provider_exceeding_output_budget_leaves_no_candidate(database: Database
 
     async def scenario() -> None:
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=OversizedGenerator()
+            config(database),
+            candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+            dream_generator=OversizedGenerator(),
         ) as runtime:
             scope, _, citation = await seed(runtime)
             accepted = await runtime.dream.for_scope(scope).create(
                 CreateDreamRunRequest(
-                    operation="refine_experience", memory_citations=(citation,), idempotency_key="output-budget"
+                    operation="refine_experience", artifacts=(citation,), idempotency_key="output-budget"
                 )
             )
             await process_pending(runtime)
@@ -604,7 +634,7 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
 
     from powercontext.server.app import create_app
     from powercontext.server.authentication import StaticBearerAuthenticationProvider
-    from powercontext.server.authz import AccessRole, MemoryEntrySelector, PrincipalRef, ResourceRef
+    from powercontext.server.authz import AccessRole, PrincipalRef, ResourceRef
     from powercontext.server.authz.composition import open_builtin_access_control
     from powercontext.server.authz.service import AccessAuditContext, CreateBinding
     from powercontext.server.dream_access import DreamAccess, principal_identity
@@ -620,26 +650,13 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
             generator = Generator(blocked=True)
             async with open_builtin_runtime(
                 BuiltinConfig(database=database, runtime=RuntimeConfig()),
-                candidate_pipeline=MemoryPipeline(),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
                 dream_generator=generator,
                 dream_authorizer=adapter.authorize,
                 dream_authorization_context=access.defer_decision_audit,
                 dream_candidate_attester=adapter.attest_candidate,
             ) as runtime:
                 scope, _, citation = await seed(runtime)
-                entries = await runtime.memory.for_scope(scope).list()
-                for item in entries.entries:
-                    await access.establish_artifact_owner(
-                        ResourceRef.artifact(
-                            scope,
-                            family="memory",
-                            artifact_id=item.citation.memory_ref.artifact_id,
-                            selector=MemoryEntrySelector(entry_id=item.citation.entry_id),
-                        ),
-                        admin,
-                        idempotency_key="seed-owner:" + item.citation.entry_id,
-                        context=context,
-                    )
                 await access.create_binding(
                     admin,
                     CreateBinding(
@@ -661,7 +678,7 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
                     context=context,
                 )
                 request = CreateDreamRunRequest(
-                    operation="refine_experience", memory_citations=(citation,), idempotency_key="access-revoked"
+                    operation="refine_experience", artifacts=(citation,), idempotency_key="access-revoked"
                 )
                 app = create_app(
                     application=cast(ServerApplication, runtime),
@@ -768,7 +785,8 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
                         )
                     )
                     assert ownership is not None and ownership.owner == author
-                    assert approved.json()["memory_citations"] == [citation.model_dump(mode="json")]
+                    assert approved.json()["memory_citations"] == []
+                    assert approved.json()["artifact_refs"] == [citation.model_dump(mode="json")]
 
     asyncio.run(scenario())
 
@@ -781,14 +799,12 @@ def test_restart_recovers_expired_run_with_its_pinned_input(database: DatabaseCo
         )
         interrupted = Generator(blocked=True)
         async with open_builtin_runtime(
-            settings, candidate_pipeline=MemoryPipeline(), dream_generator=interrupted
+            settings, candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=interrupted
         ) as runtime:
             scope, _, citation = await seed(runtime)
             assert runtime._dream_service is not None
             accepted = await runtime.dream.for_scope(scope).create(
-                CreateDreamRunRequest(
-                    operation="refine_experience", memory_citations=(citation,), idempotency_key="restart"
-                )
+                CreateDreamRunRequest(operation="refine_experience", artifacts=(citation,), idempotency_key="restart")
             )
             worker = asyncio.create_task(process_pending(runtime))
             await asyncio.wait_for(interrupted.started.wait(), timeout=5)
@@ -822,7 +838,9 @@ def test_additive_migration_preserves_existing_experience_and_candidate(database
 
     async def scenario() -> None:
         settings = BuiltinConfig(database=database)
-        async with open_builtin_runtime(settings, candidate_pipeline=MemoryPipeline()) as runtime:
+        async with open_builtin_runtime(
+            settings, candidate_pipeline=atomic_memory_pipeline(MemoryPipeline())
+        ) as runtime:
             scope, root, _ = await seed(runtime)
             candidate = await runtime.experience.for_scope(scope).propose(
                 ProposeExperienceRequest(
@@ -880,7 +898,7 @@ def test_replacement_dream_identifies_the_exact_target_in_model_input(database: 
     async def scenario() -> None:
         generator = Generator()
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=generator
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
         ) as runtime:
             scope, root, _ = await seed(runtime)
             targets = []
@@ -937,11 +955,11 @@ def test_skill_replacement_rechecks_memory_through_skill_lineage(
 ) -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=Generator()
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=Generator()
         ) as runtime:
             scope, root, citation = await seed(runtime)
             candidate = await runtime.experience.for_scope(scope).propose(
-                ProposeExperienceRequest(proposal=experience(), memory_citations=(citation,))
+                ProposeExperienceRequest(proposal=experience(), artifacts=(citation,))
             )
             approved = await runtime.review.for_scope(scope).approve(
                 ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
@@ -979,7 +997,7 @@ def test_skill_replacement_rechecks_memory_through_skill_lineage(
             pending = None if phase == "propose" else await runtime.skill.for_scope(scope).propose(request)
             before = await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest())
             if invalidation == "retired":
-                await runtime.memory.for_scope(scope).retire(RetireMemoryEntryRequest(citation=citation))
+                await forget_memory(runtime, scope, citation)
                 error_type, error_code = EvidenceResolutionError, "memory_entry_inactive"
             else:
 
@@ -1021,16 +1039,70 @@ def test_skill_replacement_rechecks_memory_through_skill_lineage(
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("phase", ["propose", "revise", "approve"])
+@pytest.mark.parametrize("revise_memory", [False, True])
+def test_active_merged_memory_keeps_exact_frozen_history_for_new_review(
+    database: DatabaseConfig, phase: str, revise_memory: bool
+) -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=Generator()
+        ) as runtime:
+            scope, root, _ = await seed(runtime)
+            assert runtime.atomic_memory is not None
+            memories = runtime.atomic_memory.for_scope(scope)
+            inputs = (await memories.list()).items
+            merged = await memories.merge(
+                tuple(item.as_read() for item in inputs),
+                AtomicMemoryContent(kind="working_note", text="Replaying the write key preserved exactly one row."),
+            )
+            target = merged.primary.ref
+            if revise_memory:
+                updated = await runtime._provider.records.replace_artifact(
+                    scope,
+                    "atomic-memory",
+                    target.artifact_id,
+                    '"revision:1"',
+                    ArtifactWrite(content={"kind": "working_note", "text": "The key replay remained idempotent."}),
+                )
+                target = (await memories.get(updated.artifact_id)).ref
+            for item in inputs:
+                historical = await memories.get(item.ref.artifact_id, revision=item.ref.revision)
+                assert historical.ref == item.ref and historical.state.state == "merged"
+            service = runtime.experience.for_scope(scope)
+            candidate = await service.propose(ProposeExperienceRequest(proposal=experience(), artifacts=(target,)))
+            if phase == "revise":
+                candidate = await runtime.review.for_scope(scope).revise(
+                    ReviseArtifactCandidateRequest(
+                        candidate_id=candidate.candidate_id,
+                        expected_version=candidate.version,
+                        proposal=candidate.proposal,
+                        artifacts=(target,),
+                    )
+                )
+            elif phase == "approve":
+                candidate = await runtime.review.for_scope(scope).approve(
+                    ApproveArtifactCandidateRequest(
+                        candidate_id=candidate.candidate_id, expected_version=candidate.version
+                    )
+                )
+                assert candidate.result_artifact is not None
+            assert candidate.sources == (root,)
+            assert candidate.artifacts == (target,)
+
+    asyncio.run(scenario())
+
+
 def test_skill_approval_rechecks_transitive_memory_state(database: DatabaseConfig) -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=Generator()
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=Generator()
         ) as runtime:
             scope, _, citation = await seed(runtime)
             candidate = await runtime.experience.for_scope(scope).propose(
                 ProposeExperienceRequest(
                     proposal=experience(),
-                    memory_citations=(citation,),
+                    artifacts=(citation,),
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
@@ -1050,7 +1122,7 @@ def test_skill_approval_rechecks_transitive_memory_state(database: DatabaseConfi
             await process_pending(runtime)
             run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
             assert run.candidate is not None
-            await runtime.memory.for_scope(scope).retire(RetireMemoryEntryRequest(citation=citation))
+            await forget_memory(runtime, scope, citation)
             with pytest.raises(EvidenceResolutionError, match="memory_entry_inactive"):
                 await runtime.review.for_scope(scope).approve(
                     ApproveArtifactCandidateRequest(
@@ -1104,11 +1176,11 @@ def test_memory_without_task_sources_cannot_produce_experience(database: Databas
                     )
                 )
             )
-            citation = (await runtime.memory.for_scope(scope).list()).entries[0].citation
+            citation = (await runtime.memory.for_scope(scope).list()).items[0].ref
             accepted = await runtime.dream.for_scope(scope).create(
                 CreateDreamRunRequest(
                     operation="refine_experience",
-                    memory_citations=(citation,),
+                    artifacts=(citation,),
                     idempotency_key="no-task-root",
                 )
             )
@@ -1122,13 +1194,13 @@ def test_memory_without_task_sources_cannot_produce_experience(database: Databas
 def test_replacement_dream_keeps_target_and_replays_after_head_advances(database: DatabaseConfig) -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=Generator()
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=Generator()
         ) as runtime:
             scope, _, citation = await seed(runtime)
             first = await runtime.experience.for_scope(scope).propose(
                 ProposeExperienceRequest(
                     proposal=experience(),
-                    memory_citations=(citation,),
+                    artifacts=(citation,),
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
@@ -1141,9 +1213,8 @@ def test_replacement_dream_keeps_target_and_replays_after_head_advances(database
             assert target is not None
             request = CreateDreamRunRequest(
                 operation="refine_experience",
-                artifacts=(target,),
+                artifacts=(target, citation),
                 target=target,
-                memory_citations=(citation,),
                 idempotency_key="replacement",
             )
             accepted = await runtime.dream.for_scope(scope).create(request)
@@ -1194,13 +1265,15 @@ def test_dream_model_cannot_claim_an_existing_skill_package(database: DatabaseCo
 
     async def scenario() -> None:
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=PackageClaimingGenerator()
+            config(database),
+            candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+            dream_generator=PackageClaimingGenerator(),
         ) as runtime:
             scope, _, citation = await seed(runtime)
             candidate = await runtime.experience.for_scope(scope).propose(
                 ProposeExperienceRequest(
                     proposal=experience(),
-                    memory_citations=(citation,),
+                    artifacts=(citation,),
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
@@ -1226,26 +1299,33 @@ def test_dream_model_cannot_claim_an_existing_skill_package(database: DatabaseCo
 
 def test_multiple_entries_and_experience_reusing_a_source_keep_one_root(database: DatabaseConfig) -> None:
     class EchoPipeline:
-        async def extract(self, request: MemoryCandidateRequest, /):
-            return tuple(
-                MemoryEntryInput(kind="task_record", text=text, sources=(source,))
-                for source in request.sources
-                for text in ("Replaying the original key kept one row.", "The same replay produced no duplicate write.")
+        async def generate(self, request: AtomicMemoryExtractionInput, /):
+            return GenerationResult(
+                output=AtomicMemoryExtractionOutput(
+                    candidates=tuple(
+                        AtomicMemoryCandidate(kind="working_note", text=text, evidence_ids=(evidence.evidence_id,))
+                        for evidence in request.evidence
+                        for text in (
+                            "Replaying the original key kept one row.",
+                            "The same replay produced no duplicate write.",
+                        )
+                    )
+                )
             )
 
     async def scenario() -> None:
         generator = Generator()
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=EchoPipeline(), dream_generator=generator
+            config(database), candidate_pipeline=atomic_memory_pipeline(EchoPipeline()), dream_generator=generator
         ) as runtime:
             scope, root, citation = await seed(runtime)
             entries = await runtime.memory.for_scope(scope).list()
-            citations = tuple(item.citation for item in entries.entries if item.entry.kind == "task_record")
+            citations = tuple(item.ref for item in entries.items if item.artifact.content.kind == "working_note")
             assert len(citations) == 2
             candidate = await runtime.experience.for_scope(scope).propose(
                 ProposeExperienceRequest(
                     proposal=experience(),
-                    memory_citations=(citation,),
+                    artifacts=(citation,),
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
@@ -1258,8 +1338,7 @@ def test_multiple_entries_and_experience_reusing_a_source_keep_one_root(database
             accepted = await runtime.dream.for_scope(scope).create(
                 CreateDreamRunRequest(
                     operation="refine_experience",
-                    artifacts=(approved.result_artifact,),
-                    memory_citations=citations,
+                    artifacts=(approved.result_artifact, *citations),
                     idempotency_key="one-root",
                 )
             )
@@ -1273,28 +1352,87 @@ def test_multiple_entries_and_experience_reusing_a_source_keep_one_root(database
                 GetArtifactCandidateRequest(candidate_id=run.candidate.candidate_id)
             )
             assert result.sources == (root,)
-            assert len(result.memory_citations) == 2
-            assert result.artifacts == (approved.result_artifact,)
+            assert result.memory_citations == ()
+            assert {ref.model_dump_json() for ref in result.artifacts} == {
+                ref.model_dump_json() for ref in (approved.result_artifact, *citations)
+            }
 
     asyncio.run(scenario())
 
 
-def test_superseded_supervisor_cannot_overwrite_recovered_result(database: DatabaseConfig) -> None:
+def test_superseded_supervisor_cannot_overwrite_recovered_result(  # noqa: C901 - controlled late return and fenced handoff
+    database: DatabaseConfig,
+) -> None:
     from datetime import UTC, datetime, timedelta
 
     from sqlalchemy import update
 
     from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_LEASES_TABLE
+    from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingWorkerOutcome
+    from tests.e2e.dream_support import Controller, Handle
+
+    class LateGenerator(Generator):
+        def __init__(self) -> None:
+            super().__init__(blocked=True)
+            self.cancel_received = asyncio.Event()
+            self.returned = asyncio.Event()
+
+        async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
+            model_call = asyncio.create_task(super().generate(value))
+            while True:
+                try:
+                    result = await asyncio.shield(model_call)
+                except asyncio.CancelledError:
+                    if model_call.done():
+                        raise
+                    self.cancel_received.set()
+                else:
+                    self.returned.set()
+                    return result
+
+    class LateHandle(Handle):
+        def __init__(self, controller, assignment):
+            super().__init__(controller, assignment)
+            self.cancel_requested = False
+
+        async def terminate(self):
+            if not self.cancel_requested:
+                self.cancel_requested = True
+                self.task.cancel()
+            try:
+                # The remote model request can outlive cancellation. Shield its
+                # task so the Supervisor's cleanup deadline remains effective.
+                await asyncio.shield(self.task)
+            except asyncio.CancelledError:
+                if self.task.cancelled():
+                    return
+                if not self.task.done():
+                    self.controller.termination_interrupted.set()
+                raise
+
+    class LateController(Controller):
+        def __init__(self) -> None:
+            super().__init__()
+            self.termination_interrupted = asyncio.Event()
+
+        async def start(self, assignment):
+            handle = LateHandle(self, assignment)
+            self.handles.append(handle)
+            return handle
 
     async def scenario() -> None:
-        delayed = Generator(blocked=True)
+        delayed = LateGenerator()
+        original_controller = LateController()
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=delayed
+            config(database),
+            candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+            dream_generator=delayed,
+            controller=original_controller,
         ) as original:
             scope, _, citation = await seed(original)
             accepted = await original.dream.for_scope(scope).create(
                 CreateDreamRunRequest(
-                    operation="refine_experience", memory_citations=(citation,), idempotency_key="late-worker"
+                    operation="refine_experience", artifacts=(citation,), idempotency_key="late-worker"
                 )
             )
             worker = asyncio.create_task(process_pending(original))
@@ -1311,6 +1449,8 @@ def test_superseded_supervisor_cannot_overwrite_recovered_result(database: Datab
                             lease_expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1),
                         )
                     )
+                assert original.artifact_processing_supervisor is not None
+                original.artifact_processing_supervisor.wake()
                 replacement = Generator()
                 async with open_builtin_runtime(config(database), dream_generator=replacement) as recovered:
                     await process_pending(recovered)
@@ -1322,9 +1462,21 @@ def test_superseded_supervisor_cannot_overwrite_recovered_result(database: Datab
                             await asyncio.sleep(0.02)
                     assert run.status == "succeeded"
                     assert run.attempt_count == run.usage.model_calls == 2
+                    await asyncio.wait_for(delayed.cancel_received.wait(), timeout=10)
+                    await asyncio.wait_for(original_controller.termination_interrupted.wait(), timeout=10)
+                    assert not worker.done()
+                    assert not delayed.returned.is_set()
                     delayed.release.set()
                     with suppress(asyncio.CancelledError):
-                        await worker
+                        await asyncio.wait_for(worker, timeout=10)
+                    assert delayed.returned.is_set()
+                    assert all(
+                        handle.task.done() and not handle.task.cancelled() for handle in original_controller.handles
+                    )
+                    assert all(
+                        handle.task.result().outcome is ArtifactProcessingWorkerOutcome.LEADERSHIP_LOST
+                        for handle in original_controller.handles
+                    )
                     assert await recovered.dream.for_scope(scope).get(GetDreamRunRequest(run_id=run.run_id)) == run
                     candidates = await recovered.review.for_scope(scope).list(ListArtifactCandidatesRequest())
                     assert len(candidates.candidates) == 1
@@ -1332,7 +1484,7 @@ def test_superseded_supervisor_cannot_overwrite_recovered_result(database: Datab
             finally:
                 delayed.release.set()
                 with suppress(asyncio.CancelledError):
-                    await worker
+                    await asyncio.wait_for(worker, timeout=10)
 
     asyncio.run(scenario())
 
@@ -1341,7 +1493,7 @@ def test_candidate_and_run_rollback_together(database: DatabaseConfig, monkeypat
     async def scenario() -> None:
         generator = Generator()
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=generator
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
         ) as runtime:
             scope, _, citation = await seed(runtime)
             assert runtime._dream_service is not None
@@ -1354,7 +1506,7 @@ def test_candidate_and_run_rollback_together(database: DatabaseConfig, monkeypat
                 await finish(connection, record, run)
 
             request = CreateDreamRunRequest(
-                operation="refine_experience", memory_citations=(citation,), idempotency_key="rollback"
+                operation="refine_experience", artifacts=(citation,), idempotency_key="rollback"
             )
             accepted = await runtime.dream.for_scope(scope).create(request)
             with monkeypatch.context() as patch:
@@ -1383,7 +1535,7 @@ def test_dream_keeps_prompt_lineage_out_of_factual_evidence(database: DatabaseCo
     async def scenario() -> None:
         generator = Generator()
         async with open_builtin_runtime(
-            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=generator
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
         ) as runtime:
             scope, root, citation = await seed(runtime)
             prompt = await runtime.records.for_scope(scope).create_artifact(
@@ -1404,9 +1556,7 @@ def test_dream_keeps_prompt_lineage_out_of_factual_evidence(database: DatabaseCo
                     ProposeExperienceRequest(proposal=experience(), artifacts=(prompt_ref,))
                 )
             candidate = await runtime.experience.for_scope(scope).propose(
-                ProposeExperienceRequest(
-                    proposal=experience(), sources=(root,), artifacts=(prompt_ref,), memory_citations=(citation,)
-                )
+                ProposeExperienceRequest(proposal=experience(), sources=(root,), artifacts=(prompt_ref, citation))
             )
             approved = await runtime.review.for_scope(scope).approve(
                 ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
@@ -1442,7 +1592,7 @@ def test_ordinary_experience_revisions_do_not_inherit_dream_depth_budget(
     async def scenario() -> None:
         async with open_builtin_runtime(
             config(database),
-            candidate_pipeline=MemoryPipeline() if with_memory else None,
+            candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()) if with_memory else None,
             dream_generator=Generator(),
         ) as runtime:
             assert runtime.scopes is not None
@@ -1458,7 +1608,7 @@ def test_ordinary_experience_revisions_do_not_inherit_dream_depth_budget(
             if with_memory:
                 await runtime.memory.for_scope(scope).flush()
                 entries = await runtime.memory.for_scope(scope).list()
-                citations = (entries.entries[0].citation,)
+                citations = (entries.items[0].ref,)
             target = None
             for revision in range(1, 13):
                 refs = () if target is None else (target,)
@@ -1466,9 +1616,8 @@ def test_ordinary_experience_revisions_do_not_inherit_dream_depth_budget(
                     ProposeExperienceRequest(
                         proposal=experience(),
                         sources=() if target is None and citations else (source.source_ref,),
-                        artifacts=refs,
+                        artifacts=(*refs, *(citations if target is None else ())),
                         target=target,
-                        memory_citations=citations if target is None else (),
                     )
                 )
                 approved = await runtime.review.for_scope(scope).approve(
@@ -1480,7 +1629,7 @@ def test_ordinary_experience_revisions_do_not_inherit_dream_depth_budget(
                 assert target is not None and target.revision == revision
                 stored = await runtime.experience.for_scope(scope).get(GetExperienceRequest(artifact=target))
                 assert stored.lineage.sources == (source.source_ref,)
-                assert stored.lineage.artifacts == refs
+                assert stored.lineage.artifacts == (*refs, *(citations if revision == 1 else ()))
             with pytest.raises(EvidenceResolutionError, match="evidence_limit_exceeded"):
                 await runtime.dream.for_scope(scope).create(
                     CreateDreamRunRequest(operation="derive_skill", artifacts=(target,), idempotency_key="bounded")
@@ -1497,7 +1646,7 @@ def test_ordinary_experience_revisions_do_not_inherit_dream_depth_budget(
                         artifacts=(target,),
                     )
                 )
-                await runtime.memory.for_scope(scope).retire(RetireMemoryEntryRequest(citation=citations[0]))
+                await forget_memory(runtime, scope, citations[0])
                 with pytest.raises(EvidenceResolutionError, match="memory_entry_inactive"):
                     await runtime.review.for_scope(scope).approve(
                         ApproveArtifactCandidateRequest(
@@ -1603,11 +1752,11 @@ def test_dream_requests_arriving_during_generation_survive_without_an_automatic_
         )
         generator = Generator(blocked=True)
         async with open_builtin_runtime(
-            settings, candidate_pipeline=MemoryPipeline(), dream_generator=generator
+            settings, candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
         ) as runtime:
             scope, _, citation = await seed(runtime)
             request = CreateDreamRunRequest(
-                operation="refine_experience", memory_citations=(citation,), idempotency_key="first"
+                operation="refine_experience", artifacts=(citation,), idempotency_key="first"
             )
             first = await runtime.dream.for_scope(scope).create(request)
             work = asyncio.create_task(process_pending(runtime))

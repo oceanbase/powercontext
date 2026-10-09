@@ -34,6 +34,7 @@ from powercontext.server.dashboard.navigation import (
     positive_revision,
     request_reading_return,
 )
+from powercontext.server.dashboard.pagination import PAGE_SIZE
 from powercontext.server.dashboard.preferences import CATALOGS, presentation, remember_language
 from powercontext.server.dashboard.presenters import source_view
 from powercontext.server.dashboard.session import login_response
@@ -113,6 +114,9 @@ def links(request: Request, ctx: dict[str, Any]):
                     "return_to",
                     "lang",
                     "notes_page",
+                    "notes_cursor",
+                    "notes_history",
+                    "note_state",
                     "skill_page",
                     "experience_history",
                     "handoff_history",
@@ -129,14 +133,9 @@ def links(request: Request, ctx: dict[str, Any]):
             record = ctx["data"].get("handoff")
         if record:
             query.update(artifact=record["artifact_id"], revision=record["revision"])
-        if destination == "notes" and "entry" in params:
-            note = next((item for item in ctx["data"]["notes"] if item["entry_id"] == params["entry"]), None)
-            if note:
-                query.update(
-                    memory_id=note["memory_ref"]["artifact_id"],
-                    memory_revision=note["memory_ref"]["revision"],
-                    entry_version=note["entry_version_id"],
-                )
+        if destination == "notes" and {"artifact", "revision", "entry"}.intersection(params):
+            for key in ("artifact", "revision", "entry", "memory_id", "memory_revision", "entry_version"):
+                query.pop(key, None)
         reading_link_context(request, ctx, destination, params, query)
         if "scope" in params and params["scope"] != ctx["scope"]:
             query = {"scope": params["scope"], "period": ctx["period"]}
@@ -193,6 +192,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "topic_revision": request.query_params.get("topic_revision"),
         "topic_cursor": request.query_params.get("topic_cursor"),
         "search_limited": False,
+        "note_state": request.query_params.get("note_state", "active"),
         "data": {
             "title": "PowerContext",
             "summary": "",
@@ -217,6 +217,9 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "stats": None,
         "selected_note": None,
         "requested_entry": request.query_params.get("entry"),
+        "requested_note": request.query_params.get("artifact") if page == "notes" else None,
+        "notes_pager": None,
+        "notes_page_size": PAGE_SIZE,
         "collections": {},
         "related_sources": [],
         "source_record": None,
@@ -258,7 +261,12 @@ async def scope_context(api: DashboardAPI, ctx: dict[str, Any]) -> None:
     try:
         descriptor = await api.read(f"/v1/scopes/{segment(ctx['scope'])}")
     except ReadError as error:
-        if (ctx["page"] in RECORDS or ctx["page"] == "handoff-download") and error.status in {403, 404}:
+        record_page = (
+            ctx["page"] in RECORDS
+            or ctx["page"] == "handoff-download"
+            or (ctx["page"] == "notes" and (ctx["requested_note"] or ctx["requested_entry"]))
+        )
+        if record_page and error.status in {403, 404}:
             ctx["record_only"] = True
             return
         raise
@@ -298,6 +306,7 @@ def validate_selection(page: str, ctx: dict[str, Any]) -> None:
         ctx["period"] not in {"today", "7d", "30d"}
         or ctx["method_kind"] not in {"experience", "skill"}
         or len(ctx["search_query"] or "") > (8192 if page == "notes" else 2000)
+        or ctx["note_state"] not in {"active", "forgotten", "merged", "retired"}
     ):
         raise ReadError(422, "invalid_request")
 

@@ -63,8 +63,8 @@ class FakeClient:
         self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
         self.base_url = "http://powercontext.test:8000"
         self._remember_count = 0
-        self._revision = 0
         self._memory_entries: dict[str, dict[str, Any]] = {}
+        self._memory_history: dict[tuple[str, int], dict[str, Any]] = {}
         self.memory_extraction = True
         self.default_scope_id = "scp_00000000000000000000000000"
         self.scope_bindings: dict[tuple[str, str, str], str] = {}
@@ -106,48 +106,75 @@ class FakeClient:
 
     def search_memory(self, scope_id, query, *, limit, mode):
         self.calls.append(("search_memory", (scope_id, query), {"limit": limit, "mode": mode}))
-        hits = [
-            {"text": text, "citation": citation}
-            for text, citation in self._memory_entries.items()
-            if query.lower() in text.lower()
-        ]
-        return {"hits": hits or [{"text": "a memory"}]}
+        return {
+            "mode": "fts",
+            "hits": [
+                {"memory": json.loads(json.dumps(record)), "score": 1 / 61, "matched_by": ["text"]}
+                for text, record in self._memory_entries.items()
+                if query.lower() in text.lower() and record["state"] == "active"
+            ][:limit],
+        }
 
     def get_memory_entry(self, scope_id, citation):
         self.calls.append(("get_memory_entry", (scope_id, citation), {}))
-        return {"text": "a memory"}
+        if "memory_ref" in citation:
+            return {"text": "a memory", "citation": citation}
+        ref = citation.get("artifact", citation)
+        return json.loads(json.dumps(self._memory_history[(ref["artifact_id"], ref["revision"])]))
 
     def remember_memory(self, scope_id, *, kind, text, reason=None):
         self._remember_count += 1
-        self._revision += 1
-        for citation in self._memory_entries.values():
-            citation["memory_ref"]["revision"] = self._revision
-        citation = {
-            "memory_ref": {
-                "family": "memory",
-                "artifact_id": f"memory-{self._remember_count}",
-                "revision": self._revision,
-            },
-            "entry_id": f"entry-{self._remember_count}",
-            "entry_version_id": f"entry-version-{self._remember_count}",
+        record = {
+            "artifact": {"family": "atomic-memory", "artifact_id": f"am-{self._remember_count}", "revision": 1},
+            "kind": kind,
+            "text": text,
+            "state": "active",
+            "state_version": 0,
+            "merged_into_id": None,
         }
-        self._memory_entries[text] = citation
+        self._memory_entries[text] = record
+        self._memory_history[(record["artifact"]["artifact_id"], 1)] = {
+            **record["artifact"],
+            "scope_id": scope_id,
+            "content": {"kind": kind, "text": text},
+        }
         self.calls.append(("remember_memory", (scope_id, kind, text), {"reason": reason}))
-        return {
-            "status": "remembered",
-            "entry": {"citation": citation},
+        return {"changed": True, "records": [json.loads(json.dumps(record))]}
+
+    def revise_memory_entry(self, scope_id, citation, *, kind, text):
+        ref = citation.get("artifact", citation)
+        old_text, record = next(
+            (key, value)
+            for key, value in self._memory_entries.items()
+            if value["artifact"]["artifact_id"] == ref["artifact_id"]
+        )
+        assert record["artifact"] == ref
+        assert record["state"] in {"active", "forgotten"}
+        updated = {**record, "artifact": {**ref, "revision": ref["revision"] + 1}, "kind": kind, "text": text}
+        self._memory_entries.pop(old_text)
+        self._memory_entries[text] = updated
+        revision: dict[str, Any] = {
+            **updated["artifact"],
+            "scope_id": scope_id,
+            "content": {"kind": kind, "text": text},
         }
+        self._memory_history[(ref["artifact_id"], revision["revision"])] = revision
+        self.calls.append(("revise_memory_entry", (scope_id, citation), {"kind": kind, "text": text}))
+        return revision
+
+    def get_memory_state(self, scope_id, citation):
+        ref = citation.get("artifact", citation)
+        record = next(value for value in self._memory_entries.values() if value["artifact"] == ref)
+        self.calls.append(("get_memory_state", (scope_id, citation), {}))
+        return {"artifact": dict(record["artifact"]), "state_version": record["state_version"]}
 
     def retire_memory_entry(self, scope_id, citation, *, reason=None):
-        assert citation["memory_ref"]["revision"] == self._revision
-        self._revision += 1
-        identity = (citation["entry_id"], citation["entry_version_id"])
-        for text, stored in list(self._memory_entries.items()):
-            if (stored["entry_id"], stored["entry_version_id"]) == identity:
-                del self._memory_entries[text]
-                break
+        record = next(value for value in self._memory_entries.values() if value["artifact"] == citation["artifact"])
+        assert record["state_version"] == citation["state_version"]
+        record["state"] = "forgotten"
+        record["state_version"] += 1
         self.calls.append(("retire_memory_entry", (scope_id, citation), {"reason": reason}))
-        return {"status": "retired"}
+        return {"changed": True, "records": [json.loads(json.dumps(record))]}
 
     def get_liveness(self):
         self.calls.append(("get_liveness", (), {}))
@@ -847,7 +874,7 @@ def test_committed_checkpoint_survives_a_memory_extraction_failure(provider_and_
     assert [call[0] for call in client.calls] == ["capture_content", "get_capabilities"]
 
 
-def test_memory_write_retires_mapped_entries_for_replace_and_remove(provider_and_client):
+def test_memory_write_revises_and_forgets_mapped_artifacts(provider_and_client):
     provider, client = provider_and_client
 
     provider.on_memory_write("add", "user", "The user prefers uv.")
@@ -869,14 +896,17 @@ def test_memory_write_retires_mapped_entries_for_replace_and_remove(provider_and
 
     assert [call[0] for call in client.calls] == [
         "remember_memory",
-        "search_memory",
-        "retire_memory_entry",
-        "remember_memory",
-        "search_memory",
+        "get_memory_entry",
+        "revise_memory_entry",
+        "get_memory_state",
+        "get_memory_entry",
         "retire_memory_entry",
     ]
-    assert client.calls[2][1][1]["entry_id"] == "entry-1"
-    assert client.calls[5][1][1]["entry_id"] == "entry-2"
+    assert client.calls[2][1][1]["artifact"] == {"family": "atomic-memory", "artifact_id": "am-1", "revision": 1}
+    assert client.calls[5][1][1] == {
+        "artifact": {"family": "atomic-memory", "artifact_id": "am-1", "revision": 2},
+        "state_version": 0,
+    }
 
 
 def test_memory_write_matches_partial_old_text_for_replace_and_remove(provider_and_client):
@@ -899,9 +929,10 @@ def test_memory_write_matches_partial_old_text_for_replace_and_remove(provider_a
     )
     provider._wait_for_background()
 
-    retire_calls = [call for call in client.calls if call[0] == "retire_memory_entry"]
-    assert [call[1][1]["entry_id"] for call in retire_calls] == ["entry-1", "entry-2"]
-    assert [call[1][1]["memory_ref"]["revision"] for call in retire_calls] == [1, 3]
+    changes = [call for call in client.calls if call[0] in {"revise_memory_entry", "retire_memory_entry"}]
+    assert [call[1][1]["artifact"]["artifact_id"] for call in changes] == ["am-1", "am-1"]
+    assert [call[1][1]["artifact"]["revision"] for call in changes] == [1, 2]
+    assert [call[1][1]["state_version"] for call in changes] == [0, 0]
 
 
 def test_memory_write_does_not_retire_unmapped_same_text(provider_and_client):
@@ -922,7 +953,7 @@ def test_memory_write_does_not_retire_unmapped_same_text(provider_and_client):
     assert text in client._memory_entries
 
 
-def test_memory_map_refreshes_revision_after_multiple_writes(provider_and_client):
+def test_memory_map_preserves_per_identity_revisions_after_multiple_writes(provider_and_client):
     provider, client = provider_and_client
 
     provider.on_memory_write("add", "user", "The user prefers uv.")
@@ -945,8 +976,10 @@ def test_memory_map_refreshes_revision_after_multiple_writes(provider_and_client
     )
     provider._wait_for_background()
 
-    retire_calls = [call for call in client.calls if call[0] == "retire_memory_entry"]
-    assert [call[1][1]["memory_ref"]["revision"] for call in retire_calls] == [2, 4]
+    changes = [call for call in client.calls if call[0] in {"revise_memory_entry", "retire_memory_entry"}]
+    assert [call[1][1]["artifact"]["revision"] for call in changes] == [1, 2]
+    assert all(call[1][1]["artifact"]["artifact_id"] == "am-1" for call in changes)
+    assert client._memory_entries["The project uses Python."]["artifact"]["revision"] == 1
 
 
 def test_memory_write_skips_replace_and_remove_without_old_text(provider_and_client):
@@ -961,14 +994,6 @@ def test_memory_write_skips_replace_and_remove_without_old_text(provider_and_cli
 
 def test_memory_tools_map_to_powercontext_operations(provider_and_client):
     provider, client = provider_and_client
-    citation_args = {
-        "family": "memory",
-        "artifact_id": "memory-1",
-        "revision": 1,
-        "entry_id": "entry-1",
-        "entry_version_id": "entry-version-1",
-    }
-
     search = json.loads(provider.handle_tool_call("powercontext_search_memory", {"query": "deployment"}))
     saved = json.loads(
         provider.handle_tool_call(
@@ -976,13 +1001,15 @@ def test_memory_tools_map_to_powercontext_operations(provider_and_client):
             {"kind": "decision", "text": "Use the Hermes standard Provider interface."},
         )
     )
+    snapshot = {key: saved["records"][0][key] for key in ("artifact", "state_version")}
+    citation_args = {"reference": snapshot}
     read = json.loads(provider.handle_tool_call("powercontext_get_memory", citation_args))
     retired = json.loads(provider.handle_tool_call("powercontext_retire_memory", citation_args))
 
-    assert search["hits"]
-    assert saved["status"] == "remembered"
-    assert read["text"] == "a memory"
-    assert retired["status"] == "retired"
+    assert search["hits"] == []
+    assert saved["changed"] is True
+    assert read["content"]["text"] == "Use the Hermes standard Provider interface."
+    assert retired["records"][0]["state"] == "forgotten"
     assert [call[0] for call in client.calls] == [
         "search_memory",
         "remember_memory",
@@ -1046,30 +1073,31 @@ def test_slash_commands_parse_unwrapped_citation_json_from_readme(provider_and_c
         kind="preference",
         text="The user prefers uv.",
         reason="seed test citation",
-    )["entry"]["citation"]
+    )["records"][0]
+    citation = {key: citation[key] for key in ("artifact", "state_version")}
     citation_json = json.dumps(citation)
     client.calls.clear()
 
     fetched = json.loads(provider.handle_slash_command(f"get {citation_json}"))
     revised = json.loads(
         provider.handle_slash_command(
-            f'revise {citation_json} preference "The user prefers rye." "toolchain update"',
+            f'revise {citation_json} preference "The user prefers rye."',
         )
     )
-    retired = json.loads(provider.handle_slash_command(f'retire {citation_json} "no longer current"'))
+    retired = json.loads(provider.handle_slash_command(f"retire {citation_json}"))
 
-    assert fetched["text"] == "a memory"
+    assert fetched["content"]["text"] == "The user prefers uv."
     assert revised == {
         "operation": "revise_memory_entry",
         "payload": {
             "citation": citation,
             "kind": "preference",
             "text": "The user prefers rye.",
-            "reason": "toolchain update",
+            "reason": None,
             "scope_id": provider._scope_id,
         },
     }
-    assert retired["status"] == "retired"
+    assert retired["records"][0]["state"] == "forgotten"
     assert [call[0] for call in client.calls] == [
         "get_memory_entry",
         "request_operation",
@@ -1476,7 +1504,14 @@ def test_http_client_preserves_domain_error_details(hermes_modules):
     )
 
     with pytest.raises(client_module.PowerContextHTTPError) as caught:
-        client.get_memory_entry("project:test", {"entry_id": "missing"})
+        client.get_memory_entry(
+            "project:test",
+            {
+                "memory_ref": {"family": "memory", "artifact_id": "memory", "revision": 1},
+                "entry_id": "missing",
+                "entry_version_id": "missing-v1",
+            },
+        )
 
     assert caught.value.status == 404
     assert caught.value.path == "/v1/memory/entries/get"
@@ -1506,7 +1541,14 @@ def test_http_client_forwards_authorization_and_preserves_access_denial(hermes_m
     )
 
     with pytest.raises(client_module.PowerContextHTTPError) as caught:
-        client.get_memory_entry("project:test", {"entry_id": "forbidden"})
+        client.get_memory_entry(
+            "project:test",
+            {
+                "memory_ref": {"family": "memory", "artifact_id": "memory", "revision": 1},
+                "entry_id": "forbidden",
+                "entry_version_id": "forbidden-v1",
+            },
+        )
 
     assert caught.value.status == 403
     assert caught.value.code == "access_denied"

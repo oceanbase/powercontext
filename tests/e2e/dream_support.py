@@ -23,7 +23,19 @@ from weakref import WeakKeyDictionary
 
 from sqlalchemy import func, select
 
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryEvidence,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+    AtomicMemoryGenerationPipeline,
+)
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
+    AtomicMemoryReconciliationInput,
+    AtomicMemoryReconciliationOutput,
+)
 from powercontext.builtin.dream.bindings import DREAM_BINDINGS
+from powercontext.builtin.inference import GenerationResult, StructuredGenerator, character_token_estimator
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_INTENTS_TABLE
 from powercontext.builtin.runtime import BuiltinRuntime
@@ -36,6 +48,37 @@ from powercontext.builtin.runtime.processing_contracts import (
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
 
 _controllers: WeakKeyDictionary[BuiltinRuntime, Controller] = WeakKeyDictionary()
+
+
+class _IndependentMemoryReconciler:
+    async def generate(self, request: AtomicMemoryReconciliationInput, /):
+        return GenerationResult(
+            output=AtomicMemoryReconciliationOutput(
+                action="create",
+                compared_ids=tuple(item.item_id for item in request.related),
+                content=AtomicMemoryContent(kind=request.proposal.kind, text=request.proposal.text),
+                evidence_ids=request.proposal.evidence_ids,
+                reason="Preserve each independent fixture fact and its exact Source evidence.",
+            )
+        )
+
+
+def atomic_memory_pipeline(
+    extractor: StructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput],
+) -> AtomicMemoryGenerationPipeline:
+    return AtomicMemoryGenerationPipeline(
+        extractor=extractor,
+        reconciler=_IndependentMemoryReconciler(),
+        estimator=character_token_estimator(),
+    )
+
+
+def memory_source_text(evidence: AtomicMemoryEvidence) -> str | None:
+    content = evidence.content
+    if isinstance(content, dict):
+        text = content.get("content", content.get("text"))
+        return text if isinstance(text, str) else None
+    return content if isinstance(content, str) else None
 
 
 class Handle:
@@ -80,8 +123,8 @@ class Controller:
 
 
 @asynccontextmanager
-async def open_dream_runtime(config, **kwargs):
-    controller = Controller()
+async def open_dream_runtime(config, *, controller: Controller | None = None, **kwargs):
+    controller = Controller() if controller is None else controller
     bindings = tuple(
         ArtifactProcessingBinding(
             binding_name=binding,

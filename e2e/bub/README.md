@@ -471,6 +471,12 @@ make harness-rescore
 For negative recall contracts, replay evidence stores the pre-redaction match verdict rather than the matched text.
 Offline rescoring therefore preserves the live outcome without exposing a configured secret through the replay.
 
+Memory snapshots record each Atomic Memory's exact ArtifactRef, lifecycle state and state version, and its immutable
+revision's direct Sources and Artifact dependencies. Collection follows every list page and reads the listed revision
+even if the current head changes afterwards. Groundedness still checks direct Sources against captured Source IDs;
+Artifact dependencies are retained as lineage and do not by themselves satisfy that check. Offline rescoring also
+reads retained legacy Entry snapshots with their original Entry/version IDs; it does not convert them to Atomic refs.
+
 The harness does not mirror PowerContext Server, PowerContext Client, Bub, Harbor, or any-llm settings. Each component
 loads its native parameters, and the adapter only forwards the native values needed across the nested-container
 boundary. The Bub plugin uses Bub's Pydantic settings extension and accepts the same fields in the `powercontext`

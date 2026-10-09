@@ -37,20 +37,23 @@ from powercontext.builtin.artifacts.memory import (
     MemoryService,
 )
 from powercontext.builtin.artifacts.memory.canonical import entry_content_hash, memory_content_hash
+from powercontext.builtin.artifacts.memory.reranking import MemoryRerankText
 from powercontext.builtin.inference import EmbeddingResult, InferenceUsage
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.config import RuntimeConfig
+from powercontext.builtin.runtime.relational import RelationalContexts
 
 
 class _SelectingReranker:
     policy_id = "test.memory.rerank.v1"
+    supports_atomic_memory = True
 
     def __init__(self) -> None:
-        self.candidates = ()
+        self.candidates: tuple[MemoryRerankText, ...] = ()
 
-    async def rerank(self, query, candidates, limit, /) -> MemoryRerankDecision:
+    async def rerank(self, query: str, candidates: tuple[MemoryRerankText, ...], limit: int, /) -> MemoryRerankDecision:
         assert query == "project"
         assert limit == 2
         self.candidates = candidates
@@ -58,6 +61,18 @@ class _SelectingReranker:
             selected_ranks=(3, 1),
             usage=InferenceUsage(requests=1, input_tokens=20, output_tokens=2),
         )
+
+
+def _memory_service(contexts: RelationalContexts, scope_id: str, **options) -> MemoryService:
+    return MemoryService(
+        backend=RelationalMemoryBackend(
+            database=contexts.database,
+            scope_id=scope_id,
+            artifacts=contexts.repositories.artifacts,
+            index=contexts.index,
+        ),
+        **options,
+    )
 
 
 QUERY_EMBEDDING_PROFILE = EmbeddingProfile(profile_id="query-v1", model="test:query", dimension=3)
@@ -126,7 +141,7 @@ def test_memory_search_applies_injected_reranker_after_coarse_fusion() -> None:
         reranker = _SelectingReranker()
         config = BuiltinConfig(runtime=RuntimeConfig(memory_rerank_candidate_limit=4))
         async with open_builtin_contexts(config, memory_reranker=reranker) as contexts:
-            service = (await contexts.get("rerank")).artifacts.memory
+            service = _memory_service(contexts, "rerank", reranker=reranker, rerank_candidate_limit=4)
             memory = await service.remember(
                 memory=None,
                 entries=tuple(MemoryEntryInput(kind="fact", text=f"Project fact {number}.") for number in range(1, 5)),
@@ -150,7 +165,7 @@ def test_memory_search_applies_injected_reranker_after_coarse_fusion() -> None:
 def test_memory_entry_can_be_deactivated_and_reactivated_without_rewriting_content() -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
-            service = (await contexts.get("lifecycle")).artifacts.memory
+            service = _memory_service(contexts, "lifecycle")
             initial = await service.remember(
                 memory=None,
                 entries=(MemoryEntryInput(kind="decision", text="Keep the public behavior stable."),),
@@ -183,7 +198,7 @@ def test_memory_append_projection_writes_do_not_grow_with_entry_history() -> Non
 
     async def scenario() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
-            service = (await contexts.get("lifecycle")).artifacts.memory
+            service = _memory_service(contexts, "lifecycle")
             statements: list[str] = []
 
             def record_statement(_connection: object, _cursor: object, statement: str, *_rest: object) -> None:
@@ -230,7 +245,7 @@ def test_memory_append_leaves_untouched_projection_rows_identical() -> None:
 
     async def scenario() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
-            service = (await contexts.get("lifecycle")).artifacts.memory
+            service = _memory_service(contexts, "lifecycle")
             tables = (
                 (
                     "pc_memory_entry_heads",
@@ -407,7 +422,7 @@ def test_memory_organize_deduplicates_and_normalizes_existing_entries() -> None:
 def test_memory_head_entries_matches_head_and_entries_read_separately() -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
-            service = (await contexts.get("head-entries")).artifacts.memory
+            service = _memory_service(contexts, "head-entries")
             initial = await service.remember(
                 memory=None,
                 entries=(

@@ -50,7 +50,6 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     BUILTIN_TABLES,
-    MEMORY_ENTRY_VERSIONS_TABLE,
     MODEL_USAGE_DAILY_TABLE,
     SCOPES_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
@@ -79,7 +78,7 @@ PROFILE_CONTROL_TITLES = {
     "disabled": "Supervisor Profile disabled-policy control",
 }
 CUSTOM_PROMPT_MARKERS: dict[PromptKey, str] = {
-    "memory.extract": "ScopePromptMemoryAccepted",
+    "atomic_memory.extract": "ScopePromptMemoryAccepted",
     "experience.incubate": "ScopePromptExperienceAccepted",
 }
 
@@ -214,7 +213,7 @@ async def _prepare_scope(
                 item.key: item for item in builtin_prompt_definitions(config.runtime.memory_extraction_profile)
             }
             for key, marker in CUSTOM_PROMPT_MARKERS.items():
-                field = "text" if key == "memory.extract" else "lesson"
+                field = "text" if key == "atomic_memory.extract" else "lesson"
                 await contexts.records.create_artifact(
                     scope,
                     "prompt",
@@ -327,16 +326,16 @@ async def _automatic_profile_state(contexts: RelationalContexts, supervisor) -> 
 
 
 async def _custom_prompt_evidence(contexts: RelationalContexts, scope: str) -> dict[str, Any]:
+    memory_texts = []
+    memory = contexts.atomic_memory.for_scope(scope)
+    cursor = None
+    while True:
+        page = await memory.list(cursor=cursor)
+        memory_texts.extend(item.artifact.content.text for item in page.items)
+        cursor = page.next_cursor
+        if cursor is None:
+            break
     async with contexts.database.transaction() as connection:
-        memory_texts = (
-            (
-                await connection.execute(
-                    select(MEMORY_ENTRY_VERSIONS_TABLE.c.text).where(MEMORY_ENTRY_VERSIONS_TABLE.c.scope_id == scope)
-                )
-            )
-            .scalars()
-            .all()
-        )
         experience_proposals = (
             (
                 await connection.execute(
@@ -350,7 +349,7 @@ async def _custom_prompt_evidence(contexts: RelationalContexts, scope: str) -> d
             .all()
         )
     observed = {
-        "memory.extract": any(CUSTOM_PROMPT_MARKERS["memory.extract"] in str(value) for value in memory_texts),
+        "atomic_memory.extract": any(CUSTOM_PROMPT_MARKERS["atomic_memory.extract"] in value for value in memory_texts),
         "experience.incubate": any(
             CUSTOM_PROMPT_MARKERS["experience.incubate"] in str(value) for value in experience_proposals
         ),
@@ -501,11 +500,11 @@ async def run_acceptance(  # noqa: C901 - one bounded end-to-end acceptance life
                 for family, binding in BINDINGS.items():
                     cursor = await SourceCursorRepository().load(connection, scope, binding)
                     cursors[family] = 0 if cursor is None else cursor.cursor.sequence
-            if artifacts.get("memory", 0) < 1 or artifacts.get("topic-memory", 0) < 1:
+            if artifacts.get("atomic-memory", 0) < 1 or artifacts.get("topic-memory", 0) < 1:
                 raise failed("real-generation-produced-no-published-memory")
             if candidates.get("experience", 0) < 1 or candidates.get("profile", 0) != 1:
                 raise failed("real-generation-did-not-preserve-review-candidates")
-            if any(ownership.get(family, 0) < 1 for family in BINDINGS):
+            if any(ownership.get("atomic-memory" if family == "memory" else family, 0) < 1 for family in BINDINGS):
                 raise failed("atomic-owner-attestation-contract-failed")
             if cursors["profile"] != 0 or any(
                 cursors[family] != initial_state["source_journal_position"]
@@ -634,7 +633,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("global", "dedicated"), default="global")
     parser.add_argument("--resume", action="store_true", help="Recover the existing synthetic acceptance database.")
     parser.add_argument(
-        "--custom-prompts", action="store_true", help="Verify Scope-owned Memory and Experience custom Prompts."
+        "--custom-prompts", action="store_true", help="Verify Scope-owned Atomic Memory and Experience custom Prompts."
     )
     parser.add_argument(
         "--automatic-profile", action="store_true", help="Verify Profile Policy filtering across two real cron fires."

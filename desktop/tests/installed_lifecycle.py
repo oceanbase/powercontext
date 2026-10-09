@@ -20,7 +20,7 @@ import os
 import subprocess
 
 import httpx
-from installed_fixture import isolated_server
+from installed_fixture import exact_memory_text, isolated_server, memory_write_reference
 from installed_workflow import ELEMENT, InstalledPage
 from real_server import HarnessFailure
 
@@ -49,17 +49,13 @@ def exercise_forced_exit(client: httpx.Client, prefix: str, app: subprocess.Pope
         app.kill()
         app.wait(timeout=15)
         server.get("/health/ready").raise_for_status()
-        original = server.post("/v1/memory/entries/get", json={"scope_id": scope, "citation": citation})
-        original.raise_for_status()
-        if original.json()["text"] != note or original.json()["citation"] != citation:
+        if exact_memory_text(server, scope, citation) != note:
             raise HarnessFailure("installed_forced_exit_changed_saved_memory")
         after_text = "Independent write after Desktop forced exit"
         written = server.post("/v1/memory/remember", json={"scope_id": scope, "kind": "note", "text": after_text})
         written.raise_for_status()
-        after_citation = written.json()["entry"]["citation"]
-        read_back = server.post("/v1/memory/entries/get", json={"scope_id": scope, "citation": after_citation})
-        read_back.raise_for_status()
-        if read_back.json()["text"] != after_text or read_back.json()["citation"] != after_citation:
+        after_citation = memory_write_reference(written.json())
+        if exact_memory_text(server, scope, after_citation) != after_text:
             raise HarnessFailure("installed_forced_exit_independent_write_unreadable")
         return {
             "serverWheelSha256": wheel_digest,

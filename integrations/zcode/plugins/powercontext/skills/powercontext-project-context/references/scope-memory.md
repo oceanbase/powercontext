@@ -38,11 +38,32 @@ unavailable in remote-workspace mode. Never infer resolution origin from the ord
 
 ## Memory reads and writes
 
-- `search_memory` finds relevant history; empty results are valid. `list_memory_entries` is for requested inventories.
-- `get_memory_entry` uses the exact returned citation. Include inactive entries only for an explicit audit.
-- `remember_memory` satisfies an explicit save request. Automatic Source capture does not satisfy that request.
-- Before `revise_memory_entry` or `retire_memory_entry`, read the current entry and preserve its citation. On a version
-  conflict, refresh and retry once only if the original requested change still applies.
-- Write concise decisions, constraints or state on request; exclude credentials. Inspect actual tool results and readback.
-- Keep the resolved Scope for Handoff, candidate inspection and other data operations. Scope scripts manage binding;
-  they never replace the MCP Memory/Handoff/candidate tool. If the required MCP tool is absent, report incomplete.
+- Use `search_memory` with a focused query, `mode: "auto"`, and at most eight results.
+  Current hits contain `memory.artifact`, text, state, and `state_version`; they do not contain legacy entry citations.
+- Use `list_atomic_memories` for requested inventories, explicit state filters, and `next_cursor` pagination.
+  Default to active memories. Include forgotten, merged, or retired memories only for an explicit audit.
+- Use `get_artifact_revision` with the exact `atomic-memory` ArtifactRef to inspect immutable content and lineage.
+  Use `get_artifact` for current content and `get_atomic_memory_state` for current lifecycle state.
+- `get_memory_entry` reads retained legacy history using a complete old citation, or resolves a migrated logical target.
+  Never manufacture a legacy citation from a new ArtifactRef.
+
+Call `remember_memory` only for an explicit save. Automatic Source capture does not satisfy that request.
+Never store credentials or secrets.
+
+`remember_memory` returns `records` with independent ArtifactRefs. Omit `expected_revision` or pass null;
+legacy collection revision preconditions are unsupported.
+
+For a requested correction, call `get_artifact`, inspect its `artifact`, and pass its exact `etag` as
+`replace_artifact`'s `If-Match`. These MCP tools return `{artifact, etag, status_code}`; a conditional 304 has
+`artifact: null`. Historical `get_artifact_revision` reads return plain Artifact JSON without a current-head ETag.
+For Atomic content, write `schema`, `kind`, and `text`; `creation` is system-owned merge metadata and must be omitted.
+Do not replace a stale precondition silently or create a duplicate to bypass it. After a conflict, reread and proceed
+only if the requested correction still applies.
+
+For a requested removal from normal search, read `get_atomic_memory_state` and call `change_atomic_memory_lifecycle`
+with the exact ArtifactRef and state_version. This forgets the memory and preserves recoverable history.
+Use restoration previews/restorations for an explicitly requested recovery; a merged memory can affect its whole merge
+chain. Legacy `revise_memory_entry` and `retire_memory_entry` are not current MCP operations.
+
+Keep the resolved Scope for Handoff, candidate inspection, and other operations. Scope scripts manage binding;
+they never replace the MCP tool. If a required tool is absent, report the operation unavailable and incomplete.

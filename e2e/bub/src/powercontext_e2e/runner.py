@@ -47,10 +47,10 @@ from .evaluation import evaluate_observation, matches_forbidden_context
 from .evidence import fingerprint, load_resolved_instructions, redact, write_evaluation_report, write_evidence
 from .hosts import HostAdapter, host_adapter
 from .models import (
+    AtomicMemorySnapshot,
     CaptureRecord,
     EvaluationReport,
     HarborTrialObservation,
-    MemoryEntrySnapshot,
     MemorySnapshot,
     NativeArtifact,
     PreparedContextSnapshot,
@@ -604,24 +604,31 @@ def _task_layout(task: E2ETask, harbor_task: HarborTask) -> tuple[str, ...]:
 
 
 async def memory_snapshot(client: PowerContextClient, scope_id: str) -> MemorySnapshot:
-    response = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
-    return MemorySnapshot(
-        entries=tuple(
-            MemoryEntrySnapshot(
-                entry_id=entry.citation.entry_id,
-                entry_version_id=entry.citation.entry_version_id,
-                version=entry.version,
-                kind=entry.kind,
-                text=entry.text,
-                state=entry.state.value,
-                source_refs=tuple(
-                    SourceReferenceSnapshot(name=source.name, source_id=source.source_id)
-                    for source in entry.source_refs
-                ),
+    entries: list[AtomicMemorySnapshot] = []
+    cursor = None
+    while True:
+        response = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id, cursor=cursor))
+        for entry in response.entries:
+            ref = entry.artifact
+            revision = await client.get_artifact_revision(scope_id, ref.family, ref.artifact_id, ref.revision)
+            entries.append(
+                AtomicMemorySnapshot(
+                    artifact=ref,
+                    kind=entry.kind,
+                    text=entry.text,
+                    state=entry.state.value,
+                    state_version=entry.state_version,
+                    merged_into_id=entry.merged_into_id,
+                    sources=tuple(
+                        SourceReferenceSnapshot(name=source.source_type, source_id=source.source_id)
+                        for source in revision.sources
+                    ),
+                    artifacts=tuple(revision.artifacts),
+                )
             )
-            for entry in response.entries
-        )
-    )
+        cursor = response.next_cursor
+        if cursor is None:
+            return MemorySnapshot(entries=tuple(entries))
 
 
 async def prepared_context(client: PowerContextClient, scope_id: str, query: str) -> PreparedContextSnapshot:

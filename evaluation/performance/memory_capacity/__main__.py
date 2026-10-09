@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Legacy Memory manifest capacity benchmark; this does not measure Atomic Memory."""
+
 from __future__ import annotations
 
 import argparse
@@ -27,8 +29,9 @@ from uuid import uuid4
 from pydantic import SecretStr
 from sqlalchemy import event, text
 
-from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.builtin.artifacts.memory import MemoryCompactionPolicy, MemoryEntryInput, MemoryService
 from powercontext.builtin.artifacts.memory.canonical import memory_content_bytes
+from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
@@ -52,6 +55,7 @@ async def run(args):  # noqa: C901
     config = BuiltinConfig(database=database, runtime=RuntimeConfig(memory_compaction_enabled=True))
     output = {
         "backend": args.backend,
+        "memory_model": "legacy-memory-manifest",
         "status": "running",
         "python": platform.python_version(),
         "platform": platform.platform(),
@@ -64,7 +68,17 @@ async def run(args):  # noqa: C901
     }
     async with open_builtin_contexts(config) as contexts:
         scope_id = "capacity-benchmark-" + uuid4().hex
-        service = (await contexts.get(scope_id)).artifacts.memory
+        service = MemoryService(
+            backend=RelationalMemoryBackend(
+                database=contexts.database,
+                scope_id=scope_id,
+                artifacts=contexts.repositories.artifacts,
+                index=contexts.index,
+            ),
+            compaction=MemoryCompactionPolicy(
+                enabled=True, min_tombstone_revisions=config.runtime.memory_compaction_min_tombstone_revisions
+            ),
+        )
         projection_rows = 0
 
         def record(_connection, cursor, statement, _parameters, _context, _executemany):
@@ -192,7 +206,9 @@ async def run(args):  # noqa: C901
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Measure the Memory capacity envelope without inference.")
+    parser = argparse.ArgumentParser(
+        description="Measure legacy Memory manifest capacity without inference; excludes Atomic Memory."
+    )
     parser.add_argument("--backend", choices=("sqlite", "oceanbase"), default="sqlite")
     parser.add_argument("--counts", nargs="+", type=int, default=[200, 1000, 5000])
     parser.add_argument("--final-window", type=int, default=100)

@@ -26,7 +26,11 @@ use powercontext_desktop::{
     diagnostics::{DiagnosticItem, DiagnosticKind, DiagnosticReport, HostDiagnostic},
     error::SafeError,
     ipc::FoundationInfo,
-    transport::{ApiFailure, wire},
+    transport::{
+        ApiFailure, AtomicMemoryContent, AtomicMemoryCreation, AtomicMemoryRevision,
+        LegacyMemoryMutationResponse, LegacySearchMemoryResponse, MemoryEntryResult,
+        MemoryMutationResult, MemoryReference, MemorySearchResponse, wire,
+    },
 };
 use ts_rs::TS;
 fn main() {
@@ -65,6 +69,15 @@ fn main() {
         WriteOutcome::decl(&config),
         DesktopState::decl(&config),
         ApiFailure::decl(&config),
+        MemoryReference::decl(&config),
+        LegacyMemoryMutationResponse::decl(&config),
+        MemoryMutationResult::decl(&config),
+        LegacySearchMemoryResponse::decl(&config),
+        MemorySearchResponse::decl(&config),
+        AtomicMemoryCreation::decl(&config),
+        AtomicMemoryContent::decl(&config),
+        AtomicMemoryRevision::decl(&config),
+        MemoryEntryResult::decl(&config),
     ]
     .into_iter()
     .chain(wire::declarations(&config))

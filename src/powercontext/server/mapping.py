@@ -22,6 +22,7 @@ from pydantic import ValidationError
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.artifacts.search import ArtifactSearchOutcome
+from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryMutationResult
 from powercontext.builtin.artifacts.experience import (
     Experience,
     ExperienceContent,
@@ -74,13 +75,10 @@ from powercontext.builtin.runtime import (
     InvalidRuntimeRequestError,
     MemoryChange,
     MemoryChangesPage,
-    MemoryEntriesPage,
     MemoryEntryInput,
     MemoryEntryRecord,
     MemoryFlushResult,
     MemoryHit,
-    MemoryMutationResult,
-    MemorySearchPage,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
@@ -155,8 +153,9 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
+from powercontext.builtin.runtime.atomic_memory import AtomicMemoryPage, AtomicMemorySearchPage
 from powercontext.builtin.sources import ExternalSkillImportMode as RuntimeExternalSkillImportMode
-from powercontext.builtin.tags import TagFilter
+from powercontext.builtin.tags import MemoryEntryTagTarget, TagFilter
 from powercontext.builtin.work import (
     AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
 )
@@ -237,7 +236,6 @@ from powercontext.http import (
     MemoryMatchedBy,
     MemoryMutationResponse,
     MemoryRevisionChanges,
-    MemoryUsedSearchMode,
     PreparedContextSchema,
     PreparedContextStatus,
     PreparedHandoffSchema,
@@ -343,6 +341,7 @@ from powercontext.http import (
     RememberMemoryRequest as TransportRememberMemoryRequest,
 )
 from powercontext.http import RepairSurface as TransportRepairSurface
+from powercontext.server.atomic_memory import record_response
 from powercontext.sources import (
     ConnectorBinding as RuntimeConnectorBinding,
 )
@@ -591,6 +590,7 @@ def flush_response(value: MemoryFlushResult) -> FlushMemoryResponse:
         high_watermark=value.high_watermark,
         processed_source_count=value.source_count,
         memory=None if value.memory_ref is None else artifact_reference(value.memory_ref),
+        remaining_work=value.remaining_work,
         held_count=value.held_count,
         hold_codes=list(value.hold_codes),
     )
@@ -816,7 +816,11 @@ def handoff_resolution_response(value: HandoffResolution) -> TransportHandoffRes
 
 
 def get_request(value: GetMemoryEntryRequest) -> RuntimeGetMemoryEntryRequest:
-    return RuntimeGetMemoryEntryRequest(citation=runtime_citation(value.citation))
+    if value.citation is not None:
+        return RuntimeGetMemoryEntryRequest(citation=runtime_citation(value.citation))
+    if value.target is None:
+        raise InvalidRuntimeRequestError("memory-address")
+    return RuntimeGetMemoryEntryRequest(target=MemoryEntryTagTarget.model_validate_json(value.target.model_dump_json()))
 
 
 def revise_request(value: ReviseMemoryEntryRequest) -> RuntimeReviseMemoryEntryRequest:
@@ -832,12 +836,25 @@ def retire_request(value: RetireMemoryEntryRequest) -> RuntimeRetireMemoryEntryR
     return RuntimeRetireMemoryEntryRequest(citation=runtime_citation(value.citation), reason=value.reason)
 
 
-def search_response(value: MemorySearchPage) -> SearchMemoryResponse:
-    return SearchMemoryResponse(
-        memory=None if value.memory_ref is None else artifact_reference(value.memory_ref),
-        mode=None if value.mode is None else MemoryUsedSearchMode(value.mode),
-        hits=[search_hit(hit) for hit in value.hits],
-    )
+def search_response(value: AtomicMemorySearchPage) -> SearchMemoryResponse:
+    return SearchMemoryResponse.model_validate({
+        "mode": value.mode,
+        "hits": [
+            {
+                "memory": {
+                    "artifact": hit.hit.artifact_ref.model_dump(mode="json"),
+                    "state_version": hit.hit.state_version,
+                    "kind": hit.hit.kind,
+                    "text": hit.hit.text,
+                    "state": "active",
+                    "merged_into_id": None,
+                },
+                "score": hit.hit.score,
+                "matched_by": list(hit.matched_by),
+            }
+            for hit in value.hits
+        ],
+    })
 
 
 def topic_memory_flush_response(value: TopicMemoryFlushResult) -> FlushTopicMemoryResponse:
@@ -881,18 +898,14 @@ def prepared_context_response(value: PreparedContext) -> TransportPreparedContex
     })
 
 
-def entries_response(value: MemoryEntriesPage) -> ListMemoryEntriesResponse:
+def entries_response(value: AtomicMemoryPage) -> ListMemoryEntriesResponse:
     return ListMemoryEntriesResponse(
-        memory=None if value.memory_ref is None else artifact_reference(value.memory_ref),
-        entries=[memory_entry(item) for item in value.entries],
+        entries=[record_response(item) for item in value.items], next_cursor=value.next_cursor
     )
 
 
-def mutation_response(value: MemoryMutationResult) -> MemoryMutationResponse:
-    return MemoryMutationResponse(
-        memory=artifact_reference(value.memory_ref),
-        entry=None if value.entry is None else memory_entry(value.entry),
-    )
+def mutation_response(value: AtomicMemoryMutationResult) -> MemoryMutationResponse:
+    return MemoryMutationResponse(changed=value.changed, records=[record_response(item) for item in value.records])
 
 
 def changes_response(value: MemoryChangesPage) -> ListMemoryChangesResponse:

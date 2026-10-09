@@ -45,6 +45,31 @@ _EXPERIENCE = {
 
 
 def _case(key: str) -> dict[str, Any]:  # noqa: C901 - one branch per prompt key fixture
+    if key in {"atomic_memory.extract", "atomic_memory.reconcile"}:
+        evidence = {
+            "evidence_id": "source:content/turn-1",
+            "source_ref": {"source_type": "content", "source_id": "turn-1"},
+            "journal_position": 1,
+            "content": "Prefers Chinese.",
+            "source_metadata": {},
+        }
+        candidate = {"kind": "preference", "text": "Prefers Chinese.", "evidence_ids": [evidence["evidence_id"]]}
+        if key == "atomic_memory.extract":
+            return {"input": {"evidence": [evidence]}, "expected_output": {"candidates": [candidate]}}
+        return {
+            "input": {
+                "proposal": {"item_id": "candidate:1", "original_refs": [], **candidate},
+                "related": [],
+                "evidence": [evidence],
+            },
+            "expected_output": {
+                "action": "create",
+                "compared_ids": [],
+                "content": {"kind": "preference", "text": "Prefers Chinese."},
+                "evidence_ids": [evidence["evidence_id"]],
+                "reason": "The supplied Source supports this independent preference.",
+            },
+        }
     if key == "profile.generate":
         return {
             "input": {
@@ -183,9 +208,67 @@ def test_valid_demonstrations_preserve_their_original_json(key: str) -> None:
     assert content.model_dump_json() == original
 
 
+def _atomic_artifact_case() -> dict[str, Any]:
+    case = _case("atomic_memory.reconcile")
+    ref = {"family": "atomic-memory", "artifact_id": "memory-language", "revision": 2}
+    evidence = {
+        "evidence_id": "artifact:memory-language@2",
+        "artifact_ref": dict(ref),
+        "content": {"kind": "preference", "text": "Prefers English."},
+    }
+    case["input"]["evidence"].append(evidence)
+    case["input"]["related"] = [
+        {
+            "item_id": "memory:language",
+            **evidence["content"],
+            "original_refs": [{"ref": dict(ref), "state": "active", "state_version": 0}],
+            "evidence_ids": [evidence["evidence_id"]],
+        }
+    ]
+    case["expected_output"].update({
+        "action": "revise",
+        "compared_ids": ["memory:language"],
+        "target_ids": ["memory:language"],
+        "evidence_ids": [item["evidence_id"] for item in case["input"]["evidence"]],
+    })
+    return case
+
+
+def test_atomic_reconciliation_demonstration_accepts_current_published_artifact_evidence() -> None:
+    content = _content(_atomic_artifact_case())
+    PromptRegistry(builtin_prompt_definitions()).get("atomic_memory.reconcile").validate(content)
+
+
+def test_atomic_reconciliation_demonstration_allows_artifact_support_without_consuming_identity() -> None:
+    case = _atomic_artifact_case()
+    case["input"]["related"] = []
+    case["input"]["proposal"]["evidence_ids"] = case["expected_output"]["evidence_ids"]
+    case["expected_output"].update({"action": "create", "compared_ids": [], "target_ids": []})
+    PromptRegistry(builtin_prompt_definitions()).get("atomic_memory.reconcile").validate(_content(case))
+
+
+def test_atomic_reconciliation_demonstration_rejects_unavailable_artifact_evidence() -> None:
+    case = _atomic_artifact_case()
+    case["expected_output"]["evidence_ids"] = ["source:content/turn-1", "artifact:unavailable-memory@2"]
+    with pytest.raises(PromptError) as caught:
+        PromptRegistry(builtin_prompt_definitions()).get("atomic_memory.reconcile").validate(_content(case))
+    assert caught.value.code == "prompt_definition_incompatible"
+
+
+def test_atomic_extraction_demonstration_rejects_published_artifact_evidence() -> None:
+    case = _case("atomic_memory.extract")
+    case["input"]["evidence"].append(_atomic_artifact_case()["input"]["evidence"][-1])
+    with pytest.raises(PromptError) as caught:
+        PromptRegistry(builtin_prompt_definitions()).get("atomic_memory.extract").validate(_content(case))
+    assert caught.value.code == "prompt_definition_incompatible"
+
+
 @pytest.mark.parametrize(
     ("key", "path", "invalid"),
     [
+        ("atomic_memory.extract", ("expected_output", "candidates", 0, "evidence_ids"), ["source:99"]),
+        ("atomic_memory.reconcile", ("expected_output", "evidence_ids"), ["source:99"]),
+        ("atomic_memory.reconcile", ("expected_output", "compared_ids"), ["unknown-item"]),
         ("memory.extract", ("expected_output", "candidates", 0, "evidence_ids"), ["source:99"]),
         ("memory.extract", ("expected_output", "candidates", 0, "evidence_ids"), []),
         ("memory.extract", ("expected_output", "candidates", 0, "entry_id"), "entry:1"),

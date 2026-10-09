@@ -607,3 +607,93 @@ __all__ = [
     "MemoryManagementWriter",
     "SkillManagementWriter",
 ]
+
+
+class AtomicMemoryManagementPrepared(BaseModel):
+    """Prepared domain command with its server-owned execution identity."""
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+    prepared: Any
+    execution_context: Any
+
+
+class AtomicMemoryManagementWriter:
+    """Route foundational Create/Replace through the Atomic domain writer."""
+
+    family = "atomic-memory"
+
+    def __init__(self, application) -> None:
+        self.application = application
+
+    def artifact_id_for_create(self, generated: str, /) -> str:
+        return generated
+
+    def validate_create(self, content: Mapping[str, JsonValue]) -> BaseModel:
+        return self._validate(content)
+
+    def validate_replace(self, content: Mapping[str, JsonValue]) -> BaseModel:
+        return self._validate(content)
+
+    def _validate(self, content: Mapping[str, JsonValue]) -> BaseModel:
+        from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
+
+        if "creation" in content:
+            raise InvalidBaseAccessRequestError("content.creation", "is maintained by the Atomic Memory service")
+        try:
+            return AtomicMemoryContent.model_validate_json(json.dumps(content), strict=True)
+        except ValidationError as error:
+            raise InvalidBaseAccessRequestError("content", "does not match the atomic-memory model") from error
+
+    async def prepare_command(
+        self,
+        scope_id: str,
+        artifact_id: str,
+        content: BaseModel,
+        *,
+        expected_revision: int | None = None,
+        execution_context=None,
+    ) -> AtomicMemoryManagementPrepared:
+        from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
+
+        context = self.application.default_context if execution_context is None else execution_context
+        async with self.application.database.transaction() as connection:
+            plan = await self.application.service.inspect_change(
+                connection,
+                scope_id,
+                artifact_id,
+                cast(AtomicMemoryContent, content),
+                context,
+                expected_revision=expected_revision,
+            )
+        prepared = await self.application.service.prepare_change(plan)
+        return AtomicMemoryManagementPrepared(prepared=prepared, execution_context=context)
+
+    async def create(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        artifact_id: str,
+        content: BaseModel,
+        direct_source: SourceRef,
+        /,
+    ) -> Artifact[Any]:
+        command = cast(AtomicMemoryManagementPrepared, content)
+        result = await self.application.service.commit(
+            connection, command.prepared, command.execution_context, direct_source=direct_source
+        )
+        return result.primary.artifact
+
+    async def replace(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        current: Artifact[Any],
+        content: BaseModel,
+        direct_source: SourceRef,
+        /,
+    ) -> Artifact[Any]:
+        command = cast(AtomicMemoryManagementPrepared, content)
+        result = await self.application.service.commit(
+            connection, command.prepared, command.execution_context, direct_source=direct_source
+        )
+        return result.primary.artifact

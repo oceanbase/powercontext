@@ -38,29 +38,30 @@ Content-Type: application/json
 | `experience` | 支持 | `text`；省略模式时使用文本检索 | 已批准、处于 active 状态的 Experience head |
 | `skill` | 支持 | `text`；省略模式时使用文本检索 | 已批准、处于 active 状态的托管 Skill head；不检索外部 Skill 目录 |
 | `topic-memory` | 支持 | `text`、`vector`、`hybrid`；配置 Embedding 时默认混合检索，否则默认文本检索 | Topic Memory 当前 head，分别检索标题/摘要和详情通道 |
-| `memory` | 不支持 | 保留原有 Memory 检索入口 | 见 [Memory 与上下文](memory-and-context.md) |
+| `atomic-memory` | 支持 | `text`、`vector`、`hybrid`；默认文本检索 | 调用者可读取、处于 active 状态的独立 Atomic Memory head |
+| `memory` | 不支持 | 已冻结的旧集合；兼容检索返回 Atomic Memory 记录 | 见[使用 Atomic Memory](atomic-memory.md#旧-memory-api-兼容) |
 | `profile` | 不支持 | 此入口不提供相关性检索 | 见[使用 Profile](use-profiles.md) |
 | `handoff` | 不支持 | 此入口不提供相关性检索 | 见 [Memory 与 Handoff](memory-and-handoff.md) |
 | `prompt` | 不支持 | 此入口不提供相关性检索 | 见[管理 Prompt](manage-prompts.md) |
 
 Source 是证据，Tag 是元数据，两者都不是此入口检索的 Artifact Family。部署必须启用所选 Family 的检索索引。
-Topic 向量或混合检索还需要兼容的 Embedding 模型和索引 Profile。部署设置见[配置向量检索](configure-vector-search.md)。
+Topic 和 Atomic 向量或混合检索还需要兼容的 Embedding 模型和索引 Profile。部署设置见[配置向量检索](configure-vector-search.md)。
 
 ## 通用参数与限制
 
 | 字段 | 类型与默认值 | 支持范围 |
 | --- | --- | --- |
-| `query` | 必填非空字符串 | 去除首尾空白。Experience 和 Topic 最多 8192 个字符，Skill 最多 2000 个字符。 |
-| `limit` | 整数，默认 `10` | Experience、Skill 为 `1`–`200`；Topic 为 `1`–`20`。这是返回上限，不保证填满。 |
+| `query` | 必填非空字符串 | 去除首尾空白。Experience、Topic 和 Atomic 最多 8192 个字符，Skill 最多 2000 个字符。 |
+| `limit` | 整数，默认 `10` | Experience、Skill 为 `1`–`200`；Topic 为 `1`–`20`；Atomic 为 `1`–`100`。这是返回上限，不保证填满。 |
 | `mode` | 可省略的字符串 | 选择该 Family 支持的模式；省略时使用默认策略。 |
-| `filters` | 对象，默认 `{}` | 这三个 Family 只支持空对象。 |
+| `filters` | 对象，默认 `{}` | Atomic 支持 `kind`、`tags` 和 `tag_match`；Experience、Skill 和 Topic 只支持 `{}`。 |
 | `admission` | 可省略的对象 | 决定检索到的候选能否参与评分；字段见下文。 |
 | `min_score` | 可省略的有限数值，范围 `[0, 1]` | 只保留归一化检索分数不低于该值的结果；省略时不设评分阈值。 |
 | `include_scores` | 布尔值，默认 `false` | 在结果中附加检索分数和实际存在的通道原分。 |
-| `fusion` | 可省略的对象 | 只有 Topic 开放 `rrf`，见[融合算法与参数](search-fusion.md)。 |
+| `fusion` | 可省略的对象 | Topic 和 Atomic 开放 `rrf`，见[融合算法与参数](search-fusion.md)。 |
 
 使用默认值时省略对应字段。显式 `null`、未知字段、数字字符串、数值字段中的布尔值均会被拒绝。
-`limit` 必须是整数，`include_scores` 必须是 JSON 布尔值。非空 `filters`、`rerank` 和 `weighted_score` 融合方法
+`limit` 必须是整数，`include_scores` 必须是 JSON 布尔值。请求参数 `rerank` 和 `weighted_score` 融合方法
 均未开放。Experience 和 Skill 不接受 `fusion`。
 
 准入和评分完成后，先应用 `min_score`，再截取最终 `limit`。阈值过滤后不会用更低分的候选补齐数量。
@@ -136,6 +137,45 @@ Content-Type: application/json
 的请求都不会回退。两个 FTS 权重都为 `0` 时，Embedding 失败仍是服务错误。非法向量、不兼容的 Profile 和存储错误
 不会触发文本回退。
 
+## Atomic Memory 参数
+
+Atomic 通过 `text`、`vector` 或 `hybrid` 检索 active 状态的当前 head。省略模式时始终使用文本检索，配置了
+Embedding 的部署也一样。向量和混合模式要求启用匹配的索引 Profile 并配置 Embedding 模型，不会回退到文本。
+空 Scope 返回空结果之前，也会检查部署能力和参数组合。
+
+Atomic 使用 `text` 和 `vector` 两个通道名。文本通道应用上述词法准入规则，向量通道应用与 Topic 相同的
+L2 距离语义准入规则。默认词法覆盖率为 `0.25`、最少匹配词数为 `2`、语义相似度为 `0.3`。
+文本模式不接受显式语义准入字段，向量模式不接受显式词法准入字段。权重键必须属于启用通道，权重为 `0` 也一样。
+
+Atomic 过滤条件与访问控制、active 状态资格一起应用，先于候选排名：
+
+| 字段 | 合法值 |
+| --- | --- |
+| `filters.kind` | 应用定义的非空白类别，最多 128 个字符 |
+| `filters.tags` | 1–16 个 Tag 标签，每个 1–64 个字符，不能带首尾空白或控制字符；规范化后重复的标签会被拒绝 |
+| `filters.tag_match` | `all` 或 `any`；提供 tags 时默认 `all`，显式设置时必须同时提供 `tags` |
+
+Tag 匹配沿用 NFC 和大小写折叠规则，见[管理 Artifact Tag](manage-artifact-tags.md)。
+
+```http
+POST /v1/scopes/project-a/artifacts/atomic-memory/search
+Content-Type: application/json
+
+{
+  "query": "release rollback",
+  "mode": "hybrid",
+  "limit": 10,
+  "filters": {"kind": "decision", "tags": ["release"], "tag_match": "all"},
+  "fusion": {"method": "rrf", "params": {"rank_constant": 60, "weights": {"text": 2}}},
+  "include_scores": true
+}
+```
+
+Atomic 在单通道模式下也使用归一化 RRF。`min_score` 根据融合后的检索分数过滤，先于部署配置的重排和最终选择。
+已配置的重排器仍会生效，可以改变结果顺序，但不会改写检索分数和通道原分。请求不能启用、关闭或配置重排。
+结果返回完整、不可变的 Artifact 正文和 lineage。当前生命周期与 state_version 通过
+[Atomic Memory 接口](atomic-memory.md#当前状态与遗忘)读取。
+
 ## 理解评分
 
 `include_scores: true` 会在每条结果中增加 `scores`。下面只展示该字段：
@@ -155,20 +195,20 @@ Content-Type: application/json
 }
 ```
 
-`retrieval` 是 `[0, 1]` 范围的归一化检索分数，用于排序和 `min_score` 筛选。
+`retrieval` 是 `[0, 1]` 范围的归一化检索分数，用于 `min_score` 筛选和 Atomic 配置重排之前的排名。
 `channels` 保存该结果通过准入的通道原分：
 
 | 度量 | 含义 | 更好的方向 |
 | --- | --- | --- |
 | `sqlite_bm25` | SQLite FTS 的带符号 BM25 原分 | 越小越好；匹配分数为负数 |
 | `oceanbase_match` | OceanBase MATCH 相关性原分 | 越大越好 |
-| `l2_distance` | Topic 向量 L2 距离 | 越小越好 |
+| `l2_distance` | Topic 或 Atomic 向量 L2 距离 | 越小越好 |
 
-Experience 和 Skill 的通道名为 `text`；Topic 使用上表列出的四个通道名。没有命中的通道不会出现，也不会补造 `0`。
-如果其他通道选中了同一个主题，通过准入但权重为 `0` 的 Topic 通道仍可出现在评分元数据中。
-详情原分对应各通道实际选出的代表分块。
+Experience 和 Skill 的通道名为 `text`；Atomic 使用 `text` 和 `vector`；Topic 使用上表列出的四个通道名。
+没有命中的通道不会出现，也不会补造 `0`。如果其他通道选中了同一个 Artifact，通过准入但权重为 `0` 的通道
+仍可出现在评分元数据中。Topic 详情原分对应各通道实际选出的代表分块。
 
-原分依赖 backend 和查询，不是跨查询、跨 backend 通用的相似度。Topic 通道原分是 FTS 分数或向量距离，
+原分依赖 backend 和查询，不是跨查询、跨 backend 通用的相似度。Topic 和 Atomic 通道原分是 FTS 分数或向量距离，
 不是 RRF 贡献值。评分属于本次搜索响应，不修改已保存的 Artifact 正文或 lineage。
 `include_scores: false` 时，响应省略 `scores`。
 
@@ -178,7 +218,8 @@ Experience 和 Skill 的通道名为 `text`；Topic 使用上表列出的四个�
 非法请求会指出参数路径；缩小 limit 或使用空 Scope 都不会绕过校验。不能回退时，模型超时或不可用返回 `503` 服务错误。
 实现和存储故障会保留失败状态，不转换成成功的空结果。
 
-原有 Memory、Topic HTTP 搜索路由、Skill Library 搜索，以及已有 SDK/内部 Experience 召回保留原来的请求与响应契约。
+统一检索保留 Atomic、Topic 专用检索行为、Skill Library 搜索，以及已有 SDK/内部 Experience 召回。
+旧 Memory 路由的升级契约见 [Atomic Memory 兼容说明](atomic-memory.md#旧-memory-api-兼容)。
 其中 `POST /v1/topic-memory/search` 仍按部署默认策略检索，返回摘要命中和 `0`–`100` 的旧评分，
 不开放上述高级参数。统一 Topic 入口返回完整 Artifact 正文，归一化检索分数为 `[0, 1]`。
 专用摘要搜索和精确详情读取流程见[使用 Topic Memory](topic-memory.md)。

@@ -165,9 +165,12 @@ fn memory_commands_reject_untrusted_callers_before_accessing_the_connection() {
         "generation": 0,
         "text": "synthetic permission test",
         "query": "synthetic",
-        "citation": {
-            "memory_ref": {"family":"memory", "artifact_id":"test", "revision":1},
-            "entry_id":"test", "entry_version_id":"v1"
+        "reference": {
+            "kind": "citation",
+            "citation": {
+                "memory_ref": {"family":"memory", "artifact_id":"test", "revision":1},
+                "entry_id":"test", "entry_version_id":"v1"
+            }
         }
     });
     for command in [

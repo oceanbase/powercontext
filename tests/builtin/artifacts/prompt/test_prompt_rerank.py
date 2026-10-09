@@ -79,7 +79,14 @@ def test_search_freezes_the_rerank_prompt_before_reading_coarse_candidates() -> 
             prompt_key="memory.rerank",
         )
         async with open_builtin_contexts(BuiltinConfig()) as contexts:
-            existing = (await contexts.get("rerank-freeze")).artifacts.memory
+            existing = MemoryService(
+                backend=RelationalMemoryBackend(
+                    database=contexts.database,
+                    scope_id="rerank-freeze",
+                    artifacts=contexts.repositories.artifacts,
+                    index=contexts.index,
+                )
+            )
             memory = await existing.remember(
                 memory=None,
                 entries=(MemoryEntryInput(kind="fact", text="Project uses SQLite."),),

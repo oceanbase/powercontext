@@ -23,7 +23,13 @@ from pathlib import Path
 
 import httpx
 from installed_boundaries import exercise_note_budget, exercise_search_limit
-from installed_fixture import fixture_compatibility_profile, isolated_server
+from installed_fixture import (
+    exact_memory_text,
+    fixture_compatibility_profile,
+    isolated_server,
+    memory_hit_reference,
+    memory_write_reference,
+)
 from real_server import HarnessFailure
 
 ELEMENT = "element-6066-11e4-a52e-4f735466cecf"
@@ -191,9 +197,7 @@ def exercise_memory(client: httpx.Client, prefix: str) -> dict[str, object]:
         page.button("保存")
         page.wait_text("保存成功。")
         citation = page.search_read(NOTE)
-        response = server.post("/v1/memory/entries/get", json={"scope_id": scope_id, "citation": citation})
-        response.raise_for_status()
-        if response.json()["text"] != NOTE or response.json()["citation"] != citation:
+        if exact_memory_text(server, scope_id, citation) != NOTE:
             raise HarnessFailure("installed_independent_exact_read_mismatch")
         page.button("复制正文")
         page.wait_text("已复制")
@@ -236,10 +240,15 @@ def current_unchanged_entry(server: httpx.Client, scope: str, original: dict[str
     current_hits = current.json()["hits"]
     if len(current_hits) != 1:
         raise HarnessFailure("installed_original_server_search_ambiguous")
-    current_citation_a = current_hits[0]["citation"]
-    # New independent notes advance the artifact revision, while this entry's
-    # version remains unchanged. Preserve the original citation for exact reads.
-    if any(current_citation_a[key] != original[key] for key in ("entry_id", "entry_version_id")):
+    current_citation_a = memory_hit_reference(current_hits[0])
+    # Legacy collection revisions advance after independent writes; the entry
+    # version must stay fixed. Atomic memories retain their own exact revision.
+    unchanged = (
+        all(current_citation_a[key] == original[key] for key in ("entry_id", "entry_version_id"))
+        if "memory_ref" in original
+        else current_citation_a == original
+    )
+    if not unchanged:
         raise HarnessFailure("installed_original_entry_version_changed")
     return current_citation_a
 
@@ -255,7 +264,7 @@ def exercise_connection_isolation(
     with isolated_server() as (server_b, scope_b, _):
         seeded = server_b.post("/v1/memory/remember", json={"scope_id": scope_b, "kind": "note", "text": text_b})
         seeded.raise_for_status()
-        citation_b = seeded.json()["entry"]["citation"]
+        citation_b = memory_write_reference(seeded.json())
         page.connect("Desktop CI B", str(server_b.base_url).rstrip("/"))
         page.expect_empty_context()
         page.select_scope(scope_b)
@@ -296,9 +305,7 @@ def exercise_connection_isolation(
             (server_a, scope_a, citation_a, NOTE),
             (server_b, scope_b, citation_b, text_b),
         ):
-            response = server.post("/v1/memory/entries/get", json={"scope_id": scope, "citation": citation})
-            response.raise_for_status()
-            if response.json()["text"] != expected:
+            if exact_memory_text(server, scope, citation) != expected:
                 raise HarnessFailure("installed_profile_operation_changed_server_data")
         page.button("记忆")
         if page.search_read(NOTE) != current_citation_a:
@@ -330,7 +337,11 @@ def exercise_unknown_write(page: InstalledPage) -> None:
             )
             matches.raise_for_status()
             hits = matches.json()["hits"]
-            if len(hits) != 1 or hits[0]["citation"] != citation or counter.read_text(encoding="utf-8") != "1":
+            if (
+                len(hits) != 1
+                or memory_hit_reference(hits[0]) != citation
+                or counter.read_text(encoding="utf-8") != "1"
+            ):
                 raise HarnessFailure("installed_unknown_write_replayed_or_missing")
             page.clear_note()
 

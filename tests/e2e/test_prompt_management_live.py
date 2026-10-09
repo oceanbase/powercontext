@@ -27,9 +27,9 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.sql.ddl import sort_tables
 
-from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.persistence.atomic_memory_schema import ATOMIC_MEMORY_TABLES
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, BUILTIN_TABLES, SCOPES_TABLE
+from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime import CaptureSource
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.client import PowerContextClient, ServerResponseError
@@ -51,6 +51,7 @@ from powercontext.http import (
     ReplaceArtifactRequest,
     SearchMemoryRequest,
 )
+from powercontext.server.authz.repository import ACCESS_TABLES
 from powercontext.server.configuration import server_settings_context
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, McpConfig
@@ -96,32 +97,29 @@ async def _cleanup(contexts: RelationalContexts, scopes: list[str]) -> None:
     if not scopes:
         return
     async with contexts.database.transaction() as connection:
-        heads = (
-            (
-                await connection.execute(
-                    select(ARTIFACT_HEADS_TABLE).where(
-                        ARTIFACT_HEADS_TABLE.c.scope_id.in_(scopes), ARTIFACT_HEADS_TABLE.c.family == "memory"
-                    )
-                )
-            )
-            .mappings()
-            .all()
-        )
-        for row in heads:
-            await contexts.index.replace(
-                connection,
-                row["scope_id"],
-                ArtifactRef(family="memory", artifact_id=row["artifact_id"], revision=row["revision"]),
-                (),
-            )
+        tables = sort_tables((
+            *BUILTIN_TABLES,
+            *ACCESS_TABLES,
+            *ATOMIC_MEMORY_TABLES,
+            *contexts.index.tables,
+            *contexts.atomic_memory.index.tables,
+        ))
+        scoped_tables = [table for table in tables if "scope_id" in table.c]
         if connection.dialect.name == "sqlite":
             for scope in scopes:
                 await connection.execute(text("DELETE FROM pc_artifact_fts WHERE scope_id = :scope"), {"scope": scope})
-        for table in reversed(sort_tables((*BUILTIN_TABLES, *contexts.index.tables))):
-            if "scope_id" in table.c:
-                await connection.execute(delete(table).where(table.c.scope_id.in_(scopes)))
-        remaining = await connection.scalar(select(SCOPES_TABLE.c.scope_id).where(SCOPES_TABLE.c.scope_id.in_(scopes)))
-        assert remaining is None, "test Scope cleanup did not finish"
+        for table in reversed(scoped_tables):
+            await connection.execute(delete(table).where(table.c.scope_id.in_(scopes)))
+        for table in scoped_tables:
+            remaining = await connection.scalar(select(table.c.scope_id).where(table.c.scope_id.in_(scopes)).limit(1))
+            assert remaining is None, f"test Scope cleanup left rows in {table.name}"
+        if connection.dialect.name == "sqlite":
+            for scope in scopes:
+                remaining = await connection.scalar(
+                    text("SELECT scope_id FROM pc_atomic_memory_current_fts WHERE scope_id = :scope LIMIT 1"),
+                    {"scope": scope},
+                )
+                assert remaining is None, "test Scope cleanup left Atomic Memory FTS rows"
 
 
 @pytest.mark.parametrize("backend", ("sqlite", "configured"))
@@ -197,13 +195,13 @@ async def _run_live(backend: str, env_file: Path, tmp_path: Path) -> None:
 
 async def _exercise(client, runtime, scopes: list[str], backend: str) -> None:
     first, second = scopes
-    defaults = await client.get_prompt_configuration(first, "memory.extract")
+    defaults = await client.get_prompt_configuration(first, "atomic_memory.extract")
     assert defaults.mode == "auto" and defaults.artifact is None
     assert defaults.effective is not None and defaults.builtin is not None
     assert defaults.effective.instructions == defaults.builtin.instructions
     for scope, guidance in ((first, _LANGUAGE), (second, _EDITOR)):
-        await _write_prompt(client, scope, "memory.extract", guidance)
-        configuration = await client.get_prompt_configuration(scope, "memory.extract")
+        await _write_prompt(client, scope, "atomic_memory.extract", guidance)
+        configuration = await client.get_prompt_configuration(scope, "atomic_memory.extract")
         assert configuration.mode == "custom" and configuration.artifact is not None
         assert configuration.artifact.revision == 1 and configuration.artifact_etag == '"revision:1"'
         assert configuration.effective is not None and configuration.effective.instructions == guidance
@@ -219,51 +217,62 @@ async def _exercise(client, runtime, scopes: list[str], backend: str) -> None:
             ),
         )
         flushed = await client.flush_memory(FlushMemoryRequest(scope_id=scope))
-        assert flushed.memory is not None, "custom extraction produced no memory"
+        assert flushed.memory is None
+        assert flushed.processed_source_count == 1
+        assert flushed.current_cursor > flushed.previous_cursor
+        assert flushed.current_cursor == flushed.high_watermark
         entries = (await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope))).entries
         texts = [entry.text for entry in entries]
         prefix = "LANGUAGE:" if scope == first else "EDITOR:"
         assert texts and all(value.startswith(prefix) for value in texts), "wrong Scope guidance reached extraction"
         assert all(_INJECTION_SENTINEL not in value for value in texts), "synthetic secret leaked into Memory"
-        memory = await client.get_artifact(scope, "memory", flushed.memory.artifact_id)
-        assert any(ref.family == "prompt" and ref.revision == 1 for ref in memory.artifacts)
+        for entry in entries:
+            ref = entry.artifact
+            assert ref.family == "atomic-memory"
+            memory = await client.get_artifact_revision(scope, ref.family, ref.artifact_id, ref.revision)
+            assert any(
+                ref.family == "prompt" and ref.artifact_id == "atomic_memory.extract" and ref.revision == 1
+                for ref in memory.artifacts
+            )
     print(f"LIVE_PROMPT {backend} scoped_extraction_and_finite_injection_checks_passed", flush=True)
 
-    before = await client.get_artifact(first, "prompt", "memory.extract")
+    before = await client.get_artifact(first, "prompt", "atomic_memory.extract")
     suggestions = await client.generate_prompt_demonstrations(
-        first, "memory.extract", GeneratePromptDemonstrationsRequest(instructions=_LANGUAGE, demonstration_count=2)
+        first,
+        "atomic_memory.extract",
+        GeneratePromptDemonstrationsRequest(instructions=_LANGUAGE, demonstration_count=2),
     )
     assert len(suggestions.demonstrations) == 2
-    assert await client.get_artifact(first, "prompt", "memory.extract") == before
+    assert await client.get_artifact(first, "prompt", "atomic_memory.extract") == before
     auto = {"schema_version": "powercontext.prompt.v1", "mode": "auto", "instructions": "", "demonstrations": []}
     await client.replace_artifact(
         first,
         "prompt",
-        "memory.extract",
+        "atomic_memory.extract",
         ReplaceArtifactRequest.model_validate({"content": auto}),
         expected_etag='"revision:1"',
     )
-    auto_configuration = await client.get_prompt_configuration(first, "memory.extract")
+    auto_configuration = await client.get_prompt_configuration(first, "atomic_memory.extract")
     assert auto_configuration.mode == "auto" and auto_configuration.artifact is not None
     assert auto_configuration.artifact.revision == 2 and auto_configuration.effective == defaults.effective
     restored = await client.replace_artifact(
         first,
         "prompt",
-        "memory.extract",
+        "atomic_memory.extract",
         ReplaceArtifactRequest.model_validate({"content": before.content}),
         expected_etag='"revision:2"',
     )
     assert restored.revision == 3 and restored.content_digest == before.content_digest
-    restored_configuration = await client.get_prompt_configuration(first, "memory.extract")
+    restored_configuration = await client.get_prompt_configuration(first, "atomic_memory.extract")
     assert restored_configuration.artifact is not None and restored_configuration.artifact.revision == 3
     assert restored_configuration.effective is not None and restored_configuration.effective.instructions == _LANGUAGE
     page = await client.list_artifact_revisions(
-        first, "prompt", "memory.extract", ListArtifactRevisionsRequest(limit=1)
+        first, "prompt", "atomic_memory.extract", ListArtifactRevisionsRequest(limit=1)
     )
     assert page.next_cursor is not None
     with pytest.raises(ServerResponseError) as crossed:
         await client.list_artifact_revisions(
-            second, "prompt", "memory.extract", ListArtifactRevisionsRequest(cursor=page.next_cursor)
+            second, "prompt", "atomic_memory.extract", ListArtifactRevisionsRequest(cursor=page.next_cursor)
         )
     assert crossed.value.status_code == 400
     print(f"LIVE_PROMPT {backend} demonstrations_and_rollback_passed", flush=True)

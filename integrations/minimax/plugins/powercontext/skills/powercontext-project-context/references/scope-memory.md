@@ -10,25 +10,36 @@ Use `create_scope` only when the user needs a separate boundary for work results
 
 ## Search and inventory
 
-- `search_memory`: provide the resolved `scope_id` and a focused `query`. Usually use `mode: "auto"` and `limit: 8`. Use returned hits; a missing hit does not prove the information never existed. Supported modes are `auto`, `fts`, `vector`, and `hybrid`, subject to the current tool schema and deployment capabilities.
-- `list_memory_entries`: use for explicit inventory or audit requests. Read active entries by default; set `include_inactive: true` only when the user asks for retired history.
-- `get_memory_entry`: supply the complete `citation` to read an exact historical version. A citation contains `memory_ref`, `entry_id`, and `entry_version_id`; `memory_ref` contains `family`, `artifact_id`, and `revision`.
-- `search_topic_memory`: search topic summaries in the current Scope and use returned Artifact references for detailed reads.
-- `get_topic_memory`: pass the exact Artifact reference in `artifact`, not the Memory `citation` field.
+- Use `search_memory` with a focused query, `mode: "auto"`, and at most eight results.
+  Current hits contain `memory.artifact`, text, state, and `state_version`; they do not contain legacy entry citations.
+- Use `list_atomic_memories` for requested inventories, explicit state filters, and `next_cursor` pagination.
+  Default to active memories. Include forgotten, merged, or retired memories only for an explicit audit.
+- Use `get_artifact_revision` with the exact `atomic-memory` ArtifactRef to inspect immutable content and lineage.
+  Use `get_artifact` for current content and `get_atomic_memory_state` for current lifecycle state.
+- `get_memory_entry` reads retained legacy history using a complete old citation, or resolves a migrated logical target.
+  Never manufacture a legacy citation from a new ArtifactRef.
 
-Preserve an empty search result. If keywords need refinement, keep the same question and Scope. Do not automatically search other Scopes or enumerate all stored entries.
+Use `search_topic_memory` and `get_topic_memory` for Topic Memory. Preserve empty search results; an empty result
+does not authorize a Scope change or full inventory. Check the actual tool catalog before calling any operation.
 
 ## Explicit memory maintenance
 
-`remember_memory` requires `scope_id`, `kind`, and `text`, with an optional `reason`. Express the requested decision, constraint, current state, or next step so it makes sense independently. Normalized entry text must not exceed 8192 UTF-8 bytes. Do not copy an entire conversation into memory.
+Call `remember_memory` only for an explicit durable save. Keep each memory self-contained and at most 8192 UTF-8 bytes.
+Do not store secrets or whole transcripts. Confirm a write only from its successful response.
 
-Confirm a save only after reading the write response and preserving its reference. Do not substitute `capture_content_source` to obtain a successful result. Supply `expected_revision` only when an exact version is available and a concurrency check is needed; do not guess the current Revision.
+`remember_memory` returns `records` with independent ArtifactRefs. Omit `expected_revision` or pass null;
+legacy collection revision preconditions are unsupported.
 
-To correct or retire an entry:
+For a requested correction, call `get_artifact`, inspect its `artifact`, and pass its exact `etag` as
+`replace_artifact`'s `If-Match`. These MCP tools return `{artifact, etag, status_code}`; a conditional 304 has
+`artifact: null`. Historical `get_artifact_revision` reads return plain Artifact JSON without a current-head ETag.
+For Atomic content, write `schema`, `kind`, and `text`; `creation` is system-owned merge metadata and must be omitted.
+Do not replace a stale precondition silently or create a duplicate to bypass it. After a conflict, reread and proceed
+only if the requested correction still applies.
 
-1. Locate it through search or a reference supplied by the user, then read it with `get_memory_entry`.
-2. For `revise_memory_entry`, pass `scope_id`, the original `citation`, and the new `kind` and `text`. For `retire_memory_entry`, pass `scope_id` and the original `citation`. Add `reason` as needed.
-3. On a version conflict, find the current entry and read its new reference. Reading the old citation again still returns the old version and cannot resolve the conflict.
-4. Retry once with the new reference only if the user's original intent still applies. Otherwise, explain the conflict. Do not add a duplicate entry to bypass concurrency checks.
+For a requested removal from normal search, read `get_atomic_memory_state` and call `change_atomic_memory_lifecycle`
+with the exact ArtifactRef and state_version. This forgets the memory and preserves recoverable history.
+Use restoration previews/restorations for an explicitly requested recovery; a merged memory can affect its whole merge
+chain. Legacy `revise_memory_entry` and `retire_memory_entry` are not current MCP operations.
 
-See [examples.json](examples.json) for request examples. Its Scope values are test placeholders; use server-returned values for actual operations.
+See [examples.json](examples.json) for request examples. Replace placeholder Scope values with server-returned IDs.

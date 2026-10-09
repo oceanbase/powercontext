@@ -22,6 +22,7 @@ import type {
   StorageChoice,
   Fact,
 } from "../generated/ipc";
+import { contractSha256 } from "../generated/operations";
 import { desktopApi } from "../shared/ipc";
 import { connectionMessages, connectionError } from "./connection-messages";
 import { messages, type Language } from "./messages";
@@ -155,6 +156,18 @@ export function Connections({ state, language, onState, onDirty }: Props) {
     (profile.credentialState === "stored" ||
       profile.credentialState === "session_only") &&
     !invalidated.current;
+  const availableProfiles = state?.compatibilityProfiles.filter(
+    (p) => p.contractSha256 === contractSha256,
+  );
+  const historicalProfiles = state?.compatibilityProfiles.filter(
+    (p) => p.contractSha256 !== contractSha256,
+  );
+  const selectedCompatibility = state?.compatibilityProfiles.find(
+    (p) => p.id === compatibility,
+  );
+  const unavailableCompatibility =
+    compatibility !== "" &&
+    selectedCompatibility?.contractSha256 !== contractSha256;
   return (
     <div className="connection-grid">
       <section className="card stack">
@@ -315,14 +328,39 @@ export function Connections({ state, language, onState, onDirty }: Props) {
               }}
             >
               <option value="">{t.unselected}</option>
-              {state?.compatibilityProfiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.id}
+              {!!availableProfiles?.length && (
+                <optgroup label={t.availableProfiles}>
+                  {availableProfiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.id}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {!!historicalProfiles?.length && (
+                <optgroup label={t.historicalProfiles}>
+                  {historicalProfiles.map((p) => (
+                    <option key={p.id} value={p.id} disabled>
+                      {p.id} ({t.unavailableProfile})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {compatibility && !selectedCompatibility && (
+                <option value={compatibility} disabled>
+                  {compatibility} ({t.unavailableProfile})
                 </option>
-              ))}
+              )}
             </select>
           </label>
           <p className="field-hint">{t.compatibilityHint}</p>
+          {unavailableCompatibility && (
+            <p role="alert">
+              {selectedCompatibility
+                ? t.profileContractMismatch
+                : t.profileMissing}
+            </p>
+          )}
           <details>
             <summary>{t.ca}</summary>
             <label>

@@ -24,9 +24,10 @@ from typing import TypeVar
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceSearchHit, render_experience
-from powercontext.builtin.artifacts.memory.models import MemoryCitation, MemoryHit
+from powercontext.builtin.artifacts.memory.models import MemoryCitation
 from powercontext.builtin.artifacts.profile.models import Profile
 from powercontext.builtin.artifacts.topic_memory import TopicMemory, TopicMemorySearchHit
+from powercontext.builtin.runtime.atomic_memory import AtomicMemorySearchHit
 from powercontext.builtin.runtime.errors import PreparedContextInvariantError
 from powercontext.builtin.runtime.models import PrepareContextRequest, PreparedContext
 from powercontext.builtin.runtime.prepared_code import (
@@ -130,8 +131,7 @@ class PreparedMemoryCandidates:
     """Memory candidates read from one Scope."""
 
     scope_id: str
-    memory_ref: ArtifactRef | None = None
-    hits: tuple[MemoryHit, ...] = ()
+    hits: tuple[AtomicMemorySearchHit, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -171,15 +171,13 @@ class PreparedContextBuilder:
         *,
         request: PrepareContextRequest,
         scope_id: str | None = None,
-        memory_ref: ArtifactRef | None = None,
-        hits: Sequence[MemoryHit] = (),
+        hits: Sequence[AtomicMemorySearchHit] = (),
         topic_memory_hits: Sequence[TopicMemorySearchHit] = (),
         experience_hits: Sequence[ExperienceSearchHit] = (),
     ) -> PreparedContext:
         return self.build_result(
             request=request,
             scope_id=scope_id,
-            memory_ref=memory_ref,
             hits=hits,
             topic_memory_hits=topic_memory_hits,
             experience_hits=experience_hits,
@@ -190,17 +188,14 @@ class PreparedContextBuilder:
         *,
         request: PrepareContextRequest,
         scope_id: str | None = None,
-        memory_ref: ArtifactRef | None = None,
-        hits: Sequence[MemoryHit] = (),
+        hits: Sequence[AtomicMemorySearchHit] = (),
         topic_memory_hits: Sequence[TopicMemorySearchHit] = (),
         experience_hits: Sequence[ExperienceSearchHit] = (),
     ) -> PreparedContextBuild:
         return self.build_scopes_result(
             request=request,
             current_scope_id=scope_id,
-            memory_candidates=(
-                PreparedMemoryCandidates(scope_id=scope_id or "", memory_ref=memory_ref, hits=tuple(hits)),
-            ),
+            memory_candidates=(PreparedMemoryCandidates(scope_id=scope_id or "", hits=tuple(hits)),),
             experience_candidates=(PreparedExperienceCandidates(scope_id=scope_id or "", hits=tuple(experience_hits)),),
             topic_memory_hits=topic_memory_hits,
         )
@@ -330,7 +325,6 @@ class PreparedContextBuilder:
         memory_entries = _interleave_groups(
             tuple(
                 self._memory_entries(
-                    candidates.memory_ref,
                     candidates.hits,
                     scope_id=None if candidates.scope_id == current_scope_id else candidates.scope_id or None,
                 )
@@ -384,10 +378,7 @@ class PreparedContextBuilder:
             else:
                 groups = (
                     tuple(
-                        tuple(
-                            self._memory_entries(group.memory_ref, (hit,), scope_id=group.scope_id)
-                            for hit in group.hits
-                        )
+                        tuple(self._memory_entries((hit,), scope_id=group.scope_id) for hit in group.hits)
                         for group in memory_candidates
                     )
                     if section.family == "memory"
@@ -455,54 +446,36 @@ class PreparedContextBuilder:
 
     def _memory_entries(
         self,
-        memory_ref: ArtifactRef | None,
-        hits: Sequence[MemoryHit],
+        hits: Sequence[AtomicMemorySearchHit],
         *,
         scope_id: str | None = None,
     ) -> tuple[_PreparedContextEntry, ...]:
-        if hits and memory_ref is None:
-            raise PreparedContextInvariantError("memory-ref-missing")
-        memory_entries: list[_PreparedContextEntry] = []
-        seen: set[tuple[str, str]] = set()
-        for hit in hits:
-            if hit.memory_ref != memory_ref:
+        entries: list[_PreparedContextEntry] = []
+        seen: set[tuple[str, str, int]] = set()
+        for candidate in hits:
+            hit = candidate.hit
+            ref = hit.artifact_ref
+            if ref.family != "atomic-memory":
                 raise PreparedContextInvariantError("memory-ref-mismatch")
-
-            citation_key = (hit.entry_id, hit.entry_version_id)
-            if citation_key in seen:
+            identity = (ref.family, ref.artifact_id, ref.revision)
+            if identity in seen or not hit.text.strip():
                 continue
-            seen.add(citation_key)
-            if not hit.entry_id.strip() or not hit.entry_version_id.strip() or not hit.text.strip():
-                continue
-            citation = MemoryCitation(
-                memory_ref=hit.memory_ref,
-                entry_id=hit.entry_id,
-                entry_version_id=hit.entry_version_id,
-            )
-            origin: PreparedContextOrigin = citation
-            rendered_citation = citation.model_dump(mode="json")
+            seen.add(identity)
+            origin: PreparedContextOrigin = ref
+            citation: dict[str, object] = {"artifact_ref": ref.model_dump(mode="json")}
             if scope_id is not None:
-                memory = ArtifactAddress(scope_id=scope_id, artifact=hit.memory_ref)
-                origin = MemoryEntryAddress(
-                    memory=memory,
-                    entry_id=hit.entry_id,
-                    entry_version_id=hit.entry_version_id,
-                )
-                rendered_citation = {
-                    "memory": memory.model_dump(mode="json"),
-                    "entry_id": hit.entry_id,
-                    "entry_version_id": hit.entry_version_id,
-                }
-            memory_entries.append(
+                origin = ArtifactAddress(scope_id=scope_id, artifact=ref)
+                citation = {"artifact": origin.model_dump(mode="json")}
+            entries.append(
                 _PreparedContextEntry(
                     origin=origin,
-                    kind="memory",
-                    citation=rendered_citation,
+                    kind="atomic-memory",
+                    citation=citation,
                     content=hit.text,
                     truncated=False,
                 )
             )
-        return tuple(memory_entries)
+        return tuple(entries)
 
     def _topic_memory_entries(
         self,

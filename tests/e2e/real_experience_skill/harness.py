@@ -818,7 +818,7 @@ async def _run_configured_journey(
                     reason="Seed one exact semantic-retrieval fact for configured E2E validation.",
                 )
             )
-            _require(remembered.entry is not None, "remember_memory did not persist a Memory entry")
+            _require(len(remembered.records) == 1, "remember_memory did not persist an Atomic Memory Artifact")
             vector = await client.search_memory(
                 SearchMemoryRequest(
                     scope_id=memory_scope,

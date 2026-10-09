@@ -69,12 +69,19 @@ describe("PowerContext memory manager", () => {
         }
         if (path === "/v1/memory/search") {
           return {
-            memory: citation.memory_ref,
             mode: "fts",
-            hits: [{ citation, text: "remembered fact", score: 1, matched_by: ["fts"] }],
+            hits: [{ memory: {
+              artifact: { family: "atomic-memory", artifact_id: "artifact-1", revision: 1 },
+              state: "active", state_version: 0, merged_into_id: null, kind: "fact", text: "remembered fact",
+            }, score: 1 / 61, matched_by: ["text"] }],
           } as T;
         }
         return { citation, version: 1, kind: "fact", text: "remembered fact", state: "active" } as T;
+      },
+      async get<T>(path: string): Promise<T> {
+        requests.push({ path, body: {} });
+        return { family: "atomic-memory", artifact_id: "artifact-1", revision: 1,
+          scope_id: "scp_current", content: { kind: "fact", text: "remembered fact" } } as T;
       },
     } as unknown as PowerContextClient;
     const config = resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" });
@@ -90,8 +97,7 @@ describe("PowerContext memory manager", () => {
     });
 
     expect(requests.at(-1)).toMatchObject({
-      path: "/v1/memory/entries/get",
-      body: { scope_id: "scp_current" },
+      path: "/v1/scopes/scp_current/artifacts/atomic-memory/artifact-1/revisions/1",
     });
   });
 });

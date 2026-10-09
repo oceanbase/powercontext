@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Page complete API lists and retain opaque API cursors in navigation links."""
+"""Page bounded result lists and retain opaque API cursors in navigation links."""
 
 import json
 from typing import Any
@@ -24,13 +24,11 @@ from powercontext.server.dashboard.api import ReadError
 PAGE_SIZE = 6
 
 
-def list_page(items: list[dict[str, Any]], raw: str | None, selected: str | None = None) -> dict[str, Any]:
+def list_page(items: list[dict[str, Any]], raw: str | None) -> dict[str, Any]:
     try:
         page = int(raw) if raw is not None else 1
     except ValueError as error:
         raise ReadError(422, "invalid_request") from error
-    if raw is None and selected:
-        page = next((index // PAGE_SIZE + 1 for index, item in enumerate(items) if item.get("entry_id") == selected), 1)
     if page < 1:
         raise ReadError(422, "invalid_request")
     if page > max(1, (len(items) + PAGE_SIZE - 1) // PAGE_SIZE):
@@ -46,6 +44,8 @@ def list_page(items: list[dict[str, Any]], raw: str | None, selected: str | None
 
 def list_links(ctx: dict[str, Any], family: str, window: dict[str, Any]) -> dict[str, Any]:
     params = {"entry": None, "memory_id": None, "memory_revision": None, "entry_version": None}
+    if family == "notes":
+        params.update(artifact=None, revision=None, notes_cursor=None, notes_history=None)
     if family == "skill":
         params["kind"] = "skill"
     return {
@@ -72,6 +72,16 @@ def cursor_links(request: Request, ctx: dict[str, Any], family: str, following: 
         if family == "profile"
         else ({"kind": family} if family != "handoff" else {})
     )
+    if family == "notes":
+        params = {
+            "artifact": None,
+            "revision": None,
+            "entry": None,
+            "memory_id": None,
+            "memory_revision": None,
+            "entry_version": None,
+            "notes_page": None,
+        }
     previous = (
         ctx["link"](**params, **{cursor_key: history[-1], history_key: json.dumps(history[:-1])}) if history else None
     )

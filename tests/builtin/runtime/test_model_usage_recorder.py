@@ -285,26 +285,40 @@ def test_an_attempt_that_expires_at_checkout_is_repeated(tmp_path: Path, monkeyp
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'slow-checkout.db'}")
         async with _database(config) as database:
             starts = 0
+            checkout_expired = False
+            release_checkout = asyncio.Event()
             original_start = AsyncConnection.start
 
             async def start(connection: AsyncConnection, is_ctxmanager: bool = False) -> AsyncConnection:
-                nonlocal starts
+                nonlocal starts, checkout_expired
                 starts += 1
                 if starts == 1:
-                    # Outlive the whole slice without starting driver work, so
-                    # the attempt expires with nothing applied.
-                    await asyncio.sleep(0.08)
+                    # Wait for real deadline cancellation before any driver
+                    # work starts, so the expired attempt applied nothing.
+                    try:
+                        await release_checkout.wait()
+                    except asyncio.CancelledError:
+                        checkout_expired = True
+                        raise
                 return await original_start(connection, is_ctxmanager)
 
             monkeypatch.setattr(AsyncConnection, "start", start)
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=0.2)
+            # The retry uses real SQLite; leave scheduling margin after the
+            # deliberate expiry instead of testing a subsecond write budget.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=5.0
+            )
             try:
                 _offer(recorder)
                 await recorder.flush()
+                assert checkout_expired
                 assert starts > 1
-                assert (await _rows(database))[0].requests == 1
+                rows = await _rows(database)
+                assert len(rows) == 1
+                assert rows[0].requests == 1
                 await _assert_connection_restored(database)
             finally:
+                release_checkout.set()
                 await recorder.close()
 
     asyncio.run(scenario())

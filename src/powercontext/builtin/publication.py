@@ -111,6 +111,8 @@ class ArtifactPublicationApplication:
         self._id_factory = generate_publication_artifact_id if id_factory is None else id_factory
 
     async def publish(self, request: ArtifactPublicationRequest, /) -> ArtifactPublication:
+        if request.source.artifact.family == "atomic-memory":
+            raise ArtifactPublicationUnsupportedError("atomic-memory")
         await self._scopes.get(request.source.scope_id)
         await self._scopes.get(request.target_scope_id)
         projection = None

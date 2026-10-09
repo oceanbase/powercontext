@@ -28,6 +28,7 @@ from fastapi import Request
 from pydantic import ValidationError
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.profile.models import ProfileContent
@@ -39,6 +40,7 @@ from powercontext.server.dashboard.errors import ReadError as ReadError
 from powercontext.server.dashboard.session import authentication_headers
 
 CONTENT_MODELS = {
+    "atomic-memory": AtomicMemoryContent,
     "handoff": HandoffContent,
     "experience": ExperienceContent,
     "skill": SkillContent,
@@ -93,6 +95,26 @@ class DashboardAPI:
         return await self.read(
             f"/v1/scopes/{segment(scope)}/artifacts/{family}/{segment(artifact)}/revisions/{revision}"
         )
+
+    async def atomic_memory_get(self, scope: str, artifact: str, revision: int) -> dict[str, Any]:
+        """Read an exact content revision and label its independent current state."""
+
+        value, state = await asyncio.gather(
+            self.artifact_revision(scope, "atomic-memory", artifact, revision),
+            self.read(f"/v1/scopes/{segment(scope)}/artifacts/atomic-memory/{segment(artifact)}/state"),
+        )
+        ref = {"family": "atomic-memory", "artifact_id": artifact, "revision": revision}
+        return {
+            **self.artifact_record(value),
+            "family": "atomic-memory",
+            "artifact": ref,
+            "note_key": f"atomic-memory/{artifact}@{revision}",
+            "state": state["state"],
+            "state_version": state["state_version"],
+            "merged_into_id": state["merged_into_id"],
+            "current_artifact": state["artifact"],
+            "is_current": ref == state["artifact"],
+        }
 
     def artifact_record(self, value: dict[str, Any]) -> dict[str, Any]:
         family = value["family"]

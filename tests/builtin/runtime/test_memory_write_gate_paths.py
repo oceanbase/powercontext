@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from pathlib import Path
 from typing import ClassVar
 
@@ -25,27 +24,28 @@ from pydantic import BaseModel
 from powercontext.artifacts import Artifact
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent, ExperienceDraft
 from powercontext.builtin.artifacts.memory import (
-    MemoryCandidateRequest,
     MemoryEntryInput,
+    MemoryService,
     MemoryWriteAssessment,
+    MemoryWriteGate,
     MemoryWriteGateRequest,
     MemoryWriteRejectionCode,
     MemoryWriteVerdict,
 )
 from powercontext.builtin.artifacts.memory.errors import MemoryWriteRejectedError
 from powercontext.builtin.inference import InferenceUsage
+from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
+from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
-    BuiltinRuntime,
-    CaptureSource,
     MemoryFlushResult,
-    RememberMemoryRequest,
     RuntimeConfig,
     SubmitSourceObservation,
     open_builtin_contexts,
     open_builtin_runtime,
 )
+from powercontext.builtin.runtime.composition import BuiltinConfigurationError
 from powercontext.builtin.runtime.decision_model import (
     DecisionOutcome,
     DecisionRequest,
@@ -53,8 +53,13 @@ from powercontext.builtin.runtime.decision_model import (
     FailOpenDecisionModel,
 )
 from powercontext.builtin.runtime.memory_write_gate import DecisionMemoryWriteGate
+from powercontext.builtin.runtime.relational import (
+    RelationalContexts,
+    _RelationalArtifactResolver,
+    _RelationalMemorySourceResolver,
+)
 from powercontext.builtin.scope import ScopeDraft
-from powercontext.builtin.sources import ContentCapture, ContentSource
+from powercontext.builtin.sources import ContentCapture
 from powercontext.errors import ArtifactNotFoundError
 from powercontext.server import mapping
 from powercontext.server.app import _map_error
@@ -152,15 +157,6 @@ class _InsufficientDecisionModel:
         return DecisionResult(DecisionOutcome.YES, self.policy_id, InferenceUsage(requests=1))
 
 
-class _ContentCandidatePipeline:
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        return tuple(
-            MemoryEntryInput(kind="fact", text=source.content, sources=(source,))
-            for source in request.sources
-            if isinstance(source, ContentSource)
-        )
-
-
 def _assessment(
     verdict: MemoryWriteVerdict,
     *,
@@ -177,19 +173,42 @@ def _config(tmp_path: Path, runtime: RuntimeConfig | None = None, database: str 
     )
 
 
-async def _create_scope(runtime: BuiltinRuntime, idempotency_key: str) -> str:
-    assert runtime.scopes is not None
-    scope = await runtime.scopes.create(
-        ScopeDraft(title="Gate Test", summary="Memory write gate path test", idempotency_key=idempotency_key)
+async def _memory_service(
+    contexts: RelationalContexts,
+    *,
+    gate: MemoryWriteGate | None = None,
+    scope_id: str = "project",
+) -> MemoryService:
+    """Exercise the independently supported legacy service below frozen Runtime operations."""
+
+    context = await contexts.get(scope_id)
+    return MemoryService(
+        backend=RelationalMemoryBackend(
+            database=contexts.database,
+            scope_id=scope_id,
+            artifacts=contexts.repositories.artifacts,
+            index=contexts.index,
+        ),
+        source_resolver=_RelationalMemorySourceResolver(
+            database=contexts.database,
+            scope_id=scope_id,
+            catalog=context.sources.catalog,
+            access=GenerationSourceAccess(contexts.repositories.sources),
+        ),
+        artifact_resolver=_RelationalArtifactResolver(
+            database=contexts.database,
+            scope_id=scope_id,
+            repository=contexts.repositories.artifacts,
+        ),
+        write_gate=gate,
     )
-    return scope.scope_id
 
 
 def test_an_accepted_write_behaves_like_the_baseline(tmp_path: Path) -> None:
     async def scenario() -> None:
         gate = _ScriptedGate(_assessment(MemoryWriteVerdict.ACCEPT))
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
-            service = (await contexts.get("project")).artifacts.memory
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            service = await _memory_service(contexts, gate=gate)
 
             plan = await service.plan_remember(
                 memory=None,
@@ -209,8 +228,8 @@ def test_an_accepted_write_behaves_like_the_baseline(tmp_path: Path) -> None:
 def test_a_flagged_write_is_annotated_and_still_committed(tmp_path: Path) -> None:
     async def scenario() -> None:
         gate = _ScriptedGate(_assessment(MemoryWriteVerdict.FLAG, reason="evidence is thin"))
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
-            service = (await contexts.get("project")).artifacts.memory
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            service = await _memory_service(contexts, gate=gate)
 
             stored = await service.remember(
                 memory=None,
@@ -227,8 +246,8 @@ def test_a_flagged_write_is_annotated_and_still_committed(tmp_path: Path) -> Non
 def test_a_flagged_write_preserves_an_existing_candidate_reason(tmp_path: Path) -> None:
     async def scenario() -> None:
         gate = _ScriptedGate(_assessment(MemoryWriteVerdict.FLAG, reason="evidence is thin"))
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
-            service = (await contexts.get("project")).artifacts.memory
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            service = await _memory_service(contexts, gate=gate)
 
             stored = await service.remember(
                 memory=None,
@@ -242,40 +261,24 @@ def test_a_flagged_write_preserves_an_existing_candidate_reason(tmp_path: Path) 
     asyncio.run(scenario())
 
 
-def test_config_enables_the_gate_over_the_decision_backend(tmp_path: Path) -> None:
+def test_config_rejects_the_legacy_gate_before_the_decision_backend(tmp_path: Path) -> None:
     async def scenario() -> None:
         config = _config(tmp_path, RuntimeConfig(memory_write_gate_enabled=True), database="enabled.db")
-        async with open_builtin_runtime(config, decision_model=_InsufficientDecisionModel()) as runtime:
-            scope_id = await _create_scope(runtime, "gate-config-enabled")
-            with pytest.raises(MemoryWriteRejectedError) as error:
-                await runtime.memory.for_scope(scope_id).remember(
-                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="note", text="Held by config."),))
-                )
-
-            # The config-built gate is active, and the explicit write cites no evidence.
-            assert error.value.code == "needs_evidence"
+        with pytest.raises(BuiltinConfigurationError, match=r"Atomic Memory.*legacy Memory write gate"):
+            async with open_builtin_runtime(config, decision_model=_InsufficientDecisionModel()):
+                pytest.fail("Legacy gate configuration must fail before Runtime startup")
 
     asyncio.run(scenario())
 
 
-def test_enabling_the_gate_without_a_backend_warns_and_passes_writes_through(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_config_rejects_the_legacy_gate_without_a_backend(tmp_path: Path) -> None:
     async def scenario() -> None:
         config = _config(tmp_path, RuntimeConfig(memory_write_gate_enabled=True), database="unavailable.db")
-        async with open_builtin_runtime(config) as runtime:
-            scope_id = await _create_scope(runtime, "gate-config-unavailable")
-            written = await runtime.memory.for_scope(scope_id).remember(
-                RememberMemoryRequest(entries=(MemoryEntryInput(kind="note", text="Written anyway."),))
-            )
+        with pytest.raises(BuiltinConfigurationError, match=r"Atomic Memory.*legacy Memory write gate"):
+            async with open_builtin_contexts(config):
+                pytest.fail("Legacy gate configuration must fail before Contexts startup")
 
-            assert written.memory_ref is not None
-
-    with caplog.at_level(logging.WARNING, logger="powercontext.builtin.runtime.composition"):
-        asyncio.run(scenario())
-
-    assert any("no decision backend is available" in message for message in caplog.messages)
-    assert "memory.write-gate.unavailable" in {getattr(record, "event", None) for record in caplog.records}
+    asyncio.run(scenario())
 
 
 def test_a_held_write_is_not_committed_and_stays_visible(tmp_path: Path) -> None:
@@ -287,8 +290,8 @@ def test_a_held_write_is_not_committed_and_stays_visible(tmp_path: Path) -> None
                 reason="the candidate cites no evidence",
             )
         )
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
-            service = (await contexts.get("project")).artifacts.memory
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            service = await _memory_service(contexts, gate=gate)
 
             plan = await service.plan_remember(
                 memory=None,
@@ -312,8 +315,8 @@ def test_a_held_write_is_not_committed_and_stays_visible(tmp_path: Path) -> None
 def test_a_failing_backend_leaves_the_write_unchanged(tmp_path: Path) -> None:
     async def scenario() -> None:
         gate = DecisionMemoryWriteGate(FailOpenDecisionModel(_FailingDecisionModel()), hold_on=DecisionOutcome.YES)
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
-            service = (await contexts.get("project")).artifacts.memory
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            service = await _memory_service(contexts, gate=gate)
 
             stored = await service.remember(
                 memory=None,
@@ -328,8 +331,8 @@ def test_a_failing_backend_leaves_the_write_unchanged(tmp_path: Path) -> None:
 
 def test_a_failing_injected_gate_leaves_the_write_unchanged(tmp_path: Path) -> None:
     async def scenario() -> None:
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=_FailingGate()) as contexts:
-            service = (await contexts.get("project")).artifacts.memory
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            service = await _memory_service(contexts, gate=_FailingGate())
 
             stored = await service.remember(
                 memory=None,
@@ -345,21 +348,22 @@ def test_a_failing_injected_gate_leaves_the_write_unchanged(tmp_path: Path) -> N
 def test_revisions_pass_inherited_source_content_to_the_gate(tmp_path: Path) -> None:
     async def scenario() -> None:
         gate = _ScriptedGate(_assessment(MemoryWriteVerdict.ACCEPT))
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
             context = await contexts.get("project")
+            service = await _memory_service(contexts, gate=gate)
             source, _ = await context.sources.capture(
                 ContentCapture(source_id="db-requirements", content="The database requirement is MySQL 8.")
             )
-            initial = await context.artifacts.memory.remember(
+            initial = await service.remember(
                 memory=None,
                 sources=(source,),
                 entries=(MemoryEntryInput(kind="fact", text="Use MySQL 8.", sources=(source,)),),
                 mode="append",
             )
             assert initial is not None
-            entry = (await context.artifacts.memory.entries(initial))[0]
+            entry = (await service.entries(initial))[0]
 
-            revised = await context.artifacts.memory.remember(
+            revised = await service.remember(
                 memory=initial,
                 entries=(MemoryEntryInput(kind="fact", text="Use PostgreSQL.", entry=entry),),
                 mode="append",
@@ -380,8 +384,8 @@ def test_artifact_evidence_passes_content_to_the_gate(tmp_path: Path) -> None:
                 reason="artifact content was inspected",
             )
         )
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
-            context = await contexts.get("project")
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            service = await _memory_service(contexts, gate=gate)
             draft = ExperienceDraft(
                 content=ExperienceContent(
                     situation="The write path used SQLite.",
@@ -396,7 +400,7 @@ def test_artifact_evidence_passes_content_to_the_gate(tmp_path: Path) -> None:
                 )
             artifact = Experience.model_validate(stored.model_dump(mode="json"))
 
-            plan = await context.artifacts.memory.plan_remember(
+            plan = await service.plan_remember(
                 memory=None,
                 artifacts=(artifact,),
                 entries=(MemoryEntryInput(kind="fact", text="Gate outcome was ACCEPT.", artifacts=(artifact,)),),
@@ -420,7 +424,6 @@ def test_gate_reads_remote_source_text_evidence_projection(tmp_path: Path) -> No
         observed = project_source_for_transport(registry, source)
         async with open_builtin_contexts(
             _config(tmp_path),
-            memory_write_gate=gate,
         ) as contexts:
             scope = await contexts.scopes.create(
                 ScopeDraft(title="Remote", summary="Remote source test", idempotency_key="remote-source-gate")
@@ -429,9 +432,9 @@ def test_gate_reads_remote_source_text_evidence_projection(tmp_path: Path) -> No
             await contexts.submit_source_observation(
                 SubmitSourceObservation(scope_id=scope.scope_id, observation=observed)
             )
-            context = await contexts.get(scope.scope_id)
+            service = await _memory_service(contexts, scope_id=scope.scope_id, gate=gate)
 
-            plan = await context.artifacts.memory.plan_remember(
+            plan = await service.plan_remember(
                 memory=None,
                 sources=(observed,),
                 entries=(MemoryEntryInput(kind="fact", text="Use MySQL.", sources=(observed,)),),
@@ -450,17 +453,17 @@ def test_gate_reads_registered_local_source_text_evidence_projection(tmp_path: P
         registry = SourceDefinitionRegistry((_REMOTE_NOTE_DEFINITION,))
         async with open_builtin_contexts(
             _config(tmp_path),
-            memory_write_gate=gate,
             source_registry=registry,
         ) as contexts:
             context = await contexts.get("project")
+            service = await _memory_service(contexts, gate=gate)
             source = await context.sources.add(
                 await context.sources.resolve(
                     _RemoteNoteCapture(source_id="local-1", content="Local projection says use MySQL.")
                 )
             )
 
-            plan = await context.artifacts.memory.plan_remember(
+            plan = await service.plan_remember(
                 memory=None,
                 sources=(source,),
                 entries=(MemoryEntryInput(kind="fact", text="Use MySQL.", sources=(source,)),),
@@ -476,14 +479,15 @@ def test_gate_reads_registered_local_source_text_evidence_projection(tmp_path: P
 def test_gate_budgets_only_effective_candidate_citations(tmp_path: Path) -> None:
     async def scenario() -> None:
         gate = _ScriptedGate(_assessment(MemoryWriteVerdict.ACCEPT))
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
             context = await contexts.get("project")
+            service = await _memory_service(contexts, gate=gate)
             short_source, _ = await context.sources.capture(ContentCapture(source_id="short", content="Use MySQL."))
             unrelated_long_source, _ = await context.sources.capture(
                 ContentCapture(source_id="build-log", content="unrelated " * 300)
             )
 
-            plan = await context.artifacts.memory.plan_remember(
+            plan = await service.plan_remember(
                 memory=None,
                 sources=(short_source, unrelated_long_source),
                 entries=(MemoryEntryInput(kind="fact", text="Use MySQL.", sources=(short_source,)),),
@@ -501,12 +505,13 @@ def test_gate_budgets_only_effective_candidate_citations(tmp_path: Path) -> None
 def test_gate_preserves_each_candidate_citation_mapping(tmp_path: Path) -> None:
     async def scenario() -> None:
         gate = _ScriptedGate(_assessment(MemoryWriteVerdict.ACCEPT))
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
             context = await contexts.get("project")
+            service = await _memory_service(contexts, gate=gate)
             alpha, _ = await context.sources.capture(ContentCapture(source_id="alpha", content="Alpha uses MySQL."))
             beta, _ = await context.sources.capture(ContentCapture(source_id="beta", content="Beta uses PostgreSQL."))
 
-            await context.artifacts.memory.plan_remember(
+            await service.plan_remember(
                 memory=None,
                 sources=(alpha, beta),
                 entries=(
@@ -528,7 +533,7 @@ def test_gate_preserves_each_candidate_citation_mapping(tmp_path: Path) -> None:
 def test_explicit_artifact_family_is_not_recovered_as_a_different_allowed_family(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(_config(tmp_path)) as contexts:
-            context = await contexts.get("project")
+            service = await _memory_service(contexts)
             draft = ExperienceDraft(
                 content=ExperienceContent(
                     situation="The artifact body is shared.",
@@ -556,7 +561,7 @@ def test_explicit_artifact_family_is_not_recovered_as_a_different_allowed_family
             )
 
             with pytest.raises(ArtifactNotFoundError):
-                await context.artifacts.memory.plan_remember(
+                await service.plan_remember(
                     memory=None,
                     artifacts=(experience,),
                     entries=(entry,),
@@ -569,13 +574,14 @@ def test_explicit_artifact_family_is_not_recovered_as_a_different_allowed_family
 def test_incomplete_gate_evidence_is_held_before_backend_assessment(tmp_path: Path) -> None:
     async def scenario() -> None:
         gate = _ScriptedGate(_assessment(MemoryWriteVerdict.ACCEPT))
-        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
             context = await contexts.get("project")
+            service = await _memory_service(contexts, gate=gate)
             long_source, _ = await context.sources.capture(
                 ContentCapture(source_id="corrected-requirements", content=f"{'PostgreSQL first. ' * 150}Use MySQL.")
             )
 
-            plan = await context.artifacts.memory.plan_remember(
+            plan = await service.plan_remember(
                 memory=None,
                 sources=(long_source,),
                 entries=(MemoryEntryInput(kind="fact", text="Use PostgreSQL.", sources=(long_source,)),),
@@ -594,7 +600,7 @@ def test_incomplete_gate_evidence_is_held_before_backend_assessment(tmp_path: Pa
 def test_without_a_gate_the_plan_carries_no_decision(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(_config(tmp_path)) as contexts:
-            service = (await contexts.get("project")).artifacts.memory
+            service = await _memory_service(contexts)
 
             plan = await service.plan_remember(
                 memory=None,
@@ -608,7 +614,7 @@ def test_without_a_gate_the_plan_carries_no_decision(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_the_explicit_write_surfaces_a_hold_as_a_structured_error(tmp_path: Path) -> None:
+def test_runtime_rejects_an_injected_legacy_gate_before_an_explicit_write(tmp_path: Path) -> None:
     async def scenario() -> None:
         gate = _ScriptedGate(
             _assessment(
@@ -617,20 +623,15 @@ def test_the_explicit_write_surfaces_a_hold_as_a_structured_error(tmp_path: Path
                 reason="the citation is thin",
             )
         )
-        async with open_builtin_runtime(_config(tmp_path), memory_write_gate=gate) as runtime:
-            scope_id = await _create_scope(runtime, "gate-explicit-hold")
-            with pytest.raises(MemoryWriteRejectedError) as error:
-                await runtime.memory.for_scope(scope_id).remember(
-                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="note", text="Rejected."),))
-                )
-
-            assert error.value.code == "insufficient_coverage"
-            assert error.value.reason == "the citation is thin"
+        with pytest.raises(BuiltinConfigurationError, match=r"Atomic Memory.*legacy Memory write gate"):
+            async with open_builtin_runtime(_config(tmp_path), memory_write_gate=gate):
+                pytest.fail("Injected legacy gates must fail before Runtime startup")
+        assert gate.requests == []
 
     asyncio.run(scenario())
 
 
-def test_the_ingestion_window_reports_a_hold_and_still_advances(tmp_path: Path) -> None:
+def test_contexts_reject_an_injected_legacy_gate_before_ingestion(tmp_path: Path) -> None:
     async def scenario() -> None:
         gate = _ScriptedGate(
             _assessment(
@@ -639,24 +640,10 @@ def test_the_ingestion_window_reports_a_hold_and_still_advances(tmp_path: Path) 
                 reason="the window evidence is thin",
             )
         )
-        async with open_builtin_runtime(
-            _config(tmp_path),
-            candidate_pipeline=_ContentCandidatePipeline(),
-            memory_write_gate=gate,
-        ) as runtime:
-            scope_id = await _create_scope(runtime, "gate-ingestion-hold")
-            await runtime.sources.for_scope(scope_id).capture(
-                CaptureSource(source_id="task-1", content="A durable note.", metadata={})
-            )
-
-            result = await runtime.memory.for_scope(scope_id).flush()
-
-            assert result.held_count == 1
-            assert result.hold_codes == ("insufficient_coverage",)
-            assert result.processed is True
-            assert result.memory_ref is None
-            assert gate.requests
-            assert any("A durable note." in item for item in gate.requests[0].evidence)
+        with pytest.raises(BuiltinConfigurationError, match=r"Atomic Memory.*legacy Memory write gate"):
+            async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate):
+                pytest.fail("Injected legacy gates must fail before Contexts startup")
+        assert gate.requests == []
 
     asyncio.run(scenario())
 

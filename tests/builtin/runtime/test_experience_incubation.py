@@ -201,8 +201,8 @@ def test_incubation_skips_lineage_only_sources_but_advances_the_full_window() ->
         ) as runtime:
             scope = await _create_scope(runtime, "lineage-only")
             created = await runtime.records.for_scope(scope).create_artifact(
-                "memory",
-                ArtifactWrite(content={"entries": [{"kind": "working_note", "text": "Do not incubate direct writes"}]}),
+                "atomic-memory",
+                ArtifactWrite(content={"kind": "working_note", "text": "Do not incubate direct writes"}),
             )
             result = await runtime.experience.for_scope(scope).incubate()
 

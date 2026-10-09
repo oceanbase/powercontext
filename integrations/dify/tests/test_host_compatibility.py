@@ -65,7 +65,7 @@ def test_nested_workflow_selectors_resolve_with_official_host_helpers(registry, 
         check=True,
         timeout=30,
     )
-    assert json.loads(result.stdout) == {"tools": 19, "selectors": 15}
+    assert json.loads(result.stdout) == {"tools": 20, "selectors": 20}
 
 
 @pytest.mark.parametrize("target", [{}, 42, "not JSON"])

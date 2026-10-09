@@ -29,6 +29,7 @@ import {
   UnknownOperationError,
 } from './errors.ts'
 import { OPERATIONS, type OperationId } from './operations.generated.ts'
+import { MemoryOperationError, requestMemoryOperation } from './memory-operations.ts'
 import { containsSecret } from './secrets.ts'
 
 export interface ToolResult extends BodyFailureDetails {
@@ -38,6 +39,7 @@ export interface ToolResult extends BodyFailureDetails {
   message?: string
   status?: number
   request_id?: string
+  etag?: string
   data?: unknown
 }
 
@@ -45,6 +47,8 @@ const WRITE_OPS = new Set<OperationId>([
   'remember_memory',
   'capture_content_source',
   'revise_memory_entry',
+  'replace_artifact',
+  'change_atomic_memory_lifecycle',
 ])
 
 export function toolResultSchema(): Record<string, unknown> {
@@ -58,6 +62,7 @@ export function toolResultSchema(): Record<string, unknown> {
       message: { type: 'string' },
       status: { type: 'number' },
       request_id: { type: 'string' },
+      etag: { type: 'string' },
       failure_phase: { type: 'string' },
       response_body_error: { type: 'string' },
       data: { type: 'object', additionalProperties: true },
@@ -107,6 +112,7 @@ function mapServerError(error: ServerResponseError): ToolResult {
 }
 
 export function toToolResult(error: unknown): ToolResult {
+  if (error instanceof MemoryOperationError) return { ok: false, code: error.code, message: error.message }
   if (error instanceof SecretRejectedError) {
     return { ok: false, code: 'secret_rejected', message: error.message }
   }
@@ -138,7 +144,7 @@ export function injectScope(
   if (mode === 'selection') {
     return { ...payload, selection: { mode: 'exact', scope_ids: [scopeId] } }
   }
-  return mode === 'current' ? { ...payload, scope_id: scopeId } : payload
+  return mode === 'current' || operationId === 'get_atomic_memory_state' ? { ...payload, scope_id: scopeId } : payload
 }
 
 function encodeSuccess(result: Awaited<ReturnType<PowerContextClient['request']>>): ToolResult {
@@ -148,7 +154,14 @@ function encodeSuccess(result: Awaited<ReturnType<PowerContextClient['request']>
   if (result.kind === 'text') {
     return { ok: true, status: result.status, ...requestIdField(result.requestId), data: { markdown: result.value } }
   }
-  return { ok: true, status: result.status, ...requestIdField(result.requestId), data: result.value }
+  return { ok: true, status: result.status, ...requestIdField(result.requestId),
+    ...(result.etag === undefined ? {} : { etag: result.etag }), data: result.value }
+}
+
+function hasSecret(value: unknown): boolean {
+  if (typeof value === 'string') return containsSecret(value)
+  if (Array.isArray(value)) return value.some(hasSecret)
+  return Boolean(value && typeof value === 'object' && Object.values(value).some(hasSecret))
 }
 
 export async function invokeOperation(
@@ -162,15 +175,13 @@ export async function invokeOperation(
   if (!(operationId in OPERATIONS)) return toToolResult(new UnknownOperationError(operationId))
   const id = operationId as OperationId
   const body = injectScope(id, payload, scopeId)
-  if (WRITE_OPS.has(id) && typeof body?.text === 'string' && containsSecret(body.text)) {
-    return toToolResult(new SecretRejectedError())
-  }
-  if (WRITE_OPS.has(id) && typeof body?.content === 'string' && containsSecret(body.content)) {
+  if (WRITE_OPS.has(id) && hasSecret(body)) {
     return toToolResult(new SecretRejectedError())
   }
   try {
     if (signal?.aborted) throw new TransportError('', signal.reason)
-    return encodeSuccess(await client.request(id, body, signal))
+    const memory = await requestMemoryOperation(client, id, body, scopeId, signal)
+    return encodeSuccess(memory ?? await client.request(id, body, signal))
   } catch (error) {
     try {
       await onFailure?.(error)

@@ -17,13 +17,13 @@ limitations under the License.
 {% from 'components/memory-search-evidence.html' import search_evidence %}
 <div class="accordion accordion-flush d-xl-none" id="memory-accordion" aria-label="{{ t.notes_list }}">
   {% set entries = data.notes %}
-  {% if requested_entry and selected_note and requested_entry not in entries|map(attribute='entry_id')|list %}{% set entries = [selected_note] + entries %}{% endif %}
+  {% if selected_note and selected_note.note_key not in entries|map(attribute='note_key')|list %}{% set entries = [selected_note] + entries %}{% endif %}
   {% for item in entries %}
-  {% set expanded = requested_entry == item.entry_id %}
+  {% set expanded = selected_note and selected_note.note_key == item.note_key %}
   {% if expanded and selected_note %}{% set item = selected_note %}{% endif %}
   <div class="accordion-item">
     <div class="accordion-header">
-      <button class="accordion-button fw-normal {% if not expanded %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#memory-body-{{ item.entry_id }}" aria-expanded="{{ 'true' if expanded else 'false' }}" aria-controls="memory-body-{{ item.entry_id }}" {% if expanded %}autofocus{% endif %}>
+      <button class="accordion-button fw-normal {% if not expanded %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#memory-body-{{ loop.index }}" aria-expanded="{{ 'true' if expanded else 'false' }}" aria-controls="memory-body-{{ loop.index }}" {% if expanded %}autofocus{% endif %}>
         <span class="text-truncate me-2">
           {% if item.kind is defined %}<span class="small d-block mb-2">{{ t.get(item.kind, item.kind) }}</span>{% endif %}
           <span class="d-block text-truncate">{{ item.text|truncate(48, true) }}</span>
@@ -32,8 +32,10 @@ limitations under the License.
         <span class="accordion-button-toggle flex-shrink-0" aria-hidden="true"><img class="w-100 h-100" src="/dashboard/static/vendor/icons/chevron-down.svg" alt=""></span>
       </button>
     </div>
-    <div id="memory-body-{{ item.entry_id }}" class="accordion-collapse collapse {% if expanded %}show{% endif %}" data-bs-parent="#memory-accordion">
-      <div class="accordion-body"><p class="source-text mb-0">{{ selected_note.text if expanded and selected_note else item.text }}</p></div>
+    <div id="memory-body-{{ loop.index }}" class="accordion-collapse collapse {% if expanded %}show{% endif %}" data-bs-parent="#memory-accordion">
+      <div class="accordion-body">{% if expanded %}{% include 'components/memory-metadata.html' %}{% endif %}<p class="source-text mb-0">{{ item.text }}</p>
+        {% if expanded %}{% from 'components/record-references.html' import record_references with context %}{{ record_references(item, item.family) }}{% endif %}
+      </div>
     </div>
   </div>
   {% else %}

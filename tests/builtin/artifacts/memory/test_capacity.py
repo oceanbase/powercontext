@@ -21,19 +21,20 @@ from uuid import uuid4
 
 import pytest
 from pydantic import SecretStr, ValidationError
-from sqlalchemy import event, func, select
+from sqlalchemy import func, select
 
-from powercontext.artifacts import MemoryCitation
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryStateValue
+from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConflictError
 from powercontext.builtin.artifacts.memory import (
     CapabilityNotSupportedError,
     MemoryCapacityBudget,
     MemoryCapacityExceededError,
     MemoryCompactionPolicy,
     MemoryEntryInput,
-    MemoryEntryNotFoundError,
     MemoryService,
 )
 from powercontext.builtin.artifacts.memory.canonical import memory_content_bytes
+from powercontext.builtin.persistence.atomic_memory_schema import ATOMIC_MEMORY_STATES_TABLE
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -42,10 +43,11 @@ from powercontext.builtin.persistence.tables import (
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
 )
-from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
+from powercontext.builtin.records import ArtifactWrite, BaseOperationNotSupportedError
+from powercontext.builtin.runtime import BuiltinConfig, RuntimeCapabilities, open_builtin_contexts
+from powercontext.builtin.runtime.application import BuiltinRuntime
 from powercontext.builtin.runtime.config import RuntimeConfig
-from powercontext.builtin.tags import MemoryEntryTagTarget
-from powercontext.errors import RevisionConflictError
+from powercontext.builtin.tags import ArtifactTagTarget, TagFilter
 
 
 @pytest.fixture(params=("sqlite", "oceanbase"))
@@ -63,14 +65,26 @@ async def memory_context(database_config, **settings):
     config = BuiltinConfig(database=database_config, runtime=RuntimeConfig(**settings))
     async with open_builtin_contexts(config) as contexts:
         scope_id = "capacity-" + uuid4().hex
-        context = await contexts.get(scope_id)
         backend = RelationalMemoryBackend(
             database=contexts.database,
             scope_id=scope_id,
             artifacts=contexts.repositories.artifacts,
             index=contexts.index,
         )
-        yield contexts, scope_id, context.artifacts.memory, backend
+        service = MemoryService(
+            backend=backend,
+            capacity_budget=MemoryCapacityBudget(
+                max_active_entries=config.runtime.memory_max_active_entries,
+                max_manifest_entries=config.runtime.memory_max_manifest_entries,
+                max_manifest_bytes=config.runtime.memory_max_manifest_bytes,
+            ),
+            compaction=MemoryCompactionPolicy(
+                enabled=config.runtime.memory_compaction_enabled,
+                min_tombstone_revisions=config.runtime.memory_compaction_min_tombstone_revisions,
+            ),
+            max_history_revisions=config.runtime.memory_max_history_revisions,
+        )
+        yield contexts, scope_id, service, backend
 
 
 def fact(number, **values):
@@ -82,6 +96,14 @@ async def row_counts(contexts, scope_id):
         return tuple([
             await connection.scalar(select(func.count()).select_from(table).where(table.c.scope_id == scope_id))
             for table in (ARTIFACTS_TABLE, MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
+        ])
+
+
+async def atomic_row_counts(contexts, scope_id):
+    async with contexts.database.connection() as connection:
+        return tuple([
+            await connection.scalar(select(func.count()).select_from(table).where(table.c.scope_id == scope_id))
+            for table in (ARTIFACTS_TABLE, ATOMIC_MEMORY_STATES_TABLE, contexts.atomic_memory.index.table)
         ])
 
 
@@ -184,74 +206,58 @@ def test_reactivation_checks_only_active_growth(database_config):
     asyncio.run(scenario())
 
 
-def test_compaction_preserves_history_tags_and_projection_budget(database_config):
+def test_atomic_forgetting_preserves_history_tags_and_current_projection(database_config):
     async def scenario():
-        async with memory_context(
-            database_config, memory_compaction_enabled=True, memory_compaction_min_tombstone_revisions=1
-        ) as (contexts, scope_id, service, backend):
-            initial = await service.remember(memory=None, entries=tuple(fact(i) for i in range(12)), mode="append")
-            entries = await service.entries(initial)
-            tagged_entry, recent_entry, *old_entries = entries
-            target = MemoryEntryTagTarget(artifact_id=initial.artifact_id, entry_id=tagged_entry.entry_id)
+        async with open_builtin_contexts(BuiltinConfig(database=database_config)) as contexts:
+            scope_id = "capacity-" + uuid4().hex
+            await contexts.get(scope_id)
+            memory = contexts.atomic_memory.for_scope(scope_id)
+            created = [
+                await contexts.records.create_artifact(
+                    scope_id, "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": fact(i).text})
+                )
+                for i in range(12)
+            ]
+            tagged, recent, *old = created
+            target = ArtifactTagTarget(family="atomic-memory", artifact_id=tagged.artifact_id)
             empty = await contexts.records.get_tags(scope_id, target)
             tags = await contexts.records.replace_tags(scope_id, target, ("keep",), expected_etag=empty.etag)
-            retired = await service.forget(initial, entries=(tagged_entry, *old_entries))
-            current = await service.forget(retired, entries=(recent_entry,))
-            assert (await service.capacity(current)).compactable_entry_count == len(old_entries)
-            preview = await service.compact(current, dry_run=True, limit=3)
-            assert len(preview.entry_ids) == 3
-            assert preview.memory == current and preview.dry_run
-            assert await service.head(current.artifact_id) == current
-            before = await row_counts(contexts, scope_id)
-            statements = []
-
-            def record(_connection, _cursor, statement, _parameters, _context, _executemany):
-                statements.append(statement.lower())
-
-            engine = contexts.database.engine.sync_engine
-            event.listen(engine, "before_cursor_execute", record)
-            try:
-                result = await service.compact(current, limit=3)
-            finally:
-                event.remove(engine, "before_cursor_execute", record)
-            assert result.entry_ids == preview.entry_ids
-            assert result.reclaimed_bytes == preview.reclaimed_bytes
-            assert result.reclaimed_bytes == len(memory_content_bytes(current.content)) - len(
-                memory_content_bytes(result.memory.content)
-            )
-            assert not any(
-                statement.lstrip().startswith(("insert", "update", "delete"))
-                and any(table in statement for table in ("pc_memory_entry_heads", "pc_memory_entry_fts"))
-                for statement in statements
-            )
-            after = await row_counts(contexts, scope_id)
-            assert after == (before[0] + 1, before[1], before[2])
-            assert await service.get(initial) == initial
-            dropped = next(entry for entry in old_entries if entry.entry_id in result.entry_ids)
-            citation = MemoryCitation(
-                memory_ref=initial.as_ref(), entry_id=dropped.entry_id, entry_version_id=dropped.entry_version_id
-            )
-            assert await service.validate_citation(citation) == dropped
-            assert dropped.entry_id not in {entry.entry_id for entry in await service.entries(result.memory)}
-            with pytest.raises(MemoryEntryNotFoundError):
-                await service.reactivate(result.memory, entries=(dropped,))
+            before = await atomic_row_counts(contexts, scope_id)
+            for item in (tagged, *old):
+                current = await memory.get(item.artifact_id)
+                await memory.forget(
+                    item.artifact_id,
+                    expected_revision=current.ref.revision,
+                    expected_state_version=current.state.state_version,
+                )
+            assert await atomic_row_counts(contexts, scope_id) == (before[0], before[1], 1)
+            assert tuple(
+                hit.hit.artifact_ref.artifact_id for hit in (await memory.search("Capacity project")).hits
+            ) == (recent.artifact_id,)
+            page = await memory.list(states=("forgotten",), limit=3)
+            assert len(page.items) == 3 and page.next_cursor
+            forgotten = list(page.items)
+            while page.next_cursor:
+                page = await memory.list(states=("forgotten",), limit=3, cursor=page.next_cursor)
+                forgotten.extend(page.items)
+            assert {item.ref.artifact_id for item in forgotten} == {item.artifact_id for item in (tagged, *old)}
+            assert len(forgotten) == 11
+            for item in created:
+                exact = await contexts.records.get_artifact_revision(scope_id, "atomic-memory", item.artifact_id, 1)
+                assert exact.revision == 1
+                history = await contexts.records.list_artifact_revisions(
+                    scope_id, "atomic-memory", item.artifact_id, limit=10, cursor=None
+                )
+                assert [revision.revision for revision in history.items] == [1]
             assert await contexts.records.get_tags(scope_id, target) == tags
-            changes = await service.changes(result.memory)
-            assert {change.op for change in changes[0].changes} == {"compact"}
-            assert all(change.to_entry_version_id is None for change in changes[0].changes)
-            with pytest.raises(RevisionConflictError):
-                await service.compact(current)
-            # A lowered deployment budget cannot block any relief operation.
-            limited = MemoryService(
-                backend=backend,
-                capacity_budget=MemoryCapacityBudget(max_active_entries=2, max_manifest_entries=2),
-                compaction=MemoryCompactionPolicy(enabled=True, min_tombstone_revisions=1),
-            )
-            compacted = await limited.compact(result.memory)
-            assert len(compacted.memory.content.manifest.entries) == 1  # tagged tombstone survives
-            appended = await limited.remember(memory=compacted.memory, entries=(fact("after relief"),), mode="append")
-            assert appended is not None
-            assert (await limited.capacity(appended)).exceeded == ()
+            with pytest.raises(AtomicMemoryConflictError):
+                await memory.forget(tagged.artifact_id, expected_revision=1, expected_state_version=0)
+            assert await atomic_row_counts(contexts, scope_id) == (before[0], before[1], 1)
+            restored = await memory.restore(tagged.artifact_id)
+            assert restored.primary.state.state is AtomicMemoryStateValue.ACTIVE
+            assert restored.primary.ref.revision == 1
+            assert await contexts.records.get_tags(scope_id, target) == tags
+            assert await atomic_row_counts(contexts, scope_id) == (*before[:2], 2)
 
     asyncio.run(scenario())
 
@@ -349,46 +355,60 @@ def test_default_history_window_and_explicit_override(database_config):
     asyncio.run(scenario())
 
 
-def test_zero_age_compaction_recovers_full_memory_and_preserves_tags(database_config):
+def test_atomic_memory_ignores_legacy_capacity_and_rejects_collection_compaction(database_config):
     async def scenario():
-        async with memory_context(
-            database_config,
-            memory_max_active_entries=3,
-            memory_max_manifest_entries=3,
-            memory_compaction_enabled=True,
-            memory_compaction_min_tombstone_revisions=0,
-        ) as (contexts, scope_id, service, backend):
-            initial = await service.remember(memory=None, entries=(fact(1), fact(2), fact(3)), mode="append")
-            tagged, dropped, active = await service.entries(initial)
-            target = MemoryEntryTagTarget(artifact_id=initial.artifact_id, entry_id=tagged.entry_id)
+        config = BuiltinConfig(
+            database=database_config,
+            runtime=RuntimeConfig(
+                memory_max_active_entries=3,
+                memory_max_manifest_entries=3,
+                memory_compaction_enabled=True,
+                memory_compaction_min_tombstone_revisions=0,
+            ),
+        )
+        async with open_builtin_contexts(config) as contexts:
+            scope_id = "capacity-" + uuid4().hex
+            await contexts.get(scope_id)
+            memory = contexts.atomic_memory.for_scope(scope_id)
+            created = [
+                await contexts.records.create_artifact(
+                    scope_id, "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": fact(i).text})
+                )
+                for i in range(3)
+            ]
+            target = ArtifactTagTarget(family="atomic-memory", artifact_id=created[0].artifact_id)
             empty = await contexts.records.get_tags(scope_id, target)
             tags = await contexts.records.replace_tags(scope_id, target, ("keep",), expected_etag=empty.etag)
-            retired = await service.forget(initial, entries=(tagged, dropped))
-            with pytest.raises(MemoryCapacityExceededError, match="manifest_entries"):
-                await service.remember(memory=retired, entries=(fact(4),), mode="append")
-            defaults = MemoryService(backend=backend)
-            assert not (await defaults.compact(retired, dry_run=True)).entry_ids
-            disabled = MemoryService(backend=backend, compaction=MemoryCompactionPolicy(min_tombstone_revisions=0))
-            preview = await disabled.compact(retired, dry_run=True)
-            assert preview.entry_ids == (dropped.entry_id,)
-            assert await service.head(initial.artifact_id) == retired
-            with pytest.raises(CapabilityNotSupportedError, match="compaction"):
-                await disabled.compact(retired)
-            result = await service.compact(retired)
-            assert result.entry_ids == preview.entry_ids
-            assert {item.entry_id for item in result.memory.content.manifest.entries} == {
-                tagged.entry_id,
-                active.entry_id,
-            }
-            appended = await service.remember(memory=result.memory, entries=(fact(4),), mode="append")
-            assert (await service.capacity(appended)).exceeded == ()
-            assert await contexts.records.get_tags(scope_id, target) == tags
-            citation = MemoryCitation(
-                memory_ref=initial.as_ref(), entry_id=dropped.entry_id, entry_version_id=dropped.entry_version_id
+            for item in created[:2]:
+                current = await memory.get(item.artifact_id)
+                await memory.forget(
+                    item.artifact_id, expected_revision=1, expected_state_version=current.state.state_version
+                )
+            runtime = BuiltinRuntime(
+                provider=contexts,
+                capabilities=RuntimeCapabilities(memory_extraction=False, memory_search_modes=("fts",)),
+                atomic_memory_application=contexts.atomic_memory,
             )
-            assert await service.validate_citation(citation) == dropped
-            with pytest.raises(MemoryEntryNotFoundError):
-                await service.reactivate(appended, entries=(dropped,))
+            legacy = runtime.memory.for_scope(scope_id)
+            before = await atomic_row_counts(contexts, scope_id)
+            for _ in range(2):
+                with pytest.raises(BaseOperationNotSupportedError, match="collection capacity"):
+                    await legacy.capacity()
+                with pytest.raises(BaseOperationNotSupportedError, match="collection compaction"):
+                    await legacy.compact()
+                assert await atomic_row_counts(contexts, scope_id) == before
+            fourth = await contexts.records.create_artifact(
+                scope_id, "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": fact(4).text})
+            )
+            assert fourth.artifact_id not in {item.artifact_id for item in created}
+            assert await atomic_row_counts(contexts, scope_id) == (before[0] + 1, before[1] + 1, 2)
+            assert len((await memory.list(states=("active", "forgotten"))).items) == 4
+            assert await contexts.records.get_tags(scope_id, target) == tags
+            for item in created[:2]:
+                historical = await memory.get(item.artifact_id, revision=1)
+                assert historical.state.state is AtomicMemoryStateValue.FORGOTTEN
+                assert historical.ref.revision == 1
+                assert historical.artifact.content.text == fact(created.index(item)).text
 
     asyncio.run(scenario())
 
@@ -433,31 +453,43 @@ def test_capacity_configuration_rejects_invalid_limits(values):
         RuntimeConfig(**values)
 
 
-def test_compaction_rechecks_tags_added_after_eligibility(database_config, monkeypatch):
+def test_atomic_forgetting_preserves_tags_added_before_commit(database_config, monkeypatch):
     async def scenario():
-        async with memory_context(database_config) as (contexts, scope_id, writer, backend):
-            service = MemoryService(
-                backend=backend, compaction=MemoryCompactionPolicy(enabled=True, min_tombstone_revisions=1)
-            )
-            initial = await writer.remember(memory=None, entries=(fact(1), fact(2)), mode="append")
-            entry, other = await writer.entries(initial)
-            retired = await writer.forget(initial, entries=(entry,))
-            current = await writer.forget(retired, entries=(other,))
-            target = MemoryEntryTagTarget(artifact_id=current.artifact_id, entry_id=entry.entry_id)
+        async with open_builtin_contexts(BuiltinConfig(database=database_config)) as contexts:
+            scope_id = "capacity-" + uuid4().hex
+            await contexts.get(scope_id)
+            created = [
+                await contexts.records.create_artifact(
+                    scope_id, "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": fact(i).text})
+                )
+                for i in range(2)
+            ]
+            memory = contexts.atomic_memory.for_scope(scope_id)
+            target = ArtifactTagTarget(family="atomic-memory", artifact_id=created[0].artifact_id)
             empty = await contexts.records.get_tags(scope_id, target)
-            original = backend.any_tagged_entry_ids
+            original = contexts.atomic_memory.service.prepare_forget
 
-            async def concurrent_tag(memory):
-                observed = await original(memory)
+            async def concurrent_tag(plan):
                 await contexts.records.replace_tags(scope_id, target, ("newly protected",), expected_etag=empty.etag)
-                return observed
+                return await original(plan)
 
-            monkeypatch.setattr(backend, "any_tagged_entry_ids", concurrent_tag)
-            before = await row_counts(contexts, scope_id)
-            with pytest.raises(CapabilityNotSupportedError, match="compaction-tag-conflict"):
-                await service.compact(current)
-            assert await service.head(current.artifact_id) == current
-            assert await row_counts(contexts, scope_id) == before
+            monkeypatch.setattr(contexts.atomic_memory.service, "prepare_forget", concurrent_tag)
+            before = await atomic_row_counts(contexts, scope_id)
+            current = await memory.get(created[0].artifact_id)
+            forgotten = await memory.forget(
+                created[0].artifact_id, expected_revision=1, expected_state_version=current.state.state_version
+            )
+            assert forgotten.primary.state.state is AtomicMemoryStateValue.FORGOTTEN
+            assert forgotten.primary.ref.revision == 1
+            assert await atomic_row_counts(contexts, scope_id) == (*before[:2], 1)
+            assert (await contexts.records.get_tags(scope_id, target)).tags == ("newly protected",)
+            assert (await memory.search("Capacity project", tag_filter=TagFilter(tags=("newly protected",)))).hits == ()
+            assert (await memory.get(created[0].artifact_id, revision=1)).artifact == current.artifact
+            restored = await memory.restore(created[0].artifact_id)
+            assert restored.primary.state.state is AtomicMemoryStateValue.ACTIVE
+            hits = (await memory.search("Capacity project", tag_filter=TagFilter(tags=("newly protected",)))).hits
+            assert [hit.hit.artifact_ref for hit in hits] == [current.ref]
+            assert await atomic_row_counts(contexts, scope_id) == before
             assert (await contexts.records.get_tags(scope_id, target)).tags == ("newly protected",)
 
     asyncio.run(scenario())

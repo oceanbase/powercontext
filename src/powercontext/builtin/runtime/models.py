@@ -51,7 +51,7 @@ from powercontext.builtin.review import (
 )
 from powercontext.builtin.review.generation import SkillGenerationOrigin
 from powercontext.builtin.sources import ExternalSkillImportMode
-from powercontext.builtin.tags import TagFilter
+from powercontext.builtin.tags import MemoryEntryTagTarget, TagFilter
 from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
 
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
@@ -119,8 +119,8 @@ class RuntimeCapabilities(BaseModel):
 class MemoryFlushResult(BaseModel):
     """Result of processing one scoped Source window.
 
-    ``held_count`` and ``hold_codes`` expose a gate refusal to the caller: a held window
-    advances its cursor but writes no Memory, and the structured code says why.
+    ``held_count`` and ``hold_codes`` are retained compatibility fields. Atomic Memory
+    processing leaves them at zero and advances the cursor only with its domain commit.
     """
 
     previous_cursor: int
@@ -128,6 +128,7 @@ class MemoryFlushResult(BaseModel):
     current_cursor: int
     source_count: int
     memory_ref: ArtifactRef | None
+    remaining_work: bool = False
     held_count: int = 0
     hold_codes: tuple[str, ...] = ()
 
@@ -295,7 +296,16 @@ class MemoryEntriesPage(BaseModel):
 
 
 class GetMemoryEntryRequest(BaseModel):
-    citation: MemoryCitation
+    """Read either an exact legacy citation or its mapped current logical target."""
+
+    citation: MemoryCitation | None = None
+    target: MemoryEntryTagTarget | None = None
+
+    @model_validator(mode="after")
+    def exclusive_address(self) -> GetMemoryEntryRequest:
+        if (self.citation is None) == (self.target is None):
+            raise ValueError("exactly one of citation and target is required")  # noqa: TRY003
+        return self
 
 
 class ReviseMemoryEntryRequest(BaseModel):

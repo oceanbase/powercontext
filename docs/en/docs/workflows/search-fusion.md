@@ -1,11 +1,11 @@
 ---
 title: Fusion algorithms and parameters
-description: Configure Topic Memory RRF ranks, weights, and normalized retrieval scores.
+description: Configure Topic and Atomic Memory RRF ranks, weights, and normalized retrieval scores.
 ---
 
 # Fusion algorithms and parameters
 
-The implemented fusion method is `rrf` (Reciprocal Rank Fusion). The unified Topic Memory search exposes it through
+The implemented fusion method is `rrf` (Reciprocal Rank Fusion). Unified Topic and Atomic Memory search expose it through
 `fusion`; Experience and Skill expose one text channel and do not accept fusion parameters. See
 [Search Artifacts](search-artifacts.md) for Family support, admission, modes, and request limits.
 
@@ -27,9 +27,12 @@ retrieval(x) = raw_rrf(x) / upper
 enabled channel. An enabled channel with no admitted candidates still contributes to `upper`. A missing candidate
 contributes nothing to that channel's numerator; it is not assigned a zero raw score.
 
-Ranks retain gaps after duplicate identities are removed within a channel. For example, ranks `1` and `3` remain `1`
-and `3`; they are not renumbered. Candidates found only in zero-weight channels are excluded. After fusion, Topic
-applies `min_score` and the requested limit. Equal fused scores use Artifact ID UTF-8 order, then descending Revision.
+The common algorithm uses the ranks provided by each channel. Topic folds duplicate fragment/identity hits within
+each channel and retains rank gaps: ranks `1` and `3` remain `1` and `3`, without renumbering. Atomic retrieval returns
+one candidate per Artifact identity. Candidates found only in zero-weight channels are excluded. After fusion,
+`min_score` filters candidates before the final limit. Equal fused scores use Artifact ID UTF-8 order, then descending
+Revision. A deployment-configured Atomic reranker runs after this threshold and can change the final order without
+changing the retrieval score.
 
 ## Parameters
 
@@ -48,17 +51,21 @@ channel's contribution to both the numerator and denominator. Scaling all weight
 the normalized score unchanged. A larger `K` reduces the relative advantage of nearby top ranks; a smaller `K` makes
 their rank differences matter more.
 
-Topic permits only the channel names enabled by the chosen mode:
+Each Family permits only the channel names enabled by the chosen mode:
 
-| Mode | Legal weight keys |
-| --- | --- |
-| `text` | `topic_fts`, `detail_fts` |
-| `vector` | `topic_vector`, `detail_vector` |
-| `hybrid` | `topic_fts`, `topic_vector`, `detail_fts`, `detail_vector` |
+| Family | Mode | Legal weight keys |
+| --- | --- | --- |
+| Topic | `text` | `topic_fts`, `detail_fts` |
+| Topic | `vector` | `topic_vector`, `detail_vector` |
+| Topic | `hybrid` | `topic_fts`, `topic_vector`, `detail_fts`, `detail_vector` |
+| Atomic | `text` | `text` |
+| Atomic | `vector` | `vector` |
+| Atomic | `hybrid` | `text`, `vector` |
 
-An inactive or unknown key is rejected even if its weight is `0`. With omitted mode, supplying any vector weight key
-requires vector capability and prevents the default text fallback. Admission and deployment checks still apply;
-changing a weight cannot enable an unavailable retrieval channel.
+An inactive or unknown key is rejected even if its weight is `0`. Topic with omitted mode requires vector capability
+and prevents default text fallback when any vector weight key is supplied. Atomic with omitted mode selects text,
+so a `vector` weight key is invalid unless vector or hybrid mode is selected. Admission and deployment checks still
+apply; changing a weight cannot enable an unavailable retrieval channel.
 
 ## Example: text channels with different weights
 
@@ -95,11 +102,17 @@ For two equal-weight channels with `K = 60`:
 An empty enabled channel therefore remains visible in the score's interpretation. Scores from different enabled
 channel sets or weight plans should not be treated as the same relevance calibration.
 
+Atomic hybrid uses the same calculation with `text` and `vector`. A candidate first in both equal-weight channels
+scores `1`; one first in text while vector is enabled but empty scores `0.5`. Atomic text-only search normalizes by
+its one enabled channel, so a first-ranked text candidate scores `1`. This normalized score differs from the dedicated
+Atomic search's legacy raw RRF sum.
+
 ## Scores and current boundaries
 
 `scores.retrieval` exposes normalized RRF. `scores.channels` exposes original FTS scores or L2 distances with a metric
 and direction; it does not expose the internal raw RRF sum. See [Read the scores](search-artifacts.md#read-the-scores).
 
-Only RRF is available. `weighted_score`, reranking, and non-empty Family filters are unsupported. Fusion does not relax
-channel admission or fill results below `min_score`. The original Topic-specific search keeps its default RRF behavior
-and legacy `0`–`100` score scale; advanced fusion controls are available through the unified route.
+Only RRF is available. `weighted_score` and caller-supplied `rerank` are unsupported. Atomic retains its deployment
+reranker and accepts kind/tag filters; Topic accepts only empty filters. Fusion does not relax channel admission or
+fill results below `min_score`. The dedicated Topic search keeps its default RRF behavior and legacy `0`–`100` score
+scale, and dedicated Atomic search keeps its existing score contract. Advanced fusion controls use the unified route.

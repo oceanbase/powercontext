@@ -28,10 +28,10 @@ from pydantic import SecretStr
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     MemoryEntryInput,
-    MemoryHit,
     MemoryRerankDecision,
     MemorySearchMode,
 )
+from powercontext.builtin.artifacts.memory.reranking import MemoryRerankText
 from powercontext.builtin.inference import EmbeddingResult, InferenceUsage
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -42,7 +42,6 @@ from powercontext.builtin.runtime import (
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft
-from powercontext.errors import RevisionConflictError
 
 DatabaseKind = Literal["sqlite", "oceanbase"]
 TIMEOUT_SECONDS = 15
@@ -54,9 +53,9 @@ PROFILE = EmbeddingProfile(
     normalization="unit",
 )
 EXPECTED_CHANNELS = {
-    "fts": ("fts",),
+    "fts": ("text",),
     "vector": ("vector",),
-    "hybrid": ("fts", "vector"),
+    "hybrid": ("text", "vector"),
 }
 
 
@@ -70,6 +69,7 @@ class _KeywordEmbeddingModel:
 
 class _PausingReranker:
     policy_id = "test.concurrent-memory-search.v1"
+    supports_atomic_memory = True
 
     def __init__(self) -> None:
         self.paused = asyncio.Event()
@@ -78,7 +78,7 @@ class _PausingReranker:
     async def rerank(
         self,
         _query: str,
-        candidates: tuple[MemoryHit, ...],
+        candidates: tuple[MemoryRerankText, ...],
         _limit: int,
         /,
     ) -> MemoryRerankDecision:
@@ -118,7 +118,7 @@ def test_memory_search_stays_consistent_when_append_advances_head_before_index_q
             )
 
             provider: Any = runtime._provider
-            index = provider.index
+            index = provider.atomic_memory.index
             original_search = index.search
             paused = asyncio.Event()
             resume = asyncio.Event()
@@ -152,10 +152,10 @@ def test_memory_search_stays_consistent_when_append_advances_head_before_index_q
                     with suppress(asyncio.CancelledError):
                         await pending
 
-            assert result.memory_ref in (initial.memory_ref, new_head.memory_ref)
-            assert result.mode == mode
+            assert new_head.primary.ref.artifact_id != initial.primary.ref.artifact_id
+            assert result.mode == ("text" if mode == "fts" else mode)
             assert tuple(hit.text for hit in result.hits) == ("Stable searchable fact.",)
-            assert result.hits[0].memory_ref == result.memory_ref
+            assert result.hits[0].hit.artifact_ref == initial.primary.ref
             assert result.hits[0].matched_by == EXPECTED_CHANNELS[mode]
 
     asyncio.run(scenario())
@@ -195,16 +195,15 @@ def test_memory_search_keeps_the_completed_revision_snapshot_when_head_advances_
                     with suppress(asyncio.CancelledError):
                         await pending
 
-            assert new_head.memory_ref.revision == initial.memory_ref.revision + 1
-            assert result.memory_ref == initial.memory_ref
+            assert new_head.primary.ref.artifact_id != initial.primary.ref.artifact_id
             assert tuple(hit.text for hit in result.hits) == ("Stable searchable fact.",)
-            assert result.hits[0].memory_ref == initial.memory_ref
+            assert result.hits[0].hit.artifact_ref == initial.primary.ref
             assert result.rerank is not None
 
     asyncio.run(scenario())
 
 
-def test_memory_search_reports_revision_conflict_when_every_attempt_starts_from_a_stale_head() -> None:
+def test_memory_search_keeps_exact_identity_when_an_unrelated_memory_is_added_before_query() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
             assert runtime.scopes is not None
@@ -217,13 +216,12 @@ def test_memory_search_reports_revision_conflict_when_every_attempt_starts_from_
             )
             scope_id = scope.scope_id
             memory = runtime.memory.for_scope(scope_id)
-            await memory.remember(
+            initial = await memory.remember(
                 RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Stable searchable fact."),))
             )
 
             provider: Any = runtime._provider
-            context = await provider.get(scope_id)
-            service = context.artifacts.memory
+            service = provider.atomic_memory.index
             original_search = service.search
             update_number = 0
 
@@ -239,11 +237,13 @@ def test_memory_search_reports_revision_conflict_when_every_attempt_starts_from_
 
             service.search = MethodType(advance_head_before_search, service)
             try:
-                with pytest.raises(RevisionConflictError):
-                    await asyncio.wait_for(
-                        memory.search(SearchMemoryRequest(query="stable searchable", mode="fts")),
-                        timeout=TIMEOUT_SECONDS,
-                    )
+                result = await asyncio.wait_for(
+                    memory.search(SearchMemoryRequest(query="stable searchable", mode="fts")),
+                    timeout=TIMEOUT_SECONDS,
+                )
+                assert tuple(hit.hit.artifact_ref for hit in result.hits) == (initial.primary.ref,)
+                assert update_number == 1
+                assert len((await memory.list()).items) == 2
             finally:
                 service.search = original_search
 

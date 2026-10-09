@@ -24,7 +24,7 @@ Scope 管理 Source、Artifact 和 Candidate。Source 保存证据；制品可�
 | 隔离项目并控制访问范围 | Scope | [Scope 与访问控制](scopes-and-access.md) |
 | 保存原始证据或外部材料引用 | Source | [Sources 与采集](sources.md)、[从文本文件采集](ingest-text-files-with-opendal.md) |
 | 读取制品版本并选择写入方式 | Artifact | [Artifact](artifacts.md) |
-| 查找相关的当前制品并配置 Topic 融合 | Artifact 检索 | [检索 Artifact](search-artifacts.md)、[融合算法与参数](search-fusion.md) |
+| 查找相关的当前制品并配置 Topic 或 Atomic 融合 | Artifact 检索 | [检索 Artifact](search-artifacts.md)、[融合算法与参数](search-fusion.md) |
 | 保存和召回长期事实、决定与约束 | Memory | [Memory 与上下文](memory-and-context.md) |
 | 形成可复用的经验并经过审核 | Experience | [创建和审核 Experience](create-and-review-experience.md)、[Experience 生命周期](experience-and-skill-lifecycle.md) |
 | 管理可导出的指令集合 | Skill | [创建和导出 Skill](create-and-export-skill.md)、[配置 Skill 目标](configure-agent-skill-targets.md) |
@@ -36,8 +36,8 @@ Scope 管理 Source、Artifact 和 Candidate。Source 保存证据；制品可�
 | 为一次 Agent turn 选择并渲染上下文 | PreparedContext | [准备上下文文本](prepare-context-text.md) |
 | 启用可选的向量或混合检索 | 检索部署选项 | [配置向量检索](configure-vector-search.md) |
 
-当前实现中的写入型 Artifact family 是 `memory`、`experience`、`skill`、`handoff`、`profile` 和 `prompt`；
-读取制品时还支持专用的 `topic-memory` family。Source 是证据，不是 Artifact；Tag 是元数据，也不是独立的
+当前实现中的写入型 Artifact family 是 `atomic-memory`、`topic-memory`、`experience`、`skill`、`handoff`、`profile`
+和 `prompt`；`memory` family 保留已冻结的旧集合读取。Source 是证据，不是 Artifact；Tag 是元数据，也不是独立的
 Artifact family。具体能力仍以[集成能力](../integrations/capabilities.md)为准。
 
 这些指南描述当前实现。使用前核对集成能力，不要假设 Agent 暴露了与 HTTP API 相同的全部操作。

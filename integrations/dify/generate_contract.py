@@ -35,6 +35,10 @@ PARAMETERS = {
     "limit": ("结果数量", "Result count within this tool's documented limit."),
     "mode": ("检索模式", "Server search mode: auto, fts, vector, or hybrid; availability depends on the Server."),
     "include_inactive": ("包含已停用条目", "Include inactive Memory entries when inspecting retained history."),
+    "states": ("生命周期筛选", "Optional Atomic Memory lifecycle states; omission follows include_inactive."),
+    "artifact_id": ("原子记忆 ID", "Exact Atomic Memory artifact_id returned by search or inventory."),
+    "state_version": ("当前状态版本", "Current state_version from search, list or pc_memory_state, including zero."),
+    "if_match": ("当前内容 ETag", "Real content ETag returned by pc_memory_get for this exact current revision."),
     "citation": (
         "精确记忆引用",
         "Complete Memory citation returned by a prior read or mutation; do not reconstruct it.",
@@ -105,7 +109,7 @@ def workflow_schema(schema, reference):
     """Expose traversable Dify metadata without changing Draft 7 validation or values."""
     shape = schema
     shape_reference = reference
-    if "anyOf" in schema:
+    if "anyOf" in schema and any(part.get("type") == "null" for part in schema["anyOf"]):
         (non_null,) = [(index, part) for index, part in enumerate(schema["anyOf"]) if part.get("type") != "null"]
         index, shape = non_null
         shape_reference += f"/anyOf/{index}"
@@ -129,10 +133,83 @@ def workflow_schema(schema, reference):
     return display
 
 
+def memory_tool_schemas(schemas):
+    """Declare the maintained Memory names' Atomic adapter inputs and read output."""
+    artifact = deepcopy(schemas["ArtifactReference"])
+    artifact["properties"]["family"] = {"type": "string", "enum": ["atomic-memory"]}
+    scope = schemas["ListMemoryEntriesRequest"]["properties"]["scope_id"]
+    write = schemas["AtomicMemoryWriteContent"]["properties"]
+    common = {"type": "object", "additionalProperties": False}
+    requests: dict[str, Any] = {}
+    requests["get_memory_entry"] = {
+        **deepcopy(common),
+        "required": ["scope_id"],
+        "oneOf": [{"required": ["artifact"]}, {"required": ["citation"]}],
+        "properties": {
+            "scope_id": scope,
+            "artifact": artifact,
+            "citation": {"$ref": "#/components/schemas/MemoryCitation"},
+        },
+    }
+    requests["revise_memory_entry"] = {
+        **deepcopy(common),
+        "required": ["scope_id", "artifact", "if_match", "kind", "text"],
+        "properties": {
+            "scope_id": scope,
+            "artifact": artifact,
+            "if_match": {"type": "string", "minLength": 1},
+            "kind": write["kind"],
+            "text": write["text"],
+        },
+    }
+    requests["retire_memory_entry"] = {
+        **deepcopy(common),
+        "required": ["scope_id", "artifact", "state_version"],
+        "properties": {
+            "scope_id": scope,
+            "artifact": artifact,
+            "state_version": schemas["AtomicMemoryInput"]["properties"]["state_version"],
+        },
+    }
+    inventory = deepcopy(schemas["ListMemoryEntriesRequest"])
+    inventory["properties"]["states"] = schemas["ListAtomicMemoryRequest"]["properties"]["states"]
+    requests["list_memory_entries"] = inventory
+    revision = deepcopy(schemas["ArtifactRevision"])
+    revision["properties"]["etag"] = {
+        "type": "string",
+        "description": "Actual current content ETag; absent on historical reads.",
+    }
+    revision["properties"]["content"] = {
+        "type": "object",
+        "properties": {"kind": {"type": "string"}, "text": {"type": "string"}},
+    }
+    legacy = schemas["MemoryEntry"]
+    responses = {
+        "list_memory_entries": {"$ref": "#/components/schemas/ListAtomicMemoryResponse"},
+        "get_memory_entry": {
+            "type": "object",
+            "properties": {**legacy["properties"], **revision["properties"]},
+            "anyOf": [revision, {"$ref": "#/components/schemas/MemoryEntry"}],
+        },
+        "revise_memory_entry": {"$ref": "#/components/schemas/ArtifactRevision"},
+        "retire_memory_entry": {"$ref": "#/components/schemas/AtomicMemoryMutationResponse"},
+    }
+    return requests, responses
+
+
 def build():
     spec = yaml.safe_load((ROOT / "openapi/powercontext.yaml").read_text(encoding="utf-8"))
     schemas = spec["components"]["schemas"]
-    selected = {value[0] for value in TOOLS.values()} | {"resolve_scope_binding", "get_scope"}
+    selected = {value[0] for value in TOOLS.values()} | {
+        "resolve_scope_binding",
+        "get_scope",
+        "list_atomic_memories",
+        "get_artifact",
+        "get_artifact_revision",
+        "replace_artifact",
+        "change_atomic_memory_lifecycle",
+    }
+    tool_requests, tool_responses = memory_tool_schemas(schemas)
     operations = {}
     used = set()
 
@@ -174,22 +251,37 @@ def build():
                 "method": method.upper(),
                 "path": path,
                 "request": request,
+                "parameters": operation.get("parameters", []),
                 "responses": responses,
             }
             visit(request)
+            visit(operation.get("parameters", []))
             visit(list(responses.values()))
+    for operation_id in {"get_atomic_memory_state"}:
+        parameters = operations[operation_id]["parameters"]
+        tool_requests[operation_id] = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {param["name"]: param["schema"] for param in parameters if param["in"] == "path"},
+            "required": [param["name"] for param in parameters if param["in"] == "path" and param["required"]],
+        }
+    visit(tool_requests)
+    visit(tool_responses)
     visit({"$ref": "#/components/schemas/ErrorResponse"})
     contract = {
         "api_version": spec["info"]["version"],
         "operations": operations,
         "tools": {name: values[0] for name, values in TOOLS.items()},
         "json_parameters": {},
+        "tool_requests": {name: json_schema(value) for name, value in tool_requests.items()},
         "components": {"schemas": {name: json_schema(schemas[name]) for name in sorted(used)}},
     }
     outputs = {}
     header = "\n".join(Path(__file__).read_text(encoding="utf-8").splitlines()[:13]) + "\n\n"
     for name, (operation_id, english, chinese) in TOOLS.items():
-        request = schemas[operations[operation_id]["request"]["$ref"].rsplit("/", 1)[-1]]
+        request = tool_requests.get(operation_id)
+        if request is None:
+            request = schemas[operations[operation_id]["request"]["$ref"].rsplit("/", 1)[-1]]
         params = deepcopy(request["properties"])
         for hidden in HIDDEN_PARAMETERS:
             params.pop(hidden, None)
@@ -252,10 +344,15 @@ def build():
                     )
             parameters.append(param)
         contract["json_parameters"][operation_id] = json_parameters
-        (response,) = operations[operation_id]["responses"].values()
+        if operation_id in tool_responses:
+            response = tool_responses[operation_id]
+        else:
+            (response,) = operations[operation_id]["responses"].values()
         result_schema = json_schema(inline(response))
         # Failure branches emit {}, while successful calls preserve the entire validated response.
         result_schema.pop("required", None)
+        if "anyOf" in result_schema:
+            result_schema["anyOf"].append({"type": "object", "maxProperties": 0})
         result_schema["description"] = "Complete successful HTTP response; empty object on error or unknown outcome."
         output_schema = deepcopy(OUTPUT)
         output_schema["$schema"] = "http://json-schema.org/draft-07/schema#"

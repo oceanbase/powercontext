@@ -27,16 +27,36 @@ export type MemoryCitation = {
   entry_version_id: string;
 };
 
-export type SearchMemoryHit = {
-  citation: MemoryCitation;
+export type AtomicMemoryInput = {
+  artifact: ArtifactReference;
+  state_version: number;
+};
+
+export type MemoryReference = MemoryCitation | AtomicMemoryInput | ArtifactReference;
+
+export type AtomicMemoryRecord = {
+  artifact: ArtifactReference;
+  kind: string;
   text: string;
+  state: "active" | "forgotten" | "merged" | "retired";
+  state_version: number;
+  merged_into_id: string | null;
+};
+
+export type MemoryMatchedBy = "text" | "vector";
+
+export function isMemoryMatchedBy(value: unknown): value is MemoryMatchedBy {
+  return value === "text" || value === "vector";
+}
+
+export type SearchMemoryHit = {
+  memory: AtomicMemoryRecord;
   score: number;
-  matched_by: Array<"fts" | "vector">;
+  matched_by: MemoryMatchedBy[];
 };
 
 export type SearchMemoryResponse = {
-  memory: ArtifactReference | null;
-  mode: "fts" | "vector" | "hybrid" | null;
+  mode: "fts" | "vector" | "hybrid";
   hits: SearchMemoryHit[];
 };
 
@@ -46,6 +66,11 @@ export type MemoryEntry = {
   kind: string;
   text: string;
   state: "active" | "inactive";
+};
+
+export type ArtifactRevision = ArtifactReference & {
+  scope_id: string;
+  content: { kind: string; text: string; [key: string]: unknown };
 };
 
 export type PreparedContext = {
@@ -93,30 +118,59 @@ export function isPreparedContext(value: unknown, maxBytes?: number): value is P
 }
 
 export type MemoryMutationResponse = {
-  memory: ArtifactReference;
-  entry: MemoryEntry | null;
+  changed: boolean;
+  records: AtomicMemoryRecord[];
 };
 
-export function encodeCitation(citation: MemoryCitation): string {
+export function encodeCitation(citation: MemoryReference): string {
   return `powercontext:${Buffer.from(JSON.stringify(citation), "utf8").toString("base64url")}`;
 }
 
-export function decodeCitation(value: string): MemoryCitation {
+export function decodeCitation(value: string): MemoryReference {
   const normalized = value.trim();
   if (!normalized.startsWith("powercontext:") || normalized.length > 4096) {
-    throw new Error("citation must be the exact powercontext citation returned by memory_search");
+    throw new Error("citation must be the exact powercontext citation/reference returned by memory_search");
   }
-  const encoded = normalized.slice("powercontext:".length);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    parsed = JSON.parse(Buffer.from(normalized.slice("powercontext:".length), "base64url").toString("utf8"));
   } catch {
-    throw new Error("citation must be the exact powercontext citation returned by memory_search");
+    throw new Error("citation must be the exact powercontext citation/reference returned by memory_search");
   }
-  if (!isMemoryCitation(parsed)) {
-    throw new Error("citation is not a valid PowerContext MemoryCitation");
+  if (!isMemoryCitation(parsed) && !isAtomicMemoryInput(parsed) && !isAtomicMemoryRef(parsed)) {
+    throw new Error("citation is not a valid exact PowerContext memory reference");
   }
   return parsed;
+}
+
+export function isAtomicMemoryRef(value: unknown): value is ArtifactReference {
+  if (!value || typeof value !== "object") return false;
+  const ref = value as Partial<ArtifactReference>;
+  return ref.family === "atomic-memory" && typeof ref.artifact_id === "string" && ref.artifact_id.length > 0 &&
+    Number.isInteger(ref.revision) && (ref.revision ?? 0) > 0;
+}
+
+export function isAtomicMemoryInput(value: unknown): value is AtomicMemoryInput {
+  if (!value || typeof value !== "object") return false;
+  const input = value as Partial<AtomicMemoryInput>;
+  return isAtomicMemoryRef(input.artifact) && Number.isInteger(input.state_version) && (input.state_version ?? -1) >= 0;
+}
+
+export function isAtomicMemoryRecord(value: unknown): value is AtomicMemoryRecord {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<AtomicMemoryRecord>;
+  return isAtomicMemoryInput(value) && typeof record.kind === "string" && typeof record.text === "string" &&
+    ["active", "forgotten", "merged", "retired"].includes(record.state ?? "");
+}
+
+export function atomicMemoryInput(record: AtomicMemoryRecord): AtomicMemoryInput {
+  return { artifact: record.artifact, state_version: record.state_version };
+}
+
+/** Normalize fused RRF rank to its reachable channel bound; this is not confidence. */
+export function normalizeMemoryScore(hit: SearchMemoryHit): number {
+  const channels = Math.max(1, new Set(hit.matched_by).size);
+  return Math.max(0, Math.min(1, hit.score / (channels / 61)));
 }
 
 export function isMemoryCitation(value: unknown): value is MemoryCitation {
@@ -129,7 +183,7 @@ export function isMemoryCitation(value: unknown): value is MemoryCitation {
     typeof citation.entry_id === "string" && citation.entry_id.length > 0 &&
     typeof citation.entry_version_id === "string" && citation.entry_version_id.length > 0 &&
     Boolean(memory) &&
-    typeof memory?.family === "string" && memory.family.length > 0 &&
+    memory?.family === "memory" &&
     typeof memory.artifact_id === "string" && memory.artifact_id.length > 0 &&
     Number.isInteger(memory.revision) && memory.revision >= 1
   );

@@ -22,7 +22,6 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from powercontext.builtin.artifacts.memory.models import MemoryHit
 from powercontext.builtin.inference import InferenceUsage, StructuredGenerator
 
 MEMORY_RERANK_INSTRUCTIONS_VERSION = "powercontext.memory.rerank.listwise.v1"
@@ -86,15 +85,23 @@ class MemoryRerankDecision:
     used_fallback: bool = False
 
 
+class MemoryRerankText(Protocol):
+    """Only factual text crosses the rank-selection boundary."""
+
+    @property
+    def text(self) -> str: ...
+
+
 class MemoryReranker(Protocol):
     """Select final Memory hits from one already ordered coarse pool."""
 
     policy_id: str
+    supports_atomic_memory: bool
 
     async def rerank(
         self,
         query: str,
-        candidates: tuple[MemoryHit, ...],
+        candidates: tuple[MemoryRerankText, ...],
         limit: int,
         /,
     ) -> MemoryRerankDecision:
@@ -107,6 +114,7 @@ class LLMMemoryReranker:
     """Use one structured listwise generation request to select Memory hits."""
 
     policy_id = MEMORY_RERANK_INSTRUCTIONS_VERSION
+    supports_atomic_memory = True
 
     def __init__(
         self,
@@ -118,7 +126,7 @@ class LLMMemoryReranker:
     async def rerank(
         self,
         query: str,
-        candidates: tuple[MemoryHit, ...],
+        candidates: tuple[MemoryRerankText, ...],
         limit: int,
         /,
     ) -> MemoryRerankDecision:
@@ -190,5 +198,6 @@ __all__ = [
     "MemoryRerankInput",
     "MemoryRerankMode",
     "MemoryRerankOutput",
+    "MemoryRerankText",
     "MemoryReranker",
 ]

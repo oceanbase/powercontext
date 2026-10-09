@@ -54,7 +54,7 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     }
     assert.equal(injected(first).length, 0)
     assert.ok(env.calls.some(call => call.path === '/v1/sources/content' && call.status === 202))
-    assert.ok(env.calls.some(call => call.path === '/v1/memory/flush' && call.status === 200))
+    assert.ok(env.calls.some(call => call.path === '/v1/memory/flush' && call.status === 200), JSON.stringify(env.calls))
     const memory = await env.api('/v1/memory/entries/list', { scope_id: env.scopeId })
     assert.ok(JSON.stringify(memory).includes(CANARY))
     const diagnosedAt = env.calls.length

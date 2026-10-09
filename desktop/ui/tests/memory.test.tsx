@@ -21,6 +21,7 @@ import {
   screen,
   fireEvent,
   act,
+  waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
@@ -34,7 +35,9 @@ import { desktopApi } from "../src/shared/ipc";
 import type {
   DesktopState,
   MemoryCitation,
-  SearchMemoryResponse,
+  MemorySearchResponse,
+  AtomicMemoryRecord,
+  AtomicMemoryRevision,
   WriteOutcome,
 } from "../src/generated/ipc";
 vi.mock("../src/shared/ipc", () => ({
@@ -94,6 +97,33 @@ const citation: MemoryCitation = {
   entry_id: "entry-a",
   entry_version_id: "version-a",
 };
+const citationReference = { kind: "citation" as const, citation };
+const atomicMemory: AtomicMemoryRecord = {
+  artifact: { family: "atomic-memory", artifact_id: "atomic-a", revision: 7 },
+  kind: "note",
+  text: "<script>unsafe()</script>",
+  state: "active",
+  state_version: 2,
+  merged_into_id: null,
+};
+const atomicReference = {
+  kind: "artifact" as const,
+  artifact: atomicMemory.artifact,
+};
+const atomicRevision: AtomicMemoryRevision = {
+  scope_id: "scope-a",
+  ...atomicMemory.artifact,
+  content: {
+    schema: "powercontext.atomic-memory.v1",
+    kind: "note",
+    text: "<img src=x onerror=unsafe()>",
+    creation: null,
+  },
+  sources: [],
+  artifacts: [],
+  memory_citations: [],
+  content_digest: `sha256:${"a".repeat(64)}`,
+};
 function outcome(status: "succeeded" | "unknown"): WriteOutcome {
   return {
     record: {
@@ -106,7 +136,7 @@ function outcome(status: "succeeded" | "unknown"): WriteOutcome {
         scopeId: "scope-a",
       },
       status,
-      citation: null,
+      references: [],
       error: null,
     },
     result:
@@ -139,6 +169,32 @@ test("a nullable save succeeds without inventing an entry or submitting on Enter
     (screen.getByLabelText("Memory text") as HTMLTextAreaElement).value,
   ).toBe("");
 });
+test.each([0, 2])(
+  "an Atomic save with %i records reports the actual write result",
+  async (count) => {
+    const user = userEvent.setup();
+    form();
+    const records = Array.from({ length: count }, (_, index) => ({
+      ...atomicMemory,
+      artifact: { ...atomicMemory.artifact, artifact_id: `atomic-${index}` },
+    }));
+    const result = outcome("succeeded");
+    result.result = { changed: count > 0, records };
+    result.record.references = records.map(({ artifact }) => ({
+      kind: "artifact",
+      artifact,
+    }));
+    vi.mocked(desktopApi.remember).mockResolvedValue(result);
+    await user.type(screen.getByLabelText("Memory text"), "atomic note");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("status").textContent).toContain(
+      count ? "Saved successfully." : "Server returned no entry",
+    );
+    expect(
+      (screen.getByLabelText("Memory text") as HTMLTextAreaElement).value,
+    ).toBe("");
+  },
+);
 test("UTF-8 overflow and IME composition cannot accidentally submit", async () => {
   const user = userEvent.setup();
   form();
@@ -171,6 +227,7 @@ test("unknown save retains the draft and does not replay automatically", async (
 test("search opens only the full citation and renders hostile text literally", async () => {
   const user = userEvent.setup();
   vi.mocked(desktopApi.search).mockResolvedValue({
+    mode: null,
     hits: [
       {
         citation,
@@ -200,7 +257,7 @@ test("search opens only the full citation and renders hostile text literally", a
   await user.type(screen.getByLabelText("Keyword search"), "synthetic");
   await user.click(screen.getByRole("button", { name: "Search" }));
   await user.click(screen.getByRole("button", { name: "Read exact version" }));
-  expect(desktopApi.entry).toHaveBeenCalledWith(1, citation);
+  expect(desktopApi.entry).toHaveBeenCalledWith(1, citationReference);
   expect(screen.getByText("<img src=x onerror=unsafe()>")).toBeTruthy();
   expect(document.querySelector(".hit-main img")).toBeNull();
   expect(document.querySelector(".reader-body img")).toBeNull();
@@ -218,9 +275,88 @@ test("search opens only the full citation and renders hostile text literally", a
     screen.getByText("The Server returned no source references."),
   ).toBeTruthy();
 });
+test("Atomic search reads its exact artifact revision and copies the complete artifact reference", async () => {
+  const user = userEvent.setup();
+  vi.mocked(desktopApi.search).mockResolvedValue({
+    mode: "text",
+    hits: [{ memory: atomicMemory, score: 1, matched_by: ["text"] }],
+  });
+  vi.mocked(desktopApi.entry).mockResolvedValue({
+    ...atomicRevision,
+    sources: [{ source_type: "document", source_id: "source-a" }],
+  });
+  render(
+    <MemoryWorkspace
+      state={state}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.type(screen.getByLabelText("Keyword search"), "synthetic");
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  expect(screen.getByText("Full-text match")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Read exact version" }));
+  expect(desktopApi.entry).toHaveBeenCalledWith(1, atomicReference);
+  expect(screen.getByText(atomicRevision.content.text)).toBeTruthy();
+  expect(document.querySelector(".hit-main img")).toBeNull();
+  expect(document.querySelector(".reader-body img")).toBeNull();
+  expect(screen.getByText("source-a")).toBeTruthy();
+  expect(screen.queryByText("Entry ID")).toBeNull();
+  expect(screen.queryByText("Entry version")).toBeNull();
+  expect(screen.queryByText("Active")).toBeNull();
+  const clipboard = vi
+    .spyOn(navigator.clipboard, "writeText")
+    .mockResolvedValue();
+  await user.click(screen.getByRole("button", { name: "Copy text" }));
+  expect(clipboard).toHaveBeenLastCalledWith(atomicRevision.content.text);
+  await user.click(
+    screen.getByRole("button", { name: "Copy exact reference" }),
+  );
+  expect(clipboard).toHaveBeenLastCalledWith(
+    JSON.stringify(atomicMemory.artifact, null, 2),
+  );
+});
+test.each(["forbidden", "not_found", "network"])(
+  "an Atomic %s detail failure clears private results without substituting latest",
+  async (code) => {
+    const user = userEvent.setup();
+    vi.mocked(desktopApi.state).mockResolvedValue(state);
+    vi.mocked(desktopApi.search).mockResolvedValue({
+      mode: "text",
+      hits: [{ memory: atomicMemory, score: 1, matched_by: ["text"] }],
+    });
+    vi.mocked(desktopApi.entry)
+      .mockResolvedValueOnce(atomicRevision)
+      .mockRejectedValueOnce({ code });
+    render(
+      <MemoryWorkspace
+        state={state}
+        language="en"
+        onState={vi.fn()}
+        onDirty={vi.fn()}
+      />,
+    );
+    await user.type(screen.getByLabelText("Keyword search"), "private");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.click(
+      screen.getByRole("button", { name: "Read exact version" }),
+    );
+    expect(screen.getByText(atomicRevision.content.text)).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", { name: "Read exact version" }),
+    );
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByText(atomicRevision.content.text)).toBeNull();
+    expect(screen.queryByText(atomicMemory.text)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
+    expect(desktopApi.entry).toHaveBeenCalledTimes(2);
+    expect(desktopApi.entry).toHaveBeenLastCalledWith(1, atomicReference);
+  },
+);
 test("changing query discards a late response instead of showing old matches", async () => {
   const user = userEvent.setup();
-  let finish!: (result: SearchMemoryResponse) => void;
+  let finish!: (result: MemorySearchResponse) => void;
   vi.mocked(desktopApi.search).mockImplementationOnce(
     () =>
       new Promise((resolve) => {
@@ -241,6 +377,7 @@ test("changing query discards a late response instead of showing old matches", a
   await user.type(query, " new");
   await act(async () => {
     finish({
+      mode: null,
       hits: [{ citation, text: "old secret", score: 1, matched_by: ["fts"] }],
     });
   });
@@ -254,6 +391,7 @@ test.each(["forbidden", "not_found", "network"])(
     const user = userEvent.setup();
     vi.mocked(desktopApi.state).mockResolvedValue(state);
     vi.mocked(desktopApi.search).mockResolvedValue({
+      mode: null,
       hits: [
         {
           citation,
@@ -296,7 +434,7 @@ test.each(["forbidden", "not_found", "network"])(
     expect(screen.queryByText("private search excerpt")).toBeNull();
     expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
     expect(desktopApi.entry).toHaveBeenCalledTimes(2);
-    expect(desktopApi.entry).toHaveBeenLastCalledWith(1, citation);
+    expect(desktopApi.entry).toHaveBeenLastCalledWith(1, citationReference);
   },
 );
 
@@ -343,6 +481,11 @@ test.each(["scope", "page"])(
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<App />);
     await user.click(screen.getByRole("button", { name: "记忆" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { level: 1, name: "记忆" }),
+      ),
+    );
     await user.type(screen.getByLabelText("记忆内容"), "draft A");
     await user.click(screen.getByRole("button", { name: "保存" }));
     if (switchKind === "scope") {
@@ -363,7 +506,17 @@ test.each(["scope", "page"])(
       await user.click(screen.getByRole("button", { name: "Scope B" }));
     } else {
       await user.click(screen.getByRole("button", { name: "总览" }));
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("heading", { level: 1, name: "总览" }),
+        ),
+      );
       await user.click(screen.getByRole("button", { name: "记忆" }));
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("heading", { level: 1, name: "记忆" }),
+        ),
+      );
     }
     await user.type(screen.getByLabelText("记忆内容"), "draft B");
     await act(async () => {

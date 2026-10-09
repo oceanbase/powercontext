@@ -24,27 +24,36 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic_ai.messages import ModelResponse, RetryPromptPart, TextPart
+from pydantic_ai.messages import ModelResponse, RetryPromptPart, TextPart, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
 
 from evaluation.memory.locomo.dataset import LoCoMoConversation, LoCoMoSession, LoCoMoTurn
 from evaluation.memory.locomo_plus import runner
 from evaluation.memory.locomo_plus.dataset import SMOKE_CASE_IDS, LoCoMoPlusCase, LoCoMoPlusDataset
-from powercontext.builtin.artifacts.memory import (
-    EmbeddingProfile,
-    LLMMemoryCandidatePipeline,
-    MemoryCandidateRequest,
-    MemoryEntryInput,
-    MemoryExtractionInput,
-    MemoryExtractionOutput,
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+    AtomicMemoryGenerationPipeline,
 )
-from powercontext.builtin.inference import EmbeddingResult, InvalidInferenceOutputError
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
+    AtomicMemoryReconciliationInput,
+    AtomicMemoryReconciliationOutput,
+)
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.inference import (
+    EmbeddingResult,
+    GenerationResult,
+    InvalidInferenceOutputError,
+    character_token_estimator,
+)
 from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, InferenceConfig, open_builtin_runtime
-from powercontext.builtin.sources import ContentSource
 from powercontext.server.settings import ServerSettings
+from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 
 
 def _dataset() -> LoCoMoPlusDataset:
@@ -170,12 +179,16 @@ def test_smoke_and_full_preserve_identical_complete_histories_for_selected_cases
     assert full["scope"] == "full"
 
 
-class _CandidatePipeline:
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        return tuple(
-            MemoryEntryInput(kind="fact", text=source.content, sources=(source,), reason="recorded dialogue")
-            for source in request.sources
-            if isinstance(source, ContentSource)
+class _MemoryExtractor:
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        return GenerationResult(
+            output=AtomicMemoryExtractionOutput(
+                candidates=tuple(
+                    AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,))
+                    for evidence in request.evidence
+                    if (text := memory_source_text(evidence)) is not None
+                )
+            )
         )
 
 
@@ -197,7 +210,7 @@ def offline_benchmark(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     async def runtime_factory(config: BuiltinConfig):
         async with open_builtin_runtime(
             config.model_copy(update={"inference": InferenceConfig()}),
-            candidate_pipeline=_CandidatePipeline(),
+            candidate_pipeline=atomic_memory_pipeline(_MemoryExtractor()),
             embedding_model=_EmbeddingModel(),
         ) as runtime:
             yield runtime
@@ -258,7 +271,7 @@ def test_memory_uses_configured_database_or_result_directory_fallback(
             assert runtime.scopes is not None
             scope = await runtime.scopes.get(_rows(output_directory)[-1]["scope_id"])
             memories = await runtime.memory.for_scope(scope.scope_id).list()
-            assert len(memories.entries) == 3
+            assert len(memories.items) == 3
 
     asyncio.run(read_persisted_scope())
 
@@ -318,7 +331,7 @@ def test_separate_results_isolate_equal_run_ids_in_a_shared_database(
             for scope_id in scope_ids:
                 descriptor = await runtime.scopes.get(scope_id)
                 page = await runtime.memory.for_scope(descriptor.scope_id).list()
-                assert len(page.entries) == 3
+                assert len(page.items) == 3
 
     asyncio.run(read_both_scopes())
 
@@ -619,7 +632,7 @@ def test_memory_source_arm_captures_flushes_searches_and_expands_real_sqlite_sou
     async def runtime_factory(config: BuiltinConfig):
         offline = config.model_copy(update={"inference": InferenceConfig()})
         async with open_builtin_runtime(
-            offline, candidate_pipeline=_CandidatePipeline(), embedding_model=_EmbeddingModel()
+            offline, candidate_pipeline=atomic_memory_pipeline(_MemoryExtractor()), embedding_model=_EmbeddingModel()
         ) as runtime:
             yield runtime
 
@@ -693,31 +706,61 @@ def test_extraction_corrects_invalid_json_within_the_configured_request_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, request_limit: int
 ) -> None:
     requests = 0
-    malformed = '{"candidates":[{"intent":"add","kind":"kind":"preference"}]}'
+    reconciliation_requests = 0
+    malformed = '{"candidates":[{"kind":"kind":"preference"}]}'
 
     async def extract(messages, info):
         nonlocal requests
         requests += 1
         correcting = any(isinstance(part, RetryPromptPart) for message in messages for part in message.parts)
-        output = (
-            '{"candidates":[{"intent":"add","kind":"fact","text":"Walking helped Alice.","evidence_ids":["source:0"]}]}'
-            if correcting
-            else malformed
+        request = next(
+            AtomicMemoryExtractionInput.model_validate_json(part.content)
+            for message in messages
+            for part in message.parts
+            if isinstance(part, UserPromptPart) and isinstance(part.content, str)
         )
+        output = (await _MemoryExtractor().generate(request)).output.model_dump_json() if correcting else malformed
         return ModelResponse(parts=[TextPart(output)])
+
+    async def reconcile(messages, info):
+        nonlocal reconciliation_requests
+        reconciliation_requests += 1
+        request = next(
+            AtomicMemoryReconciliationInput.model_validate_json(part.content)
+            for message in messages
+            for part in message.parts
+            if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+        )
+        output = AtomicMemoryReconciliationOutput(
+            action="create",
+            compared_ids=tuple(item.item_id for item in request.related),
+            content=AtomicMemoryContent(kind=request.proposal.kind, text=request.proposal.text),
+            evidence_ids=request.proposal.evidence_ids,
+            reason="Preserve each recorded dialogue with its exact Source evidence.",
+        )
+        return ModelResponse(parts=[TextPart(output.model_dump_json(by_alias=True))])
 
     @asynccontextmanager
     async def runtime_factory(config: BuiltinConfig):
-        generator = PydanticAIStructuredGenerator(
+        extractor = PydanticAIStructuredGenerator(
             model=FunctionModel(extract),
             instructions="Extract memories with source citations.",
-            input_type=MemoryExtractionInput,
-            output_type=MemoryExtractionOutput,
+            input_type=AtomicMemoryExtractionInput,
+            output_type=AtomicMemoryExtractionOutput,
+            limits=InferenceLimits(max_requests=config.inference.generation_max_requests),
+        )
+        reconciler = PydanticAIStructuredGenerator(
+            model=FunctionModel(reconcile),
+            instructions="Reconcile the candidate with supplied related memories and source citations.",
+            input_type=AtomicMemoryReconciliationInput,
+            output_type=AtomicMemoryReconciliationOutput,
             limits=InferenceLimits(max_requests=config.inference.generation_max_requests),
         )
         async with open_builtin_runtime(
             config.model_copy(update={"inference": InferenceConfig()}),
-            candidate_pipeline=LLMMemoryCandidatePipeline(generator),
+            candidate_pipeline=AtomicMemoryGenerationPipeline(
+                extractor=extractor, reconciler=reconciler, estimator=character_token_estimator()
+            ),
             embedding_model=_EmbeddingModel(),
         ) as runtime:
             yield runtime
@@ -755,8 +798,10 @@ def test_extraction_corrects_invalid_json_within_the_configured_request_budget(
         assert summary["overall"]["completed_count"] == 1, _rows(tmp_path)
         assert ingestion["processed_session_count"] == ingestion["planned_session_count"] == 3
         assert requests == 6  # Three full sessions, each needing one correction within the configured budget.
+        assert reconciliation_requests == 3
     else:
         assert requests == 1
+        assert reconciliation_requests == 0
         assert summary["overall"]["failures_by_stage"]["infrastructure"] == 1
         failure = ingestion["failures"][0]
         assert failure["session_position"] == 1
@@ -772,17 +817,21 @@ def test_failed_extraction_usage_remains_unknown_after_successful_resume(
 ) -> None:
     fail_extraction = True
 
-    class Pipeline(_CandidatePipeline):
-        async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
+    class Extractor(_MemoryExtractor):
+        async def generate(
+            self, request: AtomicMemoryExtractionInput, /
+        ) -> GenerationResult[AtomicMemoryExtractionOutput]:
             if fail_extraction:
-                raise InvalidInferenceOutputError("memory-extract", "candidate cites evidence outside the request")
-            return await super().extract(request)
+                raise InvalidInferenceOutputError(
+                    "atomic-memory-extract", "candidate cites evidence outside the request"
+                )
+            return await super().generate(request)
 
     @asynccontextmanager
     async def runtime_factory(config: BuiltinConfig):
         offline = config.model_copy(update={"inference": InferenceConfig()})
         async with open_builtin_runtime(
-            offline, candidate_pipeline=Pipeline(), embedding_model=_EmbeddingModel()
+            offline, candidate_pipeline=atomic_memory_pipeline(Extractor()), embedding_model=_EmbeddingModel()
         ) as runtime:
             yield runtime
 

@@ -74,8 +74,9 @@ curl --fail \
   "$POWERCONTEXT_URL/v1/memory/remember"
 ```
 
-The response contains an exact citation. Keep that citation when a later request must revise, retire, or read that
-specific immutable revision.
+The response's `records` contain independent memories with an `artifact` reference, content, state, and `state_version`.
+Read history by exact ArtifactRef, edit through the generic Artifact API with its content ETag, and use Atomic Memory
+operations to forget or restore. See [Atomic Memory](../workflows/atomic-memory.md) for complete examples.
 
 Search active entries in the same scope:
 
@@ -162,8 +163,9 @@ available to Server administrators through `/v1/access/audit/list`. When authent
 each audit event keeps the effective `principal` and the trusted `actor` as separate opaque identities.
 
 The Access wire contract has only three Resource Kinds: `server`, `scope`, and `artifact`. An Artifact Resource uses
-the logical identity `{family, artifact_id}` and deliberately contains no Revision. Memory can narrow a grant with a
-`memory_entry` selector containing only `entry_id`. Unknown Families, `prompt` when no Prompt lifecycle is implemented,
+the logical identity `{family, artifact_id}` and deliberately contains no Revision. Each Atomic Memory has its own
+Artifact authority without an entry selector. Legacy `memory_entry` selectors identify old entries; offline migration
+retargets their valid grants to the corresponding Atomic Memory. Unknown Families, `prompt` when no Prompt lifecycle is implemented,
 and mismatched selectors or roles never create a Binding. `/v1/access/me` reports the current mode, Provider
 capabilities, and each Artifact Family's enabled state.
 
@@ -173,7 +175,7 @@ target Scope. Consequently, one logical sharing grant covers earlier and later s
 publication still records the exact copied Revision and its provenance. Host-local projection remains an
 operational surface protected by the corresponding Scope and Artifact checks.
 
-Prompt publication returns `422 / artifact_publication_unsupported` without creating a target Artifact. To configure
+Atomic Memory does not support cross-Scope publication. Prompt publication returns `422 / artifact_publication_unsupported` without creating a target Artifact. To configure
 a Prompt in another Scope, use `POST /v1/scopes/{scope_id}/artifacts` with `family=prompt` and a registered `prompt_key`,
 or update it through `PUT /v1/scopes/{scope_id}/artifacts/prompt/{prompt_key}` with `If-Match`. These operations preserve
 the fixed Prompt identity and validate its content.
@@ -200,7 +202,8 @@ use the same policy enforcement point; MCP tool visibility is not permission.
 | Source and context | `/v1/sources/content`, `/v1/context/prepare` | Capture evidence and prepare bounded context |
 | Work continuity | `/v1/work/*` | Create work contracts, prepare or acknowledge Handoffs, and record outcomes |
 | Low-level Handoff | `/v1/handoff/*` | Activate, prepare, finalize, commit, or continue a Handoff |
-| Memory | `/v1/memory/*` | Flush, remember, search, list, get, revise, retire, and inspect changes |
+| Atomic Memory | `/v1/atomic-memory/*`, generic Artifact routes | Search, list, inspect state, merge, forget, and restore; use generic Artifact routes for content reads and writes |
+| Memory compatibility | `/v1/memory/*` | Flush, remember, search, list, and legacy identity reads; legacy collection mutations return an explicit unsupported error |
 | Experience and Skill | `/v1/experience/*`, `/v1/skill/*`, `/v1/skills/*` | Propose, review, package, govern, distribute, and read managed Skill revisions |
 | Review | `/v1/artifact-candidates/*` | List, inspect, revise, approve, or reject pending Candidates |
 | External Skills | `/v1/external-skills/*` | Scan configured targets and resolve or import packages |
@@ -224,25 +227,11 @@ Errors use one JSON envelope:
 }
 ```
 
-For `/v1/memory/remember` and `/v1/memory/entries/revise`, entry text is limited to 8192 UTF-8 bytes
-after Unicode NFC normalization and trimming leading and trailing whitespace. This is a byte limit, not a
-character limit. An oversized entry returns HTTP `422` with the existing top-level `invalid_request` code:
-
-```json
-{
-  "error": {
-    "code": "invalid_request",
-    "message": "The request is invalid.",
-    "details": {
-      "code": "text-too-long",
-      "message": "memory entry text must not exceed 8192 UTF-8 bytes"
-    }
-  }
-}
-```
-
-Clients can use `error.details.code` to identify the canonical validation failure. Details can still be `null`
-for other failures; internal exception text is not returned for unstructured Memory errors.
+Atomic Memory text is limited to 8192 UTF-8 bytes; oversized content returns HTTP `422`.
+Legacy citation mutations and collection revision preconditions return `legacy_memory_operation_unsupported`.
+Do not retry by silently discarding a precondition. Content edits return `428` for a missing `If-Match` or `412`
+for a stale ETag; merge and lifecycle state conflicts return `409`. See [Atomic Memory](../workflows/atomic-memory.md)
+for error handling and replacement operations.
 
 Common statuses are:
 
@@ -257,6 +246,5 @@ Common statuses are:
 | `503` | A required Runtime binding or dependency is unavailable |
 | `500` | The Server failed without exposing internal details |
 
-Every response includes `X-PowerContext-Request-ID`; record it when diagnosing a failed call. Preserve exact citations
-for Memory revision and retirement. Candidate review writes require the current `expected_version`; after a `409`, read
+Every response includes `X-PowerContext-Request-ID`; record it when diagnosing a failed call. Keep the content ETag for Memory edits, and the exact ArtifactRef and state_version for forgetting. Candidate review writes require the current `expected_version`; after a `409`, read
 the Candidate again before deciding whether to retry.

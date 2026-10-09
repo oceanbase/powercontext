@@ -448,6 +448,126 @@ def test_compound_access_check_supports_all_and_any_without_a_batch_route() -> N
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(("match", "allowed"), [("all", False), ("any", True)])
+def test_compound_access_check_resolves_legacy_memory_before_authorization(match: str, allowed: bool) -> None:
+    import json
+
+    from sqlalchemy import insert
+
+    from powercontext.builtin.persistence.atomic_memory_identity import legacy_entry_artifact_id
+    from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE, BUILTIN_TABLES
+    from powercontext.builtin.runtime import BuiltinRuntime, RuntimeCapabilities
+    from powercontext.builtin.runtime.relational import RelationalContexts
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + ACCESS_TABLES) as profile:
+            contexts = RelationalContexts(database=profile.database)
+            repository = RelationalAccessRepository(profile.database)
+            await _seed_admin(repository)
+            service = AccessControlService(
+                BuiltinAuthorizationProvider(repository), relationships=repository, audit=repository
+            )
+            entries = ("entry-a", "entry-b")
+            content = {
+                "schema": "powercontext.memory.v1",
+                "manifest": {
+                    "format": "flat-v1",
+                    "entries": [
+                        {
+                            "entry_id": entry_id,
+                            "entry_version_id": f"{entry_id}-v1",
+                            "entry_content_hash": "a" * 64,
+                            "state": "active",
+                        }
+                        for entry_id in entries
+                    ],
+                },
+                "changes": [],
+            }
+            async with profile.database.transaction() as connection:
+                await connection.execute(
+                    insert(ARTIFACTS_TABLE).values(
+                        scope_id="scope-a",
+                        family="memory",
+                        artifact_id="memory-a",
+                        revision=1,
+                        content=json.dumps(content).encode(),
+                    )
+                )
+                await connection.execute(
+                    insert(ARTIFACT_HEADS_TABLE).values(
+                        scope_id="scope-a", family="memory", artifact_id="memory-a", revision=1
+                    )
+                )
+                for entry_id in entries:
+                    artifact_id = legacy_entry_artifact_id("scope-a", "memory-a", entry_id)
+                    await connection.execute(
+                        insert(ARTIFACTS_TABLE).values(
+                            scope_id="scope-a",
+                            family="atomic-memory",
+                            artifact_id=artifact_id,
+                            revision=1,
+                            content=json.dumps({"kind": "fact", "text": f"Legacy {entry_id}."}).encode(),
+                        )
+                    )
+                    await connection.execute(
+                        insert(ARTIFACT_HEADS_TABLE).values(
+                            scope_id="scope-a", family="atomic-memory", artifact_id=artifact_id, revision=1
+                        )
+                    )
+            shared = ResourceRef.artifact(
+                "scope-a",
+                family="atomic-memory",
+                artifact_id=legacy_entry_artifact_id("scope-a", "memory-a", "entry-a"),
+            )
+            await service.establish_artifact_owner(shared, ADMIN, idempotency_key="owner-atomic-entry", context=AUDIT)
+            await service.create_binding(
+                ADMIN,
+                CreateBinding(
+                    subject=BOB,
+                    resource=shared,
+                    role=AccessRole.ARTIFACT_VIEWER,
+                    idempotency_key="bob-atomic-entry",
+                ),
+                context=AUDIT,
+            )
+            runtime = BuiltinRuntime(
+                provider=contexts,
+                capabilities=RuntimeCapabilities(memory_extraction=False, memory_search_modes=("fts",)),
+                atomic_memory_application=contexts.atomic_memory,
+            )
+            app = _app(service, principal=BOB, token="bob-token", application=runtime)  # noqa: S106 - test credential.
+            async with _client(app) as client:
+                for entry_id in entries:
+                    response = await client.post(
+                        "/v1/access/check",
+                        headers=_auth("bob-token"),
+                        json={
+                            "match": match,
+                            "requirements": [
+                                {"action": "scope.read", "resource": {"type": "scope", "scope_id": "scope-a"}},
+                                {
+                                    "action": "artifact.read",
+                                    "resource": {
+                                        "type": "artifact",
+                                        "scope_id": "scope-a",
+                                        "identity": {"family": "memory", "artifact_id": "memory-a"},
+                                        "selector": {"type": "memory_entry", "entry_id": entry_id},
+                                    },
+                                },
+                            ],
+                        },
+                    )
+                    assert response.status_code == 200, response.text
+                    assert response.json()["allowed"] is (allowed if entry_id == "entry-a" else False)
+                    assert [decision["allowed"] for decision in response.json()["decisions"]] == [
+                        False,
+                        entry_id == "entry-a",
+                    ]
+
+    asyncio.run(scenario())
+
+
 def test_access_binding_replace_is_generic_and_atomic() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
@@ -632,8 +752,8 @@ class _MemoryApplication:
         del scope_id
         return self
 
-    async def get(self, request) -> MemoryEntryRecord:
-        del request
+    async def get(self, request, *, atomic_context=None) -> MemoryEntryRecord:
+        del request, atomic_context
         return self.record
 
 
@@ -707,6 +827,7 @@ def test_access_api_and_handoff_pep_enforce_exact_receiver_visibility() -> None:
                 assert {
                     profile["family"] for profile in principal.json()["artifact_families"] if profile["enabled"]
                 } == {
+                    "atomic-memory",
                     "handoff",
                     "memory",
                     "experience",
@@ -900,10 +1021,10 @@ def test_logical_memory_entry_grant_allows_every_entry_version_but_not_scope_lis
                 )
                 assert allowed_future.status_code == 200
 
-                aggregate = await client.post(
-                    "/v1/memory/entries/list",
+                # Memory listing filters shared rows; whole-Scope Sources still require Scope read.
+                aggregate = await client.get(
+                    "/v1/scopes/scope-a/sources",
                     headers=_auth("bob-token"),
-                    json={"scope_id": "scope-a"},
                 )
                 assert aggregate.status_code == 403
 

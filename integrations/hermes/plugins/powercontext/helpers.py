@@ -188,65 +188,79 @@ def config_value(config: dict[str, Any], key: str, env_name: str, default: Any =
     return config.get(key, default)
 
 
+def normalize_memory_reference(value: Any) -> dict[str, Any] | None:
+    """Preserve a real Atomic snapshot or an exact legacy historical citation."""
+    if not isinstance(value, dict):
+        return None
+    legacy = "memory_ref" in value
+    ref = value.get("memory_ref") if legacy else value.get("artifact", value)
+    if not isinstance(ref, dict):
+        return None
+    revision = ref.get("revision")
+    if (
+        ref.get("family") != ("memory" if legacy else "atomic-memory")
+        or not isinstance(ref.get("artifact_id"), str)
+        or not ref["artifact_id"].strip()
+        or not isinstance(revision, int)
+        or isinstance(revision, bool)
+        or revision < 1
+    ):
+        return None
+    artifact = {"family": ref["family"], "artifact_id": ref["artifact_id"], "revision": revision}
+    if legacy:
+        if any(
+            not isinstance(value.get(key), str) or not value[key].strip() for key in ("entry_id", "entry_version_id")
+        ):
+            return None
+        return {"memory_ref": artifact, "entry_id": value["entry_id"], "entry_version_id": value["entry_version_id"]}
+    if "artifact" not in value:
+        return artifact
+    state_version = value.get("state_version")
+    if not isinstance(state_version, int) or isinstance(state_version, bool) or state_version < 0:
+        return None
+    return {"artifact": artifact, "state_version": state_version}
+
+
 def citation_from_args(args: dict[str, Any]) -> dict[str, Any]:
-    required = ("family", "artifact_id", "revision", "entry_id", "entry_version_id")
-    missing = [key for key in required if key not in args]
-    if missing:
-        raise ValueError(f"Missing required arguments: {', '.join(missing)}")  # noqa: TRY003
-
-    family = str(args["family"]).strip()
-    artifact_id = str(args["artifact_id"]).strip()
-    entry_id = str(args["entry_id"]).strip()
-    entry_version_id = str(args["entry_version_id"]).strip()
-    if not family or not artifact_id or not entry_id or not entry_version_id:
-        raise ValueError("Citation fields must be non-empty")  # noqa: TRY003
-
-    try:
-        revision = int(args["revision"])
-    except (TypeError, ValueError) as error:
-        raise ValueError("revision must be an integer") from error  # noqa: TRY003
-    if revision < 1:
-        raise ValueError("revision must be positive")  # noqa: TRY003
-
-    return {
-        "memory_ref": {"family": family, "artifact_id": artifact_id, "revision": revision},
-        "entry_id": entry_id,
-        "entry_version_id": entry_version_id,
-    }
+    value = args.get("reference", args.get("citation", args))
+    if isinstance(value, dict) and "entry_id" in value and "memory_ref" not in value:
+        value = {
+            "memory_ref": {key: value.get(key) for key in ("family", "artifact_id", "revision")},
+            "entry_id": value.get("entry_id"),
+            "entry_version_id": value.get("entry_version_id"),
+        }
+    elif isinstance(value, dict) and "artifact" not in value and "state_version" in value:
+        value = {
+            "artifact": {key: value.get(key) for key in ("family", "artifact_id", "revision")},
+            "state_version": value["state_version"],
+        }
+    normalized = normalize_memory_reference(value)
+    if normalized is None:
+        raise ValueError("Use an exact Atomic Memory reference, or a legacy MemoryCitation for historical reads")  # noqa: TRY003
+    return normalized
 
 
 def citation_from_response(response: Any) -> dict[str, Any] | None:
     if not isinstance(response, dict):
         return None
+    records = response.get("records")
+    if isinstance(records, list) and len(records) == 1:
+        return normalize_memory_reference(records[0])
+    memory = response.get("memory")
+    if isinstance(memory, dict):
+        return normalize_memory_reference(memory)
     entry = response.get("entry")
-    citation = entry.get("citation") if isinstance(entry, dict) else None
-    if not isinstance(citation, dict):
-        return None
-    memory_ref = citation.get("memory_ref")
-    if not isinstance(memory_ref, dict):
-        return None
-    family = str(memory_ref.get("family", "")).strip()
-    artifact_id = str(memory_ref.get("artifact_id", "")).strip()
-    entry_id = str(citation.get("entry_id", "")).strip()
-    entry_version_id = str(citation.get("entry_version_id", "")).strip()
-    try:
-        revision = int(memory_ref.get("revision"))
-    except (TypeError, ValueError):
-        return None
-    if not family or not artifact_id or revision < 1 or not entry_id or not entry_version_id:
-        return None
-    return {
-        "memory_ref": {"family": family, "artifact_id": artifact_id, "revision": revision},
-        "entry_id": entry_id,
-        "entry_version_id": entry_version_id,
-    }
+    if isinstance(entry, dict):
+        return normalize_memory_reference(entry.get("citation"))
+    return normalize_memory_reference(response)
 
 
 def entry_identity(citation: Any) -> dict[str, str] | None:
-    if not isinstance(citation, dict):
+    """Identity for comparisons only; never substitute it for a versioned write target."""
+    normalized = normalize_memory_reference(citation)
+    if normalized is None:
         return None
-    entry_id = str(citation.get("entry_id", "")).strip()
-    entry_version_id = str(citation.get("entry_version_id", "")).strip()
-    if not entry_id or not entry_version_id:
-        return None
-    return {"entry_id": entry_id, "entry_version_id": entry_version_id}
+    if "memory_ref" in normalized:
+        return {"entry_id": normalized["entry_id"], "entry_version_id": normalized["entry_version_id"]}
+    ref = normalized.get("artifact", normalized)
+    return {"family": ref["family"], "artifact_id": ref["artifact_id"]}

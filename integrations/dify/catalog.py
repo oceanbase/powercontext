@@ -17,15 +17,25 @@
 TOOLS = {
     "pc_search": (
         "search_memory",
-        "Find relevant historical Memory with exact citations.",
+        "Find relevant Atomic Memory with exact artifact references and state versions.",
         "检索相关历史记忆及精确引用。",
     ),
     "pc_memory_list": (
         "list_memory_entries",
-        "Inventory current Memory; optionally include inactive entries.",
+        "Inventory Atomic Memory with pagination; include forgotten, merged and retired records for an explicit audit.",
         "盘点记忆，可包含停用条目。",
     ),
-    "pc_memory_get": ("get_memory_entry", "Read an exact Memory citation.", "按精确引用读取记忆。"),
+    "pc_memory_get": (
+        "get_memory_entry",
+        "Read an exact Atomic Memory artifact or a full legacy historical citation. Current content includes its real"
+        " content ETag for correction; historical reads have no current write ETag. Choose one identity.",
+        "按精确制品引用读取原子记忆，或按完整旧引用读取历史；当前内容附带修订所需的 ETag。",
+    ),
+    "pc_memory_state": (
+        "get_atomic_memory_state",
+        "Read the current Atomic Memory reference, lifecycle and state_version before an explicit lifecycle change.",
+        "读取原子记忆当前引用、生命周期及状态版本。",
+    ),
     "pc_remember": (
         "remember_memory",
         "Save curated Memory on an explicit user request or trusted application condition.",
@@ -33,13 +43,15 @@ TOOLS = {
     ),
     "pc_memory_revise": (
         "revise_memory_entry",
-        "Correct Memory using its exact citation; conflicts require renewed intent.",
-        "按精确引用纠正记忆，冲突需重新核对意图。",
+        "Correct Atomic Memory using its exact current artifact and real content ETag from pc_memory_get as if_match."
+        " Supply complete kind/text. On conflict read again and verify intent. Legacy citation writes are unsupported.",
+        "用精确原子记忆引用和当前内容 ETag 纠正记忆，冲突需重新读取并核对意图。",
     ),
     "pc_memory_retire": (
         "retire_memory_entry",
-        "Retire Memory using its exact citation, preserving history.",
-        "按精确引用停用记忆并保留历史。",
+        "Forget Atomic Memory using its exact current artifact and state_version from search, list or pc_memory_state."
+        " This sets recoverable forgotten state and preserves history. Legacy citation writes are unsupported.",
+        "用精确原子记忆引用和状态版本设置可恢复的遗忘状态，保留历史。",
     ),
     "pc_prepare_context": (
         "prepare_context",

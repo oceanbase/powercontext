@@ -14,7 +14,7 @@ Read only the relevant reference when its workflow detail is needed; self-contai
 | Find prior decisions / 搜索历史记忆 | `pc_search`; [Scope and Memory](references/scope-memory.md). |
 | Inventory or audit / 盘点、列出记忆 | `pc_memory_list`; [Scope and Memory](references/scope-memory.md). Empty search does not authorize inventory. |
 | Save, correct, retire / 记住、纠正、停用记忆 | `pc_remember` for explicit save; [Scope and Memory](references/scope-memory.md). |
-| Inspect Memory revisions / 查看记忆变更 | `pc_memory_changes` for an explicit change-history request; pass the exact returned revision as `since_revision` when continuing a history page. |
+| Inspect Memory state / 查看记忆状态 | `pc_memory_state` for the current Atomic Memory reference, lifecycle and state version. |
 | Read diagnostics / 查看统计 | `pc_stats` for current-Scope statistics; optionally select `today`, `7d`, or `30d`. |
 | Transfer or resume work / 交接、接续工作 | `pc_handoff_current`; [Work Handoff](references/work-handoff.md). Ordinary transfer is temporary; durable commit needs explicit intent. |
 | Inspect candidates / 审查候选 | `pc_review_list`; [Review and publication](references/review-publication.md). Inspection grants no decision authority. |

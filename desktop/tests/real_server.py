@@ -351,7 +351,7 @@ def main() -> None:
                             "serverAliveAfterClientExit": True,
                             "committedWriteWithLostResponseUnknownWithoutReplay": True,
                             "providerIdentityChangeInvalidatesContext": bool(config["provider"]),
-                            "sameIdentityRevocationDeniesHistoricalCitation": bool(config["provider"]),
+                            "sameIdentityRevocationDeniesExactMemoryRead": bool(config["provider"]),
                             "sameTitleScopePagination51": bool(config["provider"]),
                             "performance": probe_measurement(probe.stdout),
                         })

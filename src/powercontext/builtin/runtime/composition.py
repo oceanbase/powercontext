@@ -30,6 +30,18 @@ from pydantic import AnyHttpUrl, JsonValue, SecretStr
 from typing_extensions import override
 
 from powercontext._logging import log_safely
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+    AtomicMemoryGenerationPipeline,
+    atomic_memory_extraction_instructions,
+    require_atomic_memory_pipeline,
+)
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
+    ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
+    AtomicMemoryReconciliationInput,
+    AtomicMemoryReconciliationOutput,
+)
 from powercontext.builtin.artifacts.experience import ExperienceCandidatePipeline, ExperienceGenerator
 from powercontext.builtin.artifacts.handoff import (
     DefaultHandoffEvidenceProjector,
@@ -41,11 +53,11 @@ from powercontext.builtin.artifacts.memory import (
     MemoryCapabilities,
     MemoryCapacityBudget,
     MemoryCompactionPolicy,
-    MemoryHit,
     MemoryRerankDecision,
     MemoryReranker,
     MemoryWriteGate,
 )
+from powercontext.builtin.artifacts.memory.reranking import MemoryRerankText
 from powercontext.builtin.artifacts.profile.generation import PROFILE_INSTRUCTIONS, LLMProfileGenerator
 from powercontext.builtin.artifacts.profile.service import (
     ProfileGenerationInput,
@@ -80,8 +92,12 @@ from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
     UsageReportingStructuredGenerator,
 )
+from powercontext.builtin.persistence.atomic_memory_schema import ATOMIC_MEMORY_TABLES
 from powercontext.builtin.persistence.dream_schema import ensure_dream_schema
+from powercontext.builtin.persistence.experience_index import ensure_artifact_head_searchable_text
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
+from powercontext.builtin.persistence.migrations.atomic_memory_v1 import assert_atomic_memory_migration_ready
+from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
 from powercontext.builtin.persistence.oceanbase.memory_index import (
     OceanBaseMemoryFTSIndex,
@@ -99,6 +115,7 @@ from powercontext.builtin.persistence.processing_migration import (
 from powercontext.builtin.persistence.scope_search_schema import ensure_scope_search_schema
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.skill_distribution_schema import ensure_skill_distribution_schema
+from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
 from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVectorIndex
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
@@ -127,6 +144,9 @@ from powercontext.builtin.runtime.artifact_processing import (
     SpawnArtifactProcessingWorkerLauncher,
 )
 from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
+from powercontext.builtin.runtime.atomic_memory_processing import AtomicMemoryProcessingConfig
+from powercontext.builtin.runtime.atomic_memory_search import AtomicArtifactSearcher
+from powercontext.builtin.runtime.atomic_memory_security import AtomicMemoryExecutionContext
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.decision_model import (
     DECISION_INSTRUCTIONS,
@@ -195,6 +215,10 @@ class BuiltinConfigurationError(RuntimeError):
                 "custom inference endpoints require an OpenAI- or Anthropic-compatible model identifier"
             ),
             "inference-profile": "validated inference profile is incomplete",
+            "legacy-memory-write-gate": (
+                "Atomic Memory does not support the legacy Memory write gate; explicitly disable "
+                "memory_write_gate_enabled and remove any injected memory_write_gate before upgrading or starting"
+            ),
             "memory-reranker": "Memory reranking requires a configured generation or rerank model, or injected reranker",
             "scheduled-experience-pipeline": "scheduled Experience incubation requires a candidate pipeline",
             "scheduled-pipeline": "scheduled Source processing requires a candidate pipeline",
@@ -221,6 +245,11 @@ class BuiltinConfigurationError(RuntimeError):
             ),
         }
         super().__init__(messages[issue])
+
+
+def _validate_legacy_memory_write_gate(runtime: RuntimeConfig, injected: MemoryWriteGate | None = None) -> None:
+    if runtime.memory_write_gate_enabled or injected is not None:
+        raise BuiltinConfigurationError("legacy-memory-write-gate")
 
 
 class _DefinitionEvidenceProjector(DefaultMemoryEvidenceProjector):
@@ -256,11 +285,12 @@ class _TracingMemoryReranker:
         self._delegate = delegate
         self._tracing = tracing
         self.policy_id = delegate.policy_id
+        self.supports_atomic_memory = getattr(delegate, "supports_atomic_memory", False)
 
     async def rerank(
         self,
         query: str,
-        candidates: tuple[MemoryHit, ...],
+        candidates: tuple[MemoryRerankText, ...],
         limit: int,
         /,
     ) -> MemoryRerankDecision:
@@ -363,7 +393,7 @@ async def open_builtin_runtime(
     config: BuiltinConfig,
     *,
     scheduler_path: str | Path = "powercontext.scheduler.db",
-    candidate_pipeline: CandidatePipeline | None = None,
+    candidate_pipeline: CandidatePipeline | AtomicMemoryGenerationPipeline | None = None,
     experience_pipeline: ExperienceCandidatePipeline | None = None,
     experience_generator: ExperienceGenerator | None = None,
     profile_generator: ProfileGenerator | None = None,
@@ -394,6 +424,8 @@ async def open_builtin_runtime(
     recall_effort_sink: RecallEffortSink | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
+
+    _validate_legacy_memory_write_gate(config.runtime, memory_write_gate)
 
     async with AsyncExitStack() as resources:
         configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
@@ -435,7 +467,9 @@ async def open_builtin_runtime(
             )
             else (None, None, None, None, None, None, None, None, None, None, None)
         )
-        configured_pipeline = generated_memory if candidate_pipeline is None else candidate_pipeline
+        configured_pipeline = (
+            generated_memory if candidate_pipeline is None else require_atomic_memory_pipeline(candidate_pipeline)
+        )
         configured_incubation = generated_incubation if experience_pipeline is None else experience_pipeline
         configured_experience = generated_experience if experience_generator is None else experience_generator
         configured_skill = generated_skill if skill_generator is None else skill_generator
@@ -443,7 +477,8 @@ async def open_builtin_runtime(
         configured_reranker = generated_reranker if memory_reranker is None else memory_reranker
         components = (
             ("profile.generate", profile_generator, generated_profile),
-            ("memory.extract", candidate_pipeline, generated_memory),
+            ("atomic_memory.extract", candidate_pipeline, generated_memory),
+            ("atomic_memory.reconcile", candidate_pipeline, generated_memory),
             ("memory.rerank", memory_reranker, generated_reranker),
             ("experience.incubate", experience_pipeline, generated_incubation),
             ("experience.generate", experience_generator, generated_experience),
@@ -602,6 +637,10 @@ async def open_builtin_runtime(
             capabilities=contexts.topic_memory_index.capabilities,
         )
         artifact_search.register(topic_memory_searcher, embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL)
+        artifact_search.register(
+            AtomicArtifactSearcher(application=contexts.atomic_memory),
+            embedding_purpose=ModelUsagePurpose.MEMORY_RECALL,
+        )
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
                 code_service=await resources.enter_async_context(open_code_service(config.code, config.database)),
@@ -663,6 +702,7 @@ async def open_builtin_runtime(
                 remote_skill_distribution=contexts.remote_skill_distribution(),
                 statistics_service=contexts.statistics,
                 record_service=contexts.records,
+                atomic_memory_application=contexts.atomic_memory,
                 prompt_service=contexts.prompts,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 recall_effort_sink=recall_effort_sink,
@@ -880,7 +920,7 @@ async def _open_artifact_processing_supervisor(
 async def open_builtin_contexts(
     config: BuiltinConfig,
     *,
-    candidate_pipeline: CandidatePipeline | None = None,
+    candidate_pipeline: CandidatePipeline | AtomicMemoryGenerationPipeline | None = None,
     experience_pipeline: ExperienceCandidatePipeline | None = None,
     experience_generator: ExperienceGenerator | None = None,
     skill_generator: SkillGenerator | None = None,
@@ -901,8 +941,16 @@ async def open_builtin_contexts(
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
+    _validate_legacy_memory_write_gate(config.runtime, memory_write_gate)
+
     database = config.database
     configured_token_estimator = character_token_estimator() if token_estimator is None else token_estimator
+    # Processing workers reuse the parent's schema. Composition does not implicitly
+    # grant them an Atomic Memory execution identity; family dispatch supplies the
+    # identity required by each operation.
+    atomic_memory_execution_context = (
+        AtomicMemoryExecutionContext(principal=None, trusted_local=False) if _topic_memory_worker else None
+    )
     if isinstance(database, SQLiteConfig):
         experience_index = SQLiteExperienceFTSIndex()
         indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
@@ -913,9 +961,10 @@ async def open_builtin_contexts(
         if embedding_model is not None:
             topic_indexes.append(SQLiteTopicMemoryVectorIndex(embedding_model.profile))
         topic_index = CompositeTopicMemoryIndex(*topic_indexes)
+        atomic_index = SQLiteAtomicMemoryIndex(None if embedding_model is None else embedding_model.profile)
         async with SQLiteProfile.open(
             database,
-            tables=BUILTIN_TABLES + index.tables + topic_index.tables,
+            tables=BUILTIN_TABLES + index.tables + topic_index.tables + ATOMIC_MEMORY_TABLES + atomic_index.tables,
             load_vector_extension=embedding_model is not None,
         ) as profile:
             async with profile.database.transaction() as connection:
@@ -930,6 +979,10 @@ async def open_builtin_contexts(
                 # indexes here would take the shared SQLite write lock once
                 # per Window. Normal runtime startup retains index recovery.
                 if not _topic_memory_worker:
+                    await _initialize_atomic_memory_authority(connection)
+                    await atomic_index.initialize(connection)
+                    await ensure_artifact_head_searchable_text(connection)
+                    await assert_atomic_memory_migration_ready(connection, index=atomic_index)
                     await index.initialize(connection)
                     await experience_index.initialize(connection)
                 await TopicMemoryRepository(index=topic_index).initialize(
@@ -939,6 +992,15 @@ async def open_builtin_contexts(
                 database=profile.database,
                 index=index,
                 topic_memory_index=topic_index,
+                atomic_memory_index=atomic_index,
+                atomic_memory_execution_context=atomic_memory_execution_context,
+                atomic_memory_preview_signing_secret=None
+                if config.runtime.atomic_memory_preview_signing_secret is None
+                else config.runtime.atomic_memory_preview_signing_secret.get_secret_value().encode("utf-8"),
+                atomic_memory_preview_signing_key_id=config.runtime.atomic_memory_preview_signing_key_id,
+                atomic_memory_preview_ttl_seconds=config.runtime.atomic_memory_preview_ttl_seconds,
+                atomic_memory_restore_retry_budget=config.runtime.atomic_memory_restore_retry_budget,
+                atomic_memory_processing_config=AtomicMemoryProcessingConfig.from_runtime(config.runtime),
                 experience_index=experience_index,
                 candidate_pipeline=candidate_pipeline,
                 experience_pipeline=experience_pipeline,
@@ -991,7 +1053,8 @@ async def open_builtin_contexts(
     if embedding_model is not None:
         topic_indexes.append(OceanBaseTopicMemoryVectorIndex(embedding_model.profile))
     topic_index = CompositeTopicMemoryIndex(*topic_indexes)
-    tables = BUILTIN_TABLES + index.tables + topic_index.tables
+    atomic_index = OceanBaseAtomicMemoryIndex(None if embedding_model is None else embedding_model.profile)
+    tables = BUILTIN_TABLES + index.tables + topic_index.tables + ATOMIC_MEMORY_TABLES + atomic_index.tables
     if isinstance(database, OceanBaseConfig):
         profile_context = OceanBaseProfile.open(database, tables=tables)
     elif isinstance(database, SeekDBConfig):
@@ -1007,6 +1070,10 @@ async def open_builtin_contexts(
             await ensure_dream_schema(connection)
             await ensure_scope_search_schema(connection)
             if not _topic_memory_worker:
+                await _initialize_atomic_memory_authority(connection)
+                await atomic_index.initialize(connection)
+                await ensure_artifact_head_searchable_text(connection)
+                await assert_atomic_memory_migration_ready(connection, index=atomic_index)
                 await index.initialize(connection)
                 await experience_index.initialize(connection)
             await TopicMemoryRepository(index=topic_index).initialize(
@@ -1016,6 +1083,15 @@ async def open_builtin_contexts(
             database=profile.database,
             index=index,
             topic_memory_index=topic_index,
+            atomic_memory_index=atomic_index,
+            atomic_memory_execution_context=atomic_memory_execution_context,
+            atomic_memory_preview_signing_secret=None
+            if config.runtime.atomic_memory_preview_signing_secret is None
+            else config.runtime.atomic_memory_preview_signing_secret.get_secret_value().encode("utf-8"),
+            atomic_memory_preview_signing_key_id=config.runtime.atomic_memory_preview_signing_key_id,
+            atomic_memory_preview_ttl_seconds=config.runtime.atomic_memory_preview_ttl_seconds,
+            atomic_memory_restore_retry_budget=config.runtime.atomic_memory_restore_retry_budget,
+            atomic_memory_processing_config=AtomicMemoryProcessingConfig.from_runtime(config.runtime),
             experience_index=experience_index,
             candidate_pipeline=candidate_pipeline,
             experience_pipeline=experience_pipeline,
@@ -1146,7 +1222,7 @@ async def _generation_pipelines(
     prompt_demonstrators: dict[str, DemonstrationGenerator] | None = None,
 ) -> tuple[
     ProfileGenerator | None,
-    CandidatePipeline | None,
+    AtomicMemoryGenerationPipeline | None,
     ExperienceCandidatePipeline | None,
     ExperienceGenerator | None,
     SkillGenerator | None,
@@ -1157,6 +1233,8 @@ async def _generation_pipelines(
     ReadinessProbe | None,
     ReadinessProbe | None,
 ]:
+    _validate_legacy_memory_write_gate(runtime)
+
     if (
         settings.generation_model is None
         and (not runtime.memory_rerank_enabled or settings.rerank_model is None)
@@ -1187,13 +1265,9 @@ async def _generation_pipelines(
     )
     from powercontext.builtin.artifacts.memory import (
         MEMORY_RERANK_INSTRUCTIONS,
-        LLMMemoryCandidatePipeline,
         LLMMemoryReranker,
-        MemoryExtractionInput,
-        MemoryExtractionOutput,
         MemoryRerankInput,
         MemoryRerankOutput,
-        memory_extraction_instructions,
     )
     from powercontext.builtin.artifacts.skill import (
         SKILL_GENERATION_INSTRUCTIONS,
@@ -1207,7 +1281,7 @@ async def _generation_pipelines(
     )
 
     generated_profile: ProfileGenerator | None = None
-    generated_memory: CandidatePipeline | None = None
+    generated_memory: AtomicMemoryGenerationPipeline | None = None
     generated_incubation: ExperienceCandidatePipeline | None = None
     generated_experience: ExperienceGenerator | None = None
     generated_skill: SkillGenerator | None = None
@@ -1236,7 +1310,8 @@ async def _generation_pipelines(
             prompt_demonstrators,
             (
                 "profile.generate",
-                "memory.extract",
+                "atomic_memory.extract",
+                "atomic_memory.reconcile",
                 "experience.incubate",
                 "experience.generate",
                 "skill.generate",
@@ -1266,13 +1341,23 @@ async def _generation_pipelines(
         )
         memory_generator = PydanticAIStructuredGenerator(
             model=generation_model,
-            instructions=memory_extraction_instructions(runtime.memory_extraction_profile),
-            input_type=MemoryExtractionInput,
-            output_type=MemoryExtractionOutput,
+            instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
+            input_type=AtomicMemoryExtractionInput,
+            output_type=AtomicMemoryExtractionOutput,
             limits=generation_limits,
             model_settings=generation_request_settings,
-            name="memory_extraction",
-            prompt_key="memory.extract",
+            name="atomic_memory_extraction",
+            prompt_key="atomic_memory.extract",
+        )
+        memory_reconciler = PydanticAIStructuredGenerator(
+            model=generation_model,
+            instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
+            input_type=AtomicMemoryReconciliationInput,
+            output_type=AtomicMemoryReconciliationOutput,
+            limits=generation_limits,
+            model_settings=generation_request_settings,
+            name="atomic_memory_reconciliation",
+            prompt_key="atomic_memory.reconcile",
         )
         experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1314,9 +1399,11 @@ async def _generation_pipelines(
             name="handoff_generation",
             prompt_key="handoff.generate",
         )
-        generated_memory = LLMMemoryCandidatePipeline(
-            UsageReportingStructuredGenerator(memory_generator),
-            evidence_projector=_DefinitionEvidenceProjector(source_registry, TEXT_EVIDENCE_PROJECTION_KEY),
+        generated_memory = AtomicMemoryGenerationPipeline(
+            extractor=UsageReportingStructuredGenerator(memory_generator),
+            reconciler=UsageReportingStructuredGenerator(memory_reconciler),
+            estimator=character_token_estimator(),
+            extraction_instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))
@@ -1530,6 +1617,8 @@ async def _generation_decision(
 
 async def preflight_builtin_runtime(config: BuiltinConfig) -> None:
     """Validate Runtime composition without opening persistence or making requests."""
+
+    _validate_legacy_memory_write_gate(config.runtime)
 
     async with AsyncExitStack() as resources:
         await _generation_pipelines(
@@ -1873,3 +1962,25 @@ def _search_modes(capabilities: MemoryCapabilities) -> tuple[MemorySearchMode, .
 
 
 __all__ = ["BuiltinConfigurationError", "open_builtin_contexts", "open_builtin_runtime", "preflight_builtin_runtime"]
+
+
+async def _initialize_atomic_memory_authority(connection) -> None:
+    """Create formal authority storage without importing legacy business data."""
+    from powercontext.builtin.persistence.schema import create_tables
+    from powercontext.server.authz.repository import ACCESS_POLICY_HEADS_TABLE, ACCESS_TABLES
+
+    await create_tables(connection, ACCESS_TABLES)
+    if connection.dialect.name == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as upsert
+
+        statement = (
+            upsert(ACCESS_POLICY_HEADS_TABLE)
+            .values(name="authorization", revision=0)
+            .on_conflict_do_nothing(index_elements=["name"])
+        )
+    else:
+        from sqlalchemy.dialects.mysql import insert as upsert
+
+        statement = upsert(ACCESS_POLICY_HEADS_TABLE).values(name="authorization", revision=0)
+        statement = statement.on_duplicate_key_update(revision=ACCESS_POLICY_HEADS_TABLE.c.revision)
+    await connection.execute(statement)

@@ -43,4 +43,17 @@ powercontext capabilities
 
 The result reports the enabled search modes. Without an embedding profile, SQLite full-text search remains available.
 
+The capability flag reports a loaded channel; inspect Source extraction, projection writes, and actual search hits
+separately. See [Configure models](../get-started/configure-models.md). Search identities are in
+`hits[].memory.artifact`, and vector hits include `vector` in `matched_by`. Explicit vector/hybrid modes fail when
+vectors are unavailable rather than silently falling back.
+
+When enabling or changing an embedding profile, stop normal service and rebuild the current projection using the
+[Atomic Memory migration guide](../operate/atomic-memory-migration.md). Rebuilding preserves Artifact identities,
+content revisions, and state versions. Do not change a profile ID or dimension just to bypass a mismatch.
+
+Atomic Memory currently uses exact L2 distance for ordinary vector search and extraction threshold enumeration.
+Search limits returned results; extraction returns every eligible threshold match. Work grows with eligible vector
+count and dimension, independently of the response limit.
+
 For timeouts, batch size, storage settings, and exact defaults, see [Configuration](../operate/configuration.md).

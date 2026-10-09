@@ -23,6 +23,17 @@ from sqlalchemy import event
 from sqlalchemy.engine import Engine
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+    AtomicMemoryGenerationPipeline,
+)
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
+    AtomicMemoryReconciliationInput,
+    AtomicMemoryReconciliationOutput,
+)
 from powercontext.builtin.artifacts.experience import (
     Experience,
     ExperienceContent,
@@ -38,8 +49,8 @@ from powercontext.builtin.artifacts.experience.recurrence import (
     signature_key,
 )
 from powercontext.builtin.artifacts.handoff import Handoff, HandoffArtifactCitation, HandoffContent, HandoffStatement
-from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
-from powercontext.builtin.inference import character_token_estimator
+from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.builtin.inference import GenerationResult, character_token_estimator
 from powercontext.builtin.persistence import RecurrenceRepository
 from powercontext.builtin.persistence.artifacts import ArtifactRepository, RepositoryArtifactDraft
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
@@ -55,7 +66,6 @@ from powercontext.builtin.runtime import (
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft, ScopeSelection
-from powercontext.builtin.sources import ContentSource
 from powercontext.builtin.statistics import MAX_RECURRENCE_TOP_REVISIONS
 from powercontext.sources import SourceRef
 
@@ -68,11 +78,28 @@ _MATCH_DIGEST = "sha256:" + "b" * 64
 
 
 class _ContentCandidatePipeline:
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        return tuple(
-            MemoryEntryInput(kind="fact", text=source.content, sources=(source,))
-            for source in request.sources
-            if isinstance(source, ContentSource)
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        candidates = []
+        for evidence in request.evidence:
+            payload = evidence.content
+            text = payload.get("content", payload.get("text")) if isinstance(payload, dict) else payload
+            if isinstance(text, str):
+                candidates.append(AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,)))
+        return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=tuple(candidates)))
+
+
+class _IndependentMemoryReconciler:
+    async def generate(
+        self, request: AtomicMemoryReconciliationInput, /
+    ) -> GenerationResult[AtomicMemoryReconciliationOutput]:
+        return GenerationResult(
+            output=AtomicMemoryReconciliationOutput(
+                action="create",
+                compared_ids=tuple(item.item_id for item in request.related),
+                content=AtomicMemoryContent(kind=request.proposal.kind, text=request.proposal.text),
+                evidence_ids=request.proposal.evidence_ids,
+                reason="Preserve each independent fixture fact with its exact Source evidence.",
+            )
         )
 
 
@@ -88,7 +115,11 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
     async def scenario() -> None:
         async with open_builtin_runtime(
             BuiltinConfig(database=SQLiteConfig()),
-            candidate_pipeline=_ContentCandidatePipeline(),
+            candidate_pipeline=AtomicMemoryGenerationPipeline(
+                extractor=_ContentCandidatePipeline(),
+                reconciler=_IndependentMemoryReconciler(),
+                estimator=character_token_estimator(),
+            ),
         ) as runtime:
             scope_id = await _create_scope(runtime, "statistics-inventory")
             captured = await runtime.sources.for_scope(scope_id).capture(
@@ -121,13 +152,13 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
             result = await statistics.overview(period=StatisticsPeriod.TODAY)
 
         assert result.inventory.sources.model_dump() == {
-            "total": 1,
+            "total": 2,
             "memory_processed": 1,
-            "memory_pending": 0,
+            "memory_pending": 1,
         }
         assert [(item.family, item.total) for item in result.inventory.artifacts.by_family] == [
+            ("atomic-memory", 2),
             ("experience", 1),
-            ("memory", 1),
         ]
         assert result.inventory.candidates.model_dump(exclude={"by_family"}) == {
             "total": 1,
@@ -142,7 +173,7 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
         assert prepared.status == "ready"
         assert prepared.content is not None
         assert '"kind":"experience"' in prepared.content
-        assert '"entry_id":"' in prepared.content
+        assert '"family":"atomic-memory"' in prepared.content
         token_estimator = character_token_estimator()
         assert result.recall.estimator == token_estimator.profile
         assert result.recall.totals.preparations == 1
@@ -570,7 +601,7 @@ def test_statistics_selection_reports_the_same_scope_rows_as_scoped_overviews() 
         batched = {item.scope_id: item for item in selection.by_scope}
         assert set(batched) == set(scope_ids)
         assert [batched[scope_id].inventory.memory.entries.total for scope_id in scope_ids] == [1, 2, 3, 4]
-        assert [batched[scope_id].inventory.sources.total for scope_id in scope_ids] == [0, 0, 1, 0]
+        assert [batched[scope_id].inventory.sources.total for scope_id in scope_ids] == [1, 2, 4, 4]
         for scope_id in scope_ids:
             assert batched[scope_id] == scoped[scope_id].by_scope[0]
 

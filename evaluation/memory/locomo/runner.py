@@ -32,16 +32,23 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.models import infer_model
 from pydantic_ai.settings import ModelSettings
 
+from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.atomic_memory.extraction import atomic_memory_extraction_instructions
+from powercontext.builtin.artifacts.atomic_memory.models import (
+    AtomicMemoryRead,
+    AtomicMemoryRecord,
+    AtomicMemoryStateValue,
+)
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS
 from powercontext.builtin.artifacts.memory import (
     MEMORY_RERANK_INSTRUCTIONS_VERSION,
-    MemoryHit,
     MemoryRerankMode,
-    MemoryRerankTrace,
-    memory_extraction_instructions_version,
 )
 from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
 from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
+from powercontext.builtin.records import ArtifactRecord
 from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, SearchMemoryRequest, open_builtin_runtime
+from powercontext.builtin.runtime.atomic_memory import AtomicMemoryRerankTrace, AtomicMemorySearchHit
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.server.settings import ServerSettings
 
@@ -86,8 +93,11 @@ class RetrievedMemory(_StrictModel):
 
     rank: int
     retrieval_rank: int
+    artifact_ref: ArtifactRef
+    state_version: int
     text: str
     score: float
+    distance: float | None
     matched_by: tuple[str, ...]
     source_ids: tuple[str, ...]
     source_dates: tuple[str, ...]
@@ -145,10 +155,14 @@ def public_configuration(settings: ServerSettings) -> dict[str, Any]:
         "embedding_dimension": settings.inference.embedding_dimension,
         "embedding_normalization": settings.inference.embedding_normalization,
         "embedding_batch_size": settings.inference.embedding_batch_size,
+        "memory_model": "atomic-memory.v1",
         "memory_extraction_profile": settings.runtime.memory_extraction_profile.value,
-        "memory_extraction_instructions": memory_extraction_instructions_version(
-            settings.runtime.memory_extraction_profile
-        ),
+        "memory_extraction_instructions_sha256": hashlib.sha256(
+            atomic_memory_extraction_instructions(settings.runtime.memory_extraction_profile).encode("utf-8")
+        ).hexdigest(),
+        "memory_reconciliation_instructions_sha256": hashlib.sha256(
+            ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS.encode("utf-8")
+        ).hexdigest(),
     }
 
 
@@ -192,13 +206,7 @@ def prepare_run(
         question_limit=question_limit,
     )
     manifest = {
-        "schema": (
-            "powercontext.benchmark.locomo.run.v7"
-            if answer_unknown_fallback_inference
-            else "powercontext.benchmark.locomo.run.v6"
-            if answer_inference_aware
-            else "powercontext.benchmark.locomo.run.v5"
-        ),
+        "schema": "powercontext.benchmark.locomo.run.v8",
         "run_id": normalized_run_id,
         "dataset_path": str(dataset.path),
         "dataset_sha256": dataset.sha256,
@@ -229,9 +237,10 @@ def prepare_run(
         "question_limit": question_limit,
         "operation_retries": operation_retries,
         "generation_temperature": BENCHMARK_TEMPERATURE,
-        "ingestion": "source-capture-and-memory-extraction",
+        "ingestion": "source-capture-and-atomic-memory-extraction-reconciliation",
         "scope_registration": "idempotent-registry-v1",
         "retrieval_mode": "hybrid",
+        "retrieval_score": "rrf-ranking-score",
         "answer_instructions": answer_instructions_version,
         "judge_profile": judge_profile.value,
         "judge_instructions": judge_instructions(judge_profile)[1],
@@ -312,8 +321,7 @@ async def ingest_dataset(
                 async with lock:
                     resumed_sessions += cursor.sequence
                     completed_sessions += cursor.sequence
-                current_page = await memory_app.list()
-                previous_revision = None if current_page.memory_ref is None else current_page.memory_ref.revision
+                previous_snapshot = _atomic_snapshot(await _all_atomic_records(memory_app, include_inactive=True))
                 flush_durations: list[float] = []
                 while cursor.sequence < len(conversation.sessions):
                     flush_started = perf_counter()
@@ -326,11 +334,11 @@ async def ingest_dataset(
                     flush_durations.append((perf_counter() - flush_started) * 1_000)
                     if not result.processed or result.current_cursor != cursor.sequence + 1:
                         raise RuntimeError(f"scope {scope} did not advance exactly one Source")  # noqa: TRY003
-                    current_revision = None if result.memory_ref is None else result.memory_ref.revision
-                    if current_revision == previous_revision:
+                    current_snapshot = _atomic_snapshot(await _all_atomic_records(memory_app, include_inactive=True))
+                    if current_snapshot == previous_snapshot:
                         async with lock:
                             unchanged_flushes += 1
-                    previous_revision = current_revision
+                    previous_snapshot = current_snapshot
                     cursor = await memory_app.cursor()
                     async with lock:
                         completed_sessions += 1
@@ -338,13 +346,15 @@ async def ingest_dataset(
                     progress(
                         f"[ingest] {current}/{total_sessions} sessions; {conversation.sample_id} {cursor.sequence}/{len(conversation.sessions)}"
                     )
-                entries = await memory_app.list()
+                records = await _all_atomic_records(memory_app, include_inactive=True)
                 conversation_results[conversation.sample_id] = {
                     "scope_id": scope,
                     "namespace": scope_id(run_id, conversation.sample_id),
                     "session_count": len(conversation.sessions),
-                    "memory_entry_count": len(entries.entries),
-                    "memory_revision": None if entries.memory_ref is None else entries.memory_ref.revision,
+                    "atomic_memory_count": sum(
+                        record.state.state is AtomicMemoryStateValue.ACTIVE for record in records
+                    ),
+                    "atomic_memory_snapshot": [item.model_dump(mode="json") for item in _atomic_snapshot(records)],
                     "flush_latency_ms_p50": _percentile(flush_durations, 0.50),
                     "flush_latency_ms_p95": _percentile(flush_durations, 0.95),
                 }
@@ -352,7 +362,7 @@ async def ingest_dataset(
         await asyncio.gather(*(ingest_conversation(conversation) for conversation in conversations))
 
     report = {
-        "schema": "powercontext.benchmark.locomo.ingestion.v1",
+        "schema": "powercontext.benchmark.locomo.ingestion.v2",
         "run_id": normalize_run_id(run_id),
         "completed_at": datetime.now(UTC).isoformat(),
         "database_kind": settings.database.kind,
@@ -362,7 +372,7 @@ async def ingest_dataset(
         "newly_processed_session_count": total_sessions - resumed_sessions,
         "no_memory_change_flush_count": unchanged_flushes,
         "transient_retry_count": transient_retries,
-        "memory_entry_count": sum(value["memory_entry_count"] for value in conversation_results.values()),
+        "atomic_memory_count": sum(value["atomic_memory_count"] for value in conversation_results.values()),
         "duration_seconds": perf_counter() - started,
         "conversations": dict(sorted(conversation_results.items())),
     }
@@ -477,7 +487,7 @@ async def evaluate_dataset(  # noqa: C901
                 limits=limits,
                 model_settings=_benchmark_model_settings(),
             )
-            entry_sources = await _entry_source_maps(runtime, scope_ids)
+            artifact_sources = await _artifact_source_maps(runtime, scope_ids)
 
             async def evaluate_one(question: LoCoMoQuestion) -> dict[str, Any]:
                 async with semaphore:
@@ -488,7 +498,7 @@ async def evaluate_dataset(  # noqa: C901
                         judge_generator=judge_generator,
                         question=question,
                         conversation=conversation_by_id[question.sample_id],
-                        entry_sources=entry_sources[question.sample_id],
+                        artifact_sources=artifact_sources[question.sample_id],
                         scope=scope_ids[question.sample_id],
                         top_k=top_k,
                         answer_k=selected_answer_k,
@@ -535,6 +545,7 @@ async def evaluate_dataset(  # noqa: C901
             "llm_judge": "Same configured model answers and judges; this is not an independent human label.",
             "evidence": "Session-level Source provenance (D1, D2, ...), which is looser than LoCoMo turn-level evidence.",
             "candidate_evidence": "Candidate evidence scores the coarse retrieval pool before reranking or truncation.",
+            "retrieval_score": "RRF is a ranking score; vector L2 distance is reported separately.",
             "errors": "Failed questions remain in the denominator and score zero.",
             "category_5": "Excluded by the scored-set contract, which includes categories 1-4.",
         },
@@ -911,7 +922,7 @@ async def _evaluate_question(
     judge_generator: PydanticAIStructuredGenerator[JudgeInput, JudgeOutput],
     question: LoCoMoQuestion,
     conversation: LoCoMoConversation,
-    entry_sources: Mapping[tuple[str, str], tuple[str, ...]],
+    artifact_sources: Mapping[tuple[str, str, int], tuple[str, ...]],
     scope: str,
     top_k: int,
     answer_k: int,
@@ -936,15 +947,13 @@ async def _evaluate_question(
         search_and_rerank_latency = (perf_counter() - search_started) * 1_000
         dates = {session.session_id: session.date_time for session in conversation.sessions}
         candidate_hits = result.hits if result.rerank is None else result.rerank.candidate_hits
-        retrieval_rank_by_hit = {
-            (hit.entry_id, hit.entry_version_id): rank for rank, hit in enumerate(candidate_hits, start=1)
-        }
+        retrieval_rank_by_hit = {_hit_identity(hit): rank for rank, hit in enumerate(candidate_hits, start=1)}
         candidates = tuple(
             _retrieved_memory(
                 hit=hit,
                 rank=rank,
                 retrieval_rank=rank,
-                entry_sources=entry_sources,
+                artifact_sources=artifact_sources,
                 dates=dates,
             )
             for rank, hit in enumerate(candidate_hits, start=1)
@@ -954,8 +963,8 @@ async def _evaluate_question(
             _retrieved_memory(
                 hit=hit,
                 rank=rank,
-                retrieval_rank=retrieval_rank_by_hit[(hit.entry_id, hit.entry_version_id)],
-                entry_sources=entry_sources,
+                retrieval_rank=retrieval_rank_by_hit[_hit_identity(hit)],
+                artifact_sources=artifact_sources,
                 dates=dates,
             )
             for rank, hit in enumerate(selected_hits, start=1)
@@ -1019,7 +1028,7 @@ async def _evaluate_question(
             hit_source_ids=tuple(memory.source_ids for memory in candidates),
         )
         return {
-            "schema": "powercontext.benchmark.locomo.observation.v2",
+            "schema": "powercontext.benchmark.locomo.observation.v3",
             "question_id": question.question_id,
             "sample_id": question.sample_id,
             "category": question.category,
@@ -1031,6 +1040,9 @@ async def _evaluate_question(
             "evidence_sessions": list(question.evidence_sessions),
             "status": "ok",
             "retrieval_mode": result.mode,
+            "retrieval_score": "rrf-ranking-score",
+            "generation_calls": result.generation_calls,
+            "embedding_calls": result.embedding_calls,
             "candidate_hits": [memory.model_dump(mode="json") for memory in candidates],
             "hits": [memory.model_dump(mode="json") for memory in memories],
             "rerank": rerank_metadata,
@@ -1083,7 +1095,7 @@ async def _evaluate_question(
         }
     except Exception as error:  # Each failed benchmark item remains an explicit zero in the denominator.
         return {
-            "schema": "powercontext.benchmark.locomo.observation.v2",
+            "schema": "powercontext.benchmark.locomo.observation.v3",
             "question_id": question.question_id,
             "sample_id": question.sample_id,
             "category": question.category,
@@ -1098,7 +1110,7 @@ async def _evaluate_question(
 
 def _rerank_metadata(
     mode: MemoryRerankMode,
-    trace: MemoryRerankTrace | None,
+    trace: AtomicMemoryRerankTrace | None,
     candidate_count: int,
     answer_count: int,
 ) -> dict[str, Any]:
@@ -1125,18 +1137,21 @@ def _rerank_metadata(
 
 def _retrieved_memory(
     *,
-    hit: MemoryHit,
+    hit: AtomicMemorySearchHit,
     rank: int,
     retrieval_rank: int,
-    entry_sources: Mapping[tuple[str, str], tuple[str, ...]],
+    artifact_sources: Mapping[tuple[str, str, int], tuple[str, ...]],
     dates: Mapping[str, str],
 ) -> RetrievedMemory:
-    source_ids = entry_sources.get((hit.entry_id, hit.entry_version_id), ())
+    source_ids = artifact_sources[_ref_identity(hit.hit.artifact_ref)]
     return RetrievedMemory(
         rank=rank,
         retrieval_rank=retrieval_rank,
-        text=hit.text,
-        score=hit.score,
+        artifact_ref=hit.hit.artifact_ref,
+        state_version=hit.hit.state_version,
+        text=hit.hit.text,
+        score=hit.hit.score,
+        distance=hit.hit.distance,
         matched_by=hit.matched_by,
         source_ids=source_ids,
         source_dates=tuple(
@@ -1174,17 +1189,82 @@ def _answer_source_sessions(
     )
 
 
-async def _entry_source_maps(runtime, scope_ids: Mapping[str, str]):
-    mappings: dict[str, dict[tuple[str, str], tuple[str, ...]]] = {}
+def _ref_identity(ref: ArtifactRef) -> tuple[str, str, int]:
+    return ref.family, ref.artifact_id, ref.revision
+
+
+def _hit_identity(hit: AtomicMemorySearchHit) -> tuple[str, str, int, int]:
+    return (*_ref_identity(hit.hit.artifact_ref), hit.hit.state_version)
+
+
+async def _all_atomic_records(application, *, include_inactive: bool = False) -> tuple[AtomicMemoryRecord, ...]:
+    records: list[AtomicMemoryRecord] = []
+    cursor = None
+    seen_cursors: set[str] = set()
+    while True:
+        page = await application.list(include_inactive=include_inactive, limit=100, cursor=cursor)
+        records.extend(page.items)
+        cursor = page.next_cursor
+        if cursor is None:
+            return tuple(records)
+        if cursor in seen_cursors:
+            raise RuntimeError("Atomic Memory pagination repeated a cursor")  # noqa: TRY003
+        seen_cursors.add(cursor)
+
+
+def _atomic_snapshot(records: Sequence[AtomicMemoryRecord]) -> tuple[AtomicMemoryRead, ...]:
+    """Represent independent heads and all lifecycle changes without a collection revision."""
+
+    return tuple(record.as_read() for record in sorted(records, key=lambda item: item.ref.artifact_id))
+
+
+async def _lineage_source_ids(
+    application,
+    ref: ArtifactRef,
+    cache: dict[tuple[str, str, int], tuple[str, ...]],
+) -> tuple[str, ...]:
+    """Traverse exact Artifact revisions; never substitute a current head for an ancestor."""
+
+    pending: list[tuple[ArtifactRef, bool]] = [(ref, False)]
+    visiting: set[tuple[str, str, int]] = set()
+    records: dict[tuple[str, str, int], ArtifactRecord] = {}
+    while pending:
+        current, expanded = pending.pop()
+        identity = _ref_identity(current)
+        if identity in cache:
+            continue
+        if expanded:
+            record = records[identity]
+            sources = {source.source_id for source in record.sources}
+            for ancestor in record.artifacts:
+                sources.update(cache[_ref_identity(ancestor)])
+            cache[identity] = tuple(sorted(sources))
+            visiting.remove(identity)
+            continue
+        if identity in visiting:
+            raise RuntimeError("Artifact evidence contains a revision cycle")  # noqa: TRY003
+        record = await application.get_artifact_revision(current.family, current.artifact_id, current.revision)
+        if (record.family, record.artifact_id, record.revision) != identity:
+            raise RuntimeError("Artifact read returned another evidence revision")  # noqa: TRY003
+        if record.memory_citations:
+            raise RuntimeError("LoCoMo Atomic provenance does not support legacy entry-selector citations")  # noqa: TRY003
+        records[identity] = record
+        visiting.add(identity)
+        pending.append((current, True))
+        pending.extend((ancestor, False) for ancestor in reversed(record.artifacts))
+    return cache[_ref_identity(ref)]
+
+
+async def _artifact_source_maps(runtime, scope_ids: Mapping[str, str]):
+    mappings: dict[str, dict[tuple[str, str, int], tuple[str, ...]]] = {}
     for sample_id, scope in scope_ids.items():
         await runtime.scopes.get(scope)
-        page = await runtime.memory.for_scope(scope).list()
-        mappings[sample_id] = {
-            (record.entry.entry_id, record.entry.entry_version_id): tuple(
-                source.source_id for source in record.entry.sources
-            )
-            for record in page.entries
-        }
+        records = await _all_atomic_records(runtime.memory.for_scope(scope))
+        cache: dict[tuple[str, str, int], tuple[str, ...]] = {}
+        application = runtime.records.for_scope(scope)
+        for record in records:
+            await _lineage_source_ids(application, record.ref, cache)
+        mappings[sample_id] = cache
     return mappings
 
 

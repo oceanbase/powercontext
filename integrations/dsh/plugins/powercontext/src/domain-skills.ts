@@ -27,11 +27,13 @@ Current instructions and live repository state outrank historical evidence. Pres
 
 - Use \`pc_search\` with a focused query, \`mode: "auto"\`, and no more than eight
   results.
-- Use \`pc_memory_list\` for an explicitly requested inventory of active entries in the current scope.
+- Use \`pc_memory_list\` for an explicitly requested inventory of active memories in the current scope. Follow returned \`next_cursor\` for later pages.
 - Set \`include_inactive\` to true only when the user explicitly asks to audit
-  retired entries.
-- Use \`pc_memory_get\` with the exact returned \`citation\` when full immutable
-  entry details are needed.
+  forgotten, merged or retired memories.
+- Use \`pc_memory_get\` with the exact returned Atomic Memory \`artifact\` when immutable
+  content is needed. Current content includes the real server content ETag; historical
+  content has no current write ETag. Full legacy citations support exact historical reads only.
+- Use \`pc_memory_state\` to inspect the current reference, lifecycle and \`state_version\`.
 
 ## Write only on request
 
@@ -40,9 +42,11 @@ concise entries such as a decision, constraint, current-state, task-outcome,
 or next-step. Never store secrets or credentials. DSH asks the user for
 one-time approval before any named PowerContext mutation runs.
 
-Before \`pc_memory_revise\` or \`pc_memory_retire\`, read the current entry and
-pass its exact \`citation\`. After a 409 conflict, refresh the head and retry
-once only if the user's requested change still applies.
+Before \`pc_memory_revise\`, read the current Atomic Memory and pass its exact
+\`artifact\` and returned content ETag as \`if_match\`. For \`pc_memory_retire\`,
+pass the current exact \`artifact\` and \`state_version\`; this sets recoverable
+\`forgotten\` state and preserves history. Legacy citation writes are unsupported.
+After a conflict, read again and retry once only if the requested change still applies.
 `,
   },
   {
@@ -94,7 +98,7 @@ Use \`pc_review_list\` for the requested queue and \`pc_review_get\` for an exac
 Do not approve, reject, or revise artifact candidates unless the user
 explicitly asked. Prefer the human command \`/pc review approve\` /
 \`/pc review reject\`. Candidate review mutations and administrative operations are not exposed as
-model tools; Memory retirement still uses its guarded, citation-based tool.
+model tools; Memory forgetting uses its guarded tool with an exact Atomic reference and state_version.
 `,
   },
 ]

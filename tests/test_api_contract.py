@@ -769,6 +769,10 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
         ("/v1/scopes/{scope_id}/artifacts/{family}", "get"): "list_artifacts",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "get"): "get_artifact",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "put"): "replace_artifact",
+        (
+            "/v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/state",
+            "get",
+        ): "get_atomic_memory_state",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions", "get"): "list_artifact_revisions",
         (
             "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
@@ -808,12 +812,14 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
     assert source["properties"]["source_type"]["default"] == "content"
 
     artifact = schemas["CreateArtifactRequest"]
-    assert len(artifact["oneOf"]) == 7
+    assert len(artifact["oneOf"]) == 8
+    assert {"$ref": "#/components/schemas/CreateAtomicMemoryArtifactRequest"} in artifact["oneOf"]
     assert artifact["discriminator"]["propertyName"] == "family"
     prompt_request = schemas["CreatePromptArtifactRequest"]
     assert prompt_request["required"] == ["family", "prompt_key", "content"]
     assert set(prompt_request["properties"]) == {"family", "prompt_key", "content"}
     for name in (
+        "CreateAtomicMemoryArtifactRequest",
         "CreateMemoryArtifactRequest",
         "CreateExperienceArtifactRequest",
         "CreateSkillArtifactRequest",

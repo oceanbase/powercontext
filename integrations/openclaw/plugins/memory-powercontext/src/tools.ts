@@ -33,6 +33,13 @@ import {
   decodeCitation,
   encodeCitation,
   type MemoryMutationResponse,
+  type ArtifactRevision,
+  type AtomicMemoryInput,
+  isMemoryCitation,
+  isAtomicMemoryInput,
+  isAtomicMemoryRecord,
+  isAtomicMemoryRef,
+  atomicMemoryInput,
 } from "./types.js";
 
 export type ToolDependencies = {
@@ -88,7 +95,7 @@ function domainFailure(error: unknown, fallbackAction: string) {
   if (!(error instanceof PowerContextRequestError)) return undefined;
   const outcome = error.status === 404
     ? "not_found"
-    : error.status === 409
+    : error.status === 409 || error.status === 412
       ? "conflict"
       : error.status === 422
         ? "invalid_request"
@@ -312,10 +319,16 @@ export function createMemoryStoreTool(ctx: OpenClawPluginToolContext, deps: Tool
           { scope_id: await resolveToolScope(ctx, deps, signal), kind, text, ...(reason ? { reason } : {}) },
           signal,
         );
+        if (typeof result.changed !== "boolean" || !Array.isArray(result.records) ||
+            !result.records.every(isAtomicMemoryRecord)) {
+          throw new Error("PowerContext returned an invalid Atomic Memory mutation result");
+        }
         return jsonResult({
-          status: "stored",
-          revision: result.memory.revision,
-          citation: result.entry ? encodeCitation(result.entry.citation) : undefined,
+          status: result.changed ? "stored" : "unchanged",
+          changed: result.changed,
+          records: result.records,
+          citation: result.records[0] && isAtomicMemoryRecord(result.records[0])
+            ? encodeCitation(atomicMemoryInput(result.records[0])) : undefined,
         });
       } catch (error) {
         const domain = domainFailure(error, "Retry the request after correcting the operation inputs.");
@@ -339,7 +352,6 @@ export function createMemoryReviseTool(ctx: OpenClawPluginToolContext, deps: Too
       citation: Type.String({ minLength: 1, maxLength: 4096 }),
       text: Type.String({ minLength: 1, maxLength: 8192 }),
       kind: Type.String({ minLength: 1, maxLength: 128 }),
-      reason: Type.Optional(Type.String({ maxLength: 512 })),
     }),
     async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {
       const raw = asToolParamsRecord(params);
@@ -352,7 +364,6 @@ export function createMemoryReviseTool(ctx: OpenClawPluginToolContext, deps: Too
       try {
         const text = readStringParam(raw, "text", { required: true });
         const kind = readStringParam(raw, "kind", { required: true });
-        const reason = readStringParam(raw, "reason");
         if (Buffer.byteLength(text, "utf8") > 8192) {
           return jsonResult({
             status: "rejected",
@@ -360,21 +371,28 @@ export function createMemoryReviseTool(ctx: OpenClawPluginToolContext, deps: Too
             maxBytes: 8192,
           });
         }
-        const result = await deps.client.post<MemoryMutationResponse>(
-          "/v1/memory/entries/revise",
-          {
-            scope_id: await resolveToolScope(ctx, deps, signal),
-            citation,
-            kind,
-            text,
-            ...(reason ? { reason } : {}),
-          },
-          signal,
-        );
+        if (isMemoryCitation(citation)) {
+          return jsonResult({ status: "rejected", reason: "legacy_citation_read_only",
+            error: "Legacy MemoryCitation is read-only; use a current Atomic Memory reference to revise" });
+        }
+        const ref = isAtomicMemoryInput(citation) ? citation.artifact : citation;
+        const scopeId = await resolveToolScope(ctx, deps, signal);
+        const path = `/v1/scopes/${encodeURIComponent(scopeId)}/artifacts/atomic-memory/${encodeURIComponent(ref.artifact_id)}`;
+        const current = await deps.client.getResponse<ArtifactRevision>(path, signal);
+        if (current.data.family !== ref.family || current.data.artifact_id !== ref.artifact_id ||
+            current.data.revision !== ref.revision) {
+          throw new PowerContextRequestError(path, "Artifact content revision changed; search again", 409);
+        }
+        if (!current.etag) throw new Error("PowerContext did not return the required content ETag");
+        const result = await deps.client.put<ArtifactRevision>(path, { content: { kind, text } }, current.etag, signal);
+        if (!isAtomicMemoryRef(result) || result.artifact_id !== ref.artifact_id || result.revision < ref.revision ||
+            typeof result.content?.text !== "string") {
+          throw new Error("PowerContext returned an invalid revised Atomic Artifact");
+        }
         return jsonResult({
           status: "revised",
-          revision: result.memory.revision,
-          citation: result.entry ? encodeCitation(result.entry.citation) : undefined,
+          artifact: { family: result.family, artifact_id: result.artifact_id, revision: result.revision },
+          citation: encodeCitation({ family: result.family, artifact_id: result.artifact_id, revision: result.revision }),
         });
       } catch (error) {
         return mutationFailure(error);
@@ -391,12 +409,11 @@ export function createMemoryRetireTool(ctx: OpenClawPluginToolContext, deps: Too
     name: POWERCONTEXT_MEMORY_RETIRE_TOOL,
     label: "Memory Retire",
     description:
-      "Retire PowerContext Memory only when the user requests removal from active use. Inspect its exact current " +
-      "citation; search text alone is insufficient. Retirement preserves history and is not physical erasure. " +
+      "Forget PowerContext Memory only when the user requests removal from active use. Inspect its exact current " +
+      "citation; search text alone is insufficient. Forgetting preserves history and can be restored; it is not physical erasure. " +
       "Preserve host authorization and report the actual mutation result before claiming success.",
     parameters: Type.Object({
       citation: Type.String({ minLength: 1, maxLength: 4096 }),
-      reason: Type.Optional(Type.String({ maxLength: 512 })),
     }),
     async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {
       const raw = asToolParamsRecord(params);
@@ -407,13 +424,27 @@ export function createMemoryRetireTool(ctx: OpenClawPluginToolContext, deps: Too
         return invalidCitation(error);
       }
       try {
-        const reason = readStringParam(raw, "reason");
+        if (isMemoryCitation(citation)) {
+          return jsonResult({ status: "rejected", reason: "legacy_citation_read_only",
+            error: "Legacy MemoryCitation is read-only; use a current Atomic Memory reference to forget" });
+        }
+        let target: AtomicMemoryInput;
+        const scopeId = await resolveToolScope(ctx, deps, signal);
+        if (isAtomicMemoryInput(citation)) {
+          target = { artifact: citation.artifact, state_version: citation.state_version };
+        } else {
+          const path = `/v1/scopes/${encodeURIComponent(scopeId)}/artifacts/atomic-memory/${encodeURIComponent(citation.artifact_id)}/state`;
+          const state = await deps.client.get<AtomicMemoryInput>(path, signal);
+          if (!isAtomicMemoryInput(state) || state.artifact.family !== citation.family ||
+              state.artifact.artifact_id !== citation.artifact_id || state.artifact.revision !== citation.revision) {
+            throw new PowerContextRequestError(path, "Artifact content revision changed; search again", 409);
+          }
+          target = { artifact: state.artifact, state_version: state.state_version };
+        }
         const result = await deps.client.post<MemoryMutationResponse>(
-          "/v1/memory/entries/retire",
-          { scope_id: await resolveToolScope(ctx, deps, signal), citation, ...(reason ? { reason } : {}) },
-          signal,
+          "/v1/atomic-memory/lifecycle", { scope_id: scopeId, target, state: "forgotten" }, signal,
         );
-        return jsonResult({ status: "retired", revision: result.memory.revision });
+        return jsonResult({ status: "forgotten", changed: result.changed, records: result.records });
       } catch (error) {
         return mutationFailure(error);
       }
@@ -426,7 +457,7 @@ export const testing = {
   invalidCitation,
   mutationFailure,
   isConflict(error: unknown) {
-    return error instanceof PowerContextRequestError && error.status === 409;
+    return error instanceof PowerContextRequestError && (error.status === 409 || error.status === 412);
   },
   encodeCitation,
 } as const;

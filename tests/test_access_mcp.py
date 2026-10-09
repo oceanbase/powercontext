@@ -25,7 +25,8 @@ from fastmcp.client.transports import StreamableHttpTransport
 from starlette.middleware import Middleware
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.runtime import MemoryEntriesPage
+from powercontext.builtin.runtime.atomic_memory import AtomicMemoryPage
+from powercontext.builtin.runtime.atomic_memory_security import AtomicMemorySecurity
 from powercontext.server.app import create_app
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
 from powercontext.server.authz import (
@@ -48,16 +49,21 @@ BOB = PrincipalRef(type="user", id="bob")
 
 
 class _MemoryApplication:
+    def __init__(self, security: AtomicMemorySecurity, scope_id: str = "") -> None:
+        self.security = security
+        self.scope_id = scope_id
+
     def for_scope(self, scope_id: str) -> Self:
-        del scope_id
-        return self
+        return type(self)(self.security, scope_id)
 
     async def logical_artifacts(self):
         return ()
 
-    async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:
-        del include_inactive
-        return MemoryEntriesPage(memory_ref=None)
+    async def list(self, *, include_inactive=False, limit=50, cursor=None, tag_filter=None, atomic_context=None):
+        assert atomic_context is not None
+        assert atomic_context.principal == BOB
+        await self.security.filters(self.scope_id, atomic_context, tags=tag_filter)
+        return AtomicMemoryPage(items=())
 
 
 def test_mcp_internal_bridge_preserves_principal_and_audits_mcp_transport() -> None:
@@ -96,8 +102,9 @@ def test_mcp_internal_bridge_preserves_principal_and_audits_mcp_transport() -> N
                 context=AccessAuditContext(transport="test", operation="seed"),
             )
             authentication = StaticBearerAuthenticationProvider("bob-token", BOB)
+            memory = _MemoryApplication(AtomicMemorySecurity(profile.database))
             app = create_app(
-                application=SimpleNamespace(memory=_MemoryApplication(), records=_MemoryApplication()),
+                application=SimpleNamespace(memory=memory, records=memory),
                 access_control=service,
                 authentication_provider=authentication,
                 middleware=(

@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
@@ -35,7 +35,6 @@ from powercontext.builtin.artifacts.experience.recurrence import (
 )
 from powercontext.builtin.artifacts.handoff import Handoff
 from powercontext.builtin.artifacts.handoff.models import HandoffContent
-from powercontext.builtin.artifacts.memory import MemoryService
 from powercontext.builtin.inference import InferenceUsage, TokenEstimatorProfile
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository, StoredSourceCursor
@@ -82,9 +81,6 @@ from powercontext.builtin.statistics import (
     UsageStatistics,
 )
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
-from powercontext.errors import ArtifactNotFoundError
-
-MemoryServiceFactory = Callable[[AsyncConnection], MemoryService]
 
 _PERIOD_DAYS = {
     StatisticsPeriod.TODAY: 1,
@@ -99,7 +95,6 @@ class _ScopeReads:
 
     inventory: StoredInventoryCounts
     processed_sources: int
-    memory_entries: tuple[tuple[str, str], ...]
     usage: tuple[StoredModelUsage, ...]
     recall: tuple[StoredRecallTokenUsage, ...]
     observations: tuple[RecurrenceObservation, ...]
@@ -114,8 +109,6 @@ class RelationalScopedStatistics:
         *,
         database: AsyncDatabase,
         scope_id: str,
-        memory_artifact_id: str,
-        memory_service: MemoryServiceFactory,
         cursors: SourceCursorRepository,
         repository: StatisticsRepository,
         recurrence: RecurrenceRepository,
@@ -125,8 +118,6 @@ class RelationalScopedStatistics:
     ) -> None:
         self._database = database
         self._scope_id = scope_id
-        self._memory_artifact_id = memory_artifact_id
-        self._memory_service = memory_service
         self._cursors = cursors
         self._repository = repository
         self._recurrence = recurrence
@@ -152,7 +143,6 @@ class RelationalScopedStatistics:
         return _ScopeReads(
             inventory=await self._repository.inventory(connection, self._scope_id),
             processed_sources=_processed_sources(cursor),
-            memory_entries=await self._memory_entries(connection),
             usage=await self._repository.usage(connection, self._scope_id, period.start_date, period.end_date),
             recall=(
                 ()
@@ -190,7 +180,7 @@ class RelationalScopedStatistics:
                 by_family=artifacts,
             ),
             candidates=candidates,
-            memory=MemoryInventoryStatistics(entries=_memory_inventory(reads.memory_entries)),
+            memory=MemoryInventoryStatistics(entries=_memory_inventory(reads.inventory.memories)),
         )
         usage = _usage_statistics(period, reads.usage)
         recall = _recall_statistics(period, self._token_estimator, reads.recall)
@@ -309,15 +299,6 @@ class RelationalScopedStatistics:
                 signature_key(content.failure.signature.recall_cue),
             ))
         return tuple(sorted(keys))
-
-    async def _memory_entries(self, connection: AsyncConnection) -> tuple[tuple[str, str], ...]:
-        service = self._memory_service(connection)
-        try:
-            memory, entries = await service.head_entries(self._memory_artifact_id)
-        except ArtifactNotFoundError:
-            return ()
-        states = {item.entry_id: item.state for item in memory.content.manifest.entries}
-        return tuple((entry.kind, states[entry.entry_id]) for entry in entries)
 
 
 def _recurrence_statistics(
@@ -453,7 +434,6 @@ async def overview_selection(
             _ScopeReads(
                 inventory=inventories[service._scope_id],
                 processed_sources=_processed_sources(cursors.get(service._scope_id)),
-                memory_entries=await service._memory_entries(connection),
                 usage=usage[service._scope_id],
                 recall=recall.get(service._scope_id, ()),
                 observations=await service._recurrence.observations(connection, service._scope_id),
@@ -542,10 +522,12 @@ def _candidate_inventory(rows: tuple[tuple[str, str, int], ...]) -> CandidateInv
     )
 
 
-def _memory_inventory(rows: tuple[tuple[str, str], ...]) -> MemoryEntryInventoryStatistics:
+def _memory_inventory(rows: tuple[tuple[str, str, int], ...]) -> MemoryEntryInventoryStatistics:
+    """Preserve the public inactive alias for the three non-active Atomic states."""
+
     by_kind: dict[str, dict[str, int]] = defaultdict(lambda: {"active": 0, "inactive": 0})
-    for kind, state in rows:
-        by_kind[kind][state] += 1
+    for kind, state, total in rows:
+        by_kind[kind]["active" if state == "active" else "inactive"] += total
     kind_counts = tuple(
         MemoryKindCount(
             kind=kind,

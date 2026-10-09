@@ -27,8 +27,9 @@ import pytest
 def test_full_capability_guide_binds_memory_evidence_to_the_captured_source(document: str) -> None:
     content = Path(document).read_text(encoding="utf-8")
 
-    assert 'SOURCE_ID="quickstart-$(date +%s)-$$"' in content
-    assert "/v1/memory/entries/list" in content
-    assert "source_refs" in content
-    assert "current_cursor" in content and "position" in content
-    assert "entry_id" in content and "matched_by" in content
+    assert "quickstart.md#3-" in content
+    assert content.count('$POWERCONTEXT_CODEX_SCOPE_ID\\"') == 2
+    assert "/v1/memory/flush" in content and "/v1/atomic-memory/list" in content
+    assert "previous_cursor" in content and "current_cursor" in content
+    assert "artifact" in content and "state_version" in content and "next_cursor" in content
+    assert "Source" in content and "lineage" in content

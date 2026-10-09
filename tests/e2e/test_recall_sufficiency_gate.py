@@ -30,7 +30,7 @@ from typing import Any, cast
 
 import pytest
 
-from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConflictError
 from powercontext.builtin.artifacts.experience import ExperienceSearchOutcome
 from powercontext.builtin.artifacts.memory import EmbeddingProfile, MemoryEntryInput
 from powercontext.builtin.artifacts.search import AdmissionCounts
@@ -39,7 +39,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryDraft,
     prepare_topic_memory_projection,
 )
-from powercontext.builtin.inference import EmbeddingResult
+from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
@@ -53,7 +53,7 @@ from powercontext.builtin.runtime.application import (
     ScopedContextApplication,
     _RecallRoundOutcome,
 )
-from powercontext.builtin.runtime.prepared_context import PreparedContextBuild, PreparedMemoryCandidates
+from powercontext.builtin.runtime.prepared_context import PreparedContextBuild
 from powercontext.builtin.runtime.recall_sufficiency import (
     MEMORY_FAMILY,
     REASON_AT_MAX_ROUNDS,
@@ -294,6 +294,46 @@ def test_fully_admitted_memory_does_not_expand_when_no_candidate_can_be_recovere
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("excluded", ["forgotten", "other-scope", "limit"])
+def test_atomic_recovery_probe_respects_scope_state_and_candidate_limit(tmp_path, monkeypatch, excluded) -> None:
+    log = _RecallRoundLog()
+    log.install(monkeypatch)
+
+    async def scenario() -> None:
+        async with _runtime(
+            tmp_path / "qualified-recovery.db",
+            RuntimeConfig(recall_gate_enabled=True, recall_gate_min_candidates=100),
+        ) as runtime:
+            scope = await _create_scope(runtime, "qualified-recovery")
+            if excluded == "limit":
+                await _seed(runtime, scope, [f"alpha beta gamma evidence {index}" for index in range(24)])
+            elif excluded == "other-scope":
+                other = await _create_scope(runtime, "foreign-recovery")
+                await _seed(runtime, other, ["alpha evidence"])
+            else:
+                await _seed(runtime, scope, ["alpha evidence"])
+                assert runtime.atomic_memory is not None
+                memories = runtime.atomic_memory.for_scope(scope)
+                record = (await memories.list()).items[0]
+                await memories.forget(
+                    record.ref.artifact_id,
+                    expected_revision=record.ref.revision,
+                    expected_state_version=record.state.state_version,
+                )
+            build, effort = await _prepare_build(runtime, scope, _memory_request())
+            assert effort.rounds == 1 and effort.expansion_actions == ()
+            assert len(log.calls) == 1
+            if excluded == "limit":
+                assert effort.candidates_by_round == (16,)
+                assert build.context.status == "ready"
+            else:
+                assert effort.assessment == REASON_NO_CONTENT
+                assert effort.candidates_by_round == (0,)
+                assert build.context.status == "empty"
+
+    asyncio.run(scenario())
+
+
 def test_recoverability_is_refreshed_after_an_expansion_round(tmp_path, monkeypatch) -> None:
     log = _RecallRoundLog()
     log.install(monkeypatch)
@@ -345,6 +385,73 @@ def test_two_expansion_rounds_stop_at_max_rounds(tmp_path, monkeypatch) -> None:
         assert effort.assessment == REASON_AT_MAX_ROUNDS
         assert effort.expansion_actions == ("admission", "policy-floor")
         assert len(log.calls) == 3
+
+    asyncio.run(scenario())
+
+
+def test_atomic_vector_search_uses_the_provider_query_input(tmp_path) -> None:
+    class QueryEmbedding:
+        profile = EmbeddingProfile(profile_id="query-input", model="query-input", dimension=2)
+        queries = 0
+
+        async def embed(self, texts):
+            return EmbeddingResult(vectors=tuple((1.0, 0.0) for _ in texts))
+
+        async def embed_query(self, texts):
+            self.queries += 1
+            return EmbeddingResult(vectors=tuple((-1.0, 0.0) for _ in texts))
+
+    async def scenario() -> None:
+        embedding = QueryEmbedding()
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'query-input.db'}")),
+            embedding_model=embedding,
+        ) as runtime:
+            scope = await _create_scope(runtime, "query-input")
+            await _seed(runtime, scope, ["alpha beta gamma evidence"])
+            assert runtime.atomic_memory is not None
+            result = await runtime.atomic_memory.for_scope(scope).search("unrelated query", mode="vector")
+            assert result.mode == "vector" and result.hits == ()
+            assert result.embedding_calls == 1 and embedding.queries == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "stalled"])
+def test_atomic_optional_query_embedding_is_attempted_once_per_prepare(tmp_path, monkeypatch, failure) -> None:
+    class OptionalEmbedding:
+        profile = EmbeddingProfile(profile_id="optional", model="optional", dimension=2)
+        queries = 0
+
+        async def embed(self, texts):
+            return EmbeddingResult(vectors=tuple((1.0, 0.0) for _ in texts))
+
+        async def embed_query(self, texts):
+            self.queries += 1
+            if failure == "stalled":
+                await asyncio.sleep(20)
+            raise InferenceUnavailableError("embed")
+
+    log = _RecallRoundLog()
+    log.force_recoverable_family = MEMORY_FAMILY
+    log.install(monkeypatch)
+
+    async def scenario() -> None:
+        embedding = OptionalEmbedding()
+        async with open_builtin_runtime(
+            BuiltinConfig(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'optional.db'}"),
+                runtime=RuntimeConfig(recall_gate_enabled=True, recall_gate_min_candidates=100),
+            ),
+            embedding_model=embedding,
+        ) as runtime:
+            scope = await _create_scope(runtime, "optional")
+            await _seed(runtime, scope, ["alpha beta gamma evidence", "alpha evidence"])
+            async with asyncio.timeout(2):
+                build, effort = await _prepare_build(runtime, scope, _memory_request())
+            assert effort.rounds == 3 and len(log.calls) == 3
+            assert build.context.content is not None and "alpha evidence" in build.context.content
+            assert embedding.queries == 1
 
     asyncio.run(scenario())
 
@@ -511,15 +618,7 @@ def test_memory_head_change_during_expansion_fails_open_to_round_zero(tmp_path, 
                     reuse=reuse,
                     topic_reuse=topic_reuse,
                 )
-            return _RecallRoundOutcome(
-                memory=(
-                    PreparedMemoryCandidates(
-                        scope_id=scope_ids[0],
-                        memory_ref=ArtifactRef(family="memory", artifact_id="memory", revision=999),
-                        hits=(),
-                    ),
-                )
-            )
+            raise AtomicMemoryConflictError("Memory changed while expanding retrieval")  # noqa: TRY003
 
         monkeypatch.setattr(ScopedContextApplication, "_recall_round", changed_head)
         async with _runtime(

@@ -69,6 +69,63 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
 
+      - name: Verify OceanBase Atomic Memory and HTTP regressions
+        if: matrix.database == 'oceanbase'
+        env:
+          COMPOSE_PROJECT_NAME: powercontext-e2e-oceanbase
+          POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/oceanbase/acceptance
+        run: |
+          mkdir -p "$POWERCONTEXT_E2E_OUTPUT"
+          compose=(docker compose -f e2e/bub/compose.yaml -f e2e/bub/compose.oceanbase.yaml)
+          "${compose[@]}" up --detach --wait --wait-timeout 660 oceanbase
+          container_id=$("${compose[@]}" ps -q oceanbase)
+          # SLIM restores a demo datafile capped at 1G and ignores resource environment overrides.
+          # Repeated isolated schemas and FULLTEXT indexes need bounded growth through the whole job.
+          docker exec "$container_id" obclient -h127.0.0.1 -P2881 -uroot -e \
+            "SHOW PARAMETERS WHERE name IN ('datafile_size', 'datafile_next', 'datafile_maxsize');
+             ALTER SYSTEM SET datafile_maxsize='8G';
+             SHOW PARAMETERS WHERE name IN ('datafile_size', 'datafile_next', 'datafile_maxsize');"
+          oceanbase_ip=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_id")
+          test -n "$oceanbase_ip"
+          export POWERCONTEXT_TEST_OCEANBASE_URL="mysql+aoceanbase://root%40test:powercontext-e2e@${oceanbase_ip}:2881/powercontext?charset=utf8mb4"
+          uv run --locked --extra server python - <<'PY'
+          import asyncio
+          import os
+
+          from pydantic import SecretStr
+
+          from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
+
+          async def version():
+              config = OceanBaseConfig(url=SecretStr(os.environ["POWERCONTEXT_TEST_OCEANBASE_URL"]))
+              async with OceanBaseProfile.open(config, tables=()) as profile:
+                  async with profile.database.transaction() as connection:
+                      result = await connection.exec_driver_sql("SELECT VERSION()")
+                      print("OceanBase engine:", result.scalar_one())
+
+          asyncio.run(version())
+          PY
+          uv run --locked --extra server python -m pytest -vv -ra \
+            tests/e2e/test_atomic_memory_search_authorization_snapshot.py \
+            tests/e2e/test_atomic_memory_read_snapshot.py \
+            tests/e2e/test_runtime_server.py -k oceanbase \
+            --junitxml="$RUNNER_TEMP/atomic-memory-oceanbase-snapshots.xml"
+          uv run --locked --extra server python - <<'PY'
+          import json
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          suites = ET.parse(Path(os.environ["RUNNER_TEMP"]) / "atomic-memory-oceanbase-snapshots.xml").iter("testsuite")
+          counts = {key: 0 for key in ("tests", "failures", "errors", "skipped")}
+          for suite in suites:
+              for key in counts:
+                  counts[key] += int(suite.get(key, "0"))
+          print("OceanBase Atomic Memory and HTTP results:", json.dumps(counts))
+          if not counts["tests"] or any(counts[key] for key in ("failures", "errors", "skipped")):
+              raise SystemExit("OceanBase Atomic Memory and HTTP regressions must execute without failures, errors, or skips")
+          PY
+
       - name: Run deterministic scenarios
         id: acceptance_scenarios
         env:

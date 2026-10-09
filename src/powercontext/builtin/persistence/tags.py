@@ -33,10 +33,16 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.artifacts import Artifact, ArtifactRef
 from powercontext.builtin.artifacts.memory.models import Memory
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
+from powercontext.builtin.persistence.atomic_memory_compatibility import resolve_legacy_memory_target
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACT_TAGS_TABLE
-from powercontext.builtin.records import BaseValueNotFoundError, CursorExpiredError, InvalidCursorError
+from powercontext.builtin.records import (
+    BaseOperationNotSupportedError,
+    BaseValueNotFoundError,
+    CursorExpiredError,
+    InvalidCursorError,
+)
 from powercontext.builtin.tags import (
     ArtifactTagSet,
     ArtifactTagTarget,
@@ -142,43 +148,56 @@ class RelationalTagService:
         cursor_secret: bytes | None = None,
         clock: Callable[[], datetime] | None = None,
         cursor_ttl_seconds: int = 3600,
+        projection_hook=None,
+        atomic_write_authorizer=None,
     ) -> None:
         self._database = database
         self._artifacts = artifacts
         self._cursor_secret = secrets.token_bytes(32) if cursor_secret is None else cursor_secret
         self._clock = (lambda: datetime.now(UTC)) if clock is None else clock
         self._cursor_ttl = cursor_ttl_seconds
+        self._projection_hook = projection_hook
+        self._atomic_write_authorizer = atomic_write_authorizer
 
     async def get(self, scope_id: str, target: TagTarget) -> ArtifactTagSet:
         async with self._database.transaction() as connection:
             await _begin_read_snapshot(connection)
-            await self._target_reference(connection, scope_id, target)
-            return await self._read(connection, scope_id, target)
+            resolved = await self._resolve_target(connection, scope_id, target)
+            current = await self._read(connection, scope_id, resolved)
+            return tag_set(scope_id, target, current.tags)
 
     async def replace(
-        self, scope_id: str, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str
+        self, scope_id: str, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str, execution_context=None
     ) -> ArtifactTagSet:
         desired = normalize_tags(tags)
         async with self._database.transaction() as connection:
+            resolved = (
+                await self._resolve_target(connection, scope_id, target)
+                if isinstance(target, MemoryEntryTagTarget)
+                else target
+            )
             # Acquire the database write lock before any reads. In particular,
             # SELECT FOR UPDATE alone cannot serialize empty-set writes on SQLite.
             locked = await connection.execute(
                 update(ARTIFACT_HEADS_TABLE)
                 .where(
                     ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                    ARTIFACT_HEADS_TABLE.c.family == target.family,
-                    ARTIFACT_HEADS_TABLE.c.artifact_id == target.artifact_id,
+                    ARTIFACT_HEADS_TABLE.c.family == resolved.family,
+                    ARTIFACT_HEADS_TABLE.c.artifact_id == resolved.artifact_id,
                 )
                 .values(revision=ARTIFACT_HEADS_TABLE.c.revision)
             )
             if locked.rowcount != 1:
                 raise BaseValueNotFoundError("artifact", target)
-            await self._target_reference(connection, scope_id, target)
-            current = await self._read(connection, scope_id, target)
+            await self._target_reference(connection, scope_id, resolved)
+            if resolved.family == "atomic-memory" and self._atomic_write_authorizer is not None:
+                await self._atomic_write_authorizer(connection, scope_id, resolved.artifact_id, execution_context)
+            latest = await self._read(connection, scope_id, resolved, current=True)
+            current = tag_set(scope_id, target, latest.tags)
             if not hmac.compare_digest(expected_etag.encode("utf-8"), current.etag.encode("utf-8")):
                 raise TagPreconditionError
             previous = normalize_tags(current.tags)
-            identity = _identity(scope_id, target)
+            identity = _identity(scope_id, resolved)
             removed = previous.keys() - desired.keys()
             if removed:
                 await connection.execute(
@@ -202,9 +221,22 @@ class RelationalTagService:
                         .where(_where(identity), ARTIFACT_TAGS_TABLE.c.tag_key == key)
                         .values(tag=label)
                     )
+            if resolved.family == "atomic-memory" and self._projection_hook is not None:
+                await self._projection_hook(connection, scope_id, resolved.artifact_id, tuple(desired))
             return tag_set(scope_id, target, tags)
 
-    async def query(self, scope_id: str, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage:
+    async def query(self, scope_id: str, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage:  # noqa: C901
+        if "memory" in query.families:
+            if "memory_entry" not in query.target_types:
+                raise BaseOperationNotSupportedError("artifact_family", "memory", "collection tag query")
+            query = query.model_copy(
+                update={
+                    "families": tuple(
+                        dict.fromkeys("atomic-memory" if family == "memory" else family for family in query.families)
+                    ),
+                    "target_types": ("artifact",) if "memory_entry" in query.target_types else query.target_types,
+                }
+            )
         binding = sha256(
             rfc8785.dumps({
                 "scope_id": scope_id,
@@ -288,8 +320,28 @@ class RelationalTagService:
         cursor = self._encode_cursor(keys[query.limit - 1], binding) if len(items) > query.limit else None
         return TagQueryPage(items=tuple(items[: query.limit]), next_cursor=cursor)
 
-    async def _read(self, connection: AsyncConnection, scope_id: str, target: TagTarget) -> ArtifactTagSet:
-        labels = await connection.scalars(select(ARTIFACT_TAGS_TABLE.c.tag).where(_where(_identity(scope_id, target))))
+    async def _resolve_target(self, connection: AsyncConnection, scope_id: str, target: TagTarget) -> ArtifactTagTarget:
+        if isinstance(target, MemoryEntryTagTarget):
+            artifact_id = await resolve_legacy_memory_target(
+                connection,
+                self._artifacts,
+                scope_id,
+                target.artifact_id,
+                target.entry_id,
+            )
+            resolved = ArtifactTagTarget(family="atomic-memory", artifact_id=artifact_id)
+            await self._target_reference(connection, scope_id, resolved)
+            return resolved
+        await self._target_reference(connection, scope_id, target)
+        return target
+
+    async def _read(
+        self, connection: AsyncConnection, scope_id: str, target: TagTarget, *, current=False
+    ) -> ArtifactTagSet:
+        statement = select(ARTIFACT_TAGS_TABLE.c.tag).where(_where(_identity(scope_id, target)))
+        if current:
+            statement = statement.with_for_update()
+        labels = await connection.scalars(statement)
         return tag_set(scope_id, target, tuple(labels))
 
     async def _target_reference(

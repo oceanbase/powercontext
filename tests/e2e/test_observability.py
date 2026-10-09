@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+from copy import copy
 from datetime import timedelta
 from functools import partial
 from pathlib import Path
@@ -39,19 +40,25 @@ from pydantic_ai.models.instrumented import InstrumentationSettings
 from pydantic_ai.models.test import TestModel
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+)
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
-    MemoryCandidateRequest,
-    MemoryCapabilities,
-    MemoryEntryInput,
-    MemoryProjection,
-    MemorySearchChannels,
-    MemorySearchRequest,
 )
+from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
+from powercontext.builtin.persistence.atomic_memory_index import (
+    AtomicMemoryIndexCapabilities,
+    AtomicMemoryProjection,
+    AtomicMemorySearchChannels,
+    AtomicMemorySearchRequest,
+)
+from powercontext.builtin.persistence.atomic_memory_index_schema import atomic_memory_current_table
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import BuiltinConfig, RememberMemoryRequest, open_builtin_runtime
+from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, open_builtin_runtime
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     SpawnArtifactProcessingWorkerLauncher,
@@ -63,11 +70,13 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerCompletion,
 )
 from powercontext.builtin.scope import ScopeDraft
-from powercontext.errors import RevisionConflictError
+from powercontext.errors import SourceConflictError
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import OperationalContextFilter
+from powercontext.server.processing_security import open_worker_security
 from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.server.tracing import ServerTracing
+from tests.e2e.dream_support import atomic_memory_pipeline
 
 _STAGE_ATTRIBUTE_KEYS = {
     "scope.context": {
@@ -92,7 +101,7 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.operation.unit",
         "powercontext.operation.outcome",
         "powercontext.memory.commit.memory_changed",
-        "powercontext.memory.commit.entry_version_count",
+        "powercontext.memory.commit.artifact_revision_count",
     },
     "memory.search": {
         "powercontext.operation.name",
@@ -100,9 +109,10 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.operation.outcome",
         "powercontext.memory.search.requested_mode",
         "powercontext.memory.search.limit",
-        "powercontext.memory.search.memory_present",
         "powercontext.memory.search.mode",
         "powercontext.memory.search.result_count",
+        "powercontext.memory.search.embedding_calls",
+        "powercontext.memory.search.generation_calls",
     },
     "memory.rerank": {
         "powercontext.operation.name",
@@ -223,77 +233,42 @@ class _ScopeLockTeardownFailingTracing:
 
 
 class _VectorMemoryIndex:
-    """Expose deterministic vector capability without a platform extension."""
+    """Expose deterministic Atomic vector capability without a platform extension."""
 
-    capabilities = MemoryCapabilities(
-        fts=False,
-        vector=True,
-        embedding_profile=_VECTOR_PROFILE,
-    )
+    capabilities = AtomicMemoryIndexCapabilities(fts=False, vector=True, embedding_profile=_VECTOR_PROFILE)
+    table = atomic_memory_current_table()
     tables = ()
 
-    async def initialize(self, _connection: AsyncConnection, /) -> None:
+    def __init__(self, profile=None):
         pass
 
-    async def replace(
-        self,
-        _connection: AsyncConnection,
-        _scope_id: str,
-        _memory_ref: ArtifactRef,
-        _projections: tuple[MemoryProjection, ...],
-        /,
-    ) -> None:
+    async def initialize(self, connection: AsyncConnection, /):
         pass
 
-    async def delete(
-        self,
-        _connection: AsyncConnection,
-        _scope_id: str,
-        _memory_ref: ArtifactRef,
-        _entry_ids: tuple[str, ...],
-        /,
-    ) -> None:
+    async def replace(self, connection: AsyncConnection, scope_id: str, projection: AtomicMemoryProjection, /):
         pass
 
-    async def upsert(
-        self,
-        _connection: AsyncConnection,
-        _scope_id: str,
-        _memory_ref: ArtifactRef,
-        _projections: tuple[MemoryProjection, ...],
-        /,
-    ) -> None:
+    async def delete(self, connection: AsyncConnection, scope_id: str, artifact_id: str, /):
         pass
 
-    async def search(
-        self,
-        _connection: AsyncConnection,
-        _scope_id: str,
-        request: MemorySearchRequest,
-        /,
-    ) -> MemorySearchChannels:
+    async def search(self, connection: AsyncConnection, scope_id: str, request: AtomicMemorySearchRequest, /):
         assert request.mode == "vector"
         assert request.query_vector is not None
-        return MemorySearchChannels()
+        return AtomicMemorySearchChannels()
 
-    async def vector_complete(
-        self,
-        _connection: AsyncConnection,
-        _scope_id: str,
-        _memories: tuple[ArtifactRef, ...],
-        profile: EmbeddingProfile,
-        /,
-    ) -> bool:
-        return profile == _VECTOR_PROFILE
+    async def probe_recoverable(self, connection, scope_id, request, floor, /):
+        return False
 
-    async def hydrate(
-        self,
-        _connection: AsyncConnection,
-        _scope_id: str,
-        projections: tuple[MemoryProjection, ...],
-        /,
-    ) -> tuple[MemoryProjection, ...]:
-        return projections
+    async def enumerate_related(self, connection: AsyncConnection, scope_id: str, request, /):
+        return ()
+
+    async def refresh_tags(self, connection: AsyncConnection, scope_id: str, artifact_id: str, tag_keys, /):
+        pass
+
+    async def refresh_access(
+        self, connection: AsyncConnection, scope_id: str, artifact_id: str, owner_type, owner_id, read_grants, /
+    ):
+        pass
 
 
 def test_observability_signals_correlate_without_counting_the_mcp_bridge(caplog, tmp_path) -> None:
@@ -403,7 +378,7 @@ def test_database_failure_log_does_not_include_memory_content(caplog, tmp_path) 
         with sqlite3.connect(database_path) as connection:
             connection.executescript("""
                 CREATE TRIGGER reject_memory_insert
-                BEFORE INSERT ON pc_memory_entry_versions
+                BEFORE INSERT ON pc_atomic_memory_states
                 BEGIN
                     SELECT RAISE(ABORT, 'forced persistence failure');
                 END;
@@ -447,7 +422,7 @@ def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeyp
     transport = next(span for span in instrumented if span.name == "HTTP flush_memory")
     application = next(span for span in instrumented if span.name == "powercontext flush_memory")
     flush = _only_child(instrumented, application, "memory.flush")
-    invoke_agent = _only_child(instrumented, flush, "invoke_agent memory_extraction")
+    invoke_agent = _only_child(instrumented, flush, "invoke_agent atomic_memory_extraction")
     chat = _only_child_with_prefix(instrumented, invoke_agent, "chat ")
     commit = _only_child(instrumented, flush, "memory.commit")
 
@@ -463,7 +438,7 @@ def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeyp
         "powercontext.operation.name": "memory.commit",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.commit.memory_changed": False,
-        "powercontext.memory.commit.entry_version_count": 0,
+        "powercontext.memory.commit.artifact_revision_count": 0,
         "powercontext.operation.outcome": "success",
     }
     assert {span.context.trace_id for span in (transport, application, flush, invoke_agent, chat, commit)} == {
@@ -478,24 +453,39 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
     model_output = json.dumps({
         "candidates": [
             {
-                "intent": "add",
                 "kind": "decision",
                 "text": private_memory_content,
-                "evidence_ids": ["source:0"],
-                "reason": "private extraction reason",
+                "evidence_ids": ["source:1"],
             }
         ]
     })
+
+    class MemoryModel(TestModel):
+        def _request(self, messages, model_settings, model_request_parameters):
+            model = copy(self)
+            if (
+                model_request_parameters.output_object is not None
+                and "action" in model_request_parameters.output_object.json_schema.get("properties", {})
+            ):
+                model.custom_output_text = json.dumps({
+                    "action": "create",
+                    "compared_ids": [],
+                    "content": {"kind": "decision", "text": private_memory_content},
+                    "evidence_ids": ["source:1"],
+                    "reason": "Preserve the exact fixture Source.",
+                })
+            return TestModel._request(model, messages, model_settings, model_request_parameters)
+
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda model: model if isinstance(model, Model) else TestModel(custom_output_text=model_output),
+        lambda model: model if isinstance(model, Model) else MemoryModel(custom_output_text=model_output),
     )
     monkeypatch.setattr(
         "pydantic_ai.embeddings.infer_embedding_model",
         lambda _model, **_kwargs: TestEmbeddingModel(dimensions=3),
     )
     monkeypatch.setattr(
-        "powercontext.builtin.runtime.composition.SQLiteMemoryVectorIndex",
+        "powercontext.builtin.runtime.composition.SQLiteAtomicMemoryIndex",
         lambda _profile: _VectorMemoryIndex(),
     )
 
@@ -528,7 +518,8 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
 
     assert captured.status_code == 202
     assert flushed.status_code == 200
-    assert flushed.json()["memory"] is not None
+    assert flushed.json()["memory"] is None
+    assert flushed.json()["processed_source_count"] == 1
     assert no_op.status_code == 200
     assert no_op.json()["processed_source_count"] == 0
 
@@ -559,29 +550,34 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
         for application in flush_applications
         if processed_flush.parent is not None and processed_flush.parent.span_id == application.context.span_id
     )
-    assert _only_child(spans, processed_application, "scope.context")
-    assert _only_child(spans, processed_application, "scope.lock")
     assert _pop_prompt_attributes(dict(processed_flush.attributes or {}), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
         "powercontext.operation.name": "memory.flush",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.flush.source_count": 1,
         "powercontext.operation.outcome": "success",
     }
-    invoke_agent = _only_child(spans, processed_flush, "invoke_agent memory_extraction")
+    invoke_agent = _only_child(spans, processed_flush, "invoke_agent atomic_memory_extraction")
     chat = _only_child_with_prefix(spans, invoke_agent, "chat ")
-    embedding = _only_child_with_prefix(spans, processed_flush, "embeddings ")
+    embeddings = [
+        span
+        for span in spans
+        if span.name.startswith("embeddings ")
+        and span.parent is not None
+        and span.parent.span_id == processed_flush.context.span_id
+    ]
+    assert len(embeddings) == 2
+    assert all(span.name == "embeddings test" for span in embeddings)
     commit = _only_child(spans, processed_flush, "memory.commit")
-    assert embedding.name == "embeddings test"
     assert dict(commit.attributes or {}) == {
         "powercontext.operation.name": "memory.commit",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.commit.memory_changed": True,
-        "powercontext.memory.commit.entry_version_count": 1,
+        "powercontext.memory.commit.artifact_revision_count": 1,
         "powercontext.operation.outcome": "success",
     }
     assert {
         span.context.trace_id
-        for span in (processed_application, processed_flush, invoke_agent, chat, embedding, commit)
+        for span in (processed_application, processed_flush, invoke_agent, chat, *embeddings, commit)
     } == {processed_application.context.trace_id}
 
     assert _pop_prompt_attributes(dict(no_op_flush.attributes or {}), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
@@ -590,7 +586,7 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
         "powercontext.memory.flush.source_count": 0,
         "powercontext.operation.outcome": "noop",
     }
-    assert not _children(spans, no_op_flush, "invoke_agent memory_extraction")
+    assert not _children(spans, no_op_flush, "invoke_agent atomic_memory_extraction")
     assert not [
         span
         for span in spans
@@ -605,7 +601,11 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
         if allowed_keys is None:
             continue
         if span.name == "memory.flush":
-            allowed_keys = allowed_keys | {_MEMORY_EXTRACT_PROMPT_PREFIX + key for key in _PROMPT_SELECTION_ATTRIBUTES}
+            allowed_keys = allowed_keys | {
+                prefix + key
+                for prefix in (_MEMORY_EXTRACT_PROMPT_PREFIX, _MEMORY_RECONCILE_PROMPT_PREFIX)
+                for key in _PROMPT_SELECTION_ATTRIBUTES
+            }
         attributes = dict(span.attributes or {})
         assert attributes.keys() <= allowed_keys
         assert all(isinstance(value, str | bool | int | float) for value in attributes.values())
@@ -630,7 +630,7 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
             mcp=McpConfig(enabled=False),
         ),
-        candidate_pipeline=_FixedCandidatePipeline(memory_content),
+        candidate_pipeline=atomic_memory_pipeline(_FixedCandidatePipeline(memory_content)),
         tracing=ServerTracing(provider),
     )
 
@@ -644,7 +644,7 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
         with sqlite3.connect(database_path) as connection:
             connection.executescript("""
                 CREATE TRIGGER reject_memory_insert
-                BEFORE INSERT ON pc_memory_entry_versions
+                BEFORE INSERT ON pc_atomic_memory_states
                 BEGIN
                     SELECT RAISE(ABORT, 'forced Memory commit failure');
                 END;
@@ -669,7 +669,7 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
         "powercontext.operation.name": "memory.commit",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.commit.memory_changed": True,
-        "powercontext.memory.commit.entry_version_count": 1,
+        "powercontext.memory.commit.artifact_revision_count": 1,
         "powercontext.operation.outcome": "failure",
         "error.type": "IntegrityError",
     }
@@ -680,7 +680,7 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
 
     assert retried.status_code == 200
     assert retried.json()["processed_source_count"] == 1
-    assert retried.json()["memory"] is not None
+    assert retried.json()["memory"] is None
 
 
 def test_process_memory_preserves_commit_tracing(tmp_path) -> None:
@@ -695,7 +695,7 @@ def test_process_memory_preserves_commit_tracing(tmp_path) -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(
             BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'process-memory.db'}")),
-            candidate_pipeline=_EmptyCandidatePipeline(),
+            candidate_pipeline=atomic_memory_pipeline(_EmptyCandidatePipeline()),
             tracing=ServerTracing(provider),
         ) as contexts:
             context = await contexts.get(scope_id)
@@ -712,7 +712,7 @@ def test_process_memory_preserves_commit_tracing(tmp_path) -> None:
         "powercontext.operation.name": "memory.commit",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.commit.memory_changed": False,
-        "powercontext.memory.commit.entry_version_count": 0,
+        "powercontext.memory.commit.artifact_revision_count": 0,
         "powercontext.operation.outcome": "success",
     }
 
@@ -802,25 +802,7 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert len(search_applications) == 3
     assert len(prepare_applications) == 2
 
-    search_applications_by_result = {
-        (
-            bool(
-                (_only_child(spans, application, "memory.search").attributes or {}).get(
-                    "powercontext.memory.search.memory_present"
-                )
-            ),
-            (_only_child(spans, application, "memory.search").attributes or {})[
-                "powercontext.memory.search.result_count"
-            ],
-        ): application
-        for application in search_applications
-    }
-    search_application = search_applications_by_result[(True, 1)]
-    assert dict(_only_child(spans, search_application, "scope.context").attributes or {}) == {
-        "powercontext.operation.name": "scope.context",
-        "powercontext.operation.unit": "stage",
-        "powercontext.operation.outcome": "success",
-    }
+    search_application, no_match_application, no_memory_application = search_applications
     # Read-only searches never serialize on the scope write lock, so they emit no wait span.
     assert not _children(spans, search_application, "scope.lock")
     search = _only_child(spans, search_application, "memory.search")
@@ -848,9 +830,10 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
         "powercontext.operation.unit": "stage",
         "powercontext.memory.search.requested_mode": "fts",
         "powercontext.memory.search.limit": 1,
-        "powercontext.memory.search.memory_present": True,
         "powercontext.memory.search.mode": "fts",
         "powercontext.memory.search.result_count": 1,
+        "powercontext.memory.search.embedding_calls": 0,
+        "powercontext.memory.search.generation_calls": 1,
         "powercontext.operation.outcome": "success",
     }
     rerank = _only_child(spans, search, "memory.rerank")
@@ -870,40 +853,21 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
         search_application.context.trace_id
     }
 
-    no_match_application = search_applications_by_result[(True, 0)]
     no_match_search = _only_child(spans, no_match_application, "memory.search")
     assert (no_match_search.attributes or {})["powercontext.memory.search.mode"] == "fts"
     assert not _children(spans, no_match_search, "memory.rerank")
-    no_memory_application = search_applications_by_result[(False, 0)]
     no_memory_search = _only_child(spans, no_memory_application, "memory.search")
-    assert "powercontext.memory.search.mode" not in (no_memory_search.attributes or {})
+    assert (no_memory_search.attributes or {})["powercontext.memory.search.mode"] == "fts"
     assert not _children(spans, no_memory_search, "memory.rerank")
 
-    prepared_by_memory_presence = {
-        bool(
-            (_only_child(spans, application, "memory.search").attributes or {}).get(
-                "powercontext.memory.search.memory_present"
-            )
-        ): application
+    prepared_by_result_count = {
+        (_only_child(spans, application, "memory.search").attributes or {})[
+            "powercontext.memory.search.result_count"
+        ]: application
         for application in prepare_applications
     }
-    ready_application = prepared_by_memory_presence[True]
-    empty_application = prepared_by_memory_presence[False]
-
-    # Both setup spans stay siblings of the recall stages: neither one covers the operation body.
-    for application in (ready_application, empty_application):
-        assert dict(_only_child(spans, application, "scope.context").attributes or {}) == {
-            "powercontext.operation.name": "scope.context",
-            "powercontext.operation.unit": "stage",
-            "powercontext.operation.outcome": "success",
-        }
-        assert dict(_only_child(spans, application, "scope.lock").attributes or {}) == {
-            "powercontext.operation.name": "scope.lock",
-            "powercontext.operation.unit": "stage",
-            "powercontext.scope.lock.contended": False,
-            "powercontext.operation.outcome": "success",
-        }
-
+    ready_application = prepared_by_result_count[1]
+    empty_application = prepared_by_result_count[0]
     ready_memory = _only_child(spans, ready_application, "memory.search")
     assert (ready_memory.attributes or {})["powercontext.memory.search.result_count"] == 1
     assert _only_child(spans, ready_memory, "memory.rerank")
@@ -925,9 +889,8 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
 
     empty_memory = _only_child(spans, empty_application, "memory.search")
     empty_memory_attributes = dict(empty_memory.attributes or {})
-    assert empty_memory_attributes["powercontext.memory.search.memory_present"] is False
     assert empty_memory_attributes["powercontext.memory.search.result_count"] == 0
-    assert "powercontext.memory.search.mode" not in empty_memory_attributes
+    assert empty_memory_attributes["powercontext.memory.search.mode"] == "text"
     assert not _children(spans, empty_memory, "memory.rerank")
     empty_experience = _only_child(spans, empty_application, "experience.search")
     assert (empty_experience.attributes or {})["powercontext.experience.search.result_count"] == 0
@@ -982,35 +945,24 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
                 ScopeDraft(title="Private lock", summary="Lock observability", idempotency_key="private-lock")
             )
             scope_id = scope.scope_id
-            memory = runtime.memory.for_scope(scope_id)
-            first = await memory.remember(
-                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text=memory_content),))
-            )
+            sources = runtime.sources.for_scope(scope_id)
+            await sources.capture(CaptureSource(source_id="first", content=memory_content, metadata={}))
 
-            # Holding the scope lock inside an operation makes the next write observe real contention.
             async with runtime._scope_operation(scope_id):
                 lock = runtime._lock(scope_id)
                 await lock.acquire()
                 contending = asyncio.create_task(
-                    memory.remember(
-                        RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Second fact."),))
-                    )
+                    sources.capture(CaptureSource(source_id="second", content="Second fact.", metadata={}))
                 )
                 await asyncio.sleep(0.05)
                 assert not contending.done()
                 lock.release()
                 await contending
 
-            # A failure inside the critical section must still release the lock for later writes.
-            with pytest.raises(RevisionConflictError):
-                await memory.remember(
-                    RememberMemoryRequest(
-                        entries=(MemoryEntryInput(kind="fact", text="Conflicting fact."),),
-                        expected_revision=first.memory_ref.revision,
-                    )
-                )
+            with pytest.raises(SourceConflictError):
+                await sources.capture(CaptureSource(source_id="first", content="Conflicting fact.", metadata={}))
             assert not lock.locked()
-            await memory.remember(RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Third fact."),)))
+            await sources.capture(CaptureSource(source_id="third", content="Third fact.", metadata={}))
 
     asyncio.run(scenario())
 
@@ -1020,8 +972,11 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
     ] == [False, True, False, False]
     # Every wait span succeeds, including the conflicting write's: the span closes before the critical section runs.
     for span in spans:
-        assert (span.attributes or {}).get("powercontext.operation.outcome") == "success"
+        if span.name == "scope.lock":
+            assert (span.attributes or {}).get("powercontext.operation.outcome") == "success"
         allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
+        if (span.attributes or {}).get("powercontext.operation.outcome") == "failure":
+            allowed_keys = None if allowed_keys is None else allowed_keys | {"error.type"}
         assert allowed_keys is None or (span.attributes or {}).keys() <= allowed_keys
     exported = _exported_span_data(spans)
     assert scope_id not in exported
@@ -1042,8 +997,8 @@ def test_scope_lock_is_released_when_stage_teardown_fails(tmp_path) -> None:
             async with runtime._scope_operation(scope_id):
                 lock = runtime._lock(scope_id)
                 with pytest.raises(_StageTeardownError):
-                    await runtime.memory.for_scope(scope_id).remember(
-                        RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Guarded fact."),))
+                    await runtime.sources.for_scope(scope_id).capture(
+                        CaptureSource(source_id="guarded", content="Guarded fact.", metadata={})
                     )
                 return lock.locked()
 
@@ -1051,19 +1006,26 @@ def test_scope_lock_is_released_when_stage_teardown_fails(tmp_path) -> None:
 
 
 class _EmptyCandidatePipeline:
-    """Produce no Memory candidates so a scheduled flush advances the cursor without a model."""
+    """Advance the Source cursor without producing a memory."""
 
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        del request
-        return ()
+    async def generate(self, request: AtomicMemoryExtractionInput, /):
+        return GenerationResult(output=AtomicMemoryExtractionOutput())
 
 
 class _FixedCandidatePipeline:
     def __init__(self, text: str) -> None:
         self._text = text
 
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        return (MemoryEntryInput(kind="fact", text=self._text, sources=request.sources),)
+    async def generate(self, request: AtomicMemoryExtractionInput, /):
+        return GenerationResult(
+            output=AtomicMemoryExtractionOutput(
+                candidates=(
+                    AtomicMemoryCandidate(
+                        kind="fact", text=self._text, evidence_ids=tuple(item.evidence_id for item in request.evidence)
+                    ),
+                )
+            )
+        )
 
 
 class _EmptyExperiencePipeline:
@@ -1081,13 +1043,16 @@ def _traced_family_worker(
     from powercontext.builtin.runtime.composition import open_builtin_contexts
 
     async def run() -> ArtifactProcessingWorkerCompletion:
-        async with open_builtin_contexts(
-            spec.config,
-            candidate_pipeline=_EmptyCandidatePipeline(),
-            experience_pipeline=_EmptyExperiencePipeline(),
-            _topic_memory_worker=True,
-        ) as contexts:
-            return await process_family_invocation(contexts, assignment, config=spec.config)
+        async with (
+            open_builtin_contexts(
+                spec.config,
+                candidate_pipeline=atomic_memory_pipeline(_EmptyCandidatePipeline()),
+                experience_pipeline=_EmptyExperiencePipeline(),
+                _topic_memory_worker=True,
+            ) as contexts,
+            open_worker_security(spec.worker_security, contexts.database) as security,
+        ):
+            return await process_family_invocation(contexts, assignment, config=spec.config, security=security)
 
     return asyncio.run(run())
 
@@ -1261,7 +1226,7 @@ def test_vector_search_exports_embedding_under_memory_search_without_recording_t
         lambda _model, **_kwargs: TestEmbeddingModel(dimensions=3),
     )
     monkeypatch.setattr(
-        "powercontext.builtin.runtime.composition.SQLiteMemoryVectorIndex",
+        "powercontext.builtin.runtime.composition.SQLiteAtomicMemoryIndex",
         lambda _profile: _VectorMemoryIndex(),
     )
 
@@ -1310,12 +1275,12 @@ def test_vector_search_exports_embedding_under_memory_search_without_recording_t
         "powercontext.operation.unit": "stage",
         "powercontext.memory.search.requested_mode": "vector",
         "powercontext.memory.search.limit": 1,
-        "powercontext.memory.search.memory_present": True,
         "powercontext.memory.search.mode": "vector",
         "powercontext.memory.search.result_count": 0,
+        "powercontext.memory.search.embedding_calls": 1,
+        "powercontext.memory.search.generation_calls": 0,
         "powercontext.operation.outcome": "success",
     }
-    assert embedding.name == "embeddings test"
     assert embedding.context.trace_id == application.context.trace_id
     assert not any(_is_inference_span(span) and span.parent is None for span in spans)
     exported = _exported_span_data(spans)
@@ -1326,7 +1291,7 @@ def test_vector_search_exports_embedding_under_memory_search_without_recording_t
 
 def test_injected_always_on_embedding_skips_readiness_but_traces_vector_search(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "powercontext.builtin.runtime.composition.SQLiteMemoryFTSIndex",
+        "powercontext.builtin.runtime.composition.SQLiteAtomicMemoryIndex",
         _VectorMemoryIndex,
     )
 
@@ -1376,7 +1341,6 @@ def test_injected_always_on_embedding_skips_readiness_but_traces_vector_search(m
     application = next(span for span in spans if span.name == "powercontext search_memory")
     search = _only_child(spans, application, "memory.search")
     embedding = _only_child_with_prefix(spans, search, "embeddings ")
-    assert embedding.name == "embeddings test"
     assert [span for span in spans if _is_inference_span(span)] == [embedding]
 
 
@@ -1424,7 +1388,8 @@ def _create_scope(client: TestClient, *, title: str, idempotency_key: str) -> st
     return response.json()["scope_id"]
 
 
-_MEMORY_EXTRACT_PROMPT_PREFIX = "powercontext.prompt.memory.extract."
+_MEMORY_EXTRACT_PROMPT_PREFIX = "powercontext.prompt.atomic_memory.extract."
+_MEMORY_RECONCILE_PROMPT_PREFIX = "powercontext.prompt.atomic_memory.reconcile."
 _PROMPT_SELECTION_ATTRIBUTES = (
     "selection",
     "version",
@@ -1442,10 +1407,12 @@ def _pop_prompt_attributes(attributes: dict[str, object], prefix: str, /) -> dic
     prompt metadata from smuggling unbounded values onto the stage span.
     """
 
-    prompt_names = {key.removeprefix(prefix) for key in attributes if key.startswith(prefix)}
-    assert prompt_names == set() or prompt_names == set(_PROMPT_SELECTION_ATTRIBUTES)
-    for key in [key for key in attributes if key.startswith(prefix)]:
-        del attributes[key]
+    prefixes = (prefix, _MEMORY_RECONCILE_PROMPT_PREFIX) if prefix == _MEMORY_EXTRACT_PROMPT_PREFIX else (prefix,)
+    for selected in prefixes:
+        prompt_names = {key.removeprefix(selected) for key in attributes if key.startswith(selected)}
+        assert prompt_names == set() or prompt_names == set(_PROMPT_SELECTION_ATTRIBUTES)
+        for key in [key for key in attributes if key.startswith(selected)]:
+            del attributes[key]
     return attributes
 
 

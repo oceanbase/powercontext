@@ -28,6 +28,13 @@ from powercontext.http._generated.models import (
     ArtifactRevisionPage,
     ArtifactTagPage,
     ArtifactTagSet,
+    AtomicMemoryLifecycleRequest,
+    AtomicMemoryMutationResponse,
+    AtomicMemoryRestorationPreview,
+    AtomicMemoryRestorationPreviewRequest,
+    AtomicMemoryRestorationRequest,
+    AtomicMemoryRestorationResponse,
+    AtomicMemoryStateResponse,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
@@ -72,6 +79,7 @@ from powercontext.http._generated.models import (
     GetHandoffReportRequest,
     GetMemoryCapacityRequest,
     GetMemoryEntryRequest,
+    GetMemoryEntryResponse,
     GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
@@ -91,6 +99,8 @@ from powercontext.http._generated.models import (
     ListArtifactCandidatesRequest,
     ListArtifactRevisionsRequest,
     ListArtifactsRequest,
+    ListAtomicMemoryRequest,
+    ListAtomicMemoryResponse,
     ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -105,8 +115,8 @@ from powercontext.http._generated.models import (
     ListScopesRequest,
     ListSourcesRequest,
     MemoryCapacity,
-    MemoryEntry,
     MemoryMutationResponse,
+    MergeAtomicMemoryRequest,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
@@ -157,6 +167,8 @@ from powercontext.http._generated.models import (
     ScopePage,
     SearchArtifactsRequest,
     SearchArtifactsResponse,
+    SearchAtomicMemoryRequest,
+    SearchAtomicMemoryResponse,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SearchTopicMemoryRequest,
@@ -210,6 +222,193 @@ class AccessRequirement(BaseModel):
     scope_id_field: str | None
     resolver: str
 
+
+LIST_ATOMIC_MEMORIES = Operation[ListAtomicMemoryRequest, ListAtomicMemoryResponse](
+    method="POST",
+    path="/v1/atomic-memory/list",
+    operation_id="list_atomic_memories",
+    request_type=ListAtomicMemoryRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ListAtomicMemoryResponse,
+    success_status=200,
+    summary="List Atomic Memory heads by lifecycle and metadata",
+    tags=("atomic-memory",),
+    scope_mode="current",
+    responses={
+        200: {"description": "Operation completed."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_domain_access"),
+)
+
+SEARCH_ATOMIC_MEMORY = Operation[SearchAtomicMemoryRequest, SearchAtomicMemoryResponse](
+    method="POST",
+    path="/v1/atomic-memory/search",
+    operation_id="search_atomic_memory",
+    request_type=SearchAtomicMemoryRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SearchAtomicMemoryResponse,
+    success_status=200,
+    summary="Search active Atomic Memories",
+    tags=("atomic-memory",),
+    scope_mode="current",
+    responses={
+        200: {"description": "Operation completed."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_domain_access"),
+)
+
+MERGE_ATOMIC_MEMORIES = Operation[MergeAtomicMemoryRequest, AtomicMemoryMutationResponse](
+    method="POST",
+    path="/v1/atomic-memory/merges",
+    operation_id="merge_atomic_memories",
+    request_type=MergeAtomicMemoryRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=AtomicMemoryMutationResponse,
+    success_status=200,
+    summary="Merge exact active Atomic Memories into a new Artifact",
+    tags=("atomic-memory",),
+    scope_mode="current",
+    responses={
+        200: {"description": "Operation completed."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_domain_access"),
+)
+
+CHANGE_ATOMIC_MEMORY_LIFECYCLE = Operation[AtomicMemoryLifecycleRequest, AtomicMemoryMutationResponse](
+    method="POST",
+    path="/v1/atomic-memory/lifecycle",
+    operation_id="change_atomic_memory_lifecycle",
+    request_type=AtomicMemoryLifecycleRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=AtomicMemoryMutationResponse,
+    success_status=200,
+    summary="Forget one Atomic Memory without changing its content revision",
+    tags=("atomic-memory",),
+    scope_mode="current",
+    responses={
+        200: {"description": "Operation completed."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_domain_access"),
+)
+
+PREVIEW_ATOMIC_MEMORY_RESTORATION = Operation[AtomicMemoryRestorationPreviewRequest, AtomicMemoryRestorationPreview](
+    method="POST",
+    path="/v1/atomic-memory/restoration-previews",
+    operation_id="preview_atomic_memory_restoration",
+    request_type=AtomicMemoryRestorationPreviewRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=AtomicMemoryRestorationPreview,
+    success_status=200,
+    summary="Preview a complete Atomic Memory restoration",
+    tags=("atomic-memory",),
+    scope_mode="current",
+    responses={
+        200: {"description": "Operation completed."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_domain_access"),
+)
+
+RESTORE_ATOMIC_MEMORY = Operation[AtomicMemoryRestorationRequest, AtomicMemoryRestorationResponse](
+    method="POST",
+    path="/v1/atomic-memory/restorations",
+    operation_id="restore_atomic_memory",
+    request_type=AtomicMemoryRestorationRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=AtomicMemoryRestorationResponse,
+    success_status=200,
+    summary="Restore Atomic Memory content and undo dependent merges atomically",
+    tags=("atomic-memory",),
+    scope_mode="current",
+    responses={
+        200: {"description": "Operation completed."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_domain_access"),
+)
+
+GET_ATOMIC_MEMORY_STATE = Operation[None, AtomicMemoryStateResponse](
+    method="GET",
+    path="/v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/state",
+    operation_id="get_atomic_memory_state",
+    request_type=None,
+    request_location=None,
+    path_parameters=("scope_id", "artifact_id"),
+    response_type=AtomicMemoryStateResponse,
+    success_status=200,
+    summary="Read the current four-state Atomic Memory lifecycle",
+    tags=("atomic-memory",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "Current content reference and lifecycle state.",
+            "headers": {
+                "ETag": {
+                    "description": "ETag for the current content revision and state version.",
+                    "schema": {"type": "string"},
+                }
+            },
+        },
+        304: {
+            "description": "The current representation is unchanged.",
+            "headers": {"ETag": {"schema": {"type": "string"}}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_state_access"),
+)
 
 CREATE_SUBJECT_SOURCE = Operation[CreateSubjectSourceRequest, CreateSubjectSourceResponse](
     method="POST",
@@ -1264,7 +1463,7 @@ REMEMBER_MEMORY = Operation[RememberMemoryRequest, MemoryMutationResponse](
     path_parameters=(),
     response_type=MemoryMutationResponse,
     success_status=200,
-    summary="Remember explicit Memory content",
+    summary="Create Atomic Memory through the legacy remember input",
     tags=("memory",),
     scope_mode="current",
     responses={
@@ -1293,7 +1492,7 @@ SEARCH_MEMORY = Operation[SearchMemoryRequest, SearchMemoryResponse](
     path_parameters=(),
     response_type=SearchMemoryResponse,
     success_status=200,
-    summary="Search active Memory entries",
+    summary="Search active Atomic Memory through the legacy query input",
     tags=("memory",),
     scope_mode="current",
     responses={
@@ -1308,7 +1507,7 @@ SEARCH_MEMORY = Operation[SearchMemoryRequest, SearchMemoryResponse](
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},
     },
-    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_domain_access"),
 )
 
 GET_MEMORY_CAPACITY = Operation[GetMemoryCapacityRequest, MemoryCapacity](
@@ -1320,9 +1519,9 @@ GET_MEMORY_CAPACITY = Operation[GetMemoryCapacityRequest, MemoryCapacity](
     path_parameters=(),
     response_type=MemoryCapacity,
     success_status=200,
-    summary="Read Memory capacity",
+    summary="Unsupported legacy collection capacity",
     tags=("memory",),
-    scope_mode="current",
+    scope_mode="none",
     responses={
         200: {
             "description": "Capacity of one exact current Memory Revision.",
@@ -1335,7 +1534,7 @@ GET_MEMORY_CAPACITY = Operation[GetMemoryCapacityRequest, MemoryCapacity](
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},
     },
-    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_domain_access"),
 )
 
 LIST_MEMORY_ENTRIES = Operation[ListMemoryEntriesRequest, ListMemoryEntriesResponse](
@@ -1347,7 +1546,7 @@ LIST_MEMORY_ENTRIES = Operation[ListMemoryEntriesRequest, ListMemoryEntriesRespo
     path_parameters=(),
     response_type=ListMemoryEntriesResponse,
     success_status=200,
-    summary="List Memory entries",
+    summary="List Atomic Memory through the legacy inventory input",
     tags=("memory",),
     scope_mode="current",
     responses={
@@ -1362,19 +1561,19 @@ LIST_MEMORY_ENTRIES = Operation[ListMemoryEntriesRequest, ListMemoryEntriesRespo
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},
     },
-    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_domain_access"),
 )
 
-GET_MEMORY_ENTRY = Operation[GetMemoryEntryRequest, MemoryEntry](
+GET_MEMORY_ENTRY = Operation[GetMemoryEntryRequest, GetMemoryEntryResponse](
     method="POST",
     path="/v1/memory/entries/get",
     operation_id="get_memory_entry",
     request_type=GetMemoryEntryRequest,
     request_location="body",
     path_parameters=(),
-    response_type=MemoryEntry,
+    response_type=GetMemoryEntryResponse,
     success_status=200,
-    summary="Get an exact Memory entry version",
+    summary="Read exact legacy history or mapped current Atomic Memory",
     tags=("memory",),
     scope_mode="current",
     responses={
@@ -1401,9 +1600,9 @@ REVISE_MEMORY_ENTRY = Operation[ReviseMemoryEntryRequest, MemoryMutationResponse
     path_parameters=(),
     response_type=MemoryMutationResponse,
     success_status=200,
-    summary="Revise an exact Memory entry",
+    summary="Unsupported legacy citation revision",
     tags=("memory",),
-    scope_mode="current",
+    scope_mode="none",
     responses={
         200: {
             "description": "The Memory entry revision completed.",
@@ -1429,9 +1628,9 @@ RETIRE_MEMORY_ENTRY = Operation[RetireMemoryEntryRequest, MemoryMutationResponse
     path_parameters=(),
     response_type=MemoryMutationResponse,
     success_status=200,
-    summary="Retire an exact Memory entry",
+    summary="Unsupported legacy citation retirement",
     tags=("memory",),
-    scope_mode="current",
+    scope_mode="none",
     responses={
         200: {
             "description": "The Memory entry retirement completed.",
@@ -1457,9 +1656,9 @@ LIST_MEMORY_CHANGES = Operation[ListMemoryChangesRequest, ListMemoryChangesRespo
     path_parameters=(),
     response_type=ListMemoryChangesResponse,
     success_status=200,
-    summary="List Memory Revision changes",
+    summary="Unsupported continuous legacy collection changes",
     tags=("memory",),
-    scope_mode="current",
+    scope_mode="none",
     responses={
         200: {
             "description": "Compact changes through the selected Memory Revision.",
@@ -2602,7 +2801,7 @@ GET_ARTIFACT = Operation[None, ArtifactRevision](
     success_status=200,
     summary="Get the current Artifact head",
     tags=("artifacts",),
-    scope_mode="none",
+    scope_mode="current",
     responses={
         200: {
             "description": "The current visible Artifact head.",
@@ -2639,7 +2838,7 @@ REPLACE_ARTIFACT = Operation[ReplaceArtifactRequest, ArtifactRevision](
     success_status=200,
     summary="Replace the current Artifact head",
     tags=("artifacts",),
-    scope_mode="none",
+    scope_mode="current",
     responses={
         200: {
             "description": "The complete replacement was committed as the next revision.",
@@ -2832,7 +3031,7 @@ GET_ARTIFACT_REVISION = Operation[None, ArtifactRevision](
     success_status=200,
     summary="Get one exact immutable Artifact revision",
     tags=("artifacts",),
-    scope_mode="none",
+    scope_mode="current",
     responses={
         200: {
             "description": "The exact immutable Artifact revision.",

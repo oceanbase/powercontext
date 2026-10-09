@@ -81,7 +81,9 @@ def test_consumed_schema_changes_fail_stale_checks_and_update_outputs(repository
     before = generated_files(repository)
     contract = repository / "openapi/powercontext.yaml"
     spec = yaml.safe_load(contract.read_text(encoding="utf-8"))
-    spec["components"]["schemas"]["SearchMemoryHit"]["properties"]["text"]["description"] = "Updated retained evidence."
+    spec["components"]["schemas"]["AtomicMemoryRecord"]["properties"]["text"]["description"] = (
+        "Updated retained evidence."
+    )
     contract.write_text(yaml.safe_dump(spec, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
     stale = generate(repository, check=True)
@@ -96,7 +98,7 @@ def test_consumed_schema_changes_fail_stale_checks_and_update_outputs(repository
     assert after["tools/pc_search.yaml"] != before["tools/pc_search.yaml"]
     spec = json.loads(after["powercontext_dify/contract.json"])
     assert (
-        spec["components"]["schemas"]["SearchMemoryHit"]["properties"]["text"]["description"]
+        spec["components"]["schemas"]["AtomicMemoryRecord"]["properties"]["text"]["description"]
         == "Updated retained evidence."
     )
     checked = generate(repository, check=True)

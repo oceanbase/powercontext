@@ -38,8 +38,17 @@ from sqlalchemy.exc import ArgumentError
 
 from evaluation.memory.locomo.dataset import LoCoMoSession
 from evaluation.memory.locomo.metrics import retrieval_metrics
-from evaluation.memory.locomo.runner import load_settings, normalize_run_id, public_configuration
-from powercontext.builtin.artifacts.memory.prompts import memory_extraction_instructions_version
+from evaluation.memory.locomo.runner import (
+    _all_atomic_records,
+    _atomic_snapshot,
+    _lineage_source_ids,
+    load_settings,
+    normalize_run_id,
+    public_configuration,
+)
+from powercontext.builtin.artifacts.atomic_memory.extraction import atomic_memory_extraction_instructions
+from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryStateValue
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS
 from powercontext.builtin.inference import InvalidInferenceOutputError, character_token_estimator
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
@@ -66,7 +75,7 @@ from .prompts import (
 )
 
 ARMS = ("memory", "memory-source", "query-only", "oracle-cue", "full-context")
-HARNESS_VERSION = "powercontext.locomo-plus.v1"
+HARNESS_VERSION = "powercontext.locomo-plus.v2"
 
 # Only application-authored details are safe to copy verbatim. Provider exception messages can contain credentials.
 _KNOWN_DETAILS = frozenset({
@@ -97,7 +106,7 @@ def describe_error(error: BaseException) -> dict[str, Any]:
         seen.add(id(current))
         item: dict[str, Any] = {"type": type(current).__name__}
         if isinstance(current, InvalidInferenceOutputError):
-            if current.operation in {"generate", "embed", "memory-extract"}:
+            if current.operation in {"generate", "embed", "atomic-memory-extract", "atomic-memory-reconcile"}:
                 item["operation"] = current.operation
             if current.detail in _KNOWN_DETAILS:
                 item["detail"] = current.detail
@@ -375,7 +384,12 @@ def _configuration(settings, judge_model, max_tokens, database) -> dict[str, Any
             "embedding": _digest(str(inference.embedding_base_url)),
         },
         "memory_extraction_profile": "conversation",
-        "memory_extraction_instructions": memory_extraction_instructions_version(MemoryExtractionProfile.CONVERSATION),
+        "memory_extraction_instructions_sha256": hashlib.sha256(
+            atomic_memory_extraction_instructions(MemoryExtractionProfile.CONVERSATION).encode("utf-8")
+        ).hexdigest(),
+        "memory_reconciliation_instructions_sha256": hashlib.sha256(
+            ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS.encode("utf-8")
+        ).hexdigest(),
     }
 
 
@@ -435,16 +449,18 @@ async def _ingest(runtime, case, sessions, scope, output_directory, records, pri
             cursor = await memory_app.cursor()
             record["processed_session_count"] = cursor.sequence
             _write_json(output_directory / "ingestion.json", records)
-        page = await memory_app.list()
+        memories = await _all_atomic_records(memory_app, include_inactive=True)
         record.update({
             "status": "ok",
             "session_count": len(sessions),
-            "memory_count": len(page.entries),
-            "memories": [entry.model_dump(mode="json") for entry in page.entries],
+            "schema": "powercontext.benchmark.locomo-plus.ingestion.v2",
+            "atomic_memory_count": sum(memory.state.state is AtomicMemoryStateValue.ACTIVE for memory in memories),
+            "atomic_memory_snapshot": [read.model_dump(mode="json") for read in _atomic_snapshot(memories)],
+            "memories": [memory.model_dump(mode="json", by_alias=True) for memory in memories],
         })
         record.pop("error_type", None)
         record.pop("error", None)
-        return page  # noqa: TRY300
+        return memories  # noqa: TRY300
     except Exception as error:
         record.update({"status": "error", "error_type": type(error).__name__, "error": describe_error(error)})
         if flush_inflight:
@@ -509,23 +525,37 @@ def _finish_usage(observation, stage, usage, model, prices):
 
 async def _recall_usage(runtime, scope):
     statistics = await runtime.statistics.for_scope(scope).overview()
-    return _sum_usage([
-        row.embedding.model_dump() for row in statistics.usage.by_purpose if row.purpose.value == "memory_recall"
-    ])
+    rows = [row for row in statistics.usage.by_purpose if row.purpose.value == "memory_recall"]
+    return {
+        "embedding": _sum_usage([{**row.embedding.model_dump(), "output_tokens": 0} for row in rows]),
+        "generation": _sum_usage([row.generation.model_dump() for row in rows]),
+    }
 
 
-async def _retrieve(runtime, case, page, scope, sessions, top_k, source_expansion):
+async def _retrieve(runtime, case, scope, sessions, top_k, source_expansion):
     result = await runtime.memory.for_scope(scope).search(
         SearchMemoryRequest(query=case.question, limit=top_k, mode="hybrid")
     )
-    sources = {(record.entry.entry_id, record.entry.entry_version_id): record.entry.sources for record in page.entries}
+    records = runtime.records.for_scope(scope)
+    cache: dict[tuple[str, str, int], tuple[str, ...]] = {}
     rendered: list[str] = []
     hits: list[dict[str, Any]] = []
     session_map = {session.session_id: session for session in sessions}
     selected_ids: list[str] = []
-    for hit in result.hits:
-        ids = tuple(ref.source_id for ref in sources.get((hit.entry_id, hit.entry_version_id), ()))
-        hits.append({**hit.model_dump(mode="json"), "source_ids": list(ids)})
+    for rank, wrapper in enumerate(result.hits, 1):
+        hit = wrapper.hit
+        ids = await _lineage_source_ids(records, hit.artifact_ref, cache)
+        hits.append({
+            "rank": rank,
+            "artifact_ref": hit.artifact_ref.model_dump(mode="json"),
+            "state_version": hit.state_version,
+            "kind": hit.kind,
+            "text": hit.text,
+            "score": hit.score,
+            "distance": hit.distance,
+            "matched_by": list(wrapper.matched_by),
+            "source_ids": list(ids),
+        })
         rendered.append(f"Memory: {hit.text}\nSources: {', '.join(ids)}")
         for source_id in ids:
             local_id = source_id.rsplit(":", maxsplit=1)[-1]
@@ -538,7 +568,29 @@ async def _retrieve(runtime, case, page, scope, sessions, top_k, source_expansio
     metrics = retrieval_metrics(
         evidence_sessions=evidence_sessions, hit_source_ids=tuple(tuple(hit["source_ids"]) for hit in hits)
     )
-    return "\n\n".join(rendered), hits, selected_ids, metrics
+    return (
+        "\n\n".join(rendered),
+        hits,
+        selected_ids,
+        {
+            **metrics,
+            "mode": result.mode,
+            "score_kind": "rrf-ranking-score",
+            "embedding_calls": result.embedding_calls,
+            "generation_calls": result.generation_calls,
+            "rerank": None
+            if result.rerank is None
+            else {
+                "policy_id": result.rerank.policy_id,
+                "candidate_count": len(result.rerank.candidate_hits),
+                "selected_ranks": list(result.rerank.selected_ranks),
+                "discarded_rank_count": result.rerank.discarded_rank_count,
+                "used_fallback": result.rerank.used_fallback,
+                "latency_ms": result.rerank.latency_ms,
+                "usage": result.rerank.usage.model_dump(mode="json"),
+            },
+        },
+    )
 
 
 async def _evaluate(
@@ -568,6 +620,7 @@ async def _evaluate(
         if previous
         else {
             "case_id": case.case_id,
+            "schema": "powercontext.benchmark.locomo-plus.observation.v2",
             "category": case.category,
             "constraint_type": case.relation_type,
             "question": case.question,
@@ -602,22 +655,29 @@ async def _evaluate(
                     ingestion[scope] = {"scope_id": scope, "namespace": namespace, "latency_ms": 0.0}
                     _write_json(output_directory / "ingestion.json", ingestion)
                 observation["scope_id"] = scope
-                page = await _ingest(runtime, case, sessions, scope, output_directory, ingestion, prices, settings)
+                await _ingest(runtime, case, sessions, scope, output_directory, ingestion, prices, settings)
                 phase = "retrieval"
                 queried = perf_counter()
                 before = await _recall_usage(runtime, scope)
                 _start_usage(observation, "retrieval", settings.inference.embedding_model, prices)
                 context, hits, selected_ids, retrieval = await _retrieve(
-                    runtime, case, page, scope, sessions, top_k, arm == "memory-source"
+                    runtime, case, scope, sessions, top_k, arm == "memory-source"
                 )
                 observation["latency_ms"]["query"] = (perf_counter() - queried) * 1_000
                 after = await _recall_usage(runtime, scope)
-                usage = {
-                    key: None if after[key] is None or before[key] is None else after[key] - before[key]
-                    for key in ("requests", "input_tokens")
-                }
-                usage["output_tokens"] = 0
-                _finish_usage(observation, "retrieval", usage, settings.inference.embedding_model, prices)
+                for channel, stage, model in (
+                    ("embedding", "retrieval", settings.inference.embedding_model),
+                    ("generation", "retrieval_generation", settings.inference.generation_model),
+                ):
+                    usage = {
+                        key: None
+                        if after[channel][key] is None or before[channel][key] is None
+                        else after[channel][key] - before[channel][key]
+                        for key in ("requests", "input_tokens", "output_tokens")
+                    }
+                    if stage == "retrieval_generation":
+                        _start_usage(observation, stage, model, prices)
+                    _finish_usage(observation, stage, usage, model, prices)
             elif arm == "query-only":
                 context = ""
             else:

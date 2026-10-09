@@ -73,6 +73,7 @@ def _domain_error_result(error: BaseException) -> str | None:
     outcome = {
         404: "not_found",
         409: "conflict",
+        412: "conflict",
         422: "invalid_request",
     }.get(error.status)
     if outcome is None:
@@ -448,12 +449,40 @@ def handle_slash_command(provider: Any, raw_args: str) -> str:  # noqa: C901
 
 
 def citation_properties() -> dict[str, Any]:
+    artifact = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "family": {"type": "string", "enum": ["atomic-memory"]},
+            "artifact_id": {"type": "string", "minLength": 1},
+            "revision": {"type": "integer", "minimum": 1},
+        },
+        "required": ["family", "artifact_id", "revision"],
+    }
     return {
-        "family": {"type": "string"},
-        "artifact_id": {"type": "string"},
-        "revision": {"type": "integer", "minimum": 1},
-        "entry_id": {"type": "string"},
-        "entry_version_id": {"type": "string"},
+        "reference": {
+            "type": "object",
+            "description": "Exact returned ArtifactRef or {artifact, state_version}; old MemoryCitation is read-only.",
+            "oneOf": [
+                artifact,
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {"artifact": artifact, "state_version": {"type": "integer", "minimum": 0}},
+                    "required": ["artifact", "state_version"],
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "memory_ref": {"type": "object"},
+                        "entry_id": {"type": "string"},
+                        "entry_version_id": {"type": "string"},
+                    },
+                    "required": ["memory_ref", "entry_id", "entry_version_id"],
+                },
+            ],
+        }
     }
 
 
@@ -580,14 +609,14 @@ def get_tool_schemas() -> list[dict[str, Any]]:
         {
             "name": "powercontext_retire_memory",
             "description": (
-                "Retire an existing PowerContext Memory only when the user asks to remove it from active use. Inspect "
-                "the entry and use its exact current citation. Retirement preserves history; it is not physical "
-                "erasure. Do not retire entries merely because a new prompt differs from them. Confirm the operation "
+                "Forget an existing Atomic Memory only when the user asks to remove it from active use. Inspect "
+                "the object and use its exact current reference and state_version. Forgetting preserves history; it is not physical "
+                "erasure. Legacy MemoryCitation is read-only. Confirm the operation "
                 "result."
             ),
             "parameters": {
                 "type": "object",
-                "properties": {**citation, "reason": {"type": "string"}},
+                "properties": citation,
                 "required": list(citation),
             },
         },
@@ -624,9 +653,13 @@ def get_tool_schemas() -> list[dict[str, Any]]:
                 "Inventory PowerContext Memory in the current Scope when the user asks to list, inspect the "
                 "collection, or audit entries. For a question about a prior decision use powercontext_search_memory "
                 "instead. Do not list routinely to restore context. Include inactive entries only for an explicit "
-                "audit; an empty inventory is a valid result."
+                "audit. Follow next_cursor for more pages; an empty inventory is a valid result."
             ),
-            {"include_inactive": {"type": "boolean", "default": False}},
+            {
+                "include_inactive": {"type": "boolean", "default": False},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+                "cursor": {"type": "string", "description": "Copy next_cursor from the previous inventory page."},
+            },
         ),
         _operation_schema(
             "powercontext_revise_memory_entry",
@@ -637,19 +670,17 @@ def get_tool_schemas() -> list[dict[str, Any]]:
                 "success."
             ),
             {
-                "citation": json_object,
+                "citation": citation["reference"],
                 "kind": {"type": "string"},
                 "text": {"type": "string"},
-                "reason": {"type": "string"},
             },
             ("citation", "kind", "text"),
         ),
         _operation_schema(
             "powercontext_list_memory_changes",
             (
-                "Inspect PowerContext Memory change history for an explicit audit or revision investigation. Use the "
-                "requested revision boundary when available. This is not semantic retrieval or proof that a "
-                "particular user request was saved; report only the recorded changes."
+                "Collection change history is unavailable for Atomic Memory. Read the exact Artifact revision instead; "
+                "this compatibility tool returns an explicit unsupported error."
             ),
             {"since_revision": {"type": "integer", "minimum": 0}},
         ),

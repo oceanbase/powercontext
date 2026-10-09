@@ -35,10 +35,13 @@ from referencing import Registry
 from referencing.exceptions import Unresolvable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
+from typing_extensions import override
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import Artifact, ArtifactRef, MemoryCitation
 from powercontext.artifacts.search import ArtifactSearchExecutionContext
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemory
+from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryGenerationPipeline
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
     Experience,
@@ -119,7 +122,6 @@ from powercontext.builtin.dream.service import CandidateAttester, DreamAuthorize
 from powercontext.builtin.evidence.resolver import AuthorizationContext, EvidenceAuthorizer, EvidenceResolver
 from powercontext.builtin.inference import (
     EmbeddingModel,
-    InferenceTimeoutError,
     InferenceUsage,
     InvalidInferenceOutputError,
     TokenEstimator,
@@ -132,6 +134,7 @@ from powercontext.builtin.persistence.artifact_governance import (
 )
 from powercontext.builtin.persistence.artifact_readers import TopicMemoryArtifactListReader
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
+from powercontext.builtin.persistence.atomic_memory_index import AtomicMemoryIndex
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository, StoredSourceCursor
@@ -140,6 +143,7 @@ from powercontext.builtin.persistence.errors import RepositoryNotFoundError, Sto
 from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
 from powercontext.builtin.persistence.family_management import (
+    AtomicMemoryManagementWriter,
     ExperienceManagementWriter,
     FamilyManagementWriterRegistry,
     HandoffManagementWriter,
@@ -182,6 +186,12 @@ from powercontext.builtin.review.generation import (
 from powercontext.builtin.review.models import ArtifactCandidate
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime._model_usage import _ModelUsageRecorder
+from powercontext.builtin.runtime.atomic_memory import AtomicMemoryApplication
+from powercontext.builtin.runtime.atomic_memory_processing import (
+    AtomicMemoryProcessingConfig,
+    AtomicMemorySourceWindowProcessor,
+)
+from powercontext.builtin.runtime.atomic_memory_security import AtomicMemoryExecutionContext
 from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.models import (
     CommitConnectorCheckpoint,
@@ -296,6 +306,38 @@ class _Repositories:
     topic_memories: TopicMemoryRepository
 
 
+class _FrozenRuntimeMemoryBackend(RelationalMemoryBackend):
+    @override
+    async def _commit(self, connection, value):
+        from powercontext.builtin.records import BaseOperationNotSupportedError
+
+        raise BaseOperationNotSupportedError("artifact_family", "memory", "frozen collection write")
+
+
+class _FrozenRuntimeMemoryService(MemoryService):
+    """Allow exact immutable legacy reads while refusing current collection operations."""
+
+    async def _unsupported(self, *args, **kwargs):
+        from powercontext.builtin.records import BaseOperationNotSupportedError
+
+        raise BaseOperationNotSupportedError("artifact_family", "memory", "frozen collection operation")
+
+    remember = _unsupported
+    plan_remember = _unsupported
+    apply = _unsupported
+    forget = _unsupported
+    reactivate = _unsupported
+    organize = _unsupported
+    compact = _unsupported
+    rebuild_projections = _unsupported
+    head = _unsupported
+    head_entries = _unsupported
+    latest = _unsupported
+    capacity = _unsupported
+    changes = _unsupported
+    search = _unsupported
+
+
 @dataclass(frozen=True, slots=True)
 class _ScopedServices:
     """Centralize relational service wiring for one scope."""
@@ -305,7 +347,7 @@ class _ScopedServices:
     repositories: _Repositories
     index: MemoryIndex
     experience_index: ExperienceIndex
-    candidate_pipeline: CandidatePipeline | None
+    candidate_pipeline: CandidatePipeline | AtomicMemoryGenerationPipeline | None
     experience_pipeline: ExperienceCandidatePipeline | None
     experience_generator: ExperienceGenerator | None
     skill_generator: SkillGenerator | None
@@ -327,6 +369,7 @@ class _ScopedServices:
     prompts: PromptService
     generation_receipts: HandoffGenerationReceipts
     model_usage: _ModelUsageRecorder
+    atomic_memory_processor: AtomicMemorySourceWindowProcessor
 
     def generation_sources(self) -> GenerationSourceAccess:
         return GenerationSourceAccess(self.repositories.sources)
@@ -351,16 +394,18 @@ class _ScopedServices:
         source_resolver: SourceCatalog,
         connection: AsyncConnection | None = None,
     ) -> MemoryService:
-        return MemoryService(
+        return _FrozenRuntimeMemoryService(
             prompt_context=ScopedPrompts(self.prompts, self.scope_id),
-            backend=RelationalMemoryBackend(
+            backend=_FrozenRuntimeMemoryBackend(
                 database=self.database,
                 scope_id=self.scope_id,
                 artifacts=self.repositories.artifacts,
                 index=self.index,
                 connection=connection,
             ),
-            candidate_pipeline=self.candidate_pipeline,
+            candidate_pipeline=None
+            if isinstance(self.candidate_pipeline, AtomicMemoryGenerationPipeline)
+            else self.candidate_pipeline,
             embedding_model=self.embedding_model,
             reranker=self.memory_reranker,
             rerank_candidate_limit=self.memory_rerank_candidate_limit,
@@ -482,15 +527,9 @@ class _ScopedServices:
     def statistics(self) -> RelationalScopedStatistics:
         """Return the scoped statistics service over shared repositories."""
 
-        def memory_service(connection: AsyncConnection) -> MemoryService:
-            _, source_catalog = self.sources(connection)
-            return self.memory(source_catalog, connection)
-
         return RelationalScopedStatistics(
             database=self.database,
             scope_id=self.scope_id,
-            memory_artifact_id=self.memory_artifact_id,
-            memory_service=memory_service,
             cursors=self.repositories.cursors,
             repository=self.repositories.statistics,
             recurrence=self.repositories.recurrence,
@@ -527,8 +566,15 @@ class RelationalContexts:
         database: AsyncDatabase,
         index: MemoryIndex | None = None,
         topic_memory_index: TopicMemoryIndex | None = None,
+        atomic_memory_index: AtomicMemoryIndex | None = None,
+        atomic_memory_execution_context: AtomicMemoryExecutionContext | None = None,
+        atomic_memory_preview_signing_secret: bytes | None = None,
+        atomic_memory_preview_signing_key_id: str = "atomic-memory-v1",
+        atomic_memory_preview_ttl_seconds: int = 300,
+        atomic_memory_restore_retry_budget: int = 3,
+        atomic_memory_processing_config: AtomicMemoryProcessingConfig | None = None,
         experience_index: ExperienceIndex | None = None,
-        candidate_pipeline: CandidatePipeline | None = None,
+        candidate_pipeline: CandidatePipeline | AtomicMemoryGenerationPipeline | None = None,
         experience_pipeline: ExperienceCandidatePipeline | None = None,
         experience_generator: ExperienceGenerator | None = None,
         skill_generator: SkillGenerator | None = None,
@@ -558,6 +604,10 @@ class RelationalContexts:
         model_usage_write_timeout_seconds: float = 1.0,
         model_usage_flush_timeout_seconds: float = 0.5,
     ) -> None:
+        if memory_write_gate is not None:
+            from powercontext.builtin.runtime.composition import BuiltinConfigurationError
+
+            raise BuiltinConfigurationError("legacy-memory-write-gate")
         self.database = database
         self.scopes = ScopeApplication(database, cursor_secret=cursor_secret)
         self.source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
@@ -566,8 +616,52 @@ class RelationalContexts:
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         source_repository = SourceRepository(self.source_registry)
         artifact_repository = ArtifactRepository(
-            (Handoff, Memory, Experience, Skill, Profile, Prompt, TopicMemory),
+            (Handoff, Memory, AtomicMemory, Experience, Skill, Profile, Prompt, TopicMemory),
             sources=source_repository,
+        )
+        if atomic_memory_index is None:
+            if database.engine.dialect.name == "sqlite":
+                from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
+
+                atomic_memory_index = SQLiteAtomicMemoryIndex(
+                    None if embedding_model is None else embedding_model.profile
+                )
+            else:
+                from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
+
+                atomic_memory_index = OceanBaseAtomicMemoryIndex(
+                    None if embedding_model is None else embedding_model.profile
+                )
+        if atomic_memory_execution_context is None:
+            from powercontext.server.authz import PrincipalRef
+
+            atomic_memory_execution_context = AtomicMemoryExecutionContext(
+                principal=PrincipalRef(type="service", id="local-runtime"), trusted_local=True
+            )
+        from powercontext.builtin.artifacts.atomic_memory.restoration import AtomicMemoryPreviewSigner
+
+        preview_signer = (
+            None
+            if atomic_memory_preview_signing_secret is None
+            else AtomicMemoryPreviewSigner(
+                keys={atomic_memory_preview_signing_key_id: atomic_memory_preview_signing_secret},
+                active_key_id=atomic_memory_preview_signing_key_id,
+                ttl_seconds=atomic_memory_preview_ttl_seconds,
+            )
+        )
+        self.atomic_memory = AtomicMemoryApplication(
+            database,
+            artifact_repository,
+            atomic_memory_index,
+            default_context=atomic_memory_execution_context,
+            embedding_model=embedding_model,
+            reranker=memory_reranker,
+            rerank_candidate_limit=memory_rerank_candidate_limit,
+            prompt_context_factory=lambda scope_id: ScopedPrompts(self.prompts, scope_id),
+            cursor_secret=cursor_secret,
+            id_factory=id_factory,
+            preview_signer=preview_signer,
+            restore_retry_budget=atomic_memory_restore_retry_budget,
         )
         topic_memory_repository = TopicMemoryRepository(artifacts=artifact_repository, index=self.topic_memory_index)
         self.repositories = _Repositories(
@@ -606,7 +700,8 @@ class RelationalContexts:
             injected=frozenset(
                 key
                 for key, component in (
-                    ("memory.extract", candidate_pipeline),
+                    ("atomic_memory.extract", candidate_pipeline),
+                    ("atomic_memory.reconcile", candidate_pipeline),
                     ("memory.rerank", memory_reranker),
                     ("experience.incubate", experience_pipeline),
                     ("experience.generate", experience_generator),
@@ -617,6 +712,15 @@ class RelationalContexts:
             ),
         )
         self.prompts = PromptService(self.prompt_registry, self._prompt_head, prompt_demonstrators)
+        self.atomic_memory_processor = AtomicMemorySourceWindowProcessor(
+            self.atomic_memory,
+            self.repositories.sources,
+            self.repositories.cursors,
+            pipeline=candidate_pipeline,
+            prompts=self.prompts,
+            config=atomic_memory_processing_config,
+            tracing=tracing,
+        )
         self._generation_receipts = HandoffGenerationReceipts(
             cursor_secret if cursor_secret is not None else secrets.token_bytes(32),
             verification_keys=handoff_verification_keys,
@@ -629,6 +733,7 @@ class RelationalContexts:
             usage_reporter=self.model_usage_reporter,
         )
         family_writers = FamilyManagementWriterRegistry((
+            AtomicMemoryManagementWriter(self.atomic_memory),
             topic_memory_writer,
             PromptManagementWriter(self.repositories.artifacts, self.prompt_registry),
             ProfileManagementWriter(self.repositories.artifacts),
@@ -674,6 +779,8 @@ class RelationalContexts:
             cursor_secret=cursor_secret,
             processing_pending=self.repositories.processing_pending,
             source_processing_bindings=(TOPIC_MEMORY_SOURCE_WINDOW_BINDING,),
+            atomic_memory_tag_hook=atomic_memory_index.refresh_tags,
+            atomic_memory_tag_authorizer=self._authorize_atomic_tag_write,
             topic_memory_list_reader=TopicMemoryArtifactListReader(
                 database=database,
                 artifacts=artifact_repository,
@@ -1390,6 +1497,15 @@ class RelationalContexts:
             ).scalars()
             return tuple(str(value) for value in values)
 
+    async def _authorize_atomic_tag_write(self, connection, scope_id: str, artifact_id: str, context=None) -> None:
+        await self.atomic_memory.security.authorize(
+            connection,
+            scope_id,
+            self.atomic_memory.default_context if context is None else context,
+            "write",
+            ArtifactRef(family="atomic-memory", artifact_id=artifact_id, revision=1),
+        )
+
     async def process_memory(
         self,
         scope_id: str,
@@ -1399,13 +1515,20 @@ class RelationalContexts:
         processing: ScopeInvocation | None = None,
         authorize_snapshot: MemorySnapshotAuthorizer | None = None,
         on_commit: MemoryCommitHook | None = None,
+        atomic_context: AtomicMemoryExecutionContext | None = None,
     ) -> MemoryFlushResult:
         services = self._services_for(scope_id)
         return await _RelationalTriggers(
             services=services,
             lock=self._activation_locks.setdefault(services.scope_id, asyncio.Lock()),
             tracing=self._tracing,
-        ).flush(limit=limit, processing=processing, authorize_snapshot=authorize_snapshot, on_commit=on_commit)
+        ).flush(
+            limit=limit,
+            processing=processing,
+            authorize_snapshot=authorize_snapshot,
+            on_commit=on_commit,
+            atomic_context=atomic_context,
+        )
 
     async def incubate_experience(
         self,
@@ -1489,6 +1612,7 @@ class RelationalContexts:
             token_estimator=self._token_estimator,
             source_registry=self.source_registry,
             model_usage=self._model_usage,
+            atomic_memory_processor=self.atomic_memory_processor,
         )
 
 
@@ -1719,7 +1843,6 @@ class _RelationalTriggers:
             )
         return self._trigger.initial_state() if state is None else state.cursor
 
-    @prompt_operation("memory.extract")
     async def flush(
         self,
         *,
@@ -1727,86 +1850,18 @@ class _RelationalTriggers:
         processing: ScopeInvocation | None = None,
         authorize_snapshot: MemorySnapshotAuthorizer | None = None,
         on_commit: MemoryCommitHook | None = None,
+        atomic_context: AtomicMemoryExecutionContext | None = None,
     ) -> MemoryFlushResult:
-        async with self._lock:
-            async with self._services.database.transaction() as connection:
-                if processing is not None:
-                    await processing.start(connection)
-                state_row = await self._services.repositories.cursors.load(
-                    connection,
-                    self._services.scope_id,
-                    SOURCE_WINDOW_TRIGGER_NAME,
-                )
-                state = self._trigger.initial_state() if state_row is None else state_row.cursor
-                high_watermark = await self._services.repositories.sources.journal_position(
-                    connection,
-                    self._services.scope_id,
-                )
-                # Validate the caller's limit before applying a persisted reduction.
-                signal = SourceHighWatermark(sequence=high_watermark, limit=limit)
-                windows = MemorySourceWindowRepository()
-                signal = signal.model_copy(
-                    update={"limit": await windows.limit(connection, self._services.scope_id, state.sequence, limit)}
-                )
-                transition = self._trigger.activate(signal, state)
-                sources = () if not transition.actions else await self._sources(connection, transition.actions[0])
-                if not transition.actions and processing is not None:
-                    await processing.complete(connection, remaining_work=False)
-            if not transition.actions:
-                return MemoryFlushResult(
-                    previous_cursor=state.sequence,
-                    high_watermark=high_watermark,
-                    current_cursor=state.sequence,
-                    source_count=0,
-                    memory_ref=None,
-                )
+        if authorize_snapshot is not None or on_commit is not None:
+            from powercontext.builtin.records import BaseOperationNotSupportedError
 
-            action = transition.actions[0]
-            try:
-                prepared = (
-                    None if not sources else await self._prepare_memory(sources, authorize_snapshot=authorize_snapshot)
-                )
-            except InferenceTimeoutError as error:
-                if error.operation == "generate" and action.through - action.after > 1:
-                    await self._reduce_memory_window(action, high_watermark, state_row, processing)
-                raise
-            held = _is_held_write(prepared)
-            commit = None if prepared is None else prepared.commit
-            with self._stage(
-                _MEMORY_COMMIT_STAGE,
-                attributes={
-                    _MEMORY_COMMIT_MEMORY_CHANGED: commit is not None,
-                    _MEMORY_COMMIT_ENTRY_VERSION_COUNT: 0 if commit is None else len(commit.entry_versions),
-                },
-            ):
-                async with self._services.database.transaction() as connection:
-                    if processing is not None:
-                        await processing.guard(connection)
-                    updated = None
-                    if prepared is not None:
-                        _, source_catalog = self._services.sources(connection)
-                        updated = await self._services.memory(source_catalog, connection).apply(prepared)
-                    await self._services.repositories.cursors.save(
-                        connection,
-                        self._services.scope_id,
-                        SOURCE_WINDOW_TRIGGER_NAME,
-                        transition.state,
-                        expected_generation=None if state_row is None else state_row.generation,
-                    )
-                    await windows.clear_consumed(connection, self._services.scope_id, action.through)
-                    if on_commit is not None and prepared is not None:
-                        before = prepared.result if prepared.commit is None else prepared.commit.base
-                        await on_commit(connection, before, updated)
-                    if processing is not None:
-                        await processing.complete(connection, remaining_work=action.through < high_watermark)
-            return MemoryFlushResult(
-                previous_cursor=action.after,
-                high_watermark=high_watermark,
-                current_cursor=action.through,
-                source_count=len(sources),
-                memory_ref=None if updated is None else updated.as_ref(),
-                held_count=1 if held else 0,
-                hold_codes=_hold_codes(prepared),
+            raise BaseOperationNotSupportedError("artifact_family", "memory", "legacy flush callbacks")
+        async with self._lock:
+            return await self._services.atomic_memory_processor.flush(
+                self._services.scope_id,
+                limit,
+                processing=processing,
+                context=atomic_context,
             )
 
     async def _reduce_memory_window(

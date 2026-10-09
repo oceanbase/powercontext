@@ -156,9 +156,9 @@ Jinja2 组织内容与页面结构，HTMX 处理导航和片段替换。只有�
 | 页面能力 | 接口 | 需要保留的边界 |
 | --- | --- | --- |
 | 范围选择 | `GET /v1/scopes`、`GET /v1/scopes/default`、`GET /v1/scopes/{scope_id}` | 默认值、显式选择、父子关系和可读范围分别处理 |
-| 记忆目录与正文 | `POST /v1/memory/entries/list`、`POST /v1/memory/search`、`POST /v1/memory/entries/get` | 保留搜索模式与命中依据；最多 50 条匹配结果；正文按完整记忆引用读取 |
+| 记忆目录与正文 | `POST /v1/atomic-memory/list`、`POST /v1/memory/search`、Atomic Memory 精确版本与状态读取 | 保留独立制品身份、生命周期筛选、搜索模式与命中依据；最多 50 条匹配结果。搜索兼容入口解析 `auto`，并把 `fts` 映射为 Atomic Memory 的 `text`；旧引用通过 `POST /v1/memory/entries/get` 读取 |
 | 交接目录与正文 | `GET /v1/scopes/{scope_id}/artifacts/handoff` 及精确版本读取 | 保留游标；列表顺序不解释为时间顺序 |
-| 经验目录与正文 | `GET /v1/scopes/{scope_id}/artifacts/experience`、`POST /v1/experience/get` | 提供分页目录；当前没有公开 HTTP 搜索接口 |
+| 经验目录与正文 | `GET /v1/scopes/{scope_id}/artifacts/experience`、`POST /v1/experience/get` | Dashboard 提供分页浏览；Family 相关性检索见 [Artifact 检索](../docs/workflows/search-artifacts.md) |
 | 技能目录与正文 | `POST /v1/skill/library`、`POST /v1/skill/get` | 库检索最多 200 项，达到上限时提示缩小查询；保留来源身份 |
 | 原始材料 | `GET /v1/scopes/{scope_id}/sources/{source_type}/{source_id}` | 验证材料与记录的关联；当前可读取正文的来源类型为 `content` |
 | 用量 | `POST /v1/stats` | 以 `exact` 读取当前范围，使用服务端周期与统计口径 |

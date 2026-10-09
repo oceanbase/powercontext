@@ -35,6 +35,7 @@ const wanted = [
   "remember_memory",
   "search_memory",
   "get_memory_entry",
+  "get_artifact_revision",
 ];
 const operations = {};
 for (const [path, item] of Object.entries(contract.paths)) {
@@ -71,6 +72,9 @@ function collectSchemas(value) {
 for (const item of Object.values(contract.paths))
   for (const op of Object.values(item))
     if (wanted.includes(op?.operationId)) collectSchemas(op);
+// The qualified legacy Server still returns historical Memory search hits.
+for (const name of ["SearchMemoryHit", "MemoryUsedSearchMode"])
+  collectSchemas({ $ref: `#/components/schemas/${name}` });
 function rustType(schema) {
   if (schema.$ref) return schema.$ref.split("/").at(-1);
   switch (schema.type) {
@@ -85,6 +89,8 @@ function rustType(schema) {
     case "array":
       return `Vec<${rustType(schema.items)}>`;
     case "object":
+      if (schema.additionalProperties === true)
+        return "std::collections::BTreeMap<String, serde_json::Value>";
       if (
         schema.additionalProperties &&
         typeof schema.additionalProperties === "object"
@@ -101,6 +107,14 @@ const rustModels = [...schemaNames]
     const schema = contract.components.schemas[name];
     const derive =
       "#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]";
+    if (schema.oneOf && schema.type !== "object") {
+      const members = schema.oneOf.map((value) => {
+        if (!value.$ref) throw new Error(`Unsupported union member in ${name}`);
+        const member = rustType(value);
+        return `    ${member}(${member}),`;
+      });
+      return `${derive}\n#[serde(untagged)]\npub enum ${name} {\n${members.join("\n")}\n}\n`;
+    }
     if (schema.enum) {
       const values = schema.enum.filter((v) => v !== null);
       const members = values.map(
@@ -123,11 +137,16 @@ const rustModels = [...schemaNames]
     return `${derive}\n#[serde(deny_unknown_fields)]\npub struct ${name} {\n${fields.join("\n")}\n}\n`;
   })
   .join("\n");
-const rustDeclarations = `\n#[rustfmt::skip]\npub fn declarations(config: &ts_rs::Config) -> Vec<String> {\n    vec![\n${[
+const rustDeclarations = `\n#[rustfmt::skip]\npub fn declarations(config: &ts_rs::Config) -> Vec<String> {\n    vec![\n        <serde_json::Value as ts_rs::TS>::decl(config),\n${[
   ...schemaNames,
 ]
   .sort()
-  .map((name) => `        <${name} as ts_rs::TS>::decl(config),`)
+  .map((name) => {
+    const schema = contract.components.schemas[name];
+    return schema.$ref
+      ? `        String::from("type ${name} = ${rustType(schema)};"),`
+      : `        <${name} as ts_rs::TS>::decl(config),`;
+  })
   .join("\n")}\n    ]\n}\n`;
 const outputs = {
   "src-tauri/src/transport/wire.rs":

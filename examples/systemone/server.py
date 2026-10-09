@@ -341,7 +341,11 @@ class Experiment:
         resumed = await self.worker(run, "resume", scope_id=scope_id)
         if run["id"] not in (resumed["prepared"]["content"] or ""):
             raise DemoError("The saved experiment outcome was not recalled in the new process.")  # noqa: TRY003
-        run["saved"] = {**resumed, "memory_ref": run["recorded"]["memory_ref"], "record_pid": run["recorded"]["pid"]}
+        run["saved"] = {
+            **resumed,
+            "artifact_ref": run["recorded"]["artifact_ref"],
+            "record_pid": run["recorded"]["pid"],
+        }
 
 
 def _worker_environment() -> dict[str, str]:

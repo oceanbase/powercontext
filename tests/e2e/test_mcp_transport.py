@@ -148,23 +148,22 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
                     "include_inactive": True,
                 },
             )
-            assert empty_list.structured_content == {"memory": None, "entries": []}
+            assert empty_list.structured_content == {"entries": [], "next_cursor": None}
 
-            capacity_tool = projected_tools["get_memory_capacity"]
-            assert capacity_tool.annotations is not None
-            assert capacity_tool.annotations.readOnlyHint is True
+            assert "get_memory_capacity" not in projected_tools
+            assert "revise_memory_entry" not in projected_tools
+            assert "retire_memory_entry" not in projected_tools
             written = await client.call_tool(
                 "remember_memory", {"scope_id": scope["scope_id"], "kind": "fact", "text": "Inspect capacity via MCP."}
             )
-            capacity = await client.call_tool("get_memory_capacity", {"scope_id": scope["scope_id"]})
-            assert not capacity.is_error
-            assert capacity.structured_content is not None
-            assert capacity.structured_content["active_entry_count"] == 1
-            assert capacity.structured_content["manifest_entry_count"] == 1
+            before = await client.call_tool("list_memory_entries", {"scope_id": scope["scope_id"]})
             assert written.structured_content is not None
-            assert capacity.structured_content["memory_ref"] == written.structured_content["memory"]
+            assert len(written.structured_content["records"]) == 1
             http_capacity = await http_client.post("/v1/memory/capacity", json={"scope_id": scope["scope_id"]})
-            assert http_capacity.json() == capacity.structured_content
+            assert http_capacity.status_code == 422
+            assert http_capacity.json()["error"]["code"] == "legacy_memory_operation_unsupported"
+            after = await client.call_tool("list_memory_entries", {"scope_id": scope["scope_id"]})
+            assert after.structured_content == before.structured_content
 
             created_review_scope = await client.call_tool(
                 "create_scope",
@@ -239,10 +238,12 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "create_scope",
         "create_work_contract",
         "finalize_handoff",
+        "get_artifact",
         "get_artifact_candidate",
+        "get_artifact_revision",
+        "get_atomic_memory_state",
         "get_handoff_report",
         "get_scope",
-        "get_memory_capacity",
         "get_memory_entry",
         "get_topic_memory",
         "handoff_current_work",
@@ -250,17 +251,22 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "get_dream_run",
         "list_dream_runs",
         "list_artifact_candidates",
+        "list_atomic_memories",
         "list_memory_entries",
         "list_scopes",
+        "merge_atomic_memories",
+        "change_atomic_memory_lifecycle",
+        "preview_atomic_memory_restoration",
         "publish_artifact",
         "query_code",
         "record_task_outcome",
         "resolve_scope_binding",
         "reject_artifact_candidate",
         "remember_memory",
-        "retire_memory_entry",
+        "replace_artifact",
+        "restore_atomic_memory",
         "revise_artifact_candidate",
-        "revise_memory_entry",
+        "search_atomic_memory",
         "search_memory",
         "search_topic_memory",
         "set_scope_binding",

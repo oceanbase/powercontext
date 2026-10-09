@@ -64,12 +64,16 @@ Each event includes the current session ID, optional parent session ID, scope,
 turn number, and event ID. The trace contains prompts and recalled context and
 must be treated as sensitive local data.
 
-The provider also supports the complete PowerContext operation surface through
-Hermes tools: Memory listing/revision/change tracking, Work Contract and
+The provider also supports the PowerContext operation surface through
+Hermes tools: Atomic Memory listing/revision/forgetting, Work Contract and
 Handoff flows, Experience/Skill proposal and generation, External Skills
 discovery/import, Artifact Candidate review, context/source operations, and
 statistics. Explicitly mutating tools should only be used with user
 authorization.
+
+Atomic results carry real Artifact references and state versions. Exact legacy MemoryCitation reads remain supported;
+legacy writes and collection change history are explicitly unsupported. Content updates use the real content ETag;
+forgetting uses the captured reference and state version.
 
 When the provider is active, it also registers the bundled powercontext skill
 guide so Hermes has the workflow and authorization rules for those operations.
@@ -103,8 +107,8 @@ exposes that invocation context.
 /pc changes [SINCE_REVISION]
 /pc stats [today|7d|30d]
 /pc remember KIND TEXT [REASON]
-/pc revise CITATION_JSON KIND TEXT [REASON]
-/pc retire CITATION_JSON [REASON]
+/pc revise REFERENCE_JSON KIND TEXT
+/pc retire REFERENCE_JSON
 /pc flush
 /pc handoff {contract|current|acknowledge|outcome|activate|prepare|finalize|commit|continue} PAYLOAD_JSON
 /pc experience {propose|generate|get} PAYLOAD_JSON

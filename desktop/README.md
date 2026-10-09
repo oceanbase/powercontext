@@ -116,4 +116,6 @@ The CI-only lifecycle scenario forcibly ends its own installed Desktop process a
 
 Installed boundary checks exercise an 8192-byte Unicode note, reject over-budget input, display zero and capped-ten search results, and verify cancel/confirm behavior when disconnecting with an unsaved draft. Each result requires its matching remote report.
 
-After upgrading from the earlier preview, select `sqlite-6e237568-v1` and recheck your connection. The previous `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` selection is not silently upgraded to a different contract. See [current qualification](VALIDATION.md).
+After upgrading from an earlier preview, open Connections and select your saved connection. Compare the tested Server build with your deployment, choose `sqlite-atomic-7bd5b85c-v1` under “Available for this Desktop build”, save, then check and explicitly use the connection again. This profile matches the bundled Desktop contract; new connections still start with no compatibility selection.
+
+Profiles for earlier contracts, including `sqlite-6e237568-v1` and `sqlite-legacy-58f7f4f6-v1`, appear as disabled historical records. A saved incompatible or unavailable selection remains visible with an explanation until you explicitly replace it; it is not silently upgraded. The earlier `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` selections also require explicit replacement. Historical qualification records and evidence are retained; see the [validation guide](VALIDATION.md).

@@ -1,0 +1,24 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="text-secondary small mb-3">
+  <p class="mb-1">{{ t.note_kind }}: {{ t.get(item.kind, item.kind) }}</p>
+  {% if item.family == 'atomic-memory' %}
+  <p class="mb-1">{{ t.current_memory_state }}: {{ t['memory_state_' ~ item.state] }} · {{ t.state_version }} {{ item.state_version }}</p>
+  {% if not item.is_current %}<p class="mb-1">{{ t.historical_revision }} · <a href="{{ link('notes', artifact=item.current_artifact.artifact_id, revision=item.current_artifact.revision) }}">{{ t.current_revision }} @{{ item.current_artifact.revision }}</a></p>{% endif %}
+  {% if item.merged_into_id %}<p class="mb-1">{{ t.merged_into }}: <code>{{ item.merged_into_id }}</code></p>{% endif %}
+  {% else %}<p class="mb-1">{{ t.historical_memory_citation }}</p>{% endif %}
+</div>

@@ -54,6 +54,11 @@ from powercontext.artifacts.search import (
     ArtifactSearchFamilyNotFound,
     ArtifactSearchUnsupported,
 )
+from powercontext.builtin.artifacts.atomic_memory.errors import (
+    AtomicMemoryError,
+    InvalidAtomicMemoryPreviewError,
+)
+from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryMutationResult, AtomicMemoryRecord
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.handoff import (
     HandoffCitation,
@@ -148,6 +153,8 @@ from powercontext.builtin.persistence.artifact_governance import (
     ArtifactLifecycleState,
     InvalidArtifactLifecycleError,
 )
+from powercontext.builtin.persistence.atomic_memory_compatibility import resolve_legacy_memory_target
+from powercontext.builtin.persistence.atomic_memory_index import AtomicMemoryIndexError
 from powercontext.builtin.persistence.errors import (
     PersistenceError,
     RepositoryNotFoundError,
@@ -166,6 +173,7 @@ from powercontext.builtin.records import (
     ArtifactAlreadyExistsError,
     ArtifactRevisionPreconditionError,
     BaseAccessError,
+    BaseOperationNotSupportedError,
     BaseValueConflictError,
     BaseValueNotFoundError,
     CursorExpiredError,
@@ -221,11 +229,9 @@ from powercontext.builtin.runtime import (
     HandoffResolution,
     InvalidRuntimeRequestError,
     MemoryChangesPage,
-    MemoryEntriesPage,
     MemoryEntryRecord,
     MemoryFlushResult,
     MemoryMutationResult,
-    MemorySearchPage,
     PreparedHandoff,
     PrepareHandoff,
     ReviewedCandidate,
@@ -308,6 +314,8 @@ from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
 from powercontext.builtin.runtime.application import BuiltinRuntime, PromptApplication
+from powercontext.builtin.runtime.atomic_memory import AtomicMemoryPage, AtomicMemorySearchPage
+from powercontext.builtin.runtime.atomic_memory_security import AtomicMemoryExecutionContext
 from powercontext.builtin.runtime.skill_search import search_skill_library
 from powercontext.builtin.scope import (
     ScopeApplication,
@@ -460,6 +468,7 @@ from powercontext.http import (
     GetHandoffReportRequest,
     GetMemoryCapacityRequest,
     GetMemoryEntryRequest,
+    GetMemoryEntryResponse,
     GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
@@ -491,7 +500,6 @@ from powercontext.http import (
     ListScopesRequest,
     ListSourcesRequest,
     MemoryCapacity,
-    MemoryEntry,
     MemoryEntryAccessSelector,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -767,6 +775,8 @@ from powercontext.http._generated.operations import (
 )
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
 from powercontext.server import mapping
+from powercontext.server.atomic_memory import add_atomic_memory_routes
+from powercontext.server.atomic_memory import record_response as atomic_record_response
 from powercontext.server.authentication import AuthenticationProvider
 from powercontext.server.authz import (
     AccessAction,
@@ -805,6 +815,7 @@ from powercontext.server.authz.models import (
     HandoffReceiptIdentity,
 )
 from powercontext.server.authz.profiles import ARTIFACT_FAMILY_PROFILES, artifact_family_profile
+from powercontext.server.authz.repository import RelationalAccessRepository
 from powercontext.server.context import (
     bind_request_id,
     current_authentication,
@@ -852,7 +863,7 @@ class _ScopedRecordApplication(Protocol):
     async def get_tags(self, target: TagTarget) -> RuntimeArtifactTagSet: ...
 
     async def replace_tags(
-        self, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str
+        self, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str, execution_context=None
     ) -> RuntimeArtifactTagSet: ...
 
     async def query_tags(self, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage: ...
@@ -881,7 +892,9 @@ class _ScopedRecordApplication(Protocol):
         /,
     ) -> RuntimeArtifactCreated: ...
 
-    async def get_artifact(self, family: str, artifact_id: str, /) -> RuntimeArtifactRecord: ...
+    async def get_artifact(
+        self, family: str, artifact_id: str, /, *, execution_context: Any = None
+    ) -> RuntimeArtifactRecord: ...
 
     async def get_artifact_revision(
         self,
@@ -889,6 +902,8 @@ class _ScopedRecordApplication(Protocol):
         artifact_id: str,
         revision: int,
         /,
+        *,
+        execution_context: Any = None,
     ) -> RuntimeArtifactRecord: ...
 
     async def logical_artifacts(self) -> tuple[LogicalArtifactRecord, ...]: ...
@@ -933,6 +948,7 @@ class _ScopedContextApplication(Protocol):
         /,
         *,
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+        atomic_context=None,
     ) -> RuntimePreparedContext: ...
 
 
@@ -1173,15 +1189,27 @@ class _WorkApplication(Protocol):
 class _ScopedMemoryApplication(Protocol):
     async def capacity(self) -> RuntimeMemoryCapacity: ...
 
-    async def remember(self, request: RuntimeRememberMemoryRequest, /) -> MemoryMutationResult: ...
+    async def remember(
+        self, request: RuntimeRememberMemoryRequest, /, *, atomic_context=None
+    ) -> AtomicMemoryMutationResult: ...
 
-    async def search(self, request: RuntimeSearchMemoryRequest, /) -> MemorySearchPage: ...
+    async def search(
+        self, request: RuntimeSearchMemoryRequest, /, *, atomic_context=None
+    ) -> AtomicMemorySearchPage: ...
 
     async def list(
-        self, *, include_inactive: bool = False, tag_filter: RuntimeTagFilter | None = None
-    ) -> MemoryEntriesPage: ...
+        self,
+        *,
+        include_inactive: bool = False,
+        tag_filter: RuntimeTagFilter | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        atomic_context=None,
+    ) -> AtomicMemoryPage: ...
 
-    async def get(self, request: RuntimeGetMemoryEntryRequest, /) -> MemoryEntryRecord: ...
+    async def get(
+        self, request: RuntimeGetMemoryEntryRequest, /, *, atomic_context=None
+    ) -> MemoryEntryRecord | AtomicMemoryRecord: ...
 
     async def revise(self, request: RuntimeReviseMemoryEntryRequest, /) -> MemoryMutationResult: ...
 
@@ -1189,7 +1217,7 @@ class _ScopedMemoryApplication(Protocol):
 
     async def changes(self, *, since_revision: int | None = None) -> MemoryChangesPage: ...
 
-    async def flush(self, /, *, limit: int | None = None) -> MemoryFlushResult: ...
+    async def flush(self, /, *, limit: int | None = None, atomic_context=None) -> MemoryFlushResult: ...
 
 
 class _MemoryApplication(Protocol):
@@ -1237,6 +1265,7 @@ class _StatisticsApplication(Protocol):
 
 
 class ServerApplication(Protocol):
+    atomic_memory: Any
     prompts: PromptApplication
     profiles: Any
     subject_sources: Any
@@ -1430,6 +1459,12 @@ def create_app(
     _add_route(app, GET_PROMPT_CONFIGURATION, get_prompt_configuration)
     _add_route(app, REPLACE_ARTIFACT, replace_artifact)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
+    add_atomic_memory_routes(
+        app,
+        application_dependency=_require_application,
+        add_route=_add_route,
+        execution_context=_atomic_execution_context,
+    )
     _add_route(app, FLUSH_TOPIC_MEMORY, flush_topic_memory)
     _add_route(app, SEARCH_TOPIC_MEMORY, search_topic_memory)
     _add_route(app, SEARCH_ARTIFACTS, search_artifacts)
@@ -1615,10 +1650,13 @@ async def get_access_principal(request: Request) -> AccessMeResponse:
 
 async def check_access(payload: AccessCheckRequest, request: Request) -> AccessCheckResponse:
     access = _require_access_control(request)
-    requirements = tuple(
-        (AccessAction(requirement.action.value), _access_resource(requirement.resource))
+    requirements = tuple([
+        (
+            AccessAction(requirement.action.value),
+            await _resolve_legacy_access_resource(request, _access_resource(requirement.resource)),
+        )
         for requirement in payload.requirements
-    )
+    ])
     decisions = await access.check_batch(
         _require_principal(),
         requirements,
@@ -1676,7 +1714,7 @@ async def _query_authorized_resources(
     application = _require_application(request)
     access = _require_access_control(request)
     scope_ids = await _authorized_scope_ids(request, authorized.parent_constraints)
-    families = (family,) if family is not None else ("handoff", "memory", "experience", "skill", "profile")
+    families = (family,) if family is not None else ("handoff", "atomic-memory", "experience", "skill", "profile")
     for scope_id in scope_ids:
         if resource_type is AccessResourceType.SCOPE:
             resource = ResourceRef.scope(scope_id)
@@ -1717,21 +1755,12 @@ async def _discover_scope_artifact_resources(
             return ()
         return (ResourceRef.artifact(scope_id, family="handoff", artifact_id="handoff"),)
     if family == "memory":
-        entries = await application.memory.for_scope(scope_id).list(include_inactive=True)
-        return tuple(
-            ResourceRef.artifact(
-                scope_id,
-                family="memory",
-                artifact_id=entry.citation.memory_ref.artifact_id,
-                selector=MemoryEntrySelector(entry_id=entry.citation.entry_id),
-            )
-            for entry in entries.entries
-        )
-    if family in {"experience", "skill", "profile"}:
+        return ()
+    if family in {"atomic-memory", "experience", "skill", "profile"}:
         return await _committed_artifact_resources(
             application,
             scope_id,
-            cast(Literal["experience", "skill", "profile"], family),
+            cast(Literal["atomic-memory", "experience", "skill", "profile"], family),
         )
     raise AccessInvalidRequestError("artifact-family")
 
@@ -1739,7 +1768,7 @@ async def _discover_scope_artifact_resources(
 async def _committed_artifact_resources(
     application: ServerApplication,
     scope_id: str,
-    family: Literal["experience", "skill", "profile"],
+    family: Literal["atomic-memory", "experience", "skill", "profile"],
 ) -> tuple[ResourceRef, ...]:
     resources: list[ResourceRef] = []
     cursor: str | None = None
@@ -1821,7 +1850,9 @@ async def list_access_bindings(payload: ListAccessBindingsRequest, request: Requ
     page = await access.list_bindings(
         _require_principal(),
         BindingSearchRequest(
-            management_resource=_access_resource(payload.management_resource),
+            management_resource=await _resolve_legacy_access_resource(
+                request, _access_resource(payload.management_resource)
+            ),
             subject=None if payload.subject is None else _access_subject(payload.subject),
             role=None if payload.role is None else AccessRole(payload.role.value),
             state=None if payload.state is None else AccessBindingState(payload.state.value),
@@ -1842,7 +1873,7 @@ async def create_access_binding(payload: CreateAccessBindingRequest, request: Re
         _require_principal(),
         CreateBinding(
             subject=_access_subject(payload.subject),
-            resource=_access_resource(payload.resource),
+            resource=await _resolve_legacy_access_resource(request, _access_resource(payload.resource)),
             role=AccessRole(payload.role.value),
             idempotency_key=payload.idempotency_key,
             reason=payload.reason,
@@ -2402,6 +2433,11 @@ async def create_artifact(
     result = await application.records.for_scope(scope_id).create_artifact(
         request.root.family,
         _artifact_write(request),
+        **(
+            {"execution_context": _atomic_execution_context(http_request, CREATE_ARTIFACT.operation_id)}
+            if request.root.family == "atomic-memory"
+            else {}
+        ),
     )
     await _establish_base_artifact_owners(
         http_request,
@@ -2590,14 +2626,20 @@ async def replace_artifact_tags(
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     request: ReplaceArtifactTagsRequest,
     response: Response,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> ArtifactTagSet:
     target = ArtifactTagTarget(family=family.value, artifact_id=artifact_id)
+    if family.value == "atomic-memory":
+        await _authorize_atomic_tag_write(http_request, scope_id, artifact_id, "replace_artifact_tags")
     result = await application.records.for_scope(scope_id).replace_tags(
         target,
         tuple(tag.root for tag in request.tags),
         expected_etag=_require_artifact_etag(if_match),
+        execution_context=_atomic_execution_context(http_request, "replace_artifact_tags")
+        if target.family in {"memory", "atomic-memory"}
+        else None,
     )
     response.headers["ETag"] = result.etag
     return ArtifactTagSet.model_validate(result.model_dump(mode="json"))
@@ -2608,10 +2650,24 @@ async def get_memory_entry_tags(
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     entry_id: Annotated[str, Path(min_length=1, max_length=128)],
     response: Response,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
     if_none_match: Annotated[str | None, Header(alias="If-None-Match", min_length=1)] = None,
 ) -> ArtifactTagSet | Response:
     target = MemoryEntryTagTarget(artifact_id=artifact_id, entry_id=entry_id)
+    resolved = await _resolve_legacy_access_resource(
+        http_request,
+        ResourceRef.artifact(
+            scope_id,
+            family="memory",
+            artifact_id=artifact_id,
+            selector=MemoryEntrySelector(entry_id=entry_id),
+        ),
+    )
+    await application.atomic_memory.for_scope(scope_id).get(
+        resolved.artifact_id,
+        context=_atomic_execution_context(http_request, "get_memory_entry_tags"),
+    )
     result = await application.records.for_scope(scope_id).get_tags(target)
     return _tag_response(result, response, if_none_match=if_none_match)
 
@@ -2622,14 +2678,34 @@ async def replace_memory_entry_tags(
     entry_id: Annotated[str, Path(min_length=1, max_length=128)],
     request: ReplaceArtifactTagsRequest,
     response: Response,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> ArtifactTagSet:
     target = MemoryEntryTagTarget(artifact_id=artifact_id, entry_id=entry_id)
+    resolved = await _resolve_legacy_access_resource(
+        http_request,
+        ResourceRef.artifact(
+            scope_id,
+            family="memory",
+            artifact_id=artifact_id,
+            selector=MemoryEntrySelector(entry_id=entry_id),
+        ),
+    )
+    await application.atomic_memory.for_scope(scope_id).get(
+        resolved.artifact_id,
+        context=_atomic_execution_context(http_request, "replace_memory_entry_tags"),
+    )
+    await _authorize_atomic_tag_write(
+        http_request, scope_id, cast(str, resolved.artifact_id), "replace_memory_entry_tags"
+    )
     result = await application.records.for_scope(scope_id).replace_tags(
         target,
         tuple(tag.root for tag in request.tags),
         expected_etag=_require_artifact_etag(if_match),
+        execution_context=_atomic_execution_context(http_request, "replace_memory_entry_tags")
+        if target.family in {"memory", "atomic-memory"}
+        else None,
     )
     response.headers["ETag"] = result.etag
     return ArtifactTagSet.model_validate(result.model_dump(mode="json"))
@@ -2675,6 +2751,7 @@ async def get_artifact(
     scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
     family: Annotated[ArtifactReadFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
+    http_request: Request,
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
     if_none_match: Annotated[
@@ -2682,7 +2759,15 @@ async def get_artifact(
         Header(alias="If-None-Match", min_length=1),
     ] = None,
 ) -> ArtifactRevision | Response:
-    result = await application.records.for_scope(scope_id).get_artifact(family.value, artifact_id)
+    result = await application.records.for_scope(scope_id).get_artifact(
+        family.value,
+        artifact_id,
+        **(
+            {"execution_context": _atomic_execution_context(http_request, GET_ARTIFACT.operation_id)}
+            if family.value == "atomic-memory"
+            else {}
+        ),
+    )
     etag = _artifact_etag(result.revision)
     if _if_none_match_matches(if_none_match, etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
@@ -2700,21 +2785,24 @@ async def replace_artifact(
     application: Annotated[ServerApplication, Depends(_require_application)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> ArtifactRevision:
+    if family.value == "memory":
+        raise BaseOperationNotSupportedError("artifact_family", "memory", "collection writes")
     expected_etag = _require_artifact_etag(if_match)
-    previous_memory_entries: frozenset[str] = frozenset()
-    if family is BaseArtifactFamily.MEMORY:
-        current = await application.records.for_scope(scope_id).get_artifact(family.value, artifact_id)
-        previous_memory_entries = _memory_manifest_entry_ids(current)
     result = await application.records.for_scope(scope_id).replace_artifact(
         family.value,
         artifact_id,
         expected_etag,
         _artifact_write(request),
+        **(
+            {"execution_context": _atomic_execution_context(http_request, REPLACE_ARTIFACT.operation_id)}
+            if family.value == "atomic-memory"
+            else {}
+        ),
     )
     await _establish_new_memory_entry_owners(
         http_request,
         result,
-        previous_entry_ids=previous_memory_entries,
+        previous_entry_ids=frozenset(),
         operation=REPLACE_ARTIFACT.operation_id,
     )
     response.headers["ETag"] = _artifact_etag(result.revision)
@@ -2726,12 +2814,18 @@ async def get_artifact_revision(
     family: Annotated[ArtifactReadFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
     revision: Annotated[int, Path(ge=1)],
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ArtifactRevision:
     result = await application.records.for_scope(scope_id).get_artifact_revision(
         family.value,
         artifact_id,
         revision,
+        **(
+            {"execution_context": _atomic_execution_context(http_request, GET_ARTIFACT_REVISION.operation_id)}
+            if family.value == "atomic-memory"
+            else {}
+        ),
     )
     return _artifact_revision_response(result)
 
@@ -2882,34 +2976,9 @@ async def flush_memory(
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> FlushMemoryResponse:
-    memory = application.memory.for_scope(request.scope_id)
-    access = access_control_for_mode(
-        http_request.app.state.access_control,
-        mode=http_request.app.state.access_mode,
+    result = await application.memory.for_scope(request.scope_id).flush(
+        atomic_context=_atomic_execution_context(http_request, FLUSH_MEMORY.operation_id),
     )
-    principal = _require_principal() if access is not None else None
-    if access is not None:
-        current = await memory.list(include_inactive=True)
-        await access.require_all(
-            principal,
-            tuple(
-                (AccessAction.ARTIFACT_WRITE, _memory_entry_resource(request.scope_id, entry))
-                for entry in current.entries
-            ),
-            context=_access_audit_context(FLUSH_MEMORY.operation_id),
-        )
-    result = await memory.flush()
-    if access is not None and result.memory_ref is not None:
-        current = await memory.list(include_inactive=True)
-        for entry in current.entries:
-            resource = _memory_entry_resource(request.scope_id, entry)
-            if await access.artifact_owner(resource) is None:
-                await access.establish_artifact_owner(
-                    resource,
-                    cast(PrincipalRef, principal),
-                    idempotency_key=f"memory-owner:{request.scope_id}:{entry.entry.entry_id}",
-                    context=_access_audit_context(FLUSH_MEMORY.operation_id),
-                )
     return mapping.flush_response(result)
 
 
@@ -2927,27 +2996,24 @@ async def remember_memory(
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> MemoryMutationResponse:
-    result = await application.memory.for_scope(request.scope_id).remember(mapping.remember_request(request))
-    if result.entry is not None:
-        await _establish_created_owner(
-            http_request,
-            ResourceRef.artifact(
-                request.scope_id,
-                family="memory",
-                artifact_id=result.memory_ref.artifact_id,
-                selector=MemoryEntrySelector(entry_id=result.entry.entry.entry_id),
-            ),
-            idempotency_key=f"memory-owner:{request.scope_id}:{result.entry.entry.entry_id}",
-            operation=REMEMBER_MEMORY.operation_id,
-        )
+    if request.expected_revision is not None:
+        raise BaseOperationNotSupportedError("artifact_family", "memory", "collection revision precondition")
+    result = await application.memory.for_scope(request.scope_id).remember(
+        mapping.remember_request(request),
+        atomic_context=_atomic_execution_context(http_request, REMEMBER_MEMORY.operation_id),
+    )
     return mapping.mutation_response(result)
 
 
 async def search_memory(
     request: SearchMemoryRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> SearchMemoryResponse:
-    result = await application.memory.for_scope(request.scope_id).search(mapping.search_request(request))
+    result = await application.memory.for_scope(request.scope_id).search(
+        mapping.search_request(request),
+        atomic_context=_atomic_execution_context(http_request, SEARCH_MEMORY.operation_id),
+    )
     return mapping.search_response(result)
 
 
@@ -2988,7 +3054,11 @@ async def prepare_context(
             for scope_id in scope_ids[1:]:
                 await require_scope_content_ready(http_request, scope_id)
 
-        result = await scoped.prepare(prepared_request, authorize_scopes=authorize_scopes)
+        result = await scoped.prepare(
+            prepared_request,
+            authorize_scopes=authorize_scopes,
+            atomic_context=_atomic_execution_context(http_request, PREPARE_CONTEXT.operation_id),
+        )
     return mapping.prepared_context_response(result)
 
 
@@ -3178,14 +3248,16 @@ async def get_memory_capacity(
 async def list_memory_entries(
     request: ListMemoryEntriesRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> ListMemoryEntriesResponse:
     result = await application.memory.for_scope(request.scope_id).list(
         include_inactive=request.include_inactive,
-        **(
-            {}
-            if request.tag_filter is None
-            else {"tag_filter": RuntimeTagFilter.model_validate_json(request.tag_filter.model_dump_json())}
-        ),
+        limit=request.limit,
+        cursor=request.cursor,
+        tag_filter=None
+        if request.tag_filter is None
+        else RuntimeTagFilter.model_validate_json(request.tag_filter.model_dump_json()),
+        atomic_context=_atomic_execution_context(http_request, LIST_MEMORY_ENTRIES.operation_id),
     )
     return mapping.entries_response(result)
 
@@ -3193,25 +3265,29 @@ async def list_memory_entries(
 async def get_memory_entry(
     request: GetMemoryEntryRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
-) -> MemoryEntry:
-    result = await application.memory.for_scope(request.scope_id).get(mapping.get_request(request))
-    return mapping.memory_entry(result)
+    http_request: Request,
+) -> GetMemoryEntryResponse:
+    result = await application.memory.for_scope(request.scope_id).get(
+        mapping.get_request(request),
+        atomic_context=_atomic_execution_context(http_request, GET_MEMORY_ENTRY.operation_id),
+    )
+    if isinstance(result, AtomicMemoryRecord):
+        return GetMemoryEntryResponse(root=atomic_record_response(result))
+    return GetMemoryEntryResponse(root=mapping.memory_entry(result))
 
 
 async def revise_memory_entry(
     request: ReviseMemoryEntryRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> MemoryMutationResponse:
-    result = await application.memory.for_scope(request.scope_id).revise(mapping.revise_request(request))
-    return mapping.mutation_response(result)
+    raise BaseOperationNotSupportedError("artifact_family", "memory", "citation revise")
 
 
 async def retire_memory_entry(
     request: RetireMemoryEntryRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> MemoryMutationResponse:
-    result = await application.memory.for_scope(request.scope_id).retire(mapping.retire_request(request))
-    return mapping.mutation_response(result)
+    raise BaseOperationNotSupportedError("artifact_family", "memory", "citation retire")
 
 
 async def list_memory_changes(
@@ -3222,13 +3298,46 @@ async def list_memory_changes(
     return mapping.changes_response(result)
 
 
+def _atomic_execution_context(request: Request, operation: str) -> AtomicMemoryExecutionContext:
+    application = _require_application(request)
+    access = access_control_for_mode(request.app.state.access_control, mode=request.app.state.access_mode)
+    if access is None:
+        atomic = getattr(application, "atomic_memory", None)
+        if atomic is None:
+            raise BaseOperationNotSupportedError("artifact_family", "atomic-memory", "runtime application")
+        return atomic.default_context
+    return AtomicMemoryExecutionContext(
+        principal=_require_principal(), access=access, audit=_access_audit_context(operation)
+    )
+
+
+def _atomic_memory_domain_access(payload: Mapping[str, Any], _deployment_id: str):
+    # Dynamic impact and read filtering are authorized by the domain service.
+    return ()
+
+
+def _atomic_memory_state_access(payload: Mapping[str, Any], _deployment_id: str):
+    return (
+        (
+            AccessAction.ARTIFACT_READ,
+            ResourceRef.artifact(
+                _nested_request_value(payload, "scope_id"),
+                family="atomic-memory",
+                artifact_id=_nested_request_value(payload, "artifact_id"),
+            ),
+        ),
+    )
+
+
 def _bind_evidence_access(
-    application: ServerApplication | None,
+    application: ServerApplication | BuiltinRuntime | None,
     access: AccessControlService | None,
     mode: str,
 ) -> None:
     if mode == "enforced" and isinstance(access, AccessControlService) and isinstance(application, BuiltinRuntime):
         DreamAccess(access).bind(application)
+        if application.atomic_memory is not None and isinstance(access.relationships, RelationalAccessRepository):
+            access.relationships.set_atomic_memory_projection_hook(application.atomic_memory.refresh_access)
 
 
 def _dream_principal(request: Request) -> str:
@@ -3768,12 +3877,9 @@ async def _validate_shareable_resource(application: ServerApplication | None, re
         await application.handoff.for_scope(resource.scope_id).revision(artifact)
         return
     if profile.family == "memory":
-        selector = resource.selector
-        if selector is None:
-            raise AccessInvalidRequestError("memory-entry-selector")
-        memory = await application.records.for_scope(resource.scope_id).get_artifact("memory", identity.artifact_id)
-        if selector.entry_id not in _memory_manifest_entry_ids(memory):
-            raise MemoryEntryNotFoundError(selector.entry_id)
+        raise BaseOperationNotSupportedError("artifact_family", "memory", "collection share target")
+    if profile.family == "atomic-memory":
+        await application.records.for_scope(resource.scope_id).get_artifact("atomic-memory", identity.artifact_id)
         return
     if profile.family in {"experience", "skill", "profile"}:
         await _validate_shareable_managed_artifact(
@@ -3826,7 +3932,7 @@ async def _establish_base_artifact_owners(
     application: ServerApplication,
     result: RuntimeArtifactCreated,
 ) -> None:
-    if result.family == "topic-memory":
+    if result.family in {"topic-memory", "atomic-memory"}:
         return
     if access_control_for_mode(request.app.state.access_control, mode=request.app.state.access_mode) is None:
         return
@@ -4216,6 +4322,43 @@ def _access_subject_response(value: AccessSubjectRef) -> TransportAccessSubject:
     return TransportAccessSubject(root=_access_principal_response(value))
 
 
+async def _resolve_legacy_access_resource(request: Request, resource: ResourceRef) -> ResourceRef:
+    if resource.family != "memory":
+        return resource
+    if (
+        not isinstance(resource.selector, MemoryEntrySelector)
+        or resource.scope_id is None
+        or resource.artifact_id is None
+    ):
+        raise BaseOperationNotSupportedError("artifact_family", "memory", "collection access target")
+    application = _require_application(request)
+    atomic = getattr(application, "atomic_memory", None)
+    if atomic is None:
+        raise BaseOperationNotSupportedError("artifact_family", "atomic-memory", "legacy access target")
+    relational = atomic._application
+    async with relational.database.transaction() as connection:
+        artifact_id = await resolve_legacy_memory_target(
+            connection,
+            relational.artifacts,
+            resource.scope_id,
+            resource.artifact_id,
+            resource.selector.entry_id,
+        )
+        await relational.artifacts.latest(connection, resource.scope_id, "atomic-memory", artifact_id)
+    return ResourceRef.artifact(resource.scope_id, family="atomic-memory", artifact_id=artifact_id)
+
+
+async def _authorize_atomic_tag_write(request: Request, scope_id: str, artifact_id: str, operation: str) -> None:
+    atomic = getattr(_require_application(request), "atomic_memory", None)
+    if atomic is None:
+        raise BaseOperationNotSupportedError("artifact_family", "atomic-memory", "tag writes")
+    application = atomic._application
+    context = _atomic_execution_context(request, operation)
+    async with application.database.transaction() as connection:
+        artifact = await application.artifacts.latest(connection, scope_id, "atomic-memory", artifact_id)
+        await application.security.authorize(connection, scope_id, context, "write", artifact.as_ref())
+
+
 def _access_resource(value: TransportAccessResource) -> ResourceRef:
     resource = value.root
     if isinstance(resource, ServerAccessResource):
@@ -4454,9 +4597,11 @@ async def _check_missing_memory_reads(
     for action, resource in checks:
         if (
             action is not AccessAction.ARTIFACT_READ
-            or resource.family != "memory"
             or resource.scope_id is None
-            or not isinstance(resource.selector, MemoryEntrySelector)
+            or not (
+                (resource.family == "memory" and isinstance(resource.selector, MemoryEntrySelector))
+                or (resource.family == "atomic-memory" and resource.selector is None)
+            )
         ):
             continue
         decision = await access.check(
@@ -4468,10 +4613,12 @@ async def _check_missing_memory_reads(
         if not any(
             identity.family == resource.family
             and identity.artifact_id == resource.artifact_id
-            and identity.entry_id == resource.selector.entry_id
+            and identity.entry_id == (None if resource.selector is None else resource.selector.entry_id)
             for identity in identities
         ):
-            raise MemoryEntryNotFoundError(resource.selector.entry_id)
+            if resource.family == "atomic-memory":
+                raise BaseValueNotFoundError("artifact", resource.artifact_id)
+            raise MemoryEntryNotFoundError(cast(MemoryEntrySelector, resource.selector).entry_id)
 
 
 def _authorization_dependency(
@@ -4608,18 +4755,14 @@ def _memory_artifact_resource(payload: Mapping[str, Any]) -> ResourceRef:
     )
 
 
-def _exact_memory_access(
-    payload: Mapping[str, Any],
-    _deployment_id: str,
-) -> tuple[tuple[AccessAction, ResourceRef], ...]:
-    return ((AccessAction.ARTIFACT_READ, _memory_artifact_resource(payload)),)
+def _exact_memory_access(payload: Mapping[str, Any], _deployment_id: str):
+    # Exact legacy membership is checked before authorizing its mapped Atomic identity.
+    return ()
 
 
-def _exact_memory_write_access(
-    payload: Mapping[str, Any],
-    _deployment_id: str,
-) -> tuple[tuple[AccessAction, ResourceRef], ...]:
-    return ((AccessAction.ARTIFACT_WRITE, _memory_artifact_resource(payload)),)
+def _exact_memory_write_access(payload: Mapping[str, Any], _deployment_id: str):
+    # Citation writes have no equivalent Atomic collection precondition.
+    return ()
 
 
 def _commit_handoff_access(
@@ -4851,18 +4994,12 @@ def _path_memory_entry_access(
     )
 
 
-def _path_memory_entry_read_access(
-    payload: Mapping[str, Any],
-    _deployment_id: str,
-) -> tuple[tuple[AccessAction, ResourceRef], ...]:
-    return _path_memory_entry_access(payload, action=AccessAction.ARTIFACT_READ)
+def _path_memory_entry_read_access(payload: Mapping[str, Any], _deployment_id: str):
+    return ()
 
 
-def _path_memory_entry_write_access(
-    payload: Mapping[str, Any],
-    _deployment_id: str,
-) -> tuple[tuple[AccessAction, ResourceRef], ...]:
-    return _path_memory_entry_access(payload, action=AccessAction.ARTIFACT_WRITE)
+def _path_memory_entry_write_access(payload: Mapping[str, Any], _deployment_id: str):
+    return ()
 
 
 def _base_memory_write_access(
@@ -4966,6 +5103,8 @@ _NAMED_ACCESS_RESOLVERS: dict[
     str,
     Callable[[Mapping[str, Any], str], tuple[tuple[AccessAction, ResourceRef], ...]],
 ] = {
+    "atomic_memory_domain_access": _atomic_memory_domain_access,
+    "atomic_memory_state_access": _atomic_memory_state_access,
     "acknowledge_handoff_access": _acknowledge_handoff_resolver,
     "continue_handoff_access": _continue_handoff_resolver,
     "commit_handoff_access": _commit_handoff_access,
@@ -5262,6 +5401,63 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
 
 
 def _map_service_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:  # noqa: C901
+    if isinstance(error, BaseOperationNotSupportedError):
+        if error.kind == "artifact_family" and error.name == "memory":
+            alternatives, instruction = {
+                "citation revise": (
+                    ["PUT /v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}"],
+                    "Read the Atomic Artifact and use its content ETag for the replacement precondition.",
+                ),
+                "citation retire": (
+                    ["POST /v1/atomic-memory/lifecycle"],
+                    "Use forgotten with the exact Atomic Artifact reference and current state_version.",
+                ),
+                "collection capacity": (
+                    [],
+                    "Atomic Memory has no collection capacity budget; this query has no equivalent.",
+                ),
+                "continuous collection changes": (
+                    ["GET /v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/revisions/{revision}"],
+                    "Only preserved exact legacy revisions contain historical collection changes; "
+                    "there is no continuous changes stream after migration.",
+                ),
+                "collection compaction": (
+                    [],
+                    "Atomic Memory has no collection compaction or collection capacity recovery operation.",
+                ),
+                "collection tag query": (
+                    ["POST /v1/atomic-memory/list", "POST /v1/atomic-memory/search"],
+                    "Apply tag filters to independent Atomic Artifacts.",
+                ),
+            }.get(
+                error.operation,
+                (
+                    ["POST /v1/scopes/{scope_id}/artifacts", "POST /v1/atomic-memory/list"],
+                    "Use independent atomic-memory Artifact identities and their content/state preconditions; "
+                    "resolve migrated legacy identities through POST /v1/memory/entries/get with target.",
+                ),
+            )
+            return (
+                422,
+                "legacy_memory_operation_unsupported",
+                "The legacy Memory collection contract cannot continue for this operation. "
+                "Reconstruct the request using Atomic Memory operations; do not drop collection CAS "
+                "preconditions and retry automatically.",
+                {
+                    "kind": error.kind,
+                    "name": error.name,
+                    "operation": error.operation,
+                    "alternatives": alternatives,
+                    "instruction": instruction,
+                },
+            )
+        return (
+            422,
+            "operation_not_supported",
+            str(error),
+            {"kind": error.kind, "name": error.name, "operation": error.operation},
+        )
+
     if isinstance(error, PromptError):
         code = 503 if error.during_inference else 500 if error.code == "invalid_prompt_demonstrations" else 422
         return code, error.code, str(error), None
@@ -5545,6 +5741,11 @@ def _map_report_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
 
 
 def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+    if isinstance(error, AtomicMemoryIndexError):
+        return 503, error.code, str(error), None
+    if isinstance(error, AtomicMemoryError):
+        code = 422 if isinstance(error, InvalidAtomicMemoryPreviewError) else 409
+        return code, error.code, str(error), None
     source_ingestion = _map_source_ingestion_error(error)
     if source_ingestion is not None:
         return source_ingestion

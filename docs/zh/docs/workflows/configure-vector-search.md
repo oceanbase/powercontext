@@ -41,12 +41,16 @@ powercontext capabilities
 
 结果会报告已启用的 search mode。未配置 embedding profile 时，SQLite full-text search 仍可使用。
 
-能力标记只说明 Runtime 已加载向量通道，还需要用一条合成 Source 验证模型调用、索引写入和实际命中。完整的
-Source → flush → entry → vector search 验收命令见[启用 Memory 提取与向量搜索](../get-started/configure-models.md)。
-其中搜索响应必须包含 `mode: "vector"`、目标 `entry_id`，并且 `matched_by` 包含 `vector`；如果使用 `hybrid`，应把请求
-中的 `mode` 改为 `hybrid` 并核对实际返回模式。显式 `vector`/`hybrid` 不会在 Embedding 不可用时静默降级。
+能力标记说明 Runtime 已加载向量通道；实际调用还需核对 Source 抽取、投影写入和命中结果。
+[配置模型](../get-started/configure-models.md)介绍 Source 与 flush 的检查方法。
+搜索响应中，`mode` 应与实际使用模式一致，目标身份位于 `hits[].memory.artifact`，`matched_by` 应包含 `vector`。
+显式 `vector` / `hybrid` 在向量不可用时返回错误，不会静默降级。
 
-如果在已有 Memory 上首次启用 Embedding，先用一条临时 Scope 完成上述闭环，再对真实 Scope 运行受控的重处理/索引流程，
-并确认旧 citation 没有变化。不要仅修改 profile ID 或 dimension 来绕过已有向量与模型不匹配的错误。
+首次启用或更换 Embedding profile，需要停服重建当前投影；命令与恢复流程见
+[Atomic Memory 迁移](../operate/atomic-memory-migration.md)。重建不改变 Artifact 身份、内容版本或状态版本。
+不能仅修改 profile ID 或 dimension 来绕过不匹配错误。
+
+当前 Atomic Memory 的普通向量搜索和抽取阈值枚举均使用精确 L2 距离。普通搜索有返回数量限制；
+抽取枚举返回全部符合资格和阈值的结果。计算量随合格向量数和维度增长，不能把返回条数当成扫描成本。
 
 timeout、batch size、storage 设置和准确默认值见[配置](../operate/configuration.md)。

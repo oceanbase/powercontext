@@ -58,7 +58,7 @@ def select_evidence(
     artifacts = tuple(
         node.artifact
         for key, node in nodes.items()
-        if key in chosen and node.kind == "experience" and node.artifact is not None
+        if key in chosen and node.kind in {"experience", "memory"} and node.artifact is not None
     )
     citations = (
         ()

@@ -74,7 +74,7 @@ class CreateDreamRunRequest(BaseModel):
         selected = len(self.artifacts) + len(self.memory_citations)
         if not 1 <= selected <= 20 or selected + len(self.sources) > 32:
             raise DreamError("evidence_limit_exceeded")
-        if any(ref.family != "experience" for ref in self.artifacts):
+        if any(ref.family not in {"experience", "atomic-memory"} for ref in self.artifacts):
             raise DreamError("invalid_artifact_family")
         if any(
             ref.memory_ref.family != "memory"
@@ -83,10 +83,13 @@ class CreateDreamRunRequest(BaseModel):
             for ref in self.memory_citations
         ):
             raise DreamError("invalid_memory_citation")
-        if self.target is not None and self.target not in self.artifacts:
+        if self.target is not None and (self.target not in self.artifacts or self.target.family != "experience"):
             raise DreamError("invalid_target")
         if self.operation == "derive_skill" and (
-            self.memory_citations or self.target is not None or not self.artifacts
+            self.memory_citations
+            or self.target is not None
+            or not self.artifacts
+            or any(ref.family != "experience" for ref in self.artifacts)
         ):
             raise DreamError("invalid_dream_operation")
         return self
