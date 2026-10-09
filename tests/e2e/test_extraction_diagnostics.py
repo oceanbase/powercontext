@@ -52,8 +52,9 @@ def _memory_worker(config, assignment):
 @pytest.mark.parametrize("mode", ["global", "dedicated"])
 def test_custom_memory_worker_reports_configuration_and_persisted_success(tmp_path, mode):
     async def scenario():
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'worker.db'}")
         config = BuiltinConfig(
-            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'worker.db'}"),
+            database=database,
             runtime=RuntimeConfig(artifact_processing_families=("memory",), artifact_processing_supervisor_mode=mode),
         )
         binding = ArtifactProcessingBinding(
@@ -79,7 +80,7 @@ def test_custom_memory_worker_reports_configuration_and_persisted_success(tmp_pa
                 CaptureSource(source_id="decision", content=text, metadata={})
             )
             async with (
-                SQLiteProfile.open(config.database, tables=SHARED_TABLES) as profile,
+                SQLiteProfile.open(database, tables=SHARED_TABLES) as profile,
                 profile.database.transaction() as connection,
             ):
                 await ArtifactProcessingIntentRepository().request(connection, scope.scope_id, binding.binding_name)
@@ -96,7 +97,7 @@ def test_custom_memory_worker_reports_configuration_and_persisted_success(tmp_pa
             assert memory.memory_ref is not None and memory.memory_ref.revision == 1
             assert [hit.text for hit in memory.hits] == [text]
             async with (
-                SQLiteProfile.open(config.database, tables=SHARED_TABLES) as profile,
+                SQLiteProfile.open(database, tables=SHARED_TABLES) as profile,
                 profile.database.transaction() as connection,
             ):
                 intent = await ArtifactProcessingIntentRepository().load(
