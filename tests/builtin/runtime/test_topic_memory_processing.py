@@ -88,6 +88,11 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_WORK_BUDGETS_TABLE,
 )
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
+from powercontext.builtin.persistence.topic_memory_budget import (
+    MAX_TOPIC_MEMORY_WORK_ATTEMPTS,
+    exhausted_reason,
+    require_topic_memory_work_available,
+)
 from powercontext.builtin.persistence.topic_memory_index import (
     CompositeTopicMemoryIndex,
     topic_memory_embedding_profile_fingerprint,
@@ -1536,14 +1541,16 @@ def test_related_coordination_fails_closed_and_keeps_cursor_when_history_exceeds
     asyncio.run(scenario())
 
 
-async def _union_over_stage_contract_setup():
+async def _union_over_stage_contract_setup(*, retrying: bool = False):
     """Window whose coordinate phase sees a candidate union above the stage contract.
 
     Two proposals hit overlapping secondary candidates, so each per-proposal
     retrieval stays inside ``topic_memory_history_max_candidates`` while the
-    deduplicated union is 21.
+    deduplicated union is 21. Only the first coordinate lookup overflows, so
+    ``retrying`` keeps the generated proposals available for a later attempt and
+    wires the real publisher, which is what shows what the frontier does next.
     """
-    manager, profile, sources, _ = await _repositories()
+    manager, profile, sources, repository = await _repositories()
     published = {
         f"history-{index:04d}": PublishedTopicMemory(
             topic=TopicMemory(
@@ -1600,17 +1607,31 @@ async def _union_over_stage_contract_setup():
 
     topics = FakeTopics()
     proposal = TopicMemoryProposal(content=_content("shared"), evidence_ids=("evidence-0001",))
+    probe = TopicMemoryProbeOutput(
+        probes=(TopicMemoryProbe(query="shared durable state", evidence_ids=("evidence-0001",)),)
+    )
+    global_output = TopicMemoryGlobalOutput(proposals=(proposal,))
+    if retrying:
+        stages = TopicMemoryStageSet(
+            probe=_RepeatingGenerator(probe),
+            global_evolver=_RepeatingGenerator(global_output),
+            planner=_QueueGenerator(),
+            evolver=_QueueGenerator(),
+            temporary=_QueueGenerator(),
+            reconciler=_QueueGenerator(),
+            estimator=character_token_estimator(),
+            input_tokens_limit=100_000,
+        )
+        publisher = cast(Any, TopicMemoryAtomicPublisher(profile.database, sources, repository, leases=leases))
+    else:
+        stages = _stages(probe=probe, global_output=global_output)
+        publisher = cast(Any, None)
     processor = TopicMemoryProcessor(
         database=profile.database,
         sources=sources,
         topics=cast(Any, topics),
-        stages=_stages(
-            probe=TopicMemoryProbeOutput(
-                probes=(TopicMemoryProbe(query="shared durable state", evidence_ids=("evidence-0001",)),)
-            ),
-            global_output=TopicMemoryGlobalOutput(proposals=(proposal,)),
-        ),
-        publisher=cast(Any, None),
+        stages=stages,
+        publisher=publisher,
     )
     return manager, profile, topics, processor, _assignment(term.fence("single-process"))
 
@@ -1621,8 +1642,8 @@ async def _budget_row(profile):
         return None if row is None else dict(row)
 
 
-def test_related_history_limit_is_persisted_as_its_own_terminal_code() -> None:
-    """A retry replays the same window input, so the rejection is decided, not attempted."""
+def test_related_history_limit_is_recorded_without_ending_the_frontier() -> None:
+    """The cause is kept for diagnosis; neither gate may treat it as a stop."""
 
     async def scenario() -> None:
         manager, profile, _, processor, assignment = await _union_over_stage_contract_setup()
@@ -1633,27 +1654,31 @@ def test_related_history_limit_is_persisted_as_its_own_terminal_code() -> None:
             assert row is not None
             assert row["failure_code"] == "related_history_limit"
             assert row["attempts"] == 1
+
+            # The selector guard reads the same reason the Worker does, so a recorded
+            # cause that still stopped either one would block the Source for good.
+            assert exhausted_reason(row) == ""
+            async with profile.database.transaction() as connection:
+                await require_topic_memory_work_available(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING, 0)
         finally:
             await manager.__aexit__(None, None, None)
 
     asyncio.run(scenario())
 
 
-def test_related_history_limit_terminal_rejection_does_not_re_enter_generation() -> None:
-    """The recorded rejection terminates the frontier instead of spending the allowance."""
+def test_recorded_related_history_limit_still_publishes_a_later_attempt() -> None:
+    """A retry regenerates and searches again, so a narrower union fits and the Cursor moves."""
 
     async def scenario() -> None:
-        manager, profile, topics, processor, assignment = await _union_over_stage_contract_setup()
+        manager, profile, topics, processor, assignment = await _union_over_stage_contract_setup(retrying=True)
         try:
             with pytest.raises(TopicMemoryGenerationError, match="related_history_limit"):
                 await processor.process(assignment)
-            terminal = await _budget_row(profile)
             calls = topics.calls
 
-            with pytest.raises(TopicMemoryGenerationError, match="related_history_limit"):
-                await processor.process(assignment)
-            assert topics.calls == calls
-            assert await _budget_row(profile) == terminal
+            assert (await processor.process(assignment)).outcome.value == "succeeded"
+            assert topics.calls > calls
+            assert await _budget_row(profile) is None
 
             async with profile.database.transaction() as connection:
                 cursor = await SourceCursorRepository().load(
@@ -1661,11 +1686,23 @@ def test_related_history_limit_terminal_rejection_does_not_re_enter_generation()
                     "scope-a",
                     TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
                 )
-            assert cursor is None
+            assert cursor is not None and cursor.cursor.sequence == 1
         finally:
             await manager.__aexit__(None, None, None)
 
     asyncio.run(scenario())
+
+
+def test_recorded_rejections_stay_bounded_by_the_attempt_ceiling() -> None:
+    """A recorded cause survives diagnosis, not the ceiling that bounds its retries."""
+
+    recorded = {"failure_code": "related_history_limit", "requests": 0, "tokens": 0}
+    assert exhausted_reason({**recorded, "attempts": MAX_TOPIC_MEMORY_WORK_ATTEMPTS - 1}) == ""
+    # Exhaustion names the rejection that kept recurring rather than the bare ceiling.
+    assert exhausted_reason({**recorded, "attempts": MAX_TOPIC_MEMORY_WORK_ATTEMPTS}) == "related_history_limit"
+    # An input-decided rejection still ends the frontier on its first attempt.
+    decides = {**recorded, "failure_code": "source_complexity_limit", "attempts": 1}
+    assert exhausted_reason(decides) == "source_complexity_limit"
 
 
 def test_probe_query_is_bounded_before_embedding_and_repository_io() -> None:

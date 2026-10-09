@@ -100,6 +100,7 @@ from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_budget import (
     MAX_TOPIC_MEMORY_WORK_REQUESTS,
     MAX_TOPIC_MEMORY_WORK_TOKENS,
+    RECOVERABLE_TOPIC_MEMORY_REJECTIONS,
     TopicMemoryWorkBudget,
     require_topic_memory_work_available,
 )
@@ -133,11 +134,13 @@ MAX_TOPIC_MEMORY_SOURCE_NODES = 65_536
 MAX_TOPIC_MEMORY_SOURCE_DEPTH = 32
 MAX_TOPIC_MEMORY_WINDOW_SOURCES = 100
 
-# Rejections decided entirely by this window's own input. A retry replays the same
-# input, so it cannot produce a different answer; persisting them as terminal keeps
-# the failure reported under its own code instead of spending the attempt allowance
-# and surfacing as ``window_attempt_limit``.
-DETERMINISTIC_TOPIC_MEMORY_REJECTIONS = frozenset({"source_complexity_limit", "related_history_limit"})
+# Rejections worth recording on the frontier. ``source_complexity_limit`` is decided
+# by this window's own input, so a retry replays the same rejection and it ends the
+# frontier immediately. ``related_history_limit`` is measured against the *generated*
+# proposals' secondary candidates, so a retry can be narrow enough to fit — it is
+# recorded for diagnosis but stays recoverable, with the attempt ceiling bounding how
+# many retries it may spend.
+RECORDED_TOPIC_MEMORY_REJECTIONS = frozenset({"source_complexity_limit"}) | RECOVERABLE_TOPIC_MEMORY_REJECTIONS
 
 InputT = TypeVar("InputT", bound=BaseModel)
 OutputT = TypeVar("OutputT")
@@ -530,7 +533,7 @@ class TopicMemoryProcessor:
                     assignment, evidence, operations, work_budget=budget, commit_hook=commit_hook
                 )
             except TopicMemoryGenerationError as error:
-                if error.code in DETERMINISTIC_TOPIC_MEMORY_REJECTIONS:
+                if error.code in RECORDED_TOPIC_MEMORY_REJECTIONS:
                     await budget.fail(error.code)
                 raise
         except ArtifactProcessingLeadershipLostError:
