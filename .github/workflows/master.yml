@@ -158,6 +158,7 @@ jobs:
         timeout-minutes: 10
         env:
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
+          POWERCONTEXT_TEST_MIGRATION_SQL_LOG: "1"
           PYTHONUNBUFFERED: "1"
         run: |
           set -o pipefail
@@ -168,9 +169,12 @@ jobs:
             tests/builtin/persistence/test_database_migration_backends.py \
             tests/builtin/persistence/test_database_backup_providers.py \
             tests/builtin/persistence/test_database_migration_connections.py \
-            tests/builtin/persistence/test_mysql_migration_schema.py \
-            tests/builtin/persistence/test_mysql_migration_runner.py -k seekdb \
+            tests/builtin/persistence/test_mysql_migration_schema.py -k seekdb \
             2>&1 | tee seekdb-migrations.log
+          uv run --locked --extra seekdb pytest -vv \
+            -o faulthandler_timeout=120 --durations=20 --log-cli-level=INFO \
+            tests/builtin/persistence/test_mysql_migration_runner.py -k seekdb \
+            2>&1 | tee -a seekdb-migrations.log
 
       - name: Upload seekdb migration diagnostics
         if: always()

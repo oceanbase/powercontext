@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -113,7 +114,11 @@ def _oceanbase_scratch_target(config: OceanBaseConfig, evidence_directory: Path)
 
 
 @pytest.fixture(params=("seekdb", "oceanbase"), ids=("seekdb", "oceanbase"))
-def backend(request: pytest.FixtureRequest, short_tmp_path: Path) -> Iterator[_BackendTarget]:
+def backend(
+    request: pytest.FixtureRequest, short_tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> Iterator[_BackendTarget]:
+    if os.environ.get("POWERCONTEXT_TEST_MIGRATION_SQL_LOG") == "1":
+        caplog.set_level(logging.INFO, logger="sqlalchemy.engine")
     if request.param == "seekdb":
         if os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1":
             pytest.skip("real seekdb probe not enabled")
