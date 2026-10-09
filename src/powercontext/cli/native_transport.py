@@ -22,6 +22,7 @@ import re
 from pathlib import Path
 from typing import Any, cast
 
+from powercontext.cli.dsh_runtime import DshTarget
 from powercontext.client.transport_policy import (
     load_client_settings,
     normalize_client_url,
@@ -89,12 +90,15 @@ def _codex_url() -> str | None:
     return next(iter(urls), None)
 
 
-def _native_settings(host: str) -> tuple[dict[str, Any], str, str]:
+def _native_settings(host: str, dsh_target: DshTarget | None = None) -> tuple[dict[str, Any], str, str]:
     if host == "dsh":
         from powercontext.cli.dsh_transport import read_dsh_settings
 
         return (
-            read_dsh_settings(profile=os.environ.get("DSH_PROFILE", "").strip() or "web"),
+            read_dsh_settings(
+                profile=dsh_target.profile if dsh_target else os.environ.get("DSH_PROFILE", "").strip() or "web",
+                executable=dsh_target.command if dsh_target else None,
+            ),
             "baseUrl",
             "allowInsecureHttp",
         )
@@ -172,7 +176,7 @@ def configured_native_endpoint(host: str) -> str | None:
     return _url(native[url_key]) if url_key in native else None
 
 
-def resolve_host_transport(host: str) -> tuple[str, bool]:
+def resolve_host_transport(host: str, *, dsh_target: DshTarget | None = None) -> tuple[str, bool]:
     """Resolve the effective endpoint and consent, or report an unknown native configuration.
 
     Native HTTP consent is endpoint-bound. This is a read-only diagnostic, not
@@ -194,7 +198,7 @@ def resolve_host_transport(host: str) -> tuple[str, bool]:
         if native_consent is not _MISSING:
             allowed = native_consent and native_url == endpoint
         return endpoint, allowed
-    native, url_key, consent_key = _native_settings(host)
+    native, url_key, consent_key = _native_settings(host, dsh_target)
     native_url = _url(native[url_key]) if url_key in native else None
     prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_"))
     endpoint = _url(_selected_url(host, prefix, native_url))

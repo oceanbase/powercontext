@@ -30,7 +30,12 @@ from powercontext.client.transport_policy import normalize_client_url, parse_cli
 
 
 def read_dsh_settings(
-    *, profile: str = "web", candidate: Path | None = None, prospective: bool = False, require_installed: bool = False
+    *,
+    profile: str = "web",
+    candidate: Path | None = None,
+    prospective: bool = False,
+    executable: str | None = None,
+    require_installed: bool = False,
 ) -> dict[str, Any]:
     """Compose the installed host's layers; optionally substitute the installation candidate."""
     from powercontext.cli.dsh import dsh_executable
@@ -55,26 +60,35 @@ def read_dsh_settings(
     ):
         return {}
     try:
-        executable = dsh_executable()
+        if executable is None and profile == "desktop":
+            from powercontext.cli.dsh_runtime import DshProfile, resolve_dsh_target
+
+            executable = resolve_dsh_target(DshProfile.DESKTOP).command
+        executable = executable or dsh_executable()
     except SetupError:
         raise ValueError("DSH CLI is required to inspect its configuration") from None  # noqa: TRY003
-    sibling_node = Path(executable).parent / ("node.exe" if os.name == "nt" else "node")
-    node = str(sibling_node) if sibling_node.is_file() else which("node")
-    if not node:
-        raise ValueError("Node.js is required to inspect DSH configuration")  # noqa: TRY003
+    prefix, environment, anchor = _inspection_runtime(executable)
     command = [
-        node,
+        *prefix,
         str(Path(__file__).with_name("dsh_config.mjs")),
         executable,
         str(home),
         profile,
         str(candidate) if candidate else "",
         str(prospective).lower(),
+        anchor,
         str(require_installed).lower(),
     ]
     try:
         result = subprocess.run(  # noqa: S603 - fixed helper and separate arguments, no shell.
-            command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, check=False
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+            env=environment,
         )
         payload = json.loads(result.stdout)
     except (OSError, subprocess.SubprocessError, ValueError):
@@ -89,6 +103,24 @@ def read_dsh_settings(
     for warning in payload.get("warnings", []):
         typer.echo(f"WARNING: {warning}", err=True)
     return settings
+
+
+def _inspection_runtime(executable: str) -> tuple[list[str], dict[str, str] | None, str]:
+    """Run packaged configuration reads under Electron so ASAR resolution matches Desktop."""
+    from powercontext.cli.dsh_runtime import desktop_runtime
+
+    desktop = desktop_runtime(executable)
+    environment = None
+    if desktop:
+        prefix = [str(desktop.electron), "--expose-internals"]
+        environment = dict(os.environ, ELECTRON_RUN_AS_NODE="1")
+    else:
+        sibling_node = Path(executable).parent / ("node.exe" if os.name == "nt" else "node")
+        node = str(sibling_node) if sibling_node.is_file() else which("node")
+        if not node:
+            raise ValueError("Node.js is required to inspect DSH configuration")  # noqa: TRY003
+        prefix = [node]
+    return prefix, environment, str(desktop.anchor) if desktop else ""
 
 
 def matching_dsh_consent(settings: dict[str, Any], endpoint: str) -> bool | None:

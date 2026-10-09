@@ -103,7 +103,7 @@ harness-acceptance: ## Evaluate workloads by ID or category against an existing 
 		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results}" $(ARGS)
 
 .PHONY: harness-paired
-harness-paired: ## Compare PowerContext off and on for continuation workloads against an existing Server.
+harness-paired: ## Compare PowerContext off and on for paired workloads against an existing Server.
 	@uv run --project e2e/bub powercontext-e2e paired \
 		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results/paired}" $(ARGS)
 
@@ -189,6 +189,17 @@ pi-test: ## Install and test the Pi package.
 	@pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile
 	@pnpm --dir integrations/pi/plugins/powercontext test
 	@pnpm --dir integrations/pi/plugins/powercontext run typecheck
+
+.PHONY: dify-test
+dify-test: ## Check the isolated Dify SDK plugin and real PowerContext HTTP/SQLite tools.
+	@uv sync --locked --project integrations/dify --python 3.12
+	@uv run --project integrations/dify python integrations/dify/generate_requirements.py --check
+	@uv run --project integrations/dify python -X utf8 integrations/dify/generate_contract.py --check
+	@uv run --project integrations/dify ruff check integrations/dify
+	@uv run --project integrations/dify ruff format --check integrations/dify
+	@uv run --project integrations/dify ty check --project integrations/dify --python integrations/dify/.venv
+	@uv run --project integrations/dify python -X utf8 -m pytest integrations/dify/tests
+	@uv run python -X utf8 -m pytest tests/e2e/test_dify_tools_http.py
 
 .PHONY: build
 build: clean-build ## Build wheel file

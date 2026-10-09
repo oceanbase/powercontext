@@ -64,8 +64,12 @@ function installation(executable) {
   fail('Cannot locate the installed DSH package from its CLI; use a supported npm/pnpm DSH installation')
 }
 
-async function inspect(executable, home, profile, candidate, prospective, requireInstalled) {
-  const anchor = installation(executable)
+async function inspect(executable, home, profile, candidate, prospective, desktopAnchor, requireInstalled) {
+  const anchor = desktopAnchor || installation(executable)
+  if (desktopAnchor) {
+    const manifest = read(anchor, () => JSON.parse(readFileSync(anchor, 'utf8')))
+    if (manifest.name !== '@deepseek-ai/dsh') fail('Invalid Desktop runtime manifest', anchor)
+  }
   const require = createRequire(anchor)
   // These are the selected host's APIs, not dependencies of the plugin being installed.
   // Resolving a different copy from PowerContext would inspect a different host contract.
@@ -288,8 +292,8 @@ async function inspect(executable, home, profile, candidate, prospective, requir
 }
 
 try {
-  const [executable, home, profile, candidate, prospective, requireInstalled] = process.argv.slice(2)
-  const result = await inspect(resolve(executable), resolve(home), profile, candidate || undefined, prospective === 'true', requireInstalled === 'true')
+  const [executable, home, profile, candidate, prospective, desktopAnchor, requireInstalled] = process.argv.slice(2)
+  const result = await inspect(resolve(executable), resolve(home), profile, candidate || undefined, prospective === 'true', desktopAnchor, requireInstalled === 'true')
   process.stdout.write(JSON.stringify(result))
 } catch (error) {
   // Native parser messages and stacks can include credentials or whole YAML rows.

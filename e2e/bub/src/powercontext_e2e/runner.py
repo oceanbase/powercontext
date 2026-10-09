@@ -42,7 +42,7 @@ from powercontext.client.settings import ClientSettings
 from powercontext.http import CreateScopeRequest, ListMemoryEntriesRequest, PrepareContextRequest
 
 from .artifacts import write_artifacts
-from .catalog import ContinuationEvaluationSpec, E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec
+from .catalog import E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec, is_paired
 from .evaluation import evaluate_observation, matches_forbidden_context
 from .evidence import fingerprint, load_resolved_instructions, redact, write_evaluation_report, write_evidence
 from .hosts import HostAdapter, host_adapter
@@ -151,8 +151,8 @@ async def run_tasks(
     settings: HarnessSettings,
     failure_policy: FailurePolicy = "collect-all",
 ) -> bool:
-    if continuation_ids := [task.id for task in tasks if isinstance(task.evaluation, ContinuationEvaluationSpec)]:
-        raise ValueError(f"Run OFF/ON continuation workloads with the paired command: {continuation_ids!r}")  # noqa: TRY003
+    if paired_ids := [task.id for task in tasks if is_paired(task)]:
+        raise ValueError(f"Run OFF/ON comparison workloads with the paired command: {paired_ids!r}")  # noqa: TRY003
     require_runtime_models(tasks)
 
     accepted = True
@@ -537,6 +537,13 @@ def _validate_batch_compatibility(tasks: tuple[E2ETask, ...], settings: HarnessS
 
 
 def _load_source_task(task: E2ETask, repository: Path) -> SourceTask:
+    harbor_task = _load_harbor_task(task, repository)
+    return SourceTask(task, harbor_task, _task_layout(task, harbor_task))
+
+
+def _load_harbor_task(task: E2ETask, repository: Path) -> HarborTask:
+    """Load a local Harbor task and verify it is the one the manifest pins."""
+
     dataset_path = task.dataset.path
     if dataset_path is None:
         raise ValueError(f"Source task {task.id!r} does not use a local Harbor dataset")  # noqa: TRY003
@@ -547,7 +554,7 @@ def _load_source_task(task: E2ETask, repository: Path) -> SourceTask:
         raise ValueError(f"Source task {task.id!r} cannot be loaded from {task_dir}") from exc  # noqa: TRY003
     if harbor_task.checksum != task.dataset.checksum:
         raise ValueError(f"Source task {task.id!r} checksum changed")  # noqa: TRY003
-    return SourceTask(task, harbor_task, _task_layout(task, harbor_task))
+    return harbor_task
 
 
 def _runtime_profile(source: SourceTask) -> dict[str, Any]:

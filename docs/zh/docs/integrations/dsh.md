@@ -10,7 +10,7 @@ description: 安装 PowerContext DeepSeek Harness 插件并控制其本地行为
 
 ## 安装匹配的 Server 和插件
 
-先安装 DeepSeek Harness，并确保 Web profile 可用。真实宿主验收固定使用 DSH 0.1.2-rc.1。
+先安装 DeepSeek Harness Web 或 Desktop。真实宿主验收固定使用 DSH 0.1.2-rc.1。
 选择以下一种 PowerContext 安装方式，让 Server 和插件保持匹配。
 
 使用本站对应的配置向导版本：
@@ -36,7 +36,37 @@ powercontext setup dsh --source ./powercontext-dsh-dev
 `setup dsh --source oceanbase/powercontext --ref master` 会直接复用有效缓存 checkout，不会 fetch；
 重复运行不代表更新了移动分支。只有残缺 checkout 会被替换。
 
-`setup dsh` 调用 `dsh plugin --profile web add`，不会启动 Server。安装完成后重启 DSH。
+在交互终端中运行 `powercontext setup dsh` 会询问安装到 `web` 还是 `desktop`。
+非交互模式或使用 `--json` 时，未指定 profile 默认安装到 `web`。显式指定目标不会询问：
+
+```bash
+powercontext setup dsh --profile web
+powercontext setup dsh --profile desktop
+powercontext doctor dsh --profile desktop
+```
+
+Web 安装目录为 `$DSH_HOME/profiles/web`，Desktop 为 `$DSH_HOME/profiles/desktop`；
+`DSH_HOME` 默认是 `~/.dsh`。Setup 调用 `dsh plugin --profile <profile> add`，在对应 profile 的
+`package.json` 中安装依赖并启用 bundle，再加载插件包自带的 patch。两个 profile 的用户
+`cordis.patch.yml` 均会保留，安装不会改变另一个 profile 的插件启用状态。
+
+Desktop 必须使用**桌面版自带的 dsh 命令**，npm/pnpm 版 dsh 无权管理 desktop profile。
+请先启动一次 Desktop 初始化配置，通过 **Manage dsh Command…** 菜单安装命令并打开新终端，
+然后完全退出 Desktop 再安装插件；关闭窗口可能只是隐藏。即使 npm 命令排在前面，Setup 也会继续
+在 PATH 中查找 Desktop 启动器。未注册 PATH 时可以显式指定：
+
+```powershell
+powercontext setup dsh --profile desktop --dsh-command "D:\Apps\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd"
+```
+
+macOS 启动器位于 `DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`。
+`doctor dsh` 同样支持 `--dsh-command`。支持 Windows/macOS 的打包桌面版布局，不支持未打包的开发启动器。
+配置检查使用桌面版自带的 Electron 和配置解析器，不启动插件。注册成功不代表运行中的宿主和 Server
+已经就绪；安装后重新打开 Desktop，在会话中执行 `/pc doctor`。Setup 不会替你启动 Server 或退出 Desktop。
+
+Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powercontext/credentials.json`。
+建议两者连接同一个 Server；修改共享 URL 会影响没有原生覆盖配置的 profile，凭据仍绑定原来的 Server URL。
+同时使用 Web 和 Desktop 时，分别执行两个 profile 的安装命令。
 
 已有界面和模型 patch 可以保留。setup 检查合成后的 PowerContext 连接设置；
 冲突处理及动态配置限制见[远程连接配置](../operate/connect-remote-server.md)。
@@ -84,6 +114,10 @@ Server 使用其他监听地址时同步修改 URL。鉴权使用 `POWERCONTEXT_
 在出现问题的 DSH 会话内运行 `/pc doctor`。报告显示配置来源，分别检查 liveness、readiness、运行能力、
 路由声明、当前 Scope 和只读 prepare 操作。Scope 失败不会遮蔽健康检查。
 端点摘要仅显示 origin、配置来源和是否存在路径前缀，不打印凭据、前缀正文、查询参数或 fragment。
+
+Doctor 会单独报告当前宿主的原生 MCP 工具目录。文档中的 DSH 安装仍是仅 HTTP 的插件，因此
+`native_mcp_unconfigured` 不会使原本健康的 HTTP 插件检查失败。若已发现其他原生 MCP 工具但没有
+`mcp__powercontext__*`，Doctor 会报告 `native_mcp_powercontext_missing` 并给出恢复操作。
 
 失败项提供操作名、稳定 code、可用的 HTTP status/request ID 和具体恢复操作。
 协议错误还提供 `protocol_issue`，指出 JSON、状态码或 PreparedContext 字段违反的具体规则。

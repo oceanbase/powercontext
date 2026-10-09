@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 import typer
 
 if TYPE_CHECKING:
+    from powercontext.cli.dsh_runtime import DshTarget
     from powercontext.cli.system import Diagnostic
     from powercontext.cli.transport import SetupTransport
 
@@ -245,6 +246,7 @@ def setup_host(
     capture_prompts: bool = True,
     allow_insecure_http: bool | None = None,
     json_output: bool = False,
+    dsh_target: DshTarget | None = None,
 ) -> HostInstallation:
     """Resolve, install, and persist one Agent using the common connection policy.
 
@@ -254,7 +256,11 @@ def setup_host(
     from powercontext.cli.transport import prepare_setup_transport, save_setup_transport
 
     transport = prepare_setup_transport(
-        name, server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
+        name,
+        server_url=server_url,
+        allow_insecure_http=allow_insecure_http,
+        json_output=json_output,
+        **({"dsh_target": dsh_target} if dsh_target else {}),
     )
     result = install_host(
         name,
@@ -263,6 +269,7 @@ def setup_host(
         server_url=transport.server_url,
         capture_prompts=capture_prompts,
         allow_insecure_http=transport.allow_insecure_http,
+        **({"dsh_target": dsh_target} if dsh_target else {}),
     )
     save_setup_transport(transport)
     return HostInstallation(result, transport)
@@ -314,6 +321,7 @@ def install_host(
     server_url: str | None,
     capture_prompts: bool,
     allow_insecure_http: bool = False,
+    dsh_target: DshTarget | None = None,
 ) -> object:
     """Call the existing installer for one first-class host."""
 
@@ -339,6 +347,7 @@ def install_host(
             ref=ref,
             server_url=server_url or "http://127.0.0.1:8000",
             allow_insecure_http=allow_insecure_http,
+            **({"target": dsh_target} if dsh_target else {}),
         )
     if name == "openclaw":
         from powercontext.cli.openclaw import install_openclaw_plugin

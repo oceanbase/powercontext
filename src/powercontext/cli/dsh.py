@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 
+from powercontext.cli.dsh_runtime import DshProfile, DshTarget, dsh_home
 from powercontext.cli.git_source import (
     InvalidGitHubSourceError,
     clone_github_source,
@@ -49,14 +50,22 @@ class DshSetupResult:
     plugin_path: str
     data_dir: str
     authorization_state: str = "not_attempted"
+    profile: str = "web"
+    profile_dir: str = ""
 
 
 def install_dsh_plugin(
-    *, source: str, ref: str, server_url: str = "http://127.0.0.1:8000", allow_insecure_http: bool = False
+    *,
+    source: str,
+    ref: str,
+    server_url: str = "http://127.0.0.1:8000",
+    allow_insecure_http: bool = False,
+    target: DshTarget | None = None,
 ) -> DshSetupResult:
     """Install the plugin from a PowerContext checkout or Git source."""
 
-    dsh_executable()
+    profile = target.profile if target else DshProfile.WEB
+    executable = target.command if target and target.command else dsh_executable()
     data_dir = powercontext_data_dir()
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -67,13 +76,13 @@ def install_dsh_plugin(
     from powercontext.cli.dsh_transport import read_dsh_settings, validate_dsh_setup_transport
 
     try:
-        settings = read_dsh_settings(profile=DSH_PROFILE, candidate=plugin_dir, prospective=True)
+        settings = read_dsh_settings(profile=profile, candidate=plugin_dir, prospective=True, executable=executable)
         validate_dsh_setup_transport(settings, server_url, allow_insecure_http)
     except ValueError as error:
         raise SetupError(str(error)) from error
-    _run_dsh("plugin", "--profile", DSH_PROFILE, "add", str(plugin_dir))
+    _run_dsh("plugin", "--profile", profile, "add", str(plugin_dir), **({"executable": executable} if target else {}))
     try:
-        settings = read_dsh_settings(profile=DSH_PROFILE, require_installed=True)
+        settings = read_dsh_settings(profile=profile, executable=executable, require_installed=True)
         validate_dsh_setup_transport(settings, server_url, allow_insecure_http)
     except ValueError as error:
         raise SetupError(  # noqa: TRY003 - actionable host-specific readback failure.
@@ -89,6 +98,8 @@ def install_dsh_plugin(
         plugin=DSH_PLUGIN_NAME,
         plugin_path=str(plugin_dir),
         data_dir=str(data_dir),
+        profile=profile,
+        profile_dir=str(dsh_home() / "profiles" / profile),
         authorization_state=configure_stored_authorization(
             "dsh",
             server_url=server_url,
@@ -123,11 +134,11 @@ def require_built_plugin(path: Path) -> None:
         raise SetupError.unbuilt_dsh_plugin(path)
 
 
-def run_dsh_diagnostics() -> dict[str, Diagnostic]:
+def run_dsh_diagnostics(*, target: DshTarget | None = None) -> dict[str, Diagnostic]:
     """Collect diagnostics for the optional DeepSeek Harness integration."""
 
     try:
-        executable = dsh_executable()
+        executable = target.command if target and target.command else dsh_executable()
     except SetupError:
         return {
             "dsh": Diagnostic(
@@ -139,8 +150,10 @@ def run_dsh_diagnostics() -> dict[str, Diagnostic]:
                 detail="not checked because DeepSeek Harness CLI is unavailable",
             ),
         }
+    if target and target.profile == DshProfile.DESKTOP:
+        return _desktop_diagnostics(target)
     try:
-        output = _run_dsh("--profile", DSH_PROFILE, "--dump-config")
+        output = _run_dsh("--profile", DSH_PROFILE, "--dump-config", **({"executable": executable} if target else {}))
     except SetupError as error:
         cause = error.__cause__
         checks = {"dump_config": "failed"}
@@ -185,6 +198,34 @@ def run_dsh_diagnostics() -> dict[str, Diagnostic]:
                 "session_scope": "not_checked",
             },
         ),
+    }
+
+
+def _desktop_diagnostics(target: DshTarget) -> dict[str, Diagnostic]:
+    """Compose registration with Desktop's parser without booting its reserved profile."""
+    from powercontext.cli.dsh_transport import read_dsh_settings
+
+    try:
+        read_dsh_settings(profile=target.profile, executable=target.command, require_installed=True)
+    except ValueError as error:
+        plugin = Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error))
+    else:
+        plugin = Diagnostic(
+            status=DiagnosticStatus.OK,
+            detail="powercontext-dsh is registered in the Desktop profile. Reopen Desktop and run /pc doctor "
+            "inside that session to check the running host and Server.",
+            checks={
+                "registration": "present",
+                "running_host_configuration": "not_observed",
+                "server_liveness": "not_checked",
+                "server_readiness": "not_checked",
+                "route_compatibility": "not_checked",
+                "session_scope": "not_checked",
+            },
+        )
+    return {
+        "dsh": Diagnostic(status=DiagnosticStatus.OK, detail=target.command or "Desktop-installed dsh"),
+        "plugin": plugin,
     }
 
 
@@ -270,8 +311,8 @@ def _clone_github_source(source: str, ref: str, target: Path) -> None:
         raise SetupError.invalid_dsh_source() from None
 
 
-def _run_dsh(*arguments: str) -> str:
-    command = [dsh_executable(), *arguments]
+def _run_dsh(*arguments: str, executable: str | None = None) -> str:
+    command = [executable or dsh_executable(), *arguments]
     try:
         completed = subprocess.run(  # noqa: S603 - arguments are passed directly to the fixed dsh executable.
             command,

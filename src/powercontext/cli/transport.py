@@ -38,6 +38,7 @@ from powercontext.client.transport_policy import (
 from powercontext.transport import is_loopback_host
 
 if TYPE_CHECKING:
+    from powercontext.cli.dsh_runtime import DshTarget
     from powercontext.cli.system import Diagnostic
 
 
@@ -64,6 +65,7 @@ def prepare_setup_transport(
     server_url: str | None = None,
     allow_insecure_http: bool | None = None,
     json_output: bool = False,
+    dsh_target: DshTarget | None = None,
 ) -> SetupTransport:
     """Resolve and confirm the endpoint before any installation side effects."""
 
@@ -74,7 +76,11 @@ def prepare_setup_transport(
         if host == "dsh":
             from powercontext.cli.dsh_transport import read_dsh_settings
 
-            native = read_dsh_settings(profile="web", prospective=True)
+            native = read_dsh_settings(
+                profile=dsh_target.profile if dsh_target else "web",
+                prospective=True,
+                executable=dsh_target.command if dsh_target else None,
+            )
         prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_")) + "_"
         server_url = resolve_setup_endpoint(host, server_url=server_url, native_endpoint=native.get("baseUrl"))
         allow_insecure_http = _setup_consent(host, server_url, allow_insecure_http, native)
@@ -301,14 +307,14 @@ def hermes_config_file() -> Path:
     return Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / "powercontext" / "config.json"
 
 
-def transport_diagnostic(host: str) -> Diagnostic:
+def transport_diagnostic(host: str, *, dsh_target: DshTarget | None = None) -> Diagnostic:
     """Report explicitly insecure transport as degraded rather than silently green."""
 
     from powercontext.cli.native_transport import resolve_host_transport
     from powercontext.cli.system import Diagnostic, DiagnosticStatus
 
     try:
-        endpoint, allowed = resolve_host_transport(host)
+        endpoint, allowed = resolve_host_transport(host, **({"dsh_target": dsh_target} if dsh_target else {}))
     except ValueError as error:
         return Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error))
     if is_remote_http(endpoint):
@@ -323,9 +329,11 @@ def transport_diagnostic(host: str) -> Diagnostic:
     return Diagnostic(status=DiagnosticStatus.OK, detail=endpoint)
 
 
-def add_transport_diagnostic(diagnostics: dict[str, Diagnostic], host: str) -> None:
+def add_transport_diagnostic(
+    diagnostics: dict[str, Diagnostic], host: str, *, dsh_target: DshTarget | None = None
+) -> None:
     """Append policy problems without changing healthy installation reports."""
 
-    diagnostic = transport_diagnostic(host)
+    diagnostic = transport_diagnostic(host, **({"dsh_target": dsh_target} if dsh_target else {}))
     if not diagnostic.ok:
         diagnostics["transport"] = diagnostic

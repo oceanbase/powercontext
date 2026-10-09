@@ -39,7 +39,9 @@ def isolate_client_config(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("host", ["codex", "claude-code", "dsh", "openclaw", "opencode", "pi", "hermes", "workbuddy"])
-def test_every_setup_rejects_remote_http_without_consent_before_install(host):
+def test_every_setup_rejects_remote_http_without_consent_before_install(host, monkeypatch):
+    if host == "dsh":
+        monkeypatch.setattr("powercontext.cli.dsh.which", lambda _name: None)
     result = CliRunner().invoke(
         create_cli([setup_app]), ["setup", host, "--server-url", "http://192.0.2.10:8000", "--json"]
     )
@@ -178,6 +180,8 @@ def test_all_setup_routes_persist_adapter_endpoint(host, bulk, endpoint, tmp_pat
     from powercontext.cli import hosts, system
     from powercontext.cli.transport import client_config_file
 
+    if host == "dsh":
+        monkeypatch.setattr("powercontext.cli.dsh.which", lambda _name: None)
     path = client_config_file()
     path.write_text(json.dumps({"version": 1, "hosts": {host: {"custom": "keep"}, "other": {"custom": True}}}))
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
@@ -193,7 +197,7 @@ def test_all_setup_routes_persist_adapter_endpoint(host, bulk, endpoint, tmp_pat
     monkeypatch.setattr(hosts, "verify_host", lambda _host: None)
     if host not in {"claude-code", "openclaw"}:
         module = system if host == "codex" else importlib.import_module(f"powercontext.cli.{host}")
-        monkeypatch.setattr(module, f"run_{host}_diagnostics", lambda: {})
+        monkeypatch.setattr(module, f"run_{host}_diagnostics", lambda **_options: {})
     arguments = ["setup", "select", "--host", host, "--json"] if bulk else ["setup", host, "--json"]
     if endpoint.startswith("https:"):
         arguments.extend(["--server-url", endpoint])

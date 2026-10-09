@@ -1860,6 +1860,8 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
         "plugin_path": str(plugin),
         "data_dir": str(tmp_path / "data"),
         "authorization_state": "not_configured",
+        "profile": "web",
+        "profile_dir": str(tmp_path / "dsh-home/profiles/web"),
     }
     assert run_dsh.call_args_list[0].args == (
         "plugin",
@@ -1914,7 +1916,7 @@ def test_doctor_dsh_requires_the_installed_plugin(monkeypatch) -> None:
     import powercontext.cli.dsh as dsh_cli
 
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
-    monkeypatch.setattr(dsh_cli, "_run_dsh", lambda *_args: "id: other-plugin\n")
+    monkeypatch.setattr(dsh_cli, "_run_dsh", lambda *_args, **_kwargs: "id: other-plugin\n")
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh"])
 

@@ -623,6 +623,14 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
                         pending.cancel()
                     await asyncio.gather(pending, return_exceptions=True)
             await _await_usage_record(tmp_path / "topics.db", scope, 30.0)
+            assert _topic_embedding_requests(tmp_path / "topics.db", scope) == 1
+            listed = await client.get(path + "/topic-memory")
+            assert listed.status_code == 200, listed.text
+            assert len(listed.json()["items"]) == 1
+            artifact_id = listed.json()["items"][0]["artifact_id"]
+            saved = await client.get(f"{path}/topic-memory/{artifact_id}")
+            assert saved.status_code == 200, saved.text
+            assert saved.json()["content"] == payload["content"]
             assert (await client.post(path, json=payload)).status_code == 201
 
     asyncio.run(scenario())
