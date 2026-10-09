@@ -1,0 +1,21 @@
+[
+  {
+    "id": "sqlite-6e237568-v1",
+    "serverCommit": "6e2375688bc38a667840c6b2dc8269d8848027bc",
+    "contractSha256": "9af88b2b779c372a21ae9f398d0ca75b333f2e5da2afa3626df879911a442edd",
+    "artifactSha256": "92c5d14c64969e75e48d30d755c0b1e25d1f8ed9d22e781a8241de0a9098be25",
+    "operations": [
+      "get_liveness",
+      "get_readiness",
+      "get_access_principal",
+      "get_capabilities",
+      "list_scopes",
+      "get_scope",
+      "get_default_scope",
+      "remember_memory",
+      "search_memory",
+      "get_memory_entry"
+    ],
+    "evidence": "desktop/VALIDATION.md"
+  }
+]
