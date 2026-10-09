@@ -160,9 +160,19 @@ jobs:
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
           POWERCONTEXT_TEST_MIGRATION_SQL_LOG: "1"
           PYTHONUNBUFFERED: "1"
+          TMPDIR: ${{ runner.temp }}/seekdb-migration
         run: |
           set -o pipefail
-          trap 'df -h . /tmp' EXIT
+          mkdir -p "$TMPDIR"
+          collect_diagnostics() {
+            df -h . /tmp
+            # A timed-out pytest process cannot run fixture cleanup. Retain
+            # bounded native logs from its isolated data directories as well
+            # as the Python stack and SQL trace.
+            find "$TMPDIR" -type f \( -name '*.log' -o -name '*.log.wf' \) \
+              -print -exec tail -c 262144 {} \; > seekdb-native.log
+          }
+          trap collect_diagnostics EXIT
           df -h . /tmp
           uv run --locked --extra seekdb pytest -vv \
             -o faulthandler_timeout=120 --durations=20 \
@@ -195,7 +205,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: seekdb-migrations-${{ matrix.python-version }}
-          path: seekdb-migrations.log
+          path: |
+            seekdb-migrations.log
+            seekdb-native.log
           if-no-files-found: ignore
 
   windows-unit-portability:
