@@ -661,6 +661,7 @@ class ServiceController:
                 registration.state is RegistrationState.NOT_INSTALLED
                 and loaded.state is ManagerOwnershipState.NOT_LOADED
             ):
+                self.maintenance_path.unlink(missing_ok=True)
                 return self.status()
             self._run_uninstall_stage("stop", self._adapter.stop)
             self._run_uninstall_stage("disable", self._adapter.disable)

@@ -37,6 +37,7 @@ from powercontext.service.model import (
     ManagerState,
     ProbeResult,
     ProbeState,
+    RegistrationState,
     ServiceError,
 )
 from powercontext.service.probe import probe_readiness
@@ -161,6 +162,51 @@ def test_install_cannot_replace_a_service_with_an_unverified_migration(tmp_path:
     assert adapter.manager is ManagerState.INACTIVE
     assert adapter.suspended
     assert json.loads(controller.maintenance_path.read_text())["phase"] == "stopped"
+
+
+@pytest.mark.parametrize("failed_stage", ["remove", "reload"])
+def test_uninstall_retry_clears_the_stop_marker_and_permits_reinstallation(tmp_path: Path, failed_stage: str) -> None:
+    controller, adapter = _installed(tmp_path)
+    controller.stop()
+    stopped_marker = controller.maintenance_path.read_bytes()
+    setattr(adapter, f"fail_{failed_stage}", True)
+
+    with pytest.raises(ServiceError, match=f"uninstall failed during {failed_stage}"):
+        controller.uninstall()
+
+    expected = RegistrationState.INSTALLED if failed_stage == "remove" else RegistrationState.NOT_INSTALLED
+    assert adapter.inspect().state is expected
+    assert controller.maintenance_path.read_bytes() == stopped_marker
+    setattr(adapter, f"fail_{failed_stage}", False)
+
+    assert controller.uninstall().registration is RegistrationState.NOT_INSTALLED
+    assert not controller.maintenance_path.exists()
+    reinstalled = controller.install()
+    assert reinstalled.registration is RegistrationState.INSTALLED
+    assert reinstalled.manager is ManagerState.ACTIVE
+    assert reinstalled.server_liveness is LivenessState.LIVE
+
+
+@pytest.mark.parametrize("ownership", [ManagerOwnershipState.FOREIGN, ManagerOwnershipState.UNKNOWN])
+def test_uninstall_retry_preserves_the_stop_marker_when_manager_ownership_cannot_be_verified(
+    tmp_path: Path, ownership: ManagerOwnershipState
+) -> None:
+    controller, adapter = _installed(tmp_path)
+    controller.stop()
+    adapter.fail_reload = True
+    with pytest.raises(ServiceError, match="uninstall failed during reload"):
+        controller.uninstall()
+    marker = controller.maintenance_path.read_bytes()
+    adapter.fail_reload = False
+    manager_registration = ManagerRegistration(ownership, detail="manager ownership cannot be verified")
+    adapter.manager_registration_override = manager_registration
+
+    with pytest.raises(ServiceError, match="manager ownership cannot be verified"):
+        controller.uninstall()
+
+    assert adapter.inspect().state is RegistrationState.NOT_INSTALLED
+    assert adapter.loaded_registration() == manager_registration
+    assert controller.maintenance_path.read_bytes() == marker
 
 
 def test_successful_maintenance_switches_to_confirmed_executable_and_preserves_configuration(tmp_path: Path) -> None:
