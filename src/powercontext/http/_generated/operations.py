@@ -111,6 +111,7 @@ from powercontext.http._generated.models import (
     PreparedContext,
     PreparedHandoff,
     PreparedWorkHandoff,
+    PrepareHandoffHintRequest,
     PrepareHandoffRequest,
     ProfilePolicyResponse,
     PromptConfiguration,
@@ -179,7 +180,7 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "1.1.0"
+API_VERSION = "1.2.0"
 
 RequestT = TypeVar("RequestT")
 ResponseT = TypeVar("ResponseT")
@@ -1080,6 +1081,33 @@ CONTINUE_HANDOFF = Operation[ContinueHandoffRequest, HandoffResolution](
     responses={
         200: {
             "description": "Resolved content and per-statement evidence availability.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="continue_handoff_access"),
+)
+
+PREPARE_HANDOFF_HINT = Operation[PrepareHandoffHintRequest, PreparedContext](
+    method="POST",
+    path="/v1/handoff/hint",
+    operation_id="prepare_handoff_hint",
+    request_type=PrepareHandoffHintRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=PreparedContext,
+    success_status=200,
+    summary="Prepare optional compact continuity hints from a selected Handoff",
+    tags=("handoff",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "Bounded orientation text, or empty when no complete supported hint can be delivered.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},

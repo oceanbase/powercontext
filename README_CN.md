@@ -16,7 +16,7 @@ PowerContext 让上下文跟随工作，跨越不同的对话。你回来时，�
 
 [网站](https://powercontext.oceanbase.io/zh/) · [完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)
 
-PowerContext 1.1.0 包含交互式配置向导。下面的命令安装这一正式版本，并接入相同版本的 Agent 集成。
+PowerContext 1.2.0 包含交互式配置向导。下面的命令安装这一版本，并接入相同版本的 Agent 集成。
 
 ## 从当前进展继续
 
@@ -29,10 +29,10 @@ PowerContext 1.1.0 包含交互式配置向导。下面的命令安装这一正�
 准备 Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和你使用的 Agent CLI。
 需要 Python 3.11+，uv 可以按需安装。支持 macOS 和 Linux；Windows 支持为 `experimental`。
 
-安装 1.1.0，然后在独立目录里打开交互式配置向导：
+安装 1.2.0，然后在独立目录里打开交互式配置向导：
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
+uv tool install --force "powercontext[cli,server]==1.2.0"
 mkdir -p powercontext-config
 cd powercontext-config
 powercontext config init --language zh --output .env
@@ -66,7 +66,7 @@ powercontext capabilities
 SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
 
 ```bash
-powercontext setup codex --ref powercontext-v1.1.0
+powercontext setup codex --ref powercontext-v1.2.0
 powercontext doctor codex
 ```
 
@@ -82,6 +82,7 @@ Codex 标为 `official`，其他宿主及 Python Agent 框架标为 `community`�
 <td align="center" width="120"><a href="docs/zh/docs/integrations/codex.md"><img src="assets/codex.png" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></a></td>
 <td align="center" width="120"><a href="docs/zh/docs/integrations/claude-code.md"><img src="assets/claude-code.png" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></a></td>
 <td align="center" width="120"><a href="docs/zh/docs/integrations/dsh.md"><img src="assets/deepseek.png" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/integrations/zcode.md"><img src="assets/zcode.png" alt="ZCode" width="48" height="48" /><br /><sub><b>ZCode</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/hermes-dark.png"><img src="assets/hermes.png" alt="Hermes Agent" width="48" height="48" /></picture><br /><sub><b>Hermes Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/zh/docs/integrations/pi.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/pi-dark.png"><img src="assets/pi.png" alt="Pi Coding Agent" width="48" height="48" /></picture><br /><sub><b>Pi Coding Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/zh/docs/integrations/openclaw.md"><img src="assets/openclaw.png" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>

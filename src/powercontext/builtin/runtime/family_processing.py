@@ -19,18 +19,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import AsyncExitStack
-from datetime import UTC, datetime
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from powercontext._logging import log_safely
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
 from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
 from powercontext.builtin.dream.bindings import SKILL_DREAM_BINDING
 from powercontext.builtin.dream.generation import DreamGenerator
-from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.persistence.dream import DreamRepository
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError, GenerationConflictError
@@ -42,7 +39,7 @@ from powercontext.builtin.runtime.processing_contracts import (
 )
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
-from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
+from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 from powercontext.errors import RevisionConflictError
 
@@ -77,8 +74,10 @@ async def _run_family_worker(
     spec: FamilyWorkerSpec, assignment: ArtifactProcessingWorkAssignment
 ) -> ArtifactProcessingWorkerCompletion:
     from powercontext.builtin.runtime.composition import (
+        _configured_memory_write_gate,
         _dream_generator,
         _embedding_models,
+        _fail_open_decision_model,
         _generation_pipelines,
         _prompt_registry,
         _usage_reporting_embedding_model,
@@ -90,6 +89,13 @@ async def _run_family_worker(
         pipelines = await _generation_pipelines(
             config.inference, config.runtime, resources, None, BUILTIN_SOURCE_REGISTRY
         )
+        decision_model = _fail_open_decision_model(
+            None,
+            pipelines[7],
+            None,
+            timeout_seconds=config.inference.decision_timeout_seconds or config.inference.generation_timeout_seconds,
+        )
+        memory_write_gate = _configured_memory_write_gate(None, decision_model, config.runtime)
         embedding, _ = await _embedding_models(config.inference, resources, None)
         contexts = await resources.enter_async_context(
             open_builtin_contexts(
@@ -97,6 +103,8 @@ async def _run_family_worker(
                 candidate_pipeline=pipelines[1],
                 experience_pipeline=pipelines[2],
                 embedding_model=_usage_reporting_embedding_model(embedding),
+                decision_model=decision_model,
+                memory_write_gate=memory_write_gate,
                 prompt_registry=_prompt_registry(
                     config.runtime,
                     (
@@ -145,31 +153,25 @@ async def process_family_invocation(
 ) -> ArtifactProcessingWorkerCompletion:
     """Run one bounded domain window, preserving its own Review/Cursor rules."""
 
-    async def report(purpose: ModelUsagePurpose, operation: ModelUsageOperation, usage: InferenceUsage) -> None:
-        try:
-            await contexts.statistics(assignment.scope_id).record(purpose, operation, usage, datetime.now(UTC).date())
-        except Exception as error:
-            # Usage attribution keeps the same best-effort behavior as the SDK facade.
-            log_safely(
-                logger,
-                logging.WARNING,
-                "Artifact processing usage recording failed",
-                extra={"event": "artifact_processing.usage_failed", "exception_type": type(error).__name__},
-            )
-
     generation_purpose = {
         "memory": ModelUsagePurpose.MEMORY_EXTRACTION,
         "experience": ModelUsagePurpose.EXPERIENCE_GENERATION,
         "skill": ModelUsagePurpose.SKILL_GENERATION,
     }.get(assignment.artifact_family)
     with bind_usage_reporter(
-        report,
+        # The runtime-owned recorder writes this window's usage, so the worker's
+        # own deadline never covers a statistics transaction.
+        contexts.model_usage_reporter(assignment.scope_id),
         generation_purpose=generation_purpose,
         embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING if assignment.artifact_family == "memory" else None,
     ):
-        return await _process_family_invocation(
-            contexts, assignment, config=config, security=security, dream_generator=dream_generator
-        )
+        try:
+            return await _process_family_invocation(
+                contexts, assignment, config=config, security=security, dream_generator=dream_generator
+            )
+        finally:
+            # A completed window leaves its own usage readable.
+            await contexts.flush_model_usage()
 
 
 async def _process_family_invocation(  # noqa: C901 - one guarded dispatch per registered Family
@@ -201,13 +203,15 @@ async def _process_family_invocation(  # noqa: C901 - one guarded dispatch per r
                     await invocation.complete(connection, remaining_work=False)
                 return ArtifactProcessingWorkerCompletion()
         if assignment.artifact_family == "memory":
-            await contexts.process_memory(
+            result = await contexts.process_memory(
                 scope,
                 config.runtime.source_window_limit,
                 processing=invocation,
                 authorize_snapshot=None if security is None else partial(security.authorize_memory, scope),
                 on_commit=None if security is None else partial(security.memory_commit, scope_id=scope),
             )
+            if result.held_count:
+                return ArtifactProcessingWorkerCompletion(held_count=result.held_count, hold_codes=result.hold_codes)
         elif assignment.artifact_family == "experience":
             await contexts.incubate_experience(
                 scope,

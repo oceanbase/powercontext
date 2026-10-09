@@ -22,6 +22,7 @@ import re
 from pathlib import Path
 from typing import Any, cast
 
+from powercontext.cli.dsh_runtime import DshTarget
 from powercontext.client.transport_policy import (
     load_client_settings,
     normalize_client_url,
@@ -89,7 +90,18 @@ def _codex_url() -> str | None:
     return next(iter(urls), None)
 
 
-def _native_settings(host: str) -> tuple[dict[str, Any], str, str]:
+def _native_settings(host: str, dsh_target: DshTarget | None = None) -> tuple[dict[str, Any], str, str]:
+    if host == "dsh":
+        from powercontext.cli.dsh_transport import read_dsh_settings
+
+        return (
+            read_dsh_settings(
+                profile=dsh_target.profile if dsh_target else os.environ.get("DSH_PROFILE", "").strip() or "web",
+                executable=dsh_target.command if dsh_target else None,
+            ),
+            "baseUrl",
+            "allowInsecureHttp",
+        )
     if host == "claude-code":
         settings = _object_at(
             _read(_home("CLAUDE_CONFIG_DIR", ".claude") / "settings.json"),
@@ -131,24 +143,6 @@ def _workbuddy_mcp_url() -> str | None:
     return _url(raw)
 
 
-def _check_dsh_overlays(*, profile: str | None = None) -> None:
-    home = _home("DSH_HOME", ".dsh")
-    profile = profile or os.environ.get("DSH_PROFILE", "").strip() or "web"
-    for path in (home / "cordis.patch.yml", home / "profiles" / profile / "cordis.patch.yml"):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            continue
-        except (OSError, UnicodeError):
-            raise ValueError(_UNKNOWN) from None
-        # DSH initProfile creates comments followed by an empty patch list.
-        # Recognize only that inert form; do not evaluate YAML tags or patches.
-        content = "\n".join(line.partition("#")[0].strip() for line in content.splitlines()).strip()
-        if content in {"", "[]"}:
-            continue
-        raise ValueError("Cannot determine PowerContext transport with unsupported DSH runtime overlays")  # noqa: TRY003
-
-
 def _selected_url(host: str, prefix: str, native_url: str | None) -> str:
     common_url = _environment_url("POWERCONTEXT_CLIENT_SERVER_URL")
     saved_url = load_client_settings(host).get("server_url")
@@ -164,37 +158,47 @@ def _selected_url(host: str, prefix: str, native_url: str | None) -> str:
         return _environment_url(prefix + "_BASE_URL") or native_url or common_url or fallback
     if host == "workbuddy":
         return _environment_url(prefix + "_SERVER_URL") or common_url or fallback
+    if host == "zcode":
+        return native_url or _environment_url(prefix + "_SERVER_URL") or _DEFAULT_URL
     return environment_url or common_url or native_url or fallback
-
-
-def validate_dsh_setup_transport() -> None:
-    """Require a verifiable DSH patch layer before changing installation state."""
-    try:
-        _check_dsh_overlays(profile="web")
-    except ValueError:
-        raise ValueError(  # noqa: TRY003
-            "Cannot verify customized DSH runtime overlays. Align the endpoint and HTTP consent manually, "
-            "or remove custom overlays before rerunning setup."
-        ) from None
 
 
 def configured_native_endpoint(host: str) -> str | None:
     """Read only explicitly configured native endpoints for setup conflict detection."""
     if host == "codex":
         return _codex_url()
+    if host == "zcode":
+        from powercontext.cli.zcode import zcode_plugin_dir
+
+        settings = _read(zcode_plugin_dir() / "powercontext.json")
+        return _url(settings["server_url"]) if "server_url" in settings else None
     native, url_key, _ = _native_settings(host)
     return _url(native[url_key]) if url_key in native else None
 
 
-def resolve_host_transport(host: str) -> tuple[str, bool]:
+def resolve_host_transport(host: str, *, dsh_target: DshTarget | None = None) -> tuple[str, bool]:
     """Resolve the effective endpoint and consent, or report an unknown native configuration.
 
     Native HTTP consent is endpoint-bound. This is a read-only diagnostic, not
     an HTTP guard; callers must label remote HTTP as degraded or blocked.
     """
-    if host == "dsh":
-        _check_dsh_overlays()
-    native, url_key, consent_key = _native_settings(host)
+    if host == "zcode":
+        from powercontext.cli.zcode import zcode_plugin_dir
+
+        settings = _read(zcode_plugin_dir() / "powercontext.json")
+        native_url = _url(settings["server_url"]) if "server_url" in settings else None
+        prefix = "POWERCONTEXT_ZCODE"
+        endpoint = _url(_selected_url(host, prefix, native_url))
+        if native_url and native_url != endpoint:
+            raise ValueError("Cannot determine a single PowerContext transport: ZCode Hook and MCP URLs differ")  # noqa: TRY003
+        _, allowed = resolve_client_transport(host, server_url=endpoint)
+        native_consent = settings.get("allow_insecure_http", _MISSING)
+        if native_consent is not _MISSING and not isinstance(native_consent, bool):
+            raise ValueError(_UNKNOWN)
+        if native_consent is not _MISSING:
+            allowed = native_consent and native_url == endpoint
+        return endpoint, allowed
+    native, url_key, consent_key = _native_settings(host, dsh_target)
     native_url = _url(native[url_key]) if url_key in native else None
     prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_"))
     endpoint = _url(_selected_url(host, prefix, native_url))
@@ -205,7 +209,7 @@ def resolve_host_transport(host: str) -> tuple[str, bool]:
     _, allowed = resolve_client_transport(host, server_url=endpoint)
     native_consent = native.get(consent_key, _MISSING)
     if native_consent is not _MISSING:
-        if host == "openclaw" and not isinstance(native_consent, bool):
+        if host in {"openclaw", "dsh"} and not isinstance(native_consent, bool):
             raise ValueError(_UNKNOWN)
         consent = parse_client_boolean(native_consent)
         environment_consent = any(
@@ -216,4 +220,4 @@ def resolve_host_transport(host: str) -> tuple[str, bool]:
     return endpoint, allowed
 
 
-__all__ = ["resolve_host_transport", "validate_dsh_setup_transport"]
+__all__ = ["resolve_host_transport"]

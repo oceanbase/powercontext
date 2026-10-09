@@ -72,6 +72,7 @@ _CURRENT_OPERATIONS = frozenset({
     "list_remote_skill_targets",
     "prepare_context",
     "prepare_handoff",
+    "prepare_handoff_hint",
     "propose_experience",
     "propose_skill",
     "propose_skill_package",

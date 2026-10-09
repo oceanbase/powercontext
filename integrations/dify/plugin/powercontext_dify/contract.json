@@ -1,0 +1,2862 @@
+{
+  "openapi_sha256": "790df0d51dd4ca600b34b77a4b6cce8b064305cbc65666e2813f96b23f3fd9fa",
+  "api_version": "1.2.0",
+  "operations": {
+    "get_scope": {
+      "method": "GET",
+      "path": "/v1/scopes/{scope_id}",
+      "request": null,
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/ScopeDescriptor"
+        }
+      }
+    },
+    "resolve_scope_binding": {
+      "method": "POST",
+      "path": "/v1/scope-bindings/resolve",
+      "request": {
+        "$ref": "#/components/schemas/ResolveScopeBindingRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/ScopeDescriptor"
+        }
+      }
+    },
+    "capture_content_source": {
+      "method": "POST",
+      "path": "/v1/sources/content",
+      "request": {
+        "$ref": "#/components/schemas/CaptureContentSourceRequest"
+      },
+      "responses": {
+        "202": {
+          "$ref": "#/components/schemas/CaptureContentSourceResponse"
+        }
+      }
+    },
+    "prepare_context": {
+      "method": "POST",
+      "path": "/v1/context/prepare",
+      "request": {
+        "$ref": "#/components/schemas/PrepareContextRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/PreparedContext"
+        }
+      }
+    },
+    "activate_handoff": {
+      "method": "POST",
+      "path": "/v1/handoff/activate",
+      "request": {
+        "$ref": "#/components/schemas/ActivateHandoffRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/HandoffActivation"
+        }
+      }
+    },
+    "prepare_handoff": {
+      "method": "POST",
+      "path": "/v1/handoff/prepare",
+      "request": {
+        "$ref": "#/components/schemas/PrepareHandoffRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/HandoffDraft"
+        }
+      }
+    },
+    "finalize_handoff": {
+      "method": "POST",
+      "path": "/v1/handoff/finalize",
+      "request": {
+        "$ref": "#/components/schemas/FinalizeHandoffRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/PreparedHandoff"
+        }
+      }
+    },
+    "commit_handoff": {
+      "method": "POST",
+      "path": "/v1/handoff/commit",
+      "request": {
+        "$ref": "#/components/schemas/CommitHandoffRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/CommittedHandoff"
+        }
+      }
+    },
+    "continue_handoff": {
+      "method": "POST",
+      "path": "/v1/handoff/continue",
+      "request": {
+        "$ref": "#/components/schemas/ContinueHandoffRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/HandoffResolution"
+        }
+      }
+    },
+    "remember_memory": {
+      "method": "POST",
+      "path": "/v1/memory/remember",
+      "request": {
+        "$ref": "#/components/schemas/RememberMemoryRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/MemoryMutationResponse"
+        }
+      }
+    },
+    "search_memory": {
+      "method": "POST",
+      "path": "/v1/memory/search",
+      "request": {
+        "$ref": "#/components/schemas/SearchMemoryRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/SearchMemoryResponse"
+        }
+      }
+    },
+    "list_memory_entries": {
+      "method": "POST",
+      "path": "/v1/memory/entries/list",
+      "request": {
+        "$ref": "#/components/schemas/ListMemoryEntriesRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/ListMemoryEntriesResponse"
+        }
+      }
+    },
+    "get_memory_entry": {
+      "method": "POST",
+      "path": "/v1/memory/entries/get",
+      "request": {
+        "$ref": "#/components/schemas/GetMemoryEntryRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/MemoryEntry"
+        }
+      }
+    },
+    "revise_memory_entry": {
+      "method": "POST",
+      "path": "/v1/memory/entries/revise",
+      "request": {
+        "$ref": "#/components/schemas/ReviseMemoryEntryRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/MemoryMutationResponse"
+        }
+      }
+    },
+    "retire_memory_entry": {
+      "method": "POST",
+      "path": "/v1/memory/entries/retire",
+      "request": {
+        "$ref": "#/components/schemas/RetireMemoryEntryRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/MemoryMutationResponse"
+        }
+      }
+    },
+    "generate_experience": {
+      "method": "POST",
+      "path": "/v1/experience/generate",
+      "request": {
+        "$ref": "#/components/schemas/GenerateExperienceRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/GeneratedCandidateResponse"
+        }
+      }
+    },
+    "get_experience": {
+      "method": "POST",
+      "path": "/v1/experience/get",
+      "request": {
+        "$ref": "#/components/schemas/GetExperienceRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/ExperienceArtifact"
+        }
+      }
+    },
+    "generate_skill": {
+      "method": "POST",
+      "path": "/v1/skill/generate",
+      "request": {
+        "$ref": "#/components/schemas/GenerateSkillRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/GeneratedCandidateResponse"
+        }
+      }
+    },
+    "get_skill": {
+      "method": "POST",
+      "path": "/v1/skill/get",
+      "request": {
+        "$ref": "#/components/schemas/GetSkillRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/SkillArtifact"
+        }
+      }
+    },
+    "list_artifact_candidates": {
+      "method": "POST",
+      "path": "/v1/artifact-candidates/list",
+      "request": {
+        "$ref": "#/components/schemas/ListArtifactCandidatesRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/ArtifactCandidatePage"
+        }
+      }
+    },
+    "get_artifact_candidate": {
+      "method": "POST",
+      "path": "/v1/artifact-candidates/get",
+      "request": {
+        "$ref": "#/components/schemas/GetArtifactCandidateRequest"
+      },
+      "responses": {
+        "200": {
+          "$ref": "#/components/schemas/ArtifactCandidate"
+        }
+      }
+    }
+  },
+  "tools": {
+    "pc_search": "search_memory",
+    "pc_memory_list": "list_memory_entries",
+    "pc_memory_get": "get_memory_entry",
+    "pc_remember": "remember_memory",
+    "pc_memory_revise": "revise_memory_entry",
+    "pc_memory_retire": "retire_memory_entry",
+    "pc_prepare_context": "prepare_context",
+    "pc_capture_source": "capture_content_source",
+    "pc_handoff_activate": "activate_handoff",
+    "pc_handoff_prepare": "prepare_handoff",
+    "pc_handoff_finalize": "finalize_handoff",
+    "pc_handoff_commit": "commit_handoff",
+    "pc_handoff_continue": "continue_handoff",
+    "pc_experience_generate": "generate_experience",
+    "pc_experience_get": "get_experience",
+    "pc_skill_generate": "generate_skill",
+    "pc_skill_get": "get_skill",
+    "pc_review_list": "list_artifact_candidates",
+    "pc_review_get": "get_artifact_candidate"
+  },
+  "json_parameters": {
+    "search_memory": [],
+    "list_memory_entries": [],
+    "get_memory_entry": [
+      "citation"
+    ],
+    "remember_memory": [
+      "reason"
+    ],
+    "revise_memory_entry": [
+      "citation",
+      "reason"
+    ],
+    "retire_memory_entry": [
+      "citation",
+      "reason"
+    ],
+    "prepare_context": [],
+    "capture_content_source": [
+      "metadata"
+    ],
+    "activate_handoff": [
+      "boundary_source",
+      "evidence"
+    ],
+    "prepare_handoff": [
+      "evidence"
+    ],
+    "finalize_handoff": [
+      "draft"
+    ],
+    "commit_handoff": [
+      "handoff"
+    ],
+    "continue_handoff": [
+      "prepared",
+      "revision"
+    ],
+    "generate_experience": [
+      "source_refs",
+      "artifact_refs",
+      "target",
+      "reason"
+    ],
+    "get_experience": [
+      "artifact"
+    ],
+    "generate_skill": [
+      "source_refs",
+      "artifact_refs",
+      "target",
+      "reason"
+    ],
+    "get_skill": [
+      "artifact"
+    ],
+    "list_artifact_candidates": [
+      "family",
+      "cursor"
+    ],
+    "get_artifact_candidate": []
+  },
+  "components": {
+    "schemas": {
+      "ActivateHandoffRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "boundary_source",
+          "objective"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "boundary_source": {
+            "$ref": "#/components/schemas/SourceReference"
+          },
+          "objective": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": ".*\\S.*"
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HandoffCitation"
+            },
+            "default": []
+          },
+          "max_bytes": {
+            "type": "integer",
+            "minimum": 512,
+            "maximum": 32768,
+            "default": 8000
+          }
+        }
+      },
+      "ArtifactCandidate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate_id",
+          "version",
+          "family",
+          "status",
+          "proposal",
+          "source_refs",
+          "artifact_refs",
+          "target",
+          "reason",
+          "result_artifact",
+          "decision_reason"
+        ],
+        "properties": {
+          "memory_citations": {
+            "type": "array",
+            "maxItems": 32,
+            "default": [],
+            "description": "Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.",
+            "items": {
+              "$ref": "#/components/schemas/MemoryCitation"
+            }
+          },
+          "permissions": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/CandidatePermissions"
+                  }
+                ],
+                "description": "Current Principal permissions in enforced mode; advisory and checked again on mutation."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "candidate_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\x21-\\x7E]+$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "family": {
+            "$ref": "#/components/schemas/CandidateFamily"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CandidateStatus"
+          },
+          "proposal": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ExperienceProposal"
+              },
+              {
+                "$ref": "#/components/schemas/SkillProposal"
+              },
+              {
+                "$ref": "#/components/schemas/ProfileCandidateProposal"
+              }
+            ]
+          },
+          "source_refs": {
+            "type": "array",
+            "maxItems": 32,
+            "description": "Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            "items": {
+              "$ref": "#/components/schemas/SourceReference"
+            }
+          },
+          "artifact_refs": {
+            "type": "array",
+            "maxItems": 32,
+            "description": "Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactReference"
+            }
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result_artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ArtifactCandidatePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidates",
+          "next_cursor"
+        ],
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactCandidate"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ArtifactReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "family",
+          "artifact_id",
+          "revision"
+        ],
+        "properties": {
+          "family": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\x21-\\x7E]+$"
+          },
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\x21-\\x7E]+$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "CandidateFamily": {
+        "type": "string",
+        "enum": [
+          "experience",
+          "skill",
+          "profile"
+        ]
+      },
+      "CandidatePermissions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "can_revise",
+          "can_approve",
+          "can_reject"
+        ],
+        "properties": {
+          "can_revise": {
+            "type": "boolean"
+          },
+          "can_approve": {
+            "type": "boolean"
+          },
+          "can_reject": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CandidateStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected"
+        ]
+      },
+      "CaptureContentSourceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "source_id",
+          "content"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200000,
+            "description": "Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow."
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "CaptureContentSourceResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "source",
+          "position"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/CaptureStatus"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SourceReference"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "CaptureStatus": {
+        "type": "string",
+        "enum": [
+          "accepted"
+        ]
+      },
+      "CommitHandoffRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "handoff"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "handoff": {
+            "$ref": "#/components/schemas/PreparedHandoff"
+          }
+        }
+      },
+      "CommittedHandoff": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reference",
+          "content",
+          "source_refs",
+          "artifact_refs"
+        ],
+        "properties": {
+          "reference": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          },
+          "content": {
+            "$ref": "#/components/schemas/HandoffContent"
+          },
+          "source_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceReference"
+            }
+          },
+          "artifact_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactReference"
+            }
+          }
+        }
+      },
+      "ContextAssembly": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Explicitly opt into grouped Markdown context. Omit assembly to preserve the existing context format; null is invalid.",
+        "properties": {
+          "format": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ContextAssemblyFormat"
+              }
+            ],
+            "default": "markdown"
+          },
+          "sections": {
+            "type": "array",
+            "maxItems": 4,
+            "description": "Unique families in output and byte-budget priority order. Profile explicitly includes the latest committed snapshot from the current Scope and direct Context References, in that order, without query filtering or generation. Topic Memory searches only the current Scope and includes title, summary, and an optional matching snippet, with an exact revision citation. An empty array disables candidate recall.",
+            "default": [
+              {
+                "family": "memory",
+                "limit": 6
+              },
+              {
+                "family": "experience",
+                "limit": 2
+              }
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ContextAssemblySection"
+            }
+          },
+          "show": {
+            "type": "array",
+            "maxItems": 2,
+            "uniqueItems": true,
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ContextAssemblyMetadata"
+            }
+          }
+        }
+      },
+      "ContextAssemblyFamily": {
+        "type": "string",
+        "enum": [
+          "memory",
+          "experience",
+          "profile",
+          "topic-memory"
+        ]
+      },
+      "ContextAssemblyFormat": {
+        "type": "string",
+        "enum": [
+          "markdown"
+        ]
+      },
+      "ContextAssemblyMetadata": {
+        "type": "string",
+        "enum": [
+          "confidence",
+          "recall_rank"
+        ]
+      },
+      "ContextAssemblySection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "family",
+          "limit"
+        ],
+        "properties": {
+          "family": {
+            "$ref": "#/components/schemas/ContextAssemblyFamily"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8,
+            "description": "Maximum included entries. Each Profile entry is one Scope snapshot. Experience is limited to two. All section limits together must not exceed the Server's runtime.context_assembly_max_entries policy (default 8); exceeding it returns HTTP 422 before recall. The byte budget may reduce the actual output count."
+          }
+        }
+      },
+      "ContinueHandoffRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "selection"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/HandoffSelection"
+          },
+          "prepared": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreparedHandoff"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "ExperienceArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact",
+          "content",
+          "source_refs",
+          "artifact_refs"
+        ],
+        "properties": {
+          "memory_citations": {
+            "type": "array",
+            "maxItems": 32,
+            "default": [],
+            "description": "Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.",
+            "items": {
+              "$ref": "#/components/schemas/MemoryCitation"
+            }
+          },
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ExperienceProposal"
+          },
+          "source_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceReference"
+            }
+          },
+          "artifact_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactReference"
+            }
+          }
+        }
+      },
+      "ExperienceProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "situation",
+          "action",
+          "outcome",
+          "lesson"
+        ],
+        "properties": {
+          "situation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000,
+            "pattern": ".*\\S.*"
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000,
+            "pattern": ".*\\S.*"
+          },
+          "outcome": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000,
+            "pattern": ".*\\S.*"
+          },
+          "lesson": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000,
+            "pattern": ".*\\S.*"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "FailureRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "signature",
+          "repair_surface",
+          "verification"
+        ],
+        "properties": {
+          "signature": {
+            "$ref": "#/components/schemas/FailureSignature"
+          },
+          "repair_surface": {
+            "$ref": "#/components/schemas/RepairSurface"
+          },
+          "verification": {
+            "$ref": "#/components/schemas/FailureVerification"
+          }
+        }
+      },
+      "FailureSignature": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "recall_cue"
+        ],
+        "properties": {
+          "recall_cue": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": ".*\\S.*"
+          },
+          "symptom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8000,
+                "pattern": ".*\\S.*"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "FailureVerification": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "condition",
+          "check_subject"
+        ],
+        "properties": {
+          "condition": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000,
+            "pattern": ".*\\S.*"
+          },
+          "check_subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": ".*\\S.*"
+          }
+        }
+      },
+      "FinalizeHandoffRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "draft"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/HandoffDraft"
+          }
+        }
+      },
+      "GenerateExperienceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "source_refs",
+          "artifact_refs"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "source_refs": {
+            "type": "array",
+            "maxItems": 32,
+            "description": "Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            "items": {
+              "$ref": "#/components/schemas/SourceReference"
+            }
+          },
+          "artifact_refs": {
+            "type": "array",
+            "maxItems": 32,
+            "description": "Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactReference"
+            }
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "GenerateSkillRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "origin",
+          "source_refs",
+          "artifact_refs"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/SkillGenerationOrigin"
+          },
+          "source_refs": {
+            "type": "array",
+            "maxItems": 32,
+            "description": "Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            "items": {
+              "$ref": "#/components/schemas/SourceReference"
+            }
+          },
+          "artifact_refs": {
+            "type": "array",
+            "maxItems": 32,
+            "description": "Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactReference"
+            }
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "GeneratedCandidateResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "candidate"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/GeneratedCandidateStatus"
+          },
+          "candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "GeneratedCandidateStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "no_op"
+        ]
+      },
+      "GetArtifactCandidateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "candidate_id"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "candidate_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\x21-\\x7E]+$"
+          }
+        }
+      },
+      "GetExperienceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "artifact"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          }
+        }
+      },
+      "GetMemoryEntryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "citation"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "citation": {
+            "$ref": "#/components/schemas/MemoryCitation"
+          }
+        }
+      },
+      "GetSkillRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "artifact"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          }
+        }
+      },
+      "HandoffActivation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "boundary_source",
+          "previous_position",
+          "current_position",
+          "draft"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/HandoffActivationStatus"
+          },
+          "boundary_source": {
+            "$ref": "#/components/schemas/SourceReference"
+          },
+          "previous_position": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "current_position": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HandoffDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "HandoffActivationStatus": {
+        "type": "string",
+        "enum": [
+          "generated",
+          "ignored"
+        ]
+      },
+      "HandoffArtifactCitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "artifact_ref"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "artifact"
+            ]
+          },
+          "artifact_ref": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          }
+        }
+      },
+      "HandoffCitation": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/HandoffSourceCitation"
+          },
+          {
+            "$ref": "#/components/schemas/HandoffArtifactCitation"
+          },
+          {
+            "$ref": "#/components/schemas/HandoffMemoryCitation"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "source": "#/components/schemas/HandoffSourceCitation",
+            "artifact": "#/components/schemas/HandoffArtifactCitation",
+            "memory": "#/components/schemas/HandoffMemoryCitation"
+          }
+        }
+      },
+      "HandoffClaim": {
+        "type": "string",
+        "enum": [
+          "state",
+          "next_action"
+        ]
+      },
+      "HandoffContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "objective",
+          "state",
+          "disposition",
+          "next_action",
+          "omissions"
+        ],
+        "properties": {
+          "generation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HandoffGenerationMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema": {
+            "$ref": "#/components/schemas/HandoffSchema"
+          },
+          "objective": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": ".*\\S.*"
+          },
+          "state": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/HandoffStatement"
+            }
+          },
+          "disposition": {
+            "$ref": "#/components/schemas/HandoffDisposition"
+          },
+          "next_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HandoffStatement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "omissions": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/HandoffOmission"
+            }
+          }
+        }
+      },
+      "HandoffDisposition": {
+        "type": "string",
+        "enum": [
+          "continuable",
+          "blocked",
+          "complete"
+        ]
+      },
+      "HandoffDraft": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "objective",
+          "state",
+          "disposition",
+          "next_action",
+          "omissions"
+        ],
+        "properties": {
+          "generation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HandoffGenerationEnvelope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "objective": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": ".*\\S.*"
+          },
+          "state": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/HandoffStatement"
+            }
+          },
+          "disposition": {
+            "$ref": "#/components/schemas/HandoffDisposition"
+          },
+          "next_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HandoffStatement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "omissions": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/HandoffOmission"
+            }
+          }
+        }
+      },
+      "HandoffEvidenceCheck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claim",
+          "state_index",
+          "status",
+          "unavailable_evidence"
+        ],
+        "properties": {
+          "claim": {
+            "$ref": "#/components/schemas/HandoffClaim"
+          },
+          "state_index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/HandoffEvidenceStatus"
+          },
+          "unavailable_evidence": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HandoffCitation"
+            }
+          }
+        }
+      },
+      "HandoffEvidenceStatus": {
+        "type": "string",
+        "enum": [
+          "available",
+          "unavailable"
+        ]
+      },
+      "HandoffGenerationEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Transient Server-authenticated generation receipt. Preserve it across finalize and commit. It grants no additional authority and is never stored in the Artifact.",
+        "required": [
+          "receipt"
+        ],
+        "properties": {
+          "receipt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        }
+      },
+      "HandoffGenerationMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Server-derived, persisted generation origin. Raw copied metadata is not accepted as verified input without a valid receipt. Prompt references are configuration lineage, not factual citations.",
+        "required": [
+          "scope_id",
+          "prompt_key",
+          "selection",
+          "artifact",
+          "definition_version",
+          "builtin_version",
+          "compiled_digest",
+          "original_draft_digest",
+          "edit_status"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "prompt_key": {
+            "$ref": "#/components/schemas/HandoffPromptKey"
+          },
+          "selection": {
+            "type": "string",
+            "enum": [
+              "built_in",
+              "artifact"
+            ]
+          },
+          "artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "definition_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "builtin_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "compiled_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "original_draft_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "edit_status": {
+            "type": "string",
+            "enum": [
+              "unchanged",
+              "edited"
+            ]
+          }
+        }
+      },
+      "HandoffMemoryCitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "memory_citation"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "memory"
+            ]
+          },
+          "memory_citation": {
+            "$ref": "#/components/schemas/MemoryCitation"
+          }
+        }
+      },
+      "HandoffOmission": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "citation"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": ".*\\S.*"
+          },
+          "citation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HandoffCitation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "HandoffPromptKey": {
+        "type": "string",
+        "enum": [
+          "handoff.generate"
+        ]
+      },
+      "HandoffResolution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "trust",
+          "status",
+          "scope_id",
+          "content",
+          "selection",
+          "selected_revision",
+          "current_revision",
+          "evidence_checks"
+        ],
+        "properties": {
+          "trust": {
+            "type": "string",
+            "enum": [
+              "untrusted_history"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/HandoffResolutionStatus"
+          },
+          "scope_id": {
+            "type": "string"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HandoffContent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HandoffSelection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "selected_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_checks": {
+            "type": "array",
+            "maxItems": 65,
+            "items": {
+              "$ref": "#/components/schemas/HandoffEvidenceCheck"
+            }
+          }
+        }
+      },
+      "HandoffResolutionStatus": {
+        "type": "string",
+        "enum": [
+          "empty",
+          "resolved"
+        ]
+      },
+      "HandoffSchema": {
+        "type": "string",
+        "enum": [
+          "powercontext.handoff.v1"
+        ]
+      },
+      "HandoffSelection": {
+        "type": "string",
+        "enum": [
+          "prepared",
+          "exact",
+          "latest"
+        ]
+      },
+      "HandoffSourceCitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "source_ref"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "source"
+            ]
+          },
+          "source_ref": {
+            "$ref": "#/components/schemas/SourceReference"
+          }
+        }
+      },
+      "HandoffStatement": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "citations"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": ".*\\S.*"
+          },
+          "citations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HandoffCitation"
+            }
+          }
+        }
+      },
+      "ListArtifactCandidatesRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CandidateStatus"
+              }
+            ],
+            "default": "pending"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CandidateFamily"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          }
+        }
+      },
+      "ListMemoryEntriesRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id"
+        ],
+        "properties": {
+          "tag_filter": {
+            "$ref": "#/components/schemas/TagFilter"
+          },
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "include_inactive": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include inactive entries from the current Memory head for explicit audit."
+          }
+        }
+      },
+      "ListMemoryEntriesResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entries"
+        ],
+        "properties": {
+          "memory": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryEntry"
+            }
+          }
+        }
+      },
+      "MemoryCitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "memory_ref",
+          "entry_id",
+          "entry_version_id"
+        ],
+        "properties": {
+          "memory_ref": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          },
+          "entry_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\x21-\\x7E]+$"
+          },
+          "entry_version_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\x21-\\x7E]+$"
+          }
+        }
+      },
+      "MemoryEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "citation",
+          "version",
+          "kind",
+          "text",
+          "state",
+          "source_refs",
+          "artifact_refs"
+        ],
+        "properties": {
+          "citation": {
+            "$ref": "#/components/schemas/MemoryCitation"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "kind": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/MemoryEntryState"
+          },
+          "source_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceReference"
+            }
+          },
+          "artifact_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactReference"
+            }
+          }
+        }
+      },
+      "MemoryEntryState": {
+        "type": "string",
+        "enum": [
+          "active",
+          "inactive"
+        ]
+      },
+      "MemoryMatchedBy": {
+        "type": "string",
+        "enum": [
+          "fts",
+          "vector"
+        ]
+      },
+      "MemoryMutationResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "memory"
+        ],
+        "properties": {
+          "memory": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          },
+          "entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "MemorySearchMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "fts",
+          "vector",
+          "hybrid"
+        ]
+      },
+      "MemoryUsedSearchMode": {
+        "type": "string",
+        "enum": [
+          "fts",
+          "vector",
+          "hybrid"
+        ]
+      },
+      "PrepareContextRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "query"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": ".*\\S.*"
+          },
+          "max_bytes": {
+            "type": "integer",
+            "minimum": 512,
+            "maximum": 32768,
+            "default": 8000
+          },
+          "include_code": {
+            "type": "boolean",
+            "default": false,
+            "description": "Opt into current-Scope native code evidence. No index is built during preparation."
+          },
+          "assembly": {
+            "$ref": "#/components/schemas/ContextAssembly"
+          }
+        }
+      },
+      "PrepareHandoffRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "objective",
+          "evidence"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "objective": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": ".*\\S.*"
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HandoffCitation"
+            }
+          },
+          "max_bytes": {
+            "type": "integer",
+            "minimum": 512,
+            "maximum": 32768,
+            "default": 8000
+          }
+        }
+      },
+      "PreparedContext": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "status",
+          "content",
+          "content_bytes"
+        ],
+        "properties": {
+          "schema": {
+            "$ref": "#/components/schemas/PreparedContextSchema"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PreparedContextStatus"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content_bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "PreparedContextSchema": {
+        "type": "string",
+        "enum": [
+          "powercontext.prepared-context.v1"
+        ]
+      },
+      "PreparedContextStatus": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "empty"
+        ]
+      },
+      "PreparedHandoff": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "scope_id",
+          "base",
+          "content"
+        ],
+        "properties": {
+          "generation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HandoffGenerationEnvelope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema": {
+            "$ref": "#/components/schemas/PreparedHandoffSchema"
+          },
+          "scope_id": {
+            "type": "string"
+          },
+          "base": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content": {
+            "$ref": "#/components/schemas/HandoffContent"
+          }
+        }
+      },
+      "PreparedHandoffSchema": {
+        "type": "string",
+        "enum": [
+          "powercontext.prepared-handoff.v1"
+        ]
+      },
+      "ProfileCandidateProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "content",
+          "source_window",
+          "generator_id",
+          "generator_version",
+          "created_at"
+        ],
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "powercontext.profile-candidate.v1"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_window": {
+            "$ref": "#/components/schemas/ProfileSourceWindow"
+          },
+          "generator_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "generator_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProfileSourceWindow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "after",
+          "through"
+        ],
+        "properties": {
+          "after": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "through": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "RememberMemoryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "kind",
+          "text"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Must not exceed 8192 UTF-8 bytes after normalization."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "RepairSurface": {
+        "type": "string",
+        "enum": [
+          "experience_content",
+          "working_state",
+          "recall_policy",
+          "acceptance_check"
+        ]
+      },
+      "ResolveScopeBindingRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "allow_default": {
+            "type": "boolean",
+            "default": true
+          },
+          "explicit_scope_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": ".*\\S.*"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "binding_keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeBindingKey"
+            },
+            "default": []
+          }
+        }
+      },
+      "RetireMemoryEntryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "citation"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "citation": {
+            "$ref": "#/components/schemas/MemoryCitation"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ReviseMemoryEntryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "citation",
+          "kind",
+          "text"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "citation": {
+            "$ref": "#/components/schemas/MemoryCitation"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Must not exceed 8192 UTF-8 bytes after normalization."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ScopeBindingKey": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "integration",
+          "kind",
+          "external_id"
+        ],
+        "properties": {
+          "integration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": ".*\\S.*"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": ".*\\S.*"
+          },
+          "external_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          }
+        }
+      },
+      "ScopeDescriptor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "title",
+          "summary",
+          "context_references",
+          "external_references",
+          "version"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "pattern": ".*\\S.*"
+          },
+          "parent_scope_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": ".*\\S.*"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "context_references": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": ".*\\S.*"
+            }
+          },
+          "external_references": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/ScopeExternalReference"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ScopeExternalReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "value"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": ".*\\S.*"
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "pattern": ".*\\S.*"
+          }
+        }
+      },
+      "SearchMemoryHit": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "citation",
+          "text",
+          "score",
+          "matched_by"
+        ],
+        "properties": {
+          "citation": {
+            "$ref": "#/components/schemas/MemoryCitation"
+          },
+          "text": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "matched_by": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryMatchedBy"
+            }
+          }
+        }
+      },
+      "SearchMemoryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "query"
+        ],
+        "properties": {
+          "tag_filter": {
+            "$ref": "#/components/schemas/TagFilter"
+          },
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 10
+          },
+          "mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemorySearchMode"
+              }
+            ],
+            "default": "auto"
+          }
+        }
+      },
+      "SearchMemoryResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "hits"
+        ],
+        "properties": {
+          "memory": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryUsedSearchMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchMemoryHit"
+            }
+          }
+        }
+      },
+      "SkillArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact",
+          "content",
+          "source_refs",
+          "artifact_refs"
+        ],
+        "properties": {
+          "memory_citations": {
+            "type": "array",
+            "maxItems": 32,
+            "default": [],
+            "description": "Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.",
+            "items": {
+              "$ref": "#/components/schemas/MemoryCitation"
+            }
+          },
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          },
+          "content": {
+            "$ref": "#/components/schemas/SkillProposal"
+          },
+          "source_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceReference"
+            }
+          },
+          "artifact_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactReference"
+            }
+          }
+        }
+      },
+      "SkillGenerationOrigin": {
+        "type": "string",
+        "enum": [
+          "experience",
+          "source",
+          "usage"
+        ],
+        "description": "The operation-specific direct provenance shape required for managed Skill generation."
+      },
+      "SkillPackageReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tree_digest",
+          "archive_digest",
+          "file_count",
+          "uncompressed_size",
+          "archive_size"
+        ],
+        "properties": {
+          "tree_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "archive_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "file_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "uncompressed_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4194304
+          },
+          "archive_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5242880
+          }
+        }
+      },
+      "SkillProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "description",
+          "instructions",
+          "validation"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^\\S(?:.*\\S)?$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "pattern": "^\\S(?:.*\\S)?$"
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 131072
+          },
+          "validation": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/SkillValidationItem"
+            }
+          },
+          "package": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SkillPackageReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compatibility": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata": {
+            "type": "object",
+            "maxProperties": 64,
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "allowed_tools": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SkillValidationItem": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000,
+        "pattern": "^\\S(?:.*\\S)?$"
+      },
+      "SourceReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "source_id"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Stable Source type."
+          },
+          "source_id": {
+            "type": "string"
+          }
+        }
+      },
+      "TagFilter": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "match": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TagMatch"
+              }
+            ],
+            "default": "all"
+          }
+        }
+      },
+      "TagMatch": {
+        "type": "string",
+        "enum": [
+          "all",
+          "any"
+        ]
+      }
+    }
+  }
+}

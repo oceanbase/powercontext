@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -889,7 +890,12 @@ def test_longmemeval_v2_run_smoke_rejects_a_non_usd_price_policy() -> None:
 
 
 def test_longmemeval_v2_run_smoke_rejects_a_non_json_price_policy() -> None:
-    result = CliRunner().invoke(
+    # The rejection is rendered into a panel whose width follows the terminal, and
+    # a narrow one wraps the sentence *mid-word* (`...must b` / `e a JSON object`),
+    # leaving no whitespace for the search to span. The width is pinned rather than
+    # the assertion loosened, because what is asserted is the sentence, not how the
+    # panel laid it out. Colour is the other property, and it is undone below.
+    result = CliRunner(env={"COLUMNS": "200"}).invoke(
         app,
         [
             "longmemeval-v2",
@@ -918,4 +924,13 @@ def test_longmemeval_v2_run_smoke_rejects_a_non_json_price_policy() -> None:
     )
 
     assert result.exit_code != 0
-    assert "--judge-price-policy must be a JSON object" in result.output
+    # Colour changes the text itself here, not just how it looks: Typer forces the
+    # error panel's terminal on whenever `GITHUB_ACTIONS` is set
+    # (`typer/rich_utils.py`: `FORCE_TERMINAL = True if getenv("GITHUB_ACTIONS") or
+    # ...`), and Rich then styles the option name. The escapes land *between* the
+    # characters of the sentence below (`\x1b[1;2;34m-\x1b[0m\x1b[1;2;34m-`), so a
+    # plain substring search never finds it. That env var is the reason this passed
+    # locally and failed only in CI; stripping the styling is what this asserts
+    # nothing about.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--judge-price-policy must be a JSON object" in plain

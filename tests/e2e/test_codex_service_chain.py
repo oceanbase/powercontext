@@ -506,6 +506,109 @@ def test_codex_session_binding_switch_resume_and_child_scope_flow(tmp_path: Path
         assert not thread.is_alive()
 
 
+def test_codex_workspace_cli_preserves_session_and_repository_boundaries(tmp_path: Path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'workspace-flow.db'}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "workspace-scheduler.db",
+    )
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    host, port = listener.getsockname()
+    base_url = f"http://{host}:{port}"
+    server = uvicorn.Server(uvicorn.Config(app, log_level="critical", lifespan="on"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+    thread.start()
+    try:
+        _wait_until_started(server, thread)
+        plugin = _copy_plugin(tmp_path, base_url)
+        checkout = tmp_path / "checkout"
+        other = tmp_path / "other"
+        git = shutil.which("git")
+        assert git is not None
+        for directory in (checkout, other):
+            directory.mkdir()
+            subprocess.run([git, "init", str(directory)], check=True, capture_output=True, timeout=10)
+        nested = checkout / "nested"
+        nested.mkdir()
+        environment: dict[str, str] = {
+            **os.environ,
+            "CODEX_HOME": str(tmp_path / "codex-home"),
+            "NO_PROXY": "127.0.0.1,localhost,::1",
+            "POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS": "10",
+            "POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS": "5",
+        }
+        environment.pop("POWERCONTEXT_CODEX_SCOPE_ID", None)
+        environment.pop("POWERCONTEXT_CODEX_AUTHORIZATION", None)
+
+        def cli(directory: Path, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [sys.executable, str(plugin / "scripts" / "scope_binding.py"), "--cwd", str(directory), *arguments],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=check,
+                timeout=15,
+            )
+
+        def session_scope(session_id: str, directory: Path = nested) -> str:
+            payload: dict[str, object] = {"session_id": session_id, "cwd": str(directory)}
+            for script in ("session_binding.py", "bind_tools.py"):
+                if script == "bind_tools.py":
+                    payload.update({
+                        "tool_name": "mcp__powercontext__search_memory",
+                        "tool_input": {"query": "current state"},
+                    })
+                result = subprocess.run(
+                    [sys.executable, str(plugin / "hooks" / script)],
+                    input=json.dumps(payload),
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=15,
+                )
+            return json.loads(result.stdout)["hookSpecificOutput"]["updatedInput"]["scope_id"]
+
+        default_id = cli(checkout).stdout.strip()
+        assert session_scope("old") == default_id
+        project_id = _create_named_scope(base_url, title="Project", key="workspace-project")
+        override_id = _create_named_scope(base_url, title="Override", key="workspace-override")
+        scopes_before = httpx.get(f"{base_url}/v1/scopes", timeout=5).json()
+        assert cli(nested, "--bind-scope", project_id).stdout.strip() == project_id
+        assert cli(checkout).stdout.strip() == project_id
+        assert cli(nested).stdout.strip() == project_id
+        assert cli(other).stdout.strip() == default_id
+        assert session_scope("old") == default_id
+        assert session_scope("new") == project_id
+        assert session_scope("other", other) == default_id
+
+        environment["POWERCONTEXT_CODEX_SCOPE_ID"] = override_id
+        assert cli(nested).stdout.strip() == override_id
+        assert session_scope("new") == override_id
+        environment.pop("POWERCONTEXT_CODEX_SCOPE_ID")
+        assert session_scope("new") == project_id
+
+        rejected = cli(nested, "--bind-scope", "scp_00000000000000000000000000", check=False)
+        assert rejected.returncode != 0
+        assert cli(nested).stdout.strip() == project_id
+        conflicting = cli(nested, "--bind-scope", project_id, "--clear-scope", check=False)
+        assert conflicting.returncode == 2
+        assert cli(nested).stdout.strip() == project_id
+        assert cli(nested, "--clear-scope").stdout.strip() == default_id
+        assert cli(checkout, "--clear-scope").stdout.strip() == default_id
+        assert session_scope("new") == project_id
+        assert session_scope("after-clear") == default_id
+        assert httpx.get(f"{base_url}/v1/scopes", timeout=5).json() == scopes_before
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        listener.close()
+        assert not thread.is_alive()
+
+
 def _run_hook(
     plugin: Path,
     *,

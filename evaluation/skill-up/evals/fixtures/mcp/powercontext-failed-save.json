@@ -1,0 +1,177 @@
+{
+  "tool_responses": {
+    "acknowledge_handoff": {
+      "error": "unexpected"
+    },
+    "activate_handoff": {
+      "error": "unexpected"
+    },
+    "approve_artifact_candidate": {
+      "error": "unexpected"
+    },
+    "capture_content_source": {
+      "error": "unexpected"
+    },
+    "clear_scope_binding": {
+      "error": "unexpected"
+    },
+    "commit_handoff": {
+      "error": "unexpected"
+    },
+    "continue_handoff": {
+      "error": "unexpected"
+    },
+    "create_dream_run": {
+      "error": "unexpected"
+    },
+    "create_scope": {
+      "error": "unexpected"
+    },
+    "create_work_contract": {
+      "error": "unexpected"
+    },
+    "finalize_handoff": {
+      "error": "unexpected"
+    },
+    "get_artifact_candidate": {
+      "default": {
+        "candidate_id": "fixture-candidate-001",
+        "version": 1,
+        "family": "skill",
+        "status": "pending",
+        "proposal": {
+          "name": "Retry guidance",
+          "description": "A bounded retry policy for transient failures.",
+          "instructions": "Use at most three attempts with delays of one and two seconds. This candidate has not been approved or published.",
+          "validation": [
+            "Check that at most three attempts occur."
+          ],
+          "package": null,
+          "license": null,
+          "compatibility": null
+        },
+        "source_refs": [],
+        "artifact_refs": [],
+        "memory_citations": [],
+        "target": null,
+        "reason": "Fixture for read-only candidate inspection.",
+        "result_artifact": null,
+        "decision_reason": null
+      }
+    },
+    "get_dream_run": {
+      "error": "unexpected"
+    },
+    "get_handoff_report": {
+      "error": "unexpected"
+    },
+    "get_memory_entry": {
+      "error": "unexpected"
+    },
+    "get_scope": {
+      "default": {
+        "scope_id": "skill-up-fixture-scope",
+        "name": "Skill-up fixture scope"
+      }
+    },
+    "get_topic_memory": {
+      "error": "unexpected"
+    },
+    "handoff_current_work": {
+      "error": "unexpected"
+    },
+    "list_artifact_candidates": {
+      "default": {
+        "candidates": [
+          {
+            "candidate_id": "fixture-candidate-001",
+            "version": 1,
+            "family": "skill",
+            "status": "pending",
+            "proposal": {
+              "name": "Retry guidance",
+              "description": "A bounded retry policy for transient failures.",
+              "instructions": "Use at most three attempts with delays of one and two seconds. This candidate has not been approved or published.",
+              "validation": [
+                "Check that at most three attempts occur."
+              ],
+              "package": null,
+              "license": null,
+              "compatibility": null
+            },
+            "source_refs": [],
+            "artifact_refs": [],
+            "memory_citations": [],
+            "target": null,
+            "reason": "Fixture for read-only candidate inspection.",
+            "result_artifact": null,
+            "decision_reason": null
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    "list_dream_runs": {
+      "error": "unexpected"
+    },
+    "list_memory_entries": {
+      "error": "unexpected"
+    },
+    "list_scopes": {
+      "error": "unexpected"
+    },
+    "publish_artifact": {
+      "error": "unexpected"
+    },
+    "query_code": {
+      "error": "unexpected"
+    },
+    "record_task_outcome": {
+      "error": "unexpected"
+    },
+    "reject_artifact_candidate": {
+      "error": "unexpected"
+    },
+    "remember_memory": {
+      "default": {
+        "error": {
+          "code": "FIXTURE_WRITE_DENIED",
+          "message": "The fixture denied this Memory write; no entry was saved.",
+          "details": null
+        }
+      }
+    },
+    "resolve_scope_binding": {
+      "default": {
+        "key": {
+          "integration": "claude-code",
+          "kind": "workspace",
+          "external_id": "skill-up-fixture"
+        },
+        "scope_id": "skill-up-fixture-scope"
+      }
+    },
+    "retire_memory_entry": {
+      "error": "unexpected"
+    },
+    "revise_artifact_candidate": {
+      "error": "unexpected"
+    },
+    "revise_memory_entry": {
+      "error": "unexpected"
+    },
+    "search_memory": {
+      "default": {
+        "memory": null,
+        "mode": null,
+        "hits": []
+      }
+    },
+    "search_topic_memory": {
+      "error": "unexpected"
+    },
+    "set_scope_binding": {
+      "error": "unexpected"
+    }
+  }
+}

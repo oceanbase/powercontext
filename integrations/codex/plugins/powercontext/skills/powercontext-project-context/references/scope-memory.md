@@ -17,6 +17,29 @@ replaces its binding key with the current Codex Session identity. Reuse an
 existing Scope instead when the work does not need independent isolation,
 continuation, delivery, or observation.
 
+When the user explicitly asks to bind the current checkout so later Codex
+sessions in the same Git root reuse a known Scope, locate the installed plugin
+root from this Skill file (two directories above its containing directory).
+Use that absolute path for `PLUGIN_ROOT`; do not assume the hook variable is
+set in an ordinary shell. Replace `SCOPE_ID` with the existing server-assigned
+ID, then run:
+
+```bash
+uv run --frozen --quiet --project "${PLUGIN_ROOT}" python "${PLUGIN_ROOT}/scripts/scope_binding.py" \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
+```
+
+Then run the same command with both `--bind-scope` and its `SCOPE_ID` argument
+removed to inspect the effective directory Scope. If an explicit Scope variable
+is set, this prints that override rather than the stored workspace Scope; do not
+rebind merely because the IDs differ. To remove the checkout binding when the
+user requests it, use `--clear-scope` instead of `--bind-scope SCOPE_ID`. This
+preserves existing Session bindings and Scope contents. The script stores a Codex workspace binding. It does not create a Scope and
+does not derive a Scope ID from the Git remote or directory. `set_scope_binding`
+still changes only the current Session. A new Codex session is required before
+the workspace binding is fixed onto that session. If
+`POWERCONTEXT_CODEX_SCOPE_ID` is set, it still overrides the workspace binding.
+
 ## Read
 
 - Use `search_memory` with a focused query, `mode: "auto"`, and no more than

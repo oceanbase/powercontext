@@ -173,30 +173,6 @@ def test_workbuddy_divergent_mcp_and_hook_urls_are_reported_unknown(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "relative_path", ["cordis.patch.yml", "profiles/web/cordis.patch.yml", "profiles/custom/cordis.patch.yml"]
-)
-def test_dsh_runtime_overlays_are_not_assumed_to_use_loopback(tmp_path, monkeypatch, relative_path):
-    path = tmp_path / "DSH_HOME" / relative_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("plugins:\n  powercontext:\n    baseUrl: http://memory.example\n")
-    if "custom" in relative_path:
-        monkeypatch.setenv("DSH_PROFILE", "custom")
-    with pytest.raises(ValueError, match="determine"):
-        _resolve("dsh")
-
-
-@pytest.mark.parametrize(
-    "contents", ["# No profile overrides\n[]\n", "# No profile overrides\n", "[] # empty patches\n"]
-)
-def test_dsh_empty_generated_overlay_does_not_hide_saved_transport(tmp_path, contents):
-    path = tmp_path / "DSH_HOME/profiles/web/cordis.patch.yml"
-    path.parent.mkdir(parents=True)
-    path.write_text(contents)
-    _save_shared(tmp_path, "dsh", "http://memory.example", True)
-    assert _resolve("dsh") == ("http://memory.example", True)
-
-
-@pytest.mark.parametrize(
     "contents", ["{secret-token: 'secret-value'}", '{"plugins": []}', '{"$include": "private.json"}']
 )
 def test_unsupported_native_config_is_reported_without_secret_content(tmp_path, contents):
@@ -235,20 +211,3 @@ def test_missing_native_config_preserves_shared_endpoint_and_consent(tmp_path):
 def test_openclaw_without_an_endpoint_is_unconfigured_instead_of_loopback():
     with pytest.raises(ValueError, match="not configured"):
         _resolve("openclaw")
-
-
-@pytest.mark.parametrize(
-    "contents", ["# default profile\n[]\n", "- id: powercontext\n  config:\n    baseUrl: http://old.example\n"]
-)
-def test_dsh_setup_preflight_accepts_inert_defaults_and_requires_manual_custom_configuration(tmp_path, contents):
-    from powercontext.cli.native_transport import validate_dsh_setup_transport
-
-    path = tmp_path / "DSH_HOME/profiles/web/cordis.patch.yml"
-    path.parent.mkdir(parents=True)
-    path.write_text(contents)
-    if "old.example" in contents:
-        with pytest.raises(ValueError, match="manually"):
-            validate_dsh_setup_transport()
-    else:
-        validate_dsh_setup_transport()
-    assert path.read_text() == contents

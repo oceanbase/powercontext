@@ -1,0 +1,136 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+identity:
+  author: knqiufan
+  name: powercontext
+  label:
+    en_US: PowerContext
+    zh_Hans: PowerContext
+  description:
+    en_US: HTTP memory, context, Handoff and Experience/Skill tools.
+    zh_Hans: 通过 HTTP 提供记忆、上下文、交接及经验与技能工具。
+  icon: icon.svg
+credentials_for_provider:
+  server_url:
+    type: text-input
+    required: true
+    label:
+      en_US: PowerContext Server URL
+      zh_Hans: PowerContext Server 地址
+    help:
+      en_US: Reachable from plugin-daemon. HTTPS recommended.
+      zh_Hans: 须可由插件 daemon 访问，推荐使用 HTTPS。
+  api_token:
+    type: secret-input
+    required: true
+    label:
+      en_US: Server bearer token
+      zh_Hans: Server Bearer 凭证
+    help:
+      en_US: Server authorization governs resource access.
+      zh_Hans: 资源访问权限由 Server 授权策略决定。
+  scope_id:
+    type: text-input
+    required: false
+    label:
+      en_US: Existing Scope ID
+      zh_Hans: 已创建的 Scope ID
+    help:
+      en_US: Choose this OR binding_external_id. All users of this credential share
+        this Scope.
+      zh_Hans: 与 binding_external_id 二选一。使用此凭证的用户共享这个 Scope。
+  binding_external_id:
+    type: text-input
+    required: false
+    label:
+      en_US: Provisioned binding key
+      zh_Hans: 已登记的 binding key
+    help:
+      en_US: Choose this OR scope_id. Administrator-provisioned dify/configured-scope
+        binding; include a deployment namespace.
+      zh_Hans: 与 scope_id 二选一。管理员须预登记 dify/configured-scope binding，key 应包含部署命名空间。
+  max_bytes:
+    type: text-input
+    required: false
+    label:
+      en_US: Context byte budget
+      zh_Hans: 上下文字节预算
+    help:
+      en_US: 512–32768; applies to context and Handoff preparation.
+      zh_Hans: 512–32768 个 UTF-8 字节，用于上下文与交接准备。
+    default: '8000'
+  timeout_seconds:
+    type: text-input
+    required: false
+    label:
+      en_US: HTTP socket timeout seconds
+      zh_Hans: HTTP Socket 超时秒数
+    help:
+      en_US: 0.1–120; not an overall tool deadline.
+      zh_Hans: 0.1–120 秒，这是 Socket 超时，不是整个工具的总时限。
+    default: '10'
+  generation_timeout_seconds:
+    type: text-input
+    required: false
+    label:
+      en_US: Generation socket timeout seconds
+      zh_Hans: 生成操作 Socket 超时秒数
+    help:
+      en_US: 0.1–600; also configure outer Dify node/daemon deadlines.
+      zh_Hans: 0.1–600 秒，须同时配置 Dify 节点与 daemon 的外层时限。
+    default: '120'
+  allow_insecure_http:
+    type: boolean
+    required: false
+    label:
+      en_US: Allow private-network HTTP
+      zh_Hans: 允许内网明文 HTTP
+    help:
+      en_US: Explicit opt-in for non-loopback HTTP. HTTPS verifies certificates.
+      zh_Hans: 须明确启用才允许非回环 HTTP；HTTPS 会验证证书。
+    default: false
+  context_assembly:
+    type: text-input
+    required: false
+    label:
+      en_US: Optional context assembly JSON
+      zh_Hans: 可选上下文组装 JSON
+    help:
+      en_US: Administrator-configured assembly object. Empty means Server default;
+        no code indexing.
+      zh_Hans: 管理员配置的组装对象；留空使用 Server 默认值，不提供代码索引。
+tools:
+- tools/pc_search.yaml
+- tools/pc_memory_list.yaml
+- tools/pc_memory_get.yaml
+- tools/pc_remember.yaml
+- tools/pc_memory_revise.yaml
+- tools/pc_memory_retire.yaml
+- tools/pc_prepare_context.yaml
+- tools/pc_capture_source.yaml
+- tools/pc_handoff_activate.yaml
+- tools/pc_handoff_prepare.yaml
+- tools/pc_handoff_finalize.yaml
+- tools/pc_handoff_commit.yaml
+- tools/pc_handoff_continue.yaml
+- tools/pc_experience_generate.yaml
+- tools/pc_experience_get.yaml
+- tools/pc_skill_generate.yaml
+- tools/pc_skill_get.yaml
+- tools/pc_review_list.yaml
+- tools/pc_review_get.yaml
+extra:
+  python:
+    source: provider/powercontext.py

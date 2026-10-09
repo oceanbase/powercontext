@@ -26,6 +26,7 @@ import httpx
 from fastapi import Request
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
+from jsonschema import Draft202012Validator
 
 from powercontext.builtin.runtime import MemoryEntriesPage
 from powercontext.server.access import HttpAccessLogMiddleware
@@ -98,6 +99,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "clear_scope_binding",
         "commit_handoff",
         "continue_handoff",
+        "prepare_handoff_hint",
         "create_scope",
         "create_work_contract",
         "finalize_handoff",
@@ -217,6 +219,41 @@ def test_mcp_describes_handoff_tool_side_effects_for_host_approval() -> None:
     assert resolve.readOnlyHint is True
     assert resolve.destructiveHint is False
     assert resolve.openWorldHint is False
+
+
+def test_mcp_accepts_first_handoff_carrier_in_followup_tool_schemas() -> None:
+    async def handoff_schemas() -> dict[str, dict[str, Any]]:
+        async with Client(create_mcp_server(create_app())) as client:
+            return {
+                tool.name: tool.inputSchema
+                for tool in await client.list_tools()
+                if tool.name in {"continue_handoff", "commit_handoff"}
+            }
+
+    schemas = run_async(handoff_schemas)
+    citation = {"kind": "source", "source_ref": {"name": "content", "source_id": "boundary-1"}}
+    prepared = {
+        "generation": None,
+        "schema": "powercontext.prepared-handoff.v1",
+        "scope_id": "scope-1",
+        "base": None,
+        "content": {
+            "generation": None,
+            "schema": "powercontext.handoff.v1",
+            "objective": "Continue the acceptance test.",
+            "state": [{"text": "The boundary was captured.", "citations": [citation]}],
+            "disposition": "continuable",
+            "next_action": {"text": "Check the followup tools.", "citations": [citation]},
+            "omissions": [],
+        },
+    }
+
+    Draft202012Validator(schemas["continue_handoff"]).validate({
+        "scope_id": "scope-1",
+        "selection": "prepared",
+        "prepared": prepared,
+    })
+    Draft202012Validator(schemas["commit_handoff"]).validate({"scope_id": "scope-1", "handoff": prepared})
 
 
 def test_mcp_describes_review_write_side_effects_for_host_approval() -> None:

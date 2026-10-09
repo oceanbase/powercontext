@@ -392,6 +392,26 @@ def test_topic_provider_disables_sdk_transport_retries(provider_name, with_heade
     [
         ("generation", "extra_body", {"max_completion_tokens": 999_999_999}),
         ("embedding", "extra_body", {"input": "hidden"}),
+        ("embedding", "extra_body", {"chat_template_kwargs": {"enable_thinking": False}}),
+        ("generation", "extra_body", None),
+        ("generation", "extra_body", []),
+        ("generation", "extra_body", {}),
+        ("generation", "extra_body", {"chat_template_kwargs": None}),
+        ("generation", "extra_body", {"chat_template_kwargs": {}}),
+        ("generation", "extra_body", {"chat_template_kwargs": {"enable_thinking": True}}),
+        ("generation", "extra_body", {"chat_template_kwargs": {"enable_thinking": 0}}),
+        ("generation", "extra_body", {"chat_template_kwargs": {"enable_thinking": "false"}}),
+        ("generation", "extra_body", {"chat_template_kwargs": {"enable_thinking": None}}),
+        (
+            "generation",
+            "extra_body",
+            {"chat_template_kwargs": {"enable_thinking": False}, "max_completion_tokens": 999_999_999},
+        ),
+        (
+            "generation",
+            "extra_body",
+            {"chat_template_kwargs": {"enable_thinking": False, "messages": "hidden"}},
+        ),
         ("generation", "openai_background", True),
         ("generation", "openai_previous_response_id", "response-id"),
         ("generation", "openai_conversation_id", "conversation-id"),
@@ -400,7 +420,7 @@ def test_topic_provider_disables_sdk_transport_retries(provider_name, with_heade
 )
 def test_worker_and_binding_reject_unmetered_settings_before_opening_resources(workload, key, value):
     async def scenario():
-        settings = {"generation_model": "openai:test"}
+        settings = {"generation_model": "openai-chat:test"}
         if workload == "embedding":
             settings.update(embedding_model="openai:test", embedding_profile_id="test", embedding_dimension=2)
         settings[workload + "_model_settings"] = {key: value}
@@ -414,7 +434,7 @@ def test_worker_and_binding_reject_unmetered_settings_before_opening_resources(w
         api = config.model_copy(update={"runtime": RuntimeConfig(artifact_processing_role="api")})
         assert not _topic_memory_processing_available(api, ())
         scheduled = config.model_copy(update={"runtime": RuntimeConfig(topic_memory_schedule_seconds=60)})
-        with pytest.raises(BuiltinConfigurationError):
+        with pytest.raises(BuiltinConfigurationError, match="bounded stateless"):
             _artifact_processing_bindings(scheduled, cast(Any, None), ())
         spec = TopicMemoryWorkerSpec(config=config)
         with pytest.raises(BuiltinConfigurationError):
@@ -422,6 +442,20 @@ def test_worker_and_binding_reject_unmetered_settings_before_opening_resources(w
                 pytest.fail("unsafe worker opened")
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("provider", ["openai", "openai-responses", "azure-responses", "anthropic", "test"])
+def test_thinking_exception_requires_chat_completions(provider):
+    config = BuiltinConfig(
+        database=SQLiteConfig(url="sqlite+aiosqlite:///not-opened.sqlite3"),
+        inference=InferenceConfig(
+            generation_model="test" if provider == "test" else f"{provider}:qwen",
+            generation_model_settings={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+        ),
+        runtime=RuntimeConfig(topic_memory_schedule_seconds=60),
+    )
+    with pytest.raises(BuiltinConfigurationError, match="bounded stateless"):
+        _artifact_processing_bindings(config, cast(Any, None), ())
 
 
 def test_structured_retries_and_failed_calls_share_durable_reservation():

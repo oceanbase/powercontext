@@ -42,10 +42,10 @@ from powercontext.client.settings import ClientSettings
 from powercontext.http import CreateScopeRequest, ListMemoryEntriesRequest, PrepareContextRequest
 
 from .artifacts import write_artifacts
-from .catalog import E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec
+from .catalog import E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec, is_paired
 from .evaluation import evaluate_observation, matches_forbidden_context
 from .evidence import fingerprint, load_resolved_instructions, redact, write_evaluation_report, write_evidence
-from .hosts import host_adapter
+from .hosts import HostAdapter, host_adapter
 from .models import (
     CaptureRecord,
     EvaluationReport,
@@ -61,7 +61,7 @@ from .models import (
     TaskObservation,
 )
 from .report import render_evaluation_summary
-from .settings import HarnessSettings, ModelNotConfiguredError
+from .settings import HarnessSettings, ModelNotConfiguredError, agent_secret
 
 FailurePolicy = Literal["fail-fast", "collect-all"]
 TaskStatus = Literal["completed", "failed", "skipped"]
@@ -151,11 +151,9 @@ async def run_tasks(
     settings: HarnessSettings,
     failure_policy: FailurePolicy = "collect-all",
 ) -> bool:
-    model_workload_ids = tuple(
-        task.id for task in tasks if task.execution.model and not host_adapter(task).model_configured()
-    )
-    if model_workload_ids:
-        raise ModelNotConfiguredError(model_workload_ids)
+    if paired_ids := [task.id for task in tasks if is_paired(task)]:
+        raise ValueError(f"Run OFF/ON comparison workloads with the paired command: {paired_ids!r}")  # noqa: TRY003
+    require_runtime_models(tasks)
 
     accepted = True
     for group in group_tasks(tasks):
@@ -166,6 +164,22 @@ async def run_tasks(
             failure_policy=failure_policy,
         )
     return accepted
+
+
+def require_runtime_models(tasks: tuple[E2ETask, ...], host: HostAdapter | None = None) -> None:
+    """Reject model-backed workloads whose host lacks its runtime-selected model or other required settings.
+
+    Without ``host``, each workload runs on the host its execution spec declares.
+    """
+
+    missing = {
+        task.id: (host or host_adapter(task.execution.type)).missing_settings()
+        for task in tasks
+        if task.execution.model
+    }
+    if unconfigured := {task_id: settings for task_id, settings in missing.items() if settings}:
+        settings = tuple(dict.fromkeys(name for names in unconfigured.values() for name in names))
+        raise ModelNotConfiguredError(tuple(unconfigured), settings)
 
 
 def group_tasks(tasks: tuple[E2ETask, ...]) -> tuple[ExecutionGroup, ...]:
@@ -408,32 +422,25 @@ def _source_harbor_observation(
 def _job_config(
     task: E2ETask,
     run_id: str,
-    scope_id: str,
+    scope_id: str | None,
     output_dir: Path,
     settings: HarnessSettings,
     *,
     runtime: PreparedRuntime | None = None,
     invocation_scopes: tuple[str, ...] = (),
+    host: HostAdapter | None = None,
 ) -> JobConfig:
-    host = host_adapter(task)
+    host = host or host_adapter(task.execution.type)
     repository = settings.repository_path()
-    mounts: list[ServiceVolumeConfig] = [
-        {
-            "type": "bind",
-            "source": str(repository),
-            "target": "/opt/powercontext/source",
-            "read_only": True,
-            "bind": {"create_host_path": False},
-        },
-        *host.mounts(task),
-    ]
+    mounts: list[ServiceVolumeConfig] = host.mounts(task, repository, powercontext=scope_id is not None)
     agent = host.agent_config(
         task,
         scope_id=scope_id,
         invocation_scopes=invocation_scopes if runtime is not None else None,
     )
     if settings.agent_proxy_url is not None:
-        proxy_url = settings.agent_proxy_url.get_secret_value()
+        # Harbor writes a literal under these names to its job files in full, and the URL can carry credentials.
+        proxy_url = agent_secret("PROXY_URL", settings.agent_proxy_url.get_secret_value())
         agent.env.update({
             "HTTP_PROXY": proxy_url,
             "HTTPS_PROXY": proxy_url,
@@ -530,6 +537,13 @@ def _validate_batch_compatibility(tasks: tuple[E2ETask, ...], settings: HarnessS
 
 
 def _load_source_task(task: E2ETask, repository: Path) -> SourceTask:
+    harbor_task = _load_harbor_task(task, repository)
+    return SourceTask(task, harbor_task, _task_layout(task, harbor_task))
+
+
+def _load_harbor_task(task: E2ETask, repository: Path) -> HarborTask:
+    """Load a local Harbor task and verify it is the one the manifest pins."""
+
     dataset_path = task.dataset.path
     if dataset_path is None:
         raise ValueError(f"Source task {task.id!r} does not use a local Harbor dataset")  # noqa: TRY003
@@ -540,7 +554,7 @@ def _load_source_task(task: E2ETask, repository: Path) -> SourceTask:
         raise ValueError(f"Source task {task.id!r} cannot be loaded from {task_dir}") from exc  # noqa: TRY003
     if harbor_task.checksum != task.dataset.checksum:
         raise ValueError(f"Source task {task.id!r} checksum changed")  # noqa: TRY003
-    return SourceTask(task, harbor_task, _task_layout(task, harbor_task))
+    return harbor_task
 
 
 def _runtime_profile(source: SourceTask) -> dict[str, Any]:
@@ -640,14 +654,21 @@ async def _prepared_probes(
     return tuple(probes)
 
 
-def _run_environment(task: E2ETask, started_at: datetime, settings: HarnessSettings) -> RunEnvironment:
-    host = host_adapter(task)
+def _run_environment(
+    task: E2ETask,
+    started_at: datetime,
+    settings: HarnessSettings,
+    host: HostAdapter | None = None,
+) -> RunEnvironment:
+    host = host or host_adapter(task.execution.type)
     return RunEnvironment(
         commit=settings.commit_id(),
         database=settings.database,
+        adapter=host.name,
         adapter_version=host.version,
         adapter_protocol_version=host.protocol_version,
         agent_model=host.agent_model() if task.execution.model else None,
+        agent_settings=host.agent_settings() if task.execution.model else {},
         started_at=started_at,
         finished_at=datetime.now(UTC),
     )

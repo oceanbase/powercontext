@@ -15,7 +15,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { combineSignals, PowerContextClient } from './client.ts'
+import { PowerContextClient } from './client.ts'
 import { registerCommands } from './commands.ts'
 import { resolveConfig, type PluginConfig } from './config.ts'
 import { createDiagnosticEmitter } from './diagnostics.ts'
@@ -92,15 +92,13 @@ function registerRecall(ctx: Context, runtime: PluginRuntime, createUserMessage:
     turn: number
     signal: AbortSignal
   }, next: () => Promise<{ kind: string; messages?: unknown[] }>) => {
-    const deadline = AbortSignal.timeout(runtime.config.timeoutMs)
-    const signal = combineSignals([payload.signal, deadline])
     return runRecallPreStep({
       messages: payload.messages,
       next,
       cwd: payload.agent.session.header.cwd,
       sessionId: payload.agent.session.header.id,
       turnId: String(payload.turn),
-      signal,
+      signal: payload.signal,
       client: runtime.client,
       config: runtime.config,
       resolveScope: runtime.resolveScope,

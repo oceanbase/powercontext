@@ -5,8 +5,8 @@ This plugin is a thin DeepSeek Harness integration for a running PowerContext Se
 Install the released Server and plugin together:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.1.0
+uv tool install --force "powercontext[cli,server]==1.2.0"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.2.0
 ```
 
 `setup dsh` calls `dsh plugin --profile web add`. The plugin talks HTTP only. It does not use MCP.
@@ -36,6 +36,8 @@ Named `pc_*` tools expose the agent-safe Memory, handoff, experience, skill, and
 read-only prepare independently. Failures identify the operation, a specific code, available HTTP status/request ID,
 safe dependency statuses and recovery actions. The endpoint summary omits credentials and path text. A successful
 report does not prove capture or processing: write routes are declared by OpenAPI but never executed by Doctor.
+Doctor also reports native MCP catalog visibility separately. The documented DSH installation remains HTTP-only, so
+an unavailable or unconfigured native MCP catalog does not make the HTTP plugin health check fail.
 Standalone `powercontext doctor dsh` verifies Web-profile registration and explicitly cannot observe the running
 host's overrides. A healthy Server with extraction disabled may return valid empty recall.
 
@@ -79,3 +81,13 @@ Its displayed text is the same untrusted, request-specific context sent to the m
 
 See [runtime acceptance tests](tests/runtime/README.md) for the pinned real DSH host, deterministic CI scenarios,
 and the separate real-model and Web acceptance procedure.
+
+## Web and Desktop setup targets
+
+`powercontext setup dsh` prompts for Web or Desktop on a TTY; `--json` and non-interactive invocations default to Web.
+Use `--profile web` or `--profile desktop` explicitly in scripts. Each profile has independent package dependencies
+and bundle activation. Desktop requires its installed dsh launcher, an initialized profile, and a fully quit application.
+Use Desktop's **Manage dsh Command…** menu or pass `--dsh-command` with its installed launcher path.
+`powercontext doctor dsh --profile desktop` checks registration without launching the reserved profile; reopen
+Desktop and run `/pc doctor` to inspect the active session. Connection settings and URL-bound credentials remain shared.
+See [the installation guide](../../../../docs/en/docs/integrations/dsh.md) for paths and complete examples.

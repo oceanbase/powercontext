@@ -518,6 +518,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_memory_capacity: {
+		method: "POST",
+		path: "/v1/memory/capacity",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_memory_entries: {
 		method: "POST",
 		path: "/v1/memory/entries/list",
@@ -1591,8 +1602,8 @@ const DEFAULTS = {
 	scopeId: void 0,
 	authorization: void 0,
 	capturePrompts: true,
-	requestTimeoutMs: 1e3,
-	httpBudgetMs: 4e3,
+	requestTimeoutMs: 3e3,
+	httpBudgetMs: 6e3,
 	maxBytes: 8e3,
 	flushOnCapture: false,
 	flushMaxCalls: 4

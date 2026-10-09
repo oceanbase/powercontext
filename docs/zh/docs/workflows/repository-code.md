@@ -13,8 +13,13 @@ Memory 保存历史决策与约束；代码查询提供当前工作区的定义�
 本能力默认关闭。结构分析支持 UTF-8 Python、TypeScript/JavaScript（含 TSX/JSX）和 Go，使用 Tree-sitter 提取语法，再保守地解析仓库内引用。
 它不需要生成模型、Embedding、Node.js 或 CodeGraph 服务。动态分派、反射、框架隐含调用及不支持的语法可能缺失；
 `candidate` 关系只表示线索，不能当作运行时调用证明。
-本机索引目前在 Linux 验证，依赖 POSIX 文件锁、进程资源限制，以及 SQLite FTS5 或嵌入式 seekdb 全文检索；其他系统可通过 HTTP 使用该服务。
-macOS 和 Windows 的本机索引尚未验收。
+使用 SQLite 的本机索引已在 Linux 和 macOS 验证，依赖 POSIX 文件锁与 SQLite FTS5；嵌入式 seekdb 部署使用 seekdb 全文检索。
+Windows 客户端可通过 HTTP 使用该服务，Windows 本机索引尚未验收。
+
+解析 worker 默认内存预算为 1 GiB（`limits.worker_memory_bytes`）。Linux 通过 `RLIMIT_AS` 限制地址空间。
+macOS 不支持此限制，由父进程在正常调度下约每 100 毫秒采样 worker 的实际驻留内存（RSS），超限时终止进程。
+这是采样检查，调度延迟和两次检查之间的分配可能导致内存短暂超出预算。内存监测失败时构建失败，不会无保护地继续解析。
+解析中因内存限制中断的文件保留文本检索，结构覆盖标记为失败；若 worker 在解析开始前失败，则中止构建并保留此前发布的索引。
 
 ## 多语言范围
 
