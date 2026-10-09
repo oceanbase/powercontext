@@ -17,5 +17,24 @@
       "get_memory_entry"
     ],
     "evidence": "desktop/VALIDATION.md"
+  },
+  {
+    "id": "sqlite-legacy-58f7f4f6-v1",
+    "serverCommit": "58f7f4f6cbadd698bac35b3fca019d9f48f55b81",
+    "contractSha256": "9f4ba7b35ecd3b3639af4e648aff84b713a7f30b51d5a4c30c8809aeb8dc8024",
+    "artifactSha256": "7203cf1a98cb9dfd8631e142f7a0f5e74c39845da4fb7d862117a49fa1ef38af",
+    "operations": [
+      "get_liveness",
+      "get_readiness",
+      "get_access_principal",
+      "get_capabilities",
+      "list_scopes",
+      "get_scope",
+      "get_default_scope",
+      "remember_memory",
+      "search_memory",
+      "get_memory_entry"
+    ],
+    "evidence": "desktop/VALIDATION.md"
   }
 ]

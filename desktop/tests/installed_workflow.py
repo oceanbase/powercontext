@@ -23,7 +23,7 @@ from pathlib import Path
 
 import httpx
 from installed_boundaries import exercise_note_budget, exercise_search_limit
-from installed_fixture import isolated_server
+from installed_fixture import fixture_compatibility_profile, isolated_server
 from real_server import HarnessFailure
 
 ELEMENT = "element-6066-11e4-a52e-4f735466cecf"
@@ -110,7 +110,8 @@ class InstalledPage:
         self.button("连接")
         self.type("连接名称", name)
         self.type("Server 地址", endpoint)
-        self.click("//label[normalize-space(text())='已验证兼容配置']/select/option[@value='sqlite-6e237568-v1']")
+        compatibility = fixture_compatibility_profile()
+        self.click(f"//label[normalize-space(text())='已验证兼容配置']/select/option[@value='{compatibility}']")
         self.button("保存配置")
         self.activate(name)
 

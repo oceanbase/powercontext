@@ -636,6 +636,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/scopes/{scope_id}/artifacts/{family}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Search one Artifact Family in a Scope
+         * @description Search registered Artifact Families using their supported retrieval controls. Results contain complete exact Artifact revisions. Score metadata is returned only when requested; min_score compares normalized retrieval scores.
+         */
+        post: operations["search_artifacts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/topic-memory/search": {
         parameters: {
             query?: never;
@@ -3745,6 +3765,58 @@ export interface components {
             score: number;
             matched_by: components["schemas"]["TopicMemoryMatchedBy"][];
         };
+        ArtifactSearchFusion: {
+            method: string;
+            /** @default {} */
+            params: {
+                [key: string]: unknown;
+            };
+        };
+        SearchArtifactsRequest: {
+            query: string;
+            /** @default 10 */
+            limit: number;
+            mode?: string;
+            filters?: {
+                [key: string]: unknown;
+            };
+            admission?: {
+                [key: string]: unknown;
+            };
+            fusion?: components["schemas"]["ArtifactSearchFusion"];
+            min_score?: number;
+            /** @default false */
+            include_scores: boolean;
+            rerank?: {
+                [key: string]: unknown;
+            };
+        };
+        ArtifactChannelScore: {
+            raw: number;
+            metric: string;
+            higher_is_better: boolean;
+        };
+        ArtifactSearchScores: {
+            retrieval: number;
+            channels: {
+                [key: string]: components["schemas"]["ArtifactChannelScore"];
+            };
+        };
+        ArtifactSearchItem: {
+            family: string;
+            artifact_id: string;
+            revision: number;
+            content: {
+                [key: string]: unknown;
+            };
+            lineage: {
+                [key: string]: unknown;
+            };
+            scores?: components["schemas"]["ArtifactSearchScores"];
+        };
+        SearchArtifactsResponse: {
+            results: components["schemas"]["ArtifactSearchItem"][];
+        };
         SearchTopicMemoryRequest: {
             scope_id: string;
             query: string;
@@ -5611,6 +5683,39 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    search_artifacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                family: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchArtifactsRequest"];
+            };
+        };
+        responses: {
+            /** @description Complete matching Artifact revisions in retrieval order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchArtifactsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["InvalidRequest"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];

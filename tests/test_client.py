@@ -58,9 +58,61 @@ from powercontext.http import (
     ScopeId,
     ScopeQueryField,
     ScopeSelection,
+    SearchArtifactsRequest,
     SearchTopicMemoryRequest,
     UpdateScopeRequest,
 )
+
+
+def test_artifact_search_client_preserves_path_identity_unset_fields_and_complete_results() -> None:
+    async def scenario() -> None:
+        sent: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            sent.append(request)
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "family": "custom-family",
+                            "artifact_id": "result",
+                            "revision": 2,
+                            "content": {"title": "中文", "detail": {"evidence": [1, 2]}},
+                            "lineage": {"sources": [], "artifacts": []},
+                            "scores": {
+                                "retrieval": 0.5,
+                                "channels": {"text": {"raw": -1.0, "metric": "sqlite_bm25", "higher_is_better": False}},
+                            },
+                        }
+                    ]
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as transport:
+            client = PowerContextClient("https://memory.example", http_client=transport)
+            response = await client.search_artifacts(
+                "scope-a", "custom-family", SearchArtifactsRequest(query="  needle  ")
+            )
+            await client.search_artifacts(
+                "scope-a",
+                "custom-family",
+                SearchArtifactsRequest(query="needle", limit=200, include_scores=True, filters={}),
+            )
+        assert [request.url.path for request in sent] == [
+            "/v1/scopes/scope-a/artifacts/custom-family/search",
+            "/v1/scopes/scope-a/artifacts/custom-family/search",
+        ]
+        assert json.loads(sent[0].content) == {"query": "needle"}
+        assert json.loads(sent[1].content) == {"query": "needle", "limit": 200, "include_scores": True, "filters": {}}
+        item = response.results[0]
+        assert item.family == "custom-family"
+        assert item.revision == 2
+        assert item.content == {"title": "中文", "detail": {"evidence": [1, 2]}}
+        assert item.scores is not None
+        assert item.scores.channels["text"].raw == -1.0
+
+    asyncio.run(scenario())
 
 
 def test_prepare_client_preserves_omitted_and_explicit_assembly() -> None:

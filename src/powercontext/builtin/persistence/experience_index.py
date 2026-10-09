@@ -23,6 +23,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.artifacts.search import ChannelScore
 from powercontext.builtin.artifacts.experience import (
     Experience,
     ExperienceContent,
@@ -31,7 +32,13 @@ from powercontext.builtin.artifacts.experience import (
     experience_search_text,
     experience_searchable_text,
 )
-from powercontext.builtin.artifacts.search import AdmissionCounts, AdmissionFloor, admits_fts_text
+from powercontext.builtin.artifacts.search import (
+    AdmissionCounts,
+    AdmissionFloor,
+    InvalidSearchScore,
+    admits_fts_text,
+    lexical_search_score,
+)
 from powercontext.builtin.artifacts.skill import (
     Skill,
     SkillContent,
@@ -95,6 +102,8 @@ class ExperienceIndex(Protocol):
         /,
         *,
         admission: AdmissionFloor | None = None,
+        min_score: float | None = None,
+        require_scores: bool = False,
     ) -> ExperienceSearchOutcome: ...
 
     async def replace_skill(
@@ -113,6 +122,10 @@ class ExperienceIndex(Protocol):
         query: str,
         limit: int,
         /,
+        *,
+        admission: AdmissionFloor | None = None,
+        min_score: float | None = None,
+        require_scores: bool = False,
     ) -> tuple[SkillSearchHit, ...]: ...
 
 
@@ -140,6 +153,8 @@ class NoExperienceIndex:
         /,
         *,
         admission: AdmissionFloor | None = None,
+        min_score: float | None = None,
+        require_scores: bool = False,
     ) -> ExperienceSearchOutcome:
         return ExperienceSearchOutcome()
 
@@ -160,6 +175,10 @@ class NoExperienceIndex:
         _query: str,
         _limit: int,
         /,
+        *,
+        admission: AdmissionFloor | None = None,
+        min_score: float | None = None,
+        require_scores: bool = False,
     ) -> tuple[SkillSearchHit, ...]:
         return ()
 
@@ -308,24 +327,31 @@ def experience_search_hits(
     /,
     *,
     admission: AdmissionFloor | None = None,
+    min_score: float | None = None,
+    require_scores: bool = False,
 ) -> ExperienceSearchOutcome:
     """Decode backend-ordered rows and apply the shared lexical admission rule.
 
-    ``admission=None`` applies the historical lexical floor bit for bit. ``skill_search_hits``
-    keeps its own default behaviour and is intentionally unaffected.
+    ``admission=None`` applies the historical lexical floor bit for bit. Raw score metadata
+    is optional for old custom indexes; public searches set ``require_scores=True``.
 
     ``retrieved`` counts the rows *examined*, not the rows kept: the loop stops as soon as
-    ``limit`` hits are admitted, so a backend that returned many rows for a narrow query is
+    ``limit`` final hits survive, so a backend that returned many rows for a narrow query is
     only visible through that count. ``scope_id`` is supplied by the caller because the
     decoder is the only place that knows both the rows and the Scope they were read from.
     """
 
     hits: list[ExperienceSearchHit] = []
     examined = 0
+    admitted = 0
     for row in rows:
         examined += 1
         content = _content(row["content"])
         if not admits_fts_text(query, experience_search_text(content), floor=admission):
+            continue
+        admitted += 1
+        retrieval_score, channel_scores = _search_scores(row, required=require_scores or min_score is not None)
+        if min_score is not None and (retrieval_score is None or retrieval_score < min_score):
             continue
         hits.append(
             ExperienceSearchHit(
@@ -335,6 +361,8 @@ def experience_search_hits(
                     revision=int(row["revision"]),
                 ),
                 content=content,
+                retrieval_score=retrieval_score,
+                channel_scores=channel_scores,
             )
         )
         if len(hits) >= limit:
@@ -345,7 +373,7 @@ def experience_search_hits(
             family=Experience.family,
             scope_id=scope_id,
             retrieved=examined,
-            admitted=len(hits),
+            admitted=admitted,
         ),
     )
 
@@ -355,6 +383,10 @@ def skill_search_hits(
     query: str,
     limit: int,
     /,
+    *,
+    admission: AdmissionFloor | None = None,
+    min_score: float | None = None,
+    require_scores: bool = False,
 ) -> tuple[SkillSearchHit, ...]:
     """Decode backend-ordered Skill rows and apply shared lexical admission."""
 
@@ -362,7 +394,10 @@ def skill_search_hits(
     for row in rows:
         content = _skill_content(row["content"])
         searchable = row.get("searchable_text") or skill_search_text(content)
-        if not admits_fts_text(query, str(searchable)):
+        if not admits_fts_text(query, str(searchable), floor=admission):
+            continue
+        retrieval_score, channel_scores = _search_scores(row, required=require_scores or min_score is not None)
+        if min_score is not None and (retrieval_score is None or retrieval_score < min_score):
             continue
         hits.append(
             SkillSearchHit(
@@ -372,11 +407,22 @@ def skill_search_hits(
                     revision=int(row["revision"]),
                 ),
                 content=content,
+                retrieval_score=retrieval_score,
+                channel_scores=channel_scores,
             )
         )
         if len(hits) >= limit:
             break
     return tuple(hits)
+
+
+def _search_scores(row: Mapping[Any, Any], /, *, required: bool) -> tuple[float | None, dict[str, ChannelScore] | None]:
+    if "raw_score" not in row or "score_metric" not in row:
+        if required or "raw_score" in row or "score_metric" in row:
+            raise InvalidSearchScore("lexical raw score and metric are required")  # noqa: TRY003
+        return None, None
+    retrieval_score, channel = lexical_search_score(row["raw_score"], row["score_metric"])
+    return retrieval_score, {"text": channel}
 
 
 async def _update_searchable_text(

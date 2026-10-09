@@ -150,9 +150,23 @@ async fn setup() -> Fixture {
     let manager = Arc::new(ConnectionManager::new(
         ProfileRepository::open(dir.path().join("profiles.json"), Arc::new(WindowsVault)).unwrap(),
     ));
-    let compatibility = manager.state().unwrap().compatibility_profiles[0]
+    let contract: serde_json::Value =
+        serde_json::from_str(include_str!("../src/transport/operations.json")).unwrap();
+    let contract_sha256 = contract["contractSha256"].as_str().unwrap();
+    let state = manager.state().unwrap();
+    let mut qualified = state
+        .compatibility_profiles
+        .iter()
+        .filter(|profile| profile.contract_sha256 == contract_sha256);
+    let compatibility = qualified
+        .next()
+        .expect("qualified fixture contract")
         .id
         .clone();
+    assert!(
+        qualified.next().is_none(),
+        "ambiguous fixture qualification"
+    );
     let mut ids = vec![];
     for name in ["A", "B"] {
         let state = manager.save_profile(serde_json::from_value(serde_json::json!({"id":null,"revision":null,"name":name,"endpoint":endpoint,"authentication":"unauthenticated_loopback","caPem":null,"compatibility":compatibility,"keepCredential":false,"credential":null})).unwrap()).unwrap();

@@ -48,6 +48,13 @@ Topic Memory also uses these generic interfaces: creation and replacement submit
 `detail` text without semantic generation. See [Use Topic Memory](topic-memory.md) for its dedicated search and scoped
 reads.
 
+## Search relevant current heads
+
+Use `POST /v1/scopes/{scope_id}/artifacts/{family}/search` for relevance search within one Scope. The built-in route
+supports Experience, managed Skill, and Topic Memory. Results contain complete content and exact revisions; optional
+scores belong to the search response. See [Search Artifacts](search-artifacts.md) for Family support, admission,
+thresholds, and failure behavior, and [Fusion algorithms and parameters](search-fusion.md) for Topic RRF controls.
+
 ## Change content through its workflow
 
 - [Memory](memory-and-context.md): explicitly write, revise, or retire entries.

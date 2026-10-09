@@ -27,7 +27,7 @@ from aiosqlite import Cursor as SQLiteCursor
 from sqlalchemy.exc import OperationalError, PendingRollbackError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from powercontext.builtin.persistence.errors import DatabaseClosedError
+from powercontext.builtin.persistence.errors import DatabaseClosedError, PersistenceError
 
 # Repositories that read a whole Scope selection in one statement chunk it to stay
 # below the lowest bind-parameter ceiling across the supported backends.
@@ -100,16 +100,25 @@ class AsyncDatabase:
         return self._engine
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[AsyncConnection]:
-        """Yield a connection in a transaction owned by the calling use case."""
+    async def transaction(self, *, consistent_snapshot: bool = False) -> AsyncIterator[AsyncConnection]:
+        """Yield an owned transaction, optionally pinning its short read snapshot.
 
-        if self._shared_connection is not None and self._transaction_owner is asyncio.current_task():
-            # Nested lookups on a single-connection profile join their caller's
-            # transaction, not acquire or commit that connection again. Only the
-            # owner runs cleanup, so a nested exit cannot close the caller's cursors.
-            yield self._shared_connection
+        MySQL snapshot isolation applies only to this transaction. Nested
+        in-memory SQLite reads retain their caller's transaction and writes.
+        An already borrowed MySQL transaction cannot be upgraded in place.
+        """
+
+        owner = asyncio.current_task()
+        if self._shared_connection is not None and self._transaction_owner is owner:
+            # Nested lookups join their caller's transaction. Only its owner
+            # runs connection cleanup, so nested exits cannot close its cursors.
+            connection = self._shared_connection
+            if consistent_snapshot and connection.dialect.name != "sqlite":
+                raise PersistenceError("cannot establish a snapshot inside an existing transaction")  # noqa: TRY003
+            async with connection.begin_nested() if consistent_snapshot else nullcontext():
+                yield connection
             return
-        context = self._transaction()
+        context = self._transaction(consistent_snapshot=consistent_snapshot)
         connection = await context.__aenter__()
         sqlite_stop = None
         sqlite_cursors: Collection[SQLiteCursor] | None = None
@@ -150,7 +159,7 @@ class AsyncDatabase:
                 info.pop("_powercontext_sqlite_interrupted", None)
 
     @asynccontextmanager
-    async def _transaction(self) -> AsyncIterator[AsyncConnection]:
+    async def _transaction(self, *, consistent_snapshot: bool = False) -> AsyncIterator[AsyncConnection]:
         owner = asyncio.current_task()
         async with self._state_changed:
             if self._closed or self._closing:
@@ -162,12 +171,28 @@ class AsyncDatabase:
                 if connection.dialect.name == "mysql":
                     # The MySQL dialect's begin hook is a no-op. Explicitly start
                     # the owned transaction even when the server session uses autocommit.
-                    await connection.exec_driver_sql("START TRANSACTION")
+                    if consistent_snapshot:
+                        try:
+                            await connection.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                            await connection.exec_driver_sql("START TRANSACTION WITH CONSISTENT SNAPSHOT")
+                        except BaseException:
+                            # SET may have succeeded before START failed or was
+                            # cancelled. Do not pool its unconsumed next-transaction setting.
+                            await connection.invalidate()
+                            raise
+                    else:
+                        await connection.exec_driver_sql("START TRANSACTION")
                 if self._shared_connection_lock is not None:
                     self._transaction_owner = owner
                     self._shared_connection = connection
                 try:
-                    yield connection
+                    snapshot = (
+                        connection.begin_nested()
+                        if consistent_snapshot and connection.dialect.name == "sqlite"
+                        else nullcontext()
+                    )
+                    async with snapshot:
+                        yield connection
                 finally:
                     self._transaction_owner = None
                     self._shared_connection = None
