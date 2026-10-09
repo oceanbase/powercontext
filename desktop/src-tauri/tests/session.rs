@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+mod common;
+
 use powercontext_desktop::{
     connections::{profiles::ProfileRepository, session::ConnectionManager},
     credentials::WindowsVault,
@@ -108,23 +110,7 @@ async fn fixture() -> Fixture {
     }
 }
 fn add(manager: &ConnectionManager, name: &str, endpoint: &str) -> String {
-    let contract: serde_json::Value =
-        serde_json::from_str(include_str!("../src/transport/operations.json")).unwrap();
-    let contract_sha256 = contract["contractSha256"].as_str().unwrap();
-    let state = manager.state().unwrap();
-    let mut qualified = state
-        .compatibility_profiles
-        .iter()
-        .filter(|profile| profile.contract_sha256 == contract_sha256);
-    let compatibility = qualified
-        .next()
-        .expect("qualified fixture contract")
-        .id
-        .clone();
-    assert!(
-        qualified.next().is_none(),
-        "ambiguous fixture qualification"
-    );
+    let compatibility = common::PROFILE_ID;
     let state = manager.save_profile(serde_json::from_value(serde_json::json!({
         "id":null,"revision":null,"name":name,"endpoint":endpoint,
         "authentication":"unauthenticated_loopback","caPem":null,"compatibility":compatibility,
@@ -139,10 +125,61 @@ fn add(manager: &ConnectionManager, name: &str, endpoint: &str) -> String {
         .clone()
 }
 fn manager(dir: &tempfile::TempDir) -> Arc<ConnectionManager> {
-    Arc::new(ConnectionManager::new(
+    Arc::new(common::connection_manager(
         ProfileRepository::open(dir.path().join("profiles.json"), Arc::new(WindowsVault)).unwrap(),
     ))
 }
+#[tokio::test]
+async fn successful_probes_do_not_qualify_a_synthetic_profile_in_the_product_manager() {
+    let server = fixture().await;
+    let dir = tempfile::tempdir().unwrap();
+    let manager = ConnectionManager::new(
+        ProfileRepository::open(dir.path().join("profiles.json"), Arc::new(WindowsVault)).unwrap(),
+    );
+    let id = add(&manager, "Unqualified", &server.endpoint);
+    let state = manager.check(&id, true).await.unwrap();
+    let active = state.active.unwrap();
+    assert!(!active.report.compatibility_verified);
+    assert!(active.report.supported_operations.is_empty());
+    assert_eq!(
+        manager
+            .scopes(active.generation, "", None)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::CompatibilityUnverified
+    );
+}
+
+#[tokio::test]
+async fn explicit_fixture_evidence_with_a_different_contract_remains_unverified() {
+    let server = fixture().await;
+    let dir = tempfile::tempdir().unwrap();
+    let qualified = common::connection_manager(
+        ProfileRepository::open(dir.path().join("qualified.json"), Arc::new(WindowsVault)).unwrap(),
+    );
+    let mut evidence = qualified.state().unwrap().compatibility_profiles[0].clone();
+    evidence.contract_sha256 = "0".repeat(64);
+    let manager = ConnectionManager::with_compatibility(
+        ProfileRepository::open(dir.path().join("profiles.json"), Arc::new(WindowsVault)).unwrap(),
+        vec![evidence],
+    );
+    let id = add(&manager, "Mismatched", &server.endpoint);
+    let state = manager.check(&id, true).await.unwrap();
+    let active = state.active.unwrap();
+    assert!(!active.report.compatibility_verified);
+    assert_eq!(
+        manager
+            .scopes(active.generation, "", None)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::CompatibilityUnverified
+    );
+}
+
 #[tokio::test]
 async fn checking_another_profile_does_not_activate_it_and_capability_denial_is_independent() {
     let server = fixture().await;
