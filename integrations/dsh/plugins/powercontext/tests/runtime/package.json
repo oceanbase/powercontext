@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test --test-concurrency=1 runtime.test.mjs",
+    "test": "node --test --test-concurrency=1 setup.test.mjs runtime.test.mjs",
     "test:real": "node --test real-model.test.mjs"
   },
   "devDependencies": {

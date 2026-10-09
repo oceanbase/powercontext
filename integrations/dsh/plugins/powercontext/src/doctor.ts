@@ -34,6 +34,7 @@ export interface DoctorCheck extends BodyFailureDetails {
   protocol_issue?: keyof typeof RESPONSE_ISSUES
   dependencies?: Record<string, string>
   operations?: string[]
+  tools?: string[]
 }
 
 const CORE_OPERATIONS: OperationId[] = [
@@ -254,7 +255,50 @@ function routes(response: ClientSuccess, flush: boolean): DoctorCheck {
       operations: required }
 }
 
-export async function diagnoseServer(runtime: PluginRuntime, cwd?: string, signal?: AbortSignal) {
+function nativeMcpCatalog(catalog: unknown, scope?: unknown): DoctorCheck {
+  const operation = 'native_mcp_catalog'
+  if (!record(catalog) || typeof catalog.schemas !== 'function') {
+    return check(operation, 'tool_catalog_unavailable',
+      'The DSH tool catalog is unavailable, so native MCP visibility was not checked.',
+      'Run /pc doctor from a DSH session with the tools service available.', 'skipped')
+  }
+  let schemas: unknown
+  try {
+    schemas = (catalog as { schemas: (scope?: unknown) => unknown }).schemas(scope)
+  } catch {
+    return check(operation, 'tool_catalog_unreadable',
+      'The DSH tool catalog could not be read, so native MCP visibility is unknown.',
+      'Inspect the active DSH tool registry and native MCP client configuration.', 'degraded')
+  }
+  if (!Array.isArray(schemas)) {
+    return check(operation, 'tool_catalog_invalid',
+      'The DSH tool catalog returned an invalid schema list.',
+      'Update the active DSH tools runtime and inspect its tool registry.', 'degraded')
+  }
+  const mcpTools = schemas.flatMap(schema => record(schema) && typeof schema.name === 'string'
+    ? [schema.name] : []).filter(name => name.startsWith('mcp__'))
+  const powerContextTools = mcpTools.filter(name => name.startsWith('mcp__powercontext__'))
+  if (powerContextTools.length) {
+    return { ...check(operation, 'native_mcp_tools_visible',
+      'The active DSH tool catalog exposes native PowerContext MCP tools.', undefined, 'ok'), tools: powerContextTools }
+  }
+  if (mcpTools.length) {
+    return check(operation, 'native_mcp_powercontext_missing',
+      'Native MCP tools are registered, but none belong to the PowerContext server.',
+      'Check the native PowerContext MCP client name, startup logs and tool-registration configuration.', 'degraded')
+  }
+  return check(operation, 'native_mcp_unconfigured',
+    'No native MCP tools are registered in the active DSH tool catalog.',
+    'The HTTP PowerContext plugin remains supported. Configure a native MCP client only when native MCP tools are required.', 'skipped')
+}
+
+export async function diagnoseServer(
+  runtime: PluginRuntime,
+  cwd?: string,
+  signal?: AbortSignal,
+  toolCatalog?: unknown,
+  toolScope?: unknown,
+) {
   const config = configuration(runtime.config, cwd)
   const checks: Record<string, DoctorCheck> = {
     configuration: !config.timeoutValid
@@ -325,9 +369,11 @@ export async function diagnoseServer(runtime: PluginRuntime, cwd?: string, signa
         : 'The prepare route returned valid context; Doctor discarded the content without injecting it.')
   }) : check('prepare_context', 'scope_unavailable', 'Not checked because the current Scope could not be resolved.',
     'Resolve the Scope check first.', 'skipped')
+  checks.mcp_catalog = nativeMcpCatalog(toolCatalog, toolScope)
   return {
-    ok: Object.values(checks).every(value => value.state === 'ok'),
+    ok: Object.entries(checks).every(([name, value]) => name === 'mcp_catalog' || value.state === 'ok'),
     configuration: { ...config.summary, readiness_request_timeout_ms: runtime.client.requestTimeoutMsFor('get_readiness') }, checks,
-    coverage: 'Read-only checks of the current configuration. Write routes are declared by the contract but not executed; processing, capture and injection are not verified by Doctor.',
+    coverage: 'Read-only checks of the current configuration. Native MCP catalog visibility is reported separately and does not establish '
+      + 'HTTP plugin health. Write routes are declared by the contract but not executed; processing, capture and injection are not verified by Doctor.',
   }
 }

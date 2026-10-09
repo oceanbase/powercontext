@@ -1,0 +1,760 @@
+{
+  "schema": "powercontext.work-continuity-task-lock.v1",
+  "task_set_id": "work-continuity-v1",
+  "tasks": [
+    {
+      "task_id": "wc-coding-0001",
+      "kind": "coding",
+      "objective": "Add bounded retry with backoff to the artifact export worker.",
+      "transcript": [
+        {
+          "turn": 1,
+          "role": "user",
+          "text": "The artifact export worker fails permanently on the first transient storage error. Add bounded retry with backoff."
+        },
+        {
+          "turn": 2,
+          "role": "assistant",
+          "text": "Read src/powercontext/builtin/export/worker.py. The drain loop calls storage.delete once and lets StorageUnavailable escape."
+        },
+        {
+          "turn": 3,
+          "role": "tool",
+          "text": "grep -n StorageUnavailable src/powercontext/builtin/export/worker.py -> 41: raise StorageUnavailable(entry_id)"
+        },
+        {
+          "turn": 4,
+          "role": "assistant",
+          "text": "The scope already ships a retry helper used by the capture queue."
+        },
+        {
+          "turn": 5,
+          "role": "tool",
+          "text": "read src/powercontext/builtin/runtime/backoff.py -> def run_with_backoff(operation, deadline_seconds, delays)"
+        },
+        {
+          "turn": 6,
+          "role": "assistant",
+          "text": "First pass: reuse run_with_backoff with a 30 second base and no jitter."
+        },
+        {
+          "turn": 7,
+          "role": "user",
+          "text": "A 30 second base is far too slow here. The export worker drains every 5 seconds."
+        },
+        {
+          "turn": 8,
+          "role": "assistant",
+          "text": "Revised choice: the retry base is 1 second with full jitter, sized to the 5 second drain interval."
+        },
+        {
+          "turn": 9,
+          "role": "tool",
+          "text": "read tests/builtin/export/test_worker.py -> 12 tests, none assert retry behaviour"
+        },
+        {
+          "turn": 10,
+          "role": "assistant",
+          "text": "Proposed adding a new retry dependency so the delay table becomes declarative."
+        },
+        {
+          "turn": 11,
+          "role": "user",
+          "text": "No new dependency. The core dependency set stays minimal; use the existing helper."
+        },
+        {
+          "turn": 12,
+          "role": "assistant",
+          "text": "Putting the retry around the whole drain call would double-count the attempt when the worker restarts."
+        },
+        {
+          "turn": 13,
+          "role": "tool",
+          "text": "run pytest tests/builtin/export/test_worker.py -> 12 passed in 0.42s"
+        },
+        {
+          "turn": 14,
+          "role": "assistant",
+          "text": "The drain loop already owns restart recovery, so the retry must live inside the loop body and stay in memory only."
+        }
+      ],
+      "required_state_facts": [
+        {
+          "fact_id": "wc-0001-f1",
+          "text": "the export worker drains on a 5 second interval",
+          "evidence": "turn:8"
+        },
+        {
+          "fact_id": "wc-0001-f2",
+          "text": "the helper to reuse is run_with_backoff in src/powercontext/builtin/runtime/backoff.py",
+          "evidence": "turn:5"
+        },
+        {
+          "fact_id": "wc-0001-f3",
+          "text": "the retry base is 1 second with full jitter",
+          "evidence": "turn:8"
+        },
+        {
+          "fact_id": "wc-0001-f4",
+          "text": "no new dependency may be added",
+          "evidence": "turn:11"
+        },
+        {
+          "fact_id": "wc-0001-f5",
+          "text": "retry stays in memory because the drain loop already owns restart recovery",
+          "evidence": "turn:14"
+        },
+        {
+          "fact_id": "wc-0001-f6",
+          "text": "tests/builtin/export/test_worker.py does not assert retry behaviour yet",
+          "evidence": "turn:9"
+        }
+      ],
+      "expected_next_action": {
+        "action_id": "wc-0001-a1",
+        "text": "call run_with_backoff with a 1 second base and full jitter inside the drain loop body, then add a retry regression test in the export worker test module",
+        "required_fact_ids": [
+          "wc-0001-f2",
+          "wc-0001-f3",
+          "wc-0001-f5",
+          "wc-0001-f6"
+        ]
+      },
+      "obsolete_facts": [
+        {
+          "fact_id": "wc-0001-o1",
+          "text": "use a 30 second backoff base",
+          "evidence": "turn:6",
+          "superseded_by": "wc-0001-f3"
+        },
+        {
+          "fact_id": "wc-0001-o2",
+          "text": "add a new retry dependency",
+          "evidence": "turn:10",
+          "superseded_by": "wc-0001-f4"
+        }
+      ],
+      "known_omissions": [
+        "The maximum attempt count for the drain loop was never agreed.",
+        "No test covers a storage outage longer than one drain interval."
+      ],
+      "unavailable_evidence": []
+    },
+    {
+      "task_id": "wc-coding-0002",
+      "kind": "coding",
+      "objective": "Make the lease expiry test deterministic instead of time-dependent.",
+      "transcript": [
+        {
+          "turn": 1,
+          "role": "user",
+          "text": "The lease expiry test fails roughly one run in five. Make it deterministic."
+        },
+        {
+          "turn": 2,
+          "role": "assistant",
+          "text": "Reproduced it 4 times in 20 runs. The test sleeps for the lease duration and then asserts the claim is gone."
+        },
+        {
+          "turn": 3,
+          "role": "tool",
+          "text": "read tests/unit/test_leases.py -> test_expired_lease_is_not_claimable sleeps 1.2 seconds against a 1.0 second lease"
+        },
+        {
+          "turn": 4,
+          "role": "assistant",
+          "text": "The store takes lease_duration as a timedelta, so the test can inject a very short lease instead of sleeping."
+        },
+        {
+          "turn": 5,
+          "role": "tool",
+          "text": "read src/powercontext_eval/web/store.py -> class TaskStore(lease_duration: timedelta)"
+        },
+        {
+          "turn": 6,
+          "role": "assistant",
+          "text": "Root cause: the suite asserts on wall-clock expiry, so scheduler jitter decides the outcome."
+        },
+        {
+          "turn": 7,
+          "role": "user",
+          "text": "Do not add a shared time abstraction just for one test."
+        },
+        {
+          "turn": 8,
+          "role": "assistant",
+          "text": "Rejected option: raise the sleep to 5 seconds, which would hide the flake instead of removing it."
+        },
+        {
+          "turn": 9,
+          "role": "tool",
+          "text": "run pytest tests/unit/test_leases.py -q --count 20 -> 3 failures"
+        },
+        {
+          "turn": 10,
+          "role": "assistant",
+          "text": "The failing runs all lose the race between the sleep and the second claim attempt."
+        },
+        {
+          "turn": 11,
+          "role": "user",
+          "text": "Fix it without changing production behaviour and without a new abstraction."
+        },
+        {
+          "turn": 12,
+          "role": "assistant",
+          "text": "Chosen fix: construct the store with a lease_duration of a few milliseconds and assert on the returned claim result, not on elapsed time."
+        }
+      ],
+      "required_state_facts": [
+        {
+          "fact_id": "wc-0002-f1",
+          "text": "the failing test is test_expired_lease_is_not_claimable in tests/unit/test_leases.py",
+          "evidence": "turn:3"
+        },
+        {
+          "fact_id": "wc-0002-f2",
+          "text": "TaskStore accepts lease_duration as a timedelta, so a short lease can be injected",
+          "evidence": "turn:5"
+        },
+        {
+          "fact_id": "wc-0002-f3",
+          "text": "the root cause is asserting on wall-clock expiry rather than on the returned claim result",
+          "evidence": "turn:6"
+        },
+        {
+          "fact_id": "wc-0002-f4",
+          "text": "adding a shared time abstraction for this test was rejected",
+          "evidence": "turn:7"
+        },
+        {
+          "fact_id": "wc-0002-f5",
+          "text": "raising the sleep duration was rejected as hiding the flake",
+          "evidence": "turn:8"
+        },
+        {
+          "fact_id": "wc-0002-f6",
+          "text": "production behaviour must not change",
+          "evidence": "turn:11"
+        }
+      ],
+      "expected_next_action": {
+        "action_id": "wc-0002-a1",
+        "text": "construct TaskStore with a millisecond lease_duration in tests/unit/test_leases.py and assert on the returned claim result instead of elapsed time",
+        "required_fact_ids": [
+          "wc-0002-f1",
+          "wc-0002-f2",
+          "wc-0002-f3"
+        ]
+      },
+      "obsolete_facts": [
+        {
+          "fact_id": "wc-0002-o1",
+          "text": "raise the sleep to 5 seconds",
+          "evidence": "turn:8",
+          "superseded_by": "wc-0002-f5"
+        },
+        {
+          "fact_id": "wc-0002-o2",
+          "text": "add a shared time abstraction",
+          "evidence": "turn:7",
+          "superseded_by": "wc-0002-f4"
+        }
+      ],
+      "known_omissions": [
+        "The 20-run reproduction was local only, so the true flake rate is unknown.",
+        "Other tests in the same module still sleep on a fixed duration and were not audited."
+      ],
+      "unavailable_evidence": []
+    },
+    {
+      "task_id": "wc-doc-0003",
+      "kind": "documentation",
+      "objective": "Make the retrieval-mode documentation match the capability endpoint.",
+      "transcript": [
+        {
+          "turn": 1,
+          "role": "user",
+          "text": "docs/en/guides/retrieval.md claims hybrid search always works. The capability endpoint says otherwise. Fix the docs."
+        },
+        {
+          "turn": 2,
+          "role": "assistant",
+          "text": "Read docs/en/guides/retrieval.md. The shipped page asserts that hybrid search is available on every server."
+        },
+        {
+          "turn": 3,
+          "role": "tool",
+          "text": "read src/powercontext/http/routes/capabilities.py -> /v1/capabilities advertises a search_modes list per deployment"
+        },
+        {
+          "turn": 4,
+          "role": "assistant",
+          "text": "The docs also never mention that an unsupported mode must be rejected before ingestion."
+        },
+        {
+          "turn": 5,
+          "role": "user",
+          "text": "Also check the Chinese page; both locales must stay synchronised."
+        },
+        {
+          "turn": 6,
+          "role": "tool",
+          "text": "read docs/zh/guides/retrieval.md -> same hybrid claim, plus a stale table listing four modes"
+        },
+        {
+          "turn": 7,
+          "role": "assistant",
+          "text": "The English page lists five modes and the Chinese page lists four, so the two locales already disagree."
+        },
+        {
+          "turn": 8,
+          "role": "tool",
+          "text": "grep -rn search_modes docs/en docs/zh -> 7 hits"
+        },
+        {
+          "turn": 9,
+          "role": "assistant",
+          "text": "Three other pages repeat the unconditional hybrid claim and would also need correcting."
+        },
+        {
+          "turn": 10,
+          "role": "user",
+          "text": "Keep the scope to the two retrieval pages for now."
+        },
+        {
+          "turn": 11,
+          "role": "tool",
+          "text": "run make docs-test -> cannot run in this environment; the website build requires an internal registry mirror"
+        },
+        {
+          "turn": 12,
+          "role": "assistant",
+          "text": "Found the authoritative mode list in the capability route: fts, hybrid, and auto are the only modes with a documented contract."
+        }
+      ],
+      "required_state_facts": [
+        {
+          "fact_id": "wc-0003-f1",
+          "text": "the shipped English retrieval page asserts unconditional hybrid availability",
+          "evidence": "turn:2"
+        },
+        {
+          "fact_id": "wc-0003-f2",
+          "text": "the English page lists five modes and the Chinese page lists four",
+          "evidence": "turn:7"
+        },
+        {
+          "fact_id": "wc-0003-f3",
+          "text": "the scope for this change is the two retrieval pages only",
+          "evidence": "turn:10"
+        },
+        {
+          "fact_id": "wc-0003-f4",
+          "text": "the documented contract covers fts, hybrid, and auto",
+          "evidence": "turn:12"
+        },
+        {
+          "fact_id": "wc-0003-f5",
+          "text": "the documentation site build passes with this change",
+          "evidence": null
+        }
+      ],
+      "expected_next_action": {
+        "action_id": "wc-0003-a1",
+        "text": "correct the availability claim in docs/en/guides/retrieval.md and docs/zh/guides/retrieval.md and align both locale mode tables to fts, hybrid, and auto",
+        "required_fact_ids": [
+          "wc-0003-f1",
+          "wc-0003-f2",
+          "wc-0003-f3",
+          "wc-0003-f4"
+        ]
+      },
+      "obsolete_facts": [
+        {
+          "fact_id": "wc-0003-o1",
+          "text": "correct all seven occurrences across every page",
+          "evidence": "turn:9",
+          "superseded_by": "wc-0003-f3"
+        }
+      ],
+      "known_omissions": [
+        "Three other pages still repeat the unconditional hybrid claim and were deliberately left out of scope."
+      ],
+      "unavailable_evidence": [
+        {
+          "fact_id": "wc-0003-f5",
+          "pointer": "turn:11",
+          "reason": "The website build needs an internal registry mirror that is not reachable from this session."
+        }
+      ]
+    },
+    {
+      "task_id": "wc-coding-0004",
+      "kind": "coding",
+      "objective": "Replace the duplicated scope-resolution helper with the shared one.",
+      "transcript": [
+        {
+          "turn": 1,
+          "role": "user",
+          "text": "Two modules resolve a scope id with different rules. Find them and unify on the shared helper."
+        },
+        {
+          "turn": 2,
+          "role": "assistant",
+          "text": "First candidate: the memory service resolves scope ids itself."
+        },
+        {
+          "turn": 3,
+          "role": "tool",
+          "text": "grep -rn def resolve_scope src/ -> 3 definitions"
+        },
+        {
+          "turn": 4,
+          "role": "assistant",
+          "text": "Second candidate: the skill service, with a lowercase-only rule."
+        },
+        {
+          "turn": 5,
+          "role": "tool",
+          "text": "read src/powercontext/builtin/runtime/scope.py -> def resolve_scope_id(value) is the shared helper"
+        },
+        {
+          "turn": 6,
+          "role": "assistant",
+          "text": "The two private copies differ: one lowercases and the other rejects uppercase outright."
+        },
+        {
+          "turn": 7,
+          "role": "user",
+          "text": "Do not change the accepted input set in this change."
+        },
+        {
+          "turn": 8,
+          "role": "assistant",
+          "text": "Planned to delete the shared helper and keep the memory copy as the single implementation."
+        },
+        {
+          "turn": 9,
+          "role": "user",
+          "text": "No. The shared helper is the owner. Keep it and delete the private copies."
+        },
+        {
+          "turn": 10,
+          "role": "assistant",
+          "text": "Corrected direction: keep resolve_scope_id in src/powercontext/builtin/runtime/scope.py and delete both private copies."
+        },
+        {
+          "turn": 11,
+          "role": "tool",
+          "text": "run pytest tests/builtin -q -> 4 failures in the skill service tests"
+        },
+        {
+          "turn": 12,
+          "role": "assistant",
+          "text": "The 4 failures come from the skill service tests asserting the lowercase-only rejection message."
+        },
+        {
+          "turn": 13,
+          "role": "user",
+          "text": "Those tests encode the behaviour we are removing, so update the expectations deliberately."
+        }
+      ],
+      "required_state_facts": [
+        {
+          "fact_id": "wc-0004-f1",
+          "text": "the shared helper is resolve_scope_id in src/powercontext/builtin/runtime/scope.py",
+          "evidence": "turn:5"
+        },
+        {
+          "fact_id": "wc-0004-f2",
+          "text": "the private copies are in the memory service and the skill service",
+          "evidence": "turn:3"
+        },
+        {
+          "fact_id": "wc-0004-f3",
+          "text": "the accepted input set must not change in this change",
+          "evidence": "turn:7"
+        },
+        {
+          "fact_id": "wc-0004-f4",
+          "text": "the shared helper is the owner and both private copies must be deleted",
+          "evidence": "turn:10"
+        },
+        {
+          "fact_id": "wc-0004-f5",
+          "text": "4 skill service tests assert the lowercase-only rejection and must be updated deliberately",
+          "evidence": "turn:12"
+        }
+      ],
+      "expected_next_action": {
+        "action_id": "wc-0004-a1",
+        "text": "keep resolve_scope_id in src/powercontext/builtin/runtime/scope.py, delete the private copies in the memory and skill services, and update the 4 skill service rejection expectations",
+        "required_fact_ids": [
+          "wc-0004-f1",
+          "wc-0004-f4",
+          "wc-0004-f5"
+        ]
+      },
+      "obsolete_facts": [
+        {
+          "fact_id": "wc-0004-o1",
+          "text": "delete the shared helper and keep the memory copy",
+          "evidence": "turn:8",
+          "superseded_by": "wc-0004-f4"
+        }
+      ],
+      "known_omissions": [
+        "The 4 failing tests were identified but not yet edited.",
+        "No check was run to confirm no third private copy exists outside src/."
+      ],
+      "unavailable_evidence": []
+    },
+    {
+      "task_id": "wc-doc-0005",
+      "kind": "documentation",
+      "objective": "Document the Handoff commit conflict behaviour for host authors.",
+      "transcript": [
+        {
+          "turn": 1,
+          "role": "user",
+          "text": "Host authors keep hitting Handoff commit conflicts. Document the behaviour where they will find it."
+        },
+        {
+          "turn": 2,
+          "role": "assistant",
+          "text": "Read src/powercontext/builtin/artifacts/handoff/service.py. Commit compares the caller's expected head with the stored head."
+        },
+        {
+          "turn": 3,
+          "role": "tool",
+          "text": "read src/powercontext/builtin/artifacts/handoff/errors.py -> HandoffConflictError carries the current head"
+        },
+        {
+          "turn": 4,
+          "role": "assistant",
+          "text": "The existing guide explains commit but never says what to do after a conflict."
+        },
+        {
+          "turn": 5,
+          "role": "user",
+          "text": "The doc must state that a conflict needs a re-read and a complete replacement, not a retry of the same body."
+        },
+        {
+          "turn": 6,
+          "role": "assistant",
+          "text": "Also confirmed that repeating a commit of identical finalized content stays idempotent."
+        },
+        {
+          "turn": 7,
+          "role": "tool",
+          "text": "read docs/en/guides/handoff.md -> 3 sections, none about conflicts"
+        },
+        {
+          "turn": 8,
+          "role": "assistant",
+          "text": "Proposed a new standalone conflicts page instead."
+        },
+        {
+          "turn": 9,
+          "role": "user",
+          "text": "No new page. Add a section to the existing handoff guide."
+        },
+        {
+          "turn": 10,
+          "role": "tool",
+          "text": "run make docs-test -> cannot run; the build needs an internal registry mirror"
+        },
+        {
+          "turn": 11,
+          "role": "assistant",
+          "text": "Decided to add one section to docs/en/guides/handoff.md before the commit section, with a worked conflict example."
+        }
+      ],
+      "required_state_facts": [
+        {
+          "fact_id": "wc-0005-f1",
+          "text": "commit compares the caller's expected head with the stored head",
+          "evidence": "turn:2"
+        },
+        {
+          "fact_id": "wc-0005-f2",
+          "text": "a conflict requires a re-read and a complete replacement, not a retry of the same body",
+          "evidence": "turn:5"
+        },
+        {
+          "fact_id": "wc-0005-f3",
+          "text": "repeating a commit of identical finalized content stays idempotent",
+          "evidence": "turn:6"
+        },
+        {
+          "fact_id": "wc-0005-f4",
+          "text": "the change belongs as a section in docs/en/guides/handoff.md, not a new page",
+          "evidence": "turn:11"
+        },
+        {
+          "fact_id": "wc-0005-f5",
+          "text": "docs/en/guides/handoff.md has 3 sections and none covers conflicts",
+          "evidence": "turn:7"
+        },
+        {
+          "fact_id": "wc-0005-f6",
+          "text": "the documentation site build passes with this change",
+          "evidence": null
+        }
+      ],
+      "expected_next_action": {
+        "action_id": "wc-0005-a1",
+        "text": "add a conflict-handling section with a worked example to docs/en/guides/handoff.md before the commit section, covering re-read plus complete replacement and the idempotent repeat case",
+        "required_fact_ids": [
+          "wc-0005-f2",
+          "wc-0005-f3",
+          "wc-0005-f4",
+          "wc-0005-f5"
+        ]
+      },
+      "obsolete_facts": [
+        {
+          "fact_id": "wc-0005-o1",
+          "text": "create a new standalone conflicts page",
+          "evidence": "turn:8",
+          "superseded_by": "wc-0005-f4"
+        }
+      ],
+      "known_omissions": [
+        "The documentation site build was never executed for this change.",
+        "Host-side conflict handling in the toolkits was not inspected."
+      ],
+      "unavailable_evidence": [
+        {
+          "fact_id": "wc-0005-f6",
+          "pointer": "turn:10",
+          "reason": "The website build requires an internal registry mirror that this session cannot reach."
+        }
+      ]
+    },
+    {
+      "task_id": "wc-coding-0006",
+      "kind": "coding",
+      "objective": "Make the rollover reason validation reject unknown values before preparation.",
+      "transcript": [
+        {
+          "turn": 1,
+          "role": "user",
+          "text": "An unknown rollover reason is silently ignored today. It should be rejected before preparation runs."
+        },
+        {
+          "turn": 2,
+          "role": "assistant",
+          "text": "Read src/powercontext/builtin/artifacts/handoff/models.py. The reason field is an unconstrained list of strings."
+        },
+        {
+          "turn": 3,
+          "role": "tool",
+          "text": "read src/powercontext/builtin/artifacts/handoff/prompts.py -> non-empty reasons are rendered into the generation instruction"
+        },
+        {
+          "turn": 4,
+          "role": "assistant",
+          "text": "The six published reasons live in the RFC, not in code, so there is no single owner of the enum today."
+        },
+        {
+          "turn": 5,
+          "role": "user",
+          "text": "The enum must be defined once in code and both the request and the prompt path must use it."
+        },
+        {
+          "turn": 6,
+          "role": "tool",
+          "text": "grep -rn rollover_reasons src/ -> 4 call sites"
+        },
+        {
+          "turn": 7,
+          "role": "assistant",
+          "text": "First plan: validate in the HTTP mapping layer only."
+        },
+        {
+          "turn": 8,
+          "role": "user",
+          "text": "No. Transport adapters must not own domain validation; validate in the artifact model."
+        },
+        {
+          "turn": 9,
+          "role": "assistant",
+          "text": "Corrected: the constraint belongs on the Handoff request model itself, so every caller is covered."
+        },
+        {
+          "turn": 10,
+          "role": "tool",
+          "text": "run pytest tests/builtin/artifacts/handoff -q -> 38 passed"
+        },
+        {
+          "turn": 11,
+          "role": "assistant",
+          "text": "A host may also pass an empty list, which must stay valid and stay non-committing."
+        }
+      ],
+      "required_state_facts": [
+        {
+          "fact_id": "wc-0006-f1",
+          "text": "the reason field is currently an unconstrained list of strings in the Handoff request model",
+          "evidence": "turn:2"
+        },
+        {
+          "fact_id": "wc-0006-f2",
+          "text": "the published reasons are six values documented by the RFC and not defined in code",
+          "evidence": "turn:4"
+        },
+        {
+          "fact_id": "wc-0006-f3",
+          "text": "the enum must be defined once in code and shared by the request and prompt paths",
+          "evidence": "turn:5"
+        },
+        {
+          "fact_id": "wc-0006-f4",
+          "text": "validation belongs on the artifact request model, not the HTTP mapping layer",
+          "evidence": "turn:9"
+        },
+        {
+          "fact_id": "wc-0006-f5",
+          "text": "an empty reason list must stay valid and must not authorise commit",
+          "evidence": "turn:11"
+        },
+        {
+          "fact_id": "wc-0006-f6",
+          "text": "the full repository test suite passes with this change",
+          "evidence": null
+        }
+      ],
+      "expected_next_action": {
+        "action_id": "wc-0006-a1",
+        "text": "define the six rollover reasons once in src/powercontext/builtin/artifacts/handoff/models.py, constrain the request field with it, and keep an empty list valid",
+        "required_fact_ids": [
+          "wc-0006-f1",
+          "wc-0006-f3",
+          "wc-0006-f4",
+          "wc-0006-f5"
+        ]
+      },
+      "obsolete_facts": [
+        {
+          "fact_id": "wc-0006-o1",
+          "text": "validate in the HTTP mapping layer",
+          "evidence": "turn:7",
+          "superseded_by": "wc-0006-f4"
+        }
+      ],
+      "known_omissions": [
+        "The generation instruction text was read but not yet checked for the new enum wording.",
+        "31 other tests outside the handoff directory were not rerun."
+      ],
+      "unavailable_evidence": [
+        {
+          "fact_id": "wc-0006-f6",
+          "pointer": "external-ci-log",
+          "reason": "The full-suite run happens in private CI and its log is not readable from this session."
+        }
+      ]
+    }
+  ]
+}

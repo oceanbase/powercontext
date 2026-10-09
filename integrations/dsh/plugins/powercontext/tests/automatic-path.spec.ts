@@ -72,12 +72,15 @@ async function fixture(
   if (!hook) throw new Error('automatic hook was not registered')
   const run = (options: {
     signal?: AbortSignal; next?: () => Promise<PreStepDecision>; messages?: PromptMessage[]; cwd?: string
-  } = {}) => hook!({
-    agent: { session: { header: { id: 'test-session', cwd: options.cwd } } },
-    messages: options.messages ?? [userMessage],
-    turn: 1,
-    signal: options.signal ?? new AbortController().signal,
-  }, options.next ?? (async () => ({ kind: 'enter', messages: [userMessage] })))
+  } = {}) => {
+    const messages = options.messages ?? [userMessage]
+    return hook!({
+      agent: { session: { header: { id: 'test-session', cwd: options.cwd } } },
+      messages,
+      turn: 1,
+      signal: options.signal ?? new AbortController().signal,
+    }, options.next ?? (async () => ({ kind: 'enter', messages })))
+  }
   return { run, requests, logger, diagnostics: () => logger.warn.mock.calls.map(([line]) => JSON.parse(line)) }
 }
 
@@ -180,6 +183,20 @@ describe('registered automatic path', () => {
     expect(h.requests.map(({ path }) => path)).toEqual([SCOPE])
   })
 
+  it('starts the PowerContext deadline after a slow downstream hook admits the step', async () => {
+    const h = await fixture(successfulRequest, { timeoutMs: 20, requestTimeoutMs: 200 })
+    const next = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      return { kind: 'enter' as const, messages: [userMessage] }
+    }
+
+    const result = await h.run({ next })
+
+    expect(h.requests.map(({ path }) => path)).toEqual([SCOPE, PREPARE, CAPTURE])
+    expect(result.messages).toHaveLength(2)
+    expect(JSON.stringify(result.messages)).toContain(TEXT)
+  })
+
   it('keeps capture independent after a prepare request timeout', async () => {
     const h = await fixture((path, init) => path === PREPARE ? waitForAbort(init.signal!) : successfulRequest(path),
       { requestTimeoutMs: 20 })
@@ -238,6 +255,34 @@ describe('registered automatic path', () => {
     expect(message.content[0].text.endsWith(TEXT)).toBe(true)
   })
 
+  it('prepares and captures from the final downstream message batch', async () => {
+    const h = await fixture(successfulRequest)
+    const finalMessage: PromptMessage = {
+      content: [{ type: 'text', text: 'Use the rewritten request.' }],
+      source: { kind: 'user' },
+    }
+    const runtimeContext = {
+      content: [{ type: 'text', text: 'Current runtime context. Workspace policy details.' }],
+      source: {
+        kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt', form: 'snapshot',
+        sections: [{ name: 'sandbox-policy', text: 'Workspace policy details.' }],
+      },
+    }
+    await h.run({
+      messages: [userMessage],
+      next: async () => ({ kind: 'enter', messages: [finalMessage, runtimeContext] }),
+    })
+
+    expect(h.requests.find(({ path }) => path === PREPARE)?.body).toMatchObject({
+      query: 'Use the rewritten request.',
+    })
+    expect(h.requests.find(({ path }) => path === CAPTURE)?.body).toMatchObject({
+      content: 'Use the rewritten request.',
+    })
+    expect(JSON.stringify(h.requests)).not.toContain('Continue the API work.')
+    expect(JSON.stringify(h.requests)).not.toContain('Workspace policy details.')
+  })
+
   it('reports message construction failure without calling downstream twice', async () => {
     const h = await fixture(successfulRequest)
     peers.createUserMessage.mockImplementation(() => { throw new Error(PRIVATE) })
@@ -250,10 +295,14 @@ describe('registered automatic path', () => {
   })
 
   it('does not swallow a downstream exception or turn rejection into entry', async () => {
-    const h = await fixture(successfulRequest)
+    const failed = await fixture(successfulRequest)
     const error = new Error('host failure')
-    await expect(h.run({ next: async () => { throw error } })).rejects.toBe(error)
-    expect(await h.run({ next: async () => ({ kind: 'reject' }) })).toEqual({ kind: 'reject' })
+    await expect(failed.run({ next: async () => { throw error } })).rejects.toBe(error)
+    expect(failed.requests).toEqual([])
+
+    const rejected = await fixture(successfulRequest)
+    expect(await rejected.run({ next: async () => ({ kind: 'reject' }) })).toEqual({ kind: 'reject' })
+    expect(rejected.requests).toEqual([])
   })
 
   it('treats empty as normal and never captures injected content', async () => {
@@ -261,7 +310,7 @@ describe('registered automatic path', () => {
       schema: 'powercontext.prepared-context.v1', status: 'empty', content: null, content_bytes: 0,
     }) : successfulRequest(path))
     const injected = { content: [{ type: 'text', text: 'Historical context only' }], source: { kind: 'plugin' } }
-    expect(await h.run({ messages: [injected] })).toEqual({ kind: 'enter', messages: [userMessage] })
+    expect(await h.run({ messages: [injected] })).toEqual({ kind: 'enter', messages: [injected] })
     expect(h.diagnostics()).toEqual([])
     expect(h.requests.map(({ path }) => path)).not.toContain(CAPTURE)
   })
