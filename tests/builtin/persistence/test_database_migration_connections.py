@@ -278,6 +278,14 @@ def test_real_seekdb_maintenance_excludes_another_process_and_reopens_after_rele
     pytest.importorskip("pylibseekdb")
     path = tmp_path / "seekdb"
     ready = tmp_path / "owner-ready"
+    owner_log = tmp_path / "owner-stderr.log"
+
+    def owner_diagnostic() -> str:
+        with owner_log.open("rb") as log:
+            log.seek(0, os.SEEK_END)
+            log.seek(max(0, log.tell() - 16_384))
+            return log.read().decode("utf-8", errors="replace")
+
     code = """
 from pathlib import Path
 import sys
@@ -295,33 +303,37 @@ def own(connection, identity, verify):
 
 MaintenanceConnections(SeekDBConfig(path=Path(sys.argv[1]))).run(own, writable=True)
 """
-    process = subprocess.Popen(
-        [sys.executable, "-c", code, str(path), str(ready)],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    try:
-        deadline = time.monotonic() + 60
-        while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert ready.exists(), "The isolated seekdb owner did not become ready"
-        alias = tmp_path / "seekdb-alias"
-        alias.symlink_to(path, target_is_directory=True)
-        operation = Mock()
-        with pytest.raises(MigrationError) as locked:
-            MaintenanceConnections(SeekDBConfig(path=alias)).run(operation, writable=True)
-        assert locked.value.code == "migration_locked"
-        operation.assert_not_called()
-    finally:
+    with owner_log.open("w", encoding="utf-8") as log:
+        # Native startup can emit more stderr than an unread pipe can hold.
+        process = subprocess.Popen(
+            [sys.executable, "-c", code, str(path), str(ready)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=log,
+            text=True,
+        )
         try:
-            _, stderr = process.communicate(input="", timeout=30)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.communicate(timeout=10)
-            pytest.fail("The isolated seekdb owner did not release its maintenance resources")
-        assert process.returncode == 0, stderr
+            deadline = time.monotonic() + 60
+            while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert ready.exists(), f"The isolated seekdb owner did not become ready\n{owner_diagnostic()}"
+            alias = tmp_path / "seekdb-alias"
+            alias.symlink_to(path, target_is_directory=True)
+            operation = Mock()
+            with pytest.raises(MigrationError) as locked:
+                MaintenanceConnections(SeekDBConfig(path=alias)).run(operation, writable=True)
+            assert locked.value.code == "migration_locked"
+            operation.assert_not_called()
+        finally:
+            try:
+                process.communicate(input="", timeout=30)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate(timeout=10)
+                pytest.fail(
+                    f"The isolated seekdb owner did not release its maintenance resources\n{owner_diagnostic()}"
+                )
+            assert process.returncode == 0, owner_diagnostic()
 
     def read(connection: Connection | None, _identity: BackendIdentity, verify: Callable[[], None]) -> str:
         assert connection is not None
