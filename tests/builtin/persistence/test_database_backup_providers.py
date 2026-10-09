@@ -233,12 +233,12 @@ def test_product_specific_fork_minimum_never_enables_unaccepted_recovery(
 
 
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")
-def test_real_seekdb_reports_engine_fork_version_without_claiming_recovery_acceptance(tmp_path: Path) -> None:
+def test_real_seekdb_reports_engine_fork_version_without_claiming_recovery_acceptance(short_tmp_path: Path) -> None:
     from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 
     async def scenario() -> None:
         async with (
-            SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb"), tables=()) as profile,
+            SeekDBProfile.open(SeekDBConfig(path=short_tmp_path / "seekdb"), tables=()) as profile,
             profile.database.engine.connect() as connection,
         ):
             await connection.exec_driver_sql("CREATE TABLE pc_artifacts (id INT PRIMARY KEY)")
@@ -249,7 +249,7 @@ def test_real_seekdb_reports_engine_fork_version_without_claiming_recovery_accep
                     sync,
                     database_name="test",
                     expected_product="seekdb",
-                    directory=tmp_path / "manifests",
+                    directory=short_tmp_path / "manifests",
                 )
                 capability = provider.capabilities(context())
                 assert capability.product == "seekdb"
@@ -266,12 +266,12 @@ def test_real_seekdb_reports_engine_fork_version_without_claiming_recovery_accep
 
 
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")
-def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_restore(tmp_path: Path) -> None:
+def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_restore(short_tmp_path: Path) -> None:
     """Acceptance for one scratch-table shape, not the complete PC schema."""
     from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 
     async def scenario() -> None:
-        path = tmp_path / "seekdb"
+        path = short_tmp_path / "seekdb"
         config = SeekDBConfig(path=path)
         async with (
             SeekDBProfile.open(config, tables=()) as profile,
@@ -312,7 +312,7 @@ def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_re
                     sync,
                     database_name="test",
                     expected_product="seekdb",
-                    directory=tmp_path / "manifests",
+                    directory=short_tmp_path / "manifests",
                     acceptance=acceptance,
                 )
                 assert provider.capabilities(context()).available
@@ -333,7 +333,7 @@ def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_re
                     sync,
                     database_name="test",
                     expected_product="seekdb",
-                    directory=tmp_path / "manifests",
+                    directory=short_tmp_path / "manifests",
                     acceptance=acceptance,
                 )
                 assert provider.inspect_backup(ref).state == "completed"

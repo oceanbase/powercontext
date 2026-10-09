@@ -155,11 +155,14 @@ jobs:
         run: make code-seekdb-test
 
       - name: Test unified migrations with embedded seekdb
+        timeout-minutes: 10
         env:
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
           PYTHONUNBUFFERED: "1"
         run: |
           set -o pipefail
+          trap 'df -h . /tmp' EXIT
+          df -h . /tmp
           uv run --locked --extra seekdb pytest -vv \
             -o faulthandler_timeout=120 --durations=20 \
             tests/builtin/persistence/test_database_migration_backends.py \

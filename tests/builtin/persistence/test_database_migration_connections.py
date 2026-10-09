@@ -235,10 +235,10 @@ def test_oceanbase_routes_to_different_database_identity_before_write_are_reject
 
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")
 def test_real_seekdb_maintenance_preserves_committed_data_without_initializing_business_tables(
-    tmp_path: Path, caplog
+    short_tmp_path: Path, caplog
 ) -> None:
     pytest.importorskip("pylibseekdb")
-    path = tmp_path / "seekdb"
+    path = short_tmp_path / "seekdb"
     adapter = MaintenanceConnections(SeekDBConfig(path=path, echo=True))
     missing = adapter.run(lambda connection, identity, _verify: (connection, identity))
     assert missing[0] is None
@@ -274,11 +274,11 @@ def test_real_seekdb_maintenance_preserves_committed_data_without_initializing_b
 
 
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")
-def test_real_seekdb_maintenance_excludes_another_process_and_reopens_after_release(tmp_path: Path) -> None:
+def test_real_seekdb_maintenance_excludes_another_process_and_reopens_after_release(short_tmp_path: Path) -> None:
     pytest.importorskip("pylibseekdb")
-    path = tmp_path / "seekdb"
-    ready = tmp_path / "owner-ready"
-    owner_log = tmp_path / "owner-stderr.log"
+    path = short_tmp_path / "seekdb"
+    ready = short_tmp_path / "owner-ready"
+    owner_log = short_tmp_path / "owner-stderr.log"
 
     def owner_diagnostic() -> str:
         with owner_log.open("rb") as log:
@@ -321,7 +321,7 @@ MaintenanceConnections(SeekDBConfig(path=Path(sys.argv[1]))).run(own, writable=T
             while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
                 time.sleep(0.05)
             assert ready.exists(), f"The isolated seekdb owner did not become ready\n{owner_diagnostic()}"
-            alias = tmp_path / "seekdb-alias"
+            alias = short_tmp_path / "seekdb-alias"
             alias.symlink_to(path, target_is_directory=True)
             operation = Mock()
             with pytest.raises(MigrationError) as locked:

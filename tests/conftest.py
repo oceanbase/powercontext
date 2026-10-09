@@ -30,6 +30,8 @@ def short_tmp_path() -> Iterator[Path]:
     """Leave room for nested checkout caches and backup names on Windows."""
     # pytest's user/session/test-name directories can exhaust MAX_PATH before
     # the fixture's cache, commit hash, and plugin files have been appended.
+    # Native database tests also need per-test cleanup to avoid accumulating
+    # preallocated engine logs across a complete CI session.
     with TemporaryDirectory(prefix="pc-") as directory:
         yield Path(directory)
 

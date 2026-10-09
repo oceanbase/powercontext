@@ -296,7 +296,7 @@ def test_portable_integrity_queries_reject_preexisting_invalid_rows(schema: MySQ
 
 
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")
-def test_real_seekdb_frozen_schema_reflection_and_revision_recovery(tmp_path: Path) -> None:
+def test_real_seekdb_frozen_schema_reflection_and_revision_recovery(short_tmp_path: Path) -> None:
     pytest.importorskip("pylibseekdb")
     schema = MySQLSchema(MigrationBundle(_RESOURCES))
 
@@ -344,4 +344,4 @@ def test_real_seekdb_frozen_schema_reflection_and_revision_recovery(tmp_path: Pa
         with pytest.raises(MigrationError, match="foreign key"):
             schema.validate_data(connection, "p0003")
 
-    MaintenanceConnections(SeekDBConfig(path=tmp_path / "seekdb")).run(migrate, writable=True)
+    MaintenanceConnections(SeekDBConfig(path=short_tmp_path / "seekdb")).run(migrate, writable=True)

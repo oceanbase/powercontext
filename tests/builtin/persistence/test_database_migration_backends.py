@@ -89,9 +89,9 @@ def exercise_revisions(connection: Connection, bundle: MigrationBundle) -> None:
 
 
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekDB probe not enabled")
-def test_real_seekdb_revision_operations(tmp_path: Path) -> None:
+def test_real_seekdb_revision_operations(short_tmp_path: Path) -> None:
     async def scenario() -> None:
-        path = tmp_path / "seekdb"
+        path = short_tmp_path / "seekdb"
         # The OS lock precedes engine startup and outlives engine shutdown.
         with local_migration_lock(path):
             async with SeekDBProfile.open(SeekDBConfig(path=path), tables=()) as profile:

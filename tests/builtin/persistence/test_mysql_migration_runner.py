@@ -113,12 +113,12 @@ def _oceanbase_scratch_target(config: OceanBaseConfig, evidence_directory: Path)
 
 
 @pytest.fixture(params=("seekdb", "oceanbase"), ids=("seekdb", "oceanbase"))
-def backend(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[_BackendTarget]:
+def backend(request: pytest.FixtureRequest, short_tmp_path: Path) -> Iterator[_BackendTarget]:
     if request.param == "seekdb":
         if os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1":
             pytest.skip("real seekdb probe not enabled")
         pytest.importorskip("pylibseekdb")
-        yield _BackendTarget(SeekDBConfig(path=tmp_path / "seekdb"), tmp_path / "evidence")
+        yield _BackendTarget(SeekDBConfig(path=short_tmp_path / "seekdb"), short_tmp_path / "evidence")
         return
     value = os.environ.get("POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL")
     if not value:
@@ -133,7 +133,7 @@ def backend(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[_Backend
     # Driver query options must not override the generated child database name.
     if any(key.lower() in {"db", "database"} for key in url.query):
         pytest.fail("OceanBase probe URL must not override the selected database", pytrace=False)
-    with _oceanbase_scratch_target(config, tmp_path / "evidence") as target:
+    with _oceanbase_scratch_target(config, short_tmp_path / "evidence") as target:
         yield target
 
 
