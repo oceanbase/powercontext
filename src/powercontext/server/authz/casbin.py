@@ -72,6 +72,11 @@ class CasbinAuthorizationProvider:
         self._deployment_id = deployment_id
         self._clock = clock or (lambda: datetime.now(UTC))
 
+    def with_repository(self, repository: AccessRepository) -> CasbinAuthorizationProvider:
+        """Preserve the fixed policy while binding reads to the caller's transaction."""
+
+        return CasbinAuthorizationProvider(repository, deployment_id=self._deployment_id, clock=self._clock)
+
     async def check(self, request: AccessRequest, /) -> AccessDecision:
         return (await self.check_batch((request,)))[0]
 

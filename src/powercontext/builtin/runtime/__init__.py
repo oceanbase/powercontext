@@ -49,6 +49,7 @@ from powercontext.builtin.review.generation import (
     SkillGenerationOrigin,
 )
 from powercontext.builtin.runtime.application import (
+    ArtifactApplication,
     BuiltinRuntime,
     ExperienceApplication,
     ExternalSkillApplication,
@@ -59,6 +60,7 @@ from powercontext.builtin.runtime.application import (
     ReviewApplication,
     ScheduledExperienceProcessor,
     ScheduledSourceProcessor,
+    ScopedArtifactApplication,
     ScopedExperienceApplication,
     ScopedExternalSkillApplication,
     ScopedHandoffApplication,
@@ -213,6 +215,7 @@ from powercontext.builtin.statistics import (
 __all__ = [
     "ActivateHandoff",
     "ApproveArtifactCandidateRequest",
+    "ArtifactApplication",
     "ArtifactInventoryStatistics",
     "ArtifactProcessingBinding",
     "ArtifactProcessingSupervisor",
@@ -350,6 +353,7 @@ __all__ = [
     "ScheduledExperienceProcessor",
     "ScheduledSourceProcessor",
     "ScopeStatistics",
+    "ScopedArtifactApplication",
     "ScopedDreamApplication",
     "ScopedExperienceApplication",
     "ScopedExternalSkillApplication",

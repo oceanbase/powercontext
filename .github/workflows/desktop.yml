@@ -1,0 +1,178 @@
+name: Desktop validation
+
+on:
+  pull_request:
+    paths: ['desktop/**', 'src/powercontext/**', 'pyproject.toml', 'uv.lock', 'openapi/powercontext.yaml', 'tests/fixtures/transport_loopback_vectors.json', 'website/assets/**', '.github/workflows/desktop.yml']
+  push:
+    branches: [master, codex/desktop-preview]
+    paths: ['desktop/**', 'src/powercontext/**', 'pyproject.toml', 'uv.lock', 'openapi/powercontext.yaml', 'tests/fixtures/transport_loopback_vectors.json', 'website/assets/**', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+    inputs:
+      installer_run:
+        description: 'Optional run ID from this repository to diagnose its exact existing installer'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.event.pull_request.number || github.ref }}-${{ inputs.installer_run || 'build' }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.installer_run == '' }}
+    runs-on: windows-2025
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: desktop
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify Server version baseline tag
+        run: |
+          git fetch --no-tags https://github.com/oceanbase/powercontext.git refs/tags/powercontext-v1.0.0:refs/tags/powercontext-v1.0.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((git rev-parse refs/tags/powercontext-v1.0.0) -ne 'ec97efba5f26fc972e9d8bf5027d8233acab3ca1') {
+            throw 'Unexpected Server version baseline tag'
+          }
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          working_directory: desktop
+      - name: Install pinned Windows Rust toolchain
+        run: rustup toolchain install 1.95.0-x86_64-pc-windows-msvc --profile minimal --component rustfmt --component clippy
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - run: pnpm ipc:check
+      - name: Verify diagnostic process containment
+        run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example diagnostic_process_probe
+      - name: Verify Windows vault across processes
+        run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
+      - name: Set up Python fixture tooling
+        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        with:
+          version: "0.10.12"
+      - name: Install locked Server test dependencies
+        working-directory: .
+        run: uv sync --locked --python 3.12
+      - name: Build Server wheel for isolated acceptance
+        working-directory: .
+        run: uv build --wheel --out-dir desktop/.artifacts/server-wheel
+      - name: Check installed UI acceptance harness
+        working-directory: .
+        run: |
+          uv run --no-sync ruff check --no-fix desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --no-sync ruff format --check desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --no-sync ty check desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --no-sync ty check --python-platform linux desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py
+      - name: Build native API acceptance client
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --example server_probe --example diagnostic_cli_probe
+      - name: Test native adapter with real SQLite Server
+        working-directory: .
+        run: uv run --no-sync python desktop/tests/real_server.py
+      - name: Test native diagnostics with isolated real CLI
+        working-directory: .
+        run: uv run --no-sync python desktop/tests/real_cli.py
+      - name: Build unsigned internal Windows installer
+        run: pnpm desktop:build
+      - name: Prepare matching WebView2 driver
+        run: ./scripts/prepare-webdriver.ps1
+      - name: Smoke test installed package
+        timeout-minutes: 8
+        run: ./scripts/windows-smoke.ps1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: desktop-windows-internal-unsigned
+          include-hidden-files: true
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+            desktop/.artifacts/windows-smoke.json
+            desktop/.artifacts/real-server.json
+            desktop/.artifacts/real-cli.json
+            desktop/.artifacts/installed-ui.json
+            desktop/.artifacts/installed-ui.png
+            desktop/.artifacts/installed-ui-driver.log
+            desktop/.artifacts/installed-ui-app.log
+            desktop/.artifacts/installed-ui-processes.json
+            desktop/.artifacts/installed-ui-window.png
+          if-no-files-found: error
+
+  installed-package:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.installer_run != '' }}
+    runs-on: windows-2025
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify Server version baseline tag
+        run: |
+          git fetch --no-tags https://github.com/oceanbase/powercontext.git refs/tags/powercontext-v1.0.0:refs/tags/powercontext-v1.0.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((git rev-parse refs/tags/powercontext-v1.0.0) -ne 'ec97efba5f26fc972e9d8bf5027d8233acab3ca1') { throw 'Unexpected Server version baseline tag' }
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        with:
+          version: "0.10.12"
+      - name: Prepare isolated Server fixture
+        run: |
+          uv sync --locked --python 3.12
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv build --wheel --out-dir desktop/.artifacts/server-wheel
+      - name: Retrieve and verify exact installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSTALLER_RUN: ${{ inputs.installer_run }}
+        run: |
+          if ($env:INSTALLER_RUN -notmatch '^\d+$') { throw 'Expected numeric workflow run ID.' }
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:INSTALLER_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($run.path -ne '.github/workflows/desktop.yml' -or $run.head_branch -ne 'codex/desktop-preview') { throw 'Expected Desktop preview workflow artifact.' }
+          gh run download $env:INSTALLER_RUN --repo $env:GITHUB_REPOSITORY --name desktop-windows-internal-unsigned --dir desktop/.artifacts/source-installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packages = @(Get-ChildItem desktop/.artifacts/source-installer -Recurse -Filter '*-setup.exe')
+          $reports = @(Get-ChildItem desktop/.artifacts/source-installer -Recurse -Filter windows-smoke.json)
+          if ($packages.Count -ne 1 -or $reports.Count -ne 1) { throw 'Expected exactly one package and package report.' }
+          $report = Get-Content -LiteralPath $reports[0].FullName -Raw | ConvertFrom-Json
+          if ($report.commit -ne $run.head_sha -or (Get-FileHash -LiteralPath $packages[0].FullName).Hash -ne $report.installerSha256 -or $packages[0].Length -ne $report.installerBytes) { throw 'Installer identity mismatch.' }
+          $bundle = 'desktop/src-tauri/target/release/bundle/nsis'
+          New-Item -ItemType Directory -Path $bundle -Force | Out-Null
+          Copy-Item -LiteralPath $packages[0].FullName -Destination $bundle
+          "DESKTOP_INSTALLER_COMMIT=$($run.head_sha)" >> $env:GITHUB_ENV
+      - name: Prepare matching WebView2 driver
+        run: ./desktop/scripts/prepare-webdriver.ps1
+      - name: Exercise existing installed package
+        timeout-minutes: 8
+        run: ./desktop/scripts/windows-smoke.ps1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: desktop-installed-diagnostics
+          include-hidden-files: true
+          path: |
+            desktop/.artifacts/windows-smoke.json
+            desktop/.artifacts/installed-ui*
+          if-no-files-found: warn

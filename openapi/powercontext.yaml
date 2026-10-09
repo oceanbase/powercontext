@@ -1416,6 +1416,49 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifacts/{family}/search:
+    post:
+      tags: [artifacts]
+      summary: Search one Artifact Family in a Scope
+      description: >-
+        Search registered Artifact Families using their supported retrieval controls. Results contain complete exact
+        Artifact revisions. Score metadata is returned only when requested; min_score compares normalized retrieval scores.
+      operationId: search_artifacts
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+        - name: family
+          in: path
+          required: true
+          schema: {type: string, minLength: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchArtifactsRequest"
+      responses:
+        "200":
+          description: Complete matching Artifact revisions in retrieval order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchArtifactsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/topic-memory/search:
     post:
       tags: [topic-memory]
@@ -9396,6 +9439,71 @@ components:
           uniqueItems: true
           items:
             $ref: "#/components/schemas/TopicMemoryMatchedBy"
+    ArtifactSearchFusion:
+      type: object
+      additionalProperties: false
+      x-powercontext-artifact-search-validation: fusion
+      required: [method]
+      properties:
+        method: {type: string, minLength: 1, pattern: '.*\S.*'}
+        params: {type: object, additionalProperties: true, default: {}}
+    SearchArtifactsRequest:
+      type: object
+      additionalProperties: false
+      x-powercontext-artifact-search-validation: request
+      required: [query]
+      properties:
+        query: {type: string, minLength: 1, maxLength: 8192, pattern: '.*\S.*'}
+        limit: {type: integer, minimum: 1, maximum: 200, default: 10}
+        mode: {type: string, minLength: 1, pattern: '.*\S.*'}
+        filters: {type: object, additionalProperties: true}
+        admission: {type: object, additionalProperties: true}
+        fusion:
+          $ref: "#/components/schemas/ArtifactSearchFusion"
+        min_score: {type: number, minimum: 0, maximum: 1}
+        include_scores: {type: boolean, default: false}
+        rerank: {type: object, additionalProperties: true}
+    ArtifactChannelScore:
+      type: object
+      additionalProperties: false
+      x-powercontext-artifact-search-validation: score
+      required: [raw, metric, higher_is_better]
+      properties:
+        raw: {type: number}
+        metric: {type: string, minLength: 1, pattern: '.*\S.*'}
+        higher_is_better: {type: boolean}
+    ArtifactSearchScores:
+      type: object
+      additionalProperties: false
+      x-powercontext-artifact-search-validation: score
+      required: [retrieval, channels]
+      properties:
+        retrieval: {type: number, minimum: 0, maximum: 1}
+        channels:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ArtifactChannelScore"
+    ArtifactSearchItem:
+      type: object
+      additionalProperties: false
+      required: [family, artifact_id, revision, content, lineage]
+      properties:
+        family: {type: string, minLength: 1}
+        artifact_id: {type: string, minLength: 1, maxLength: 128}
+        revision: {type: integer, minimum: 1}
+        content: {type: object, additionalProperties: true}
+        lineage: {type: object, additionalProperties: true}
+        scores:
+          $ref: "#/components/schemas/ArtifactSearchScores"
+    SearchArtifactsResponse:
+      type: object
+      additionalProperties: false
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactSearchItem"
     SearchTopicMemoryRequest:
       type: object
       additionalProperties: false

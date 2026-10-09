@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import Artifact, ArtifactRef, MemoryCitation
+from powercontext.artifacts.search import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
     Experience,
@@ -104,6 +105,7 @@ from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryS
 from powercontext.builtin.artifacts.topic_memory import (
     TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
     PublishedTopicMemory,
+    TopicArtifactSearchRequest,
     TopicMemory,
     TopicMemoryBrowseCursor,
     TopicMemoryCurrentItem,
@@ -994,6 +996,8 @@ class RelationalContexts:
         embedding_profile: EmbeddingProfile | None = None,
         admission: AdmissionFloor | None = None,
         query_embedding: MemoryQueryEmbedding | None = None,
+        artifact_request: TopicArtifactSearchRequest | None = None,
+        execution_context: ArtifactSearchExecutionContext | None = None,
     ) -> TopicMemorySearchResult:
         """Search current active Topic projections in this deployment."""
 
@@ -1001,7 +1005,29 @@ class RelationalContexts:
             query_vector = query_embedding.query_vector
             embedding_profile = query_embedding.embedding_profile
         scope = validate_scope_id(scope_id)
-        async with self.database.transaction() as connection:
+        access = None if execution_context is None else execution_context.access
+        if execution_context is not None and access is None and not execution_context.trusted_local:
+            from powercontext.server.authz import AccessDeniedError
+
+            raise AccessDeniedError
+        audit = nullcontext() if access is None else access.defer_decision_audit()
+        async with audit, self.database.transaction(consistent_snapshot=True) as connection:
+            if execution_context is not None and access is not None:
+                # Establish the data snapshot before a remote PDP can suspend.
+                # Local providers then read their policy through this same connection.
+                await connection.execute(
+                    select(ARTIFACT_HEADS_TABLE.c.revision)
+                    .where(
+                        ARTIFACT_HEADS_TABLE.c.scope_id == scope, ARTIFACT_HEADS_TABLE.c.family == TopicMemory.family
+                    )
+                    .limit(1)
+                )
+                await access.require_scope_read(
+                    execution_context.principal,
+                    scope,
+                    connection=connection,
+                    context=execution_context.audit,
+                )
             return await self.repositories.topic_memories.search(
                 connection,
                 scope,
@@ -1011,6 +1037,7 @@ class RelationalContexts:
                 query_vector=query_vector,
                 embedding_profile=embedding_profile,
                 admission=admission,
+                **({} if artifact_request is None else {"artifact_request": artifact_request}),
             )
 
     async def search_skills(
