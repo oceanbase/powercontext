@@ -27,8 +27,8 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from benchmark.locomo_plus.decision import open_decision_reranker
-from benchmark.locomo_plus.jev import JevConfig, JevDecisionModel
+from evaluation.memory.locomo_plus.decision import open_decision_reranker
+from evaluation.memory.locomo_plus.jev import JevConfig, JevDecisionModel
 from powercontext.builtin.inference import InferenceUnavailableError, InferenceUsage, InvalidInferenceOutputError
 from powercontext.builtin.runtime import DecisionOutcome, DecisionRequest
 from powercontext.builtin.runtime.config import InferenceConfig
@@ -149,8 +149,8 @@ def test_opt_in_connection_retries_only_before_post_and_preserves_attempt_accoun
 ) -> None:
     from types import SimpleNamespace
 
-    from benchmark.locomo_plus.decision import AuditedDecisionModel
-    from benchmark.locomo_plus.jev_transport import JevClientPool
+    from evaluation.memory.locomo_plus.decision import AuditedDecisionModel
+    from evaluation.memory.locomo_plus.jev_transport import JevClientPool
 
     async def run() -> None:
         payloads = []
@@ -417,7 +417,7 @@ def test_jev_assembly_keeps_proxy_routing_reuses_success_and_retires_failure(
         clients.append(client)
         return client
 
-    monkeypatch.setattr("benchmark.locomo_plus.decision.httpx.AsyncClient", create_client)
+    monkeypatch.setattr("evaluation.memory.locomo_plus.decision.httpx.AsyncClient", create_client)
 
     async def run() -> None:
         async with AsyncExitStack() as resources:

@@ -22,7 +22,7 @@ from typing import cast
 
 import pytest
 
-from benchmark.locomo_plus.memory_reranking import DecisionMemoryReranker
+from evaluation.memory.locomo_plus.memory_reranking import DecisionMemoryReranker
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import MemoryHit
 from powercontext.builtin.inference import InferenceUnavailableError, InferenceUsage, InvalidInferenceOutputError

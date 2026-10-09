@@ -59,6 +59,7 @@ builtin = [
     "pymysql>=1.2,<1.2.1",
     "sqlalchemy[asyncio]>=2,<3",
     "sqlite-vec>=0.1.9,<0.2",
+    "tzdata>=2026.3",
 ]
 seekdb = [
     "powercontext[builtin]",
@@ -193,7 +194,9 @@ exclude = [
     "integrations/opendal",
     "tests/langgraph_adapter",
     "tests/e2e/test_langgraph_chain.py",
-    "evaluation",
+    "evaluation/coding",
+    "evaluation/memory/longmemeval_v2",
+    "evaluation/skills",
 ]
 
 [tool.ty.rules]

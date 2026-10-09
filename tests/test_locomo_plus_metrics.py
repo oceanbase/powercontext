@@ -19,8 +19,8 @@ import json
 
 import pytest
 
-from benchmark.locomo_plus.metrics import render_summary, summarize_observations
-from benchmark.locomo_plus.prompts import (
+from evaluation.memory.locomo_plus.metrics import render_summary, summarize_observations
+from evaluation.memory.locomo_plus.prompts import (
     ANSWER_INSTRUCTIONS,
     build_answer_input,
     build_claim_input,

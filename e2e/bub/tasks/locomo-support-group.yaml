@@ -19,7 +19,7 @@ categories:
   - sample
   - batch:locomo
 provenance:
-  source: benchmark/locomo/dataset/locomo10.json
+  source: evaluation/memory/locomo/dataset/locomo10.json
   revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
   selection: first-conversation-first-question/v1
   case_ids:

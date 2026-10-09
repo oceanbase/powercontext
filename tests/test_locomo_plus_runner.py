@@ -28,9 +28,9 @@ from pydantic import SecretStr
 from pydantic_ai.messages import ModelResponse, RetryPromptPart, TextPart
 from pydantic_ai.models.function import FunctionModel
 
-from benchmark.locomo.dataset import LoCoMoConversation, LoCoMoSession, LoCoMoTurn
-from benchmark.locomo_plus import runner
-from benchmark.locomo_plus.dataset import SMOKE_CASE_IDS, LoCoMoPlusCase, LoCoMoPlusDataset
+from evaluation.memory.locomo.dataset import LoCoMoConversation, LoCoMoSession, LoCoMoTurn
+from evaluation.memory.locomo_plus import runner
+from evaluation.memory.locomo_plus.dataset import SMOKE_CASE_IDS, LoCoMoPlusCase, LoCoMoPlusDataset
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     LLMMemoryCandidatePipeline,
@@ -84,7 +84,6 @@ def _dataset() -> LoCoMoPlusDataset:
 
 def _settings() -> ServerSettings:
     return ServerSettings(
-        database=SQLiteConfig(),
         inference=InferenceConfig(
             generation_model="test-answer",
             embedding_model="test-embedding",
@@ -196,14 +195,14 @@ def test_oceanbase_selection_uses_configured_database_without_serializing_url(tm
         url=SecretStr("mysql+aoceanbase://user:password@127.0.0.1:2881/powercontext?charset=utf8mb4")
     )
     settings = _settings().model_copy(update={"database": database})
-    assert runner._database_config(settings, "oceanbase", tmp_path) is database
-    configuration = runner._configuration(settings, "test-judge", 512, "oceanbase", "test-extractor", 120.0)
+    assert runner._database_config(settings, tmp_path, "oceanbase") is database
+    configuration = runner._configuration(settings, "test-judge", 512, database, "test-extractor", 120.0)
     assert configuration["database_kind"] == "oceanbase"
     assert configuration["generation_model"] == "test-answer"
     assert configuration["memory_extraction_model"] == "test-extractor"
     assert configuration["memory_extraction_shares_generator_model"] is False
     assert configuration["memory_extraction_timeout_seconds"] == 120.0
-    assert "configured OceanBase" in configuration["persistence"]
+    assert "configured database" in configuration["persistence"]
     assert "password" not in json.dumps(configuration)
 
 
@@ -391,11 +390,574 @@ class _EmbeddingModel:
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
 
 
+@pytest.fixture
+def offline_benchmark(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Keep database operations real while controlling the answer and judge."""
+    state: dict[str, Any] = {"judge_valid": True}
+
+    @asynccontextmanager
+    async def runtime_factory(config: BuiltinConfig):
+        async with open_builtin_runtime(
+            config.model_copy(update={"inference": InferenceConfig()}),
+            candidate_pipeline=_CandidatePipeline(),
+            embedding_model=_EmbeddingModel(),
+        ) as runtime:
+            yield runtime
+
+    async def open_model(name, settings, resources):
+        async def respond(messages, info):
+            if name == "test-answer":
+                output = "A walk could help; it helped your mood before."
+            else:
+                output = (
+                    '{"label":"correct","reason":"Mentions the prior walk.",'
+                    '"prediction_support":"it helped your mood before","historical_support":"Walking helped my mood."}'
+                    if state["judge_valid"]
+                    else "unparseable verdict"
+                )
+                if state["judge_valid"]:
+                    output = _judge_reply(messages, output)
+            return ModelResponse(parts=[TextPart(output)])
+
+        return FunctionModel(respond, model_name=name)
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", runtime_factory)
+    monkeypatch.setattr(runner, "open_model", open_model)
+    return state
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_memory_uses_configured_database_or_result_directory_fallback(
+    tmp_path: Path, offline_benchmark: dict[str, Any], configured: bool
+) -> None:
+    output_directory = tmp_path / "results"
+    database_path = tmp_path / "configured.sqlite3" if configured else output_directory / "state.sqlite3"
+    settings = _settings()
+    if configured:
+        settings.database = SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}")
+    summary = asyncio.run(
+        runner.run_benchmark(
+            _dataset(),
+            settings=settings,
+            output_directory=output_directory,
+            run_id="database-choice",
+            judge_model="test-judge",
+            arm="memory-source",
+            limit=1,
+        )
+    )
+    assert summary["overall"]["completed_count"] == 1, _rows(output_directory)
+    assert database_path.exists()
+    assert summary["configuration"]["database_kind"] == "sqlite"
+    assert summary["configuration"]["database_fingerprint"]
+    assert summary["configuration"]["persistence"] == (
+        "configured database; isolated run scopes" if configured else "isolated output-directory/state.sqlite3"
+    )
+    if configured:
+        assert not (output_directory / "state.sqlite3").exists()
+
+    async def read_persisted_scope():
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"))
+        ) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.get(_rows(output_directory)[-1]["scope_id"])
+            memories = await runtime.memory.for_scope(scope.scope_id).list()
+            assert len(memories.entries) == 3
+
+    asyncio.run(read_persisted_scope())
+
+
+def test_explicit_in_memory_database_is_rejected_instead_of_silently_using_a_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _settings()
+    settings.database = SQLiteConfig()
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("a nonresumable database must be rejected before opening services")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    with pytest.raises(ValueError, match="persistent database"):
+        asyncio.run(
+            runner.run_benchmark(
+                _dataset(),
+                settings=settings,
+                output_directory=tmp_path,
+                run_id="in-memory",
+                judge_model="test-judge",
+                arm="memory-source",
+                limit=1,
+            )
+        )
+    assert not (tmp_path / "state.sqlite3").exists()
+
+
+def test_separate_results_isolate_equal_run_ids_in_a_shared_database(
+    tmp_path: Path, offline_benchmark: dict[str, Any]
+) -> None:
+    settings = _settings()
+    settings.database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'shared.sqlite3'}")
+    output_directories = (tmp_path / "first", tmp_path / "second")
+    scope_ids = []
+    for directory in output_directories:
+        summary = asyncio.run(
+            runner.run_benchmark(
+                _dataset(),
+                settings=settings,
+                output_directory=directory,
+                run_id="same-run-id",
+                judge_model="test-judge",
+                arm="memory-source",
+                limit=1,
+            )
+        )
+        assert summary["overall"]["completed_count"] == 1, _rows(directory)
+        scope_ids.append(_rows(directory)[-1]["scope_id"])
+    assert scope_ids[0] != scope_ids[1]
+
+    async def read_both_scopes():
+        async with open_builtin_runtime(BuiltinConfig(database=settings.database)) as runtime:
+            assert runtime.scopes is not None
+            for scope_id in scope_ids:
+                descriptor = await runtime.scopes.get(scope_id)
+                page = await runtime.memory.for_scope(descriptor.scope_id).list()
+                assert len(page.entries) == 3
+
+    asyncio.run(read_both_scopes())
+
+
+def test_resume_keeps_original_scope_and_rejects_a_different_database_before_opening_services(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _settings()
+    settings.database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'original.sqlite3'}")
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "output_directory": tmp_path / "results",
+        "run_id": "resume-database",
+        "judge_model": "test-judge",
+        "arm": "memory-source",
+        "limit": 1,
+    }
+    offline_benchmark["judge_valid"] = False
+    first = asyncio.run(runner.run_benchmark(**parameters))
+    assert first["overall"]["failures_by_stage"]["judge"] == 1
+    original_scope = _rows(parameters["output_directory"])[-1]["scope_id"]
+    ingestion_path = parameters["output_directory"] / "ingestion.json"
+    original_ingestion = ingestion_path.read_bytes()
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("changing a resumed database must be rejected before opening models or databases")
+
+    new_database = tmp_path / "different.sqlite3"
+    with monkeypatch.context() as guarded:
+        guarded.setattr(runner, "open_builtin_runtime", unexpected_service)
+        guarded.setattr(runner, "open_model", unexpected_service)
+        changed_settings = settings.model_copy(
+            update={"database": SQLiteConfig(url=f"sqlite+aiosqlite:///{new_database}")}
+        )
+        changed_parameters: dict[str, Any] = {**parameters, "settings": changed_settings}
+        with pytest.raises(ValueError, match="run identity changed"):
+            asyncio.run(runner.run_benchmark(**changed_parameters))
+    assert not new_database.exists()
+    assert ingestion_path.read_bytes() == original_ingestion
+
+    offline_benchmark["judge_valid"] = True
+    resumed = asyncio.run(runner.run_benchmark(**parameters))
+    assert resumed["overall"]["completed_count"] == 1
+    assert _rows(parameters["output_directory"])[-1]["scope_id"] == original_scope
+    assert ingestion_path.read_bytes() == original_ingestion
+
+
+def test_resume_rejects_recreated_database_without_replacing_saved_scope(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "recreated.sqlite3"
+    settings = _settings()
+    settings.database = SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}")
+    output_directory = tmp_path / "results"
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "output_directory": output_directory,
+        "run_id": "lost-database",
+        "judge_model": "test-judge",
+        "arm": "memory-source",
+        "limit": 1,
+    }
+    offline_benchmark["judge_valid"] = False
+    first = asyncio.run(runner.run_benchmark(**parameters))
+    assert first["overall"]["failures_by_stage"]["judge"] == 1
+    ingestion_path = output_directory / "ingestion.json"
+    original_ingestion = ingestion_path.read_bytes()
+    database_path.unlink()
+
+    async def read_recreated_database():
+        async with open_builtin_runtime(BuiltinConfig(database=settings.database)) as runtime:
+            assert runtime.scopes is not None
+            return tuple(scope.scope_id for scope in await runtime.scopes.list())
+
+    empty_database_scopes = asyncio.run(read_recreated_database())
+    assert _rows(output_directory)[-1]["scope_id"] not in empty_database_scopes
+
+    async def unexpected_model(*args, **kwargs):
+        pytest.fail("a lost persisted scope must be rejected before spending on models")
+
+    monkeypatch.setattr(runner, "open_model", unexpected_model)
+    resumed = asyncio.run(runner.run_benchmark(**parameters))
+    assert resumed["overall"]["completed_count"] == 0
+    assert resumed["overall"]["failures_by_stage"]["infrastructure"] == 1
+    assert _rows(output_directory)[-1]["error"]["type"] == "ScopeNotFoundError"
+    assert ingestion_path.read_bytes() == original_ingestion
+
+    assert asyncio.run(read_recreated_database()) == empty_database_scopes
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "oceanbase"])
+def test_ingestion_reuse_checks_database_target_before_services(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    settings = _settings()
+    backing = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'backing.sqlite3'}")
+    settings.database = backing
+    if backend == "oceanbase":
+        settings.database = OceanBaseConfig(
+            url=SecretStr("mysql+aoceanbase://tenant:old-secret@db.invalid:2881/donor?charset=utf8mb4")
+        )
+        sqlite_runtime = runner.open_builtin_runtime
+
+        @asynccontextmanager
+        async def simulated_oceanbase(config):
+            # Exercise public runner identity checks; storage is real SQLite, not live OceanBase.
+            runtime_config = config.runtime.model_copy(update={"artifact_processing_role": "all"})
+            async with sqlite_runtime(
+                config.model_copy(update={"database": backing, "runtime": runtime_config})
+            ) as runtime:
+                yield runtime
+
+        monkeypatch.setattr(runner, "open_builtin_runtime", simulated_oceanbase)
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "judge_model": "test-judge",
+        "arm": "memory-source",
+        "limit": 1,
+    }
+    donor = tmp_path / "donor"
+    assert (
+        asyncio.run(runner.run_benchmark(**parameters, output_directory=donor, run_id="donor"))["overall"][
+            "completed_count"
+        ]
+        == 1
+    )
+    if backend == "oceanbase":
+        settings.database = OceanBaseConfig(
+            url=SecretStr("mysql+aoceanbase://tenant:new-secret@db.invalid:2881/donor?charset=utf8mb4")
+        )
+    reused = tmp_path / "reused"
+    assert (
+        asyncio.run(
+            runner.run_benchmark(
+                **parameters,
+                output_directory=reused,
+                run_id="reuse",
+                reuse_ingestion_directory=donor,
+            )
+        )["overall"]["completed_count"]
+        == 1
+    )
+    assert _rows(reused)[-1]["scope_id"] == _rows(donor)[-1]["scope_id"]
+    assert (
+        asyncio.run(
+            runner.run_benchmark(
+                **parameters,
+                output_directory=reused,
+                run_id="reuse",
+                reuse_ingestion_directory=donor,
+            )
+        )["overall"]["completed_count"]
+        == 1
+    )
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("cross-database reuse must fail before opening any service")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    settings.database = (
+        SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'other.sqlite3'}")
+        if backend == "sqlite"
+        else OceanBaseConfig(
+            url=SecretStr("mysql+aoceanbase://tenant:new-secret@db.invalid:2881/other?charset=utf8mb4")
+        )
+    )
+    rejected = tmp_path / "rejected"
+    with pytest.raises(ValueError, match="reuse configuration mismatch: database_fingerprint"):
+        asyncio.run(
+            runner.run_benchmark(
+                **parameters,
+                output_directory=rejected,
+                run_id="rejected",
+                reuse_ingestion_directory=donor,
+            )
+        )
+    assert not (rejected / "run.json").exists()
+    assert not (tmp_path / "other.sqlite3").exists()
+    assert "secret" not in (reused / "run.json").read_text()
+
+
+@pytest.mark.parametrize("budget", ["rerank_timeout_seconds", "rerank_max_requests"])
+def test_resume_rejects_changed_effective_rerank_budget_before_services(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, budget: str
+):
+    settings = _settings()
+    settings.inference = settings.inference.model_copy(update={"rerank_timeout_seconds": 1, "rerank_max_requests": 1})
+
+    @asynccontextmanager
+    async def unavailable_runtime(config):
+        raise RuntimeError("offline-runtime-unavailable")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unavailable_runtime)
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "judge_model": "test-judge",
+        "arm": "memory",
+        "limit": 1,
+        "memory_rerank": True,
+        "output_directory": tmp_path,
+        "run_id": "rerank-budgets",
+    }
+    assert asyncio.run(runner.run_benchmark(**parameters))["overall"]["failure_count"] == 1
+    manifest_path = tmp_path / "run.json"
+    original = manifest_path.read_bytes()
+    assert json.loads(original)["retrieval"][budget] == 1
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("changed rerank budgets must fail before opening any service")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    settings.inference = settings.inference.model_copy(update={budget: 60 if budget == "rerank_timeout_seconds" else 3})
+    with pytest.raises(ValueError, match="run identity changed"):
+        asyncio.run(runner.run_benchmark(**parameters))
+    assert manifest_path.read_bytes() == original
+
+
+def test_legacy_manifest_remains_replayable_but_cannot_resume(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": _settings(),
+        "output_directory": tmp_path,
+        "run_id": "legacy",
+        "judge_model": "test-judge",
+        "arm": "query-only",
+        "limit": 1,
+    }
+    completed = asyncio.run(runner.run_benchmark(**parameters))
+    assert completed["overall"]["completed_count"] == 1
+    manifest_path = tmp_path / "run.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("scope_namespace")
+    manifest["configuration"].pop("database_fingerprint")
+    manifest_path.write_text(json.dumps(manifest))
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("legacy artifact replay and rejected resume must not open services")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    assert runner.replay_results(tmp_path)["overall"]["completed_count"] == 1
+    with pytest.raises(ValueError, match="new output directory"):
+        asyncio.run(runner.run_benchmark(**parameters))
+
+
+@pytest.mark.parametrize(
+    ("original_url", "resumed_url"),
+    [
+        (
+            "mysql+aoceanbase://tenant:authority-secret@db.example:2881/benchmark?charset=utf8mb4&password=old-secret",
+            "mysql+aoceanbase://tenant:authority-secret@db.example:2881/benchmark?charset=utf8mb4&password=new-secret",
+        ),
+        (
+            "mysql+aoceanbase://tenant:old-secret@db.example:2881/benchmark?charset=utf8mb4",
+            "mysql+aoceanbase://tenant:new-secret@db.example:2881/benchmark?charset=utf8mb4",
+        ),
+        (
+            "mysql+aoceanbase://tenant:old-secret@db.example:2881/benchmark?charset=utf8mb4",
+            "mysql+aoceanbase://ignored:new-secret@other.example:2882/ignored"
+            "?charset=utf8mb4&user=tenant&host=db.example&port=2881&db=benchmark",
+        ),
+        (
+            "mysql+aoceanbase://tenant:password@db.example:2881/benchmark"
+            "?charset=utf8mb4&ssl_key=old-secret&auth_plugin=old-auth&server_public_key=old-key",
+            "mysql+aoceanbase://tenant:password@db.example:2881/benchmark"
+            "?charset=utf8mb4&ssl_key=new-secret&auth_plugin=new-auth&server_public_key=new-key",
+        ),
+        (
+            "mysql+aoceanbase://tenant:password@db.example:2881/benchmark"
+            "?charset=utf8mb4&unix_socket=/evaluation/database.sock",
+            "mysql+aoceanbase://tenant:password@ignored.example:2882/benchmark"
+            "?charset=utf8mb4&unix_socket=/evaluation/database.sock&init_command=USE+ignored",
+        ),
+    ],
+    ids=["query-password", "authority-password", "effective-target-overrides", "authentication-options", "unix-socket"],
+)
+def test_oceanbase_resume_preserves_effective_target_when_credentials_or_spelling_change(
+    tmp_path: Path,
+    offline_benchmark: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    original_url: str,
+    resumed_url: str,
+) -> None:
+    settings = _settings()
+    settings.database = OceanBaseConfig.model_validate({"url": original_url})
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "output_directory": tmp_path,
+        "run_id": "credential-rotation",
+        "judge_model": "test-judge",
+        "arm": "query-only",
+        "limit": 1,
+    }
+    completed = asyncio.run(runner.run_benchmark(**parameters))
+    assert completed["overall"]["completed_count"] == 1
+    manifest_path = tmp_path / "run.json"
+    original_manifest = manifest_path.read_bytes()
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("resuming a completed run must not open a database or model")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    settings.database = OceanBaseConfig.model_validate({"url": resumed_url})
+
+    assert asyncio.run(runner.run_benchmark(**parameters)) == completed
+    assert manifest_path.read_bytes() == original_manifest
+    assert completed["configuration"]["database_fingerprint_version"] == "oceanbase-target-v2"
+    assert all(secret not in original_manifest for secret in (b"old-secret", b"new-secret", b"authority-secret"))
+
+
+@pytest.mark.parametrize(
+    "target_override",
+    ["host=other.example", "port=2882", "user=other-tenant", "db=other-database", "unix_socket=/other/database.sock"],
+)
+def test_oceanbase_resume_rejects_effective_target_changes_before_opening_services(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch, target_override: str
+) -> None:
+    url = "mysql+aoceanbase://tenant:password@db.example:2881/benchmark?charset=utf8mb4"
+    settings = _settings()
+    settings.database = OceanBaseConfig.model_validate({"url": url})
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "output_directory": tmp_path,
+        "run_id": "database-routing",
+        "judge_model": "test-judge",
+        "arm": "query-only",
+        "limit": 1,
+    }
+    assert asyncio.run(runner.run_benchmark(**parameters))["overall"]["completed_count"] == 1
+    original_manifest = (tmp_path / "run.json").read_bytes()
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("a changed target must be rejected before opening a database or model")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    settings.database = OceanBaseConfig.model_validate({"url": f"{url}&{target_override}"})
+    with pytest.raises(ValueError, match="run identity changed"):
+        asyncio.run(runner.run_benchmark(**parameters))
+    assert (tmp_path / "run.json").read_bytes() == original_manifest
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        "db=first&db=private-secret",
+        "password=first&password=private-secret",
+        "read_default_file=private-secret",
+        "read_default_group=private-secret",
+        "sql_mode=private-secret",
+    ],
+)
+def test_oceanbase_rejects_ambiguous_routing_before_opening_services(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: str
+) -> None:
+    settings = _settings()
+    settings.database = OceanBaseConfig.model_validate({
+        "url": f"mysql+aoceanbase://tenant:password@db.example:2881/benchmark?charset=utf8mb4&{options}"
+    })
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("ambiguous routing must be rejected before opening a database or model")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    with pytest.raises(ValueError, match="OceanBase") as error:
+        asyncio.run(
+            runner.run_benchmark(
+                _dataset(),
+                settings=settings,
+                output_directory=tmp_path,
+                run_id="ambiguous-routing",
+                judge_model="test-judge",
+                arm="query-only",
+                limit=1,
+            )
+        )
+    assert "private-secret" not in str(error.value)
+    assert not (tmp_path / "run.json").exists()
+
+
+def test_unversioned_oceanbase_manifest_is_replayable_but_cannot_resume(
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _settings()
+    settings.database = OceanBaseConfig.model_validate({
+        "url": "mysql+aoceanbase://tenant:password@db.example:2881/benchmark?charset=utf8mb4"
+    })
+    parameters: dict[str, Any] = {
+        "dataset": _dataset(),
+        "settings": settings,
+        "output_directory": tmp_path,
+        "run_id": "old-oceanbase-identity",
+        "judge_model": "test-judge",
+        "arm": "query-only",
+        "limit": 1,
+    }
+    assert asyncio.run(runner.run_benchmark(**parameters))["overall"]["completed_count"] == 1
+    manifest_path = tmp_path / "run.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["configuration"].pop("database_fingerprint_version")
+    manifest_path.write_text(json.dumps(manifest))
+
+    def unexpected_service(*args, **kwargs):
+        pytest.fail("legacy replay or rejected resume must not open a database or model")
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
+    monkeypatch.setattr(runner, "open_model", unexpected_service)
+    assert runner.replay_results(tmp_path)["overall"]["completed_count"] == 1
+    with pytest.raises(ValueError, match="new output directory"):
+        asyncio.run(runner.run_benchmark(**parameters))
+
+
 @pytest.mark.parametrize("decision_backend", [False, True])
 def test_memory_source_arm_captures_flushes_searches_and_expands_real_sqlite_sources(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, decision_backend: bool
 ) -> None:
-    from benchmark.locomo_plus.decision import AuditedDecisionModel, AuditedDecisionReranker, ConcurrentDecisionReranker
+    from evaluation.memory.locomo_plus.decision import (
+        AuditedDecisionModel,
+        AuditedDecisionReranker,
+        ConcurrentDecisionReranker,
+    )
     from powercontext.builtin.inference import InferenceUsage
     from powercontext.builtin.runtime import DecisionOutcome, DecisionResult
 
@@ -596,7 +1158,11 @@ def test_memory_source_arm_captures_flushes_searches_and_expands_real_sqlite_sou
 def test_rerank_usage_survives_failed_attempt_and_retry(  # noqa: C901 - failed search and failed answer retries
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
 ):
-    from benchmark.locomo_plus.decision import AuditedDecisionModel, AuditedDecisionReranker, ConcurrentDecisionReranker
+    from evaluation.memory.locomo_plus.decision import (
+        AuditedDecisionModel,
+        AuditedDecisionReranker,
+        ConcurrentDecisionReranker,
+    )
     from powercontext.builtin.inference import InferenceUsage
     from powercontext.builtin.runtime import DecisionOutcome, DecisionResult
 

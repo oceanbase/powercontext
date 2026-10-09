@@ -31,10 +31,10 @@ import pytest
 from httpcore._backends.mock import AsyncMockBackend
 from pydantic import SecretStr
 
-from benchmark.locomo_plus.decision import AuditedDecisionModel
-from benchmark.locomo_plus.jev import JevConfig, JevDecisionModel
-from benchmark.locomo_plus.jev_diagnostics import CURRENT_JEV_TRACE, JevTransportTrace, safe_exception_chain
-from benchmark.locomo_plus.jev_transport import JevClientPool
+from evaluation.memory.locomo_plus.decision import AuditedDecisionModel
+from evaluation.memory.locomo_plus.jev import JevConfig, JevDecisionModel
+from evaluation.memory.locomo_plus.jev_diagnostics import CURRENT_JEV_TRACE, JevTransportTrace, safe_exception_chain
+from evaluation.memory.locomo_plus.jev_transport import JevClientPool
 from powercontext.builtin.inference import InferenceUnavailableError
 from powercontext.builtin.runtime import DecisionOutcome, DecisionRequest
 

@@ -110,6 +110,7 @@ make test
 ```
 
 開発ワークフロー全体については [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
+コーディング評価、メモリ品質評価、性能ベンチマーク、Skill 回帰テストは [`evaluation/`](evaluation/README.md) にまとめています。
 
 ## さらに詳しく
 

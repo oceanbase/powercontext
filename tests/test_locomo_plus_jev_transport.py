@@ -22,7 +22,7 @@ from collections.abc import Callable, Coroutine
 import httpx
 import pytest
 
-from benchmark.locomo_plus.jev_transport import JevClientPool
+from evaluation.memory.locomo_plus.jev_transport import JevClientPool
 
 
 class TrackedTransport(httpx.MockTransport):
