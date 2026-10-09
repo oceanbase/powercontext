@@ -37,7 +37,7 @@ def test_repository_exposes_a_claude_marketplace() -> None:
             "name": "powercontext",
             "source": "./integrations/claude-code/plugins/powercontext",
             "description": "Restore project memory and transfer current work from Claude Code",
-            "version": "0.1.2",
+            "version": "0.1.3",
             "category": "Productivity",
         }
     ]
@@ -47,7 +47,7 @@ def test_plugin_uses_standard_component_discovery() -> None:
     manifest = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())
 
     assert manifest["name"] == "powercontext"
-    assert manifest["version"] == "0.1.2"
+    assert manifest["version"] == "0.1.3"
     assert "hooks" not in manifest
     assert "mcpServers" not in manifest
     assert (PLUGIN_ROOT / "hooks" / "hooks.json").is_file()
@@ -58,7 +58,12 @@ def test_plugin_uses_standard_component_discovery() -> None:
 def test_hook_uses_exec_form_and_does_not_capture_stop() -> None:
     configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text())
 
-    assert set(configuration["hooks"]) == {"UserPromptSubmit"}
+    assert set(configuration["hooks"]) == {"SessionStart", "UserPromptSubmit"}
+    session_start = configuration["hooks"]["SessionStart"][0]
+    assert session_start["matcher"] == "startup|resume|clear|compact|fork"
+    session_hook = session_start["hooks"][0]
+    assert session_hook["command"] == "python3"
+    assert session_hook["args"] == ["${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"]
     hook = configuration["hooks"]["UserPromptSubmit"][0]["hooks"][0]
     assert hook["command"] == "python3"
     assert hook["args"] == ["${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py"]

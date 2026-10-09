@@ -56,7 +56,7 @@ _MAX_RESPONSE_BYTES = 1_048_576
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-claude-code-plugin/0.1.2",
+    "User-Agent": "powercontext-claude-code-plugin/0.1.3",
 }
 
 

@@ -15,7 +15,7 @@
 import re
 from pathlib import Path
 
-from sqlalchemy import BigInteger, Date, Integer, LargeBinary, String, Table
+from sqlalchemy import BigInteger, Date, DateTime, Integer, LargeBinary, String, Table
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
@@ -49,6 +49,8 @@ def _column_budget(column) -> int:
         return column.type.length
     if isinstance(column.type, Integer):
         return 4
+    if isinstance(column.type, DateTime):
+        return 8
     if isinstance(column.type, Date):
         return 3
     raise _UnbudgetedColumnTypeError(column.type)
