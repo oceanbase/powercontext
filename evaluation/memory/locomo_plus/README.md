@@ -13,6 +13,9 @@ establish that those specific scores have been reproduced or independently verif
 ## Dataset and evaluation contract
 
 The `dataset/` directory contains a pinned ten-case smoke snapshot with complete conversation histories.
+Its provenance is `powercontext-locomo-plus-v1`, including the 44 exclusions recorded when it was constructed.
+Loading the snapshot preserves that provenance; it does not apply the full-data v2 adapter or reclassify the snapshot
+as a no-exclusion dataset.
 It can be loaded directly with `--dataset-file dataset/locomo_plus_smoke10.json` from this benchmark directory.
 See [the dataset description](dataset/README.md) for sample IDs, provenance, and history coverage.
 The complete upstream data is downloaded on demand into an ignored local cache for full or larger smoke runs.

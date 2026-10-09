@@ -172,16 +172,19 @@ def test_existing_local_data_is_preserved_and_loaded(tmp_path: Path) -> None:
     assert (tmp_path / "locomo10.json").read_bytes() == original
 
 
-def test_bundled_data_can_be_reformatted_without_changing_cases(tmp_path: Path) -> None:
+def test_bundled_data_preserves_snapshot_provenance_when_reformatted(tmp_path: Path) -> None:
     path = tmp_path / DEFAULT_SMOKE_PATH.name
     raw = json.loads(DEFAULT_SMOKE_PATH.read_text(encoding="utf-8"))
     path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     loaded = load_smoke_dataset(path)
     assert loaded.cases == load_smoke_dataset().cases
-    assert loaded.exclusions == ()
-    assert loaded.manifest["adapter_version"] == "powercontext-locomo-plus-v2"
-    assert loaded.manifest["excluded_count"] == 0
-    assert "malformed_cue_policy" not in loaded.manifest
+    assert loaded.exclusions == tuple(raw["exclusions"])
+    assert loaded.manifest["adapter_version"] == "powercontext-locomo-plus-v1"
+    assert loaded.manifest["excluded_count"] == len(loaded.exclusions) == 44
+    assert "cue_dialogue_policy" not in loaded.manifest
+    for key, value in raw["manifest"].items():
+        assert loaded.manifest[key] == value
+    assert loaded.manifest["smoke_dataset"]["path"] == str(path.resolve())
 
 
 def test_relation_labels_are_never_inferred_from_record_order(tmp_path: Path) -> None:

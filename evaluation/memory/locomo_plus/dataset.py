@@ -203,14 +203,10 @@ def load_smoke_dataset(path: Path = DEFAULT_SMOKE_PATH, *, seed: int = 42) -> Lo
     dataset = TypeAdapter(LoCoMoPlusDataset).validate_json(payload)
     manifest = {
         **dataset.manifest,
-        **_MANIFEST,
         "data_directory": str(path.parent.resolve()),
-        "excluded_count": 0,
-        "exclusions": [],
-        "smoke_dataset": {**expected, "path": str(path.resolve())},
+        "smoke_dataset": {**dataset.manifest.get("smoke_dataset", {}), "path": str(path.resolve())},
     }
-    manifest.pop("malformed_cue_policy", None)
-    return replace(dataset, exclusions=(), manifest=manifest)
+    return replace(dataset, manifest=manifest)
 
 
 def render_case_session(case: LoCoMoPlusCase, session: LoCoMoSession) -> str:

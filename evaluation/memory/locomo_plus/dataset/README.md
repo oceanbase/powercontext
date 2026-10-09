@@ -4,8 +4,11 @@
 cue evidence, and upstream annotations. It contains benchmark inputs only. Gold metadata is stored separately from
 conversation content and is not passed to normal extraction or answer generation.
 
-The snapshot uses the same cases and history assignment as `smoke --limit 10` at seed `42`. Its 253 sessions are
-identical to the corresponding histories constructed from the pinned full dataset; no sessions or turns are truncated.
+The snapshot was constructed with `powercontext-locomo-plus-v1` and seed `42`, after that adapter excluded 44
+cognitive records. Its manifest and exclusion audit retain those construction facts when loaded. The snapshot's
+253 sessions contain the complete histories for its ten selected cases; no sessions or turns are truncated.
+The full-data v2 adapter uses the upstream line parser without these exclusions; loading this snapshot does not
+rebuild its cases or apply that adapter's provenance.
 
 | Case ID | Relation | Host conversation | Sessions |
 | --- | --- | --- | ---: |

@@ -31,7 +31,13 @@ from pydantic_ai.models.function import FunctionModel
 
 from evaluation.memory.locomo.dataset import LoCoMoConversation, LoCoMoSession, LoCoMoTurn
 from evaluation.memory.locomo_plus import runner
-from evaluation.memory.locomo_plus.dataset import SMOKE_CASE_IDS, LoCoMoPlusCase, LoCoMoPlusDataset
+from evaluation.memory.locomo_plus.dataset import (
+    DEFAULT_SMOKE_PATH,
+    SMOKE_CASE_IDS,
+    LoCoMoPlusCase,
+    LoCoMoPlusDataset,
+    load_smoke_dataset,
+)
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     LLMMemoryCandidatePipeline,
@@ -232,6 +238,43 @@ def test_dry_run_judge_budget_matches_fresh_execution(
     )
     assert summary["overall"]["completed_count"] == verdicts
     assert calls == {"answer": plan["answer_requests"], "judge": plan["judge_requests"]}
+
+
+def test_snapshot_run_records_original_dataset_provenance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def open_model(name, settings, resources):
+        async def respond(messages, info):
+            output = (
+                "I do not know."
+                if name == "test-answer"
+                else _judge_reply(
+                    messages, '{"label":"wrong","reason":"No recall.","prediction_support":"","historical_support":""}'
+                )
+            )
+            return ModelResponse(parts=[TextPart(output)])
+
+        return FunctionModel(respond, model_name=name)
+
+    monkeypatch.setattr(runner, "open_model", open_model)
+    snapshot = json.loads(DEFAULT_SMOKE_PATH.read_text(encoding="utf-8"))
+    summary = asyncio.run(
+        runner.run_benchmark(
+            load_smoke_dataset(),
+            settings=_settings(),
+            output_directory=tmp_path,
+            run_id="snapshot-provenance",
+            judge_model="test-judge",
+            arm="query-only",
+            limit=1,
+        )
+    )
+    assert summary["overall"]["completed_count"] == 1
+    recorded = json.loads((tmp_path / "run.json").read_text())["dataset"]
+    audit = json.loads((tmp_path / "dataset-audit.json").read_text())
+    for key, value in snapshot["manifest"].items():
+        assert recorded[key] == audit["manifest"][key] == value
+    assert recorded["adapter_version"] == "powercontext-locomo-plus-v1"
+    assert recorded["excluded_count"] == len(audit["exclusions"]) == 44
+    assert audit["exclusions"] == snapshot["exclusions"]
 
 
 def test_oceanbase_selection_uses_configured_database_without_serializing_url(tmp_path: Path) -> None:
