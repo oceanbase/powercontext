@@ -15,7 +15,7 @@
  */
 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "../src/app/App";
 import { Connections } from "../src/app/Connections";
@@ -148,23 +148,39 @@ test("a save from the previous connection editor cannot dismiss a new draft", as
   const user = userEvent.setup();
   vi.mocked(desktopApi.state).mockResolvedValue(state());
   let finish!: (next: DesktopState) => void;
-  vi.mocked(desktopApi.save).mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-  );
+  const pendingSave = new Promise<DesktopState>((resolve) => {
+    finish = resolve;
+  });
+  vi.mocked(desktopApi.save).mockReturnValueOnce(pendingSave);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<App />);
   await user.click(screen.getByRole("button", { name: "连接" }));
+  // Let navigation finish moving focus before keyboard input begins.
+  await waitFor(() => {
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { level: 1, name: "连接" }),
+    );
+    expect(screen.getByLabelText("连接名称").matches(":enabled")).toBe(true);
+  });
   await user.type(screen.getByLabelText("连接名称"), "First");
   await user.type(
     screen.getByLabelText("Server 地址"),
     "http://localhost:8000",
   );
   await user.click(screen.getByRole("button", { name: "保存配置" }));
+  expect(desktopApi.save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      name: "First",
+      endpoint: "http://localhost:8000",
+    }),
+  );
   await user.click(screen.getByRole("button", { name: "总览" }));
   await user.click(screen.getByRole("button", { name: "连接" }));
+  await waitFor(() => {
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { level: 1, name: "连接" }),
+    );
+  });
   await user.type(screen.getByLabelText("连接名称"), "New draft");
   await act(async () => {
     finish(state({ ...profile, name: "First" }));
