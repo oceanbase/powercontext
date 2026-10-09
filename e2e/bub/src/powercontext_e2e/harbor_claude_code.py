@@ -21,8 +21,9 @@ from typing import Any, override
 
 from harbor.agents.installed.claude_code import ClaudeCode
 from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
 
-from .harbor_agent import REMOTE_SOURCE
+from .harbor_agent import REMOTE_SOURCE, clear_step_tests
 
 CLAUDE_CODE_VERSION = "2.1.284"
 PLUGIN_ID = "powercontext@powercontext"
@@ -50,6 +51,11 @@ class PowerContextClaudeCodeAgent(ClaudeCode):
             environment,
             command="command -v python3 >/dev/null || { echo 'The PowerContext plugin hook needs python3' >&2; exit 1; }",
         )
+
+    @override
+    async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
+        await clear_step_tests(environment)
+        await super().run(instruction, environment, context)
 
     @override
     def _build_register_mcp_servers_command(self) -> str | None:

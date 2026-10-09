@@ -279,6 +279,67 @@ id = "pc_review_get:get_artifact_candidate"
 capabilities = ["candidate_review"]
 
 [[toolsets]]
+id = "dify-tools"
+probe = "dify_tools"
+[[toolsets.tools]]
+id = "pc_search:search_memory"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_memory_list:list_memory_entries"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_memory_get:get_memory_entry"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_remember:remember_memory"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_memory_revise:revise_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_memory_retire:retire_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_prepare_context:prepare_context"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "pc_capture_source:capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_handoff_activate:activate_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_prepare:prepare_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_finalize:finalize_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_commit:commit_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_continue:continue_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_experience_generate:generate_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_experience_get:get_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_skill_generate:generate_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_skill_get:get_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_review_list:list_artifact_candidates"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "pc_review_get:get_artifact_candidate"
+capabilities = ["candidate_review"]
+
+[[toolsets]]
 id = "dsh-command"
 probe = "dsh_commands"
 [[toolsets.tools]]
@@ -815,3 +876,14 @@ toolsets = ["bub-tools", "bub-lifecycle"]
 implementation = ["integrations/bub/src/powercontext_bub/tools.py", "integrations/bub/src/powercontext_bub/plugin.py"]
 documentation = ["integrations/bub/README.md"]
 tests = ["e2e/bub/tests/test_workload_catalog.py"]
+
+[[integrations]]
+id = "dify"
+kind = "framework_adapter"
+availability = "experimental"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review"]
+toolsets = ["dify-tools"]
+[integrations.evidence]
+implementation = ["integrations/dify/plugin/provider/powercontext.yaml", "integrations/dify/plugin/powercontext_dify/tool.py", "integrations/dify/plugin/powercontext_dify/client.py"]
+documentation = ["docs/en/docs/integrations/dify.md", "docs/zh/docs/integrations/dify.md"]
+tests = ["integrations/dify/tests/test_plugin_contract.py", "tests/e2e/test_dify_tools_http.py"]

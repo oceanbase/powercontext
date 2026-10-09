@@ -27,12 +27,13 @@ import pytest
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
 from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import AccessUnavailableError, PrincipalRef
+from powercontext.server.authz import AccessAuditContext, AccessUnavailableError, PrincipalRef, ResourceRef
 from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 
 ADMIN = PrincipalRef(type="service", id="admin")
+AUDIT = AccessAuditContext(transport="http", operation="test")
 
 
 class _Authentication:
@@ -788,6 +789,52 @@ def test_startup_migrates_legacy_receipts_without_changing_public_source(tmp_pat
                 (scope_id, ordinary_id, "missing_committed_receipt"),
                 (scope_id, reserved_only_id, "missing_committed_receipt"),
             }
+
+
+def test_startup_removes_legacy_topic_memory_owners_and_keeps_other_relations(tmp_path):
+    import sqlite3
+
+    async def seed():
+        async with _server(tmp_path) as (_, client, access):
+            scope_id = await _scope(client)
+            legacy = ResourceRef.artifact(scope_id, family="topic-memory", artifact_id="legacy-topic")
+            skill = ResourceRef.artifact(scope_id, family="skill", artifact_id="skill-a")
+            await access.establish_artifact_owner(legacy, ADMIN, idempotency_key="legacy-topic", context=AUDIT)
+            await access.establish_artifact_owner(skill, ADMIN, idempotency_key="skill-a", context=AUDIT)
+            await access.attest_candidate_owner(
+                scope_id=scope_id,
+                candidate_id="candidate-a",
+                family="experience",
+                proposed_owner=ADMIN,
+                target=None,
+                idempotency_key="candidate-a",
+            )
+
+    def relations():
+        with sqlite3.connect(tmp_path / "regressions.db") as connection:
+            return set(
+                connection.execute(
+                    "SELECT owner_kind, family, artifact_id, candidate_id FROM pc_access_owners"
+                ).fetchall()
+            )
+
+    asyncio.run(seed())
+    before = relations()
+    assert ("artifact", "topic-memory", "legacy-topic", None) in before
+
+    async def restart():
+        async with _server(tmp_path) as (_, client, _):
+            assert (await client.get("/v1/scopes")).status_code == 200
+
+    asyncio.run(restart())
+    after = relations()
+    assert ("artifact", "topic-memory", "legacy-topic", None) not in after
+    assert ("artifact", "skill", "skill-a", None) in after
+    assert ("candidate", "experience", None, "candidate-a") in after
+
+    # A later restart of an already-clean database changes nothing.
+    asyncio.run(restart())
+    assert relations() == after
 
 
 def test_generic_receipt_markers_cannot_block_source_collection(tmp_path):

@@ -84,7 +84,7 @@ def main() -> None:
         help="Continue through case failures or stop the Harbor trial at the first failed step.",
     )
 
-    paired_parser = subparsers.add_parser("paired", help="Compare PowerContext off and on for continuation workloads.")
+    paired_parser = subparsers.add_parser("paired", help="Compare PowerContext off and on for paired workloads.")
     paired_parser.add_argument("--manifest", type=Path, default=Path("e2e/bub/paired-tasks"))
     paired_parser.add_argument(
         "--id",
@@ -102,7 +102,7 @@ def main() -> None:
     paired_parser.add_argument("--trials", type=int, default=2, help="Trials per arm; the arm order alternates.")
     paired_parser.add_argument(
         "--host",
-        choices=("bub", "codex", "claude-code", "opencode"),
+        choices=("bub", "codex", "claude-code", "opencode", "pi"),
         default="bub",
         help="Agent host that runs both arms with its own PowerContext integration.",
     )

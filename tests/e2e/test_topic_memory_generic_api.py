@@ -31,6 +31,7 @@ from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLiteTop
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tag_schema import ensure_topic_memory_tag_schema
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 
@@ -58,6 +59,7 @@ def _app(
     embedding_timeout=30.0,
     busy_timeout_ms=5_000,
     model_usage_write_timeout_seconds=1.0,
+    model_usage_flush_timeout_seconds=0.5,
 ):
     return create_server_app(
         settings=ServerSettings(
@@ -65,6 +67,7 @@ def _app(
             runtime=RuntimeConfig(
                 artifact_processing_families=(),
                 model_usage_write_timeout_seconds=model_usage_write_timeout_seconds,
+                model_usage_flush_timeout_seconds=model_usage_flush_timeout_seconds,
             ),
             inference=InferenceConfig(embedding_timeout_seconds=embedding_timeout),
             auth=BearerAuthConfig(enabled=False),
@@ -287,7 +290,8 @@ def test_valid_emoji_and_punctuation_content_has_empty_lexical_projection(tmp_pa
 
 def test_write_embeddings_are_attributed_to_the_operation_scope(tmp_path):
     embedding = UsageEmbeddings()
-    with TestClient(_app(tmp_path, embedding)) as client:
+    # Check attribution, not how quickly a loaded runner can persist telemetry.
+    with TestClient(_app(tmp_path, embedding, model_usage_write_timeout_seconds=30.0)) as client:
         source, target = _scope(client, "usage-source"), _scope(client, "usage-target")
         created = _create(client, source, "create")
         path = created.headers["Location"]
@@ -570,7 +574,13 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
     async def scenario():
         release = asyncio.Event()
         entered = asyncio.Event()
+        flushing = asyncio.Event()
         original = StatisticsRepository.record
+        original_flush = RelationalScopedStatistics.flush_model_usage
+
+        async def observed_flush(statistics):
+            flushing.set()
+            await original_flush(statistics)
 
         async def stalled_record(repository, connection, *args):
             entered.set()
@@ -579,7 +589,12 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
 
         # As above: the stalled write must be reached rather than dropped for
         # spending its budget on a slow machine.
-        app = _app(tmp_path, UsageEmbeddings(), model_usage_write_timeout_seconds=30.0)
+        app = _app(
+            tmp_path,
+            UsageEmbeddings(),
+            model_usage_write_timeout_seconds=30.0,
+            model_usage_flush_timeout_seconds=30.0,
+        )
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
@@ -592,13 +607,30 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
             payload = {"family": "topic-memory", "content": _content("cancelled")}
             with monkeypatch.context() as injected:
                 injected.setattr(StatisticsRepository, "record", stalled_record)
+                injected.setattr(RelationalScopedStatistics, "flush_model_usage", observed_flush)
                 pending = asyncio.create_task(client.post(path, json=payload))
-                await asyncio.wait_for(entered.wait(), 5)
-                pending.cancel()
-                with pytest.raises(asyncio.CancelledError):
-                    await pending
-                release.set()
+                try:
+                    # The recorder may start before the business transaction commits.
+                    # Cancel at its completion flush, not inside an arbitrary SQL call.
+                    await asyncio.wait_for(asyncio.gather(entered.wait(), flushing.wait()), 5)
+                    assert not pending.done()
+                    pending.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await pending
+                finally:
+                    release.set()
+                    if not pending.done():
+                        pending.cancel()
+                    await asyncio.gather(pending, return_exceptions=True)
             await _await_usage_record(tmp_path / "topics.db", scope, 30.0)
+            assert _topic_embedding_requests(tmp_path / "topics.db", scope) == 1
+            listed = await client.get(path + "/topic-memory")
+            assert listed.status_code == 200, listed.text
+            assert len(listed.json()["items"]) == 1
+            artifact_id = listed.json()["items"][0]["artifact_id"]
+            saved = await client.get(f"{path}/topic-memory/{artifact_id}")
+            assert saved.status_code == 200, saved.text
+            assert saved.json()["content"] == payload["content"]
             assert (await client.post(path, json=payload)).status_code == 201
 
     asyncio.run(scenario())

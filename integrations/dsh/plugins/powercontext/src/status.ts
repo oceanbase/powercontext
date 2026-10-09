@@ -77,6 +77,7 @@ const SKIP_REASONS = {
   deadline_exceeded: 'The automatic-path deadline expired before this stage started.',
   no_prepared_content: 'No usable prepared content was returned; see the prepare observation.',
   downstream_rejected: 'The downstream pre-step did not enter a model request.',
+  downstream_failed: 'The downstream pre-step failed before PowerContext work could start.',
   flush_disabled: 'Automatic flushing after Source capture is disabled.',
   capture_not_confirmed: 'Source acceptance was not confirmed; flushing was not started.',
   capture_rejected: 'The capture request was rejected; flushing was not started.',

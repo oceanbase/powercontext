@@ -72,6 +72,7 @@ from powercontext.server.authz import (
     access_control_for_mode,
 )
 from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.server.authz.repository import RelationalAccessRepository
 from powercontext.server.context import current_principal, current_request_id
 from powercontext.server.cursor_secret import resolve_cursor_secret
 from powercontext.server.dashboard import mount_dashboard
@@ -251,6 +252,7 @@ def create_server_app(  # noqa: C901
                     "server.receipt_migration",
                     f"Receipt migration: {migrated} attested, {unresolved} pending in pc_receipt_migration_review",
                 )
+                await _remove_legacy_topic_owners(active_access_control)
             readiness_probe.bind(runtime)
             app.state.application = runtime
             app.state.access_control = active_access_control
@@ -381,6 +383,23 @@ def _resolve_security_providers(
 def _bind_dream_access(access: DreamAccess | None, runtime: BuiltinRuntime) -> None:
     if access is not None:
         access.bind(runtime)
+
+
+async def _remove_legacy_topic_owners(access: AccessControlService) -> None:
+    """Drop the Artifact owner rows older versions retained for Topic Memory.
+
+    Access tables are open only while a real service is configured, and a
+    deployment that ran an older version may still hold stale rows that the
+    owner-derived authorized resource filter reads back.
+    """
+    if not isinstance(access, AccessControlService):
+        return
+    relationships = access.relationships
+    if not isinstance(relationships, RelationalAccessRepository):
+        return
+    removed = await relationships.delete_legacy_topic_memory_owners()
+    if removed:
+        _log_lifecycle("server.topic_owner_cleanup", f"Removed {removed} legacy topic-memory Artifact owner rows")
 
 
 def _scheduled_access_runners(

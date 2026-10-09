@@ -45,6 +45,7 @@ async def settle_session(client: PowerContextClient, scope_id: str, session: int
     stats = await client.get_stats(
         GetStatsRequest.model_validate({"selection": {"mode": "exact", "scope_ids": [scope_id]}})
     )
+    usage = stats.usage.totals
     return SessionSnapshot(
         session=session,
         flush_rounds=rounds,
@@ -53,6 +54,12 @@ async def settle_session(client: PowerContextClient, scope_id: str, session: int
         memory_entries=stats.inventory.memory.entries.total,
         preparations=stats.recall.totals.preparations,
         ready_preparations=stats.recall.totals.ready_preparations,
+        generation_requests=usage.generation.requests,
+        generation_input_tokens=usage.generation.input_tokens,
+        generation_output_tokens=usage.generation.output_tokens,
+        embedding_requests=usage.embedding.requests,
+        embedding_input_tokens=usage.embedding.input_tokens,
+        recalled_tokens=stats.recall.totals.recalled_tokens,
     )
 
 

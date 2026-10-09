@@ -17,28 +17,55 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from typing import NamedTuple
 
 import pytest
+from harbor.agents.installed import acp as harbor_acp
+from harbor.agents.installed.base import NonZeroAgentExitCodeError
+from harbor.agents.installed.claude_code import ClaudeCode
+from harbor.agents.installed.codex import Codex
 from harbor.agents.installed.opencode import OpenCode
-from harbor.environments.base import ExecResult
+from harbor.agents.installed.pi import Pi
+from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.models.agent.context import AgentContext
 from harbor.models.job.config import JobConfig
+from harbor.models.task.config import TaskOS
+from harbor.utils.env import resolve_env_vars
 
+from powercontext_e2e import harbor_agent
 from powercontext_e2e.catalog import E2ETask, load_tasks
+from powercontext_e2e.harbor_agent import PowerContextBubAcpAgent
 from powercontext_e2e.harbor_claude_code import PowerContextClaudeCodeAgent
 from powercontext_e2e.harbor_codex import PowerContextCodexAgent
 from powercontext_e2e.harbor_opencode import PowerContextOpenCodeAgent
+from powercontext_e2e.harbor_pi import PowerContextPiAgent
 from powercontext_e2e.hosts import host_adapter
 from powercontext_e2e.runner import _job_config, prepare_runtime_task, require_runtime_models, run_tasks
-from powercontext_e2e.settings import HarnessSettings, ModelNotConfiguredError
+from powercontext_e2e.settings import (
+    HarnessSettings,
+    ModelNotConfiguredError,
+    powercontext_bub_environment,
+    prefixed_environment,
+)
 
 _REPOSITORY = Path(__file__).resolve().parents[3]
 _TASKS = load_tasks(_REPOSITORY / "e2e" / "bub" / "tasks")
 _CODEX_AUTH_TARGET = "/run/agent-auth/codex-auth.json"
 _PAIRED_TASK = load_tasks(_REPOSITORY / "e2e" / "bub" / "paired-tasks" / "project-decision-continuation.yaml")[0]
+
+
+@pytest.fixture(autouse=True)
+def step_tests_dir(monkeypatch, tmp_path: Path) -> Path:
+    """Keep every agent's pre-session tests reset inside the test's own directory, never the host's /tests."""
+
+    tests = tmp_path / "tests"
+    monkeypatch.setattr(harbor_agent, "STEP_TESTS_DIR", str(tests))
+    return tests
 
 
 @pytest.fixture(autouse=True)
@@ -144,16 +171,30 @@ def test_codex_auth_is_mounted_only_for_model_tasks(isolated_host_environment: P
     assert _CODEX_AUTH_TARGET not in _mount_targets(non_model_config)
 
 
-def test_agent_proxy_is_forwarded_only_when_configured(monkeypatch, tmp_path: Path) -> None:
+def test_agent_proxy_is_forwarded_by_reference_only_when_configured(monkeypatch, tmp_path: Path) -> None:
+    # Harbor does not treat the proxy names as sensitive and would write a literal URL, credentials included, to
+    # its job files.
     task = _task("project-database-decision")
     assert "HTTPS_PROXY" not in _agent_env(_config(task, tmp_path))
 
-    monkeypatch.setenv("POWERCONTEXT_E2E_AGENT_PROXY_URL", "http://proxy.invalid:3128")
-    env = _agent_env(_config(task, tmp_path))
+    proxy_url = "http://user:pass@proxy.invalid:3128"
+    monkeypatch.setenv("POWERCONTEXT_E2E_AGENT_PROXY_URL", proxy_url)
+    # A developer's or CI's own proxy settings, which the harness's requests follow, stay as they are.
+    host_proxy = _host_proxy_settings()
+    config = _config(task, tmp_path)
+    env = _agent_env(config)
 
+    assert proxy_url not in config.model_dump_json()
+    assert "proxy.invalid" not in config.model_dump_json()
+    resolved = resolve_env_vars(env)
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
-        assert env[name] == "http://proxy.invalid:3128"
+        assert resolved[name] == proxy_url
     assert "powercontext" in env["NO_PROXY"].split(",")
+    assert _host_proxy_settings() == host_proxy
+
+
+def _host_proxy_settings() -> dict[str, str]:
+    return {name: value for name, value in os.environ.items() if name.lower() in ("http_proxy", "https_proxy")}
 
 
 def test_batch_job_binds_scopes_per_invocation_instead_of_per_job(monkeypatch, tmp_path: Path) -> None:
@@ -202,12 +243,27 @@ def test_off_arm_runs_the_host_without_powercontext(
     assert _mount_targets(off) == [_CODEX_AUTH_TARGET]
     assert not _powercontext_mounts(off)
     assert _powercontext_mounts(on)
-    assert on_agent.env["POWERCONTEXT_BUB_API_TOKEN"] == "server-token"  # noqa: S105 - test value
+    assert resolve_env_vars(on_agent.env)["POWERCONTEXT_BUB_API_TOKEN"] == "server-token"  # noqa: S105 - test value
     assert off_agent.kwargs == {"powercontext": False}
     assert off_agent.env["BUB_MODEL"] == on_agent.env["BUB_MODEL"] == "provider:model"
     assert on_agent.env["POWERCONTEXT_BUB_SCOPE_ID"] == "scope-1"
     assert on_agent.env["POWERCONTEXT_BUB_CAPTURE_EVENTS"] == "true"
     assert on_agent.kwargs == {}
+
+
+@pytest.mark.parametrize("manifest", ["project-decision-continuation.yaml", "swebench-pro"])
+def test_bub_on_arm_captures_every_paired_workload(monkeypatch, isolated_host_environment: Path, manifest: str) -> None:
+    # Bub captures nothing by default; the ON arm must record the session on both paired workload kinds, or the
+    # Server never sees a Source and every run is an integration failure.
+    monkeypatch.setenv("BUB_MODEL", "provider:model")
+    monkeypatch.setenv("POWERCONTEXT_BUB_BASE_URL", "http://host-gateway:8000")
+    task = load_tasks(_REPOSITORY / "e2e" / "bub" / "paired-tasks" / manifest)[0]
+
+    (on_agent,) = _job_config(
+        task, "run-1", "scope-1", isolated_host_environment / "on", HarnessSettings(repository=_REPOSITORY)
+    ).agents
+
+    assert on_agent.env["POWERCONTEXT_BUB_CAPTURE_EVENTS"] == "true"
 
 
 class _PluginHost(NamedTuple):
@@ -240,6 +296,13 @@ _PLUGIN_HOSTS = [
         "POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP",
         "POWERCONTEXT_OPENCODE_SCOPE_ID",
     ),
+    _PluginHost(
+        "pi",
+        "POWERCONTEXT_E2E_PI_MODEL",
+        "POWERCONTEXT_PI_SERVER_URL",
+        "POWERCONTEXT_PI_ALLOW_INSECURE_HTTP",
+        "POWERCONTEXT_PI_SCOPE_ID",
+    ),
 ]
 
 
@@ -268,10 +331,35 @@ def test_plugin_host_off_arm_has_nothing_of_powercontext(monkeypatch, tmp_path: 
     assert off_agent.env == {}
     assert on_agent.env[host.scope_id] == "scope-1"
     assert on_agent.env[host.insecure_http] == "true"
-    assert on_agent.env[host.server_url.replace("SERVER_URL", "AUTHORIZATION")] == "Bearer server-token"
+    authorization = host.server_url.replace("SERVER_URL", "AUTHORIZATION")
+    assert resolve_env_vars(on_agent.env)[authorization] == "Bearer server-token"
     assert off_agent.import_path == on_agent.import_path
     assert off_agent.model_name == on_agent.model_name == "model-test"
     assert off_agent.kwargs == {**on_agent.kwargs, "powercontext": False}
+
+
+@pytest.mark.parametrize("host", ["bub", "codex", "claude-code", "opencode", "pi"])
+def test_job_files_hold_no_part_of_a_short_server_token(monkeypatch, tmp_path: Path, host: str) -> None:
+    # Harbor writes the job configuration to its job files and keeps the first four and last three characters of a
+    # sensitive value, which is most of a token this short.
+    token = "QzJ9QzJ9Qz"  # noqa: S105 - test value
+    monkeypatch.setenv("BUB_MODEL", "provider:model")
+    for plugin_host in _PLUGIN_HOSTS:
+        monkeypatch.setenv(plugin_host.model, "model-test")
+        monkeypatch.setenv(plugin_host.server_url, "http://host-gateway:8000")
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_API_TOKEN", token)
+
+    config = _paired_config(tmp_path, host, "scope-1")
+
+    written = config.model_dump_json()
+    assert not [part for part in (token, token[:4], token[-3:]) if part in written]
+    (agent,) = config.agents
+    assert [value for value in resolve_env_vars(agent.env).values() if value in (token, f"Bearer {token}")]
+    # The harness holds the value under its own name: an integration's native environment, which a later job reads
+    # again, never returns it.
+    adapter = host_adapter(host)
+    native = powercontext_bub_environment() if host == "bub" else prefixed_environment(adapter.plugin_prefix)
+    assert not [name for name, value in native.items() if token in value]
 
 
 @pytest.mark.parametrize("agent_class", [PowerContextCodexAgent, PowerContextClaudeCodeAgent])
@@ -312,12 +400,45 @@ class _RecordingEnvironment:
 
     def __init__(self, *, failing: str | None = None) -> None:
         self.commands: list[str] = []
+        self.envs: list[dict[str, str]] = []
         self._failing = failing
 
-    async def exec(self, command: str, **_: object) -> ExecResult:
+    async def exec(self, command: str, **kwargs: object) -> ExecResult:
         self.commands.append(command)
+        self.envs.append(kwargs.get("env") or {})  # type: ignore[arg-type]
         failed = self._failing is not None and self._failing in command
         return ExecResult(stdout="", stderr="", return_code=1 if failed else 0)
+
+    async def empty_dirs(self, dirs, *, chmod: bool = True) -> ExecResult:
+        return await self.exec(f"empty_dirs {' '.join(str(path) for path in dirs)}")
+
+    async def upload_file(self, *, source_path: Path, target_path: str) -> None:
+        self.commands.append(f"upload {source_path.name} {target_path}")
+        self.envs.append({})
+
+
+@pytest.mark.parametrize(
+    ("setting", "expected"),
+    [(None, "https://pypi.org/simple"), ("https://mirror.test/simple", "https://mirror.test/simple")],
+)
+def test_bub_runtime_install_does_not_use_the_task_images_pip_index(
+    monkeypatch, tmp_path: Path, setting: str | None, expected: str
+) -> None:
+    # SWE-bench Pro images configure pip for the index their build used, which no longer answers. The host's own
+    # PIP_INDEX_URL is not forwarded: a host mirror is often unreachable from a container.
+    monkeypatch.setenv("PIP_INDEX_URL", "http://127.0.0.1:3141/simple")
+    if setting is None:
+        monkeypatch.delenv("POWERCONTEXT_E2E_PIP_INDEX_URL", raising=False)
+    else:
+        monkeypatch.setenv("POWERCONTEXT_E2E_PIP_INDEX_URL", setting)
+    environment = _RecordingEnvironment()
+
+    asyncio.run(PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=False).install(environment))
+
+    (install_env,) = [
+        env for command, env in zip(environment.commands, environment.envs, strict=True) if "pip install" in command
+    ]
+    assert install_env["PIP_INDEX_URL"] == expected
 
 
 def _opencode_agent(tmp_path: Path, *, powercontext: bool) -> PowerContextOpenCodeAgent:
@@ -345,7 +466,7 @@ class _ShellEnvironment:
 
     default_user = None
 
-    def __init__(self, root: Path, *, sessions: str = "") -> None:
+    def __init__(self, root: Path, *, sessions: str = "", env: dict[str, str] | None = None) -> None:
         self.home = root / "home"
         self.tmp = root / "tmp"
         bin_dir = root / "bin"
@@ -355,9 +476,16 @@ class _ShellEnvironment:
         opencode = bin_dir / "opencode"
         opencode.write_text(f"#!/bin/sh\nprintf '%s' '{sessions}'\n")
         opencode.chmod(0o755)
-        self._env = {"HOME": str(self.home), "TMPDIR": str(self.tmp), "PATH": f"{bin_dir}:/usr/bin:/bin"}
+        self._env = {"HOME": str(self.home), "TMPDIR": str(self.tmp), "PATH": f"{bin_dir}:/usr/bin:/bin", **(env or {})}
+        self.commands: list[tuple[str, object]] = []
 
-    async def exec(self, command: str, **_: object) -> ExecResult:
+    async def empty_dirs(self, dirs, *, chmod: bool = True) -> ExecResult:
+        # Harbor's own reset command for a Linux container, run here as the test user.
+        linux = SimpleNamespace(os=TaskOS.LINUX)
+        return await self.exec(BaseEnvironment._empty_dirs_command(linux, dirs, chmod=chmod))
+
+    async def exec(self, command: str, **kwargs: object) -> ExecResult:
+        self.commands.append((command, kwargs.get("user")))
         # Harbor runs agent commands with bash, and prefixes them with `set -o pipefail`, which dash rejects.
         process = await asyncio.create_subprocess_exec(
             "bash", "-c", command, env=self._env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -426,6 +554,290 @@ def test_opencode_reasoning_effort_selects_the_model_variant(tmp_path: Path) -> 
     assert _opencode_agent(tmp_path, powercontext=True).build_cli_flags() == "--variant medium"
 
 
+def _pi_agent(tmp_path: Path, *, powercontext: bool) -> PowerContextPiAgent:
+    return PowerContextPiAgent(
+        logs_dir=tmp_path,
+        model_name="openrouter/model-test",
+        server_url="http://host-gateway:8000",
+        powercontext=powercontext,
+    )
+
+
+@pytest.mark.parametrize("powercontext", [True, False])
+def test_pi_installs_the_package_only_for_on(tmp_path: Path, powercontext: bool) -> None:
+    environment = _RecordingEnvironment()
+
+    asyncio.run(_pi_agent(tmp_path, powercontext=powercontext).install(environment))
+
+    installed = [command for command in environment.commands if "pi install" in command]
+    assert bool(installed) is powercontext
+
+
+@pytest.mark.parametrize("powercontext", [True, False])
+def test_pi_sessions_start_without_tool_output_an_earlier_session_left(
+    monkeypatch, tmp_path: Path, powercontext: bool
+) -> None:
+    # Harbor leaves the container's temporary directory in place between the steps of a trial. Pi's bash tool keeps
+    # the full output of a truncated command there, which a later session could otherwise read.
+    started: list[set[str]] = []
+    environment = _ShellEnvironment(tmp_path)
+    (environment.tmp / "pi-bash-0123456789abcdef.log").write_text("The team chose OceanBase with 12 shards.")
+    (environment.tmp / "notes.txt").write_text("Not Pi's file.")
+
+    async def run_pi(self, instruction, environment, context) -> None:
+        started.append({path.name for path in environment.tmp.iterdir()})
+        _leave_pi_output(self)
+
+    monkeypatch.setattr(Pi, "run", run_pi)
+
+    asyncio.run(_pi_agent(tmp_path, powercontext=powercontext).run("task", environment, AgentContext()))
+
+    assert started == [{"notes.txt"}]
+
+
+def test_pi_sessions_start_when_no_earlier_tool_output_exists(monkeypatch, tmp_path: Path) -> None:
+    started: list[str] = []
+
+    async def run_pi(self, instruction, environment, context) -> None:
+        started.append(instruction)
+        _leave_pi_output(self)
+
+    monkeypatch.setattr(Pi, "run", run_pi)
+
+    asyncio.run(_pi_agent(tmp_path, powercontext=False).run("task", _ShellEnvironment(tmp_path), AgentContext()))
+
+    assert started == ["task"]
+
+
+def test_pi_runs_without_a_saved_session(tmp_path: Path) -> None:
+    # Pi saves every session unless told not to, so the harness relies on Harbor passing `--no-session`.
+    environment = _RecordingEnvironment()
+    agent = _pi_agent(tmp_path, powercontext=False)
+    _leave_pi_output(agent)
+
+    asyncio.run(agent.run("task", environment, AgentContext()))
+
+    assert any("pi --print" in command and "--no-session" in command for command in environment.commands)
+
+
+def _leave_pi_output(agent: Pi, *lines: str) -> None:
+    # Harbor's Pi agent tees Pi's events to this file in the container, which Harbor's Docker environment mounts.
+    (agent.logs_dir / "pi.txt").write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+
+
+def _pi_message(stop_reason: str, **fields: str) -> str:
+    # Pi serializes with JSON.stringify, which leaves U+2028 and other non-ASCII characters unescaped.
+    return json.dumps(
+        {"type": "message_end", "message": {"role": "assistant", "stopReason": stop_reason, **fields}},
+        ensure_ascii=False,
+    )
+
+
+def _run_pi_with_output(monkeypatch, tmp_path: Path, *lines: str) -> None:
+    async def run_pi(self, instruction, environment, context) -> None:
+        _leave_pi_output(self, *lines)
+
+    monkeypatch.setattr(Pi, "run", run_pi)
+    asyncio.run(_pi_agent(tmp_path, powercontext=False).run("task", _RecordingEnvironment(), AgentContext()))
+
+
+def test_pi_session_whose_model_request_failed_is_an_error(monkeypatch, tmp_path: Path) -> None:
+    # In the JSON mode Harbor uses, Pi exits 0 after a failed model request, which would otherwise be graded as an
+    # attempt that did not answer.
+    with pytest.raises(NonZeroAgentExitCodeError, match="401: invalid key"):
+        _run_pi_with_output(monkeypatch, tmp_path, _pi_message("error", errorMessage="401: invalid key"))
+
+
+def test_pi_session_whose_output_is_not_on_the_host_is_an_error(monkeypatch, tmp_path: Path) -> None:
+    # The failure check reads Pi's output before Harbor downloads the agent's logs, so it depends on Harbor's Docker
+    # environment mounting them. Without the file, every failed session would otherwise count as an attempt.
+    async def run_pi(self, instruction, environment, context) -> None:
+        pass
+
+    monkeypatch.setattr(Pi, "run", run_pi)
+
+    with pytest.raises(RuntimeError, match="mounts /logs"):
+        asyncio.run(_pi_agent(tmp_path, powercontext=False).run("task", _RecordingEnvironment(), AgentContext()))
+
+
+def test_pi_session_that_recovered_from_a_failed_model_request_is_an_attempt(monkeypatch, tmp_path: Path) -> None:
+    _run_pi_with_output(
+        monkeypatch,
+        tmp_path,
+        "Warning: not an event",
+        _pi_message("error", errorMessage="429: rate limited"),
+        _pi_message("stop"),
+    )
+
+
+# JSON leaves these unescaped inside a string, and str.splitlines would split a record at each of them.
+_LINE_SEPARATORS = ["\u2028", "\u2029", "\u0085"]
+
+
+@pytest.mark.parametrize("separator", _LINE_SEPARATORS, ids=lambda s: f"U+{ord(s):04X}")
+def test_pi_message_text_cannot_change_the_run_classification(monkeypatch, tmp_path: Path, separator: str) -> None:
+    # A retry answered with this text would otherwise lose its message_end, and the stale 429 would exclude the arm.
+    _run_pi_with_output(
+        monkeypatch,
+        tmp_path,
+        _pi_message("error", errorMessage="429: rate limited"),
+        _pi_message("stop", content=f"The team chose OceanBase.{separator}It runs 12 shards."),
+    )
+
+    with pytest.raises(NonZeroAgentExitCodeError, match="invalid key"):
+        _run_pi_with_output(
+            monkeypatch,
+            tmp_path,
+            _pi_message("stop", content="An earlier turn."),
+            _pi_message("error", errorMessage=f"401: invalid key{separator}request id 7"),
+        )
+
+
+@pytest.mark.parametrize("powercontext", [True, False])
+def test_bub_sessions_start_without_the_tapes_an_earlier_session_left(
+    monkeypatch, tmp_path: Path, powercontext: bool
+) -> None:
+    # Bub keeps every session's messages in its home, which Harbor leaves in place between the steps of a trial, so
+    # a later session could otherwise read what the user said in an earlier one.
+    started: list[bool] = []
+    bub_home = tmp_path / "bub-home"
+    tape = bub_home / "tapes" / "session.jsonl"
+    tape.parent.mkdir(parents=True)
+    tape.write_text("The team chose OceanBase with 12 shards.")
+    environment = _ShellEnvironment(tmp_path, env={"BUB_HOME": str(bub_home)})
+
+    async def run_bub(self, instruction, environment, context) -> None:
+        started.append(tape.exists())
+
+    monkeypatch.setattr(harbor_acp.AcpAgent, "run", run_bub)
+    monkeypatch.setattr(harbor_agent, "STEP_FAILURE_MARKER", str(tmp_path / "step-failed"))
+
+    agent = PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=powercontext)
+    asyncio.run(agent.run("task", environment, AgentContext()))
+
+    assert started == [False]
+
+
+def _agent(agent_class: type, tmp_path: Path, *, powercontext: bool):
+    if agent_class is PowerContextBubAcpAgent:
+        return PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=powercontext)
+    kwargs = {"reasoning_effort": "medium"} if agent_class in (PowerContextOpenCodeAgent, PowerContextPiAgent) else {}
+    return agent_class(
+        logs_dir=tmp_path,
+        model_name="openrouter/model-test",
+        server_url="http://host-gateway:8000",
+        powercontext=powercontext,
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize("left", ["directory", "symlink"])
+@pytest.mark.parametrize("powercontext", [True, False])
+@pytest.mark.parametrize(
+    ("agent_class", "harbor_class"),
+    [
+        (PowerContextBubAcpAgent, harbor_acp.AcpAgent),
+        (PowerContextCodexAgent, Codex),
+        (PowerContextClaudeCodeAgent, ClaudeCode),
+        (PowerContextOpenCodeAgent, OpenCode),
+        (PowerContextPiAgent, Pi),
+    ],
+)
+def test_sessions_start_without_the_tests_an_earlier_step_left(
+    monkeypatch, tmp_path: Path, agent_class: type, harbor_class: type, powercontext: bool, left: str
+) -> None:
+    # Harbor uploads each step's tests before its verifier and leaves them in the container, so a later session
+    # could read an earlier step's verifier, which hints at a continuation workload's answer.
+    started: list[list[str]] = []
+    tests = tmp_path / "tests"
+    earlier = tmp_path / "earlier-tests"
+    (earlier / "nested").mkdir(parents=True)
+    (earlier / "test.sh").write_text("# Copyright OceanBase: the team chose OceanBase with 12 shards.")
+    (earlier / "nested" / "grade.py").write_text("EXPECTED = 12")
+    if left == "symlink":
+        tests.symlink_to(earlier)
+    else:
+        shutil.copytree(earlier, tests)
+    environment = _ShellEnvironment(tmp_path, env={"BUB_HOME": str(tmp_path / "bub-home")})
+
+    async def run_host(self, instruction, environment, context) -> None:
+        started.append(sorted(path.name for path in tests.rglob("*")))
+        if harbor_class is Pi:
+            _leave_pi_output(self)
+
+    monkeypatch.setattr(harbor_class, "run", run_host)
+    monkeypatch.setattr(harbor_agent, "STEP_FAILURE_MARKER", str(tmp_path / "step-failed"))
+    monkeypatch.setattr(harbor_agent, "STEP_TESTS_DIR", str(tests))
+
+    asyncio.run(_agent(agent_class, tmp_path, powercontext=powercontext).run("task", environment, AgentContext()))
+
+    assert started == [[]]
+    assert tests.is_dir()
+    assert not tests.is_symlink()
+
+
+@pytest.mark.parametrize(
+    ("agent_class", "harbor_class"),
+    [
+        (PowerContextBubAcpAgent, harbor_acp.AcpAgent),
+        (PowerContextCodexAgent, Codex),
+        (PowerContextClaudeCodeAgent, ClaudeCode),
+        (PowerContextOpenCodeAgent, OpenCode),
+        (PowerContextPiAgent, Pi),
+    ],
+)
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can remove files from a read-only directory")
+def test_a_session_does_not_start_when_the_earlier_tests_cannot_be_removed(
+    monkeypatch, tmp_path: Path, agent_class: type, harbor_class: type
+) -> None:
+    # Harbor's environments report a failed command instead of raising; the session must still not start.
+    started: list[bool] = []
+    tests = tmp_path / "tests"
+    (tests / "locked").mkdir(parents=True)
+    (tests / "locked" / "test.sh").write_text("The team chose OceanBase with 12 shards.")
+    (tests / "locked").chmod(0o555)  # the test user cannot remove files from it
+    environment = _ShellEnvironment(tmp_path, env={"BUB_HOME": str(tmp_path / "bub-home")})
+    marker = tmp_path / "step-failed"
+
+    async def run_host(self, instruction, environment, context) -> None:
+        started.append(True)
+
+    monkeypatch.setattr(harbor_class, "run", run_host)
+    monkeypatch.setattr(harbor_agent, "STEP_FAILURE_MARKER", str(marker))
+    monkeypatch.setattr(harbor_agent, "STEP_TESTS_DIR", str(tests))
+    try:
+        with pytest.raises(RuntimeError, match=r"Emptying .* failed"):
+            asyncio.run(_agent(agent_class, tmp_path, powercontext=True).run("task", environment, AgentContext()))
+    finally:
+        (tests / "locked").chmod(0o755)
+
+    assert started == []
+    assert (tests / "locked" / "test.sh").exists()
+    if agent_class is PowerContextBubAcpAgent:
+        assert marker.exists()
+
+
+def test_bub_step_whose_tapes_could_not_be_removed_is_marked_failed(monkeypatch, tmp_path: Path) -> None:
+    # The verifier reads a missing marker as a passed step, so a step that fails before Bub starts must still leave
+    # the marker, or Harbor would score it 1 and a fail-fast batch would run on.
+    started: list[bool] = []
+    marker = tmp_path / "step-failed"
+    environment = _ShellEnvironment(tmp_path, env={})  # no BUB_HOME: the removal refuses to run
+
+    async def run_bub(self, instruction, environment, context) -> None:
+        started.append(True)
+
+    monkeypatch.setattr(harbor_acp.AcpAgent, "run", run_bub)
+    monkeypatch.setattr(harbor_agent, "STEP_FAILURE_MARKER", str(marker))
+
+    agent = PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=True)
+    with pytest.raises(RuntimeError, match="BUB_HOME: parameter null or not set"):
+        asyncio.run(agent.run("task", environment, AgentContext()))
+
+    assert marker.exists()
+    assert started == []
+
+
 @pytest.mark.parametrize("host", _PLUGIN_HOSTS, ids=lambda host: host.name)
 def test_plugin_host_requires_a_model_and_the_server_url_before_any_run(monkeypatch, host: _PluginHost) -> None:
     adapter = host_adapter(host.name)
@@ -438,7 +850,7 @@ def test_plugin_host_requires_a_model_and_the_server_url_before_any_run(monkeypa
     require_runtime_models((_PAIRED_TASK,), adapter)
 
 
-@pytest.mark.parametrize("host", ["bub", "codex", "claude-code", "opencode"])
+@pytest.mark.parametrize("host", ["bub", "codex", "claude-code", "opencode", "pi"])
 @pytest.mark.parametrize(
     "manifest",
     ["paired-tasks/project-decision-continuation.yaml", "tasks/acceptance-01-project-database-decision.yaml"],

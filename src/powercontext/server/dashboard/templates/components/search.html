@@ -14,12 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-{% macro search_form(label, limit, kind=none) %}
+{% macro search_form(label, limit, kind=none, mode=none) %}
 <form action="/dashboard/{{ page }}" method="get" class="mb-4" role="search" aria-label="{{ label }}">
   <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="period" value="{{ period }}">
+  <input type="hidden" name="lang" value="{{ language }}">
   {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
   <label class="form-label" for="content-query">{{ label }}</label>
   <div class="row g-2 align-items-center">
+    {% if mode is not none %}<div class="col-12 col-sm-auto">
+      <label class="visually-hidden" for="memory-search-mode">{{ t.memory_search_mode }}</label>
+      <select class="form-select" id="memory-search-mode" name="mode">
+        {% for value in ('auto', 'fts', 'vector', 'hybrid') %}<option value="{{ value }}" {% if mode == value %}selected{% endif %}>{{ t.get('memory_mode_' ~ value, value) }}</option>{% endfor %}
+      </select>
+    </div>{% endif %}
     <div class="col"><div class="input-group">
       <input class="form-control" type="search" id="content-query" name="q" value="{{ search_query or '' }}" maxlength="{{ limit }}">
       <button class="btn" type="submit">{{ t.search }}</button>
