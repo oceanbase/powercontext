@@ -752,6 +752,7 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
     paths = contract["paths"]
 
     expected_operations = {
+        ("/v1/scopes/{scope_id}/artifacts/{family}/search", "post"): "search_artifacts",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "get"): "get_artifact_tags",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "put"): "replace_artifact_tags",
         (
@@ -783,7 +784,7 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
     }
     assert actual_operations == expected_operations
     assert not any(
-        operation_id in {"search_sources", "search_artifacts", "delete_artifact", "list_scopes"}
+        operation_id in {"search_sources", "delete_artifact", "list_scopes"}
         for operation_id in actual_operations.values()
     )
     assert not any("search-results" in path for path in paths)

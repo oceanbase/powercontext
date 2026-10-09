@@ -206,9 +206,17 @@ def test_file_writer_lock_does_not_consume_busy_timeout(tmp_path: Path) -> None:
                             await recorder.flush(target)
                 assert await _rows(database) == ()
                 await _assert_connection_restored(database)
+                # Recovery checks the same recorder's usability, independently
+                # of the short deadline exercised while the writer lock was held.
+                recorder._write_timeout_seconds = 5.0
                 _offer(recorder)
-                await recorder.flush()
-                assert (await _rows(database))[0].requests == 1
+                target = recorder.checkpoint()
+                async with asyncio.timeout(6.0):
+                    while recorder._settled < target:
+                        await recorder.flush(target)
+                rows = await _rows(database)
+                assert len(rows) == 1
+                assert rows[0].requests == 1
             finally:
                 await recorder.close()
 

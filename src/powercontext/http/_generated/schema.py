@@ -1436,6 +1436,72 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
+        "/v1/scopes/{scope_id}/artifacts/{family}/search": {
+            "post": {
+                "tags": ["artifacts"],
+                "summary": "Search one Artifact Family in a Scope",
+                "description": "Search "
+                "registered "
+                "Artifact "
+                "Families "
+                "using "
+                "their "
+                "supported "
+                "retrieval "
+                "controls. "
+                "Results "
+                "contain "
+                "complete "
+                "exact "
+                "Artifact "
+                "revisions. "
+                "Score "
+                "metadata "
+                "is "
+                "returned "
+                "only when "
+                "requested; "
+                "min_score "
+                "compares "
+                "normalized "
+                "retrieval "
+                "scores.",
+                "operationId": "search_artifacts",
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {"name": "family", "in": "path", "required": True, "schema": {"type": "string", "minLength": 1}},
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SearchArtifactsRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Complete matching Artifact revisions in retrieval order.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SearchArtifactsResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
         "/v1/topic-memory/search": {
             "post": {
                 "tags": ["topic-memory"],
@@ -8994,6 +9060,78 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["artifact", "title", "summary", "snippet", "score", "matched_by"],
+            },
+            "ArtifactSearchFusion": {
+                "properties": {
+                    "method": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+                    "params": {"additionalProperties": True, "type": "object", "default": {}},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["method"],
+                "x-powercontext-artifact-search-validation": "fusion",
+            },
+            "SearchArtifactsRequest": {
+                "properties": {
+                    "query": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "limit": {"type": "integer", "maximum": 200.0, "minimum": 1.0, "default": 10},
+                    "mode": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+                    "filters": {"additionalProperties": True, "type": "object"},
+                    "admission": {"additionalProperties": True, "type": "object"},
+                    "fusion": {"$ref": "#/components/schemas/ArtifactSearchFusion"},
+                    "min_score": {"type": "number", "maximum": 1.0, "minimum": 0.0},
+                    "include_scores": {"type": "boolean", "default": False},
+                    "rerank": {"additionalProperties": True, "type": "object"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["query"],
+                "x-powercontext-artifact-search-validation": "request",
+            },
+            "ArtifactChannelScore": {
+                "properties": {
+                    "raw": {"type": "number"},
+                    "metric": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+                    "higher_is_better": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["raw", "metric", "higher_is_better"],
+                "x-powercontext-artifact-search-validation": "score",
+            },
+            "ArtifactSearchScores": {
+                "properties": {
+                    "retrieval": {"type": "number", "maximum": 1.0, "minimum": 0.0},
+                    "channels": {
+                        "additionalProperties": {"$ref": "#/components/schemas/ArtifactChannelScore"},
+                        "type": "object",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["retrieval", "channels"],
+                "x-powercontext-artifact-search-validation": "score",
+            },
+            "ArtifactSearchItem": {
+                "properties": {
+                    "family": {"type": "string", "minLength": 1},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "content": {"additionalProperties": True, "type": "object"},
+                    "lineage": {"additionalProperties": True, "type": "object"},
+                    "scores": {"$ref": "#/components/schemas/ArtifactSearchScores"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "artifact_id", "revision", "content", "lineage"],
+            },
+            "SearchArtifactsResponse": {
+                "properties": {
+                    "results": {"items": {"$ref": "#/components/schemas/ArtifactSearchItem"}, "type": "array"}
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["results"],
             },
             "SearchTopicMemoryRequest": {
                 "properties": {

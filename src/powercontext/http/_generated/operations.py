@@ -155,6 +155,8 @@ from powercontext.http._generated.models import (
     ScopeDescriptor,
     ScopedStats,
     ScopePage,
+    SearchArtifactsRequest,
+    SearchArtifactsResponse,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SearchTopicMemoryRequest,
@@ -1146,6 +1148,30 @@ FLUSH_TOPIC_MEMORY = Operation[FlushTopicMemoryRequest, FlushTopicMemoryResponse
     access=AccessRequirement(
         action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
     ),
+)
+
+SEARCH_ARTIFACTS = Operation[SearchArtifactsRequest, SearchArtifactsResponse](
+    method="POST",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/search",
+    operation_id="search_artifacts",
+    request_type=SearchArtifactsRequest,
+    request_location="body",
+    path_parameters=("scope_id", "family"),
+    response_type=SearchArtifactsResponse,
+    success_status=200,
+    summary="Search one Artifact Family in a Scope",
+    tags=("artifacts",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Complete matching Artifact revisions in retrieval order."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
 SEARCH_TOPIC_MEMORY = Operation[SearchTopicMemoryRequest, SearchTopicMemoryResponse](
