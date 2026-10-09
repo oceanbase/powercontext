@@ -171,10 +171,24 @@ jobs:
             tests/builtin/persistence/test_database_migration_connections.py \
             tests/builtin/persistence/test_mysql_migration_schema.py -k seekdb \
             2>&1 | tee seekdb-migrations.log
-          uv run --locked --extra seekdb pytest -vv \
-            -o faulthandler_timeout=120 --durations=20 --log-cli-level=INFO \
+          uv run --locked --extra seekdb pytest --collect-only -q --color=no \
             tests/builtin/persistence/test_mysql_migration_runner.py -k seekdb \
-            2>&1 | tee -a seekdb-migrations.log
+            2>&1 | tee seekdb-runner-collection.log | tee -a seekdb-migrations.log
+          mapfile -t seekdb_runner_nodes < <(
+            sed -n '/^tests\/builtin\/persistence\/test_mysql_migration_runner\.py::/p' \
+              seekdb-runner-collection.log
+          )
+          if [ "${#seekdb_runner_nodes[@]}" -eq 0 ]; then
+            echo "No seekdb migration runner tests were collected" >&2
+            exit 1
+          fi
+          for seekdb_runner_node in "${seekdb_runner_nodes[@]}"; do
+            timeout --signal=TERM --kill-after=10s 180s \
+              uv run --locked --extra seekdb pytest -vv \
+              -o faulthandler_timeout=120 --durations=20 --log-cli-level=INFO \
+              "$seekdb_runner_node" -k seekdb \
+              2>&1 | tee -a seekdb-migrations.log
+          done
 
       - name: Upload seekdb migration diagnostics
         if: always()
