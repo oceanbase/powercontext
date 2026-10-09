@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Scope and Memory
 
 ## Resolve the current Scope
@@ -46,3 +48,4 @@ unavailable in remote-workspace mode. Never infer resolution origin from the ord
 - Write concise decisions, constraints or state on request; exclude credentials. Inspect actual tool results and readback.
 - Keep the resolved Scope for Handoff, candidate inspection and other data operations. Scope scripts manage binding;
   they never replace the MCP Memory/Handoff/candidate tool. If the required MCP tool is absent, report incomplete.
+<!-- POWERCONTEXT-GUIDANCE:END -->

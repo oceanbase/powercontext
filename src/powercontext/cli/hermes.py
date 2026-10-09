@@ -27,11 +27,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 
+from powercontext.cli.guidance import HOST_GUIDANCE, GuidanceError, preserve_installed_guidance
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.paths import powercontext_data_dir
 
 HERMES_HOME_ENV = "HERMES_HOME"
-HERMES_PLUGIN_RELATIVE = Path("integrations") / "hermes" / "plugins" / "powercontext"
+HERMES_PLUGIN_RELATIVE = Path(HOST_GUIDANCE["hermes"].plugin)
 HERMES_COMMAND_PLUGIN_RELATIVE = Path("integrations") / "hermes" / "plugins" / "powercontext-command"
 HERMES_PLUGIN_NAME = "powercontext"
 HERMES_COMMAND_PLUGIN_NAME = "powercontext-command"
@@ -72,6 +73,8 @@ def install_hermes_plugin(*, source: str, ref: str) -> HermesSetupResult:
         )
     except OSError as error:
         raise SetupError.hermes_plugin_write(target, error) from error
+    except GuidanceError as error:
+        raise SetupError(str(error)) from error
 
     return HermesSetupResult(
         plugin=HERMES_PLUGIN_NAME,
@@ -110,6 +113,7 @@ def _stage_hermes_plugins(
             staged.append((staging, target))
             _remove_path(staging)
             shutil.copytree(source_dir, staging)
+            preserve_installed_guidance(target, staging)
             _run_plugin_doctor(executable, staging)
     except BaseException:
         for staging, _target in staged:

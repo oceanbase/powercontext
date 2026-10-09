@@ -1,4 +1,5 @@
 ---
+# POWERCONTEXT-GUIDANCE:START
 name: powercontext-project-context
 description: PowerContext memory search/save, inventory, handoff and candidate review (搜索记忆、记住、盘点、交接、审查候选). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.
 ---
@@ -43,3 +44,6 @@ Check error flags and structured results before reporting completed work. An emp
 A timed-out write may have an unknown outcome. Check its status before retrying a non-idempotent operation. For confirmed version conflicts, refresh as described in the relevant reference. If the service is unavailable, report it once and continue work that does not need PowerContext.
 
 Distinguish retrieved history, saved Memory, accepted Sources, prepared handoffs, committed milestones, acknowledged handoffs, and recorded outcomes. Report only states supported by the returned results.
+
+Semantic recall or vector indexing may use the configured embedding provider and incur external API cost; cached embeddings can be reused, and preparing context reuses the query embedding. Respect the configured budget and existing authorization before starting additional indexing.
+<!-- POWERCONTEXT-GUIDANCE:END -->

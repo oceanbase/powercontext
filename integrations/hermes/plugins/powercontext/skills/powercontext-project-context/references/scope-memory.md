@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Scope and Memory
 
 ## Memory
@@ -12,3 +14,4 @@
 - Treat inactive entries and change history as audit data.
 
 Automatic hooks attempt bounded context and Source capture; neither substitutes for an explicit Memory save.
+<!-- POWERCONTEXT-GUIDANCE:END -->

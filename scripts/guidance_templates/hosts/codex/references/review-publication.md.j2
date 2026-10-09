@@ -1,0 +1,26 @@
+{# Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+#}{% extends "base/references/review-publication.md.j2" %}
+{% block part_inspect_and_decide %}## Deliver selected material
+
+Use `publish_artifact` only when the user has selected an exact Artifact
+revision for delivery into another Scope. Supply the complete source address,
+the target Scope, and a stable idempotency key. Publication creates an
+independent target Artifact and does not move Sources, other revisions, or
+other state from the source Scope. Never publish personal information,
+debugging fragments, rejected results, or an inferred `latest` revision.
+
+## Inspect and decide
+
+{% endblock -%}

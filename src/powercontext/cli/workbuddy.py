@@ -41,15 +41,23 @@ from powercontext.cli.git_source import (
 from powercontext.cli.git_source import (
     is_local_source as _is_local_source,
 )
+from powercontext.cli.guidance import (
+    ENTRY_NAME,
+    HOST_GUIDANCE,
+    SKILL_DIRECTORY,
+    GuidanceError,
+    refresh_skill,
+    write_if_changed,
+)
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.paths import powercontext_data_dir
 
 WORKBUDDY_HOME_ENV = "WORKBUDDY_HOME"
 WORKBUDDY_PLUGIN_NAME = "powercontext"
-WORKBUDDY_PLUGIN_RELATIVE = Path("integrations") / "workbuddy" / "plugins" / "powercontext"
+WORKBUDDY_PLUGIN_RELATIVE = Path(HOST_GUIDANCE["workbuddy"].plugin)
 WORKBUDDY_HOOKS_DIRNAME = "hooks"
-WORKBUDDY_SKILLS_DIRNAME = "skills"
-WORKBUDDY_SKILL_NAME = "powercontext-project-context"
+WORKBUDDY_SKILLS_DIRNAME = SKILL_DIRECTORY.parent.name
+WORKBUDDY_SKILL_NAME = ENTRY_NAME
 WORKBUDDY_SKILL_MANIFEST = ".powercontext.json"
 WORKBUDDY_PYTHON_PLACEHOLDER = "${POWERCONTEXT_PYTHON}"
 WORKBUDDY_SCOPE_BINDING_PLACEHOLDER = "${POWERCONTEXT_SCOPE_BINDING_SCRIPT}"
@@ -121,7 +129,12 @@ def install_workbuddy_plugin(*, source: str, ref: str, server_url: str | None = 
         _install_hook_files(plugin_dir, hooks_dir)
         _merge_workbuddy_settings(settings_file, hooks_dir)
         _merge_workbuddy_mcp(mcp_file, server_url=server_url)
-        _install_workbuddy_skill(plugin_dir, skills_dir, hooks_dir)
+        _install_workbuddy_skill(
+            plugin_dir,
+            skills_dir,
+            hooks_dir,
+            legacy_replacements=_previous_workbuddy_replacements(settings_snapshot, hooks_dir),
+        )
     except BaseException:
         _restore_file(settings_file, settings_snapshot)
         _restore_file(mcp_file, mcp_snapshot)
@@ -330,30 +343,60 @@ def _owned_workbuddy_skill(path: Path) -> bool:
     return payload == {"schema": 1, "owner": "powercontext", "integration": "workbuddy"}
 
 
-def _install_workbuddy_skill(plugin_dir: Path, skills_dir: Path, hooks_dir: Path) -> None:
+def _previous_workbuddy_replacements(settings_snapshot: bytes | None, hooks_dir: Path) -> dict[str, str]:
+    """Recover the exact quoted interpreter from the previous owned hook, without executing it."""
+    if settings_snapshot is None:
+        return {}
+    settings = json.loads(settings_snapshot)
+    if not isinstance(settings, dict) or not isinstance(hooks := settings.get("hooks"), dict):
+        return {}
+    matchers = hooks.get("UserPromptSubmit", [])
+    if not isinstance(matchers, list):
+        return {}
+    suffix = " " + _shell_argument((hooks_dir / WORKBUDDY_HOOK_DRIVER).as_posix())
+    for matcher in matchers:
+        if not isinstance(matcher, dict) or not isinstance(entries := matcher.get("hooks"), list):
+            continue
+        for entry in entries:
+            command = entry.get("command") if isinstance(entry, dict) else None
+            if isinstance(command, str) and command.endswith(suffix) and (interpreter := command.removesuffix(suffix)):
+                return {
+                    WORKBUDDY_PYTHON_PLACEHOLDER: interpreter,
+                    WORKBUDDY_SCOPE_BINDING_PLACEHOLDER: _shell_argument(
+                        (hooks_dir / WORKBUDDY_SCOPE_RESOLVER).as_posix()
+                    ),
+                }
+    return {}
+
+
+def _install_workbuddy_skill(
+    plugin_dir: Path, skills_dir: Path, hooks_dir: Path, *, legacy_replacements: dict[str, str] | None = None
+) -> None:
     """Copy the powercontext-project-context Skill and resolve its hooks directory placeholder."""
 
     source = plugin_dir / WORKBUDDY_SKILLS_DIRNAME / WORKBUDDY_SKILL_NAME
     target = skills_dir / WORKBUDDY_SKILL_NAME
     try:
         skills_dir.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            shutil.rmtree(target)
-        shutil.copytree(source, target)
-        for skill_markdown in target.rglob("*.md"):
-            content = skill_markdown.read_text(encoding="utf-8")
-            content = content.replace(WORKBUDDY_PYTHON_PLACEHOLDER, _shell_argument(_python_executable()))
-            content = content.replace(
-                WORKBUDDY_SCOPE_BINDING_PLACEHOLDER,
-                _shell_argument((hooks_dir / WORKBUDDY_SCOPE_RESOLVER).as_posix()),
-            )
-            skill_markdown.write_text(content, encoding="utf-8")
-        (target / WORKBUDDY_SKILL_MANIFEST).write_text(
-            json.dumps({"schema": 1, "owner": "powercontext", "integration": "workbuddy"}, indent=2) + "\n",
-            encoding="utf-8",
+        refresh_skill(
+            source,
+            target,
+            replacements={
+                WORKBUDDY_PYTHON_PLACEHOLDER: _shell_argument(_python_executable()),
+                WORKBUDDY_SCOPE_BINDING_PLACEHOLDER: _shell_argument((hooks_dir / WORKBUDDY_SCOPE_RESOLVER).as_posix()),
+            },
+            legacy_replacements=legacy_replacements,
+        )
+        write_if_changed(
+            target / WORKBUDDY_SKILL_MANIFEST,
+            (json.dumps({"schema": 1, "owner": "powercontext", "integration": "workbuddy"}, indent=2) + "\n").encode(
+                "utf-8"
+            ),
         )
     except OSError as error:
         raise SetupError.workbuddy_skill_write(target, error) from error
+    except GuidanceError as error:
+        raise SetupError(str(error)) from error
 
 
 def _upsert_powercontext_hook(matchers: list[Any], hooks_dir: Path, settings_file: Path) -> None:
@@ -539,7 +582,7 @@ def _write_bytes_atomically(path: Path, content: bytes) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     descriptor: int | None = None
     try:
-        descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o600)
         os.write(descriptor, content)
         os.fsync(descriptor)
         os.close(descriptor)

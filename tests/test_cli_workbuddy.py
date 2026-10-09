@@ -319,8 +319,12 @@ def test_setup_workbuddy_refuses_an_unowned_skill(tmp_path: Path, monkeypatch) -
 
 
 def test_setup_workbuddy_refreshes_an_owned_skill(tmp_path: Path, monkeypatch) -> None:
+    from powercontext.cli.guidance import END, START
+
     checkout = tmp_path / "powercontext"
     plugin = _write_plugin(checkout)
+    source = plugin / "skills/powercontext-project-context/SKILL.md"
+    source.write_text(f"{START}\n{source.read_text(encoding='utf-8')}{END}\n", encoding="utf-8")
     home = tmp_path / "workbuddy"
     monkeypatch.setenv("WORKBUDDY_HOME", str(home))
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
@@ -328,8 +332,8 @@ def test_setup_workbuddy_refreshes_an_owned_skill(tmp_path: Path, monkeypatch) -
     first = CliRunner().invoke(create_cli([setup_app]), ["setup", "workbuddy", "--source", str(checkout)])
     assert first.exit_code == 0
 
-    (plugin / "skills" / "powercontext-project-context" / "SKILL.md").write_text(
-        'updated\n${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} --cwd "$PWD"\n',
+    source.write_text(
+        source.read_text(encoding="utf-8").replace(START + "\n", START + "\nupdated\n"),
         encoding="utf-8",
     )
     refreshed = CliRunner().invoke(create_cli([setup_app]), ["setup", "workbuddy", "--source", str(checkout)])
@@ -338,7 +342,7 @@ def test_setup_workbuddy_refreshes_an_owned_skill(tmp_path: Path, monkeypatch) -
     assert (
         (home / "skills" / "powercontext-project-context" / "SKILL.md")
         .read_text(encoding="utf-8")
-        .startswith("updated\n")
+        .startswith(START + "\nupdated\n")
     )
 
 

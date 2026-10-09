@@ -1,0 +1,35 @@
+{# Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+#}{% extends "base/SKILL.md.j2" %}
+{% block part_metadata %}---
+name: powercontext-project-context
+description: PowerContext memory search/save, inventory, work handoff and candidate review (搜索记忆、记住、盘点、交接、审查候选). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.
+compatibility: Requires the powercontext-opencode plugin and a running PowerContext Server.
+metadata:
+  owner: powercontext
+---
+
+{% endblock %}
+{% block part_intent_operation_and_detail %}| Intent / 意图 | Operation and detail |
+| --- | --- |
+| Find prior decisions / 搜索历史记忆 | `pc_search`; [Scope and Memory](references/scope-memory.md). |
+| Inventory or audit / 盘点、列出记忆 | `pc_memory_list`; [Scope and Memory](references/scope-memory.md). Empty search does not authorize inventory. |
+| Save, correct, retire / 记住、纠正、停用记忆 | `pc_remember` for explicit save; [Scope and Memory](references/scope-memory.md). |
+| Transfer or resume work / 交接、接续工作 | `pc_capture_source`; [Work Handoff](references/work-handoff.md). Ordinary transfer is temporary; durable commit needs explicit intent. |
+| Inspect candidates / 审查候选 | `pc_review_list`; [Review and publication](references/review-publication.md). Inspection grants no decision authority. |
+
+The integration owns Scope selection; preserve its resolved Scope in ordinary operations.
+
+{% endblock %}
+{% block part_before_the_first_data_operation_resolve_the_host_server_scop %}{% endblock -%}

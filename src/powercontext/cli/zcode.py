@@ -31,11 +31,12 @@ from urllib.parse import urlsplit
 
 from powercontext.cli.authorization import normalize_authorization
 from powercontext.cli.git_source import InvalidGitHubSourceError, clone_github_source, is_local_source
+from powercontext.cli.guidance import HOST_GUIDANCE, preserve_installed_guidance
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.cli.transport import is_remote_http, setup_environment
 from powercontext.client.transport_policy import normalize_client_url
 
-PLUGIN_RELATIVE = Path("integrations/zcode/plugins/powercontext")
+PLUGIN_RELATIVE = Path(HOST_GUIDANCE["zcode"].plugin)
 OWNER_MARKER = ".powercontext-owned"
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
 
@@ -229,6 +230,7 @@ def install_zcode_plugin(  # noqa: C901 - stages and rolls back two user-owned d
         installed = False
         try:
             shutil.copytree(plugin, staged, dirs_exist_ok=True, ignore=shutil.ignore_patterns("tests", "node_modules"))
+            preserve_installed_guidance(destination, staged)
             (staged / OWNER_MARKER).write_text("powercontext-zcode-v1\n", encoding="utf-8")
             _write_json(
                 staged / "powercontext.json",

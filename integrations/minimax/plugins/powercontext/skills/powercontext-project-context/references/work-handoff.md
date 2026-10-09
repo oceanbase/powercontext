@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Work handoffs
 
 ## Choose a path
@@ -45,3 +47,4 @@ Use `get_handoff_report` for explicit handoff audits. It reads summaries for the
 `activate_handoff` requires an exact boundary Source and an objective. Check whether it returns a Draft or an ignored result; ignored does not mean a new handoff exists. Inspect the Draft before `finalize_handoff`, and call `commit_handoff` only when a durable milestone is authorized.
 
 `prepare_handoff` is currently HTTP-only and is absent from the MCP tool catalog. Do not guess a tool name and call it.
+<!-- POWERCONTEXT-GUIDANCE:END -->

@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Work Handoff
 
 ## Hand off work
@@ -40,3 +42,4 @@ All four structured work operations change durable project context. Pi requires 
 without a UI. Do not include secrets or credentials in their payloads.
 
 For a preview, use inspected current facts without capture, prepare, or commit. Preserve the complete returned carrier, including required nullable fields and generation receipts.
+<!-- POWERCONTEXT-GUIDANCE:END -->

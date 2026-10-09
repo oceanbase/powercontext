@@ -1,0 +1,39 @@
+{# Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+#}{% extends "base/references/scope-memory.md.j2" %}
+{% block part_resolve_scope %}## Read context
+
+- Use `pc_search` with a focused query, `mode: "auto"`, and no more than eight results.
+- Use `pc_memory_list` for an explicitly requested inventory of active entries in the current Scope.
+- Use `pc_memory_get` only with an exact citation returned by search or list.
+- Use `pc_prepare_context` when one bounded value is more useful than raw search hits.
+
+{% endblock %}
+{% block part_before_the_first_memory_tool_call_locate_this_installed_skil %}{% endblock %}
+{% block part_bash %}{% endblock %}
+{% block part_reuse_that_exact_scope_id_for_the_task %}{% endblock %}
+{% block part_the_server_resolves_an_explicit_scope_first_then_durable_ses %}{% endblock %}
+{% block part_bash_2 %}{% endblock %}
+{% block part_then_run_the_normal_resolver_command_again_and_verify_the_sa %}{% endblock %}
+{% block part_before_a_durable_one_turn_handoff_or_a_latest_continue_resol %}{% endblock %}
+{% block part_read %}{% endblock %}
+{% block part_use_search_memory_with_a_focused_query_mode_auto_and_no_more %}{% endblock %}
+{% block part_call_remember_memory_only_when_the_user_explicitly_asks_to_p %}- Call `pc_remember` only when the user explicitly asks to persist a concise decision, constraint, current state,
+  task outcome, next step, or agent note.
+- Read the current entry and use its exact citation before `pc_memory_revise` or `pc_memory_retire`.
+- Never submit secrets or credentials.
+- OpenCode asks for confirmation before a named PowerContext mutation.
+
+{% endblock %}
+{% block part_before_revise_memory_entry_or_retire_memory_entry_read_the_c %}{% endblock -%}

@@ -1,0 +1,46 @@
+{# Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+#}{% extends "base/references/work-handoff.md.j2" %}
+{% block part_current_work_handoff_input %}## Hand off work
+
+1. Call `pc_capture_source` with a concise, unique Source containing the objective, verified progress, blockers, and
+   next action.
+2. Call `pc_handoff_prepare` with the objective and `evidence: [{kind: "source", source_ref: capture.data.source}]`.
+3. Inspect `prepare.data`, then call `pc_handoff_finalize` with that exact Draft as `draft`.
+   `pc_handoff_activate` is an alternative for explicit boundary-trigger activation; do not call it after prepare.
+4. The receiving task calls `pc_handoff_continue` with `selection: "prepared"` and the exact prepared value.
+
+Call `pc_handoff_commit` only when the user explicitly requests a durable milestone.
+
+For the lower-level Handoff flow, `pc_handoff_prepare` returns the Draft in `data`;
+`pc_handoff_activate` returns it in `data.draft`. Pass only that Draft to `pc_handoff_finalize`,
+never the `{ok, data}` wrapper. Return `finalize.data` unchanged, including `schema`, `scope_id`,
+`base`, `content`, and `generation` when present. Do not return an unfinished Draft or only `content`.
+For a preview, draft text from current inspected facts without calling any Handoff or Source tool. Do not claim that
+a prepared carrier or durable milestone exists. For an actual transfer, preserve the complete returned carrier,
+including required nullable fields and generation receipts.
+{% endblock %}
+{% block part_use_handoff_current_work_with_a_unique_source_id_and_a_hando %}{% endblock %}
+{% block part_complete_a_one_turn_durable_handoff %}{% endblock %}
+{% block part_use_this_flow_only_when_the_user_explicitly_requests_a_durab %}{% endblock %}
+{% block part_for_an_ordinary_transfer_inspect_the_facts_call_handoff_curr %}{% endblock %}
+{% block part_when_the_one_turn_flow_applies %}{% endblock %}
+{% block part_1_resolve_and_verify_the_exact_scope_using_scope_resolution_ %}{% endblock %}
+{% block part_if_preparation_succeeds_but_commit_fails_report_the_partial_ %}{% endblock %}
+{% block part_continue_and_acknowledge_a_handoff %}{% endblock %}
+{% block part_use_continue_handoff_with_a_prepared_carrier_or_an_exact_com %}{% endblock %}
+{% block part_call_acknowledge_handoff_with_that_same_prepared_or_exact_ta %}{% endblock %}
+{% block part_record_the_outcome %}{% endblock %}
+{% block part_at_an_actual_completion_or_interruption_boundary_call_record %}{% endblock %}
+{% block part_for_a_preview_use_inspected_current_facts_without_capture_pr %}{% endblock -%}

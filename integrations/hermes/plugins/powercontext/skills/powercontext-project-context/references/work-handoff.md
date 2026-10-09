@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Work Handoff
 
 ## Current-work Handoff input
@@ -32,3 +34,4 @@ Do not claim that a task is complete merely because a Handoff or Outcome was
 written.
 
 For a preview, use inspected current facts without capture, prepare, or commit. Preserve the complete returned carrier, including required nullable fields and generation receipts.
+<!-- POWERCONTEXT-GUIDANCE:END -->

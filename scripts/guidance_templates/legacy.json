@@ -1,0 +1,63 @@
+{
+  "agent-plugin": {
+    "SKILL.md": "fd6aec8d2ee4e4aa522f8ecf75138b640c3d197c02401c5d3185089d7b345ac3",
+    "references/review-publication.md": "83f3fa674d83785d06945669cbbe08b6d679665fed7e165d778dbfbcd9d10841",
+    "references/scope-memory.md": "1e6310ddd4e34028eb2ad0a4e393a6ff77b552e93f568251cb7fd82f82f9bfb9",
+    "references/work-handoff.md": "cf3ef4386ead7653431c60faa53c2ac045acd8db92cea6a214332f5c3aaeff8b"
+  },
+  "claude-code": {
+    "SKILL.md": "fd6aec8d2ee4e4aa522f8ecf75138b640c3d197c02401c5d3185089d7b345ac3",
+    "references/review-publication.md": "83f3fa674d83785d06945669cbbe08b6d679665fed7e165d778dbfbcd9d10841",
+    "references/scope-memory.md": "6858a67a67fe83164234c2cdce42e094def4e1821034816739be31635c8a2943",
+    "references/work-handoff.md": "76dea45b708f2155e395029afe57b31ac112d8b13d614a6ab604aa436e3d2b2e"
+  },
+  "codex": {
+    "SKILL.md": "bdb0e330d9eb38cbe4575ee94b08b3d0cb8b53c28a6443ac5b86ab3de9bfe479",
+    "references/experience-skills.md": "fea6f15789eec3133b1c1f61694fa5a33153392ee44050e656cecba60171418e",
+    "references/review-publication.md": "7fae5a77d776103f3f5fa2a406c71e4eca852941be1108da49a6f3a8985e1375",
+    "references/scope-memory.md": "6fac5c903ec27d4d0efbe5e18c5fc9053b940f07c57b345a6c1bb862899a9ebc",
+    "references/work-handoff.md": "e501146386f2f6a936d8c43d67bc172c66a46a82e1358cafb079ea6a4366156c"
+  },
+  "hermes": {
+    "SKILL.md": "839e3793e43f90bb3df011acf618891ffc0c826039149c8bb7ce7d882d844eb3",
+    "references/review-publication.md": "32907cfbc4ec8641cfce719a2b49632fbf2194ed94af59845084c6b742faa5e1",
+    "references/scope-memory.md": "bece231f60b6d4655a7ee018be16afa66e8a63855fe48c5149a3fe9a820e49c4",
+    "references/work-handoff.md": "251fcee928765caa888fb7fe58a3a45780ea9caa391031c5d2a9a927fee3a783"
+  },
+  "minimax": {
+    "SKILL.md": "7e3aafba9cdd269a7cf0421c1f235c6119353ba3edc979f8129c445d7ad941f6",
+    "references/http-boundaries.md": "8c0298c997591cc5cde29bddec4a5fd0a37cf53cabb1bf77660d65b6b89c1834",
+    "references/review-publication.md": "b75f536d185ee502d79af4a12ea11591c74a4819dd42e1550dcc1c6067c9bb98",
+    "references/scope-memory.md": "4bfb120e2b7b9ba1d8cc7ebe9b0338d32ad4078f13145f8506dbd3846d823689",
+    "references/work-handoff.md": "ef2bce44a6bf2be5a5c8961c4129d1ae0a0194a7dae9ca2249386033b8df526c"
+  },
+  "openclaw": {
+    "SKILL.md": "b1cd97c975a13053b8b5a5cac7e297484bbc63ca3c6360e7270e5a5333d65703",
+    "references/scope-memory.md": "dc3286c614d32d60a87e5659a4e7fb205c8dbcddab3f4acc9fe65cebfb8f36f0",
+    "references/work-handoff.md": "48a5d8f4c7093f2d4a17236a5457c0b993ff57413797c91ad6889b775f715e78"
+  },
+  "opencode": {
+    "SKILL.md": "01f42a4f0a71f3cfddeb54c5a5b0c39337c3b4670144cb46f630ae3a56b7ea7a",
+    "references/review-publication.md": "ba507d9eec550541876cc6cd37a6c06a72792e18813d039db0236f97f9b4ff1f",
+    "references/scope-memory.md": "3b48026f37925246bdb100a5f4e5a40ea1b6b281219e4d69b6524503d7c96789",
+    "references/work-handoff.md": "bfdfe8d08b2db2bc844b3a819205b367e1c3f5e56cc4942aa3641db0e2547599"
+  },
+  "pi": {
+    "SKILL.md": "191b66dcc2aa1c533677b58f6ddca5b0018150c4fcbb37cb52e45f3948d2f9de",
+    "references/review-publication.md": "f3c483787bc709857b6d86067fc28be3094d8880589c93f07a1ff0dc81d94a05",
+    "references/scope-memory.md": "08839279b8a2aedd945274cb925891cee13f185e406b0416eb1681babd2c42d0",
+    "references/work-handoff.md": "dfe9bf07e8fac81c042d07d976e0bbfd66beca04853526e9a6320ced34550f47"
+  },
+  "workbuddy": {
+    "SKILL.md": "fd6aec8d2ee4e4aa522f8ecf75138b640c3d197c02401c5d3185089d7b345ac3",
+    "references/review-publication.md": "83f3fa674d83785d06945669cbbe08b6d679665fed7e165d778dbfbcd9d10841",
+    "references/scope-memory.md": "6e5aab92f4a2bd2bf732470201d513c2c7b60a152ddd7980a6f8d4a6338c880d",
+    "references/work-handoff.md": "76dea45b708f2155e395029afe57b31ac112d8b13d614a6ab604aa436e3d2b2e"
+  },
+  "zcode": {
+    "SKILL.md": "88b6eed1a865b395dedc9508ab6cfcb15f2fc800f13bd9d5df02b963234906a1",
+    "references/review-publication.md": "83f3fa674d83785d06945669cbbe08b6d679665fed7e165d778dbfbcd9d10841",
+    "references/scope-memory.md": "0e6441569d116d76e79fc84089ce646aea7b07257eb39748068c4c835c2f68be",
+    "references/work-handoff.md": "76dea45b708f2155e395029afe57b31ac112d8b13d614a6ab604aa436e3d2b2e"
+  }
+}

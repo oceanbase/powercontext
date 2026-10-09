@@ -4,3 +4,5 @@ e2e/bub/tasks/*.yaml text eol=lf
 integrations/dsh/plugins/powercontext/src/operations.generated.ts text eol=lf
 integrations/dsh/plugins/powercontext/lib/*.js text eol=lf
 integrations/dsh/plugins/powercontext/lib/*.d.ts text eol=lf
+# Generated guidance compares canonical bytes; keep user notes outside its markers untouched.
+integrations/**/skills/powercontext-project-context/** text eol=lf

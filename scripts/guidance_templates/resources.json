@@ -1,0 +1,66 @@
+{
+  "agent-plugin": [
+    "SKILL.md",
+    "references/review-publication.md",
+    "references/scope-memory.md",
+    "references/work-handoff.md"
+  ],
+  "claude-code": [
+    "SKILL.md",
+    "references/review-publication.md",
+    "references/scope-memory.md",
+    "references/work-handoff.md"
+  ],
+  "codex": [
+    "SKILL.md",
+    "agents/openai.yaml",
+    "references/experience-skills.md",
+    "references/review-publication.md",
+    "references/scope-memory.md",
+    "references/work-handoff.md"
+  ],
+  "hermes": [
+    "SKILL.md",
+    "references/review-publication.md",
+    "references/scope-memory.md",
+    "references/work-handoff.md"
+  ],
+  "minimax": [
+    "SKILL.md",
+    "references/examples.json",
+    "references/http-boundaries.md",
+    "references/review-publication.md",
+    "references/scope-memory.md",
+    "references/work-handoff.md"
+  ],
+  "openclaw": [
+    "SKILL.md",
+    "references/scope-memory.md",
+    "references/work-handoff.md"
+  ],
+  "opencode": [
+    "SKILL.md",
+    "references/review-publication.md",
+    "references/scope-memory.md",
+    "references/work-handoff.md"
+  ],
+  "pi": [
+    "SKILL.md",
+    "agents/openai.yaml",
+    "references/review-publication.md",
+    "references/scope-memory.md",
+    "references/work-handoff.md"
+  ],
+  "workbuddy": [
+    "SKILL.md",
+    "references/review-publication.md",
+    "references/scope-memory.md",
+    "references/work-handoff.md"
+  ],
+  "zcode": [
+    "SKILL.md",
+    "references/review-publication.md",
+    "references/scope-memory.md",
+    "references/work-handoff.md"
+  ]
+}

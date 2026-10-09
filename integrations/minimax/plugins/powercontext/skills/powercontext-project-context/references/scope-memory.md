@@ -1,3 +1,5 @@
+
+<!-- POWERCONTEXT-GUIDANCE:START -->
 # Scope and memory
 
 ## Resolve and discover Scopes
@@ -32,3 +34,4 @@ To correct or retire an entry:
 4. Retry once with the new reference only if the user's original intent still applies. Otherwise, explain the conflict. Do not add a duplicate entry to bypass concurrency checks.
 
 See [examples.json](examples.json) for request examples. Its Scope values are test placeholders; use server-returned values for actual operations.
+<!-- POWERCONTEXT-GUIDANCE:END -->

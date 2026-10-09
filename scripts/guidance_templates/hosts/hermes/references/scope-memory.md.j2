@@ -1,0 +1,38 @@
+{# Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+#}{% extends "base/references/scope-memory.md.j2" %}
+{% block part_resolve_scope %}## Memory
+
+- Use `powercontext_search_memory` for an explicit search or when relevant history is missing from current context.
+- Use powercontext_remember only when the user explicitly asks for durable
+  memory.
+- Use the exact citation returned by search or list for reads, revisions, and
+  retirement.
+- Use powercontext_revise_memory_entry for a correction and
+  powercontext_retire_memory when an entry is no longer valid.
+- Treat inactive entries and change history as audit data.
+
+{% endblock %}
+{% block part_before_the_first_memory_tool_call_locate_this_installed_skil %}{% endblock %}
+{% block part_bash %}{% endblock %}
+{% block part_reuse_that_exact_scope_id_for_the_task %}{% endblock %}
+{% block part_the_server_resolves_an_explicit_scope_first_then_durable_ses %}{% endblock %}
+{% block part_bash_2 %}{% endblock %}
+{% block part_then_run_the_normal_resolver_command_again_and_verify_the_sa %}{% endblock %}
+{% block part_before_a_durable_one_turn_handoff_or_a_latest_continue_resol %}{% endblock %}
+{% block part_read %}{% endblock %}
+{% block part_use_search_memory_with_a_focused_query_mode_auto_and_no_more %}{% endblock %}
+{% block part_write_only_on_request %}{% endblock %}
+{% block part_call_remember_memory_only_when_the_user_explicitly_asks_to_p %}{% endblock %}
+{% block part_before_revise_memory_entry_or_retire_memory_entry_read_the_c %}{% endblock -%}

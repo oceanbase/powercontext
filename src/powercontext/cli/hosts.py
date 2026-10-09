@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import sys
 from collections.abc import Sequence
@@ -23,6 +24,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import typer
+
+from powercontext.cli.guidance import HOST_GUIDANCE
 
 if TYPE_CHECKING:
     from powercontext.cli.dsh_runtime import DshTarget
@@ -325,67 +328,22 @@ def install_host(
 ) -> object:
     """Call the existing installer for one first-class host."""
 
-    if name == "codex":
-        from powercontext.cli.system import install_codex_plugin
-
-        return install_codex_plugin(source=source, ref=ref, server_url=server_url)
-    if name == "claude-code":
-        from powercontext.cli.system import DEFAULT_CLAUDE_CODE_SERVER_URL, install_claude_code_plugin
-
-        return install_claude_code_plugin(
-            source=source,
-            ref=ref,
-            server_url=server_url if server_url is not None else DEFAULT_CLAUDE_CODE_SERVER_URL,
-            capture_prompts=capture_prompts,
-            allow_insecure_http=allow_insecure_http,
-        )
-    if name == "dsh":
-        from powercontext.cli.dsh import install_dsh_plugin
-
-        return install_dsh_plugin(
-            source=source,
-            ref=ref,
-            server_url=server_url or "http://127.0.0.1:8000",
-            allow_insecure_http=allow_insecure_http,
-            **({"target": dsh_target} if dsh_target else {}),
-        )
-    if name == "openclaw":
-        from powercontext.cli.openclaw import install_openclaw_plugin
-        from powercontext.cli.system import DEFAULT_OPENCLAW_SERVER_URL
-
-        return install_openclaw_plugin(
-            source=source,
-            ref=ref,
-            server_url=server_url if server_url is not None else DEFAULT_OPENCLAW_SERVER_URL,
-            allow_insecure_http=allow_insecure_http,
-        )
-    if name == "opencode":
-        from powercontext.cli.opencode import install_opencode_plugin
-
-        return install_opencode_plugin(source=source, ref=ref, server_url=server_url or "http://127.0.0.1:8000")
-    if name == "pi":
-        from powercontext.cli.pi import install_pi_plugin
-
-        return install_pi_plugin(source=source, ref=ref, server_url=server_url or "http://127.0.0.1:8000")
-    if name == "hermes":
-        from powercontext.cli.hermes import install_hermes_plugin
-
-        return install_hermes_plugin(source=source, ref=ref)
-    if name == "workbuddy":
-        from powercontext.cli.workbuddy import install_workbuddy_plugin
-
-        return install_workbuddy_plugin(source=source, ref=ref, server_url=server_url)
-    if name == "zcode":
-        from powercontext.cli.zcode import install_zcode_plugin
-
-        return install_zcode_plugin(
-            source=source,
-            ref=ref,
-            server_url=server_url or "http://127.0.0.1:8000",
-            capture_prompts=capture_prompts,
-            allow_insecure_http=allow_insecure_http,
-        )
-    raise SetupSelectError.unknown_host(name)
+    descriptor = HOST_GUIDANCE.get(name)
+    if descriptor is None or descriptor.installer is None:
+        raise SetupSelectError.unknown_host(name)
+    module_name, function_name = descriptor.installer.split(":")
+    installer = getattr(importlib.import_module(module_name), function_name)
+    options: dict[str, Any] = {"source": source, "ref": ref}
+    if descriptor.server_option:
+        use_default = server_url is None or (descriptor.empty_server_uses_default and not server_url)
+        options["server_url"] = descriptor.server_default if use_default else server_url
+    if descriptor.capture_prompts:
+        options["capture_prompts"] = capture_prompts
+    if descriptor.allow_insecure_http:
+        options["allow_insecure_http"] = allow_insecure_http
+    if descriptor.target_option and dsh_target:
+        options["target"] = dsh_target
+    return installer(**options)
 
 
 def verify_host(name: str) -> None:
