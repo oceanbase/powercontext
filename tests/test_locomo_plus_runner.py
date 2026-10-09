@@ -281,6 +281,98 @@ def test_query_only_honors_case_concurrency(tmp_path: Path, monkeypatch: pytest.
     assert json.loads((tmp_path / "run.json").read_text())["concurrency"] == 2
 
 
+@pytest.mark.parametrize("stop", ["cancel", "cancel-again", "collector"])
+def test_case_tasks_stop_before_model_resources_close(  # noqa: C901 - three shutdown scenarios
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stop: str
+):
+    async def scenario():  # noqa: C901
+        started = asyncio.Event()
+        cleaning = asyncio.Event()
+        release_cleanup = asyncio.Event()
+        active = 0
+        calls = 0
+        closed = False
+
+        async def close():
+            nonlocal closed
+            assert active == 0
+            closed = True
+
+        async def open_model(name, settings, resources):
+            resources.push_async_callback(close)
+            return name
+
+        async def generate(name, *, prompt, **kwargs):
+            nonlocal active, calls
+            assert not closed
+            calls += 1
+            usage = {"requests": 1, "input_tokens": 1, "output_tokens": 1, "messages": "[]"}
+            if name == "test-judge":
+                payload = json.loads(prompt)
+                output = (
+                    json.dumps({"claims": [payload["response"]]})
+                    if "response" in payload
+                    else ('{"label":"wrong","reason":"No recall.","prediction_support":"","historical_support":""}')
+                )
+                return output, usage
+            active += 1
+            ordinal = calls
+            if active == 2:
+                started.set()
+            try:
+                await started.wait()
+                if stop == "collector" and ordinal == 1:
+                    return "A walk might help.", usage
+                await asyncio.Event().wait()
+            finally:
+                cleaning.set()
+                if stop == "cancel-again":
+                    await release_cleanup.wait()
+                active -= 1
+
+        append = runner._append
+
+        def collect(path, row):
+            if stop == "collector" and row.get("status") == "ok":
+                raise OSError("collector failed")  # noqa: TRY003
+            append(path, row)
+
+        monkeypatch.setattr(runner, "open_model", open_model)
+        monkeypatch.setattr(runner, "generate", generate)
+        monkeypatch.setattr(runner, "_append", collect)
+        task = asyncio.create_task(
+            runner.run_benchmark(
+                _dataset(),
+                settings=_settings(),
+                output_directory=tmp_path,
+                run_id="stop",
+                judge_model="test-judge",
+                arm="query-only",
+                concurrency=2,
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=5)
+        if stop != "collector":
+            task.cancel()
+            if stop == "cancel-again":
+                await asyncio.wait_for(cleaning.wait(), timeout=5)
+                task.cancel()
+                await asyncio.sleep(0)
+                assert not closed
+                release_cleanup.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=5)
+        else:
+            await asyncio.wait_for(task, timeout=5)
+        assert closed
+        assert active == 0
+        final_calls = calls
+        await asyncio.sleep(0)
+        assert calls == final_calls
+
+    asyncio.run(scenario())
+
+
 class _CandidatePipeline:
     async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
         return tuple(
@@ -423,6 +515,48 @@ def test_memory_source_arm_captures_flushes_searches_and_expands_real_sqlite_sou
     assert not (reused_path / "state.sqlite3").exists()
     assert json.loads(reused_row["judge_projection"]["input"]["input"])["current_request"].endswith(row["question"])
 
+    chained_path = tmp_path / "chained"
+    chained = asyncio.run(
+        runner.run_benchmark(
+            _dataset(),
+            settings=_settings(),
+            output_directory=chained_path,
+            run_id="chained",
+            judge_model="test-judge",
+            arm="memory-source",
+            limit=1,
+            reuse_ingestion_directory=reused_path,
+        )
+    )
+    assert chained["overall"]["completed_count"] == 1, _rows(chained_path)
+    assert _rows(chained_path)[-1]["scope_id"] == row["scope_id"]
+    assert _rows(chained_path)[-1]["context"] == row["context"]
+    assert chained["ingestion"]["usage"]["requests"] == 0
+    assert not (chained_path / "state.sqlite3").exists()
+
+    # Missing backing state must be rejected before opening Runtime or model resources.
+    def unexpected_open(*args, **kwargs):
+        pytest.fail("an invalid donor must be rejected before resources are opened")
+
+    (tmp_path / "state.sqlite3").rename(tmp_path / "saved-state.sqlite3")
+    with monkeypatch.context() as patch:
+        patch.setattr(runner, "open_builtin_runtime", unexpected_open)
+        patch.setattr(runner, "open_model", unexpected_open)
+        with pytest.raises(ValueError, match="backing database is missing"):
+            asyncio.run(
+                runner.run_benchmark(
+                    _dataset(),
+                    settings=_settings(),
+                    output_directory=tmp_path / "missing-state",
+                    run_id="missing-state",
+                    judge_model="test-judge",
+                    arm="memory-source",
+                    limit=1,
+                    reuse_ingestion_directory=reused_path,
+                )
+            )
+    (tmp_path / "saved-state.sqlite3").rename(tmp_path / "state.sqlite3")
+
     with pytest.raises(ValueError, match="history mismatch"):
         asyncio.run(
             runner.run_benchmark(
@@ -456,6 +590,98 @@ def test_memory_source_arm_captures_flushes_searches_and_expands_real_sqlite_sou
     )
     assert mismatch["overall"]["failure_count"] == 1
     assert "generated_answer" not in _rows(tmp_path / "bad-snapshot")[-1]
+
+
+@pytest.mark.parametrize("failure", ["degraded", "provider-error", "generation"])
+def test_rerank_usage_survives_failed_attempt_and_retry(  # noqa: C901 - failed search and failed answer retries
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+):
+    from benchmark.locomo_plus.decision import AuditedDecisionModel, AuditedDecisionReranker, ConcurrentDecisionReranker
+    from powercontext.builtin.inference import InferenceUsage
+    from powercontext.builtin.runtime import DecisionOutcome, DecisionResult
+
+    retry = False
+
+    class Decision:
+        policy_id = "test.decision"
+
+        async def evaluate(self, request, /):
+            if not retry and failure == "provider-error":
+                raise RuntimeError("private provider failure")  # noqa: TRY003
+            return DecisionResult(
+                DecisionOutcome.YES,
+                self.policy_id,
+                InferenceUsage(requests=2 if retry else 3, input_tokens=20, output_tokens=5),
+                used_fallback=not retry and failure == "degraded",
+            )
+
+    custom = ConcurrentDecisionReranker(
+        AuditedDecisionReranker(AuditedDecisionModel(Decision(), tmp_path / "decisions.jsonl"), timeout_seconds=10),
+        tmp_path,
+    )
+
+    @asynccontextmanager
+    async def runtime_factory(config, *, memory_reranker=None):
+        async with open_builtin_runtime(
+            config.model_copy(update={"inference": InferenceConfig()}),
+            candidate_pipeline=_CandidatePipeline(),
+            embedding_model=_EmbeddingModel(),
+            memory_reranker=memory_reranker,
+        ) as runtime:
+            yield runtime
+
+    async def open_model(name, settings, resources):
+        async def respond(messages, info):
+            if not retry and failure == "generation":
+                raise RuntimeError("generation unavailable")  # noqa: TRY003
+            output = "A walk might help."
+            if name != "test-answer":
+                output = _judge_reply(
+                    messages, '{"label":"wrong","reason":"No recall.","prediction_support":"","historical_support":""}'
+                )
+            return ModelResponse(parts=[TextPart(output)])
+
+        return FunctionModel(respond, model_name=name)
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", runtime_factory)
+    monkeypatch.setattr(runner, "open_model", open_model)
+
+    async def run():
+        return await runner.run_benchmark(
+            _dataset(),
+            settings=_settings(),
+            output_directory=tmp_path,
+            run_id="rerank-retry",
+            judge_model="test-judge",
+            arm="memory",
+            limit=1,
+            memory_rerank=True,
+            rerank_model="test-decision",
+            memory_reranker=custom,
+            rerank_identity={"backend": "offline-decision"},
+        )
+
+    failed = asyncio.run(run())
+    assert failed["overall"]["failure_count"] == 1
+    failed_usage = _rows(tmp_path)[-1]["usage"]["rerank"]
+    assert failed_usage["requests"] == (None if failure == "provider-error" else 9 if failure == "generation" else 3)
+    retry = True
+    completed = asyncio.run(run())
+    assert completed["overall"]["completed_count"] == 1, _rows(tmp_path)
+    row = _rows(tmp_path)[-1]
+    expected_requests = None if failure == "provider-error" else 15 if failure == "generation" else 9
+    assert row["usage"]["rerank"]["requests"] == expected_requests
+    assert completed["usage"]["rerank"]["requests"] == expected_requests
+    assert len(row["usage_attempts"]["rerank"]) == 2
+    assert row["usage_attempts"]["rerank"][0] == failed_usage | {"model": "test-decision"}
+    assert row["usage_attempts"]["rerank"][1]["requests"] == 6
+    if failure == "provider-error":
+        assert row["usage"]["rerank"]["input_tokens"] is None
+        assert row["usage"]["rerank"]["cost_usd"] is None
+    decisions = [json.loads(line) for line in (tmp_path / "decisions.jsonl").read_text().splitlines()]
+    if failure != "provider-error":
+        assert sum(item["usage"]["requests"] for item in decisions) == expected_requests
+    assert "private provider failure" not in (tmp_path / "observations.jsonl").read_text()
 
 
 def test_generation_errors_are_redacted_and_not_judged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

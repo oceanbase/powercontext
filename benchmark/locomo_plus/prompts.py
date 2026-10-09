@@ -210,7 +210,7 @@ def _json_response(raw: str) -> Any:
 
 
 def parse_judge_response(
-    raw: str, category: int | str, *, support_data: Mapping[str, str] | None = None
+    raw: str, category: int | str, *, support_data: Mapping[str, str | Sequence[str]] | None = None
 ) -> dict[str, str | float]:
     """Parse a valid structured judgment; invalid output is a judge failure, not zero."""
 
@@ -234,7 +234,9 @@ def parse_judge_response(
     return result
 
 
-def _validate_support(payload: Mapping[str, Any], data: Mapping[str, str], label: str) -> dict[str, str]:
+def _validate_support(
+    payload: Mapping[str, Any], data: Mapping[str, str | Sequence[str]], label: str
+) -> dict[str, str]:
     supports = {}
     for field, source in (("prediction_support", "prediction"), ("historical_support", "evidence")):
         support = payload.get(field)
@@ -244,8 +246,11 @@ def _validate_support(payload: Mapping[str, Any], data: Mapping[str, str], label
             raise ValueError("Correct judgment requires supporting spans")  # noqa: TRY003
         # Only a credited answer relies on supporting spans. Preserve a negative
         # verdict's annotations verbatim, including provider placeholders like "empty".
-        if label == "correct" and support and _quote_key(support) not in _quote_key(data[source]):
-            raise ValueError("Judge support must quote the supplied text exactly")  # noqa: TRY003
+        if label == "correct":
+            supplied = data[source]
+            spans = (supplied,) if isinstance(supplied, str) else supplied
+            if not any(_quote_key(support) in _quote_key(span) for span in spans):
+                raise ValueError("Judge support must quote the supplied text exactly")  # noqa: TRY003
         supports[field] = support
     return supports
 
@@ -280,7 +285,7 @@ def replay_judgment(saved_input: Mapping[str, Any], raw: str) -> dict[str, str |
         and saved_input["category"] == "Cognitive"
     ):
         support_data = {
-            "prediction": "\n".join(support_data["candidate_claims"]),
+            "prediction": support_data["candidate_claims"],
             "evidence": support_data["historical_evidence"],
         }
     return parse_judge_response(raw, saved_input["category"], support_data=support_data)

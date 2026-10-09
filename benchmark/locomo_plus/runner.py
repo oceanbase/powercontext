@@ -54,7 +54,7 @@ from powercontext.builtin.scope import ScopeDraft
 from powercontext.server.settings import ServerSettings
 
 from .dataset import LoCoMoPlusCase, LoCoMoPlusDataset, render_case_session
-from .decision import CURRENT_DECISION_CASE
+from .decision import CURRENT_DECISION_CASE, CURRENT_RERANK_USAGE
 from .metrics import render_summary, summarize_observations
 from .models import generate, open_model
 from .prompts import (
@@ -384,6 +384,28 @@ def _reuse_ingestion(directory, cases, plan, configuration):
     return scopes, records, identity
 
 
+def _reused_sqlite_database(directory: Path) -> Path:
+    """Follow authenticated donor links instead of creating a database in a reuse run."""
+    visited: set[Path] = set()
+    while True:
+        directory = directory.resolve()
+        if directory in visited:
+            raise ValueError("SQLite ingestion reuse contains a donor cycle")  # noqa: TRY003
+        visited.add(directory)
+        manifest = json.loads((directory / "run.json").read_text(encoding="utf-8"))
+        parent = manifest.get("reused_ingestion")
+        if parent is None:
+            database = directory / "state.sqlite3"
+            if not database.is_file():
+                raise ValueError("SQLite ingestion reuse backing database is missing")  # noqa: TRY003
+            return database
+        directory = Path(parent["directory"])
+        for name, digest_key in (("run.json", "run_sha256"), ("ingestion.json", "ingestion_sha256")):
+            value = json.loads((directory / name).read_text(encoding="utf-8"))
+            if _digest(value) != parent[digest_key]:
+                raise ValueError("SQLite ingestion reuse donor identity changed")  # noqa: TRY003
+
+
 async def _reuse_page(runtime, scope, sessions, donor_record, directory, records, cache, donor_directory):
     if scope in cache:
         return cache[scope]
@@ -545,6 +567,23 @@ async def _recall_usage(runtime, scope):
     ])
 
 
+def _record_rerank_usage(observation, usages, trace, retrieved, model, prices):
+    # Audits include failed/degraded decisions. Uninstrumented failures retain
+    # unknown usage; a successful search without reranking consumed zero calls.
+    if usages:
+        usage = _sum_usage(usages)
+    elif trace is not None:
+        usage = trace.get("usage") or {}
+    else:
+        usage = dict.fromkeys(("requests", "input_tokens", "output_tokens"), 0 if retrieved else None)
+    attempts = observation.setdefault("usage_attempts", {}).setdefault("rerank", [])
+    if not attempts and "rerank" in observation["usage"]:
+        attempts.append(observation["usage"]["rerank"])
+    attempts.append({})
+    _finish_usage(observation, "rerank", usage, model, prices)
+    observation["usage"]["rerank"]["model"] = model
+
+
 async def _retrieve(runtime, case, page, scope, sessions, top_k, source_expansion):
     result = await runtime.memory.for_scope(scope).search(
         SearchMemoryRequest(query=case.question, limit=top_k, mode="hybrid")
@@ -597,6 +636,7 @@ async def _evaluate(
     reuse_directory,
     reuse_cache,
     rerank_model_id,
+    memory_rerank,
 ):
     started = perf_counter()
     phase = "infrastructure"
@@ -662,16 +702,24 @@ async def _evaluate(
                     queried = perf_counter()
                     before = await _recall_usage(runtime, scope)
                     _start_usage(observation, "retrieval", settings.inference.embedding_model, prices)
-                    context, hits, selected_ids, retrieval, rerank_trace = await _retrieve(
-                        runtime, case, page, scope, sessions, top_k, arm == "memory-source"
-                    )
-                    observation["rerank"] = rerank_trace
-                    if rerank_trace is not None:
-                        observation["usage"]["rerank"] = _cost(
-                            rerank_trace.get("usage") or {"requests": 1, "input_tokens": None, "output_tokens": None},
-                            rerank_model_id,
-                            prices,
+                    rerank_usages: list[dict[str, Any]] = []
+                    usage_token = CURRENT_RERANK_USAGE.set(rerank_usages)
+                    rerank_trace = None
+                    retrieved = False
+                    try:
+                        context, hits, selected_ids, retrieval, rerank_trace = await _retrieve(
+                            runtime, case, page, scope, sessions, top_k, arm == "memory-source"
                         )
+                        retrieved = True
+                        observation["rerank"] = rerank_trace
+                    finally:
+                        CURRENT_RERANK_USAGE.reset(usage_token)
+                        if memory_rerank:
+                            _record_rerank_usage(
+                                observation, rerank_usages, rerank_trace, retrieved, rerank_model_id, prices
+                            )
+                            observation["status"] = "pending_retrieval"
+                            _append(output_directory / "observations.jsonl", observation)
                     observation["latency_ms"]["query"] = (perf_counter() - queried) * 1_000
                     after = await _recall_usage(runtime, scope)
                     usage = {
@@ -937,7 +985,9 @@ async def run_benchmark(  # noqa: C901
         )
         manifest["reused_ingestion"] = identity
         if database == "sqlite":
-            selected_database = SQLiteConfig(url=f"sqlite+aiosqlite:///{reuse_ingestion_directory / 'state.sqlite3'}")
+            backing_database = _reused_sqlite_database(reuse_ingestion_directory)
+            manifest["reused_ingestion"]["sqlite_database"] = str(backing_database)
+            selected_database = SQLiteConfig(url=f"sqlite+aiosqlite:///{backing_database}")
     manifest_path = output_directory / "run.json"
     if manifest_path.exists() and json.loads(manifest_path.read_text(encoding="utf-8")) != manifest:
         raise ValueError("run identity changed; use a new output directory")  # noqa: TRY003
@@ -1043,15 +1093,31 @@ async def run_benchmark(  # noqa: C901
                         reuse_directory=reuse_ingestion_directory,
                         reuse_cache=reuse_cache,
                         rerank_model_id=effective_rerank_model,
+                        memory_rerank=memory_rerank,
                     )
 
             tasks = tuple(asyncio.create_task(evaluate(case)) for case in _fair_cases(pending))
-            for index, task in enumerate(asyncio.as_completed(tasks), 1):
-                row = await task
-                _append(output_directory / "observations.jsonl", row)
-                if index % 10 == 0 or index == len(pending):
-                    _summarize(output_directory)
-                print(f"[{index}/{len(pending)}] {row['case_id']}: {row['status']}")
+            try:
+                for index, task in enumerate(asyncio.as_completed(tasks), 1):
+                    row = await task
+                    _append(output_directory / "observations.jsonl", row)
+                    if index % 10 == 0 or index == len(pending):
+                        _summarize(output_directory)
+                    print(f"[{index}/{len(pending)}] {row['case_id']}: {row['status']}")
+            finally:
+                # Resources must outlive every case, including collector failure and cancellation.
+                for task in tasks:
+                    if not task.done() and not task.cancelling():
+                        task.cancel()
+                drained = asyncio.gather(*tasks, return_exceptions=True)
+                cancelled = False
+                while not drained.done():
+                    try:
+                        await asyncio.shield(drained)
+                    except asyncio.CancelledError:
+                        cancelled = True
+                if cancelled:
+                    raise asyncio.CancelledError
     except Exception as error:
         observed = _observations(output_directory / "observations.jsonl")
         for case in pending:

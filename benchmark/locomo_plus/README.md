@@ -284,6 +284,10 @@ Credentials and the environment database URL are not included in run manifests. 
 database but use run-isolated benchmark scopes; changing the run ID creates a new logical namespace. Reuse the same run ID and output
 location with the same settings to resume. Successful cases are retained; failed cases are retried. A judge-only
 failure reuses the frozen generated answer. Configuration or dataset changes require a separate run.
+Cancellation and result-collection failures cancel and await every case task before model and Runtime resources
+are closed. Rerank usage is checkpointed per retrieval attempt and accumulated across retries, including failed
+searches and searches followed by generation failures. Audited decision backends retain reported usage even when
+a decision is degraded; unreported provider request or token counts remain unknown.
 The run command exits with status `1` if cases fail to execute or remain unobserved. A completed evaluation with an
 incorrect model answer still exits with status `0`; answer quality is recorded in the report.
 
@@ -327,6 +331,8 @@ It does not capture or extract Sources again. OceanBase reuse keeps the tenant's
 and uses the API-only role to prevent supervisor execution; SQLite reuse disables processing Families instead
 because its role must remain `all`. Use a new output directory and run ID for each treatment. SQLite
 reuse opens the donor database; OceanBase reuse uses the configured tenant and the donor's exact scope IDs.
+For chained SQLite reuse (A to B to C), the runner verifies each saved donor link and opens A's backing database,
+not a new database in B. Missing databases or changed donor identities are rejected before opening resources.
 Keep the donor's Sources and Memory unchanged during a comparison. Recall statistics still accumulate in that
 database; the new run records only its own retrieval usage and zero ingestion usage.
 
@@ -341,8 +347,10 @@ experiences. Judge protocol v7 recognizes equivalent normalized dates. For Cogni
 specific claims added by the answer beyond the current request, without access to historical evidence. A second
 call compares those claims to the historical evidence. This isolates present-situation paraphrases from Memory
 use. Both stages are saved; copied claims and positive verdicts' supporting quotes are validated against their
-original texts (case, whitespace and terminal punctuation are normalized). Negative verdict annotations are
-preserved verbatim and do not establish a positive claim. A malformed projection or fabricated credited quote is a
+original texts (case, whitespace and terminal punctuation are normalized). Each positive prediction-support span
+must occur within one individual projected claim; joining separate claims cannot establish a supporting quote.
+Negative verdict annotations are preserved verbatim and do not establish a positive claim.
+A malformed projection or fabricated credited quote is a
 judge failure, never a wrong-answer score. Judge retries reuse a valid frozen projection. A single true historical
 connection can earn credit even if the answer also contains unrelated details. The projection adds one Judge
 request per Cognitive case and is recorded separately in usage. Older frozen judgments remain replayable with

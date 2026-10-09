@@ -58,6 +58,27 @@ def test_binary_categories_reject_partial_as_judge_failure(category: int) -> Non
 def test_invalid_judge_text_is_never_converted_to_a_wrong_or_correct_answer() -> None:
     with pytest.raises(ValueError, match="JSON object"):
         parse_judge_response("The answer is incorrect, but I cannot return JSON.", 6)
+
+
+@pytest.mark.parametrize("support", ["you had an ankle fracture", "you had\nan ankle fracture"])
+def test_judge_support_cannot_bridge_individual_claims(support: str) -> None:
+    frozen = build_judge_input(
+        category=6,
+        evidence="You had an ankle fracture.",
+        prediction="you had a cold, while your brother had an ankle fracture",
+        question="I walked to work today",
+        memory_claims=["you had", "an ankle fracture"],
+    )
+    verdict = {
+        "label": "correct",
+        "reason": "Recalls the injury.",
+        "prediction_support": support,
+        "historical_support": "You had an ankle fracture.",
+    }
+    with pytest.raises(ValueError, match="support must quote"):
+        replay_judgment(frozen, json.dumps(verdict))
+    verdict["prediction_support"] = "an ankle fracture"
+    assert replay_judgment(frozen, json.dumps(verdict))["score"] == 1
     with pytest.raises(ValueError, match="Invalid judge label"):
         parse_judge_response('{"label":"unknown","reason":"API failed."}', 6)
     result = parse_judge_response('```json\n{"label":"wrong","reason":"No connection."}\n```', 6)

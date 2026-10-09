@@ -47,6 +47,8 @@ from .memory_reranking import DecisionMemoryReranker
 from .models import open_model
 
 CURRENT_DECISION_CASE: ContextVar[str | None] = ContextVar("locomo_plus_decision_case", default=None)
+# A mutable, search-local sink also works when Runtime invokes the reranker in a child task.
+CURRENT_RERANK_USAGE: ContextVar[list[dict[str, Any]] | None] = ContextVar("locomo_plus_rerank_usage", default=None)
 
 
 class AuditedDecisionModel:
@@ -88,7 +90,7 @@ class AuditedDecisionModel:
                 acquired = True
             admitted = perf_counter()
             row["queue_ms"] = (admitted - started) * 1000
-            row["usage"] = {"requests": 1, "input_tokens": None, "output_tokens": None}
+            row["usage"] = {"requests": None, "input_tokens": None, "output_tokens": None}
             result = await self.delegate.evaluate(request)
             row.update({
                 "outcome": result.outcome.value,
@@ -201,10 +203,15 @@ class AuditedDecisionReranker:
             self.trace["latency_ms"] = (perf_counter() - started) * 1000
 
     def snapshot(self) -> dict[str, Any]:
+        usage = {}
+        for key in ("requests", "input_tokens", "output_tokens"):
+            values = [row["usage"].get(key) for row in self.model.records]
+            usage[key] = None if None in values else sum(values)
         return {
             **self.trace,
             "decision_count": len(self.model.records),
-            "requests": sum(row["usage"]["requests"] for row in self.model.records),
+            "requests": usage["requests"],
+            "usage": usage,
             "decisions": sorted(self.model.records, key=lambda row: row["sequence"]),
         }
 
@@ -226,8 +233,12 @@ class ConcurrentDecisionReranker:
         try:
             return await reranker.rerank(query, candidates, limit)
         finally:
+            snapshot = reranker.snapshot()
+            usage_sink = CURRENT_RERANK_USAGE.get()
+            if usage_sink is not None:
+                usage_sink.append(snapshot["usage"])
             with (self.directory / "decision-searches.jsonl").open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps({"case_id": case_id, **reranker.snapshot()}, ensure_ascii=False) + "\n")
+                stream.write(json.dumps({"case_id": case_id, **snapshot}, ensure_ascii=False) + "\n")
 
 
 async def open_decision_reranker(
