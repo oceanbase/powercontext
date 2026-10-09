@@ -38,6 +38,8 @@ jobs:
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
 
       - name: Install the built distribution in a fresh virtual environment
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
         shell: bash
         run: |
           uv build --wheel
@@ -51,6 +53,16 @@ jobs:
           --junitxml "$RUNNER_TEMP/powercontext-native-linux.xml"
           --basetemp "$RUNNER_TEMP/powercontext-native-tests"
           tests/native/test_personal_service_lifecycle.py
+
+      - name: Exercise script installation and service reconciliation
+        env:
+          POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/powercontext-1.2.0-py3-none-any.whl
+        shell: bash
+        run: >-
+          .native-venv/bin/python -m pytest -q
+          --junitxml "$RUNNER_TEMP/installer-service.xml"
+          --basetemp "$RUNNER_TEMP/installer-service-tests"
+          tests/native/test_service_installation.py
 
       - name: Report Linux lifecycle failures
         if: failure()
@@ -70,7 +82,10 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: linux-native-service-logs
-          path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
+          path: |
+            ${{ runner.temp }}/powercontext-native-tests/**/logs/*
+            ${{ runner.temp }}/installer-service-tests/**/*.log
+            ${{ runner.temp }}/installer-service.xml
           if-no-files-found: ignore
 
   macos-launchagent:
@@ -89,6 +104,8 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Install the built distribution in a fresh virtual environment
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
         shell: bash
         run: |
           uv build --wheel
@@ -104,6 +121,16 @@ jobs:
           --junitxml "$RUNNER_TEMP/powercontext-native-macos.xml"
           --basetemp "$RUNNER_TEMP/powercontext-native-tests"
           tests/native/test_personal_service_lifecycle.py
+
+      - name: Exercise script installation and service reconciliation
+        env:
+          POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/powercontext-1.2.0-py3-none-any.whl
+        shell: bash
+        run: >-
+          .native-venv/bin/python -m pytest -q
+          --junitxml "$RUNNER_TEMP/installer-service.xml"
+          --basetemp "$RUNNER_TEMP/installer-service-tests"
+          tests/native/test_service_installation.py
 
       - name: Report macOS lifecycle failures
         if: failure()
@@ -121,7 +148,10 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: macos-native-service-logs
-          path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
+          path: |
+            ${{ runner.temp }}/powercontext-native-tests/**/logs/*
+            ${{ runner.temp }}/installer-service-tests/**/*.log
+            ${{ runner.temp }}/installer-service.xml
           if-no-files-found: ignore
 
   windows-task-scheduler:

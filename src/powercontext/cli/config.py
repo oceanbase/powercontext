@@ -28,7 +28,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Never
 from urllib.parse import urlsplit
@@ -139,35 +138,15 @@ API_PROTOCOLS = (
 _PROTOCOL_BY_ID = {protocol.identifier: protocol for protocol in API_PROTOCOLS}
 
 
-AGENTS: dict[str, tuple[str, str, str]] = {
-    "codex": ("Codex", "powercontext setup codex --source oceanbase/powercontext --ref master", "codex"),
-    "claude-code": (
-        "Claude Code",
-        "powercontext setup claude-code --source oceanbase/powercontext --ref master",
-        "claude",
-    ),
-    "dsh": ("DeepSeek Harness", "powercontext setup dsh --source oceanbase/powercontext --ref master", "dsh web"),
-    "opencode": (
-        "OpenCode",
-        "powercontext setup opencode --source oceanbase/powercontext --ref master",
-        "opencode",
-    ),
-    "pi": ("Pi", "powercontext setup pi --source oceanbase/powercontext --ref master", "pi"),
-    "openclaw": (
-        "OpenClaw",
-        "powercontext setup openclaw --source oceanbase/powercontext --ref master",
-        "openclaw",
-    ),
-    "hermes": (
-        "Hermes",
-        "powercontext setup hermes --source oceanbase/powercontext --ref master",
-        "hermes",
-    ),
-    "workbuddy": (
-        "WorkBuddy",
-        "powercontext setup workbuddy --source oceanbase/powercontext --ref master",
-        "重启 WorkBuddy",
-    ),
+AGENTS: dict[str, tuple[str, str]] = {
+    "codex": ("Codex", "codex"),
+    "claude-code": ("Claude Code", "claude"),
+    "dsh": ("DeepSeek Harness", "dsh web"),
+    "opencode": ("OpenCode", "opencode"),
+    "pi": ("Pi", "pi"),
+    "openclaw": ("OpenClaw", "openclaw"),
+    "hermes": ("Hermes", "hermes"),
+    "workbuddy": ("WorkBuddy", "重启 WorkBuddy"),
 }
 
 # Input hints only, not a provider allowlist. Unknown prefixes can attach arbitrary variables.
@@ -288,13 +267,18 @@ def init_command(
     template: Annotated[
         bool, typer.Option("--template", help="Use the basic model-free template instead of the guided setup.")
     ] = False,
+    require_write: Annotated[
+        bool, typer.Option(help="Exit with status 130 if configuration is cancelled without saving.")
+    ] = False,
 ) -> None:
     """Create a working configuration through a short guided setup."""
 
     if not template:
         from powercontext.cli.config_wizard import run_wizard
 
-        run_wizard(output, language=None if language is None else language.value, advanced=advanced)
+        written = run_wizard(output, language=None if language is None else language.value, advanced=advanced)
+        if require_write and not written:
+            raise typer.Exit(130)
         return
 
     if output.exists() and not force:
@@ -307,6 +291,8 @@ def init_command(
         content = update_environment_document(existing, configuration)
         if not _confirm_environment_write(output, existing=existing, updated=content):
             typer.echo("No changes written.")
+            if require_write:
+                raise typer.Exit(130)
             return
         backup = write_environment(output, content, backup=output.exists())
     except (ConfigError, EnvironmentFileError, OSError, UnicodeError, ValidationError) as error:
@@ -1025,7 +1011,11 @@ def _removes_inference_configuration(existing: str, updated: str) -> bool:
 
 
 def _print_next_steps(path: Path) -> None:
+    from powercontext.cli.config_startup import server_startup_commands
+    from powercontext.cli.config_wizard_installation import installation_source
+
     quoted = shlex.quote(str(path.resolve()))
+    source = installation_source(Path(__file__))
     typer.secho("\nEnvironment file", bold=True, fg=typer.colors.CYAN)
     typer.echo(f"  Path          {path.resolve()} (mode 0600)")
     typer.echo("  Authentication disabled by default.")
@@ -1033,17 +1023,22 @@ def _print_next_steps(path: Path) -> None:
         "  If Bearer authentication is enabled, read POWERCONTEXT_SERVER_AUTH_TOKEN from this file;"
         " the value is never printed."
     )
-    typer.echo(f"\nStart Server:\n  powercontext server run --env-file {quoted}")
+    typer.echo("\nStart Server:")
+    for command in server_startup_commands(
+        path.resolve(),
+        host=parse_environment(path.read_text(encoding="utf-8")).get("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.1"),
+    ):
+        typer.echo(f"  {command}")
     write_inference_capability_notice(generation_model=None, embedding_model=None)
     typer.secho("\nSupported Coding Agents (choose one):", bold=True, fg=typer.colors.CYAN)
-    for host, (name, setup, launch) in AGENTS.items():
-        if host == "dsh":
-            installed = version("powercontext")
-            setup = (
-                f"powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v{installed}"
-                if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", installed)
-                else "powercontext setup dsh --source /path/to/matching-powercontext-checkout"
-            )
+    for host, (name, launch) in AGENTS.items():
+        setup = f"powercontext setup --env-file {quoted} {host}"
+        if source is None:
+            setup += " --help"
+        else:
+            setup += f" --source {shlex.quote(source.source)}"
+            if source.ref:
+                setup += f" --ref {shlex.quote(source.ref)}"
         typer.echo(f"\n{name}:\n  {setup}")
         if launch.startswith("重启"):
             typer.echo(f"  {launch}")

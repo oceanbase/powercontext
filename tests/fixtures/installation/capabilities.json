@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "missing-root-help",
+      "args": [
+        "--no-hosts"
+      ],
+      "missing_commands": [
+        ""
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "server_extra": true,
+        "verification_failed": true,
+        "error_contains": "Package installed, but"
+      }
+    },
+    {
+      "id": "missing-capabilities",
+      "args": [
+        "--no-hosts"
+      ],
+      "missing_commands": [
+        "capabilities"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "server_extra": true,
+        "verification_failed": true,
+        "error_contains": "Package installed, but"
+      }
+    },
+    {
+      "id": "runtime-without-optional-setup",
+      "args": [
+        "--no-hosts"
+      ],
+      "missing_commands": [
+        "setup select"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "server_extra": true
+      }
+    },
+    {
+      "id": "missing-config-init",
+      "args": [
+        "--no-hosts"
+      ],
+      "missing_commands": [
+        "config init"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "server_extra": true,
+        "verification_failed": true,
+        "error_contains": "Package installed, but"
+      }
+    },
+    {
+      "id": "missing-server-run",
+      "args": [
+        "--no-hosts"
+      ],
+      "missing_commands": [
+        "server run"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "server_extra": true,
+        "verification_failed": true,
+        "error_contains": "Package installed, but"
+      }
+    },
+    {
+      "id": "client-does-not-require-local-commands",
+      "args": [
+        "--profile",
+        "client",
+        "--no-hosts"
+      ],
+      "missing_commands": [
+        "config init",
+        "server run"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "server_extra": false
+      }
+    },
+    {
+      "id": "exact-version-report-mismatch",
+      "args": [
+        "--version",
+        "1.2.0",
+        "--no-hosts"
+      ],
+      "reported_version": "9.9.9",
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "server_extra": true,
+        "verification_failed": true,
+        "error_contains": "differs from the requested release"
+      }
+    }
+  ]
+}

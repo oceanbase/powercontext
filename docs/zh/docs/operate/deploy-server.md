@@ -14,7 +14,7 @@ Windows 支持为 `experimental`。
 
 ## 运行持久个人 Server
 
-安装并启动可选的当前用户服务：
+个人 macOS/Linux 推荐安装当前用户服务；注册保持显式操作：
 
 ```bash
 powercontext service install
@@ -38,6 +38,8 @@ loopback Server。
 chmod 600 /path/to/powercontext.env
 powercontext config validate --env-file /path/to/powercontext.env
 powercontext service install --env-file /path/to/powercontext.env
+powercontext service status
+powercontext doctor --env-file /path/to/powercontext.env
 ```
 
 安装成功后的摘要会显示实际使用的环境文件路径。若启用了 Bearer 鉴权，请从该文件中的
@@ -53,7 +55,9 @@ icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "${env:USERNAME
 
 原生定义只记录环境文件的绝对路径和不含内容的文件 identity metadata；在 Windows 上还记录当前用户的 owner SID，
 launcher 每次启动都会重新校验它。不复制 credential 或调用者的 shell environment。
-升级 PowerContext 或修改环境文件后应重新执行 `service install`。以下命令会删除注册，但保留 Server 数据和日志：
+升级 PowerContext 或修改环境文件（包括共享文件中的 Agent Scope ID）后，使用原路径重新执行 `service install --env-file`。
+省略 `--env-file` 不会复用已注册文件。`service status` 检查 manager 和存活状态，`doctor --env-file` 还检查就绪状态。
+需要停止 Server 的升级，先使用 `service uninstall`，该命令保留数据。以下命令会删除注册，但保留 Server 数据和日志：
 
 ```bash
 powercontext service uninstall

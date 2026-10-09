@@ -9,12 +9,26 @@ Remote deployments should use HTTPS. IPv4/IPv6 loopback HTTP (including `localho
 PowerContext-owned clients reject other HTTP URLs unless you explicitly opt in. Private IP addresses and VPN
 addresses are still non-loopback: a private network does not itself encrypt HTTP.
 
+## Install the Client CLI
+
+Use the installation script on the machine running your Agent. It provisions uv and Python if needed, and installs
+the latest stable CLI and Client without local Server dependencies:
+
+```bash
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --profile client
+```
+
+For Windows PowerShell, exact versions, and mirrors, see [Install and run](../get-started/install-and-run.md).
+Apply the printed PATH command, then set `POWERCONTEXT_CLIENT_SERVER_URL` and, when required,
+`POWERCONTEXT_CLIENT_API_TOKEN` in the client environment. Use `powercontext ready` to check the remote Server.
+The local Server configuration wizard requires the `local` installation profile.
+
 ## Guided setup
 
 Use the same source/ref for the installed PowerContext tool and the integration. On the machine that runs your agent:
 
 ```bash
-powercontext setup claude-code --source oceanbase/powercontext --ref master \
+powercontext setup claude-code --source oceanbase/powercontext --ref "powercontext-v$(powercontext --version)" \
   --server-url http://192.0.2.10:8000
 ```
 

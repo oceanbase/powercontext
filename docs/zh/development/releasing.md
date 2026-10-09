@@ -54,13 +54,13 @@ beta 和 RC 跳过网站条目检查。`make docs-test` 也会通过网站测试
 | --- | --- |
 | `openapi/powercontext.yaml` | `info.version`，作为待发布版本。 |
 | `src/powercontext/http/_generated/` | `operations.py` 的 `API_VERSION` 和 `schema.py` 的 `info.version`，通过 `make api-generate` 重新生成。 |
-| `README.md`、`README_CN.md`、`README_JP.md` | 当前版本介绍、固定包版本的安装命令及配套 Agent 集成 tag。 |
-| `docs/en/docs/get-started/quickstart.md`、`docs/zh/docs/get-started/quickstart.md` | 当前版本介绍及匹配的安装命令、tag。 |
-| `docs/en/docs/get-started/install-and-run.md`、`docs/zh/docs/get-started/install-and-run.md` | 页面描述、当前版本介绍、包版本和 tag、升级目标及 Python Client 安装命令。 |
+| `docs/en/docs/get-started/install-and-run.md`、`docs/zh/docs/get-started/install-and-run.md` | 显式版本示例、包版本和 tag，以及 Python Client 安装命令。 |
 | `integrations/dsh/plugins/powercontext/README.md` | Server 安装版本及对应的 `setup dsh --ref` tag。 |
 
 安装指南也包含历史迁移版本，这些引用会保留。新增表示当前发布版本的安装示例时，应同时将其纳入版本工具的
 管理路径及匹配规则，使下次发布可以自动更新和检查。
+
+README 和快速开始通过脚本安装最新稳定版，并从实际安装的 CLI 派生集成 tag。版本更新保留这些说明及独立的 uv 引导版本。
 
 ### 从其他来源派生的版本
 

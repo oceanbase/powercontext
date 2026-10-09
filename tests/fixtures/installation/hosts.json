@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "unattended-default",
+      "args": [],
+      "git": false,
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [],
+        "server_extra": true
+      }
+    },
+    {
+      "id": "compatibility-no-hosts",
+      "args": [
+        "--no-hosts"
+      ],
+      "git": false,
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [],
+        "server_extra": true
+      }
+    },
+    {
+      "id": "client-profile",
+      "args": [
+        "--profile",
+        "client"
+      ],
+      "git": false,
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [],
+        "server_extra": false
+      }
+    },
+    {
+      "id": "explicit-hosts",
+      "args": [
+        "--host",
+        "codex",
+        "--host",
+        "claude"
+      ],
+      "git": true,
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex",
+          "claude"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "server_extra": true
+      }
+    },
+    {
+      "id": "host-partial-failure",
+      "args": [
+        "--host",
+        "codex"
+      ],
+      "git": true,
+      "setup_exit": 17,
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "server_extra": true,
+        "error_contains": "Runtime installed, but integration setup did not complete"
+      }
+    },
+    {
+      "id": "host-choice-conflict",
+      "args": [
+        "--host",
+        "codex",
+        "--no-hosts"
+      ],
+      "git": true,
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "selected_hosts": [],
+        "error_contains": "--host and --no-hosts cannot be combined"
+      }
+    },
+    {
+      "id": "explicit-host-needs-git",
+      "args": [
+        "--host",
+        "codex"
+      ],
+      "git": false,
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "selected_hosts": [],
+        "error_contains": "requires Git"
+      }
+    }
+  ]
+}

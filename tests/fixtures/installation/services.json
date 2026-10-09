@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "service-existing-file",
+      "environment_file": true,
+      "args": [
+        "--service",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "service": true,
+        "doctor": true
+      }
+    },
+    {
+      "id": "service-registration-failure",
+      "environment_file": true,
+      "args": [
+        "--service",
+        "--env-file",
+        "{env_file}"
+      ],
+      "service_exit": 1,
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "service": true,
+        "error_contains": "personal service setup did not complete"
+      }
+    },
+    {
+      "id": "service-readiness-failure",
+      "environment_file": true,
+      "args": [
+        "--service",
+        "--env-file",
+        "{env_file}"
+      ],
+      "doctor_exit": 1,
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "service": true,
+        "doctor": true,
+        "error_contains": "Server diagnostics did not pass"
+      }
+    },
+    {
+      "id": "invalid-service-configuration",
+      "environment_file": true,
+      "args": [
+        "--service",
+        "--env-file",
+        "{env_file}"
+      ],
+      "validate_exit": 2,
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "error_contains": "configuration validation failed"
+      }
+    },
+    {
+      "id": "service-and-host-use-same-file",
+      "environment_file": true,
+      "git": true,
+      "args": [
+        "--service",
+        "--env-file",
+        "{env_file}",
+        "--host",
+        "codex"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "service": true,
+        "doctor": true,
+        "selected_hosts": [
+          "codex"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "setup_env_file": true
+      }
+    },
+    {
+      "id": "client-rejects-local-service",
+      "environment_file": true,
+      "args": [
+        "--profile",
+        "client",
+        "--service",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "error_contains": "require --profile local"
+      }
+    },
+    {
+      "id": "service-requires-explicit-file",
+      "args": [
+        "--service"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "error_contains": "require --env-file"
+      }
+    },
+    {
+      "id": "service-requires-existing-file",
+      "args": [
+        "--service",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "error_contains": "existing file"
+      }
+    },
+    {
+      "id": "configuration-requires-terminal",
+      "args": [
+        "--configure",
+        "--service",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "error_contains": "requires a terminal"
+      }
+    },
+    {
+      "id": "piped-configuration-and-service",
+      "terminal": true,
+      "args": [
+        "--configure",
+        "--service",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "configuration_saved": true,
+        "service": true,
+        "doctor": true
+      }
+    },
+    {
+      "id": "cancelled-configuration-stops-service",
+      "terminal": true,
+      "config_exit": 130,
+      "args": [
+        "--configure",
+        "--service",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "configuration_saved": false,
+        "error_contains": "configuration did not complete"
+      }
+    },
+    {
+      "id": "existing-configuration-cancellation-stops-hosts",
+      "terminal": true,
+      "environment_file": true,
+      "git": true,
+      "config_exit": 130,
+      "args": [
+        "--configure",
+        "--service",
+        "--env-file",
+        "{env_file}",
+        "--host",
+        "codex"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "selected_hosts": [],
+        "error_contains": "configuration did not complete"
+      }
+    }
+  ]
+}

@@ -36,11 +36,11 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
-import click
 import typer
 from pydantic import ValidationError
 
 from powercontext.cli.dsh_runtime import DshProfile, resolve_dsh_target
+from powercontext.cli.env_file import EnvironmentFileError, environment_context, read_environment_file
 from powercontext.cli.hosts import setup_host, stdin_is_tty
 from powercontext.cli.transport import add_transport_diagnostic, is_remote_http
 from powercontext.client.settings import normalize_server_url
@@ -607,7 +607,7 @@ def setup_dsh(
     try:
         if profile is None:
             profile = (
-                DshProfile(typer.prompt("DSH profile", default="web", type=click.Choice(["web", "desktop"])))
+                DshProfile(typer.prompt("DSH profile (web/desktop)", default="web", type=DshProfile))
                 if not json_output and stdin_is_tty()
                 else DshProfile.WEB
             )
@@ -1037,7 +1037,6 @@ def doctor(
     server_url: Annotated[
         str | None,
         typer.Option(
-            envvar="POWERCONTEXT_CLIENT_SERVER_URL",
             help="PowerContext Server base URL.",
         ),
     ] = None,
@@ -1051,12 +1050,27 @@ def doctor(
         bool,
         typer.Option("--json", help="Write the result as JSON."),
     ] = False,
+    env_file: Annotated[
+        Path | None,
+        typer.Option(help="Diagnose the Server defined in this environment file, independently of shell defaults."),
+    ] = None,
 ) -> None:
     """Check the installed package and configured Server."""
 
     if context.invoked_subcommand is not None:
+        if env_file is not None:
+            message = "Run doctor without a subcommand."
+            raise typer.BadParameter(message, param_hint="--env-file")
         return
-    diagnostics = run_diagnostics(server_url=server_url, allow_insecure_http=allow_insecure_http)
+    try:
+        diagnostics = (
+            run_diagnostics(server_url=server_url, allow_insecure_http=allow_insecure_http)
+            if env_file is None
+            else run_environment_diagnostics(env_file, server_url=server_url, allow_insecure_http=allow_insecure_http)
+        )
+    except (EnvironmentFileError, OSError, ValueError) as error:
+        typer.echo("Cannot diagnose the environment file; check its path, assignments, and Server settings.", err=True)
+        raise typer.Exit(2) from error
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)
@@ -1446,6 +1460,37 @@ def install_claude_code_plugin(
         data_dir=plan["data_dir"],
         authorization_state=authorization_state,
     )
+
+
+def run_environment_diagnostics(
+    path: Path, *, server_url: str | None = None, allow_insecure_http: bool | None = None
+) -> dict[str, Diagnostic]:
+    """Observe the same Server configuration used by a personal service."""
+
+    loaded = read_environment_file(path.expanduser())
+    cleared = {
+        name
+        for name in os.environ
+        if name.casefold().startswith(("powercontext_client_", "powercontext_server_")) or name == "POWERCONTEXT_HOME"
+    }
+    with environment_context(loaded, override=True, clear=cleared):
+        if server_url is None and any(name.casefold().startswith("powercontext_server_") for name in loaded):
+            from powercontext.server.configuration import server_settings_context
+
+            with server_settings_context(environment=loaded) as settings:
+                host = settings.http.host
+                if host == "0.0.0.0":  # noqa: S104 - diagnose wildcard binds via loopback
+                    host = "127.0.0.1"
+                elif host in {"::", "[::]"}:
+                    host = "::1"
+                if ":" in host and not host.startswith("["):
+                    host = f"[{host}]"
+                server_url = f"http://{host}:{settings.http.port}"
+        else:
+            server_url = server_url or next(
+                (value for name, value in loaded.items() if name.casefold() == "powercontext_client_server_url"), None
+            )
+        return run_diagnostics(server_url=server_url, allow_insecure_http=allow_insecure_http)
 
 
 def run_diagnostics(*, server_url: str | None = None, allow_insecure_http: bool | None = None) -> dict[str, Diagnostic]:

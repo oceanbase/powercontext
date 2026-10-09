@@ -27,17 +27,18 @@ from powercontext.cli.git_source import InvalidGitHubSourceError, github_clone_u
 
 @dataclass(frozen=True)
 class InstallationSource:
-    """A verified checkout or the Git source and requested ref of an installation."""
+    """A verified checkout, preserved Git origin, or tagged package-index release."""
 
     source: str
     ref: str | None = None
 
 
 def installation_source(module_path: Path) -> InstallationSource | None:
-    """Return a usable plugin source without treating site-packages as a checkout.
+    """Return plugin coordinates without treating site-packages as a checkout.
 
     Wheels exclude the integration marketplaces. PEP 610 metadata preserves the
-    origin of Git installs, including forks and requested branches or tags.
+    origin of Git installs, including forks and requested branches or tags. Package
+    index releases use the distribution's version at the official release tag.
     """
     checkout = module_path.resolve().parents[3]
     if (
@@ -49,7 +50,16 @@ def installation_source(module_path: Path) -> InstallationSource | None:
         return InstallationSource(str(checkout))
 
     try:
-        direct_url_text = importlib.metadata.distribution("powercontext").read_text("direct_url.json")
+        distribution = importlib.metadata.distribution("powercontext")
+        direct_url_text = distribution.read_text("direct_url.json")
+        if direct_url_text is None:
+            metadata = distribution.metadata
+            # PackageMetadata's protocol does not expose get().
+            installed_version = metadata["Version"] if "Version" in metadata else None  # noqa: SIM401
+            if isinstance(installed_version, str) and re.fullmatch(
+                r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", installed_version
+            ):
+                return InstallationSource("oceanbase/powercontext", f"powercontext-v{installed_version}")
         direct_url = json.loads(direct_url_text) if direct_url_text else None
     except (importlib.metadata.PackageNotFoundError, OSError, UnicodeError, ValueError):
         return None

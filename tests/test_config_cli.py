@@ -48,10 +48,10 @@ def test_init_creates_a_model_free_deployment_and_explains_capability_limits(tmp
     assert "the value is never printed" in result.output
     assert "Configuration" in result.output
     assert "Supported Coding Agents (choose one)" in result.output
-    for host, (name, setup, launch) in config_cli.AGENTS.items():
+    for host, (name, launch) in config_cli.AGENTS.items():
         assert name in result.output
-        if host != "dsh":
-            assert setup in result.output
+        assert f" {host} --source " in result.output
+        assert f"--env-file {environment}" in result.output
         assert launch in result.output
     values = config_cli.parse_environment(environment.read_text(encoding="utf-8"))
     assert "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL" not in values
@@ -61,22 +61,6 @@ def test_init_creates_a_model_free_deployment_and_explains_capability_limits(tmp
     shown = CliRunner().invoke(config_cli.app, ["show", "--env-file", str(environment)])
     assert validated.exit_code == 0
     assert shown.exit_code == 0
-
-
-@pytest.mark.parametrize("installed", ["0.2.0", "1.0.0rc1", "1.0.0rc2", "1.0.0", "1.1.0", "0.2.1.dev1+g1234567"])
-def test_init_matches_dsh_setup_to_installed_server(installed: str, tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(config_cli, "version", lambda _name: installed)
-    monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: _configuration())
-    result = CliRunner().invoke(
-        config_cli.app, ["init", "--template", "--output", str(tmp_path / "server.env")], input="\n"
-    )
-    assert result.exit_code == 0
-    command = next(line.strip() for line in result.output.splitlines() if "powercontext setup dsh" in line)
-    if installed in {"0.2.0", "1.0.0rc1", "1.0.0rc2", "1.0.0", "1.1.0"}:
-        assert command.endswith(f"--ref powercontext-v{installed}")
-    else:
-        assert "--source /path/to/matching-powercontext-checkout" in command
-    assert "--ref master" not in command
 
 
 def test_arbitrary_model_providers_and_environment_variables_are_not_rejected() -> None:
@@ -404,18 +388,28 @@ def test_init_refuses_to_replace_an_existing_environment_without_force(
     assert environment.read_text(encoding="utf-8") == "EXISTING=value\n"
 
 
-def test_init_force_defaults_to_preserving_existing_inference_configuration(tmp_path: Path) -> None:
+@pytest.mark.parametrize("require_write", [False, True])
+def test_init_force_defaults_to_preserving_existing_inference_configuration(
+    tmp_path: Path, require_write: bool
+) -> None:
     environment = tmp_path / ".env"
     original = config_cli.render_managed_block(_configuration())
     environment.write_text(original, encoding="utf-8")
 
     result = CliRunner().invoke(
         config_cli.app,
-        ["init", "--template", "--output", str(environment), "--force"],
+        [
+            "init",
+            "--template",
+            "--output",
+            str(environment),
+            "--force",
+            *(["--require-write"] if require_write else []),
+        ],
         input="\n",
     )
 
-    assert result.exit_code == 0
+    assert result.exit_code == (130 if require_write else 0)
     assert "will remove existing model, embedding, inference schedule, or provider credential settings" in result.output
     assert "A mode-0600 backup will be created" in result.output
     assert "Replace them with a model-free configuration? [y/N]" in result.output

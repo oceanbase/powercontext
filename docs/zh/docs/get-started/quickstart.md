@@ -6,10 +6,10 @@ description: 通过配置向导安装完整记忆能力，接入 Codex，并验�
 # 快速开始
 
 本页从安装开始，带你完成一次真实的记忆体验：在 Codex 中讨论项目，看到原始输入进入 Source、主题记忆生成并演进，
-再在新会话中找回决策。以下命令使用 PowerContext 1.2.0，Agent 插件使用对应的
-`powercontext-v1.2.0` tag。
+再在新会话中找回决策。安装脚本默认选择包源中的最新稳定版，Agent 插件使用实际安装版本对应的 tag。
 
-需要 macOS 或 Linux、Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和已安装的 Codex CLI。
+需要 macOS 或 Linux、Git 和已安装的 Codex CLI。脚本会按需安装 uv 和 Python 3.11+。
+Windows 的 PowerShell 入口和指定版本、镜像选项见[安装和运行](install-and-run.md)。
 完整记忆还需要可用的 Generation 和 Embedding 模型 API；准备好各自的地址、模型名和 API key。
 Codex 或 Claude 的订阅登录不会自动为 PowerContext Server 提供这些 API。只有 Agent 登录、没有模型 API 时，
 仍可选择基础记忆，验收显式保存与召回，但不能据此期待自动 Topic Memory。
@@ -17,7 +17,12 @@ Codex 或 Claude 的订阅登录不会自动为 PowerContext Server 提供这些
 ## 1. 安装并进入配置向导
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.2.0"
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
+```
+
+先执行安装器打印的 PATH 命令，再继续配置：
+
+```bash
 mkdir -p ~/powercontext-demo
 cd ~/powercontext-demo
 powercontext config init --language zh --output .env
@@ -45,21 +50,27 @@ powercontext config init --language zh --output .env
 若 seekdb 仍在安装，向导会在当前界面显示活动进度并等待；安装失败时先按提示完成依赖安装。
 保存配置或装好依赖，都不代表 Server 已经启动。
 
+需要在终端中一次完成安装、向导和显式服务注册时，可使用[安装器的引导选项](install-and-run.md#配置并安装个人服务)。
+
 ## 2. 启动 Server
 
 在当前终端执行：
 
 ```bash
 powercontext config validate --env-file .env
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
+powercontext doctor --env-file .env
 ```
 
-保持终端运行。在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的
-`POWERCONTEXT_SERVER_HTTP_PORT` 为准。未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。
-首次没有数据是正常现象。需要关闭终端后继续运行时，先停止前台 Server，再通过
-`powercontext service install --env-file .env` 安装[个人后台服务](../operate/deploy-server.md#运行持久个人-server)，复用同一份配置。
+[原生用户服务管理器](../operate/deploy-server.md#运行持久个人-server)负责 Server 生命周期，可以关闭终端。
+Linux 需要可用的 `systemd --user`，macOS 使用 LaunchAgent。开发、调试、临时使用或缺少可用 manager 时，可以使用
+`powercontext server run --env-file .env` 前台运行。已有个人服务时，先用 `powercontext service uninstall` 停止并移除注册，避免重复实例。
 
-另开终端，加载客户端连接配置并检查服务：
+在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的 `POWERCONTEXT_SERVER_HTTP_PORT` 为准。
+未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。首次没有数据是正常现象。
+
+在当前或另一终端中加载客户端连接配置并检查服务：
 
 ```bash
 cd ~/powercontext-demo
@@ -79,20 +90,28 @@ powercontext capabilities
 将它写入 `.env`：
 
 ```dotenv
-POWERCONTEXT_CODEX_SCOPE_ID=替换为返回的scope_id
+POWERCONTEXT_CODEX_SCOPE_ID=scope_id_from_server
 ```
 
 `codex-xxxxxxxx` 是向导规划的标题，不是 ID。配置 Claude Code 时，将其创建请求返回的 ID 写入
 `POWERCONTEXT_CLAUDE_SCOPE_ID`。不同 Agent 可以各自隔离，也可以显式绑定同一已有 Scope。
 切换目录本身不会创建隔离。验收期间，Dashboard 和 Agent 必须使用相同的 Scope。
 
-重新加载客户端文件并安装匹配的插件：
+保存 Scope ID 后，重新注册服务，使注册时记录的环境文件身份与修改后的文件一致：
+
+```bash
+powercontext service install --env-file .env
+powercontext service status
+powercontext doctor --env-file .env
+```
+
+任何环境文件修改或升级后都要使用同一文件重新注册。然后加载客户端文件并安装匹配的插件：
 
 ```bash
 set -a
 . ./.env
 set +a
-powercontext setup codex --ref powercontext-v1.2.0
+powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 powercontext doctor codex
 codex
 ```

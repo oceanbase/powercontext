@@ -57,14 +57,14 @@ the website lists stable releases only. `make docs-test` also runs this check as
 | --- | --- |
 | `openapi/powercontext.yaml` | `info.version`, the prepared release version. |
 | `src/powercontext/http/_generated/` | `API_VERSION` in `operations.py` and `info.version` in `schema.py`, regenerated through `make api-generate`. |
-| `README.md`, `README_CN.md`, `README_JP.md` | Current release prose, pinned package installation commands, and matching Agent integration tag. |
-| `docs/en/docs/get-started/quickstart.md`, `docs/zh/docs/get-started/quickstart.md` | Current release and matching installation/tag instructions. |
-| `docs/en/docs/get-started/install-and-run.md`, `docs/zh/docs/get-started/install-and-run.md` | Page description, current release prose, package/tag pins, upgrade target, and Python Client installation. |
+| `docs/en/docs/get-started/install-and-run.md`, `docs/zh/docs/get-started/install-and-run.md` | Explicit version examples, package/tag pins, and Python Client installation. |
 | `integrations/dsh/plugins/powercontext/README.md` | Server installation pin and the matching `setup dsh --ref` tag. |
 
 The installation guides also contain historical migration versions. Those references are preserved. When adding
 another current-release installation example, include it in the version tooling's managed paths and patterns so
 the next release updates and checks it.
+
+README and Quick Start install the latest stable release through the scripts and derive integration tags from the installed CLI. Release bumps preserve these instructions and the independent uv bootstrap version.
 
 ### Derived from another source
 

@@ -6,11 +6,11 @@ description: Configure full memory, connect Codex, and verify Source capture, To
 # Quick Start
 
 Start with installation, discuss a project in Codex, watch its input become Source evidence and an evolving topic,
-then recover the decisions in a new session. These instructions use PowerContext 1.2.0,
-with the Agent plugin from the matching `powercontext-v1.2.0` tag.
+then recover the decisions in a new session. The installer selects the latest stable release from your package index;
+the Agent plugin uses the tag matching the installed version.
 
-You need macOS or Linux, Python 3.11+, Git, [uv](https://docs.astral.sh/uv/getting-started/installation/),
-and an installed Codex CLI. Full memory also needs working Generation and Embedding model APIs:
+You need macOS or Linux, Git, and an installed Codex CLI. The script provisions uv and Python 3.11+ when needed.
+For Windows PowerShell, version selection, and mirrors, see [Install and run](install-and-run.md). Full memory also needs working Generation and Embedding model APIs:
 prepare their base URLs, model names, and API keys. Signing into a Codex or Claude subscription does not automatically
 provide these APIs to the PowerContext Server. Without separate model APIs, select basic memory to test explicit saves
 and recall; that does not enable automatic Topic Memory.
@@ -18,7 +18,12 @@ and recall; that does not enable automatic Topic Memory.
 ## 1. Install and open the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.2.0"
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
+```
+
+Apply the PATH command printed by the installer, then configure PowerContext:
+
+```bash
 mkdir -p ~/powercontext-demo
 cd ~/powercontext-demo
 powercontext config init --language en --output .env
@@ -47,23 +52,30 @@ These files can contain credentials; do not commit them.
 If seekdb is still installing, the wizard waits with an activity indicator. Complete any reported dependency recovery
 before starting the Server. Saving files or installing dependencies does not start the Server.
 
+To combine installation, the wizard, and explicit service registration in a terminal, use the
+[guided installer options](install-and-run.md#configure-and-install-a-personal-service).
+
 ## 2. Start the Server
 
 In this terminal, run:
 
 ```bash
 powercontext config validate --env-file .env
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
+powercontext doctor --env-file .env
 ```
 
-Keep the terminal running. Open the Dashboard URL printed by the wizard, using the port saved as
-`POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. With authentication disabled, the page opens directly. Otherwise, sign in
-with the **Server token**, not a model API key.
-An empty Dashboard is expected before you capture data. For operation after closing the terminal, stop the foreground
-Server and install a [persistent personal service](../operate/deploy-server.md#run-a-persistent-personal-server)
-with `powercontext service install --env-file .env` to reuse the same configuration.
+The [native user-service manager](../operate/deploy-server.md#run-a-persistent-personal-server) owns the Server
+lifecycle. You can close the terminal. Linux requires a working `systemd --user` manager; macOS uses a LaunchAgent.
+For development, debugging, temporary use, or an unavailable manager, run `powercontext server run --env-file .env`
+in the foreground. Stop a registered service with `powercontext service uninstall` before starting a foreground instance.
 
-Open another terminal, load the client settings, and check the running service:
+Open the Dashboard URL printed by the wizard, using `POWERCONTEXT_SERVER_HTTP_PORT` from `.env`.
+With authentication disabled, the page opens directly. Otherwise, sign in with the **Server token**, not a model API key.
+An empty Dashboard is expected before you capture data.
+
+In the same or another terminal, load the client settings and check the running service:
 
 ```bash
 cd ~/powercontext-demo
@@ -90,13 +102,21 @@ The planned `codex-xxxxxxxx` value is a title, not an ID. For Claude Code, put t
 in `POWERCONTEXT_CLAUDE_SCOPE_ID`. Agents can have separate Scopes or explicitly share an existing one.
 Changing directories does not create isolation. Use the same Scope in the Dashboard and Agent during this check.
 
-Reload the client settings and install the matching plugin:
+After saving Scope IDs, reconcile the service so its registered environment-file identity matches the edited file:
+
+```bash
+powercontext service install --env-file .env
+powercontext service status
+powercontext doctor --env-file .env
+```
+
+Repeat this after any environment-file edit and after upgrades. Then reload the client settings and install the matching plugin:
 
 ```bash
 set -a
 . ./.env
 set +a
-powercontext setup codex --ref powercontext-v1.2.0
+powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 powercontext doctor codex
 codex
 ```

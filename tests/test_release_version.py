@@ -24,16 +24,18 @@ from pathlib import Path
 import pytest
 
 INSTALL_PAGES = (
-    "README.md",
-    "README_CN.md",
-    "README_JP.md",
-    "docs/en/docs/get-started/quickstart.md",
-    "docs/zh/docs/get-started/quickstart.md",
     "docs/en/docs/get-started/install-and-run.md",
     "docs/zh/docs/get-started/install-and-run.md",
     "integrations/dsh/plugins/powercontext/README.md",
 )
 HISTORICAL_AND_INDEPENDENT_FILES = (
+    "README.md",
+    "README_CN.md",
+    "README_JP.md",
+    "docs/en/docs/get-started/quickstart.md",
+    "docs/zh/docs/get-started/quickstart.md",
+    "website/public/install.sh",
+    "website/public/install.ps1",
     "docs/en/docs/operate/artifact-processing-migration.md",
     "docs/zh/docs/operate/artifact-processing-migration.md",
     "website/src/lib/releases.ts",
@@ -84,11 +86,10 @@ def test_release_updates_installation_references_and_preserves_history(release_r
         for relative in INSTALL_PAGES:
             content = (release_repo / relative).read_text(encoding="utf-8")
             assert set(re.findall(r"powercontext\[[^\]\n]+\]==([^\s\"`]+)", content)) == {version}, relative
-            assert set(re.findall(r"powercontext-v([^\s\"`]+)", content)) == {version}, relative
+            assert set(re.findall(r"powercontext-v([0-9][^\s\"`]+)", content)) == {version}, relative
             if relative.startswith(("README", "docs/")):
                 assert f"PowerContext {version}" in content, relative
             if re.search(r"(?:a|b|rc)[0-9]+$", version):
-                assert "stable release" not in content, relative
                 assert f"stable PowerContext {version}" not in content, relative
                 assert "正式版本" not in content, relative
                 assert "正式リリース" not in content, relative
@@ -96,9 +97,9 @@ def test_release_updates_installation_references_and_preserves_history(release_r
         english = (release_repo / "docs/en/docs/get-started/install-and-run.md").read_text(encoding="utf-8")
         chinese = (release_repo / "docs/zh/docs/get-started/install-and-run.md").read_text(encoding="utf-8")
         assert f"package `{version}`" in english
-        assert f"To upgrade to {version}:" in english
+        assert f"--version {version}" in english
         assert f"Python 包版本为 `{version}`" in chinese
-        assert f"升级到 {version}" in chinese
+        assert f"--version {version}" in chinese
         assert "Version 1.1.0 upgrades legacy" in english
         assert "1.0.0 also need" in english
         assert "1.1.0 会在 Server 启动时升级旧标签表约束" in chinese

@@ -57,7 +57,7 @@ def setup_boundary(tmp_path, monkeypatch):
     return plugin, run, inspect
 
 
-@pytest.mark.parametrize("mode", ["interactive", "explicit", "json", "noninteractive"])
+@pytest.mark.parametrize("mode", ["interactive", "interactive-retry", "explicit", "json", "noninteractive"])
 def test_setup_selects_profile_and_reports_destination(tmp_path, monkeypatch, desktop_command, setup_boundary, mode):
     import powercontext.cli.system as system
 
@@ -66,13 +66,15 @@ def test_setup_selects_profile_and_reports_destination(tmp_path, monkeypatch, de
     desktop_dir = Path(os.environ["DSH_HOME"]) / "profiles/desktop"
     desktop_dir.mkdir(parents=True)
     (desktop_dir / "package.json").write_text("{}")
-    monkeypatch.setattr(system, "stdin_is_tty", lambda: mode in {"interactive", "json"})
+    monkeypatch.setattr(system, "stdin_is_tty", lambda: mode in {"interactive", "interactive-retry", "json"})
     args = ["setup", "dsh", "--source", str(plugin), "--dsh-command", str(desktop_command)]
     if mode == "explicit":
         args += ["--profile", "desktop"]
     if mode == "json":
         args += ["--json"]
-    result = CliRunner().invoke(create_cli([setup_app]), args, input="desktop\n")
+    result = CliRunner().invoke(
+        create_cli([setup_app]), args, input="invalid\ndesktop\n" if mode == "interactive-retry" else "desktop\n"
+    )
     assert result.exit_code == 0, result.output
     assert run.call_args_list[0].args[2] == profile
     assert run.call_args_list[0].kwargs["executable"] == str(desktop_command.resolve())

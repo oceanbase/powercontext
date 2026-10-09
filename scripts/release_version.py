@@ -34,22 +34,17 @@ INSTALL_REFERENCES = (r"powercontext\[[^\]\n]+\]==", r"powercontext-v")
 # independent plugin versions and third-party dependencies must retain their meaning.
 REFERENCE_PREFIXES = {
     "openapi/powercontext.yaml": (r"^  version: ",),
-    "README.md": (*INSTALL_REFERENCES, r"PowerContext ", r"^Install "),
-    "README_CN.md": (*INSTALL_REFERENCES, r"PowerContext ", r"^安装 "),
-    "README_JP.md": (*INSTALL_REFERENCES, r"PowerContext ", r"Git、uv、Agent CLI を用意して、"),
-    "docs/en/docs/get-started/quickstart.md": (*INSTALL_REFERENCES, r"PowerContext "),
-    "docs/zh/docs/get-started/quickstart.md": (*INSTALL_REFERENCES, r"PowerContext "),
     "docs/en/docs/get-started/install-and-run.md": (
         *INSTALL_REFERENCES,
         r"PowerContext ",
         r"package `",
-        r"^To upgrade to ",
+        r"--version ",
     ),
     "docs/zh/docs/get-started/install-and-run.md": (
         *INSTALL_REFERENCES,
         r"PowerContext ",
         r"Python 包版本为 `",
-        r"^升级到 ",
+        r"--version ",
     ),
     "integrations/dsh/plugins/powercontext/README.md": INSTALL_REFERENCES,
 }

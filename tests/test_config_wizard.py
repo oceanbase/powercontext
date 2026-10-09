@@ -269,7 +269,7 @@ def test_openclaw_next_steps_use_plugin_configuration_contract(tmp_path: Path) -
     client = parse_environment(output.read_text())
     assert not any(name.startswith("POWERCONTEXT_OPENCLAW_") for name in client)
     steps = output.with_name("server.env.next-steps.md").read_text()
-    assert "powercontext setup openclaw" in steps
+    assert f"powercontext setup --env-file {output} openclaw" in steps
     assert "--server-url http://127.0.0.1:17429" in steps
     assert "plugins.entries.memory-powercontext.config.endpoint" in steps
     assert "plugins.entries.memory-powercontext.config.autoCapture true" in steps
@@ -298,17 +298,32 @@ def test_base_wizard_writes_private_environment_without_models(tmp_path: Path) -
     assert CliRunner().invoke(app, ["validate", "--env-file", str(output)]).exit_code == 0
 
 
-def test_cancel_in_chinese_does_not_write_files(tmp_path: Path) -> None:
+@pytest.mark.parametrize("require_write", [False, True])
+def test_cancel_in_chinese_does_not_write_files(tmp_path: Path, require_write: bool) -> None:
     output = tmp_path / "server.env"
     result = CliRunner().invoke(
         app,
-        ["init", "--language", "zh", "--output", str(output)],
+        ["init", "--language", "zh", "--output", str(output), *(["--require-write"] if require_write else [])],
         input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\nn\n\nnone\ny\nn\n",
     )
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == (130 if require_write else 0), result.output
     assert "配置向导" in result.output
     assert "未写入" in result.output
     assert not list(tmp_path.iterdir())
+
+
+def test_required_write_cancellation_preserves_existing_configuration(tmp_path: Path) -> None:
+    output = tmp_path / "server.env"
+    original = "POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_HTTP_PORT=18000\nCUSTOM_FLAG=keep\n"
+    output.write_text(original)
+    result = CliRunner().invoke(
+        app,
+        ["init", "--language", "en", "--output", str(output), "--require-write"],
+        input=f"sqlite\n{tmp_path / 'context.db'}\nreuse\nn\n",
+    )
+    assert result.exit_code == 130, result.output
+    assert output.read_text() == original
+    assert not output.with_name("server.env.next-steps.md").exists()
 
 
 def test_existing_server_skips_server_models_and_storage(tmp_path: Path) -> None:

@@ -372,6 +372,21 @@ def test_service_controller_installs_and_starts_one_native_registration(tmp_path
     assert adapter.events == ["write", "reload", "enable", "start:True"]
 
 
+def test_service_install_rejects_client_only_configuration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    environment = tmp_path / "client.env"
+    environment.write_text("POWERCONTEXT_CLIENT_SERVER_URL=https://memory.example.com\n")
+    environment.chmod(0o600)
+    _secure_windows_file(environment)
+    controller = ServiceController(FakeAdapter(tmp_path))
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+
+    result = CliRunner().invoke(service_app, ["install", "--env-file", str(environment), "--start-on-login"])
+
+    assert result.exit_code == 2, result.output
+    assert "contains only Client settings" in result.output
+    assert controller.registration_status().registration is RegistrationState.NOT_INSTALLED
+
+
 def test_service_controller_allows_slow_native_startup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     adapter = FakeAdapter(tmp_path)
     clock = 0.0

@@ -77,9 +77,37 @@ def test_scope_binding_reloads_client_environment_before_agent_installation(tmp_
     steps = wizard._next_steps(state, tmp_path / ".env", client_file)
 
     creation = steps.index("POST http://127.0.0.1:8000/v1/scopes")
-    installation = steps.index("powercontext setup claude-code")
+    installation = steps.index(" claude-code --source")
     assert f". {client_file}" in steps[creation:installation]
+    assert f"powercontext setup --env-file {client_file} claude-code" in steps
     assert "Reload the edited client environment before starting a new Agent" in steps
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin", "win32"])
+def test_startup_guidance_matches_personal_service_support(tmp_path, monkeypatch, platform) -> None:
+    import powercontext.cli.config_startup as startup
+
+    monkeypatch.setattr(startup.sys, "platform", platform)
+    state = _state()
+    environment = tmp_path / ".env"
+    steps = wizard._next_steps(state, environment, environment)
+    creation = steps.index("POST http://127.0.0.1:8000/v1/scopes")
+    installation = steps.index(" claude-code --source")
+    if platform == "win32":
+        assert "powercontext server run --env-file" in steps[:creation]
+        assert "powercontext service install" not in steps
+    else:
+        assert "powercontext service install --env-file" in steps[:creation]
+        assert "powercontext doctor --env-file" in steps[:creation]
+        assert "powercontext service install --env-file" in steps[creation:installation]
+
+
+def test_managed_bind_keeps_foreground_startup_guidance(tmp_path) -> None:
+    state = _state()
+    state.values["POWERCONTEXT_SERVER_HTTP_HOST"] = "0.0.0.0"  # noqa: S104 - managed-bind guidance
+    steps = wizard._next_steps(state, tmp_path / ".env", tmp_path / ".env")
+    assert "powercontext server run --env-file" in steps
+    assert "powercontext service install" not in steps
 
 
 def _profile_script() -> str:

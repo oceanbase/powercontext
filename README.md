@@ -16,8 +16,7 @@ PowerContext keeps context with the work across conversations. When you return, 
 
 [Website](https://powercontext.oceanbase.io/) · [Installation walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 
-PowerContext 1.2.0 includes the guided setup. The commands below install this version and connect
-the matching Agent integration.
+The installer selects the latest stable PowerContext release from your package index. Agent integrations use the installed version.
 
 ## Pick up where the work left off
 
@@ -27,13 +26,24 @@ You decide what will matter later and what needs to move with the task. PowerCon
 
 ## Install, configure, and connect your Agent
 
-You need Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), and your Agent's CLI.
-Python 3.11+ is required; uv can provision it. macOS and Linux are supported; Windows support is `experimental`.
+The installer provisions uv and Python when needed. Agent integration setup also needs Git and your Agent's CLI.
+macOS and Linux are supported; Windows support is `experimental`.
 
-Install 1.2.0 and open the interactive configuration wizard in a dedicated directory:
+Install with the recommended script:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.2.0"
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
+```
+
+On Windows, use PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://powercontext.oceanbase.io/install.ps1)))"
+```
+
+Apply the PATH command printed by the installer, then configure PowerContext:
+
+```bash
 mkdir -p powercontext-config
 cd powercontext-config
 powercontext config init --language en --output .env
@@ -48,13 +58,16 @@ Choose **Basic memory** to save and retrieve memories explicitly without additio
 
 The wizard writes one `.env` environment file and `.env.next-steps.md`.
 If seekdb needs installing, it asks once and installs the dependency in the background. Follow the printed
-connection details and start Server in this terminal:
+connection details. On personal macOS/Linux, install the native user service:
 
 ```bash
-powercontext server run --env-file .env
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
+powercontext service status
+powercontext doctor --env-file .env
 ```
 
-Keep Server running. In another terminal, return to `powercontext-config`, load only the client settings,
+The service manager keeps Server running after you close the terminal. In `powercontext-config`, load the client settings
 and check the connection:
 
 ```bash
@@ -65,13 +78,14 @@ powercontext ready
 powercontext capabilities
 ```
 
-Continue with `.env.next-steps.md` to create and bind the selected Scopes, install the matching plugins, and launch
-a new Agent session. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
+Continue with `.env.next-steps.md` to create and bind Scopes, then rerun `powercontext service install --env-file .env`
+after saving their IDs. Use the same file after upgrades or any configuration edit. Install matching plugins and launch
+a new Agent session. For development, temporary use, or an unavailable native user manager, use `powercontext server run`. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks.
 For example, the matching Codex installation is:
 
 ```bash
-powercontext setup codex --ref powercontext-v1.2.0
+powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 powercontext doctor codex
 ```
 

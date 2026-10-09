@@ -1,0 +1,65 @@
+name: Script installation
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Build the installation fixture
+        shell: bash
+        env:
+          # Qualify this commit using release-shaped metadata, without publishing it.
+          SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
+        run: uv build --wheel --out-dir dist/installation
+
+      - name: Check shared installer behavior and source resolution
+        shell: bash
+        run: >-
+          uv run --no-sync pytest -q tests/test_installation_contract.py tests/native/test_install_sources.py
+          --junitxml "$RUNNER_TEMP/installation-contract.xml"
+          --basetemp "$RUNNER_TEMP/installation-contract-tests"
+
+      - name: Exercise bootstrap, version selection, profiles, and persistent memory
+        shell: bash
+        env:
+          POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
+        run: >-
+          uv run --no-sync pytest -q tests/native/test_installation.py
+          --junitxml "$RUNNER_TEMP/installation.xml"
+          --basetemp "$RUNNER_TEMP/installation-tests"
+
+      - name: Upload installation diagnostics after failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: installation-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/installation.xml
+            ${{ runner.temp }}/installation-contract.xml
+            ${{ runner.temp }}/installation-tests/**/*.log
+          if-no-files-found: ignore

@@ -19,7 +19,9 @@ import json
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+import powercontext.cli.config as config_cli
 import powercontext.cli.config_wizard as wizard
 from powercontext.cli.config_wizard_ui import WizardUI
 
@@ -82,6 +84,39 @@ def test_checkout_instructions_keep_a_verified_local_source(tmp_path, monkeypatc
 
     assert f"--source '{checkout}'" in instructions
     assert "--ref" not in instructions
+
+
+@pytest.mark.parametrize("installed", ["0.2.0", "1.0.0rc1", "1.0.0", "1.1.0"])
+def test_index_release_instructions_pin_every_agent_and_the_selected_file(tmp_path, monkeypatch, installed) -> None:
+    module = _installed_package(tmp_path, monkeypatch, None)
+    metadata = module.parents[2] / "powercontext-0.1.dist-info" / "METADATA"
+    metadata.write_text(f"Metadata-Version: 2.1\nName: powercontext\nVersion: {installed}\n")
+    monkeypatch.setattr(config_cli, "__file__", str(module))
+    environment = tmp_path / "server.env"
+
+    result = CliRunner().invoke(config_cli.app, ["init", "--template", "--output", str(environment)], input="\n")
+
+    assert result.exit_code == 0, result.output
+    for agent in config_cli.AGENTS:
+        assert (
+            f"powercontext setup --env-file {environment} {agent} --source oceanbase/powercontext "
+            f"--ref powercontext-v{installed}"
+        ) in result.output
+    instructions = _instructions()
+    for agent in ("codex", "claude-code"):
+        assert (
+            f"powercontext setup {agent} --source oceanbase/powercontext --ref powercontext-v{installed}"
+            in instructions
+        )
+    assert "--ref master" not in instructions
+
+
+def test_unreleased_index_package_requires_an_explicit_matching_source(tmp_path, monkeypatch) -> None:
+    module = _installed_package(tmp_path, monkeypatch, None)
+    metadata = module.parents[2] / "powercontext-0.1.dist-info" / "METADATA"
+    metadata.write_text("Metadata-Version: 2.1\nName: powercontext\nVersion: 0.2.1.dev1+g1234567\n")
+    assert "powercontext setup codex --help" in _instructions()
+    assert "--ref master" not in _instructions()
 
 
 @pytest.mark.parametrize(

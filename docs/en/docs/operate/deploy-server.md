@@ -17,7 +17,7 @@ container platform or an administrator-owned service manager.
 
 ## Run a persistent personal Server
 
-Install and start the optional current-user service:
+For supported personal macOS/Linux use, install the recommended current-user service. Registration is explicit:
 
 ```bash
 powercontext service install
@@ -41,6 +41,8 @@ For an explicit Server configuration, protect the environment file before instal
 chmod 600 /path/to/powercontext.env
 powercontext config validate --env-file /path/to/powercontext.env
 powercontext service install --env-file /path/to/powercontext.env
+powercontext service status
+powercontext doctor --env-file /path/to/powercontext.env
 ```
 
 The successful installation summary prints the environment file actually used. If Bearer authentication is enabled,
@@ -59,7 +61,10 @@ owner first.
 The native definition stores only the absolute file path and non-content file identity metadata. On Windows this
 includes the current user's owner SID, which is revalidated whenever the launcher starts. It does not copy
 credentials or the caller's shell environment. Re-run `service install` after upgrading PowerContext or changing the
-environment file. Remove the registration without deleting Server data or logs with:
+environment file, including edits to Agent Scope IDs in a shared file. Always repeat `--env-file` with the original path;
+omitting it does not reuse a registered file. `service status` observes manager state and liveness; `doctor --env-file`
+also checks readiness. For upgrades requiring a stopped Server, first use `service uninstall`, which preserves data.
+Remove the registration without deleting Server data or logs with:
 
 ```bash
 powercontext service uninstall

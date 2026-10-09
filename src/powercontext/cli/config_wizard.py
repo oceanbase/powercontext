@@ -111,7 +111,7 @@ class Wizard:
         self.ui.say(en, zh)
 
 
-def run_wizard(output: Path, *, language: str | None = None, advanced: bool = False) -> None:
+def run_wizard(output: Path, *, language: str | None = None, advanced: bool = False) -> bool:
     """Collect answers and write files only after explicit final confirmation."""
 
     from powercontext.cli.config import ConfigError
@@ -162,7 +162,7 @@ def run_wizard(output: Path, *, language: str | None = None, advanced: bool = Fa
                 _agents(state)
             elif mode == "edit":
                 _edit_modules(state)
-        _finish(state, output, content)
+        return _finish(state, output, content)
     except (ConfigError, EnvironmentFileError, OSError, ValueError) as error:
         if isinstance(error, (WizardInputError, EnvironmentFileError, OSError)):
             message = str(error)
@@ -1103,7 +1103,7 @@ def _validate_files(state: Wizard, values: dict[str, str]) -> None:
         raise WizardInputError(message) from None
 
 
-def _finish(state: Wizard, output: Path, original_content: str) -> None:
+def _finish(state: Wizard, output: Path, original_content: str) -> bool:
 
     ui = state.ui
     ui.section("8. Review files", "8. 检查配置文件")
@@ -1153,10 +1153,11 @@ def _finish(state: Wizard, output: Path, original_content: str) -> None:
         typer.echo(f"  {path}")
     if not ui.confirm("Save these files?", "保存这些文件？"):
         ui.say("No changes written.", "未写入任何文件。")
-        return
+        return False
     _save_bundle(state, bundle, snapshots)
     _finish_seekdb_install(state)
     _show_connection_details(state, output, values, notes_file)
+    return True
 
 
 def _save_bundle(state: Wizard, bundle: dict[Path, str], snapshots: dict[Path, str]) -> None:
@@ -1215,8 +1216,10 @@ def _show_connection_details(state: Wizard, output: Path, values: dict[str, str]
     ui = state.ui
     ui.section("Connection details", "连接与下一步")
     if not state.client_only:
-        command = f"powercontext server run --env-file {shlex.quote(str(output))}"
-        ui.say(f"Start Server: {command}", f"启动 Server：{command}")
+        from powercontext.cli.config_startup import server_startup_commands
+
+        for command in server_startup_commands(output, host=values.get(f"{SERVER}HTTP_HOST", "127.0.0.1")):
+            ui.say(f"Start Server: {command}", f"启动 Server：{command}")
     if state.ssh_tunnel_command:
         ui.say(
             f"Run on the client computer: {state.ssh_tunnel_command}",
@@ -1257,8 +1260,50 @@ def _connection_base_url(state: Wizard, values: dict[str, str]) -> str:
     return f"http://{host}:{port}"
 
 
-def _next_steps(state: Wizard, output: Path, client_file: Path) -> str:
+def _server_start_steps(state: Wizard, output: Path) -> list[str]:
+    from powercontext.cli.config_startup import personal_service_recommended, server_startup_commands
+
+    if state.client_only:
+        return []
     ui = state.ui
+    personal_service = personal_service_recommended(state.values.get(f"{SERVER}HTTP_HOST", "127.0.0.1"))
+    lines: list[str] = []
+    lines += [
+        "```bash",
+        *server_startup_commands(output, host=state.values.get(f"{SERVER}HTTP_HOST", "127.0.0.1")),
+        "```",
+        "",
+    ]
+    if personal_service:
+        lines += [
+            ui.text(
+                "The native user-service manager owns the Server lifecycle. After upgrades or any edit to "
+                "this environment file, rerun these commands with the same file. Use `powercontext server run` "
+                "for development or temporary foreground use after stopping the personal service.",
+                "原生用户服务管理器负责 Server 生命周期。升级或修改这份环境文件后，使用同一文件重新执行上述命令。"
+                "开发或临时前台运行可先停止个人服务，再使用 `powercontext server run`。",
+            ),
+            "",
+        ]
+    if state.values.get(f"{SERVER}AUTH_TOKEN"):
+        lines += [
+            ui.text(
+                f"The Server token is stored as `POWERCONTEXT_SERVER_AUTH_TOKEN` in `{output}`. "
+                "Do not paste it into logs or issues.",
+                f"Server Token 保存在 `{output}` 的 `POWERCONTEXT_SERVER_AUTH_TOKEN` 中；请勿将其粘贴到日志或 Issue。",
+            ),
+            "",
+        ]
+    return lines
+
+
+def _next_steps(state: Wizard, output: Path, client_file: Path) -> str:
+    from powercontext.cli.config_startup import personal_service_recommended, server_startup_commands
+
+    ui = state.ui
+    personal_service = not state.client_only and personal_service_recommended(
+        state.values.get(f"{SERVER}HTTP_HOST", "127.0.0.1")
+    )
     lines = [
         "# " + ui.text("PowerContext next steps", "PowerContext 后续步骤"),
         "",
@@ -1268,24 +1313,7 @@ def _next_steps(state: Wizard, output: Path, client_file: Path) -> str:
         ),
         "",
     ]
-    if not state.client_only:
-        lines += [
-            "```bash",
-            f"powercontext config validate --env-file {shlex.quote(str(output))}",
-            f"powercontext server run --env-file {shlex.quote(str(output))}",
-            "```",
-            "",
-        ]
-        if state.values.get(f"{SERVER}AUTH_TOKEN"):
-            lines += [
-                ui.text(
-                    f"The Server token is stored as `POWERCONTEXT_SERVER_AUTH_TOKEN` in `{output}`. "
-                    "Do not paste it into logs or issues.",
-                    f"Server Token 保存在 `{output}` 的 `POWERCONTEXT_SERVER_AUTH_TOKEN` 中；"
-                    "请勿将其粘贴到日志或 Issue。",
-                ),
-                "",
-            ]
+    lines += _server_start_steps(state, output)
     if state.agents or state.client_only:
         if state.scenario != "local":
             lines += [
@@ -1328,6 +1356,18 @@ def _next_steps(state: Wizard, output: Path, client_file: Path) -> str:
         lines += _alternate_client_check_steps(state)
     if state.planned_scopes:
         lines += _scope_creation_steps(state)
+        if personal_service:
+            lines += [
+                ui.text(
+                    "After saving the returned Scope IDs, reconcile the service's environment-file identity:",
+                    "保存返回的 Scope ID 后，重新注册服务以更新环境文件身份：",
+                ),
+                "",
+                "```bash",
+                *server_startup_commands(output, host=state.values.get(f"{SERVER}HTTP_HOST", "127.0.0.1")),
+                "```",
+                "",
+            ]
         lines += [
             ui.text(
                 "After saving the returned Scope IDs in the environment file, reload it in each Agent's "
@@ -1344,7 +1384,7 @@ def _next_steps(state: Wizard, output: Path, client_file: Path) -> str:
             "```",
             "",
         ]
-    lines += _agent_installation_steps(state)
+    lines += _agent_installation_steps(state, env_file=client_file)
     if "profile" in state.features:
         lines += _profile_policy_steps(state)
     lines += ["## " + ui.text("Checks and pending steps", "验收与待完成项"), ""]
@@ -1498,7 +1538,7 @@ def _profile_policy_script(address: str, scope_name: str, authorization_name: st
         """).splitlines()
 
 
-def _agent_installation_steps(state: Wizard) -> list[str]:
+def _agent_installation_steps(state: Wizard, *, env_file: Path | None = None) -> list[str]:
     if not state.agents:
         return []
     source = installation_source(Path(__file__))
@@ -1522,7 +1562,10 @@ def _agent_installation_steps(state: Wizard) -> list[str]:
         if source is None:
             lines.append(f"powercontext setup {agent} --help")
             continue
-        command = f"powercontext setup {agent} --source {shlex.quote(source.source)}"
+        command = "powercontext setup"
+        if env_file is not None:
+            command += f" --env-file {shlex.quote(str(env_file))}"
+        command += f" {agent} --source {shlex.quote(source.source)}"
         if source.ref:
             command += f" --ref {shlex.quote(source.ref)}"
         if spec.setup_server_url:

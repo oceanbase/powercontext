@@ -254,6 +254,14 @@ class ServiceController:
             raise ServiceError(  # noqa: TRY003
                 f"invalid personal service configuration: {error}", exit_code=2
             ) from error
+        if loaded_env is not None and (
+            any(name.casefold().startswith("powercontext_client_") for name in loaded_env.values)
+            and not any(name.casefold().startswith("powercontext_server_") for name in loaded_env.values)
+        ):
+            raise ServiceError(  # noqa: TRY003
+                "the selected environment file contains only Client settings; configure a local Server before installing a service",
+                exit_code=2,
+            )
         if loaded_env is None:
             inherited = sorted(
                 name

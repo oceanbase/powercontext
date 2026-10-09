@@ -16,7 +16,7 @@ PowerContext 让上下文跟随工作，跨越不同的对话。你回来时，�
 
 [网站](https://powercontext.oceanbase.io/zh/) · [完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)
 
-PowerContext 1.2.0 包含交互式配置向导。下面的命令安装这一版本，并接入相同版本的 Agent 集成。
+安装器默认选择包源中的最新稳定版 PowerContext，Agent 集成与实际安装版本保持一致。
 
 ## 从当前进展继续
 
@@ -26,13 +26,24 @@ PowerContext 1.2.0 包含交互式配置向导。下面的命令安装这一版�
 
 ## 安装、配置并接入 Agent
 
-准备 Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和你使用的 Agent CLI。
-需要 Python 3.11+，uv 可以按需安装。支持 macOS 和 Linux；Windows 支持为 `experimental`。
+安装器会按需补齐 uv 和 Python；接入 Agent 时另需 Git 和对应的 Agent CLI。
+支持 macOS 和 Linux；Windows 支持为 `experimental`。
 
-安装 1.2.0，然后在独立目录里打开交互式配置向导：
+推荐使用安装脚本：
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.2.0"
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
+```
+
+Windows 使用 PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://powercontext.oceanbase.io/install.ps1)))"
+```
+
+先执行安装器打印的 PATH 命令，再继续配置：
+
+```bash
 mkdir -p powercontext-config
 cd powercontext-config
 powercontext config init --language zh --output .env
@@ -45,13 +56,16 @@ Python 依赖下载缓慢或失败时，可按[镜像重试步骤](https://power
 Agent 官方订阅不会自动给 PowerContext Server 提供这些凭据。选择**基础记忆**则可显式保存与召回，无需额外模型 API。
 
 向导生成一个 `.env` 环境文件和 `.env.next-steps.md`。
-选择 seekdb 且缺少依赖时，会在确认后后台增量安装。按照最后打印的连接信息，在当前终端启动 Server：
+选择 seekdb 且缺少依赖时，会在确认后后台增量安装。个人 macOS/Linux 使用原生用户服务管理器运行 Server：
 
 ```bash
-powercontext server run --env-file .env
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
+powercontext service status
+powercontext doctor --env-file .env
 ```
 
-保持 Server 运行，在另一个终端回到 `powercontext-config` 目录，仅加载客户端配置并检查服务：
+服务管理器会在关闭终端后继续运行 Server。在 `powercontext-config` 目录加载客户端配置并检查服务：
 
 ```bash
 set -a
@@ -61,12 +75,14 @@ powercontext ready
 powercontext capabilities
 ```
 
-接着按 `.env.next-steps.md` 创建并绑定 Scope、安装相同版本的插件，再打开新 Agent 会话。
+接着按 `.env.next-steps.md` 创建并绑定 Scope；写入返回的 ID 后，重新执行 `powercontext service install --env-file .env`。
+升级或修改配置后也使用同一文件重新注册。安装相同版本的插件，再打开新 Agent 会话。开发、临时使用或缺少原生
+用户服务管理器时，可以使用 `powercontext server run`。
 [完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)包含 Codex、Claude Code、Dashboard 登录、
 SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
 
 ```bash
-powercontext setup codex --ref powercontext-v1.2.0
+powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 powercontext doctor codex
 ```
 
