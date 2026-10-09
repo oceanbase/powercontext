@@ -47,8 +47,8 @@ Source → 后台处理游标 → flush 请求 → 新建或更新不可变 Topi
 - 将 `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` 设为正数，以接纳新的自动处理任务；
 - Scope 中存在可归纳的 Source 证据。
 
-Topic Memory 本身不强制要求 Embedding。需要向量或混合检索时，再配置兼容的 Embedding 模型和维度。Server 会在每次
-搜索响应中返回实际使用的检索模式；调用方不能任意指定检索控制参数。
+Topic Memory 本身不强制要求 Embedding。需要向量或混合检索时，再配置兼容的 Embedding 模型和维度。专用搜索会在每次
+响应中返回实际使用的检索模式，并使用部署默认策略。[统一 Artifact 检索](search-artifacts.md)还支持显式模式和已开放的检索参数。
 
 调度周期是接纳间隔，不是完成时限。Topic 生成还受到 Provider 请求超时和 Worker 总超时控制。调度未设置时，不再接纳新的
 自动任务，但已经接纳的任务不会因此丢失。使用 SQLite 部署时，配置了 Generation 模型的 Topic Worker 要求持久化的
@@ -97,8 +97,11 @@ Content-Type: application/json
 ```
 
 响应包含部署实际使用的 `mode`（`fts` 或 `hybrid`）和 `hits`。每个命中包括 `artifact` 精确引用、`title`、
-`summary`、可为空的 `snippet`、`score` 和 `matched_by`。搜索只查看当前 Scope 的 Topic Memory head，不跨 Scope
+`summary`、可为空的 `snippet`、`score` 和 `matched_by`。此专用搜索只查看当前 Scope 的 Topic Memory head，不跨 Scope
 检索，也不接受调用方自选的检索模式。
+
+需要完整 Artifact 结果、显式文本/向量/混合模式、准入、评分阈值或通道原分时，使用[检索 Artifact](search-artifacts.md)。
+Topic 的融合参数见[融合算法与参数](search-fusion.md)。专用入口保留原来的摘要响应和 `0`–`100` 评分。
 
 ## 读取精确详情
 

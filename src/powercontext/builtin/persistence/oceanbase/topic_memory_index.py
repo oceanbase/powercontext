@@ -204,6 +204,7 @@ class OceanBaseTopicMemoryFTSIndex:
                     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision,
                     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.title,
                     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.summary,
+                    topic_score.label("raw_score"),
                 )
                 .where(
                     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.scope_id == scope_id,
@@ -280,6 +281,7 @@ class OceanBaseTopicMemoryFTSIndex:
                     chunk_candidates.c.chunk_ordinal,
                     chunk_candidates.c.start_offset,
                     chunk_candidates.c.chunk_text,
+                    chunk_candidates.c.score.label("raw_score"),
                 )
                 .where(chunk_candidates.c.topic_rank == 1, chunk_candidates.c.coverage)
                 .order_by(
@@ -551,6 +553,8 @@ def _channel_hit(row: Mapping[Any, Any], channel: TopicMemoryMatchedBy) -> Topic
         chunk_start=None if row.get("start_offset") is None else int(row["start_offset"]),
         chunk_text=None if row.get("chunk_text") is None else str(row["chunk_text"]),
         distance=None if row.get("distance") is None else float(row["distance"]),
+        raw_score=None if row.get("raw_score") is None else float(row["raw_score"]),
+        metric="oceanbase_match" if channel.endswith("_fts") else None,
     )
 
 

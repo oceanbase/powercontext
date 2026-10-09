@@ -103,6 +103,8 @@ class _FailingExperienceIndex:
         /,
         *,
         admission: object = None,
+        min_score: float | None = None,
+        require_scores: bool = False,
     ) -> ExperienceSearchOutcome:
         return ExperienceSearchOutcome()
 
@@ -123,6 +125,10 @@ class _FailingExperienceIndex:
         _query: str,
         _limit: int,
         /,
+        *,
+        admission: object = None,
+        min_score: float | None = None,
+        require_scores: bool = False,
     ) -> tuple[SkillSearchHit, ...]:
         return ()
 
