@@ -292,6 +292,10 @@ import sys
 from powercontext.builtin.persistence.migrations.connections import MaintenanceConnections
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 
+# Startup diagnostics must not block readiness even if no reader is attached.
+sys.stderr.write("startup diagnostic\\n" * 65_536)
+sys.stderr.flush()
+
 def own(connection, identity, verify):
     verify()
     connection.exec_driver_sql("CREATE TABLE pc_lock_probe (id INT PRIMARY KEY, value VARCHAR(32))")
