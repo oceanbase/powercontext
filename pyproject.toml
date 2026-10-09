@@ -169,6 +169,7 @@ python = "./.venv"
 python-version = "3.11"
 extra-paths = [
     "./scripts",
+    "./desktop/tests",
     "./integrations/claude-code/plugins/powercontext",
     "./integrations/claude-code/plugins/powercontext/scripts",
     "./integrations/codex/plugins/powercontext",

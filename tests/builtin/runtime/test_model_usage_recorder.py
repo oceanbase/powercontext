@@ -840,7 +840,6 @@ class _GatedRepository(StatisticsRepository):
     def __init__(self) -> None:
         self.entered = (asyncio.Event(), asyncio.Event())
         self.release = (asyncio.Event(), asyncio.Event())
-        self.calls = 0
 
     async def record(
         self,
@@ -852,8 +851,8 @@ class _GatedRepository(StatisticsRepository):
         usage: InferenceUsage,
         /,
     ) -> None:
-        index = self.calls
-        self.calls += 1
+        # Retried attempts belong to the same logical record and gate.
+        index = usage.requests - 1
         self.entered[index].set()
         await self.release[index].wait()
         await super().record(connection, scope_id, usage_date, purpose, operation, usage)
@@ -862,23 +861,25 @@ class _GatedRepository(StatisticsRepository):
 @pytest.mark.parametrize("explicit_checkpoint", [False, True])
 def test_flush_waits_only_for_its_entry_prefix(explicit_checkpoint: bool) -> None:
     async def scenario() -> None:
-        async with _database() as database:
+        async with asyncio.timeout(10), _database() as database:
             repository = _GatedRepository()
-            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=1)
+            # Ordering is the contract here; the outer watchdog expires before
+            # best-effort flush can time out and imitate successful completion.
+            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=5, flush_timeout_seconds=30)
             try:
                 _offer(recorder)
                 await repository.entered[0].wait()
                 prefix = recorder.checkpoint()
                 waiter = asyncio.create_task(recorder.flush(prefix if explicit_checkpoint else None))
                 await asyncio.sleep(0)
-                _offer(recorder)
+                _offer(recorder, InferenceUsage(requests=2))
                 repository.release[0].set()
                 await repository.entered[1].wait()
-                await asyncio.wait_for(waiter, 0.1)
+                await asyncio.wait_for(waiter, 2)
                 assert not repository.release[1].is_set()
                 repository.release[1].set()
                 await recorder.flush()
-                assert (await _rows(database))[0].requests == 2
+                assert (await _rows(database))[0].requests == 3
             finally:
                 for gate in repository.release:
                     gate.set()
