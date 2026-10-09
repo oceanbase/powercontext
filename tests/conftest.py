@@ -14,6 +14,7 @@
 
 """Repository-wide pytest collection controls."""
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -35,9 +36,19 @@ def short_tmp_path() -> Iterator[Path]:
 
 @pytest.fixture(autouse=True)
 def isolated_client_connection_settings(tmp_path, monkeypatch, request):
-    """Never consume or overwrite the developer's persistent setup consent."""
+    """Isolate daily runtime settings and persistent setup consent, preserving explicit real E2E runs."""
 
     if not request.config.getoption("run_real_e2e"):
+        # Developer runtime overrides must not alter hermetic tests or their subprocesses.
+        for name in tuple(os.environ):
+            if name.upper().startswith(("POWERCONTEXT_SERVER_", "POWERCONTEXT_CLIENT_", "POWERCONTEXT_CODEX_")):
+                monkeypatch.delenv(name)
+        # Local fixture servers must remain reachable even when the shell uses a proxy.
+        no_proxy = ",".join(
+            filter(None, (os.environ.get("NO_PROXY"), os.environ.get("no_proxy"), "localhost,127.0.0.1,::1"))
+        )
+        monkeypatch.setenv("NO_PROXY", no_proxy)
+        monkeypatch.setenv("no_proxy", no_proxy)
         monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "client-settings.json"))
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
         monkeypatch.setenv("DSH_HOME", str(tmp_path / "dsh-home"))
