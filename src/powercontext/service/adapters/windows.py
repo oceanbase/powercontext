@@ -22,6 +22,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
@@ -289,6 +290,37 @@ class WindowsTaskSchedulerAdapter:
             return
         self._run("/Change", "/TN", self.identifier, "/DISABLE", "/HRESULT")
 
+    def suspend(self, marker: Path) -> None:
+        # Disabling is separate from End: it prevents queued/login triggers
+        # and RestartOnFailure from recreating the old writer.
+        self.disable()
+
+    def resume(self) -> None:
+        self.enable()
+
+    def update_suspended(self) -> None:
+        """Replace the native task while keeping it disabled, including its login trigger."""
+
+        _require_owned_or_not_loaded(self.loaded_registration())
+        registration = self.inspect()
+        if registration.content is None:
+            raise ServiceError("the Task Scheduler definition is not installed")  # noqa: TRY003
+        root = _parse_xml(registration.content)
+        settings = _child(root, "Settings")
+        if settings is None:
+            raise ServiceError("the Task Scheduler definition has no settings")  # noqa: TRY003
+        ET.SubElement(settings, _tag("Enabled")).text = "false"
+        disabled = ET.tostring(root, encoding="utf-16", xml_declaration=True)
+        descriptor, name = tempfile.mkstemp(
+            prefix=".powercontext-disabled-", suffix=".xml", dir=self.artifact_path.parent
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as output:
+                output.write(disabled)
+            self._run("/Create", "/TN", self.identifier, "/XML", name, "/F", "/HRESULT")
+        finally:
+            Path(name).unlink(missing_ok=True)
+
     def remove(self) -> None:
         loaded = self.loaded_registration()
         _require_owned_or_not_loaded(loaded)
@@ -370,7 +402,7 @@ class WindowsTaskSchedulerAdapter:
         deadline = time.monotonic() + _TASK_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             state = self.manager_state()
-            if state is ManagerState.INACTIVE:
+            if state in {ManagerState.INACTIVE, ManagerState.FAILED}:
                 return
             if state is ManagerState.UNKNOWN:
                 raise ServiceError(  # noqa: TRY003

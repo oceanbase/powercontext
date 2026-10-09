@@ -41,6 +41,20 @@ wheels = [
 ]
 
 [[package]]
+name = "alembic"
+version = "1.20.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "mako" },
+    { name = "sqlalchemy" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ed/aa/02910bdb8e2f1444f6654d5b296cd827d126f82209050ee7b1000f92ac4b/alembic-1.20.0.tar.gz", hash = "sha256:db505480647bc60386c5369402f4a57a506b7539c9e9ef5e270d45cbbe4939bf", size = 2093272, upload-time = "2026-09-11T19:09:11.126Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/27/78a89b55b0904d222183164e079b4ca56208e94eff1d35ad1f1ad5be9b06/alembic-1.20.0-py3-none-any.whl", hash = "sha256:77eb101048d95f982c0353e9233404889dcd7a6fc244c107836c0e2fc9cf7d9d", size = 268719, upload-time = "2026-09-11T19:09:12.88Z" },
+]
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1936,6 +1950,18 @@ wheels = [
 ]
 
 [[package]]
+name = "mako"
+version = "1.4.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markupsafe" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/09/e07c4b5579a79f4b16f8d4f29f6c54514ac787c4ad506b8c4f28a0e6b0bf/mako-1.4.3.tar.gz", hash = "sha256:cd6537fe88d5fec315c55c2f8529bc4ce7a9a352ad7db3eeaa6a66e2dd4ec37a", size = 412799, upload-time = "2026-09-22T20:54:31.509Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/a0/053d6af3e8f871e0073b4a36732d9e65be77a72e5434c31b94f6af78a6bb/mako-1.4.3-py3-none-any.whl", hash = "sha256:723296007c870bfd6b3f0c3230dba7198096e5269297ebf5e4eff9e7ffa39d4f", size = 80164, upload-time = "2026-09-22T20:54:33.128Z" },
+]
+
+[[package]]
 name = "markdown-it-py"
 version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2693,7 +2719,9 @@ dependencies = [
 [package.optional-dependencies]
 builtin = [
     { name = "aiosqlite" },
+    { name = "alembic" },
     { name = "apscheduler" },
+    { name = "filelock" },
     { name = "jsonschema" },
     { name = "packaging" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "openai"] },
@@ -2732,7 +2760,9 @@ code = [
 ]
 seekdb = [
     { name = "aiosqlite" },
+    { name = "alembic" },
     { name = "apscheduler" },
+    { name = "filelock" },
     { name = "jsonschema" },
     { name = "packaging" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "openai"] },
@@ -2747,9 +2777,11 @@ seekdb = [
 ]
 server = [
     { name = "aiosqlite" },
+    { name = "alembic" },
     { name = "apscheduler" },
     { name = "fastapi" },
     { name = "fastmcp" },
+    { name = "filelock" },
     { name = "httpx" },
     { name = "jinja2" },
     { name = "jsonschema" },
@@ -2813,11 +2845,17 @@ requires-dist = [
     { name = "aiosqlite", marker = "extra == 'builtin'", specifier = ">=0.22,<1" },
     { name = "aiosqlite", marker = "extra == 'seekdb'", specifier = ">=0.22,<1" },
     { name = "aiosqlite", marker = "extra == 'server'", specifier = ">=0.22,<1" },
+    { name = "alembic", marker = "extra == 'builtin'", specifier = ">=1.16,<2" },
+    { name = "alembic", marker = "extra == 'seekdb'", specifier = ">=1.16,<2" },
+    { name = "alembic", marker = "extra == 'server'", specifier = ">=1.16,<2" },
     { name = "apscheduler", marker = "extra == 'builtin'", specifier = ">=3.11,<4" },
     { name = "apscheduler", marker = "extra == 'seekdb'", specifier = ">=3.11,<4" },
     { name = "apscheduler", marker = "extra == 'server'", specifier = ">=3.11,<4" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115,<1" },
     { name = "fastmcp", marker = "extra == 'server'", specifier = ">=3.4,<4" },
+    { name = "filelock", marker = "extra == 'builtin'", specifier = ">=3.16,<4" },
+    { name = "filelock", marker = "extra == 'seekdb'", specifier = ">=3.16,<4" },
+    { name = "filelock", marker = "extra == 'server'", specifier = ">=3.16,<4" },
     { name = "httpx", marker = "extra == 'server'", specifier = ">=0.28,<1" },
     { name = "httpx", extras = ["socks"], marker = "extra == 'cli'", specifier = ">=0.28,<1" },
     { name = "httpx", extras = ["socks"], marker = "extra == 'client'", specifier = ">=0.28,<1" },
