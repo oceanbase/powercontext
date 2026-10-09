@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import shlex
 from importlib.metadata import version
+from os import environ
 from pathlib import Path
 from typing import Any, override
 
@@ -40,6 +41,10 @@ BUB_VERSION = version("bub")
 POWERCONTEXT_VERSION = version("powercontext")
 BUB_ACP_SERVER_VERSION = "0.0.2"
 STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
+# Harbor uploads each step's tests to this directory before running the step's verifier and leaves them there.
+STEP_TESTS_DIR = "/tests"
+PYPI_INDEX_URL = "https://pypi.org/simple"
+PIP_INDEX_SETTING = "POWERCONTEXT_E2E_PIP_INDEX_URL"
 
 
 class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
@@ -73,6 +78,7 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
             # after this line, including a failed removal, must leave it in place.
             await environment.exec(command=f"touch {STEP_FAILURE_MARKER}")
             await self.exec_as_agent(environment, command=f"rm -rf {BUB_TAPES}")
+            await clear_step_tests(environment)
             if not self._invocation_scopes:
                 await super().run(instruction, environment, context)
             else:
@@ -93,7 +99,7 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
         await self.exec_as_root(
             environment,
             command=self._build_dependencies_command("uvx"),
-            env={"DEBIAN_FRONTEND": "noninteractive"},
+            env={"DEBIAN_FRONTEND": "noninteractive", "PIP_INDEX_URL": pip_index_url()},
         )
         await self.exec_as_root(environment, command=_install_bub_command(powercontext=self._powercontext))
         await self.exec_as_root(environment, command=_install_acp_server_command())
@@ -122,6 +128,34 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
             user="root",
         )
         self._selected_distribution_kind = "uvx"
+
+
+def pip_index_url() -> str:
+    """Return the index Harbor's ACP runtime install uses for pip, overriding any the task image configured.
+
+    SWE-bench Pro images keep a pip configuration that names the index their build used, at a loopback address that
+    no longer answers (confirmed in the ansible image), so pip inside them cannot install anything until the index is
+    overridden. ``POWERCONTEXT_E2E_PIP_INDEX_URL`` names a mirror the containers can reach; the host's own
+    ``PIP_INDEX_URL`` is not forwarded, because a host mirror is often unreachable from a container.
+    """
+
+    return environ.get(PIP_INDEX_SETTING) or PYPI_INDEX_URL
+
+
+async def clear_step_tests(environment: BaseEnvironment) -> None:
+    """Remove the tests Harbor uploaded for an earlier step's verifier.
+
+    Harbor uploads a step's tests before its verifier runs and leaves them in the container, so a later session
+    could read an earlier step's verifier, which can hint at a continuation workload's answer. Each verifier uploads
+    its own tests again, so a later step loses nothing. Harbor's own directory reset runs as root, which owns the
+    uploaded files, and leaves an empty directory whatever was at the path.
+    """
+
+    # Harbor's environments return a failed command rather than raising, and a session must not start with the
+    # earlier tests still readable.
+    result = await environment.empty_dirs([STEP_TESTS_DIR], chmod=False)
+    if result is not None and result.return_code != 0:
+        raise RuntimeError(f"Emptying {STEP_TESTS_DIR} failed with exit code {result.return_code}: {result.stderr}")  # noqa: TRY003
 
 
 def _tool_environment() -> str:

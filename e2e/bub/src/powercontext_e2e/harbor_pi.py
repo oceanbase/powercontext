@@ -24,7 +24,7 @@ from harbor.agents.installed.pi import Pi
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
-from .harbor_agent import REMOTE_SOURCE
+from .harbor_agent import REMOTE_SOURCE, clear_step_tests
 
 # The version the PowerContext Pi package's lockfile and CI test against.
 PI_VERSION = "0.82.1"
@@ -86,6 +86,7 @@ class PowerContextPiAgent(Pi):
     @override
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
         await self.exec_as_agent(environment, command=f"rm -f {PI_TOOL_OUTPUT}")
+        await clear_step_tests(environment)
         await super().run(instruction, environment, context)
         if (failure := self._model_failure()) is not None:
             raise NonZeroAgentExitCodeError(f"Pi's model request failed: {failure}")  # noqa: TRY003

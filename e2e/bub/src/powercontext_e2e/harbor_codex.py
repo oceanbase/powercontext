@@ -22,8 +22,9 @@ from typing import Any, ClassVar, override
 from harbor.agents.installed.base import CliFlag
 from harbor.agents.installed.codex import Codex
 from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
 
-from .harbor_agent import REMOTE_SOURCE
+from .harbor_agent import REMOTE_SOURCE, clear_step_tests
 
 CODEX_VERSION = "0.153.4"
 PLUGIN_UV_VERSION = "0.10.12"
@@ -74,6 +75,11 @@ class PowerContextCodexAgent(Codex):
         await self.exec_as_root(environment, command=_install_plugin_runtime_command())
         agent_user = shlex.quote(str(environment.default_user or "root"))
         await self.exec_as_root(environment, command=f"chown -R {agent_user} {REMOTE_PLUGIN_ENV} {REMOTE_UV_PYTHON}")
+
+    @override
+    async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
+        await clear_step_tests(environment)
+        await super().run(instruction, environment, context)
 
     @override
     def _build_register_mcp_servers_command(self) -> str | None:
