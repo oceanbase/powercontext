@@ -2490,11 +2490,32 @@ function mapServerErrorCore(error) {
 		...requestIdField(error.requestId)
 	};
 }
+/**
+* Recovery fields the contract documents for a published code.
+*
+* `docs/en/development/plugin-contract.md` requires the direct surfaces to return a
+* generic failure result without exposing request details, so a response body may only
+* cross that boundary where a published code says which fields the caller can act on.
+* A code the plugin cannot name is mapped onto a generic one, and a generic one has no
+* recovery fields: the body is not a model-facing channel.
+*/
+const RECOVERY_DETAIL_FIELDS = { memory_capacity_exceeded: [
+	"dimension",
+	"limit",
+	"observed"
+] };
+function recoveryDetails(code, details) {
+	if (code === void 0 || details === void 0) return {};
+	const allowed = RECOVERY_DETAIL_FIELDS[code];
+	if (allowed === void 0) return {};
+	const kept = Object.fromEntries(allowed.filter((field) => details[field] !== void 0).map((field) => [field, details[field]]));
+	return Object.keys(kept).length === 0 ? {} : { details: kept };
+}
 function mapServerError(error) {
 	const mapped = mapServerErrorCore(error);
-	return error.serverDetails === void 0 ? mapped : {
+	return {
 		...mapped,
-		details: error.serverDetails
+		...recoveryDetails(mapped.code, error.serverDetails)
 	};
 }
 function toToolResult(error) {

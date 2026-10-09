@@ -152,3 +152,43 @@ describe('409 capacity failures', () => {
     })
   })
 })
+
+describe('details at the model-facing boundary', () => {
+  function errorClient(status: number, code: string, details: Record<string, unknown>) {
+    return new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000',
+      requestTimeoutMs: 1000,
+      fetch: async () => new Response(JSON.stringify({
+        error: { code, message: 'Server refused the request.', details },
+      }), { status, headers: { 'Content-Type': 'application/json' } }),
+    })
+  }
+
+  it('withholds the details of a code it cannot name', async () => {
+    const client = errorClient(503, 'breaker_state_open', {
+      code: 'breaker_state_open',
+      message: 'breaker open',
+      authorization: 'Bearer synthetic',
+      path: '/v1/memory/entries',
+    })
+    const error = await client.request('revise_memory_entry', {}).catch(error => error)
+    const result = toToolResult(error)
+    expect(result).toMatchObject({ ok: false, code: 'unavailable', status: 503 })
+    expect(result.details).toBeUndefined()
+    expect(JSON.stringify(result)).not.toContain('breaker_state_open')
+  })
+
+  it('keeps only the recovery fields the published code documents', async () => {
+    const client = errorClient(409, 'memory_capacity_exceeded', {
+      dimension: 'entries',
+      limit: 100,
+      observed: 101,
+      authorization: 'Bearer synthetic',
+      path: '/v1/memory/entries',
+    })
+    const result = toToolResult(await client.request('revise_memory_entry', {}).catch(error => error))
+    expect(result.code).toBe('memory_capacity_exceeded')
+    expect(result.details).toEqual({ dimension: 'entries', limit: 100, observed: 101 })
+    expect(JSON.stringify(result)).not.toContain('synthetic')
+  })
+})

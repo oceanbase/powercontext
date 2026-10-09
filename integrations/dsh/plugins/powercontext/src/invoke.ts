@@ -146,9 +146,35 @@ function mapServerErrorCore(error: ServerResponseError): ToolResult {
   }
 }
 
+/**
+ * Recovery fields the contract documents for a published code.
+ *
+ * `docs/en/development/plugin-contract.md` requires the direct surfaces to return a
+ * generic failure result without exposing request details, so a response body may only
+ * cross that boundary where a published code says which fields the caller can act on.
+ * A code the plugin cannot name is mapped onto a generic one, and a generic one has no
+ * recovery fields: the body is not a model-facing channel.
+ */
+const RECOVERY_DETAIL_FIELDS: Record<string, readonly string[]> = {
+  memory_capacity_exceeded: ['dimension', 'limit', 'observed'],
+}
+
+function recoveryDetails(
+  code: string | undefined,
+  details: Record<string, unknown> | undefined,
+): { details?: Record<string, unknown> } {
+  if (code === undefined || details === undefined) return {}
+  const allowed = RECOVERY_DETAIL_FIELDS[code]
+  if (allowed === undefined) return {}
+  const kept = Object.fromEntries(
+    allowed.filter(field => details[field] !== undefined).map(field => [field, details[field]]),
+  )
+  return Object.keys(kept).length === 0 ? {} : { details: kept }
+}
+
 function mapServerError(error: ServerResponseError): ToolResult {
   const mapped = mapServerErrorCore(error)
-  return error.serverDetails === undefined ? mapped : { ...mapped, details: error.serverDetails }
+  return { ...mapped, ...recoveryDetails(mapped.code, error.serverDetails) }
 }
 
 export function toToolResult(error: unknown): ToolResult {
