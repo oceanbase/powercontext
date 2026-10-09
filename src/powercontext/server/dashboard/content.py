@@ -63,10 +63,11 @@ async def load_notes(api: DashboardAPI, ctx: dict[str, Any]) -> None:
         if ctx["page"] == "notes" and ctx["search_query"]:
             result = await api.read(
                 "/v1/memory/search",
-                {"scope_id": ctx["scope"], "query": ctx["search_query"], "mode": "fts", "limit": 50},
+                {"scope_id": ctx["scope"], "query": ctx["search_query"], "mode": ctx["search_mode"], "limit": 50},
             )
             ctx["data"]["notes"] = [{**hit, **hit["citation"]} for hit in result["hits"]]
             ctx["search_limited"] = len(result["hits"]) == 50
+            ctx["search_used_mode"] = result["mode"]
         else:
             result = await api.read("/v1/memory/entries/list", {"scope_id": ctx["scope"]})
             ctx["data"]["notes"] = memory_view(result)
@@ -113,6 +114,8 @@ async def select_note(api: DashboardAPI, request: Request, ctx: dict[str, Any]) 
             raise ReadError(404, "not_found")
         entry = await api.read("/v1/memory/entries/get", {"scope_id": scope, "citation": citation})
         ctx["selected_note"] = {**entry, **entry["citation"]}
+        if current and current["citation"] == entry["citation"] and "matched_by" in current:
+            ctx["selected_note"].update(matched_by=current["matched_by"], score=current["score"])
     elif ctx["data"]["notes"]:
         ctx["selected_note"] = ctx["data"]["notes"][0]
 
@@ -339,7 +342,12 @@ async def _resolve_note_texts(api: DashboardAPI, scope: str, notes: list[dict[st
     entries = await asyncio.gather(
         *(api.read("/v1/memory/entries/get", {"scope_id": scope, "citation": note["citation"]}) for note in notes)
     )
-    return memory_view({"entries": entries})
+    resolved = memory_view({"entries": entries})
+    # Search hits carry their ranking evidence; the exact entry read does not.
+    return [
+        {**entry, **{key: note[key] for key in ("matched_by", "score") if key in note}}
+        for entry, note in zip(resolved, notes, strict=True)
+    ]
 
 
 def _displayed_memory(ctx: dict[str, Any]) -> tuple[str, int | None] | None:

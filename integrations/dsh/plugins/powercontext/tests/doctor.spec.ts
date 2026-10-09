@@ -58,8 +58,8 @@ function fixture(override?: FetchFn, config: PluginConfig = {}, env: NodeJS.Proc
   }
   return {
     calls, runtime,
-    async doctor(signal?: AbortSignal) {
-      const result = await handlePcCommand('doctor', runtime, '/fixture/workspace', signal)
+    async doctor(signal?: AbortSignal, toolCatalog?: unknown) {
+      const result = await handlePcCommand('doctor', runtime, '/fixture/workspace', signal, undefined, () => toolCatalog)
       return { kind: result.kind, ...JSON.parse(result.text) }
     },
   }
@@ -160,6 +160,7 @@ describe('read-only DSH Doctor', () => {
         routes: { state: 'ok', code: 'routes_declared' }, scope: { state: 'ok', code: 'scope_resolved' },
         capabilities: { state: 'ok', code: 'extraction_disabled' },
         prepare: { state: 'ok', code: 'empty' },
+        mcp_catalog: { state: 'skipped', code: 'tool_catalog_unavailable' },
       },
     })
     expect(result.coverage).toContain('not executed')
@@ -170,6 +171,26 @@ describe('read-only DSH Doctor', () => {
     const payload = JSON.parse(String(h.calls.find(c => c.path.endsWith('/prepare'))!.init.body))
     expect(payload.scope_id).toBe('scp_fixture')
     expect(payload.query).not.toContain('/fixture/workspace')
+  })
+
+  it('reports visible native PowerContext MCP tools separately from HTTP health', async () => {
+    const h = fixture()
+    const result = await h.doctor(undefined, {
+      schemas: () => [{ name: 'mcp__powercontext__search_memory' }, { name: 'pc_search' }],
+    })
+    expect(result).toMatchObject({ ok: true, kind: 'success', checks: {
+      mcp_catalog: { state: 'ok', code: 'native_mcp_tools_visible', tools: ['mcp__powercontext__search_memory'] },
+    } })
+  })
+
+  it.each([
+    ['unconfigured', { schemas: () => [] }, 'skipped', 'native_mcp_unconfigured'],
+    ['missing PowerContext', { schemas: () => [{ name: 'mcp__other__search' }] }, 'degraded', 'native_mcp_powercontext_missing'],
+    ['unreadable', { schemas: () => { throw new Error(PRIVATE) } }, 'degraded', 'tool_catalog_unreadable'],
+  ])('keeps healthy HTTP diagnostics successful when MCP catalog is %s', async (_case, catalog, state, code) => {
+    const result = await fixture().doctor(undefined, catalog)
+    expect(result).toMatchObject({ ok: true, kind: 'success', checks: { mcp_catalog: { state, code } } })
+    expect(JSON.stringify(result)).not.toContain(PRIVATE)
   })
 
   it.each([

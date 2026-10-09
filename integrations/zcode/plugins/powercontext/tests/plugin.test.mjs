@@ -17,7 +17,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -29,6 +29,7 @@ let server
 let serverUrl
 const requests = []
 let override = {}
+let dataDir
 
 beforeEach(() => {
   requests.length = 0
@@ -36,6 +37,7 @@ beforeEach(() => {
 })
 
 before(async () => {
+  dataDir = await mkdtemp(join(tmpdir(), 'pc-zcode-observations-'))
   server = createServer(async (request, response) => {
     const chunks = []
     for await (const chunk of request) chunks.push(chunk)
@@ -60,7 +62,7 @@ before(async () => {
     } else if (request.url === '/v1/sources/content') {
       response.statusCode = 202
       response.end(JSON.stringify({
-        status: 'accepted', source: { source_type: 'content', source_id: body.source_id }, position: 1,
+        status: 'accepted', source: { name: 'content', source_id: body.source_id }, position: 1,
       }))
     } else {
       response.statusCode = 404
@@ -72,13 +74,14 @@ before(async () => {
 })
 
 after(async () => {
+  await rm(dataDir, { recursive: true, force: true })
   await new Promise(resolve => server.close(resolve))
 })
 
 function invoke(payload, environment = {}, script = hookPath) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script], {
-      env: { ...process.env, POWERCONTEXT_ZCODE_SERVER_URL: serverUrl, ...environment },
+      env: { ...process.env, POWERCONTEXT_ZCODE_SERVER_URL: serverUrl, ZCODE_PLUGIN_DATA: dataDir, ...environment },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let stdout = ''
@@ -160,7 +163,8 @@ test('empty recall is silent, while authentication and Scope failures have disti
       content: null, content_bytes: 0 },
   }
   const empty = await invoke(payload)
-  assert.equal(JSON.parse(empty.stdout).hookSpecificOutput.additionalContext, '')
+  assert.match(JSON.parse(empty.stdout).hookSpecificOutput.additionalContext, /current-request binding/)
+  assert.doesNotMatch(JSON.parse(empty.stdout).hookSpecificOutput.additionalContext, /blue deployment/)
   assert.equal(empty.stderr, '')
   assert.ok(requests.some(request => request.path === '/v1/sources/content'))
 
@@ -183,7 +187,7 @@ test('prepare and capture failures remain independent and do not expose their bo
     status: 200, body: { schema: 'wrong', status: 'ready', content: 'private server body', content_bytes: 19 },
   }
   const prepareFailure = await invoke(payload)
-  assert.equal(JSON.parse(prepareFailure.stdout).hookSpecificOutput.additionalContext, '')
+  assert.match(JSON.parse(prepareFailure.stdout).hookSpecificOutput.additionalContext, /current-request binding/)
   assert.match(prepareFailure.stderr, /"stage":"prepare","code":"invalid_response"/)
   assert.doesNotMatch(prepareFailure.stderr, /private server body|Inspect the deployment/)
   assert.ok(requests.some(request => request.path === '/v1/sources/content'))
@@ -234,7 +238,7 @@ test('slow prepare times out without losing independent Source capture', async (
   const result = await invoke({ hookEventName: 'UserPromptSubmit', sessionId: 'session-7', turnId: 'turn-8',
     cwd: pluginRoot, prompt: 'Keep working after slow recall.' })
   assert.equal(result.code, 0)
-  assert.equal(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, '')
+  assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /current-request binding/)
   assert.match(result.stderr, /"stage":"prepare","code":"timeout"/)
   assert.ok(requests.some(request => request.path === '/v1/sources/content'))
 })
@@ -244,7 +248,8 @@ test('installed Server URL keeps Hook aligned with MCP despite a stale environme
   try {
     await mkdir(join(plugin, 'hooks'))
     const installedHook = join(plugin, 'hooks', 'user_prompt_submit.mjs')
-    await copyFile(hookPath, installedHook)
+    await cp(join(pluginRoot, 'hooks'), join(plugin, 'hooks'), { recursive: true })
+    await cp(join(pluginRoot, 'shared'), join(plugin, 'shared'), { recursive: true })
     await writeFile(join(plugin, 'powercontext.json'), JSON.stringify({ server_url: serverUrl, capture_prompts: false }))
     const result = await invoke({ hookEventName: 'UserPromptSubmit', sessionId: 'session-8', turnId: 'turn-9',
       cwd: pluginRoot, prompt: 'Recall the deployment.' },

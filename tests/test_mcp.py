@@ -99,6 +99,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "clear_scope_binding",
         "commit_handoff",
         "continue_handoff",
+        "prepare_handoff_hint",
         "create_scope",
         "create_work_contract",
         "finalize_handoff",

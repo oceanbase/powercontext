@@ -217,7 +217,7 @@ class MemoryCapacity(BaseModel):
 标识符宽度，大批量写入也可能先触发字节上限。
 
 保留可配置的 5,000 / 10,000 / 4 MiB 增长上限。部署预算应通过对应后端上隔离、具有代表性的测量校准，并计入保留
-历史的成本。基准方法与测量摘要集中在 `benchmark/memory_capacity/README.md`，原始运行结果随验收证据保存。
+历史的成本。基准方法与测量摘要集中在 `evaluation/performance/memory_capacity/README.md`，原始运行结果随验收证据保存。
 
 ## 配置
 
@@ -457,8 +457,8 @@ PR #1709 的 `test_memory_append_projection_writes_do_not_grow_with_entry_histor
 
 ### 规模基准
 
-新增 `benchmark/memory_capacity/` 模块，与现有 `locomo` 基准并列、并按 `benchmark/README.md` 给出的理由置于
-`tests/` 之外，在 entry 数 200、1,000、5,000 以及一个完整压缩周期上记录：
+`evaluation/performance/memory_capacity/` 模块按 `evaluation/README.md` 给出的理由置于 `tests/` 之外，
+在 entry 数 200、1,000、5,000 以及一个完整压缩周期上记录：
 
 entry 数、manifest 字节数、数据库字节数、平均 append 延迟、末窗平均 append 延迟、每次 append 的投影行写入数，
 以及压缩前后的搜索召回行为。
@@ -479,7 +479,7 @@ entry 数、manifest 字节数、数据库字节数、平均 append 延迟、末
    `make contract-test`。
 5. **读取约束。** `revisions()` 的上限及其 capability 错误。
 6. **公开读取端点。** `POST /v1/memory/capacity`、OpenAPI、契约测试。
-7. **基准。** `benchmark/memory_capacity/` 以及记录的 SQLite 与 OceanBase 结果。
+7. **基准。** `evaluation/performance/memory_capacity/` 以及记录的 SQLite 与 OceanBase 结果。
 
 仅第 1 至 3 步就能闭合 #1718 中"没有可观测上限"的那一半，值得在压缩之前先合入。
 

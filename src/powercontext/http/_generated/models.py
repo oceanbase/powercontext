@@ -17,6 +17,7 @@ from pydantic import (
     StrictFloat,
     StrictInt,
     StrictStr,
+    field_validator,
     model_validator,
 )
 
@@ -1782,6 +1783,170 @@ class ReviseMemoryEntryRequest(BaseModel):
     kind: Annotated[StrictStr, Field(max_length=128, min_length=1)]
     text: Annotated[StrictStr, Field(description="Must not exceed 8192 UTF-8 bytes after normalization.", min_length=1)]
     reason: Annotated[StrictStr | None, Field(max_length=512)] = None
+
+
+class ArtifactSearchFusion(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    method: Annotated[StrictStr, Field(min_length=1, pattern=".*\\S.*")]
+    params: dict[str, Any] = {}
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _reject_invalid_search_value(cls, value: Any) -> Any:
+        from math import isfinite
+
+        from pydantic import ValidationError
+        from pydantic_core import InitErrorDetails
+
+        if value is None:
+            raise ValueError("omit the field instead of sending null")  # noqa: TRY003
+        errors: list[InitErrorDetails] = []
+        pending: list[tuple[Any, tuple[str | int, ...]]] = [(value, ())]
+        visited: set[int] = set()
+        while pending:
+            item, path = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                errors.append({"type": "finite_number", "loc": path, "input": item})
+            elif isinstance(item, (dict, list, tuple)) and id(item) not in visited:
+                visited.add(id(item))
+                entries = item.items() if isinstance(item, dict) else enumerate(item)
+                pending.extend((nested, (*path, key)) for key, nested in entries)
+        if errors:
+            raise ValidationError.from_exception_data(cls.__name__, errors)
+        return value
+
+
+class SearchArtifactsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    limit: Annotated[StrictInt, Field(ge=1, le=200)] = 10
+    mode: Annotated[StrictStr | None, Field(min_length=1, pattern=".*\\S.*")] = None
+    filters: dict[str, Any] | None = None
+    admission: dict[str, Any] | None = None
+    fusion: ArtifactSearchFusion | None = None
+    min_score: Annotated[StrictFloat | None, Field(ge=0.0, le=1.0)] = None
+    include_scores: StrictBool = False
+    rerank: dict[str, Any] | None = None
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def _trim_search_query(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _reject_invalid_search_value(cls, value: Any) -> Any:
+        from math import isfinite
+
+        from pydantic import ValidationError
+        from pydantic_core import InitErrorDetails
+
+        if value is None:
+            raise ValueError("omit the field instead of sending null")  # noqa: TRY003
+        errors: list[InitErrorDetails] = []
+        pending: list[tuple[Any, tuple[str | int, ...]]] = [(value, ())]
+        visited: set[int] = set()
+        while pending:
+            item, path = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                errors.append({"type": "finite_number", "loc": path, "input": item})
+            elif isinstance(item, (dict, list, tuple)) and id(item) not in visited:
+                visited.add(id(item))
+                entries = item.items() if isinstance(item, dict) else enumerate(item)
+                pending.extend((nested, (*path, key)) for key, nested in entries)
+        if errors:
+            raise ValidationError.from_exception_data(cls.__name__, errors)
+        return value
+
+
+class ArtifactChannelScore(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    raw: StrictFloat
+    metric: Annotated[StrictStr, Field(min_length=1, pattern=".*\\S.*")]
+    higher_is_better: StrictBool
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _reject_invalid_search_value(cls, value: Any) -> Any:
+        from math import isfinite
+
+        from pydantic import ValidationError
+        from pydantic_core import InitErrorDetails
+
+        if value is None:
+            raise ValueError("omit the field instead of sending null")  # noqa: TRY003
+        errors: list[InitErrorDetails] = []
+        pending: list[tuple[Any, tuple[str | int, ...]]] = [(value, ())]
+        visited: set[int] = set()
+        while pending:
+            item, path = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                errors.append({"type": "finite_number", "loc": path, "input": item})
+            elif isinstance(item, (dict, list, tuple)) and id(item) not in visited:
+                visited.add(id(item))
+                entries = item.items() if isinstance(item, dict) else enumerate(item)
+                pending.extend((nested, (*path, key)) for key, nested in entries)
+        if errors:
+            raise ValidationError.from_exception_data(cls.__name__, errors)
+        return value
+
+
+class ArtifactSearchScores(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    retrieval: Annotated[StrictFloat, Field(ge=0.0, le=1.0)]
+    channels: dict[str, ArtifactChannelScore]
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _reject_invalid_search_value(cls, value: Any) -> Any:
+        from math import isfinite
+
+        from pydantic import ValidationError
+        from pydantic_core import InitErrorDetails
+
+        if value is None:
+            raise ValueError("omit the field instead of sending null")  # noqa: TRY003
+        errors: list[InitErrorDetails] = []
+        pending: list[tuple[Any, tuple[str | int, ...]]] = [(value, ())]
+        visited: set[int] = set()
+        while pending:
+            item, path = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                errors.append({"type": "finite_number", "loc": path, "input": item})
+            elif isinstance(item, (dict, list, tuple)) and id(item) not in visited:
+                visited.add(id(item))
+                entries = item.items() if isinstance(item, dict) else enumerate(item)
+                pending.extend((nested, (*path, key)) for key, nested in entries)
+        if errors:
+            raise ValidationError.from_exception_data(cls.__name__, errors)
+        return value
+
+
+class ArtifactSearchItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Annotated[StrictStr, Field(min_length=1)]
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    revision: Annotated[StrictInt, Field(ge=1)]
+    content: dict[str, Any]
+    lineage: dict[str, Any]
+    scores: ArtifactSearchScores | None = None
+
+
+class SearchArtifactsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: list[ArtifactSearchItem]
 
 
 class SearchTopicMemoryRequest(BaseModel):
@@ -4272,6 +4437,27 @@ class ContinueHandoffRequest(BaseModel):
     selection: HandoffSelection
     prepared: PreparedHandoff | None = None
     revision: ArtifactReference | None = None
+
+
+class PrepareHandoffHintRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    selection: HandoffSelection
+    prepared: Annotated[
+        PreparedHandoff | None,
+        Field(description="Required only for prepared selection; retain this complete value for continuation."),
+    ] = None
+    revision: Annotated[ArtifactReference | None, Field(description="Required only for exact selection.")] = None
+    max_bytes: Annotated[
+        StrictInt,
+        Field(
+            description="Complete rendered UTF-8 text budget including notice, boundaries, and exact references.",
+            ge=1,
+            le=4000,
+        ),
+    ] = 2000
 
 
 class FinalizeHandoffRequest(BaseModel):

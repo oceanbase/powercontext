@@ -496,6 +496,13 @@ Backoff remains in memory. Restart or leadership change may retry an accepted fa
 rebuild the backoff sequence; it never skips the failed business position. Permanent errors may continue consuming
 invocation resources and must be found through observability; the first version does not discard them automatically.
 
+Memory owns a persisted per-Scope window reduction for generation timeouts. A failed extraction can
+halve the next window without advancing its Source cursor or acknowledging the invocation; the
+reduction survives Worker replacement and is cleared when the observed backlog is consumed.
+The cursor CAS and current fence guard this update. It is an input-size hint, not a successful
+processing checkpoint or a Supervisor failed-job state. Single-position failures retain the same
+retry policy. Supervisor deadlines and backoff remain unchanged.
+
 ## 8. Leadership terms, backends, and process roles
 
 One Lease corresponds to one logical Supervisor, not to a binding, Scope, Worker, or Worker-budget partition. Because

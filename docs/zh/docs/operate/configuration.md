@@ -67,11 +67,21 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekdb 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
 | `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` | `5000` | 业务连接等待 SQLite 单一写锁的毫秒数；它不约束用量记账，后者有自己的有界预算 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
-| `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 单次 activation 最多处理的 Source 数量 |
+| `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 每次处理的 Source 日志位置上限；Memory 在生成超时后会缩小窗口 |
 | `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | 显式 `assembly.sections[].limit` 之和的上限；正整数，各类别单独上限仍适用 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory 选择策略：`coding` 或 `conversation` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | 在 Memory 粗召回后应用 listwise rerank |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小 |
+| `POWERCONTEXT_SERVER_RUNTIME_DECISION_ASSISTANCE_ENABLED` | `false` | 启用决策模型辅助；需要配置决策模型或 generation 模型 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WRITE_GATE_ENABLED` | `false` | 启用待写入 Memory 的决策模型门控；没有决策后端时会放行写入 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WRITE_GATE_HOLD_ON` | `yes` | 表示证据不足的决策结果：`yes` 或 `no` |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WRITE_GATE_THRESHOLD` | 未设置 | 可选的 `0` 到 `1` 置信度阈值；低于阈值的暂缓方向结果会标记而非暂缓写入 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_ACTIVE_ENTRIES` | `5000` | 每份 Memory 的活跃条目上限；不得高于清单条目上限 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_MANIFEST_ENTRIES` | `10000` | 每份 Memory 清单的条目上限，包括非活跃条目 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_MANIFEST_BYTES` | `4194304` | Memory 完整规范内容的字节上限 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_COMPACTION_ENABLED` | `false` | 允许显式的进程内墓碑压缩；不会自动安排或触发压缩 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_COMPACTION_MIN_TOMBSTONE_REVISIONS` | `10` | 墓碑可压缩前至少经过的完整 Revision 推进次数 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_HISTORY_REVISIONS` | `100` | Runtime 读取的 Memory 历史 Revision 数量上限 |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ENABLED` | `false` | 启用可选的召回充分性门控；关闭时召回行为与不启用该功能时一致 |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MAX_ROUNDS` | `2` | 首轮召回之后最多追加的搜索轮数；取值 `0`–`2`，`0` 表示只评估、不追加 |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_CANDIDATES` | `2` | 判定召回充分所需的最少候选数量 |
@@ -130,6 +140,12 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL_SETTINGS` | `{}` | Pydantic AI reranker model settings JSON object |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_TIMEOUT_SECONDS` | generation 超时 | LLM reranker 超时 |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | 单次 rerank operation 的最大 model request 数量 |
+| `POWERCONTEXT_SERVER_INFERENCE_DECISION_MODEL` | generation model | 用于决策辅助和 Memory 写入门控的可选独立 Pydantic AI 模型 |
+| `POWERCONTEXT_SERVER_INFERENCE_DECISION_BASE_URL` | 继承值或 provider 默认值 | 自定义决策模型 provider base URL；须同时设置 `DECISION_MODEL` |
+| `POWERCONTEXT_SERVER_INFERENCE_DECISION_HEADERS` | `{}` | 决策模型客户端静态 header 的 JSON object；值按 secret 处理，未设置独立模型时继承 generation headers |
+| `POWERCONTEXT_SERVER_INFERENCE_DECISION_MODEL_SETTINGS` | `{}` | 决策模型设置的 JSON object；未设置独立模型时与 generation settings 合并 |
+| `POWERCONTEXT_SERVER_INFERENCE_DECISION_TIMEOUT_SECONDS` | generation 超时 | 单次决策操作的超时秒数 |
+| `POWERCONTEXT_SERVER_INFERENCE_DECISION_MAX_REQUESTS` | generation request limit | 单次决策操作的模型请求次数上限，包含模型输出校验重试；不包含 provider SDK 的 HTTP 重试 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 自动准入间隔；未设置时保留已接受工作，停止新的自动准入 |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 自动生成本机项目 target | 覆盖默认值的 host identity 和显式 Agent Skill targets JSON object |
 

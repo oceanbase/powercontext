@@ -352,7 +352,12 @@ def test_codex_diagnostics_reject_native_mcp_without_authorization_environment(m
     probe.assert_not_called()
 
 
-def test_codex_diagnostics_reject_url_mismatched_stored_authorization(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("credential_helper", [False, True])
+@pytest.mark.parametrize("server_accepts_unauthenticated", [False, True])
+def test_codex_diagnostics_probe_without_url_mismatched_stored_authorization(
+    tmp_path: Path, monkeypatch, credential_helper: bool, server_accepts_unauthenticated: bool
+) -> None:
+    """A previous endpoint's token stays private while the new Server verifies access."""
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
@@ -374,15 +379,31 @@ def test_codex_diagnostics_reject_url_mismatched_stored_authorization(tmp_path: 
         server_url="http://127.0.0.1:9000",
         value="Bearer saved-token",
     )
-    probe = Mock()
+    original_credential = credential.read_bytes()
+    if credential_helper:
+        servers = system_cli._run_codex_mcp_list()
+        servers[0]["transport"]["http_headers_helper"] = "<redacted>"
+        monkeypatch.setattr(system_cli, "_run_codex_mcp_list", lambda: servers)
+    probe = Mock(
+        return_value={
+            "name": "powercontext",
+            "tools": {"remember_memory": {}, "search_memory": {}} if server_accepts_unauthenticated else {},
+        }
+    )
     monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
 
     diagnostics = system_cli.run_codex_diagnostics()
 
-    assert diagnostics["authorization"].status is DiagnosticStatus.FAILED
+    assert diagnostics["authorization"].status is DiagnosticStatus.OK
     assert "url_mismatch" in diagnostics["authorization"].detail
-    assert diagnostics["mcp_tools"].status is DiagnosticStatus.SKIPPED
-    probe.assert_not_called()
+    assert "POWERCONTEXT_CODEX_AUTHORIZATION" in diagnostics["authorization"].detail
+    assert "POWERCONTEXT_CLIENT_API_TOKEN" in diagnostics["authorization"].detail
+    assert diagnostics["mcp_tools"].ok is server_accepts_unauthenticated
+    if not server_accepts_unauthenticated:
+        assert "POWERCONTEXT_CODEX_AUTHORIZATION" in diagnostics["mcp_tools"].detail
+    assert credential.read_bytes() == original_credential
+    assert "saved-token" not in json.dumps({key: value.as_json() for key, value in diagnostics.items()})
+    probe.assert_called_once_with(authorization=None)
 
 
 def test_codex_app_server_probe_clears_process_authorization(monkeypatch) -> None:
@@ -1835,6 +1856,7 @@ def test_claude_runner_uses_the_resolved_executable(monkeypatch) -> None:
 
 def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch) -> None:
     import powercontext.cli.dsh as dsh_cli
+    import powercontext.cli.dsh_transport as dsh_transport
 
     checkout = tmp_path / "powercontext"
     plugin = checkout / "integrations" / "dsh" / "plugins" / "powercontext"
@@ -1846,6 +1868,7 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
     run_dsh = Mock(return_value="id: powercontext-dsh\n")
     monkeypatch.setattr(dsh_cli, "_run_dsh", run_dsh)
+    monkeypatch.setattr(dsh_transport, "read_dsh_settings", lambda **_kwargs: {})
 
     result = CliRunner().invoke(
         create_cli([setup_app]),
@@ -1858,6 +1881,8 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
         "plugin_path": str(plugin),
         "data_dir": str(tmp_path / "data"),
         "authorization_state": "not_configured",
+        "profile": "web",
+        "profile_dir": str(tmp_path / "dsh-home/profiles/web"),
     }
     assert run_dsh.call_args_list[0].args == (
         "plugin",
@@ -1912,7 +1937,7 @@ def test_doctor_dsh_requires_the_installed_plugin(monkeypatch) -> None:
     import powercontext.cli.dsh as dsh_cli
 
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
-    monkeypatch.setattr(dsh_cli, "_run_dsh", lambda *_args: "id: other-plugin\n")
+    monkeypatch.setattr(dsh_cli, "_run_dsh", lambda *_args, **_kwargs: "id: other-plugin\n")
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh"])
 

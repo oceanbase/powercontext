@@ -35,12 +35,11 @@ const config: ResolvedConfig = {
 }
 
 function input(overrides: Partial<RecallInput> = {}): RecallInput {
+  const messages = overrides.messages ?? [{
+    content: [{ type: 'text', text: 'remember the public API stays async' }],
+    source: { kind: 'user' },
+  }]
   return {
-    messages: [{
-      content: [{ type: 'text', text: 'remember the public API stays async' }],
-      source: { kind: 'user' },
-    }],
-    next: async () => ({ kind: 'enter', messages: [] }),
     cwd: '/repo',
     sessionId: 's1',
     turnId: '1',
@@ -50,6 +49,8 @@ function input(overrides: Partial<RecallInput> = {}): RecallInput {
     wrapContent: (text) => ({ role: 'user', content: [{ type: 'text', text }] }),
     log: vi.fn(),
     ...overrides,
+    messages,
+    next: overrides.next ?? (async () => ({ kind: 'enter', messages })),
   }
 }
 
@@ -62,7 +63,8 @@ describe('runRecallPreStep fail-open', () => {
   })
 
   it('still calls next when prepare fetch rejects', async () => {
-    const next = vi.fn(async () => ({ kind: 'enter' as const, messages: [{ id: 'user' }] }))
+    const messages = input().messages
+    const next = vi.fn(async () => ({ kind: 'enter' as const, messages }))
     const request = vi.fn(async (operationId: string) => {
       if (operationId === 'prepare_context') throw new UnavailableError('/v1/context/prepare')
       return { kind: 'json', value: { status: 'accepted' }, status: 202, requestId: undefined }
@@ -70,7 +72,7 @@ describe('runRecallPreStep fail-open', () => {
     const log = vi.fn()
     const result = await runRecallPreStep(input({ next, client: { request } as never, log }))
     expect(next).toHaveBeenCalledOnce()
-    expect(result).toEqual({ kind: 'enter', messages: [{ id: 'user' }] })
+    expect(result).toEqual({ kind: 'enter', messages })
     expect(request).toHaveBeenCalled()
     expect(log).toHaveBeenCalledWith({
       event: 'context_prepare',
@@ -180,7 +182,7 @@ describe('runRecallPreStep fail-open', () => {
     expect(request.mock.calls[0]).toEqual([
       'prepare_context',
       { scope_id: 'project:demo', query: 'Human request\n\nPlugin-provided context', max_bytes: 8000 },
-      undefined,
+      expect.any(AbortSignal),
     ])
     expect(request.mock.calls[1][0]).toBe('capture_content_source')
     expect(request.mock.calls[1][1]).toMatchObject({
@@ -214,7 +216,8 @@ describe('runRecallPreStep fail-open', () => {
   })
 
   it('appends untrusted context after a ready prepare result', async () => {
-    const next = vi.fn(async () => ({ kind: 'enter' as const, messages: [] }))
+    const messages = input().messages
+    const next = vi.fn(async () => ({ kind: 'enter' as const, messages }))
     const content = 'Public API stays async.'
     const request = vi.fn(async (operationId: string) => {
       if (operationId === 'prepare_context') {
@@ -235,15 +238,16 @@ describe('runRecallPreStep fail-open', () => {
     const result = await runRecallPreStep(input({ next, client: { request } as never }))
     expect(result.kind).toBe('enter')
     if (result.kind === 'enter') {
-      expect(result.messages).toHaveLength(1)
-      const wrapped = result.messages[0] as { content: Array<{ text: string }> }
+      expect(result.messages).toHaveLength(2)
+      const wrapped = result.messages[1] as { content: Array<{ text: string }> }
       expect(wrapped.content[0].text).toContain('untrusted historical evidence')
       expect(wrapped.content[0].text).toContain(content)
     }
   })
 
   it('recalls from the Server default when cwd and scopeId are absent', async () => {
-    const next = vi.fn(async () => ({ kind: 'enter' as const, messages: [{ id: 'user' }] }))
+    const messages = input().messages
+    const next = vi.fn(async () => ({ kind: 'enter' as const, messages }))
     const log = vi.fn()
     const result = await runRecallPreStep(input({
       next,
@@ -253,7 +257,7 @@ describe('runRecallPreStep fail-open', () => {
       log,
     }))
     expect(next).toHaveBeenCalledOnce()
-    expect(result).toEqual({ kind: 'enter', messages: [{ id: 'user' }] })
+    expect(result).toEqual({ kind: 'enter', messages })
     expect(log).toHaveBeenCalled()
   })
 
@@ -434,6 +438,6 @@ it('forwards explicit assembly and delivers standard text intact', async () => {
     config: { ...config, contextAssembly: assembly, capturePrompts: false },
     wrapContent,
   }))
-  expect(request).toHaveBeenCalledWith('prepare_context', expect.objectContaining({ assembly }), undefined)
+  expect(request).toHaveBeenCalledWith('prepare_context', expect.objectContaining({ assembly }), expect.any(AbortSignal))
   expect(wrapContent.mock.calls[0][0].endsWith(content)).toBe(true)
 })

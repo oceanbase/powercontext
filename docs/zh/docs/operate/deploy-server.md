@@ -53,7 +53,11 @@ icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "${env:USERNAME
 
 原生定义只记录环境文件的绝对路径和不含内容的文件 identity metadata；在 Windows 上还记录当前用户的 owner SID，
 launcher 每次启动都会重新校验它。不复制 credential 或调用者的 shell environment。
-升级 PowerContext 或修改环境文件后应重新执行 `service install`。以下命令会删除注册，但保留 Server 数据和日志：
+升级 PowerContext 或修改环境文件后应重新执行 `service install`。显式执行 `service stop` 后，可以在新版环境中运行
+`service install`；如果原服务使用环境文件，请继续传入同一个 `--env-file`。即使旧 Python 程序已删除，也可以更新注册，
+服务仍保持停止并禁止自动启动。确认可以恢复服务后，再执行 `service start`。尚未验证完成的数据库迁移仍会阻止更新注册。
+
+以下命令会删除注册，但保留 Server 数据和日志：
 
 ```bash
 powercontext service uninstall

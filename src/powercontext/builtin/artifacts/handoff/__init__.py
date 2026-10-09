@@ -64,6 +64,7 @@ from powercontext.builtin.artifacts.handoff.models import (
     HandoffStatement,
     PreparedHandoff,
     PrepareHandoff,
+    PrepareHandoffHint,
 )
 from powercontext.builtin.artifacts.handoff.prompts import (
     HANDOFF_GENERATION_INSTRUCTIONS,
@@ -74,7 +75,10 @@ from powercontext.builtin.artifacts.handoff.protocols import (
     HandoffEvidenceResolver,
     HandoffGenerationPipeline,
 )
-from powercontext.builtin.artifacts.handoff.service import HandoffEvidenceAuthorizer, HandoffService
+from powercontext.builtin.artifacts.handoff.service import (
+    HandoffEvidenceAuthorizer,
+    HandoffService,
+)
 
 __all__ = [
     "DEFAULT_HANDOFF_MAX_BYTES",
@@ -128,5 +132,6 @@ __all__ = [
     "InvalidHandoffReferenceError",
     "LLMHandoffGenerationPipeline",
     "PrepareHandoff",
+    "PrepareHandoffHint",
     "PreparedHandoff",
 ]

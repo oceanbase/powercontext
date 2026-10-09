@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { resolveTransport } from './transport.ts'
+import { normalizeServerUrl, resolveTransport } from './transport.ts'
 import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -97,14 +97,16 @@ function contextAssembly(raw: string | undefined, fallback?: Record<string, unkn
 }
 
 function storedAuthorization(env: NodeJS.ProcessEnv, baseUrl: string): string | undefined {
-  const root = env.DSH_HOME?.trim() || join(homedir(), '.dsh')
+  const configuredHome = env.DSH_HOME
+  const root = configuredHome?.trim() ? configuredHome : join(homedir(), '.dsh')
   const path = join(root, 'powercontext', 'credentials.json')
   try {
     if (process.platform !== 'win32' && (statSync(path).mode & 0o077) !== 0) return undefined
     const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
     const payload = parsed as Record<string, unknown>
-    if (payload.version !== 1 || typeof payload.server_url !== 'string' || stripSlash(payload.server_url) !== baseUrl) return undefined
+    if (payload.version !== 1 || typeof payload.server_url !== 'string'
+      || normalizeServerUrl(payload.server_url, true) !== baseUrl) return undefined
     if (typeof payload.authorization !== 'string') return undefined
     const authorization = payload.authorization
     return /^Bearer [^\s]+$/.test(authorization) ? authorization : undefined

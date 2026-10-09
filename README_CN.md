@@ -116,6 +116,7 @@ make test
 ```
 
 完整开发流程请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+编程能力评测、记忆质量评测、性能压测和 Skill 回归统一放在 [`evaluation/`](evaluation/README.md)，按用途选择对应目录。
 
 ## 进一步了解
 

@@ -31,6 +31,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffStatement,
     PreparedHandoff,
     PrepareHandoff,
+    PrepareHandoffHint,
 )
 from powercontext.builtin.artifacts.memory.models import MemoryChange
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
@@ -48,6 +49,7 @@ from powercontext.builtin.review.generation import (
     SkillGenerationOrigin,
 )
 from powercontext.builtin.runtime.application import (
+    ArtifactApplication,
     BuiltinRuntime,
     ExperienceApplication,
     ExternalSkillApplication,
@@ -58,6 +60,7 @@ from powercontext.builtin.runtime.application import (
     ReviewApplication,
     ScheduledExperienceProcessor,
     ScheduledSourceProcessor,
+    ScopedArtifactApplication,
     ScopedExperienceApplication,
     ScopedExternalSkillApplication,
     ScopedHandoffApplication,
@@ -212,6 +215,7 @@ from powercontext.builtin.statistics import (
 __all__ = [
     "ActivateHandoff",
     "ApproveArtifactCandidateRequest",
+    "ArtifactApplication",
     "ArtifactInventoryStatistics",
     "ArtifactProcessingBinding",
     "ArtifactProcessingSupervisor",
@@ -317,6 +321,7 @@ __all__ = [
     "PowerContextProvider",
     "PrepareContextRequest",
     "PrepareHandoff",
+    "PrepareHandoffHint",
     "PreparedContext",
     "PreparedHandoff",
     "ProposeExperienceRequest",
@@ -348,6 +353,7 @@ __all__ = [
     "ScheduledExperienceProcessor",
     "ScheduledSourceProcessor",
     "ScopeStatistics",
+    "ScopedArtifactApplication",
     "ScopedDreamApplication",
     "ScopedExperienceApplication",
     "ScopedExternalSkillApplication",

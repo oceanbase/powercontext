@@ -18,7 +18,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Self
+from typing import Any, Self, cast
 
 import httpx
 import pytest
@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from starlette.middleware import Middleware
 
-from powercontext.artifacts import ArtifactAddress, ArtifactRef
+from powercontext.artifacts import ArtifactAddress, ArtifactRef, ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.memory import MemoryEntryVersion
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.publication import ArtifactPublication, ArtifactPublicationRequest
@@ -47,6 +47,7 @@ from powercontext.server.authz import (
     AccessRole,
     BuiltinAuthorizationProvider,
     CreateBinding,
+    GroupRef,
     MemoryEntrySelector,
     PrincipalRef,
     ResourceRef,
@@ -1021,6 +1022,97 @@ def test_artifact_publication_requires_logical_share_and_target_scope_admin() ->
                 )
                 assert denied.status_code == 403
             assert len(publications.requests) == 2
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("access_mode", ["enforced", "disabled"])
+def test_artifact_search_uses_path_scope_permission_and_waits_for_content_owners(access_mode) -> None:
+    group = GroupRef(type="group", id="search-group")
+
+    class Provider(_ActingAuthenticationProvider):
+        async def authenticate(self, request) -> AuthenticationResult:
+            return AuthenticationResult(subject=BOB, actor=ADMIN, subject_groups=(group,))
+
+    class Application:
+        def __init__(self) -> None:
+            self.records = self.artifacts = self
+            self.scope_id = ""
+            self.reads: list[str] = []
+            self.contexts: list[ArtifactSearchExecutionContext | None] = []
+
+        def for_scope(self, scope_id: str):
+            self.scope_id = scope_id
+            return self
+
+        async def logical_artifacts(self):
+            return (SimpleNamespace(family="skill", artifact_id="pending", entry_id=None),)
+
+        async def search(self, family, payload, *, execution_context: ArtifactSearchExecutionContext | None = None):
+            self.reads.append(self.scope_id)
+            self.contexts.append(execution_context)
+            return SimpleNamespace(matches=(), artifacts=())
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
+            repository = RelationalAccessRepository(profile.database)
+            await _seed_admin(repository)
+            service = AccessControlService(
+                BuiltinAuthorizationProvider(repository), relationships=repository, audit=repository
+            )
+            await service.create_binding(
+                ADMIN,
+                CreateBinding(
+                    subject=BOB,
+                    resource=ResourceRef.scope("scope-a"),
+                    role=AccessRole.SCOPE_VIEWER,
+                    idempotency_key="search-viewer",
+                ),
+                context=AUDIT,
+            )
+            application = Application()
+            provider = Provider()
+            app = create_app(
+                application=cast(Any, application),
+                access_control=service,
+                access_mode=access_mode,
+                authentication_provider=provider,
+                middleware=(Middleware(AuthenticationMiddleware, provider=provider),),
+            )
+            path = "/v1/scopes/scope-a/artifacts/custom-family/search"
+            async with _client(app) as client:
+                denied = await client.post(
+                    path.replace("scope-a", "scope-b"), headers=_auth("search-token"), json={"query": "x"}
+                )
+                injected = await client.post(
+                    path, headers=_auth("search-token"), json={"query": "x", "scope_id": "scope-b"}
+                )
+                pending = await client.post(path, headers=_auth("search-token"), json={"query": "x"})
+                assert denied.status_code == 403
+                assert injected.status_code == 422
+                assert pending.status_code == 503
+                assert pending.json()["error"]["code"] == "artifact_owner_pending"
+                assert application.reads == []
+                await service.establish_artifact_owner(
+                    ResourceRef.artifact("scope-a", family="skill", artifact_id="pending"),
+                    BOB,
+                    idempotency_key="search-owner",
+                    context=AUDIT,
+                )
+                ready = await client.post(path, headers=_auth("search-token"), json={"query": "x"})
+                assert ready.status_code == 200
+                assert ready.json() == {"results": []}
+                assert application.reads == ["scope-a"]
+                context = application.contexts[0]
+                assert context is not None
+                assert context.principal == BOB
+                assert context.access is service
+                assert context.trusted_local is False
+                assert context.audit.actor == ADMIN
+                assert context.audit.subject_groups == (group,)
+                assert context.audit.operation == "search_artifacts"
+                assert context.audit.transport == "http"
+                assert context.audit.request_id == ready.headers["x-powercontext-request-id"]
 
     asyncio.run(scenario())
 

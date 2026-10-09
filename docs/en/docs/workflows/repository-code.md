@@ -14,8 +14,17 @@ The capability is disabled by default. Structural analysis supports UTF-8 Python
 repository reference resolution. It requires no generation model, embeddings, Node.js, or CodeGraph service.
 Dynamic dispatch, reflection, framework-generated calls, and unsupported syntax can remain unknown.
 A `candidate` relationship is a lead, not proof of a runtime call.
-Local indexing is verified on Linux and requires POSIX file locks, process resource limits, and SQLite FTS5 or embedded seekdb full-text search.
-Clients on other systems can use the HTTP service; local indexing on macOS and Windows has not been validated.
+Local indexing with SQLite is verified on Linux and macOS and requires POSIX file locks and SQLite FTS5;
+embedded seekdb deployments use seekdb full-text search. Windows clients can use the HTTP service; local indexing
+on Windows has not been validated.
+
+Parser workers have a default 1 GiB memory budget (`limits.worker_memory_bytes`). Linux enforces an address-space
+limit through `RLIMIT_AS`. macOS does not support that limit: the parent samples the worker's resident memory (RSS)
+approximately every 100 ms under normal scheduling and terminates it when the budget is exceeded. This is sampled
+enforcement: scheduling delays and allocations between checks can allow temporary overshoot. If memory monitoring fails,
+the build fails rather than proceeding without enforcement. A file interrupted by a memory limit retains text search
+with failed structural coverage;
+a worker failure before parsing begins aborts the build and preserves the previously published index.
 
 ## Language coverage
 

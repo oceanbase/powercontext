@@ -125,6 +125,8 @@ make test
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow.
+Coding and memory evaluations, performance benchmarks, and Skill regressions live under
+[`evaluation/`](evaluation/README.md).
 
 ## Learn more
 

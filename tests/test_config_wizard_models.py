@@ -128,7 +128,8 @@ def test_shared_bailian_connection_still_collects_a_distinct_embedding_model_and
     assert updates[PREFIX + "GENERATION_HEADERS"] == updates[PREFIX + "EMBEDDING_HEADERS"]
     assert updates[PREFIX + "GENERATION_BASE_URL"] == updates[PREFIX + "EMBEDDING_BASE_URL"]
     assert (
-        "Reuse the Generation API address and API key for Embedding? The Embedding model is configured separately."
+        "Reuse the same API address and API key as Generation for Embedding? "
+        "Choose No to configure a separate Embedding model."
     ) in ui.prompts
 
 

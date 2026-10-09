@@ -91,7 +91,7 @@ OpenAPI 版本描述待发布的 API 契约，不覆盖 Hatch VCS。打 tag 前�
 | WorkBuddy 集成 | Hook 和传输脚本包含 User-Agent 字符串，没有需要与 Server 对齐的插件 manifest 版本。 |
 | Skill Receiver | `src/powercontext/client/skill_receiver.py` 中的 `RECEIVER_VERSION` 提供注册、协调及回执上报时默认使用的 Receiver 身份版本，独立于 Server 版本。 |
 | Python 集成包 | `integrations/{bub,langchain,langgraph,opendal,pydantic-ai}/pyproject.toml` 有各自的发行版本；依赖范围表示兼容性，不是当前主发布版本。 |
-| 评测及 harness 包 | `evaluation/pyproject.toml`、`evaluation/web/package.json`、`e2e/bub/pyproject.toml` 有各自的包版本。 |
+| 评测及 harness 包 | `evaluation/pyproject.toml`、`evaluation/coding/swebench_pro/web/package.json`、`e2e/bub/pyproject.toml` 有各自的包版本。 |
 | 协议及依赖 | Agent Plugins schema 版本、持久化格式版本、OpenAPI 规范版本、API 路径、宿主最低版本及第三方依赖仅随自身契约更新。 |
 
 通过匹配的 `powercontext-v…` 仓库 tag 安装 Agent 集成，可以选中配套的源码修订，不要求每个插件 manifest 的

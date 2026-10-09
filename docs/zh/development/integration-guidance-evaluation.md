@@ -5,6 +5,12 @@ description: tracking issue 1450 D 的工具选择测量、执行证据及模型
 
 # Agent 指引验证记录
 
+配套的 [skill-up 回归套件](https://github.com/oceanbase/powercontext/blob/master/evaluation/skills/skill-up/README.md) 固定 Claude Code 打包 Skill 的版本，
+使用规则断言、受控 MCP 响应及加载／不加载 Skill 的对比，检查工具选择与授权边界。
+该套件仅覆盖 Claude Code + MCP；运行器关闭 hooks 并绕过权限提示，因此不证明真实宿主审批、
+有界召回、自动 Capture/Flush、持久化或记忆质量。声明实测覆盖时，应同时保留真实模型的原始记录与输入快照。
+这些结果是本文多宿主验证记录的补充，应与现有观测及任务结果基准分别报告。
+
 实现规则与复现命令见[工具选择与结果报告](integration-guidance.md)。基线为上游
 `fe4002d37663213294ebffe4c080b6676b1c8014`，测量日期为 2026-09-09，环境为 Windows，模型为配置的
 StepFun endpoint 上的 `step-3.7-flash`，temperature 为 0，输出预算为 6,000 token，不强制工具选择。

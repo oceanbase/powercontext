@@ -1,0 +1,52 @@
+name: Skill guidance validation
+
+on:
+  pull_request:
+    paths:
+      - evaluation/skills/skill-up/**
+      - openapi/powercontext.yaml
+      - integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/**
+      - .github/workflows/skill-guidance.yml
+  push:
+    branches: [master]
+    paths:
+      - evaluation/skills/skill-up/**
+      - openapi/powercontext.yaml
+      - integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/**
+      - .github/workflows/skill-guidance.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install validation dependencies
+        run: python -m pip install -r evaluation/skills/skill-up/requirements-dev.txt
+      - name: Install checksum-pinned skill-up
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/skill-up"
+          cd "$RUNNER_TEMP/skill-up"
+          curl -fsSL https://github.com/alibaba/skill-up/releases/download/v0.12.0/skill-up_0.12.0_linux_amd64.tar.gz -o skill-up.tar.gz
+          echo 'ec2631e45702d460b69cd700e1847f5562ef2e971f09c23be2efcec4e0f583c6  skill-up.tar.gz' | sha256sum --check -
+          tar -xzf skill-up.tar.gz
+          echo "$RUNNER_TEMP/skill-up" >> "$GITHUB_PATH"
+      - name: Verify pin, fixtures, reports and native schema
+        working-directory: evaluation/skills/skill-up
+        run: |
+          python sync_skill.py --check
+          python validate_suite.py
+          python -m unittest discover -s tests -v
+          skill-up validate evals/eval.yaml
+          python run.py --dry-run
