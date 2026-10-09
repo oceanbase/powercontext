@@ -391,6 +391,7 @@ class MySQLMigrationRunner:
         journal.write(evidence)
         connection.commit()
         guard()
+        connection.exec_driver_sql("START TRANSACTION")
         with ALEMBIC_CONTEXT_LOCK:
             command.stamp(config, revision)
         connection.commit()
@@ -426,6 +427,7 @@ class MySQLMigrationRunner:
         config.attributes["execute_revision"] = upgrade
         connection.commit()
         guard()
+        connection.exec_driver_sql("START TRANSACTION")
         with ALEMBIC_CONTEXT_LOCK:
             command.upgrade(config, target)
         connection.commit()

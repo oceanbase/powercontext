@@ -227,6 +227,36 @@ def _read_state(backend: _BackendTarget):
     return backend.connections().run(inspect)
 
 
+def test_mysql_maintenance_commits_rolls_back_and_reopens_for_ddl(backend: _BackendTarget) -> None:
+    def create(connection: Connection | None, _identity: BackendIdentity, _guard: Callable[[], None]) -> None:
+        assert connection is not None
+        connection.exec_driver_sql("CREATE TABLE maintenance_probe (id INT PRIMARY KEY)")
+        connection.exec_driver_sql("INSERT INTO maintenance_probe VALUES (1)")
+        connection.commit()
+        connection.exec_driver_sql("INSERT INTO maintenance_probe VALUES (2)")
+
+    backend.connections().run(create, writable=True)
+
+    def change(connection: Connection | None, _identity: BackendIdentity, _guard: Callable[[], None]) -> None:
+        assert connection is not None
+        assert connection.exec_driver_sql("SELECT id FROM maintenance_probe").all() == [(1,)]
+        connection.exec_driver_sql("ALTER TABLE maintenance_probe ADD COLUMN value INT DEFAULT 7")
+        connection.exec_driver_sql("INSERT INTO maintenance_probe (id) VALUES (3)")
+        connection.commit()
+        connection.exec_driver_sql("INSERT INTO maintenance_probe (id) VALUES (4)")
+
+    backend.connections().run(change, writable=True)
+
+    def inspect(connection: Connection | None, _identity: BackendIdentity, _guard: Callable[[], None]) -> None:
+        assert connection is not None
+        assert connection.exec_driver_sql("SELECT id, value FROM maintenance_probe ORDER BY id").all() == [
+            (1, 7),
+            (3, 7),
+        ]
+
+    backend.connections().run(inspect)
+
+
 def test_mysql_initialization_and_shared_evidence_noop(backend: _BackendTarget) -> None:
     runner = backend.runner()
     plan = runner.plan()

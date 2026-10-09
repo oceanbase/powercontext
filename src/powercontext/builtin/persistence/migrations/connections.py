@@ -149,6 +149,9 @@ class MaintenanceConnections:
                         verify()
                         if sync.exec_driver_sql("SELECT DATABASE()").scalar_one() != identity.database_name:
                             raise MigrationError("target_identity_unavailable", "The seekdb database identity changed.")
+                        # MySQL's SQLAlchemy begin hook sends no SQL. Match the
+                        # explicit transaction ownership used by AsyncDatabase.
+                        sync.exec_driver_sql("START TRANSACTION")
                         result = operation(sync, identity, verify)
                         verify()
                         return result

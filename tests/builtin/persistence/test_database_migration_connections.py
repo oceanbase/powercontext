@@ -111,6 +111,11 @@ def _fake_seekdb(tmp_path: Path, monkeypatch):
     def configure_database(connection, _record) -> None:
         connection.create_function("DATABASE", 0, lambda: "test")
 
+    @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
+    def translate_transaction(_connection, _cursor, statement, parameters, _context, _many):
+        # This lifecycle double uses SQLite while the real adapter speaks MySQL.
+        return ("BEGIN" if statement == "START TRANSACTION" else statement), parameters
+
     class Instance:
         def connection_options(self):
             return {}
