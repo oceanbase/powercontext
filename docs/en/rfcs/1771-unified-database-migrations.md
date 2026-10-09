@@ -7,7 +7,7 @@ title: Unified Versioned Database Migrations
 - RFC PR: [oceanbase/powercontext#1771](https://github.com/oceanbase/powercontext/pull/1771)
 - Tracking Issue: [oceanbase/powercontext#1756](https://github.com/oceanbase/powercontext/issues/1756)
 - Related Discussion: [Migration framework proposal on PR #1716](https://github.com/oceanbase/powercontext/pull/1716#issuecomment-5862598291)
-- Status: Design proposal. This document selects an approach and defines acceptance requirements; it does not claim that the framework or backend prototypes are implemented.
+- Status: Design proposal. Section 9 defines limited Phase A acceptance and full production enablement conditions; other sections describe the target contract, not universal availability.
 
 # Summary
 
@@ -101,9 +101,11 @@ Preparing software alone needs no backup. Backup selection occurs before an actu
 
 ### Commands and one confirmation
 
-The following `db-migrate` commands, lifecycle extensions, and options are **proposed contracts, not currently available
-features**. The migration CLI is assembled independently of factories that create tables, backfill data, or start Workers.
-Read-only previews are optional; interactive users can go directly to `apply`, which includes planning and final verification:
+The commands below describe the full target contract; Section 9 defines limited Phase A availability and does not
+establish complete upgrade support. The migration CLI is assembled independently of factories that create tables,
+backfill data, or start Workers. Read-only previews are optional; interactive users can go directly to `apply`, which
+includes planning and final verification. These examples use SQLite configuration. Every OceanBase maintenance command
+also requires `--evidence-dir PATH --lock-coordination single-host` on the same fixed host and persistent directory:
 
 ```bash
 powercontext server db-migrate status --env-file deployment.env
@@ -217,7 +219,8 @@ outside the tool's visibility; existing safety checks remain mandatory. Success 
 status: “Database migration succeeded; other node upgrades require operator confirmation.” Without complete deployment
 acceptance evidence, never report “all nodes upgraded”. Report startup and readiness of managed local services separately.
 
-For manual service management, use separate steps; the lifecycle commands below are also proposed:
+For manual service management, use separate steps; these independent lifecycle commands do not establish automatic
+business-service switching support in the migration bundle:
 
 ```bash
 powercontext service stop
@@ -431,7 +434,7 @@ reuses those boundaries rather than adding another business storage abstraction.
 | Layer | Migration responsibility and changes |
 | --- | --- |
 | Configuration and Profile | Separate connection/engine lifecycle from `create_tables`; expose inspection and maintenance without table creation, reusing URLs, paths, credentials, dialects, and extension loading |
-| `AsyncDatabase` and connections | Retain ownership, transaction, and closing behavior; use a dedicated fixed maintenance connection and pass that same underlying connection to Alembic through `AsyncConnection.run_sync`, keeping locking and DDL together |
+| `AsyncDatabase` and connections | Retain ownership, transaction, and closing behavior; use a dedicated maintenance connection passed to Alembic through `AsyncConnection.run_sync`; the executor holds the lock outside that connection, and OceanBase does not require ODP to pin a physical session |
 | Alembic revision | Execute DDL with frozen tables, columns, types, and backend operations, advancing `pc_schema_revision` after verification; do not derive historical schema from current repositories or `create_all()` |
 | Repository/data adapters | Reuse stable domain operations only when their schema requirements hold, with explicit bound transactions; prefer frozen SQL/mappings for historical transformations rather than replaying changing repositories |
 | Index interfaces | Move structure definitions into revisions/versioned projection resources; invoke controlled rebuild and verification from authoritative Sources/Artifacts, without startup DDL |
@@ -439,7 +442,8 @@ reuses those boundaries rather than adding another business storage abstraction.
 | Service management and startup gates | Reuse `ServiceController` and platform start/stop adapters; inspect schema, task formats, and required capabilities before composing repositories, indexes, and Workers |
 
 Wrapping the whole migration in `AsyncDatabase.transaction()` does not make it atomic. SQLite uses verified transaction
-boundaries; seekDB/OceanBase DDL can commit implicitly, requiring fixed-connection locking and stepwise checks. Data
+boundaries; seekDB/OceanBase DDL can commit implicitly. The executor retains its external lock across commits and
+rollbacks, independently of the dedicated connection, and verifies each step. Data
 batches commit separately and include existing domain receipts in the same transaction where applicable. Background
 business work must not share the executor's runtime transaction.
 
@@ -609,25 +613,48 @@ the target has already been reached.
 | --- | --- | --- |
 | SQLite file database | An OS-backed cross-process file lock on the normalized database path covers the full operation; each schema revision uses explicit `BEGIN IMMEDIATE` | Batch reconstruction, data copying, and revision advancement use verified transaction boundaries; failures roll back and recovery rechecks state |
 | In-memory SQLite | A process-local lock for the shared engine | New initialization only, without durable offline recovery; process-local locks cannot substitute for multi-process file-database locking |
-| Embedded seekDB | An OS-backed cross-process file lock on the normalized data directory, acquired before opening the migration engine | MySQL protocol compatibility does not prove support for all lock functions or transactional DDL; use the stepwise nontransactional-DDL verification protocol |
-| OceanBase MySQL tenant | A capability-verified `GET_LOCK` named lock on a dedicated physical connection that also executes DDL | The lock must survive commits; disable automatic reconnect during execution, stop further steps on disconnect, and never assume rollback undoes DDL |
+| Embedded seekDB | An OS-backed cross-process file lock on the normalized data directory, held from before opening the migration engine until after closing it | MySQL protocol compatibility does not prove support for all lock functions or transactional DDL; use the stepwise nontransactional-DDL verification protocol |
+| OceanBase MySQL tenant | A native OS file lock on one fixed maintenance host and persistent evidence directory, with host binding and a durable run receipt | Retain the lock across commits; disable maintenance reconnection, preserve interrupted runs, and require acknowledgement that prior remote execution has ended; rollback does not undo DDL |
 
 SQLite's `BEGIN IMMEDIATE` acquires a write transaction early; the file lock retains maintenance exclusivity across
 batches. Use an operating-system lock rather than the existence of a lock file, normalize symlinks, and do not claim
 support for embedded-database migration across hosts through shared filesystems.
 [SQLite Transactions](https://www.sqlite.org/lang_transaction.html)
 
-OceanBase documents that named locks survive commit/rollback, but support differs between versioned documentation.
-Verify two-connection exclusion and routing across connections on the chosen minimum/target versions, actual tenant,
-and proxy path. A successful function return alone is insufficient. If this cannot be verified, return
-`migration_lock_unsupported` before managed DDL; never fall back to a row lock released by DDL's implicit commit.
-[GET_LOCK](https://en.oceanbase.com/docs/common-oceanbase-database-10000000001379158),
-[V4.3.0 compatibility](https://en.oceanbase.com/docs/common-oceanbase-database-10000000001228196)
+OceanBase `status/plan/apply/verify`, every migration Job, and retries run on one fixed maintenance host with
+explicit `--evidence-dir PATH --lock-coordination single-host`. Use the same canonical persistent directory for a
+database, isolating records by cluster/tenant/database identity. Preserve evidence and a stable hostname when replacing
+containers or Jobs. Business Servers may remain distributed. Shared filesystems, copied directories, or identically
+named directories on other hosts do not provide supported cross-host mutual exclusion.
 
-**Mutual exclusion between migrators and stopping business writes are separate conditions.** Named and file locks
-coordinate only participating migration processes. They do not prove that API, Worker, SDK, or old-binary writes have
-stopped. The executor checks known writers using available process, engine-owner, and domain Lease information.
-Known active writers produce `active_writers`, even when confirmation flags are supplied.
+Maintenance uses the configured direct or ODP endpoint without `GET_LOCK()`, fixed physical session IDs, `PROCESS`
+privileges, or process-list inference. Disable automatic maintenance reconnection; recheck the OS lock, host binding,
+durable run receipt, and connection before and after every DDL statement. Missing evidence directories return
+`evidence_required`; missing coordination selection returns `coordination_required`. Missing native locks or runtime
+fallback to soft locks returns `migration_lock_unsupported`; contention returns `migration_locked`. Replaced lock files
+or lost connections return `migration_lock_lost`. Do not fall back to row locks released by DDL commits, add control
+tables, or encode lock markers in Alembic's revision row.
+
+Preserve external `coordinator.json`, `coordinator.lock`, and the database-specific `migration.lock`, `active-run.json`,
+and original recovery summary. Clear the run receipt only after normal execution and successful maintenance-connection
+closure. Interruption, cancellation, or connection-close failure preserves it. Acquiring the local lock does not prove
+that prior remote requests or background DDL have ended. Pending runs, corrupt evidence, or host-binding conflicts
+return `recovery_required`, including at the target head; verification and no-op paths must not bypass this condition.
+
+Recovery keeps writers stopped and uses the original host and directory. A DBA first confirms that all remote execution
+and background DDL from the previous run have ended; PC does not establish this automatically. The plan exposes its token
+as `coordination.pending_run_id` and binds it to `plan_id`. After reviewing the plan again, the operator declares that
+confirmation with `apply --acknowledge-previous-run TOKEN`; under the lock, recheck the exact token, actual schema/data,
+and original maintenance evidence. Missing or mismatched tokens return `recovery_required`; supplying a token without a
+pending run returns `stale_ack`. Only OceanBase apply accepts this option; neither `--yes` nor interactive confirmation
+supplies it automatically. Acknowledgement never bypasses schema/data/backup checks or permits deleting evidence,
+changing directories, or replacing the original recovery point with a backup of partial state. Normal upgrades retain
+one confirmation; interrupted recovery additionally requires this explicit DBA declaration.
+
+**Mutual exclusion between migrators and stopping business writes are separate conditions.** File locks coordinate only
+participating migration processes. They do not prove that API, Worker, SDK, or old-binary writes have stopped. The
+executor checks known writers using available process, engine-owner, and domain Lease information. Known active writers
+produce `active_writers`, even when confirmation flags are supplied.
 
 Initially the operator or deployment orchestrator stops every writing entry point and disables automatic restarts of
 old instances. The tool does not claim to discover arbitrary external clients or fence every old version.
@@ -847,9 +874,10 @@ migrations, dependency conflicts, and verification failures block merging.
    JSON progress. Missing logs never bypass actual state checks. Missing original backup manifests block auto retries
    needing that evidence, but do not add manual-backup verification. A release may have multiple revisions; unchanged
    schema needs none.
-9. Verify side-effect-free Profile inspection/maintenance, fixed-connection Alembic and locking, historical scripts
-   independent of current repositories, and index startup without schema writes. Test legacy tasks appearing after
-   planning, unknown formats, delayed/retry queues, and idempotent conversion.
+9. Verify side-effect-free Profile inspection/maintenance, Alembic's dedicated connection, and external file locks held
+   across commits through connection closure. Cover OceanBase ODP, fixed-host binding, and interrupted recovery with exact
+   tokens. Verify historical scripts remain independent of current repositories and index startup adds no schema writes.
+   Test legacy tasks appearing after planning, unknown formats, delayed/retry queues, and idempotent conversion.
 10. Verify product-specific Fork version and table/database capability checks; unavailable auto performs no migration
     writes or silent fallback. Verify retained tables/recovery points survive upgrades and retries, registered retention
     is not mistaken for residue, and later cleanup checks dependencies and recovery requirements.
@@ -886,12 +914,61 @@ baseline/rename fixtures for already-migrated, pending, and partially migrated s
 | PC native recovery points restore, verify, and work with the matching binary | Required, including WAL data | Required, including fork object coverage, DDL limits, engine lifecycle, and original-name restoration | Required, including Fork versions/privileges/object coverage, DDL limits, and actual restoration |
 | Old/new API contracts against the same migrated data | Required for affected APIs | Required for affected APIs | Required for affected APIs |
 
-These are implementation acceptance requirements, not claims of executed prototypes. Reports record Python, driver,
+These are full implementation acceptance requirements; passing the Phase A four-table prototype does not complete the
+matrix. Reports record Python, driver,
 database/embedded-engine, tenant-mode, and proxy versions. All three profiles require real database reports; missing
 environments or skipped cases do not pass acceptance. If transactional DDL, reflection, constraints, or locking differ
 from expectations, complete the adapters and recovery steps before enabling the default path.
 
 ## 9. Implementation and rollout
+
+### Phase A capabilities and acceptance scope
+
+Phase A manages only `pc_artifacts`, `pc_artifact_heads`, `pc_artifact_candidate_versions`, and `pc_artifact_tags`,
+using frozen `p0001`–`p0003` revisions. The `status/plan/apply/verify` entry points support acceptance of this bundle.
+Their availability does not complete Phases B–D or change existing users' complete Server upgrade path.
+
+| Capability | Phase A scope | Requirement for full production support |
+| --- | --- | --- |
+| Four-table schema and data | Empty targets and registered historical layouts on SQLite, embedded seekdb, and OceanBase MySQL mode; schema, data, repeat execution, and registered interruption recovery | Real execution evidence for each supported backend/version combination |
+| Complete business databases and historical baselines | Not covered; complete Server databases containing unmanaged objects are rejected | Register complete objects, data invariants, and upgrade paths for supported releases |
+| Legacy tasks and indexes | Does not establish task consumability, full-text/vector projection readiness, or business capability readiness | Register format recognition, conversion/draining policies, projection definitions, and required validators |
+| Normal startup and legacy maintenance | Complete startup checks are not integrated; `processing-migrate` remains separate | Server, Worker, and SDK check compatibility before business initialization; remove adopted startup DDL and retain only controlled legacy adapters |
+| Managed service switching | Independent `service stop/start/restart` commands; this bundle does not authorize automatic business-service switching through `--manage-service` | Accept complete migration and startup readiness before enabling stop/switch/start orchestration |
+| Automatic backup and restoration | SQLite Online Backup; seekdb/OceanBase automatic Fork upgrade backup returns `backup_unsupported` without full restoration acceptance; manual/skip use explicit declarations | Fork must cover affected objects, subsequent DDL, restart, and actual restoration; version support or successful creation alone is insufficient |
+| Standard change gate | Four-table tests do not establish migration coverage for all model changes | Require managed-inventory/model comparison, immutable historical resources, and three-backend upgrade acceptance before enablement |
+
+Phase A success always reports `readiness_scope=registered_bundle` and `server_ready=false`; `state=ready` means only
+that this bundle passed schema and data verification. It does not authorize business-service startup or restoration of
+cluster traffic, nor does it prove an already-running service unhealthy. Verify complete Server, individual node, and
+optional capability readiness separately. Reaching head, a zero CLI exit code, or passing four-table CI cannot establish
+those conditions. CLI help, interactive confirmation, and bilingual operations guidance must expose this scope and
+state that the operator is responsible for stopping writers.
+
+### Complete upgrade delivery and enablement conditions
+
+1. Build complete database fixtures with actual supported releases. Register managed objects, external-object
+   boundaries, legacy task formats, domain receipts, and optional projections. Reject unregistered historical layouts.
+2. Implement schema revisions, required data/legacy-task transformations, and projection verification, preserving
+   unknown-state refusal and original recovery points. Normal startup checks schema/tasks/capabilities before table
+   creation, Repository, index, and Worker initialization. Remove a module's implicit startup changes when adopting it,
+   so two independent entry points cannot mutate the same schema.
+3. Validate the complete workflow on SQLite, seekdb, and OceanBase: an old release creates and populates the database →
+   stop every writer → independent migration → new-version startup → API reads/writes, legacy-task consumption, and
+   retrieval checks. Cover commit-boundary interruption, repeat execution, and shared-database multi-node maintenance.
+   Automatic backup additionally requires actual restoration followed by operation with the matching program.
+4. Enable complete managed service switching and production rollout only after those conditions hold. Require
+   managed-schema differences, corresponding revisions, frozen resources, and three-backend acceptance in CI; update
+   contributor guidance and the PR template. Once the enablement point is declared, every still-unmerged managed-schema
+   change follows the unified process.
+
+Acceptance reports distinguish passes, skips, uncovered behavior, and unresolved failures, recording commits,
+reproduction commands, test identifiers, and environments. Track failures also present on base separately rather than
+attributing them to migration. For intermittent shutdown errors, preserve batch order, full tracebacks, and resource
+shutdown logs, then compare isolated/whole-file/same-batch and head/base runs. A passing rerun does not erase an
+unexplained failure; retries, swallowed exceptions, or longer timeouts alone do not establish a fix.
+
+### Delivery phases
 
 - **Phase A: Evidence and prototypes.** Freeze supported versions and baseline fixtures, exercise both change classes
   plus lock/recovery matrices, and establish how Alembic runs with existing official dialects. User upgrade paths remain
@@ -963,8 +1040,8 @@ on this project's three backends.
 
 Resolve the following before enabling the framework as the standard change process:
 
-- Minimum OceanBase version and supported OBProxy/direct-connection combinations, including cross-node named-lock
-  exclusion; DDL, reflection, and constraint behavior of selected seekDB versions. Produce an executable support matrix
+- Minimum OceanBase version and supported OBProxy/direct-connection combinations, fixed-maintenance-host deployment
+  constraints, and interrupted-recovery operational acceptance; DDL, reflection, and constraint behavior of selected seekDB versions. Produce an executable support matrix
   from prototypes instead of relying only on MySQL compatibility claims.
 - Complete initial legacy baseline inventory and fingerprints, including which versions beyond v1.1.0 and the last
   pre-framework release support direct upgrades, and dedicated repair policies for legacy collation conflicts.
