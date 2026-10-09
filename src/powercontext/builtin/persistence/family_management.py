@@ -343,6 +343,15 @@ class SkillManagementWriter(_RepositoryFamilyWriter):
             )
         return canonical, package
 
+    async def canonical_content(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        content: BaseModel,
+    ) -> SkillContent:
+        canonical, _package = await self._canonical_content(connection, scope_id, content)
+        return canonical
+
     async def create(
         self,
         connection: AsyncConnection,

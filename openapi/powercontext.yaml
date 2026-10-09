@@ -3664,6 +3664,10 @@ paths:
         an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation.
         Topic Memory replacement also requires scope.admin and preserves independently versioned tags.
         Complete title, summary, and detail text replaces the head without semantic generation.
+        Profile replacement uses the same conditional write. To roll back Profile, Prompt, Experience, Skill,
+        Handoff, or Topic Memory, set restored_from_revision and reason. The server checks that the submitted
+        canonical content matches that revision and differs from the current head, then commits a new revision.
+        Memory replacement cannot restore a whole historical manifest.
       operationId: replace_artifact
       x-powercontext-access: {resolver: path_artifact_write_access}
       parameters:
@@ -3680,7 +3684,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff, prompt, topic-memory]
+            enum: [memory, experience, skill, handoff, prompt, topic-memory, profile]
         - name: artifact_id
           in: path
           required: true
@@ -4766,6 +4770,18 @@ components:
       properties:
         content:
           $ref: "#/components/schemas/ProfileWriteContent"
+        restored_from_revision:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Historical Profile revision restored by this replacement. Must match content.restored_from_revision when both are set.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: '.*\S.*'
+          nullable: true
+          description: Required when restored_from_revision or content.restored_from_revision is set.
     ActivateHandoffRequest:
       type: object
       additionalProperties: false
@@ -4842,6 +4858,22 @@ components:
           minimum: 0
           nullable: true
           description: Family-provided number of direct Source inputs when available.
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_by:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AccessPrincipal"
+        restored_from_revision:
+          type: integer
+          minimum: 1
+          nullable: true
+        reason:
+          type: string
+          maxLength: 1024
+          nullable: true
     ArtifactCreated:
       type: object
       required: [scope_id, family, artifact_id, revision, sources, artifacts]
@@ -4930,6 +4962,26 @@ components:
         content_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When this revision was committed. Absent for revisions stored before this field existed.
+        created_by:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AccessPrincipal"
+          description: Principal that committed a rollback. Ordinary revisions omit it.
+        restored_from_revision:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Historical revision restored by this rollback.
+        reason:
+          type: string
+          maxLength: 1024
+          nullable: true
+          description: Reason recorded for a rollback.
     ArtifactReference:
       type: object
       additionalProperties: false
@@ -9682,6 +9734,8 @@ components:
       required: [content]
       properties:
         content: {$ref: '#/components/schemas/TopicMemoryWriteContent'}
+        restored_from_revision: {type: integer, minimum: 1, nullable: true}
+        reason: {type: string, minLength: 1, maxLength: 1024, pattern: '.*\S.*', nullable: true}
     CreatePromptArtifactRequest:
       type: object
       additionalProperties: false
@@ -9948,6 +10002,16 @@ components:
       properties:
         content:
           $ref: "#/components/schemas/PromptContent"
+        restored_from_revision:
+          type: integer
+          minimum: 1
+          nullable: true
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: '.*\S.*'
+          nullable: true
     ListArtifactRevisionsRequest:
       type: object
       additionalProperties: false
@@ -10213,6 +10277,16 @@ components:
       properties:
         content:
           $ref: "#/components/schemas/ExperienceProposal"
+        restored_from_revision:
+          type: integer
+          minimum: 1
+          nullable: true
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: '.*\S.*'
+          nullable: true
     ReplaceSkillArtifactRequest:
       type: object
       additionalProperties: false
@@ -10220,6 +10294,16 @@ components:
       properties:
         content:
           $ref: "#/components/schemas/SkillProposal"
+        restored_from_revision:
+          type: integer
+          minimum: 1
+          nullable: true
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: '.*\S.*'
+          nullable: true
     ReplaceHandoffArtifactRequest:
       type: object
       additionalProperties: false
@@ -10227,6 +10311,16 @@ components:
       properties:
         content:
           $ref: "#/components/schemas/HandoffContent"
+        restored_from_revision:
+          type: integer
+          minimum: 1
+          nullable: true
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: '.*\S.*'
+          nullable: true
     SourceRecord:
       type: object
       required: [scope_id, source_type, source_id, content, position, content_digest]

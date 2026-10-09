@@ -20,7 +20,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import aclosing
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 import rfc8785
@@ -43,6 +43,18 @@ from powercontext.builtin.persistence.family_management import (
 )
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
+from powercontext.builtin.persistence.revision_meta import (
+    PendingRollback,
+    bind_rollback,
+    reset_rollback,
+    revision_meta,
+)
+from powercontext.builtin.persistence.rollback import (
+    merged_source_revision,
+    normalize_reason,
+    prepare_profile_command,
+    require_matching_source,
+)
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
@@ -58,6 +70,7 @@ from powercontext.builtin.records import (
     ArtifactListReader,
     ArtifactRecord,
     ArtifactRecordPage,
+    ArtifactRevisionActor,
     ArtifactRevisionPage,
     ArtifactRevisionPreconditionError,
     ArtifactWrite,
@@ -568,11 +581,17 @@ class RelationalRecordService:
         expected_etag: str,
         write: ArtifactWrite,
         /,
+        *,
+        actor_type: str | None = None,
+        actor_id: str | None = None,
     ) -> ArtifactRecord:
         if write.prompt_key is not None:
             raise InvalidBaseAccessRequestError("prompt_key", "is not accepted for replacement")
         writer = self._family_writers.get(family)
         command = writer.validate_replace(write.content)
+        source_revision = merged_source_revision(family, write, command)
+        command = prepare_profile_command(command, source_revision)
+        reason = None if source_revision is None or write.reason is None else normalize_reason(write.reason)
         prepared = command
         if isinstance(writer, PreparingFamilyManagementWriter):
             current_record = await self.get_artifact(scope_id, family, artifact_id)
@@ -611,7 +630,26 @@ class RelationalRecordService:
             )
             try:
                 stored = await self._sources.add(connection, scope_id, source)
-                revised = await writer.replace(connection, scope_id, current, prepared, stored.ref)
+                token = await _bind_rollback(
+                    self._artifacts,
+                    connection,
+                    scope_id,
+                    family,
+                    artifact_id,
+                    current,
+                    command,
+                    source_revision,
+                    reason,
+                    writer,
+                    next_revision,
+                    actor_type,
+                    actor_id,
+                )
+                try:
+                    revised = await writer.replace(connection, scope_id, current, prepared, stored.ref)
+                finally:
+                    if token is not None:
+                        reset_rollback(token)
             except StoredPayloadConflictError as error:
                 raise BaseValueConflictError("source", (scope_id, CONTENT_SOURCE_NAME, source.name)) from error
             except RevisionConflictError:
@@ -730,6 +768,7 @@ def _artifact_record(
         artifacts=artifact.lineage.artifacts,
         memory_citations=artifact.lineage.memory_citations,
         content_digest=_content_digest(content),
+        **_revision_fields(artifact),
     )
 
 
@@ -754,7 +793,65 @@ def _artifact_collection_item(scope_id: str, artifact: Artifact[Any]) -> Artifac
         sources=artifact.lineage.sources,
         artifacts=artifact.lineage.artifacts,
         content_digest=_content_digest(content),
+        **_revision_fields(artifact),
     )
+
+
+async def _bind_rollback(
+    artifacts: ArtifactRepository,
+    connection: AsyncConnection,
+    scope_id: str,
+    family: str,
+    artifact_id: str,
+    current: Artifact[Any],
+    command: Any,
+    source_revision: int | None,
+    reason: str | None,
+    writer: object,
+    next_revision: int,
+    actor_type: str | None,
+    actor_id: str | None,
+) -> Any:
+    if source_revision is None or reason is None:
+        return None
+    await require_matching_source(
+        artifacts,
+        connection,
+        scope_id,
+        family,
+        artifact_id,
+        current,
+        command,
+        source_revision,
+        writer,
+    )
+    return bind_rollback(
+        PendingRollback(
+            family=family,
+            artifact_id=artifact_id,
+            revision=next_revision,
+            restored_from_revision=source_revision,
+            reason=reason,
+            created_by_type=actor_type,
+            created_by_id=actor_id,
+        )
+    )
+
+
+def _revision_fields(artifact: Artifact[Any]) -> dict[str, Any]:
+    meta = revision_meta(artifact)
+    actor = None
+    if meta.created_by_type in {"user", "service"} and meta.created_by_id is not None:
+        actor = ArtifactRevisionActor(
+            type=cast(Literal["user", "service"], meta.created_by_type),
+            id=meta.created_by_id,
+        )
+    return {
+        "created_at": meta.created_at,
+        "created_by": actor,
+        "restored_from_revision": meta.restored_from_revision,
+        "reason": meta.reason,
+    }
 
 
 def _artifact_etag(revision: int) -> str:

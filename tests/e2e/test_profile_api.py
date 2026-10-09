@@ -294,11 +294,15 @@ def test_profile_http_policy_crud_review_and_rollback(tmp_path, enforced):
                 headers={"If-Match": replaced.headers["ETag"]},
                 json={
                     "content": {"content": first.json()["content"]["content"], "restored_from_revision": 1},
+                    "reason": "Restore the approved profile",
                 },
             )
             assert rollback.status_code == 200, rollback.text
             assert rollback.json()["revision"] == 3
             assert rollback.json()["content"]["generation"]["mode"] == "rollback"
+            assert rollback.json()["restored_from_revision"] == 1
+            assert rollback.json()["reason"] == "Restore the approved profile"
+            assert rollback.json()["created_at"]
             assert (await client.get(artifact_path + "/revisions/1")).json()["content"] == first.json()["content"]
 
     asyncio.run(run())

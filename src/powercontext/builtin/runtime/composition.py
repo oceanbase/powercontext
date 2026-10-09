@@ -96,6 +96,7 @@ from powercontext.builtin.persistence.processing_migration import (
     assert_processing_schema_ready,
     bootstrap_processing_schema,
 )
+from powercontext.builtin.persistence.revision_meta import ensure_revision_metadata_schema
 from powercontext.builtin.persistence.scope_search_schema import ensure_scope_search_schema
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.skill_distribution_schema import ensure_skill_distribution_schema
@@ -924,6 +925,7 @@ async def open_builtin_contexts(
                 await ensure_skill_distribution_schema(connection)
                 await ensure_topic_memory_tag_schema(connection)
                 await ensure_dream_schema(connection)
+                await ensure_revision_metadata_schema(connection)
                 await ensure_scope_search_schema(connection)
                 # A Topic child reuses its parent's schema. It never reads or
                 # writes Memory/Experience projections; rebuilding their FTS
@@ -1005,6 +1007,7 @@ async def open_builtin_contexts(
             await ensure_skill_distribution_schema(connection)
             await ensure_topic_memory_tag_schema(connection)
             await ensure_dream_schema(connection)
+            await ensure_revision_metadata_schema(connection)
             await ensure_scope_search_schema(connection)
             if not _topic_memory_worker:
                 await index.initialize(connection)

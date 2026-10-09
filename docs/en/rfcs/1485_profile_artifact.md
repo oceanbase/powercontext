@@ -428,17 +428,20 @@ ordinal=0, ETag/If-Match, and lineage rules. Create uses artifact_id=profile and
 Automatic commits use the same Family validation and repository but cite actual evidence rather than inventing a
 manual system Source.
 
-Rollback needs no new API: GET a historical Revision, GET the current Head ETag, then PUT the complete Markdown with
-optional `restored_from_revision` in ProfileWriteContent. The server verifies that the historical Revision exists
-and its normalized Markdown matches, then creates a new rollback Revision. It neither moves Head back to an older
-Revision nor rewinds the Cursor. Omitting the field is an ordinary manual Replace; Create forbids it. Clients compare
-two Revisions themselves, with no new diff or history-list endpoint.
+Rollback needs no new API: GET a historical Revision, GET the current Head ETag, then PUT the complete Markdown.
+`restored_from_revision` may appear beside `content` and inside ProfileWriteContent; when both are set they are the
+same integer. A source revision requires a non-blank `reason` of at most 1024 characters. The server verifies that the
+historical Revision exists and its normalized Markdown matches, then creates a new rollback Revision that records the
+source, the reason, and the authenticated principal. It neither moves Head back to an older Revision nor rewinds the
+Cursor. Omitting both source fields is an ordinary manual Replace; Create forbids the source field. Clients compare
+two Revisions themselves. The Dashboard renders that comparison; there is no separate diff endpoint.
 
 ## Persistence inventory and example rows
 
 BLOB examples below show decoded JSON. Foreign keys and lineage use complete identities. Timestamps and digests
 are readable examples; omitted default columns are still written according to existing definitions. Existing tables
-have no DDL changes; only Profile BLOB schemas and code branches are extended.
+keep their existing constraints. Artifact rows gain nullable `created_at`, `created_by`, `restored_from_revision`, and
+`rollback_reason`. Profile BLOB schemas and code branches are extended as specified below.
 
 ```mermaid
 erDiagram
