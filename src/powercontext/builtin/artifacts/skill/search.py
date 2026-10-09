@@ -16,14 +16,28 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from dataclasses import dataclass
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.search import analyze_text
-from powercontext.builtin.artifacts.skill.models import SkillContent
+from powercontext.artifacts.search import ArtifactSearchMatch, ArtifactSearchQuery, ChannelScore
+from powercontext.builtin.artifacts.search import EmptyFilters, LexicalSearchAdmission, analyze_text
+from powercontext.builtin.artifacts.skill.models import Skill, SkillContent
 from powercontext.builtin.artifacts.skill.package import SkillPackageSnapshot, package_file
 
 _MAX_INDEXED_FILE_BYTES = 128 * 1024
+
+
+class SkillSearchRequest(ArtifactSearchQuery):
+    """Public text search controls for approved, active managed Skill heads."""
+
+    query: str = Field(min_length=1, max_length=2000)
+    mode: Literal["text"] | None = None
+    filters: EmptyFilters = Field(default_factory=EmptyFilters)
+    admission: LexicalSearchAdmission = Field(default_factory=LexicalSearchAdmission)
+    min_score: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
 
 
 class SkillSearchHit(BaseModel):
@@ -31,6 +45,17 @@ class SkillSearchHit(BaseModel):
 
     artifact_ref: ArtifactRef
     content: SkillContent
+    retrieval_score: float | None = None
+    channel_scores: dict[str, ChannelScore] | None = None
+
+
+@dataclass(frozen=True)
+class SkillSearchOutcome:
+    """Managed Skill hits and their optional exact Artifact materialization."""
+
+    hits: tuple[SkillSearchHit, ...] = ()
+    matches: tuple[ArtifactSearchMatch, ...] = ()
+    artifacts: tuple[Skill, ...] | None = None
 
 
 def skill_search_text(content: SkillContent, package: SkillPackageSnapshot | None = None, /) -> str:
@@ -71,4 +96,4 @@ def _is_indexed_text(path: str) -> bool:
     return path == "SKILL.md" or (path.startswith("references/") and path.endswith((".md", ".txt")))
 
 
-__all__ = ["SkillSearchHit", "skill_search_text", "skill_searchable_text"]
+__all__ = ["SkillSearchHit", "SkillSearchOutcome", "SkillSearchRequest", "skill_search_text", "skill_searchable_text"]

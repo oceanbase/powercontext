@@ -20,7 +20,8 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 export function profileNodeModulesDir(env: NodeJS.ProcessEnv = process.env): string {
-  const home = env.DSH_HOME?.trim() || join(homedir(), '.dsh')
+  const configuredHome = env.DSH_HOME
+  const home = configuredHome?.trim() ? configuredHome : join(homedir(), '.dsh')
   const profile = env.DSH_PROFILE?.trim() || 'web'
   return join(home, 'profiles', profile, 'node_modules')
 }

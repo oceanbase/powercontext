@@ -154,7 +154,7 @@ _SEARCH_TOPIC_FTS_SQL = """
         FROM pc_topic_memory_topic_fts
         WHERE pc_topic_memory_topic_fts MATCH :query AND scope_id = :scope_id
     )
-    SELECT artifact_id, revision, title, summary
+    SELECT artifact_id, revision, title, summary, score AS raw_score
     FROM scored
     WHERE coverage >= :required_matches
     ORDER BY score, artifact_id, revision DESC
@@ -189,7 +189,7 @@ _SEARCH_CHUNK_FTS_SQL = """
                ) AS topic_rank
         FROM scored
     )
-    SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text
+    SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text, score AS raw_score
     FROM ranked
     WHERE topic_rank = 1 AND coverage >= :required_matches
     ORDER BY score, artifact_id, revision DESC, chunk_ordinal
@@ -783,6 +783,8 @@ def _channel_hit(row: Mapping[Any, Any], channel: TopicMemoryMatchedBy) -> Topic
         chunk_start=None if row.get("start_offset") is None else int(row["start_offset"]),
         chunk_text=None if row.get("chunk_text") is None else str(row["chunk_text"]),
         distance=None if row.get("distance") is None else float(row["distance"]),
+        raw_score=None if row.get("raw_score") is None else float(row["raw_score"]),
+        metric="sqlite_bm25" if channel.endswith("_fts") else None,
     )
 
 

@@ -40,9 +40,23 @@ def isolated_client_connection_settings(tmp_path, monkeypatch, request):
     if not request.config.getoption("run_real_e2e"):
         monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "client-settings.json"))
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+        monkeypatch.setenv("DSH_HOME", str(tmp_path / "dsh-home"))
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
+    dsh = parser.getgroup("powercontext-dsh")
+    dsh.addoption(
+        "--require-dsh-runtime",
+        action="store_true",
+        default=False,
+        help="Require both the DSH CLI and native configuration APIs instead of skipping their tests.",
+    )
+    dsh.addoption(
+        "--require-dsh-config-runtime",
+        action="store_true",
+        default=False,
+        help="Require native DSH configuration APIs without requiring the DSH CLI.",
+    )
     zcode = parser.getgroup("zcode-host-acceptance")
     zcode.addoption("--run-zcode-acceptance", action="store_true", help="Run real ZCode CLI acceptance.")
     zcode.addoption(

@@ -126,6 +126,7 @@ from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingSupervisors,
     SpawnArtifactProcessingWorkerLauncher,
 )
+from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.decision_model import (
     DECISION_INSTRUCTIONS,
@@ -137,6 +138,7 @@ from powercontext.builtin.runtime.decision_model import (
     FailOpenDecisionModel,
     LLMDecisionModel,
 )
+from powercontext.builtin.runtime.experience_search import ExperienceArtifactSearcher
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
 from powercontext.builtin.runtime.memory_write_gate import build_memory_write_gate
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
@@ -156,15 +158,18 @@ from powercontext.builtin.runtime.readiness import (
 )
 from powercontext.builtin.runtime.recall_sufficiency import RecallSufficiencyPolicy
 from powercontext.builtin.runtime.relational import RelationalContexts
+from powercontext.builtin.runtime.skill_search import SkillArtifactSearcher
 from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryWorkerSpec,
     run_topic_memory_worker,
     validate_topic_memory_provider_settings,
 )
+from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
 from powercontext.builtin.sources import (
     BUILTIN_SOURCE_REGISTRY,
     TEXT_EVIDENCE_PROJECTION_KEY,
 )
+from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
 from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
 
@@ -581,6 +586,22 @@ async def open_builtin_runtime(
                 if family in registered_families
             )
         topic_memory_processing_available = _topic_memory_processing_available(config, processing_bindings)
+        artifact_search = ArtifactSearchService(known_families=contexts.repositories.artifacts.families)
+        artifact_search.register(
+            ExperienceArtifactSearcher(contexts.database, contexts.repositories.artifacts, contexts.experience_index)
+        )
+        artifact_search.register(
+            SkillArtifactSearcher(contexts.database, contexts.repositories.artifacts, contexts.experience_index)
+        )
+        topic_memory_searcher = TopicMemorySearcher(
+            search=contexts.search_topic_memories,
+            get=contexts.get_topic_memory,
+            browse=contexts.browse_topic_memories,
+            embedding_model=configured_embedding,
+            observer=topic_memory_search_observer,
+            capabilities=contexts.topic_memory_index.capabilities,
+        )
+        artifact_search.register(topic_memory_searcher, embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL)
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
                 code_service=await resources.enter_async_context(open_code_service(config.code, config.database)),
@@ -617,6 +638,7 @@ async def open_builtin_runtime(
                 ),
                 generation_concurrency=config.runtime.generation_concurrency,
                 experience_recall=contexts.search_experience_outcome,
+                artifact_search=artifact_search,
                 skill_recall=contexts.search_skills,
                 skill_lister=contexts.list_skills,
                 skill_origin_reader=contexts.get_skill_origins,
@@ -628,6 +650,7 @@ async def open_builtin_runtime(
                 skill_usage_recorder=contexts.record_skill_usage,
                 experience_incubator=contexts.incubate_experience if contexts.experience_incubation else None,
                 topic_memory_search=contexts.search_topic_memories,
+                topic_memory_searcher=topic_memory_searcher,
                 topic_memory_get=contexts.get_topic_memory,
                 topic_memory_browse=contexts.browse_topic_memories,
                 topic_memory_flush=contexts.request_topic_memory_flush,

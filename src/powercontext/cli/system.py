@@ -36,10 +36,12 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+import click
 import typer
 from pydantic import ValidationError
 
-from powercontext.cli.hosts import setup_host
+from powercontext.cli.dsh_runtime import DshProfile, resolve_dsh_target
+from powercontext.cli.hosts import setup_host, stdin_is_tty
 from powercontext.cli.transport import add_transport_diagnostic, is_remote_http
 from powercontext.client.settings import normalize_server_url
 from powercontext.client.transport_policy import resolve_client_transport
@@ -569,6 +571,12 @@ def setup_claude_code(
 
 @setup_app.command("dsh")
 def setup_dsh(
+    profile: Annotated[
+        DshProfile | None, typer.Option(help="DSH profile; prompts on a TTY, otherwise defaults to web.")
+    ] = None,
+    dsh_command: Annotated[
+        Path | None, typer.Option(help="Path to the DSH launcher; Desktop requires its installed command.")
+    ] = None,
     source: Annotated[
         str,
         typer.Option(help="PowerContext Git source or local checkout path."),
@@ -597,6 +605,17 @@ def setup_dsh(
     from powercontext.cli.dsh import run_dsh_diagnostics
 
     try:
+        if profile is None:
+            profile = (
+                DshProfile(typer.prompt("DSH profile", default="web", type=click.Choice(["web", "desktop"])))
+                if not json_output and stdin_is_tty()
+                else DshProfile.WEB
+            )
+        target = resolve_dsh_target(profile, dsh_command)
+        if not json_output:
+            typer.echo(f"DSH target: {profile} ({target.directory})")
+        if profile == DshProfile.DESKTOP:
+            typer.echo("Desktop must be fully quit before installation (closing its window only hides it).", err=True)
         result = setup_host(
             "dsh",
             source=source,
@@ -604,12 +623,13 @@ def setup_dsh(
             server_url=server_url,
             allow_insecure_http=allow_insecure_http,
             json_output=json_output,
+            dsh_target=target,
         ).result
     except SetupError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
 
-    diagnostics = run_dsh_diagnostics()
+    diagnostics = run_dsh_diagnostics(target=target)
     if not _diagnostics_ok(diagnostics):
         _write_diagnostics(diagnostics, json_output=json_output)
         raise typer.Exit(code=1)
@@ -620,7 +640,11 @@ def setup_dsh(
     typer.echo("PowerContext DeepSeek Harness setup complete.")
     typer.echo(f"Plugin: {result.plugin} ({result.plugin_path})")
     typer.echo(f"Data directory: {result.data_dir}")
-    typer.echo("Next: run `powercontext server run`, then start `dsh web`.")
+    typer.echo(
+        "Next: run `powercontext server run`, then reopen DeepSeek Harness Desktop."
+        if profile == DshProfile.DESKTOP
+        else "Next: run `powercontext server run`, then start `dsh web`."
+    )
 
 
 @setup_app.command("zcode")
@@ -1072,6 +1096,8 @@ def doctor_claude_code(
 
 @doctor_app.command("dsh")
 def doctor_dsh(
+    profile: Annotated[DshProfile, typer.Option(help="DSH profile to inspect.")] = DshProfile.WEB,
+    dsh_command: Annotated[Path | None, typer.Option(help="Path to the DSH launcher.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Write the result as JSON."),
@@ -1081,8 +1107,19 @@ def doctor_dsh(
 
     from powercontext.cli.dsh import run_dsh_diagnostics
 
-    diagnostics = run_dsh_diagnostics()
-    add_transport_diagnostic(diagnostics, "dsh")
+    try:
+        target = resolve_dsh_target(profile, dsh_command)
+    except SetupError as error:
+        diagnostics = {
+            "dsh": Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error)),
+            "plugin": Diagnostic(
+                status=DiagnosticStatus.SKIPPED,
+                detail="not checked because the selected DeepSeek Harness profile is unavailable",
+            ),
+        }
+    else:
+        diagnostics = run_dsh_diagnostics(target=target)
+        add_transport_diagnostic(diagnostics, "dsh", dsh_target=target)
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)

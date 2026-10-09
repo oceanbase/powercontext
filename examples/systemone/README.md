@@ -6,6 +6,10 @@ The integration has two parts: PowerContext retrieves the relevant context; a sm
 
 The runnable experiment makes this concrete. The same generation model writes an amount-conversion function twice, with and without recalled project rules. Jev, optionally alongside Laya, reviews both implementations against the recalled rules. Independent tests execute the generated code, and the observed results become Memory for the next session.
 
+For read-time Experience and Skill selection, see the reusable opt-in
+[applicability selector and paired evaluation](applicability.README.md) ([中文](applicability.zh.md)),
+which reuses this adapter for [#1647](https://github.com/oceanbase/powercontext/issues/1647).
+
 ## Architecture
 
 The example separates context, generation, advisory decisions, and verification:
@@ -55,8 +59,8 @@ async def evaluate(self, request: DecisionRequest, /) -> DecisionResult:
 
 The caller supplies a question, the subject being assessed, and its evidence. The caller receives a `yes`, `no`, or `abstain` result with provider attribution and usage metadata. Jev-specific request and response handling stays inside `SystemOneDecisionModel`:
 
-1. Serialize `decision_kind`, `question`, `subject`, and `evidence` into the System One `state`, preserving the supplied text.
-2. Send one `choice` question with explicit `yes`, `no`, and `abstain` criteria to the configured endpoint.
+1. Serialize `decision_kind`, `subject`, and `evidence` into the System One `state`, preserving the supplied text.
+2. Put the caller's question in the typed question's `instructions` and send explicit `yes`, `no`, and `abstain` criteria to the configured endpoint. The subject and evidence remain data in `state`.
 3. Validate the response and map it to `DecisionResult`.
 
 This keeps the caller's context and decision flow independent of the provider protocol. Jev and Laya use the same adapter and request contract; Laya additionally needs a checkpoint-specific input budget. The adapters live in this example and can be used as a starting point for an application integration.
@@ -139,11 +143,18 @@ cp examples/systemone/server.env.example examples/systemone/.env.systemone
 | --- | --- |
 | `GENERATION_ENDPOINT` | Complete HTTP(S) Chat Completions URL, such as `https://your-provider.example/v1/chat/completions`; a host or `/v1` base URL is insufficient |
 | `GENERATION_MODEL`, `GENERATION_API_KEY` | Model and credential for generating both implementations |
-| `JEV_ENDPOINT`, `JEV_MODEL`, `JEV_API_KEY` | Optional Jev System One endpoint, model, and dedicated credential |
+| `JEV_ENDPOINT`, `JEV_MODEL`, `JEV_API_KEY` | Optional Jev decision endpoint, model, and dedicated OpenRouter credential |
 | `LAYA_ENDPOINT`, `LAYA_MODEL`, `LAYA_API_KEY` | Optional Laya endpoint, model, and service credential; an unauthenticated loopback service may use an empty key |
 | `LAYA_CHECKPOINT` | Local checkpoint directory matching the model served by Laya |
 
-The template uses `https://zenmux.ai/api/v1/systemone` and `typesafe/jev-latest` for Jev. Its Laya endpoint is `http://127.0.0.1:8891/v1/systemone`, with the `multilingual` model. Credentials are configured separately for each service; the generation credential is not reused for review.
+The template uses OpenRouter's `https://openrouter.ai/api/alpha/decisions` and `typesafe/jev-1.13` for Jev. Its Laya endpoint is `http://127.0.0.1:8891/v1/systemone`, with the `multilingual` model. Credentials are configured separately for each service; the generation credential is not reused for review.
+
+OpenRouter accepts the same `model`, `state`, and typed `questions` body used by this adapter.
+Requests send `Authorization: Bearer <key>` and `Content-Type: application/json`. The optional
+`HTTP-Referer` and `X-OpenRouter-Title` attribution headers are not required. The adapter reads
+`answers.decision.choice`, its probability distribution, and input/output token usage; additional
+response metadata such as `id`, `provider`, and `usage.cost` does not change the decision contract.
+See [OpenRouter's Jev guide](https://openrouter.ai/blog/insights/what-is-jev/).
 
 Start the local API:
 

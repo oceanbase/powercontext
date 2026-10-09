@@ -170,6 +170,7 @@ python = "./.venv"
 python-version = "3.11"
 extra-paths = [
     "./scripts",
+    "./desktop/tests",
     "./integrations/claude-code/plugins/powercontext",
     "./integrations/claude-code/plugins/powercontext/scripts",
     "./integrations/codex/plugins/powercontext",
@@ -186,6 +187,8 @@ exclude = [
     "examples/jupyter",
     "e2e/bub",
     "integrations/bub",
+    # Dify's gevent-patched SDK is validated in its isolated Python 3.12 environment.
+    "integrations/dify",
     "integrations/pydantic-ai",
     "integrations/langgraph",
     "integrations/opendal",

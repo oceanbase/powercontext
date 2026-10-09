@@ -21,10 +21,13 @@ from datetime import UTC, datetime
 from typing import Annotated, ClassVar, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
+from typing_extensions import override
 
 from powercontext.artifacts import Artifact, ArtifactDraft, ArtifactRef
+from powercontext.artifacts.fusion import FusionSelection
+from powercontext.artifacts.search import ArtifactSearchMatch, ArtifactSearchQuery, ChannelScore
 from powercontext.builtin.artifacts.memory import EmbeddingProfile, MemoryQueryEmbedding
-from powercontext.builtin.artifacts.search import AdmissionCounts, AdmissionFloor
+from powercontext.builtin.artifacts.search import AdmissionCounts, AdmissionFloor, EmptyFilters, LexicalSearchAdmission
 from powercontext.builtin.inference import EmbeddingVector
 
 MAX_TOPIC_MEMORY_TITLE_LENGTH = 512
@@ -70,6 +73,31 @@ class TopicMemoryDraft(ArtifactDraft[TopicMemoryContent]):
 TopicMemorySearchMode: TypeAlias = Literal["fts", "vector", "hybrid", "auto"]
 TopicMemoryUsedSearchMode: TypeAlias = Literal["fts", "vector", "hybrid"]
 TopicMemoryMatchedBy: TypeAlias = Literal["topic_fts", "topic_vector", "detail_fts", "detail_vector"]
+
+
+class TopicSearchAdmission(LexicalSearchAdmission):
+    """Topic-local lexical and semantic admission thresholds."""
+
+    min_semantic_similarity: float = Field(default=0.3, ge=-1, le=1, allow_inf_nan=False)
+
+    @override
+    def as_floor(self) -> AdmissionFloor:
+        return AdmissionFloor(
+            lexical_coverage=self.lexical_coverage,
+            lexical_min_matched_terms=self.lexical_min_matched_terms,
+            min_semantic_similarity=self.min_semantic_similarity,
+        )
+
+
+class TopicArtifactSearchRequest(ArtifactSearchQuery):
+    """Strict public Topic search controls, independent of execution metadata."""
+
+    limit: StrictInt = Field(default=10, ge=1, le=MAX_TOPIC_MEMORY_SEARCH_LIMIT)
+    mode: Literal["text", "vector", "hybrid"] | None = None
+    filters: EmptyFilters = Field(default_factory=EmptyFilters)
+    admission: TopicSearchAdmission = Field(default_factory=TopicSearchAdmission)
+    fusion: FusionSelection | None = None
+    min_score: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
 
 
 class TopicMemoryChunk(BaseModel):
@@ -155,6 +183,8 @@ class TopicMemoryChannelHit(BaseModel):
     chunk_start: StrictInt | None = Field(default=None, ge=0)
     chunk_text: str | None = None
     distance: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    raw_score: float | None = Field(default=None, allow_inf_nan=False)
+    metric: str | None = None
 
 
 class TopicMemorySearchChannels(BaseModel):
@@ -181,8 +211,10 @@ class TopicMemorySearchHit(BaseModel):
     title: str
     summary: str
     snippet: str | None = None
-    score: float = Field(gt=0.0, allow_inf_nan=False)
+    score: float = Field(ge=0.0, allow_inf_nan=False)
     matched_by: tuple[TopicMemoryMatchedBy, ...]
+    retrieval_score: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False, exclude=True)
+    channel_scores: dict[str, ChannelScore] | None = Field(default=None, exclude=True)
 
 
 @dataclass(frozen=True)
@@ -214,6 +246,8 @@ class TopicMemorySearchResult(BaseModel):
     admission: AdmissionCounts | None = Field(default=None, exclude=True)
     query_embedding: MemoryQueryEmbedding | None = Field(default=None, exclude=True)
     embedding_calls: int = Field(default=0, exclude=True)
+    matches: tuple[ArtifactSearchMatch, ...] = Field(default=(), exclude=True)
+    artifacts: tuple[TopicMemory, ...] | None = Field(default=None, exclude=True)
 
 
 class PublishedTopicMemory(BaseModel):

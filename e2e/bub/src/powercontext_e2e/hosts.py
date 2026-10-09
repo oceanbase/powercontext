@@ -24,7 +24,7 @@ from typing import Any, Protocol
 
 from harbor.models.trial.config import AgentConfig, ServiceVolumeConfig
 
-from .catalog import ContinuationEvaluationSpec, E2ETask, MemoryEvaluationSpec
+from .catalog import E2ETask, MemoryEvaluationSpec, is_paired
 from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION, REMOTE_CODEX_AUTH, REMOTE_SOURCE
 from .harbor_claude_code import CLAUDE_CODE_VERSION
 from .harbor_codex import CODEX_VERSION
@@ -282,7 +282,7 @@ def _capture_settings(task: E2ETask) -> tuple[bool, int, int]:
         return evaluation.capture_events, evaluation.checkpoint_every_events, evaluation.max_event_bytes
     # Bub captures nothing automatically by default. The ON arm records every turn so that, like the other hosts'
     # integrations, it captures what the user says without relying on the model to call a memory tool.
-    return isinstance(evaluation, ContinuationEvaluationSpec), 5, 8192
+    return is_paired(task), 5, 8192
 
 
 def source_mounts(repository: Path, paths: Iterable[str]) -> list[ServiceVolumeConfig]:
