@@ -232,13 +232,17 @@ def _validate_literal(value: object) -> None:
 _RUNNER = """\
 import json
 import os
-import resource
 import sys
 from pathlib import Path
 
-resource.setrlimit(resource.RLIMIT_CPU, (2, 2))
-resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
-resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+try:
+    import resource
+except ImportError:
+    resource = None
+if resource is not None:
+    resource.setrlimit(resource.RLIMIT_CPU, (2, 2))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 sys.dont_write_bytecode = True
 cases = json.loads(sys.argv[2])
 checks = []
@@ -294,7 +298,7 @@ async def verify_code(code: str, directory: Path) -> dict[str, Any]:
     directory = await asyncio.to_thread(directory.resolve)
     await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=True)
     source_path = directory / "amount.py"
-    await asyncio.to_thread(source_path.write_text, code, encoding="utf-8")
+    await asyncio.to_thread(source_path.write_bytes, code.encode("utf-8"))
     try:
         _validate_source(code)
     except (SyntaxError, ValueError, TypeError, RecursionError) as error:
@@ -306,11 +310,13 @@ async def verify_code(code: str, directory: Path) -> dict[str, Any]:
         asyncio.create_subprocess_exec(
             sys.executable,
             "-I",
+            "-X",
+            "utf8",
             str(runner_path),
             str(source_path),
             json.dumps(_CASES),
             cwd=directory,
-            env={"PATH": os.defpath, "LANG": "C.UTF-8"},
+            env={"PATH": os.defpath, "LANG": "C.UTF-8", "PYTHONIOENCODING": "utf-8"},
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

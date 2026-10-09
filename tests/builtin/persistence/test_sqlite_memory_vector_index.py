@@ -17,15 +17,23 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from sqlalchemy import insert
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import CapabilityNotSupportedError, EmbeddingProfile
+from powercontext.builtin.artifacts.memory.protocols import MemorySearchRequest
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.memory_index import (
     _INSERT_VECTOR_SQL,
+    SQLITE_MEMORY_VECTOR_ENTRIES_TABLE,
     SQLITE_MEMORY_VECTOR_TABLES,
     SQLiteMemoryVectorIndex,
     _pack_vector,
 )
+from powercontext.builtin.persistence.tables import MEMORY_ENTRY_VERSIONS_TABLE
+
+# sqlite-vec rejects a KNN query whose k is above this.
+_SQLITE_VEC_KNN_LIMIT = 4096
 
 
 def _profile(dimension: int) -> EmbeddingProfile:
@@ -148,5 +156,96 @@ def test_vector_index_probe_reports_the_provider_limit_for_a_fresh_oversized_dim
             assert "migrate" not in message
             assert "8192" in message
             assert "65536" in message
+
+    asyncio.run(scenario())
+
+
+def _vector_entry(vector_id: int, scope_id: str, entry_id: str) -> dict[str, object]:
+    return {
+        "vector_id": vector_id,
+        "scope_id": scope_id,
+        "memory_artifact_id": "memory",
+        "head_revision": 1,
+        "entry_id": entry_id,
+        "entry_version_id": f"{entry_id}-v1",
+        "entry_content_hash": "entry-hash",
+        "embedding_content_hash": "embedding-hash",
+    }
+
+
+def test_vector_search_is_not_capped_by_embeddings_in_other_scopes(tmp_path, monkeypatch) -> None:
+    """Embeddings of every scope share one vec0 table, so the scope being
+    searched must still be served once the whole table outgrows sqlite-vec's
+    KNN limit, and its nearest entries must not be crowded out by others."""
+
+    async def scenario() -> None:
+        async with (
+            SQLiteProfile.open(
+                # Only the projection tables are created, so their parents are absent.
+                SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'memory.db'}", foreign_keys=False),
+                tables=(*SQLITE_MEMORY_VECTOR_TABLES, MEMORY_ENTRY_VERSIONS_TABLE),
+                load_vector_extension=True,
+            ) as profile,
+            profile.database.transaction() as connection,
+        ):
+            index = SQLiteMemoryVectorIndex(_profile(2))
+            await index.initialize(connection)
+
+            # Another scope holds the whole KNN budget, and sits closer to the query.
+            others = [_vector_entry(i, "other", f"other-{i}") for i in range(1, _SQLITE_VEC_KNN_LIMIT + 1)]
+            mine = [
+                _vector_entry(_SQLITE_VEC_KNN_LIMIT + 1, "project", "near"),
+                _vector_entry(_SQLITE_VEC_KNN_LIMIT + 2, "project", "far"),
+            ]
+            await connection.execute(insert(SQLITE_MEMORY_VECTOR_ENTRIES_TABLE), [*others, *mine])
+            await connection.execute(
+                _INSERT_VECTOR_SQL,
+                [{"vector_id": row["vector_id"], "embedding": _pack_vector((1.0, 0.0))} for row in others]
+                + [
+                    {"vector_id": mine[0]["vector_id"], "embedding": _pack_vector((0.6, 0.8))},
+                    {"vector_id": mine[1]["vector_id"], "embedding": _pack_vector((0.0, 1.0))},
+                ],
+            )
+            await connection.execute(
+                insert(MEMORY_ENTRY_VERSIONS_TABLE),
+                [
+                    {
+                        "scope_id": "project",
+                        "family": "memory",
+                        "memory_artifact_id": "memory",
+                        "entry_id": row["entry_id"],
+                        "entry_version_id": row["entry_version_id"],
+                        "version": 1,
+                        "kind": "fact",
+                        "text": f"{row['entry_id']} entry",
+                        "source_refs": b"[]",
+                        "artifact_refs": b"[]",
+                        "entry_content_hash": "entry-hash",
+                        "created_in_revision": 1,
+                    }
+                    for row in mine
+                ],
+            )
+
+            # The head/version bookkeeping behind completeness is not part of this fixture.
+            async def complete(*_: object) -> bool:
+                return True
+
+            monkeypatch.setattr(index, "vector_complete", complete)
+            memory = ArtifactRef(family="memory", artifact_id="memory", revision=1)
+            channels = await index.search(
+                connection,
+                "project",
+                MemorySearchRequest(
+                    query="q",
+                    analyzed_query="q",
+                    memories=(memory,),
+                    candidate_limit=10,
+                    mode="vector",
+                    query_vector=(1.0, 0.0),
+                    embedding_profile=_profile(2),
+                ),
+            )
+            assert [hit.entry_id for hit in channels.vector] == ["near", "far"]
 
     asyncio.run(scenario())

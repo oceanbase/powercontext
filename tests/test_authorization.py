@@ -26,6 +26,7 @@ from powercontext.cli.authorization import (
     AuthorizationResolution,
     clear_stored_authorization,
     configure_codex_desktop_authorization,
+    configure_stored_authorization,
     credential_path,
     normalize_authorization,
     read_codex_desktop_authorization,
@@ -151,6 +152,43 @@ def test_clear_stored_authorization_is_idempotent(tmp_path: Path) -> None:
     assert clear_stored_authorization(path) == "not_configured"
 
 
+@pytest.mark.parametrize(
+    "configured",
+    [
+        None,
+        "",
+        "  ",
+        "explicit",
+        pytest.param("explicit ", marks=pytest.mark.skipif(os.name == "nt", reason="POSIX trailing-space directory")),
+    ],
+)
+def test_dsh_credentials_and_configuration_share_the_same_home(tmp_path, monkeypatch, configured):
+    from powercontext.cli.dsh_transport import read_dsh_settings
+
+    default_home = tmp_path / "user/.dsh"
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: default_home.parent))
+    if configured is None:
+        monkeypatch.delenv("DSH_HOME", raising=False)
+    else:
+        monkeypatch.setenv("DSH_HOME", str(tmp_path / configured) if configured.strip() else configured)
+    expected = tmp_path / configured if configured and configured.strip() else default_home
+    # A cwd profile must not be mistaken for DSH_HOME when the environment is empty.
+    unrelated = tmp_path / "profiles/web"
+    unrelated.mkdir(parents=True)
+    (unrelated / "cordis.patch.yml").write_text("- id: powercontext-dsh\n  config:\n    baseUrl: !!js secret\n")
+    path = credential_path("dsh")
+    assert path == expected / "powercontext/credentials.json"
+    write_stored_authorization(path, server_url="https://memory.example", value="test-token")
+    assert read_stored_authorization(path, server_url="https://memory.example").status == "configured"
+    assert read_dsh_settings() == {}
+
+
+@pytest.mark.parametrize("configured", ["relative ", " relative", " /data/dsh ", "/data/my dsh"])
+def test_dsh_credential_home_preserves_nonblank_path_whitespace(monkeypatch, configured):
+    monkeypatch.setenv("DSH_HOME", configured)
+    assert credential_path("dsh") == Path(configured).expanduser() / "powercontext/credentials.json"
+
+
 def test_setup_uses_host_specific_credentials_and_endpoints(monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_OPENCODE_AUTHORIZATION", "Bearer host-token")
     monkeypatch.setenv("POWERCONTEXT_OPENCODE_BASE_URL", "https://memory.example/api")
@@ -202,6 +240,29 @@ def test_stored_authorization_remains_bound_to_proxy_path(tmp_path, server_url):
     assert read_stored_authorization(path, server_url=server_url + "-other") == AuthorizationResolution(
         "url_mismatch", None
     )
+
+
+@pytest.mark.parametrize("replacement_token", [None, "replacement-token"])
+def test_setup_endpoint_change_preserves_or_replaces_url_bound_credential(replacement_token):
+    """Only a supplied new token can replace the previous endpoint's credential."""
+    path = credential_path("codex")
+    old_url = "http://127.0.0.1:8100"
+    new_url = "http://127.0.0.1:17429"
+    write_stored_authorization(path, server_url=old_url, value="old-token")
+    original = path.read_bytes()
+
+    status = configure_stored_authorization("codex", server_url=new_url, value=replacement_token)
+
+    if replacement_token is None:
+        assert status == "url_mismatch"
+        assert path.read_bytes() == original
+        assert read_stored_authorization(path, server_url=new_url) == AuthorizationResolution("url_mismatch", None)
+    else:
+        assert status == "configured"
+        assert read_stored_authorization(path, server_url=new_url) == AuthorizationResolution(
+            "configured", "Bearer replacement-token"
+        )
+        assert read_stored_authorization(path, server_url=old_url) == AuthorizationResolution("url_mismatch", None)
 
 
 def test_credential_path_uses_host_owned_roots(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

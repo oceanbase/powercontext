@@ -24,7 +24,7 @@ import pytest
 from powercontext_e2e.artifacts import write_artifacts
 from powercontext_e2e.catalog import load_tasks
 from powercontext_e2e.evaluation import MemoryEvaluator
-from powercontext_e2e.evidence import load_resolved_instructions
+from powercontext_e2e.evidence import load_resolved_instructions, redact
 from powercontext_e2e.models import (
     HarborTrialObservation,
     MemoryEntrySnapshot,
@@ -57,22 +57,38 @@ def test_resolved_instruction_evidence_matches_harbor_acp_summaries(
 
 
 @pytest.mark.parametrize(
-    "secret_name",
+    ("secret_name", "sensitive_value"),
     [
-        "BUB_API_KEY",
-        "OPENAI_API_KEY",
-        "POWERCONTEXT_CODEX_AUTHORIZATION",
-        "CLAUDE_CODE_OAUTH_TOKEN",
-        "ANTHROPIC_API_KEY",
-        "POWERCONTEXT_CLAUDE_AUTHORIZATION",
+        *(
+            (name, "provider-runtime-secret-sentinel")
+            for name in (
+                "BUB_API_KEY",
+                "OPENAI_API_KEY",
+                "POWERCONTEXT_CODEX_AUTHORIZATION",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "ANTHROPIC_API_KEY",
+                "POWERCONTEXT_CLAUDE_AUTHORIZATION",
+                "OPENROUTER_API_KEY",
+                "POWERCONTEXT_OPENCODE_AUTHORIZATION",
+                "HF_TOKEN",
+                "AWS_SECRET_ACCESS_KEY",
+                "POWERCONTEXT_PI_AUTHORIZATION",
+                # Harbor's Claude Code agent forwards this one, which names the token in the middle.
+                "AWS_BEARER_TOKEN_BEDROCK",
+                # Settings read their variables in any case.
+                "powercontext_client_api_token",
+            )
+        ),
+        # The Client and the Server accept a token of any length.
+        ("POWERCONTEXT_CLIENT_API_TOKEN", "Y6q9w2R"),
     ],
 )
 def test_final_evidence_redacts_configured_secrets_and_preserves_the_public_schema(
     monkeypatch,
     tmp_path: Path,
     secret_name: str,
+    sensitive_value: str,
 ) -> None:
-    sensitive_value = "provider-runtime-secret-sentinel"
     monkeypatch.setenv(secret_name, sensitive_value)
     repository = Path(__file__).resolve().parents[3]
     task = next(
@@ -133,3 +149,32 @@ def test_final_evidence_redacts_configured_secrets_and_preserves_the_public_sche
     assert replay["resolved_instructions"][0]["content"] == "Use credential [REDACTED] to complete the task."
     assert evaluation["schema"] == "powercontext.e2e-evaluation/v1"
     assert evaluation["cases"][0]["attributes"]["execution_adapter"] == "bub"
+
+
+def test_short_placeholder_credentials_do_not_corrupt_evidence(monkeypatch) -> None:
+    # Evidence is redacted by substring, so redacting "1" or "ollama" would rewrite numbers and ordinary words.
+    monkeypatch.setenv("LOCAL_API_KEY", "1")
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-provider-secret")
+    # A plural names a count, which Harbor's Claude Code agent also forwards.
+    monkeypatch.setenv("MAX_THINKING_TOKENS", "8192")
+    # CI sets these to where a token is, not to the token: a path CI logs and an agent can print.
+    monkeypatch.setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "/var/run/secrets/eks.amazonaws.com/serviceaccount/token")
+    monkeypatch.setenv("HF_TOKEN_PATH", "/home/runner/.cache/huggingface/token")
+    evidence = json.dumps({
+        "reward": 1,
+        "provider": "ollama",
+        "max_bytes": 8192,
+        "error": "rejected sk-or-provider-secret",
+        "stderr": "open /var/run/secrets/eks.amazonaws.com/serviceaccount/token: no such file",
+    })
+
+    redacted = json.loads(redact(evidence, HarnessSettings()))
+
+    assert redacted == {
+        "reward": 1,
+        "provider": "ollama",
+        "max_bytes": 8192,
+        "error": "rejected [REDACTED]",
+        "stderr": "open /var/run/secrets/eks.amazonaws.com/serviceaccount/token: no such file",
+    }

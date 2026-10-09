@@ -24,11 +24,20 @@ from typing import Any, Protocol
 
 from harbor.models.trial.config import AgentConfig, ServiceVolumeConfig
 
-from .catalog import ContinuationEvaluationSpec, E2ETask, MemoryEvaluationSpec
+from .catalog import E2ETask, MemoryEvaluationSpec, is_paired
 from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION, REMOTE_CODEX_AUTH, REMOTE_SOURCE
 from .harbor_claude_code import CLAUDE_CODE_VERSION
 from .harbor_codex import CODEX_VERSION
-from .settings import bub_environment, codex_auth_path, powercontext_bub_environment, prefixed_environment
+from .harbor_opencode import OPENCODE_VERSION
+from .harbor_pi import PI_VERSION
+from .settings import (
+    agent_secret,
+    bub_environment,
+    codex_auth_path,
+    powercontext_bub_environment,
+    prefixed_environment,
+    server_api_token,
+)
 
 # Bub installs its plugin against the local powercontext package, so its container gets that package's sources.
 POWERCONTEXT_PACKAGE_PATHS = ("pyproject.toml", "README.md", "LICENSE", "src")
@@ -50,8 +59,12 @@ class HostAdapter(Protocol):
     def agent_settings(self) -> dict[str, str]:
         """Return runtime-selected agent settings, other than the model, recorded in evidence."""
 
-    def mounts(self, task: E2ETask, repository: Path) -> list[ServiceVolumeConfig]:
-        """Return host-owned bind mounts for the task container, such as the integration sources it installs."""
+    def mounts(self, task: E2ETask, repository: Path, *, powercontext: bool) -> list[ServiceVolumeConfig]:
+        """Return host-owned bind mounts for the task container.
+
+        Only a run with PowerContext gets the integration sources it installs, so an agent without PowerContext cannot
+        find PowerContext in its container.
+        """
 
     def agent_config(
         self,
@@ -63,8 +76,8 @@ class HostAdapter(Protocol):
         """Configure the host agent for one Harbor job.
 
         With ``scope_id``, the host runs with its PowerContext integration bound to that Scope, or to one Scope per
-        agent invocation when ``invocation_scopes`` is given. Without it, the host runs with no PowerContext
-        integration installed.
+        agent invocation when ``invocation_scopes`` is given, and authenticated with the harness Client's token.
+        Without it, the host runs as a user without PowerContext has it: no integration and no credential.
         """
 
 
@@ -84,11 +97,10 @@ class BubHost:
     def agent_settings(self) -> dict[str, str]:
         return {}
 
-    def mounts(self, task: E2ETask, repository: Path) -> list[ServiceVolumeConfig]:
-        mounts = source_mounts(
-            repository,
-            (*POWERCONTEXT_PACKAGE_PATHS, "integrations/bub", "e2e/bub/source-overrides.txt"),
-        )
+    def mounts(self, task: E2ETask, repository: Path, *, powercontext: bool) -> list[ServiceVolumeConfig]:
+        paths = (*POWERCONTEXT_PACKAGE_PATHS, "integrations/bub", "e2e/bub/source-overrides.txt")
+        mounts = source_mounts(repository, paths) if powercontext else []
+        # The Codex login authenticates Bub's model, so both arms get it.
         if task.execution.model and (auth_path := codex_auth_path()).is_file():
             mounts.append(read_only_bind(auth_path, REMOTE_CODEX_AUTH))
         return mounts
@@ -123,6 +135,8 @@ class BubHost:
                 "POWERCONTEXT_BUB_CAPTURE_MAX_BYTES": str(max_bytes),
                 "POWERCONTEXT_BUB_SCOPE_ID": scope_id,
             })
+            if (token := server_api_token()) is not None:
+                env["POWERCONTEXT_BUB_API_TOKEN"] = agent_secret("POWERCONTEXT_BUB_API_TOKEN", token)
             if invocation_scopes is not None:
                 env.pop("POWERCONTEXT_BUB_SCOPE_ID")
                 kwargs["invocation_scopes"] = invocation_scopes
@@ -135,12 +149,13 @@ class BubHost:
 
 @dataclass(frozen=True)
 class PluginHost:
-    """Run a host through Harbor's own agent for it, with the host's PowerContext plugin installed in both arms.
+    """Run a host through Harbor's own agent for it, with the host's PowerContext plugin only in the ON arm.
 
-    Only the ON arm keeps the plugin enabled and receives the plugin's native ``<plugin_prefix>*`` settings, with
-    ``<plugin_prefix>SCOPE_ID`` bound to the arm's Scope. Both arms point the installed plugin at
-    ``<plugin_prefix>SERVER_URL``, the Server as the agent container reaches it. The harness selects the model with
-    ``<setting_prefix>MODEL`` and passes the reasoning effort from ``<setting_prefix>REASONING_EFFORT`` explicitly.
+    Only the ON arm installs the plugin and receives the plugin's native ``<plugin_prefix>*`` settings, with
+    ``<plugin_prefix>SCOPE_ID`` bound to the arm's Scope and ``<plugin_prefix>AUTHORIZATION`` carrying the harness
+    Client's token. ``<plugin_prefix>SERVER_URL`` names the Server as the agent container reaches it. The harness
+    selects the model with ``<setting_prefix>MODEL`` and passes the reasoning effort from
+    ``<setting_prefix>REASONING_EFFORT`` explicitly.
     """
 
     name: str
@@ -168,8 +183,8 @@ class PluginHost:
         # such as CLAUDE_CODE_EFFORT_LEVEL, from changing it unrecorded.
         return {"reasoning_effort": environ.get(f"{self.setting_prefix}REASONING_EFFORT") or "medium"}
 
-    def mounts(self, task: E2ETask, repository: Path) -> list[ServiceVolumeConfig]:
-        return source_mounts(repository, self.plugin_paths)
+    def mounts(self, task: E2ETask, repository: Path, *, powercontext: bool) -> list[ServiceVolumeConfig]:
+        return source_mounts(repository, self.plugin_paths) if powercontext else []
 
     def agent_config(
         self,
@@ -182,7 +197,13 @@ class PluginHost:
             raise ValueError(f"The {self.name} host binds one Scope per job and cannot run batched workloads")  # noqa: TRY003
         if (server_url := self._server_url()) is None:
             raise ValueError(f"{self._server_url_setting} must name the Server as the agent container reaches it")  # noqa: TRY003
-        env = {} if scope_id is None else {**self._plugin_environment(), f"{self.plugin_prefix}SCOPE_ID": scope_id}
+        env: dict[str, str] = {}
+        if scope_id is not None:
+            env = {**self._plugin_environment(), f"{self.plugin_prefix}SCOPE_ID": scope_id}
+            if (token := server_api_token()) is not None:
+                # Each plugin sends this value as its Authorization header.
+                authorization = f"{self.plugin_prefix}AUTHORIZATION"
+                env[authorization] = agent_secret(authorization, f"Bearer {token}")
         return AgentConfig(
             import_path=self.agent_import_path,
             model_name=self.agent_model(),
@@ -227,13 +248,41 @@ CLAUDE_CODE = PluginHost(
 )
 
 
+# Harbor passes the key of the model's provider, such as OPENROUTER_API_KEY. The plugin is a bundled JavaScript file
+# with a Skill, and reads its Server URL from its environment.
+OPENCODE = PluginHost(
+    name="opencode",
+    version=OPENCODE_VERSION,
+    agent_import_path="powercontext_e2e.harbor_opencode:PowerContextOpenCodeAgent",
+    plugin_prefix="POWERCONTEXT_OPENCODE_",
+    setting_prefix="POWERCONTEXT_E2E_OPENCODE_",
+    plugin_paths=(
+        "integrations/opencode/plugins/powercontext/lib",
+        "integrations/opencode/plugins/powercontext/skills",
+    ),
+)
+
+# Harbor passes the key of the model's provider, such as OPENROUTER_API_KEY. The package's extension is TypeScript that
+# Pi loads directly with the Skill, and reads its Server URL from its environment.
+PI = PluginHost(
+    name="pi",
+    version=PI_VERSION,
+    agent_import_path="powercontext_e2e.harbor_pi:PowerContextPiAgent",
+    plugin_prefix="POWERCONTEXT_PI_",
+    setting_prefix="POWERCONTEXT_E2E_PI_",
+    plugin_paths=tuple(
+        f"integrations/pi/plugins/powercontext/{name}" for name in ("package.json", "extensions", "src", "skills")
+    ),
+)
+
+
 def _capture_settings(task: E2ETask) -> tuple[bool, int, int]:
     evaluation = task.evaluation
     if isinstance(evaluation, MemoryEvaluationSpec):
         return evaluation.capture_events, evaluation.checkpoint_every_events, evaluation.max_event_bytes
     # Bub captures nothing automatically by default. The ON arm records every turn so that, like the other hosts'
     # integrations, it captures what the user says without relying on the model to call a memory tool.
-    return isinstance(evaluation, ContinuationEvaluationSpec), 5, 8192
+    return is_paired(task), 5, 8192
 
 
 def source_mounts(repository: Path, paths: Iterable[str]) -> list[ServiceVolumeConfig]:
@@ -256,7 +305,7 @@ def read_only_bind(source: Path, target: str) -> ServiceVolumeConfig:
     }
 
 
-_HOSTS: dict[str, HostAdapter] = {host.name: host for host in (BubHost(), CODEX, CLAUDE_CODE)}
+_HOSTS: dict[str, HostAdapter] = {host.name: host for host in (BubHost(), CODEX, CLAUDE_CODE, OPENCODE, PI)}
 
 
 def host_adapter(name: str) -> HostAdapter:

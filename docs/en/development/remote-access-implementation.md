@@ -131,6 +131,18 @@ Memory classification uses the dialect's effective connection arguments and the 
 true spellings (`true`, `1`, `yes`, `on`) and percent-encoded `:memory:` paths. Pooling and offline maintenance guards
 consume the same `SQLiteConfig.is_in_memory` classification.
 
+The unified migration implementation from [RFC #1771](../rfcs/1771-unified-database-migrations.md) currently
+covers only a registered four-table Artifact bundle. It does not manage `pc_server_identity`, gate ordinary Server
+startup, or establish complete Server readiness; its maintenance commands reject a complete business database with
+unmanaged tables. Do not use that partial bundle to migrate a Server database.
+
+When unified migration takes ownership of the complete Server schema, identity table creation must move from startup
+DDL into an immutable managed revision, with schema verification before Runtime composition. If discovery is already
+released, the supported historical baseline must include the existing identity table and preserve its singleton value;
+if still unmerged at framework enablement, discovery must ship that revision alongside the model. Deployment identity
+remains distinct from `pc_schema_revision`, and schema adoption or upgrades must not rotate `server_id`. Clone rotation
+remains an explicit offline operation. No independent schema-version or migration-readiness marker is added for identity.
+
 Treat a restored backup as the same deployment and keep its ID. When a backup is used to create an independent clone,
 stop every Server process using the clone database and rotate only the clone:
 

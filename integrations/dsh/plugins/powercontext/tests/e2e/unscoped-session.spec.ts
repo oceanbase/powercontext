@@ -126,9 +126,10 @@ function toolNamed(runtime: PluginRuntime, name: string): RegisteredTool {
 }
 
 async function recallWithoutCwd(runtime: PluginRuntime, query: string) {
-  const next = async () => ({ kind: 'enter' as const, messages: [] })
+  const messages = [{ content: [{ type: 'text', text: query }], source: { kind: 'user' as const } }]
+  const next = async () => ({ kind: 'enter' as const, messages })
   return runRecallPreStep({
-    messages: [{ content: [{ type: 'text', text: query }], source: { kind: 'user' } }],
+    messages,
     next,
     cwd: undefined,
     sessionId: 'session-unscoped',
@@ -179,7 +180,10 @@ describe('plugin runtime with header.cwd === undefined', () => {
       agent: sessionWithoutCwd(),
     })
 
-    expect(recalled).toEqual({ kind: 'enter', messages: [] })
+    expect(recalled).toEqual({
+      kind: 'enter',
+      messages: [{ content: [{ type: 'text', text: TEXT }], source: { kind: 'user' } }],
+    })
     expect(events.some((event) => event.event === 'context_prepare')).toBe(true)
     expect(pc.kind).toBe('success')
     expect(tool).toMatchObject({ ok: true })

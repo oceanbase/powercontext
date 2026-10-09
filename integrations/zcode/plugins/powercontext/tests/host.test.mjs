@@ -15,13 +15,14 @@
  */
 
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
 
 const cli = process.env.ZCODE_CLI_BIN
 const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -35,9 +36,9 @@ async function close(server) {
   await new Promise(resolve => server.close(resolve))
 }
 
-async function invoke(home, workspace, prompt) {
+async function invoke(home, workspace, prompt, args = []) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, '--prompt', prompt, '--output-format', 'json', '--cwd', workspace], {
+    const child = spawn(process.execPath, [cli, '--prompt', prompt, '--output-format', 'json', '--cwd', workspace, ...args], {
       env: {
         ...process.env,
         USERPROFILE: home,
@@ -59,9 +60,10 @@ async function invoke(home, workspace, prompt) {
 test('open-source ZCode CLI injects context, discovers MCP tools and survives Server loss', {
   skip: !cli ? 'Set ZCODE_CLI_BIN to a built open-source ZCode CLI bundle' : false,
   timeout: 60_000,
-}, async () => {
+}, async t => {
   const requests = []
   const modelRequests = []
+  let boundaryRun = false
   const powercontext = createServer(async (request, response) => {
     let raw = ''
     for await (const chunk of request) raw += chunk
@@ -71,14 +73,18 @@ test('open-source ZCode CLI injects context, discovers MCP tools and survives Se
     if (request.url === '/v1/scope-bindings/resolve') {
       response.end(JSON.stringify({ scope_id: 'scope-zcode-host-test' }))
     } else if (request.url === '/v1/context/prepare') {
-      const content = 'PowerContext validation fact: the project color is ultramarine.'
+      const content = body.query === 'Current project decisions, constraints, and outstanding work'
+        ? 'Resumed project constraint: rime-9281.' : 'PowerContext validation fact: the project color is ultramarine.'
       response.end(JSON.stringify({
         schema: 'powercontext.prepared-context.v1', status: 'ready',
         content, content_bytes: Buffer.byteLength(content),
       }))
     } else if (request.url === '/v1/sources/content') {
       response.statusCode = 202
-      response.end(JSON.stringify({ status: 'accepted', source: { source_id: body.source_id }, position: 1 }))
+      response.end(JSON.stringify({ status: 'accepted', source: { name: 'content', source_id: body.source_id }, position: 1 }))
+    } else if (request.url === '/v1/memory/flush') {
+      response.end(JSON.stringify({ status: 'processed', previous_cursor: 0, current_cursor: 1,
+        high_watermark: 1, processed_source_count: 1, memory: null }))
     } else if (request.url === '/mcp') {
       const result = body.method === 'initialize'
         ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'powercontext-test', version: '0.1.0' } }
@@ -95,6 +101,9 @@ test('open-source ZCode CLI injects context, discovers MCP tools and survives Se
     let raw = ''
     for await (const chunk of request) raw += chunk
     modelRequests.push(JSON.parse(raw))
+    if (boundaryRun && Date.now() % 5000 > 1000) {
+      await new Promise(resolve => setTimeout(resolve, 5000 - Date.now() % 5000 + 30))
+    }
     response.setHeader('Content-Type', 'text/event-stream')
     response.write(`data: ${JSON.stringify({
       id: 'chatcmpl-test', object: 'chat.completion.chunk', created: 1, model: 'fake-model',
@@ -139,7 +148,7 @@ test('open-source ZCode CLI injects context, discovers MCP tools and survives Se
     assert.equal(first.code, 0, first.stderr)
     assert.equal(JSON.parse(first.stdout).response, 'Validation complete.')
     assert.deepEqual(requests.filter(request => request.path.startsWith('/v1/')).map(request => request.path), [
-      '/v1/scope-bindings/resolve', '/v1/context/prepare', '/v1/sources/content',
+      '/v1/scope-bindings/resolve', '/v1/scope-bindings/resolve', '/v1/context/prepare', '/v1/sources/content',
     ])
     assert.equal(requests.find(request => request.path === '/v1/context/prepare').body.scope_id, 'scope-zcode-host-test')
     assert.equal(requests.find(request => request.path === '/v1/sources/content').body.scope_id, 'scope-zcode-host-test')
@@ -148,6 +157,65 @@ test('open-source ZCode CLI injects context, discovers MCP tools and survives Se
       .every(request => request.authorization === 'Bearer test-only'))
     assert.match(JSON.stringify(modelRequests[0].messages), /ultramarine/)
     assert.match(JSON.stringify(modelRequests[0].tools), /mcp__plugin_powercontext_powercontext__search_memory/)
+
+    function strings(value) {
+      return typeof value === 'string' ? [value] : value && typeof value === 'object'
+        ? Object.values(value).flatMap(strings) : []
+    }
+    const delivered = strings(modelRequests[0].messages).find(value => value.includes('PowerContext current-request binding metadata:'))
+    const binding = JSON.parse(delivered.split('\n').find(line => line.startsWith('{"schema":"powercontext.zcode.request-binding.v1"')))
+    assert.ok(binding.plugin_data_dir)
+    assert.ok(binding.session_id)
+    const status = await promisify(execFile)(process.execPath, [binding.status_script, '--cwd', workspace,
+      '--session-id', binding.session_id, '--data-dir', binding.plugin_data_dir], {
+      env: { ...process.env, POWERCONTEXT_ZCODE_AUTHORIZATION: 'Bearer test-only' }, timeout: 5000,
+    })
+    const observed = JSON.parse(status.stdout)
+    assert.equal(observed.status, 'observed')
+    assert.equal(observed.incomplete, false)
+    assert.equal(observed.observation.event, 'Stop')
+    assert.equal(observed.observation.stages.flush.reason, 'boundary_flush_disabled')
+    const observedFiles = await readdir(join(binding.plugin_data_dir, 'runtime'))
+    const records = await Promise.all(observedFiles.map(name => readFile(join(binding.plugin_data_dir, 'runtime', name), 'utf8').then(JSON.parse)))
+    const startup = records.filter(record => record.event === 'SessionStart')
+    assert.equal(startup.length, 1)
+    assert.equal(startup[0].event_source, 'startup')
+    assert.equal(startup[0].stages.prepare.reason, 'prompt_recall_follows')
+    assert.equal(startup[0].stages.capture.state, 'skipped')
+    const prompt = records.find(record => record.event === 'UserPromptSubmit')
+    assert.equal(prompt.stages.capture.state, 'accepted')
+    assert.equal(prompt.stages.context_output.state, 'emitted')
+    assert.equal(prompt.scope_id, 'scope-zcode-host-test')
+
+    const resumed = await invoke(home, workspace, 'Continue the isolated project validation.', ['--resume', JSON.parse(first.stdout).sessionId])
+    assert.equal(resumed.code, 0, resumed.stderr)
+    assert.match(JSON.stringify(modelRequests.at(-1).messages), /rime-9281/)
+    const resumedRecords = await Promise.all((await readdir(join(binding.plugin_data_dir, 'runtime')))
+      .map(name => readFile(join(binding.plugin_data_dir, 'runtime', name), 'utf8').then(JSON.parse)))
+    const resume = resumedRecords.filter(record => record.event === 'SessionStart' && record.event_source === 'resume')
+    assert.equal(resume.length, 1)
+    assert.equal(resume[0].stages.prepare.state, 'ready')
+    assert.equal(resume[0].stages.prepare.query_source, 'lifecycle_generic')
+
+    const compacted = await invoke(home, workspace, '/compact', ['--resume', JSON.parse(first.stdout).sessionId])
+    assert.equal(compacted.code, 0, compacted.stderr)
+    const compactRecords = await Promise.all((await readdir(join(binding.plugin_data_dir, 'runtime')))
+      .map(name => readFile(join(binding.plugin_data_dir, 'runtime', name), 'utf8').then(JSON.parse)))
+    t.diagnostic(compactRecords.some(record => record.event_source === 'compact')
+      ? 'CLI emitted SessionStart compact' : 'CLI did not emit SessionStart compact; resume/prompt recovery remains available')
+
+    await writeFile(join(plugin, 'powercontext.json'), JSON.stringify({ server_url: serverUrl, boundary_flush: true }))
+    boundaryRun = true
+    const boundary = await invoke(home, workspace, 'Validate one explicit boundary processing turn.')
+    boundaryRun = false
+    assert.equal(boundary.code, 0, boundary.stderr)
+    assert.equal(requests.filter(request => request.path === '/v1/memory/flush').length, 1)
+    const boundaryRecords = await Promise.all((await readdir(join(binding.plugin_data_dir, 'runtime')))
+      .map(name => readFile(join(binding.plugin_data_dir, 'runtime', name), 'utf8').then(JSON.parse)))
+    const stopped = boundaryRecords.find(record => record.event === 'Stop' && record.config.boundary_flush)
+    assert.equal(stopped.stages.flush.state, 'cursor_reached')
+    assert.equal(stopped.stages.flush.source_position, 1)
+    assert.equal(stopped.config.hook_budget_ms, 1000)
 
     await close(powercontext)
     powercontextOpen = false

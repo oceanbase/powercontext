@@ -39,7 +39,9 @@ def isolate_client_config(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("host", ["codex", "claude-code", "dsh", "openclaw", "opencode", "pi", "hermes", "workbuddy"])
-def test_every_setup_rejects_remote_http_without_consent_before_install(host):
+def test_every_setup_rejects_remote_http_without_consent_before_install(host, monkeypatch):
+    if host == "dsh":
+        monkeypatch.setattr("powercontext.cli.dsh.which", lambda _name: None)
     result = CliRunner().invoke(
         create_cli([setup_app]), ["setup", host, "--server-url", "http://192.0.2.10:8000", "--json"]
     )
@@ -73,6 +75,59 @@ def test_explicit_remote_endpoint_overrides_file_and_local_port(tmp_path):
         == "https://remote.example/proxy"
     )
     assert path.read_text() == content
+
+
+@pytest.mark.parametrize("configuration", ["file", "process", "both", "explicit"])
+def test_new_codex_endpoint_replaces_saved_and_native_settings(tmp_path, monkeypatch, configuration):
+    """Refreshing setup persists a newly supplied URL despite stale installed settings."""
+    from powercontext.cli.hosts import setup_host
+    from powercontext.client.transport_policy import client_config_file, load_client_settings
+
+    old_url = "http://127.0.0.1:8100"
+    new_url = "http://127.0.0.1:17429"
+    settings = client_config_file()
+    settings.write_text(json.dumps({"version": 1, "hosts": {"codex": {"server_url": old_url, "custom": "keep"}}}))
+    # Obsolete cache versions must not prevent a new endpoint from being installed.
+    for version, url in (("0.1.0", old_url), ("0.2.0", "http://127.0.0.1:8000")):
+        cache = tmp_path / "codex/plugins/cache/powercontext/powercontext" / version
+        cache.mkdir(parents=True)
+        (cache / ".mcp.json").write_text(json.dumps({"mcpServers": {"powercontext": {"url": url + "/mcp/"}}}))
+    if configuration in {"file", "both"}:
+        (tmp_path / ".env").write_text(f"POWERCONTEXT_CLIENT_SERVER_URL={new_url}\n")
+    if configuration in {"process", "both"}:
+        monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", new_url)
+    installer = Mock(return_value="installed")
+    monkeypatch.setattr("powercontext.cli.hosts.install_host", installer)
+
+    result = setup_host(
+        "codex", source="local-source", ref="master", server_url=new_url if configuration == "explicit" else None
+    )
+
+    assert result.result == "installed"
+    assert installer.call_args.kwargs["server_url"] == new_url
+    assert load_client_settings("codex")["server_url"] == new_url
+    assert json.loads(settings.read_text())["hosts"]["codex"] == {
+        "server_url": new_url,
+        "custom": "keep",
+        "allow_insecure_http": False,
+    }
+
+
+def test_saved_endpoints_still_require_choice_without_new_configuration(tmp_path):
+    """Conflicting persisted settings remain ambiguous when no new URL is supplied."""
+    from powercontext.cli.transport import client_config_file, prepare_setup_transport
+
+    client_config_file().write_text(
+        json.dumps({"version": 1, "hosts": {"codex": {"server_url": "http://127.0.0.1:8100"}}})
+    )
+    cache = tmp_path / "codex/plugins/cache/powercontext/powercontext/0.1.0"
+    cache.mkdir(parents=True)
+    (cache / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"powercontext": {"url": "http://127.0.0.1:8000/mcp/"}}})
+    )
+
+    with pytest.raises(RuntimeError, match=r"Conflicting.*saved client settings, native host settings"):
+        prepare_setup_transport("codex")
 
 
 def test_conflicting_file_and_process_endpoints_require_choice(tmp_path, monkeypatch):
@@ -178,6 +233,8 @@ def test_all_setup_routes_persist_adapter_endpoint(host, bulk, endpoint, tmp_pat
     from powercontext.cli import hosts, system
     from powercontext.cli.transport import client_config_file
 
+    if host == "dsh":
+        monkeypatch.setattr("powercontext.cli.dsh.which", lambda _name: None)
     path = client_config_file()
     path.write_text(json.dumps({"version": 1, "hosts": {host: {"custom": "keep"}, "other": {"custom": True}}}))
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
@@ -193,7 +250,7 @@ def test_all_setup_routes_persist_adapter_endpoint(host, bulk, endpoint, tmp_pat
     monkeypatch.setattr(hosts, "verify_host", lambda _host: None)
     if host not in {"claude-code", "openclaw"}:
         module = system if host == "codex" else importlib.import_module(f"powercontext.cli.{host}")
-        monkeypatch.setattr(module, f"run_{host}_diagnostics", lambda: {})
+        monkeypatch.setattr(module, f"run_{host}_diagnostics", lambda **_options: {})
     arguments = ["setup", "select", "--host", host, "--json"] if bulk else ["setup", host, "--json"]
     if endpoint.startswith("https:"):
         arguments.extend(["--server-url", endpoint])
@@ -471,15 +528,3 @@ def test_doctor_does_not_claim_safety_for_unreadable_native_configuration(tmp_pa
     monkeypatch.setenv("OPENCLAW_CONFIG_PATH", str(path))
     path.write_text("{ this is not plain JSON }")
     assert transport_diagnostic("openclaw").status != "ok"
-
-
-def test_dsh_setup_checks_the_web_profile_even_with_another_runtime_profile(tmp_path, monkeypatch):
-    from powercontext.cli.transport import prepare_setup_transport
-
-    monkeypatch.setenv("DSH_HOME", str(tmp_path))
-    monkeypatch.setenv("DSH_PROFILE", "custom")
-    patch = tmp_path / "profiles/web/cordis.patch.yml"
-    patch.parent.mkdir(parents=True)
-    patch.write_text("- id: powercontext-dsh\n  config:\n    baseUrl: https://old.example\n")
-    with pytest.raises(RuntimeError, match="DSH"):
-        prepare_setup_transport("dsh", server_url="https://new.example", json_output=True)

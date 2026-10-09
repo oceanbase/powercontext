@@ -59,7 +59,7 @@ powercontext setup select
 ## 能力与发布状态
 
 [能力矩阵](capabilities.md)由 `integrations/capabilities.toml` 生成。
-ZCode 和 Pydantic AI 标为 `experimental`；其余 8 个 Host 和 Bub 标为 `master_only`。
+9 个 Agent Host 和 Bub 标为 `master_only`；Pydantic AI 标为 `experimental`。
 `released` 表示可从指定发布 tag 获取，`master_only` 表示当前实现尚未发布，`experimental` 不承诺稳定性。
 这些标签与维护归属、Minimal / Recommended / Full 能力等级分别表达不同信息。
 

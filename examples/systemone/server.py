@@ -48,6 +48,19 @@ _ROOT = Path(__file__).resolve().parents[2]
 _STEPS = ("seed", "recall", "generate", "review", "verify", "finish")
 _PHASES = ("new", "seeded", "recalled", "generated", "reviewed", "verified", "completed")
 _ARMS = ("without_memory", "with_memory")
+_WORKER_RUNTIME_ENV = (
+    "APPDATA",
+    "COMSPEC",
+    "HOME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "LOCALAPPDATA",
+    "SystemRoot",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "WINDIR",
+)
 
 
 class DemoError(Exception):
@@ -147,10 +160,12 @@ class Experiment:
         spawning = asyncio.create_task(
             asyncio.create_subprocess_exec(
                 sys.executable,
+                "-X",
+                "utf8",
                 "-m",
                 "examples.systemone.worker",
                 cwd=_ROOT,
-                env={"PATH": os.defpath, "LANG": "C.UTF-8"},
+                env=_worker_environment(),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -327,6 +342,21 @@ class Experiment:
         if run["id"] not in (resumed["prepared"]["content"] or ""):
             raise DemoError("The saved experiment outcome was not recalled in the new process.")  # noqa: TRY003
         run["saved"] = {**resumed, "memory_ref": run["recorded"]["memory_ref"], "record_pid": run["recorded"]["pid"]}
+
+
+def _worker_environment() -> dict[str, str]:
+    env = {
+        "PATH": os.defpath,
+        "LANG": "C.UTF-8",
+        "PYTHONPATH": str(_ROOT / "src"),
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+    }
+    for name in _WORKER_RUNTIME_ENV:
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    return env
 
 
 async def local_only(request: Request, call_next: Any) -> Any:

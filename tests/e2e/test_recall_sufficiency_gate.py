@@ -63,6 +63,7 @@ from powercontext.builtin.runtime.recall_sufficiency import (
     REASON_SUFFICIENT,
     RecallSufficiencyGate,
 )
+from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
 from powercontext.builtin.scope import ScopeDraft
 
 # A three-term query is required: the round-zero floor only differs from the round-one floor
@@ -370,7 +371,14 @@ def test_topic_embedding_timeout_is_paid_once_per_prepare(tmp_path, monkeypatch)
         ) as runtime:
             scope_id = await _create_scope(runtime, "topic-timeout")
             await _seed_topic_memories(runtime, scope_id, 1)
-            runtime._topic_memory_embedding_model = embedding
+            assert runtime._topic_memory_search is not None
+            runtime._topic_memory_searcher = TopicMemorySearcher(
+                search=runtime._topic_memory_search,
+                get=runtime._topic_memory_get,
+                browse=runtime._topic_memory_browse,
+                embedding_model=embedding,
+                observer=runtime._topic_memory_search_observer,
+            )
             request = _memory_request(assembly=_TOPIC_MEMORY_ONLY)
             for attempt in (1, 2):
                 build, effort = await _prepare_build(runtime, scope_id, request)

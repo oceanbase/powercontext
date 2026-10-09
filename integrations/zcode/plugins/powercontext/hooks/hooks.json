@@ -14,6 +14,36 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": [
+              "${ZCODE_PLUGIN_ROOT}/hooks/session_start.mjs"
+            ],
+            "timeoutMs": 5000,
+            "statusMessage": "Restoring PowerContext"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": [
+              "${ZCODE_PLUGIN_ROOT}/hooks/stop.mjs"
+            ],
+            "timeoutMs": 1500,
+            "statusMessage": "Processing PowerContext boundary"
+          }
+        ]
+      }
     ]
   }
 }

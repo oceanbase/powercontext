@@ -267,7 +267,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_receipt_migration_review' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_memory_source_windows,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_receipt_migration_review' \
      -f <export-directory>
    ```
 
@@ -432,3 +432,37 @@ Restart Pi after installing the package or changing `POWERCONTEXT_PI_*` variable
 warning when the Server is unavailable, redirects, times out, or returns an invalid PreparedContext; Pi continues
 without adding context. Restore the Server, then run `powercontext capabilities` and confirm that Context versions lists
 `powercontext.prepared-context.v1`.
+
+## MySQL driver compatibility and binary Source writes
+
+The built-in dependencies constrain PyMySQL to `>=1.2,<1.2.1` while aiomysql 0.3.2 is in use.
+This applies to both OceanBase and embedded seekdb. PyMySQL 1.2.1 and 1.2.2 break aiomysql imports;
+1.2.3 imports successfully but fails when aiomysql encodes bytes, including stored Source payloads.
+Reinstall or synchronize the complete PowerContext dependency set instead of upgrading PyMySQL independently.
+The `database: ready` probe runs `SELECT 1`; it does not verify binary writes or write permissions.
+
+This is a temporary compatibility restriction, not a general recommendation to downgrade PyMySQL.
+[PyMySQL 1.2.1](https://github.com/PyMySQL/PyMySQL/blob/main/CHANGELOG.md) fixes SQL injection involving
+bytes and surrogate-escaped strings with big5, gbk, sjis, cp932, and gb18030. PowerContext requires
+`charset=utf8mb4` for OceanBase and constructs seekdb connections with `utf8mb4`, so these supported
+profiles do not select the affected legacy character sets. This assessment does not cover custom
+connections, session charset changes, or other applications sharing the environment, and is not a
+claim that the older driver is free of other vulnerabilities. Use an isolated environment and retain
+the required charset. Remove this restriction only after the async driver supports the updated
+binary encoding and Source write/read/replay tests pass against both backends.
+
+## Memory extraction repeatedly times out
+
+A generation timeout leaves the Memory Source cursor unchanged. The Memory processor halves the
+failed journal window for the next attempt, down to one position. The reduced limit is stored per
+Scope and survives Worker replacement and Server restart; it never exceeds `SOURCE_WINDOW_LIMIT`
+or an explicit flush limit. Each invocation makes one extraction attempt, so Supervisor backoff and
+Worker deadlines continue to bound retries. The reduction is retained while consuming the backlog
+visible at the timeout and cleared atomically when that backlog is consumed.
+
+The processor never skips failed Sources or acknowledges a failed invocation. A single Source can
+still time out, and an unavailable provider, embedding failure, or hard Worker termination does not
+trigger this generation-timeout recovery. Other Scopes continue independently. Inspect the
+`memory.window_reduced` log event and the provider error; if one Source still fails, adjust the model
+or generation timeout and retry. Keep the Worker timeout above the model request timeout plus
+startup and commit overhead so the processor can record a reduction before the Worker is stopped.

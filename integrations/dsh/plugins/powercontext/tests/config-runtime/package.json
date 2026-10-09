@@ -1,0 +1,8 @@
+{
+  "name": "powercontext-dsh-config-runtime-tests",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@deepseek-ai/dsh-app-boot": "0.2.0-rc.2"
+  }
+}

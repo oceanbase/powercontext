@@ -137,11 +137,11 @@ def _capture_key(value: Any) -> str:
     return UNSERIALIZABLE
 
 
-def redact_known_secrets(value: str) -> str:
+def redact_known_secrets(value: str, *, codex_home: Path | None = None) -> str:
     """Redact credential-like environment values and Codex auth values."""
 
     secrets = {secret for name, secret in os.environ.items() if secret and len(secret) >= 8 and is_sensitive_key(name)}
-    secrets.update(_codex_auth_secrets())
+    secrets.update(_codex_auth_secrets(codex_home=codex_home))
     for secret in secrets:
         value = value.replace(secret, REDACTED)
     return value
@@ -154,8 +154,9 @@ def is_sensitive_key(key: str) -> bool:
     return any(part in folded for part in SENSITIVE_KEY_COMPACT_PARTS)
 
 
-def _codex_auth_secrets() -> frozenset[str]:
-    auth_path = Path(os.getenv("CODEX_HOME", str(Path.home() / ".codex"))).expanduser() / "auth.json"
+def _codex_auth_secrets(*, codex_home: Path | None = None) -> frozenset[str]:
+    root = codex_home if codex_home is not None else Path(os.getenv("CODEX_HOME", str(Path.home() / ".codex")))
+    auth_path = root.expanduser() / "auth.json"
     try:
         stat = auth_path.stat()
     except OSError:

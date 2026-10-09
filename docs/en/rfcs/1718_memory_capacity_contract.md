@@ -238,7 +238,7 @@ the byte ceiling even at the default identifier widths.
 
 The 5,000 / 10,000 / 4 MiB defaults remain configurable growth limits. Calibrate deployment budgets with isolated,
 representative measurements on the selected backend, including retained-history cost. Benchmark methodology and
-measurement summaries belong in `benchmark/memory_capacity/README.md`; raw run results accompany acceptance evidence.
+measurement summaries belong in `evaluation/performance/memory_capacity/README.md`; raw run results accompany acceptance evidence.
 
 ## Configuration
 
@@ -501,8 +501,8 @@ projection work, so any change in their statement counts means the implementatio
 
 ### Scale benchmark
 
-A new `benchmark/memory_capacity/` module, alongside the existing `locomo` benchmarks and outside `tests/` for the
-reasons `benchmark/README.md` gives, records at entry counts 200, 1,000, and 5,000, and across a compaction cycle:
+The `evaluation/performance/memory_capacity/` module sits outside `tests/` for the reasons
+`evaluation/README.md` gives. It records at entry counts 200, 1,000, and 5,000, and across a compaction cycle:
 
 entry count, manifest bytes, database bytes, mean append latency, mean final-window append latency, projection row
 writes per append, and search recall behavior before and after compaction.
@@ -524,7 +524,7 @@ Each step is independently reviewable and leaves the tree green.
    addition, `make api-generate`, `make contract-test`.
 5. **Read bounding.** The `revisions()` cap and its capability error.
 6. **Public read endpoint.** `POST /v1/memory/capacity`, OpenAPI, contract test.
-7. **Benchmark.** `benchmark/memory_capacity/` and the recorded SQLite and OceanBase results.
+7. **Benchmark.** `evaluation/performance/memory_capacity/` and the recorded SQLite and OceanBase results.
 
 Steps 1 through 3 alone close the "no observable ceiling" half of #1718 and are worth landing before compaction.
 

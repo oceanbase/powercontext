@@ -623,3 +623,40 @@ def test_candidate_attestation_does_not_grant_or_overwrite_artifact_ownership() 
             assert await service.candidate_owner("scope-a", "same-id") == attestation
 
     asyncio.run(scenario())
+
+
+def test_legacy_topic_memory_owners_are_removed_without_touching_other_relations() -> None:
+    async def scenario() -> None:
+        async with open_builtin_access_control(SQLiteConfig(), bootstrap_administrators=(ADMIN,)) as service:
+            # The pre-#1794 Worker wrote an Artifact owner for the Scope-owned
+            # Topic Memory family; the owner-derived resource filter reads it back.
+            legacy = ResourceRef.artifact("scope-a", family="topic-memory", artifact_id="legacy-topic")
+            skill = ResourceRef.artifact("scope-a", family="skill", artifact_id="skill-a")
+            await service.establish_artifact_owner(legacy, ALICE, idempotency_key="legacy-topic", context=AUDIT)
+            await service.establish_artifact_owner(skill, ALICE, idempotency_key="skill-owner", context=AUDIT)
+            await service.attest_candidate_owner(
+                scope_id="scope-a",
+                candidate_id="candidate-a",
+                family="experience",
+                proposed_owner=ALICE,
+                target=None,
+                idempotency_key="candidate-owner-a",
+            )
+
+            relationships = service.relationships
+            assert isinstance(relationships, RelationalAccessRepository)
+            before = await relationships.policy_revision()
+            assert await relationships.delete_legacy_topic_memory_owners() == 1
+            # Ownership feeds the decision snapshot, so the deletion must move
+            # the revision that labels it.
+            assert await relationships.policy_revision() != before
+            assert await service.artifact_owner(legacy) is None
+            assert await service.artifact_owner(skill) is not None
+            assert await service.candidate_owner("scope-a", "candidate-a") is not None
+
+            clean = await relationships.policy_revision()
+            # A repeated run is a no-op: no deletion, and no revision churn.
+            assert await relationships.delete_legacy_topic_memory_owners() == 0
+            assert await relationships.policy_revision() == clean
+
+    asyncio.run(scenario())

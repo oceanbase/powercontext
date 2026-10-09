@@ -19,6 +19,10 @@ import { describe, expect, it } from 'vitest'
 import { profileNodeModulesDir } from '../src/peers.ts'
 
 describe('profileNodeModulesDir', () => {
+  it.each(['/tmp/dsh-home ', ' /tmp/dsh-home'])('preserves the nonblank home %j', (home) => {
+    expect(profileNodeModulesDir({ DSH_HOME: home })).toBe(join(home, 'profiles', 'web', 'node_modules'))
+  })
+
   it('resolves peer modules under the web profile by default', () => {
     expect(profileNodeModulesDir({ DSH_HOME: '/tmp/dsh-home' } as NodeJS.ProcessEnv)).toBe(
       join('/tmp/dsh-home', 'profiles', 'web', 'node_modules'),

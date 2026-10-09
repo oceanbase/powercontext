@@ -63,7 +63,7 @@ All 3 adapters are `community`. Install them in the application environment; do 
 ## Capabilities and availability
 
 The [capability matrix](capabilities.md) is generated from `integrations/capabilities.toml`.
-ZCode and Pydantic AI are `experimental`; the other 8 hosts and Bub are `master_only`.
+The 9 Agent Hosts and Bub are `master_only`; Pydantic AI is `experimental`.
 `released` means available from a specified release tag, `master_only` means implemented but unreleased, and
 `experimental` carries no stability guarantee. These labels are separate from stewardship and the
 Minimal / Recommended / Full capability profiles.

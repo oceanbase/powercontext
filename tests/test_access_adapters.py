@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import httpx
@@ -29,9 +31,11 @@ from powercontext.server.authz import (
     AccessBinding,
     AccessBindingState,
     AccessControlService,
+    AccessDeniedError,
     AccessProviderCapabilities,
     AccessRequest,
     AccessRole,
+    AccessSubjectRef,
     AccessUnavailableError,
     AuthZenAuthorizationProvider,
     BuiltinAuthorizationProvider,
@@ -45,6 +49,7 @@ from powercontext.server.authz import (
 )
 from powercontext.server.authz.composition import open_casbin_access_control
 from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.server.authz.service import DecisionState
 
 ADMIN = PrincipalRef(type="service", id="admin")
 ALICE = PrincipalRef(type="user", id="alice", description="Alice")
@@ -110,6 +115,66 @@ def test_casbin_composition_has_writable_relationships_and_owner_enforcement() -
             )
             assert (await service.require(BOB, AccessAction.ARTIFACT_READ, experience, context=AUDIT)).allowed
             assert not (await service.check(BOB, AccessAction.ARTIFACT_WRITE, experience, context=AUDIT)).allowed
+
+    asyncio.run(scenario())
+
+
+def test_casbin_transaction_binding_preserves_custom_repository_policy() -> None:
+    class ReadOnlyScopeRepository(RelationalAccessRepository):
+        async def decision_snapshot(
+            self,
+            subjects: Sequence[AccessSubjectRef],
+            *,
+            now: datetime,
+            artifact_resources: Sequence[ResourceRef] = (),
+            owned_by: PrincipalRef | None = None,
+        ) -> DecisionState:
+            state = await super().decision_snapshot(
+                subjects,
+                now=now,
+                artifact_resources=artifact_resources,
+                owned_by=owned_by,
+            )
+            return replace(
+                state,
+                bindings=tuple(
+                    binding for binding in state.bindings if binding.role is not AccessRole.SCOPE_CONTRIBUTOR
+                ),
+            )
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
+            repository = RelationalAccessRepository(profile.database)
+            await _seed_admin(repository)
+            scope = ResourceRef.scope("scope-a")
+            setup = AccessControlService(
+                BuiltinAuthorizationProvider(repository), relationships=repository, audit=repository
+            )
+            for role in (AccessRole.SCOPE_VIEWER, AccessRole.SCOPE_CONTRIBUTOR):
+                await setup.create_binding(
+                    ADMIN,
+                    CreateBinding(subject=BOB, resource=scope, role=role, idempotency_key=role.value),
+                    context=AUDIT,
+                )
+
+            service = AccessControlService(
+                CasbinAuthorizationProvider(ReadOnlyScopeRepository(profile.database)),
+                relationships=repository,
+                audit=repository,
+            )
+            assert (await service.require(BOB, AccessAction.SCOPE_READ, scope, context=AUDIT)).allowed
+            with pytest.raises(AccessDeniedError):
+                await service.require(BOB, AccessAction.SCOPE_CONTRIBUTE, scope, context=AUDIT)
+            assert any(
+                binding.role is AccessRole.SCOPE_CONTRIBUTOR
+                for binding in await repository.active_bindings((BOB,), now=datetime.now(UTC))
+            )
+
+            async with profile.database.transaction() as connection:
+                bound = service.with_connection(connection)
+                assert (await bound.require(BOB, AccessAction.SCOPE_READ, scope, context=AUDIT)).allowed
+                with pytest.raises(AccessDeniedError):
+                    await bound.require(BOB, AccessAction.SCOPE_CONTRIBUTE, scope, context=AUDIT)
 
     asyncio.run(scenario())
 

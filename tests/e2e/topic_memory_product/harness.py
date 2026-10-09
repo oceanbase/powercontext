@@ -1092,7 +1092,7 @@ def run_e2(  # noqa: C901
     fallback_server = None
     unavailable_embedding_server = None
     fallback_capture = _EmbeddingFallbackCapture()
-    search_logger = logging.getLogger("powercontext.builtin.runtime.application")
+    search_logger = logging.getLogger("powercontext.builtin.runtime")
     search_logger.addHandler(fallback_capture)
     temporary_openai_key = False
     result: dict[str, object] | None = None

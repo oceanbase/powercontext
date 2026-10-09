@@ -30,6 +30,11 @@ from pydantic import BaseModel, JsonValue, ValidationError
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
+from powercontext.artifacts.search import (
+    ArtifactSearchExecutionContext,
+    ArtifactSearchOutcome,
+    ArtifactSearchUnsupported,
+)
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_WINDOW_LIMIT,
     Experience,
@@ -52,6 +57,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffStatement,
     PreparedHandoff,
     PrepareHandoff,
+    PrepareHandoffHint,
 )
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
@@ -131,10 +137,6 @@ from powercontext.builtin.dream.service import CandidateAttester, DreamAuthorize
 from powercontext.builtin.evidence.resolver import AuthorizationContext, ScopedEvidenceAuthorizer
 from powercontext.builtin.inference import (
     EmbeddingModel,
-    InferenceTimeoutError,
-    InferenceUnavailableError,
-    InvalidInferenceOutputError,
-    embed_query,
 )
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
@@ -167,6 +169,7 @@ from powercontext.builtin.runtime._scope_cache import (
     ScopeCacheObserver,
     ScopeEvictor,
 )
+from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
 from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.models import (
@@ -249,7 +252,9 @@ from powercontext.builtin.runtime.recall_sufficiency import (
     build_recall_candidates,
     recall_effort,
 )
+from powercontext.builtin.runtime.skill_search import search_skill_library
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics, overview_selection
+from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
 from powercontext.builtin.scope import ScopeApplication, ScopeDescriptor, ScopeSelection
 from powercontext.builtin.scope.subject_sources import SubjectSourceService
 from powercontext.builtin.sources import (
@@ -317,6 +322,7 @@ class TopicMemorySearch(Protocol):
         embedding_profile: EmbeddingProfile | None = None,
         admission: AdmissionFloor | None = None,
         query_embedding: MemoryQueryEmbedding | None = None,
+        execution_context: ArtifactSearchExecutionContext | None = None,
     ) -> Awaitable[TopicMemorySearchResult]: ...
 
 
@@ -1735,6 +1741,38 @@ class ExperienceApplication:
         return ScopedExperienceApplication(self._runtime, scope_id)
 
 
+class ScopedArtifactApplication:
+    """Search a registered Artifact Family within one existing Scope."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def search(
+        self,
+        family: str,
+        payload: Mapping[str, Any],
+        /,
+        *,
+        execution_context: ArtifactSearchExecutionContext | None = None,
+    ) -> ArtifactSearchOutcome:
+        service = self._runtime._artifact_search
+        if service is None:
+            raise ArtifactSearchUnsupported(family, field="family")
+        async with self._runtime._scoped_operation(self.scope_id, embedding_purpose=service.embedding_purpose(family)):
+            return await service.search(self.scope_id, family, payload, execution_context=execution_context)
+
+
+class ArtifactApplication:
+    """Select the scoped public Artifact search application."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedArtifactApplication:
+        return ScopedArtifactApplication(self._runtime, scope_id)
+
+
 class ScopedSkillApplication:
     """Propose and exactly read managed Skill Artifacts in one scope."""
 
@@ -1779,6 +1817,13 @@ class ScopedSkillApplication:
             return ()
         async with self._runtime._scoped_operation(self.scope_id):
             return await recall(self.scope_id, query, limit)
+
+    async def search_library(
+        self, query: str, limit: int, /, *, include_deprecated: bool = False
+    ) -> tuple[tuple[Skill, ArtifactGovernance], ...]:
+        """Preserve the Skill Library's active search and bounded deprecated append rule."""
+
+        return await search_skill_library(self, query, limit, include_deprecated=include_deprecated)
 
     async def list(
         self,
@@ -2074,6 +2119,17 @@ class ScopedHandoffApplication:
     async def finalize(self, draft: HandoffDraft, /) -> PreparedHandoff:
         async with self._runtime._context(self.scope_id) as context:
             return await context.artifacts.handoff.finalize(draft)
+
+    async def hint(self, request: PrepareHandoffHint, /) -> PreparedContext:
+        """Prepare optional historical orientation for direct host delivery."""
+
+        async with self._runtime._context(self.scope_id) as context:
+            content = await context.artifacts.handoff.hint(request)
+        return PreparedContext(
+            status="empty" if content is None else "ready",
+            content=content,
+            content_bytes=0 if content is None else len(content.encode("utf-8")),
+        )
 
     async def commit(self, prepared: PreparedHandoff, /) -> Handoff:
         async with self._runtime._context(self.scope_id) as context, self._runtime._locked(self.scope_id):
@@ -2630,9 +2686,10 @@ class ScopedTopicMemoryApplication:
         query_embedding: MemoryQueryEmbedding | None = None,
         embedding_timeout_seconds: float | None = None,
         allow_embedding: bool = True,
+        execution_context: ArtifactSearchExecutionContext | None = None,
     ) -> TopicMemorySearchResult:
-        search = self._runtime._topic_memory_search
-        if search is None:
+        searcher = self._runtime._topic_memory_searcher
+        if searcher is None:
             raise _RuntimeStateError("topic-memory-search")
         query = request.query
         if query != query.strip() or not query or len(query) > MAX_TOPIC_MEMORY_QUERY_LENGTH:
@@ -2642,122 +2699,20 @@ class ScopedTopicMemoryApplication:
         if len(set(analyze_text(query).split())) > MAX_TOPIC_MEMORY_QUERY_TERMS:
             raise InvalidRuntimeRequestError("topic-memory-query-terms")
 
-        used_fallback = False
         async with self._runtime._scoped_operation(
             self.scope_id,
             embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL,
         ):
-            embedding = self._runtime._topic_memory_embedding_model if allow_embedding else None
-            browse = self._runtime._topic_memory_browse
-            if embedding is not None and browse is not None and not await browse(self.scope_id, limit=1, after=None):
-                embedding = None
-            if embedding is None:
-                result = await search(
-                    self.scope_id,
-                    query,
-                    limit=request.limit,
-                    mode="fts",
-                    **_admission_keyword(admission),
-                )
-                result = result.model_copy(update={"embedding_calls": 0})
-            else:
-                result, used_fallback = await self._search_with_embedding(
-                    request,
-                    embedding,
-                    search,
-                    admission,
-                    query_embedding,
-                    embedding_timeout_seconds,
-                )
-        observer = self._runtime._topic_memory_search_observer
-        if observer is not None:
-            try:
-                observer(result.mode, used_fallback)
-            except Exception as error:
-                log_safely(
-                    logger,
-                    logging.ERROR,
-                    "Topic Memory search observation failed",
-                    exc_info=error,
-                    extra={
-                        "event": "topic_memory.search.observation_failed",
-                        "outcome": "failure",
-                        "unit": "topic-memory",
-                    },
-                )
-        return result
-
-    async def _search_with_embedding(
-        self,
-        request: SearchTopicMemoryRequest,
-        embedding: EmbeddingModel,
-        search: TopicMemorySearch,
-        admission: AdmissionFloor | None,
-        query_embedding: MemoryQueryEmbedding | None,
-        embedding_timeout_seconds: float | None,
-    ) -> tuple[TopicMemorySearchResult, bool]:
-        if query_embedding is not None and query_embedding.embedding_profile == embedding.profile:
-            result = await search(
+            return await searcher.search_legacy(
                 self.scope_id,
                 request.query,
                 limit=request.limit,
-                mode="hybrid",
-                query_vector=query_embedding.query_vector,
-                embedding_profile=query_embedding.embedding_profile,
-                **_admission_keyword(admission),
+                admission=admission,
+                query_embedding=query_embedding,
+                embedding_timeout_seconds=embedding_timeout_seconds,
+                allow_embedding=allow_embedding,
+                execution_context=execution_context,
             )
-            return result.model_copy(update={"query_embedding": query_embedding, "embedding_calls": 0}), False
-        try:
-            async with asyncio.timeout(embedding_timeout_seconds):
-                embedded = await embed_query(embedding, (request.query,))
-            if len(embedded.vectors) != 1:
-                raise InvalidInferenceOutputError("embed", "provider returned the wrong vector count")
-        except (InferenceUnavailableError, InferenceTimeoutError, TimeoutError) as error:
-            used_fallback = True
-            log_safely(
-                logger,
-                logging.WARNING,
-                "Topic Memory search fell back to FTS",
-                extra={
-                    "event": "topic_memory.search.embedding_fallback",
-                    "outcome": "fallback",
-                    "mode": "fts",
-                    "error_code": (
-                        "inference_timeout"
-                        if isinstance(error, (InferenceTimeoutError, TimeoutError))
-                        else "inference_unavailable"
-                    ),
-                    "unit": "topic-memory",
-                },
-            )
-        else:
-            result = await search(
-                self.scope_id,
-                request.query,
-                limit=request.limit,
-                mode="hybrid",
-                query_vector=embedded.vectors[0],
-                embedding_profile=embedding.profile,
-                **_admission_keyword(admission),
-            )
-            return result.model_copy(
-                update={
-                    "query_embedding": MemoryQueryEmbedding(
-                        query_vector=tuple(embedded.vectors[0]),
-                        embedding_profile=embedding.profile,
-                    ),
-                    "embedding_calls": 1,
-                }
-            ), False
-
-        result = await search(
-            self.scope_id,
-            request.query,
-            limit=request.limit,
-            mode="fts",
-            **_admission_keyword(admission),
-        )
-        return result.model_copy(update={"embedding_calls": 1}), used_fallback
 
     async def get(self, request: GetTopicMemoryRequest, /) -> PublishedTopicMemory:
         if self._runtime._topic_memory_get is None:
@@ -3010,6 +2965,8 @@ class BuiltinRuntime:
         topic_memory_embedding_model: EmbeddingModel | None = None,
         topic_memory_processing_available: bool = False,
         topic_memory_search_observer: TopicMemorySearchObserver | None = None,
+        topic_memory_searcher: TopicMemorySearcher | None = None,
+        artifact_search: ArtifactSearchService | None = None,
         external_skill_registry: ExternalSkillRegistryFactory | None = None,
         external_skill_importer: ExternalSkillImporter | None = None,
         skill_publication_service: SkillPublicationServiceFactory | None = None,
@@ -3067,6 +3024,16 @@ class BuiltinRuntime:
         self._topic_memory_embedding_model = topic_memory_embedding_model
         self._topic_memory_processing_available = topic_memory_processing_available
         self._topic_memory_search_observer = topic_memory_search_observer
+        self._topic_memory_searcher = topic_memory_searcher
+        if self._topic_memory_searcher is None and topic_memory_search is not None:
+            self._topic_memory_searcher = TopicMemorySearcher(
+                search=topic_memory_search,
+                get=topic_memory_get,
+                browse=topic_memory_browse,
+                embedding_model=topic_memory_embedding_model,
+                observer=topic_memory_search_observer,
+            )
+        self._artifact_search = artifact_search
         self._external_skill_registry = external_skill_registry
         self._external_skill_importer = external_skill_importer
         self._skill_publication_service = skill_publication_service
@@ -3108,6 +3075,7 @@ class BuiltinRuntime:
         self.code = CodeApplication(self, code_service or CodeService(CodeConfig()))
         self.context = ContextApplication(self)
         self.experience = ExperienceApplication(self)
+        self.artifacts = ArtifactApplication(self)
         self.dream = DreamApplication(self)
         self.external_skills = ExternalSkillApplication(self)
         self.handoff = HandoffApplication(self)

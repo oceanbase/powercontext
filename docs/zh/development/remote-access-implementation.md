@@ -123,6 +123,16 @@ singleton，因此并发 initializer 会收敛到同一 ID，进程重启、pack
 内存分类使用 dialect 的实际连接参数和解码后的 SQLite URI，包括支持的 true 拼写（`true`、`1`、`yes`、`on`）以及
 百分号编码的 `:memory:` path。连接池选择和离线维护检查统一使用 `SQLiteConfig.is_in_memory` 的分类结果。
 
+[RFC #1771](../rfcs/1771-unified-database-migrations.md) 对应的统一迁移实现目前只覆盖已注册的四张 Artifact 表。
+它尚未管理 `pc_server_identity`、接管普通 Server 启动检查或证明完整 Server readiness；维护命令会拒绝包含未管理表的
+完整业务数据库。不能使用这个局部 bundle 迁移 Server 数据库。
+
+统一迁移接管完整 Server schema 时，identity table 创建必须从启动 DDL 移到不可变的受管 revision，并在 Runtime
+组装前验证 schema。若 discovery 已发布，支持的历史 baseline 必须包含现有 identity table，并保留 singleton 值；
+若在框架启用时仍未合并，discovery 必须随 model 一起提交该 revision。deployment identity 与 `pc_schema_revision`
+保持独立，schema 纳管或升级不能轮换 `server_id`。clone 轮换仍是显式离线操作，identity 不另设 schema version 或
+migration readiness marker。
+
 把备份恢复为原 deployment 时应保留原 ID。若用备份创建独立 clone，请停止所有使用 clone 数据库的 Server
 进程，然后只在 clone 上轮换：
 

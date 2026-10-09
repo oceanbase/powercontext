@@ -31,6 +31,7 @@ from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLiteTop
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tag_schema import ensure_topic_memory_tag_schema
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 
@@ -58,6 +59,7 @@ def _app(
     embedding_timeout=30.0,
     busy_timeout_ms=5_000,
     model_usage_write_timeout_seconds=1.0,
+    model_usage_flush_timeout_seconds=0.5,
 ):
     return create_server_app(
         settings=ServerSettings(
@@ -65,6 +67,7 @@ def _app(
             runtime=RuntimeConfig(
                 artifact_processing_families=(),
                 model_usage_write_timeout_seconds=model_usage_write_timeout_seconds,
+                model_usage_flush_timeout_seconds=model_usage_flush_timeout_seconds,
             ),
             inference=InferenceConfig(embedding_timeout_seconds=embedding_timeout),
             auth=BearerAuthConfig(enabled=False),
@@ -107,18 +110,22 @@ def _topic_embedding_requests(database, scope=None):
         return connection.execute(query, parameters).fetchone()[0]
 
 
-async def _await_usage_record(database, scope):
-    """Wait until the scope's usage row is visible.
+async def _await_usage_record(database, scope, write_budget, *, minimum_requests=1):
+    """Wait until at least the requested number of usage requests is visible.
 
     A visible row means the recorder's transaction committed, so it no longer
     holds SQLite's write lock. A later write that upgrades from a read does not
     consult the busy handler and fails immediately instead of waiting, so a
     health check issued while that write is still in flight measures contention
     rather than the runtime's health.
+
+    The window must exceed the recorder's own write budget: a record that
+    consumes its whole budget commits late but still commits, and a window
+    smaller than the budget would report a healthy runtime as wedged.
     """
 
-    async with asyncio.timeout(5):
-        while _topic_embedding_requests(database, scope) == 0:  # noqa: ASYNC110 - bounded observation of committed database state
+    async with asyncio.timeout(write_budget + 5):
+        while _topic_embedding_requests(database, scope) < minimum_requests:  # noqa: ASYNC110 - bounded observation of committed database state
             await asyncio.sleep(0.02)
 
 
@@ -283,7 +290,8 @@ def test_valid_emoji_and_punctuation_content_has_empty_lexical_projection(tmp_pa
 
 def test_write_embeddings_are_attributed_to_the_operation_scope(tmp_path):
     embedding = UsageEmbeddings()
-    with TestClient(_app(tmp_path, embedding)) as client:
+    # Check attribution, not how quickly a loaded runner can persist telemetry.
+    with TestClient(_app(tmp_path, embedding, model_usage_write_timeout_seconds=30.0)) as client:
         source, target = _scope(client, "usage-source"), _scope(client, "usage-target")
         created = _create(client, source, "create")
         path = created.headers["Location"]
@@ -465,7 +473,7 @@ def test_stalled_usage_write_does_not_delay_or_fail_the_topic_write(tmp_path, mo
                 assert await asyncio.wait_for(entered.wait(), 5)
                 release.set()
             assert len((await client.get(path + "/topic-memory")).json()["items"]) == 1
-            await _await_usage_record(tmp_path / "topics.db", scope)
+            await _await_usage_record(tmp_path / "topics.db", scope, 30.0)
             assert (await client.post(path, json=payload)).status_code == 201
 
     asyncio.run(scenario())
@@ -555,27 +563,45 @@ def test_usage_write_failure_logs_no_traceback_and_keeps_the_round(tmp_path, mon
     assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
 
 
-def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_healthy(tmp_path, monkeypatch):
-    """Cancelling must propagate and must not wedge the runtime or its recorder.
-
-    Usage no longer runs inside the request, so a cancelled request neither waits
-    for it nor rolls it back; what must hold is that cancellation propagates and
-    the runtime keeps accepting work afterwards.
-    """
+@pytest.mark.parametrize("record_fails", [False, True], ids=["normal", "storage-failure"])
+def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_healthy(
+    tmp_path, monkeypatch, record_fails
+):
+    """Cancellation may lose a usage record, but later work must still be recorded."""
 
     async def scenario():
         release = asyncio.Event()
         entered = asyncio.Event()
-        original = StatisticsRepository.record
+        failed = asyncio.Event()
+        original_record = StatisticsRepository.record
+        flushing = asyncio.Event()
+        original_flush = RelationalScopedStatistics.flush_model_usage
+        request_statistics = None
+        record_write_budget = 30.0
+
+        async def observed_flush(statistics):
+            nonlocal request_statistics
+            request_statistics = statistics
+            flushing.set()
+            await original_flush(statistics)
 
         async def stalled_record(repository, connection, *args):
             entered.set()
             await release.wait()
-            return await original(repository, connection, *args)
+            if record_fails:
+                failed.set()
+                raise ValueError("injected closed usage connection")  # noqa: TRY003
+            return await original_record(repository, connection, *args)
 
-        # As above: the stalled write must be reached rather than dropped for
-        # spending its budget on a slow machine.
-        app = _app(tmp_path, UsageEmbeddings(), model_usage_write_timeout_seconds=30.0)
+        # Cancelling an await does not end SQLite's native busy-handler wait.
+        # Keep that wait below the cancellation assertion's five-second bound.
+        app = _app(
+            tmp_path,
+            UsageEmbeddings(),
+            busy_timeout_ms=100,
+            model_usage_write_timeout_seconds=record_write_budget,
+            model_usage_flush_timeout_seconds=record_write_budget,
+        )
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
@@ -583,19 +609,55 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
             created_scope = await client.post(
                 "/v1/scopes", json={"title": "Cancelled", "summary": "Cancelled", "idempotency_key": "cancelled"}
             )
+            assert created_scope.status_code == 201, created_scope.text
             scope = created_scope.json()["scope_id"]
             path = f"/v1/scopes/{scope}/artifacts"
             payload = {"family": "topic-memory", "content": _content("cancelled")}
             with monkeypatch.context() as injected:
                 injected.setattr(StatisticsRepository, "record", stalled_record)
+                injected.setattr(RelationalScopedStatistics, "flush_model_usage", observed_flush)
                 pending = asyncio.create_task(client.post(path, json=payload))
-                await asyncio.wait_for(entered.wait(), 5)
-                pending.cancel()
-                with pytest.raises(asyncio.CancelledError):
-                    await pending
-                release.set()
-            await _await_usage_record(tmp_path / "topics.db", scope)
-            assert (await client.post(path, json=payload)).status_code == 201
+                try:
+                    # The recorder may start before the business transaction commits.
+                    # Cancel at its completion flush, not inside an arbitrary SQL call.
+                    await asyncio.wait_for(asyncio.gather(entered.wait(), flushing.wait()), 5)
+                    assert not pending.done()
+                    pending.cancel()
+                    done, _ = await asyncio.wait({pending}, timeout=5)
+                    assert pending in done, "cancelled request did not finish"
+                    with pytest.raises(asyncio.CancelledError):
+                        await pending
+                finally:
+                    release.set()
+                    if not pending.done():
+                        pending.cancel()
+                    done, _ = await asyncio.wait({pending}, timeout=5)
+                    assert pending in done, "request cleanup did not finish"
+                    await asyncio.gather(pending, return_exceptions=True)
+                # Drain the accepted prefix through the public completion boundary,
+                # including transaction cleanup when the usage row is dropped.
+                assert request_statistics is not None
+                await asyncio.wait_for(original_flush(request_statistics), record_write_budget + 5)
+            assert failed.is_set() == record_fails
+            if not record_fails:
+                await _await_usage_record(tmp_path / "topics.db", scope, record_write_budget)
+                assert _topic_embedding_requests(tmp_path / "topics.db", scope) == 1
+            listed = await client.get(path + "/topic-memory")
+            assert listed.status_code == 200, listed.text
+            assert len(listed.json()["items"]) == 1
+            artifact_id = listed.json()["items"][0]["artifact_id"]
+            saved = await client.get(f"{path}/topic-memory/{artifact_id}")
+            assert saved.status_code == 200, saved.text
+            assert saved.json()["content"] == payload["content"]
+            previous_requests = _topic_embedding_requests(tmp_path / "topics.db", scope)
+            recovered = await client.post(path, json={"family": "topic-memory", "content": _content("recovered")})
+            assert recovered.status_code == 201, recovered.text
+            saved = await client.get(recovered.headers["Location"])
+            assert saved.status_code == 200, saved.text
+            assert saved.json()["content"] == _content("recovered")
+            await _await_usage_record(
+                tmp_path / "topics.db", scope, record_write_budget, minimum_requests=previous_requests + 1
+            )
 
     asyncio.run(scenario())
 

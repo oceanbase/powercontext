@@ -1,17 +1,19 @@
 ---
 title: Benchmarks
-description: Results showing how PowerContext retrieves long-term context and whether it helps Codex resolve repository issues.
+description: Results for long-term factual recall, implicit cognitive constraints, and context-assisted repository tasks.
 benchmark:
   hero:
     label: Product benchmarks
     title:
       - Measure the effect
       - of context.
-    lead: LoCoMo measures whether PowerContext retrieves the right evidence from long conversations. SWE-bench Pro measures whether project context helps Codex resolve more repository issues.
+    lead: LoCoMo measures factual recall across long conversations. LoCoMo Plus tests whether implicit constraints are remembered and applied. SWE-bench Pro measures whether project context helps Codex resolve more repository issues.
     actions_label: Jump to a benchmark
     actions:
       - label: LoCoMo results
         target: locomo
+      - label: LoCoMo Plus results
+        target: locomo-plus
       - label: SWE-bench Pro results
         target: swe-bench
       - label: Methods and sources
@@ -33,14 +35,19 @@ benchmark:
         accessible: 86.73 percent task resolution
         metric: tasks resolved with PowerContext on
   orientation:
-    title: Two benchmarks, two questions.
-    lead: "Memory quality matters twice: first when an agent must recover what happened, then when it must use context to finish real work."
+    title: Three benchmarks, three questions.
+    lead: Factual recall, implicit constraints, and real tasks each test a different use of context.
     tests:
       - name: LoCoMo
         question: Can the system remember a long-running conversation?
         answer: It measures direct recall, temporal reasoning, multi-step reasoning, and context grounded open-domain answers.
         target: locomo
         link: Explore the memory test
+      - name: LoCoMo Plus
+        question: Can the system apply earlier implicit constraints to a new question?
+        answer: It tests retention and application of causal, state, goal, and value constraints across long conversations.
+        target: locomo-plus
+        link: Explore the cognitive memory test
       - name: SWE-bench Pro
         question: Can an agent turn context into a working patch?
         answer: It gives Codex a real repository and issue, then grades the resulting patch with executable tests.
@@ -133,6 +140,34 @@ benchmark:
             value: 26000
     scope_title: What this result covers
     scope: The 90.78% result is 1,398 correct answers from 1,540 questions in categories 1-4. It does not claim results for LoCoMo event summarization or multimodal dialogue generation.
+  locomo_plus:
+    title: "LoCoMo Plus: apply implicit memory constraints"
+    lead: Even when a new question does not resemble an earlier cue, the system must retain and apply the user's state, goals, values, and causal background. These results compare native PowerContext with Jev candidate filtering across three models.
+    results_title: Project-owner-supplied scores, with and without Jev
+    provenance_note: These six scores were supplied by the project owner. The corresponding run manifests, summaries, protocol and model/Judge configurations, run hashes and raw outputs are not publicly available for verification. Reproducibility documentation describes the harness, not verification of these scores.
+    table_label: Native PowerContext and PowerContext with Jev scores across three models
+    best_label: Highest reported score
+    gain_label: Largest score difference
+    points_label: percentage points
+    columns:
+      model: Extraction & answer model
+      baseline: Native PowerContext
+      jev: PowerContext + Jev
+      gain: Difference
+    rows:
+      - model: GPT-4o-mini
+        baseline: 40.855
+        jev: 49.78
+      - model: Qwen3.7-plus
+        baseline: 60.37
+        jev: 68.947
+      - model: GPT-4o
+        baseline: 65.082
+        jev: 69.28
+    model_note: Each model is used for both Memory extraction and answer generation. Jev filters candidates after retrieval; it does not replace either model role.
+    embedding_label: Embedding model
+    embedding_model: qwen3.7-text-embedding
+    embedding_dimensions: 1024 dimensions
   swe:
     title: "SWE-bench Pro: turn context into working patches"
     lead: To measure the effect of PowerContext, we ran the same Codex configuration twice on all 731 public v2 tasks. The two arms differed only in whether PowerContext was enabled.
@@ -163,9 +198,9 @@ benchmark:
     scope: This is a paired run on a pinned task set, not an official SWE-bench Pro submission. Agent runs are stochastic, so the scores describe these two runs only.
   leaderboards:
     title: Comparison with published results
-    lead: LoCoMo results use different readers, judges, and answer-matching rules. SWE-bench Pro results come from the official Public leaderboard, so the two tabs require different interpretations.
+    lead: Explore published LoCoMo and LoCoMo Plus results alongside the official SWE-bench Pro Public leaderboard. Each entry links to its evaluation configuration and source.
     tabs_label: Select a benchmark leaderboard
-    updated: Data checked August 31, 2026
+    updated: LoCoMo / SWE-bench Pro checked August 31, 2026
     source_label: View source
     locomo:
       id: locomo-rankings
@@ -274,6 +309,58 @@ benchmark:
           protocol: 1,540 questions; shared lenient harness
           evidence: Third-party run
           source: https://github.com/buildingjoshbetter/TrueMemory/blob/main/benchmarks/locomo/BENCHMARK_RESULTS.md
+    locomo_plus:
+      tab: LoCoMo Plus
+      title: Published Cognitive scores
+      count: 8 published entries
+      updated: Verified October 7, 2026
+      table_label: Published LoCoMo Plus Cognitive scores and evaluation configurations
+      score_label: Cognitive score
+      spotlight:
+        title: PowerContext · GPT-4o
+        model: GPT-4o
+        link_label: Compare all three models
+      rows:
+        - name: T-Mem
+          score: 74.81%
+          evidence: T-Mem paper · Table 3
+          protocol: Cognitive; GPT-4.1-mini construction; GPT-4o answers; Gemini-2.5-Flash judge
+          source: https://arxiv.org/html/2606.15405v1#S3.T3
+        - name: HyperMem
+          score: 48.63%
+          evidence: T-Mem paper · Table 3
+          protocol: Cognitive; baseline experiment in the T-Mem paper
+          source: https://arxiv.org/html/2606.15405v1#S3.T3
+        - name: MemOS
+          score: 32.67%
+          evidence: T-Mem paper · Table 3
+          protocol: Cognitive; baseline experiment in the T-Mem paper
+          source: https://arxiv.org/html/2606.15405v1#S3.T3
+        - name: Gemini-2.5-Pro
+          score: 26.06%
+          evidence: LoCoMo Plus paper · Table 1
+          protocol: Cognitive; full context; Gemini-2.5-Flash judge
+          source: https://aclanthology.org/2026.acl-long.1150.pdf#page=6
+        - name: GPT-4o
+          score: 21.05%
+          evidence: LoCoMo Plus paper · Table 1
+          protocol: Cognitive; full context; Gemini-2.5-Flash judge
+          source: https://aclanthology.org/2026.acl-long.1150.pdf#page=6
+        - name: A-Mem
+          score: 17.20%
+          evidence: LoCoMo Plus paper · Table 1
+          protocol: Cognitive; GPT-4o answers; Gemini-2.5-Flash judge
+          source: https://aclanthology.org/2026.acl-long.1150.pdf#page=6
+        - name: Mem0
+          score: 15.80%
+          evidence: LoCoMo Plus paper · Table 1
+          protocol: Cognitive; GPT-4o answers; Gemini-2.5-Flash judge
+          source: https://aclanthology.org/2026.acl-long.1150.pdf#page=6
+        - name: SeCom
+          score: 14.90%
+          evidence: LoCoMo Plus paper · Table 1
+          protocol: Cognitive; GPT-4o answers; Gemini-2.5-Flash judge
+          source: https://aclanthology.org/2026.acl-long.1150.pdf#page=6
     swe:
       id: swe-rankings
       tab: SWE-bench Pro
@@ -451,7 +538,7 @@ benchmark:
         swe: Official executable tests passed
   sources:
     title: Evaluation methods and sources
-    lead: Method references and reproducibility resources for both evaluations.
+    lead: Method references and evaluation tools for all three benchmarks. Read models, scoring rules, and data scope together.
     groups:
       - id: locomo
         title: LoCoMo
@@ -462,6 +549,18 @@ benchmark:
           - type: Dataset
             label: snap-research/locomo
             href: https://github.com/snap-research/locomo
+      - id: locomo-plus
+        title: LoCoMo Plus
+        items:
+          - type: Paper and task definition
+            label: Beyond-Factual Cognitive Memory Evaluation Framework
+            href: https://arxiv.org/abs/2602.10715
+          - type: Pinned data and official evaluator
+            label: xjtuleeyf/Locomo-Plus · 059f4e3
+            href: https://github.com/xjtuleeyf/Locomo-Plus/tree/059f4e3d38f7f1f96765e8e2cb7de3097551bffb
+          - type: PowerContext harness and scoring notes
+            label: benchmark/locomo_plus · 87fceeb7
+            href: https://github.com/oceanbase/powercontext/tree/87fceeb7bbc703b6d2efa2003277e40b0fc2262b/benchmark/locomo_plus
       - id: swe
         title: SWE-bench Pro
         items:
