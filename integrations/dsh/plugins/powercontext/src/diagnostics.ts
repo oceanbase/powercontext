@@ -39,9 +39,12 @@ const PUBLIC_ERROR_CODES = new Set([
   'candidate_not_found', 'handoff_evidence_not_found', 'source_definition_not_found',
   'external_skill_not_found', 'conflict', 'revision_conflict', 'memory_entry_inactive',
   'memory_capacity_exceeded', 'tag_precondition_failed',
-  // The Server's sole codes for HTTP 410, 428 and 429. Each was dropped before it reached
-  // the caller, so the mapping added for those statuses could not name the real condition.
-  'cursor_expired', 'precondition_required', 'capacity_exceeded',
+  // The Server's sole codes for HTTP 400, 410, 428 and 429. Each was dropped before it
+  // reached the caller, so a branch on those statuses could not name the real condition —
+  // on its own it only fixes the message. `invalid_cursor` is the 400 half of the cursor
+  // pair: RFC 1502 states it as "return `400 invalid_cursor`; expired cursors return
+  // `410 cursor_expired`", and both call for the same recovery.
+  'invalid_cursor', 'cursor_expired', 'precondition_required', 'capacity_exceeded',
   'source_conflict', 'candidate_conflict', 'artifact_conflict', 'candidate_terminal',
   'scope_version_conflict', 'scope_idempotency_conflict', 'artifact_publication_conflict',
   'connector_checkpoint_conflict', 'generation_conflict', 'external_skill_snapshot_unavailable',
@@ -84,8 +87,23 @@ function responseDiagnostic(event: string, outcome: string, error: ServerRespons
   }
 }
 
+/**
+ * The statuses `src/powercontext/server/app.py` maps a *domain* error to.
+ *
+ * `mapServerError` gives each of them a branch of its own, because the tail wording is
+ * only true for an availability outcome. Keeping the two in step is what makes a domain
+ * status behave the same whichever layer meets it: a rejection is returned to the caller
+ * as a tool result on the path it arrives on, so it is not also logged, and it stays
+ * visible on the automatic paths, where no caller sees it.
+ *
+ * 401 and 403 are authentication outcomes and 5xx are availability outcomes; those are
+ * reported whichever path they arrive on. `src/invoke.ts` branches on this set plus the
+ * two authentication statuses, and `tests/error-mapping.spec.ts` asserts that pairing.
+ */
+export const DOMAIN_STATUSES = new Set([400, 404, 409, 410, 412, 413, 422, 428, 429])
+
 function isDomainStatus(status: number): boolean {
-  return status === 404 || status === 409 || status === 422
+  return DOMAIN_STATUSES.has(status)
 }
 
 export function failureEvent(event: string, error: unknown): DiagnosticEvent | undefined {

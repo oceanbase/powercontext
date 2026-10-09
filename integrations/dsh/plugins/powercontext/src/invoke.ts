@@ -89,7 +89,11 @@ function requestIdField(requestId: string | undefined): { request_id?: string } 
 function mapServerErrorCore(error: ServerResponseError): ToolResult {
   const code = publicErrorCode(error.code)
   if (error.statusCode === 400) {
-    return { ok: false, code: code ?? 'invalid_request', message: 'PowerContext rejected the request as malformed.', status: 400, ...requestIdField(error.requestId) }
+    // The Server's 400 is not only a malformed request: `invalid_cursor` (RFC 1502) is the
+    // malformed or mismatched half of the cursor pair whose expired half is the 410 below.
+    // Naming the code is not enough on its own — "fix the request shape" and "restart the
+    // listing from the beginning" are different instructions, and only the second applies.
+    return { ok: false, code: code ?? 'invalid_request', message: code === 'invalid_cursor' ? 'PowerContext rejected a pagination cursor that is invalid or does not match this request. Restart the listing from the beginning.' : 'PowerContext rejected the request as malformed.', status: 400, ...requestIdField(error.requestId) }
   }
   if (error.statusCode === 401) {
     return { ok: false, code: 'authentication_failed', message: 'PowerContext authentication failed. Check Authorization.', status: 401, ...requestIdField(error.requestId) }

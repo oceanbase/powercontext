@@ -1793,6 +1793,7 @@ const PUBLIC_ERROR_CODES = new Set([
 	"memory_entry_inactive",
 	"memory_capacity_exceeded",
 	"tag_precondition_failed",
+	"invalid_cursor",
 	"cursor_expired",
 	"precondition_required",
 	"capacity_exceeded",
@@ -1855,8 +1856,32 @@ function responseDiagnostic(event, outcome, error) {
 		...code ? { error_code: code } : {}
 	};
 }
+/**
+* The statuses `src/powercontext/server/app.py` maps a *domain* error to.
+*
+* `mapServerError` gives each of them a branch of its own, because the tail wording is
+* only true for an availability outcome. Keeping the two in step is what makes a domain
+* status behave the same whichever layer meets it: a rejection is returned to the caller
+* as a tool result on the path it arrives on, so it is not also logged, and it stays
+* visible on the automatic paths, where no caller sees it.
+*
+* 401 and 403 are authentication outcomes and 5xx are availability outcomes; those are
+* reported whichever path they arrive on. `src/invoke.ts` branches on this set plus the
+* two authentication statuses, and `tests/error-mapping.spec.ts` asserts that pairing.
+*/
+const DOMAIN_STATUSES = new Set([
+	400,
+	404,
+	409,
+	410,
+	412,
+	413,
+	422,
+	428,
+	429
+]);
 function isDomainStatus(status) {
-	return status === 404 || status === 409 || status === 422;
+	return DOMAIN_STATUSES.has(status);
 }
 function failureEvent(event, error) {
 	const rejection = authenticationRejection(error);
@@ -2366,7 +2391,7 @@ function mapServerErrorCore(error) {
 	if (error.statusCode === 400) return {
 		ok: false,
 		code: code ?? "invalid_request",
-		message: "PowerContext rejected the request as malformed.",
+		message: code === "invalid_cursor" ? "PowerContext rejected a pagination cursor that is invalid or does not match this request. Restart the listing from the beginning." : "PowerContext rejected the request as malformed.",
 		status: 400,
 		...requestIdField(error.requestId)
 	};

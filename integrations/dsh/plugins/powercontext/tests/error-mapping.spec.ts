@@ -16,18 +16,22 @@
 
 import { describe, expect, it } from 'vitest'
 import { PowerContextClient } from '../src/client.ts'
+import { DOMAIN_STATUSES as DIAGNOSTIC_DOMAIN_STATUSES } from '../src/diagnostics.ts'
 import { ServerResponseError } from '../src/errors.ts'
 import { toToolResult } from '../src/invoke.ts'
 
 /**
  * The HTTP statuses `src/powercontext/server/app.py` maps a domain error to.
- * Every 4xx carries a specific meaning, so each needs a branch; the tail message
+ * Every one carries a specific meaning, so each needs a branch; the tail message
  * ("PowerContext is unavailable, continue the task.") is only accurate for an
  * availability outcome, which is why 5xx deliberately falls through.
  */
 const BRANCHED_STATUSES = [400, 401, 403, 404, 409, 410, 412, 413, 422, 428, 429]
+const AUTHENTICATION_STATUSES = [401, 403]
 const DOMAIN_STATUSES = [400, 404, 409, 410, 412, 413, 422, 428, 429]
 const AVAILABILITY_STATUSES = [500, 503]
+
+const sorted = (statuses: readonly number[]): number[] => [...statuses].sort((a, b) => a - b)
 
 const OUTAGE_MESSAGE = 'PowerContext is unavailable, continue the task.'
 
@@ -49,6 +53,17 @@ describe('error mapping covers every status the server returns', () => {
   it('keeps the outage wording only for availability statuses', () => {
     expect(toToolResult(serverError(503))).toMatchObject({ code: 'unavailable', message: OUTAGE_MESSAGE })
     expect(toToolResult(serverError(500))).toMatchObject({ code: 'server_error', message: OUTAGE_MESSAGE })
+  })
+
+  it('branches on exactly the domain statuses plus the authentication ones', () => {
+    expect(sorted(BRANCHED_STATUSES)).toEqual(sorted([...DOMAIN_STATUSES, ...AUTHENTICATION_STATUSES]))
+    expect(sorted(AVAILABILITY_STATUSES).every(status => !BRANCHED_STATUSES.includes(status))).toBe(true)
+  })
+
+  it('suppresses diagnostics for exactly the statuses that have their own branch as domain outcomes', () => {
+    // The two layers cannot drift apart: a status that gets a branch in `mapServerError`
+    // is one the diagnostic layer must treat as a domain outcome, and the reverse.
+    expect(sorted(DIAGNOSTIC_DOMAIN_STATUSES)).toEqual(sorted(DOMAIN_STATUSES))
   })
 })
 
@@ -79,6 +94,7 @@ describe('412 precondition failures', () => {
 
 describe('codes the server sends for the added statuses', () => {
   const PUBLISHED: [number, string][] = [
+    [400, 'invalid_cursor'],
     [410, 'cursor_expired'],
     [413, 'handoff_report_too_large'],
     [428, 'precondition_required'],
@@ -91,6 +107,19 @@ describe('codes the server sends for the added statuses', () => {
 
   it('names the Handoff Report limit when a 413 carries no code', () => {
     expect(toToolResult(serverError(413))).toMatchObject({ code: 'handoff_report_too_large', status: 413 })
+  })
+
+  it('gives the malformed cursor the cursor recovery, not the generic 400 one', () => {
+    expect(toToolResult(serverError(400, 'invalid_cursor'))).toMatchObject({
+      code: 'invalid_cursor',
+      status: 400,
+      message: 'PowerContext rejected a pagination cursor that is invalid or does not match this request. Restart the listing from the beginning.',
+    })
+    expect(toToolResult(serverError(400))).toMatchObject({
+      code: 'invalid_request',
+      status: 400,
+      message: 'PowerContext rejected the request as malformed.',
+    })
   })
 })
 

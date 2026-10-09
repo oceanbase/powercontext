@@ -38,9 +38,15 @@ describe('host-visible diagnostic classification', () => {
       ['flush_memory', '/v1/memory/flush'],
     ] as const
     const failures = [
+      [400, 'invalid_cursor'],
       [404, 'not_found'],
       [409, 'conflict'],
+      [410, 'cursor_expired'],
+      [412, 'revision_conflict'],
+      [413, 'handoff_report_too_large'],
       [422, 'invalid_request'],
+      [428, 'precondition_required'],
+      [429, 'capacity_exceeded'],
     ] as const
 
     for (const [event, path] of automaticOperations) {
@@ -60,11 +66,13 @@ describe('host-visible diagnostic classification', () => {
   })
 
   it('does not emit availability diagnostics for direct domain errors', () => {
-    for (const statusCode of [404, 409, 422]) {
+    // Every status the mapping layer gives its own branch as a domain outcome, not just
+    // the three the predicate originally listed.
+    for (const statusCode of [400, 404, 409, 410, 412, 413, 422, 428, 429]) {
       expect(failureEvent('tool_call', new ServerResponseError({
         statusCode,
         path: '/v1/memory/entries/get',
-        code: statusCode === 404 ? 'memory_not_found' : statusCode === 409 ? 'conflict' : 'invalid_request',
+        code: 'memory_not_found',
       }))).toBeUndefined()
     }
   })
@@ -91,7 +99,9 @@ describe('published error code filter', () => {
     expect(publicErrorCode('tag_precondition_failed')).toBe('tag_precondition_failed')
     expect(publicErrorCode('revision_conflict')).toBe('revision_conflict')
     expect(publicErrorCode('memory_capacity_exceeded')).toBe('memory_capacity_exceeded')
-    // The Server's sole codes for HTTP 410, 428 and 429.
+    // The Server's sole codes for HTTP 400, 410, 428 and 429. `invalid_cursor` is what the
+    // 400 carries when a pagination cursor is malformed or does not match the request.
+    expect(publicErrorCode('invalid_cursor')).toBe('invalid_cursor')
     expect(publicErrorCode('cursor_expired')).toBe('cursor_expired')
     expect(publicErrorCode('precondition_required')).toBe('precondition_required')
     expect(publicErrorCode('capacity_exceeded')).toBe('capacity_exceeded')

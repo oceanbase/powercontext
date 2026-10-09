@@ -243,6 +243,7 @@ Scope 解析失败时，具名工具和依赖 Scope 的 `/pc` 命令会返回受
 | `invalid_response` | 客户端识别到无效的 Server 响应。 |
 | `precondition_failed` | tag 或 revision 前置条件已不匹配当前状态，Server 拒绝了本次写入。应重新读取当前引用，用最新的值重试；若 412 响应体带有已公开的业务码，则报告该业务码。 |
 | `precondition_required` | 该变更操作要求携带当前 ETag 的 `If-Match`。应读取资源，再用其 ETag 重试。 |
+| `invalid_cursor` | Server 拒绝了不合法或与本次请求不匹配的分页 cursor。应从列表开头重新请求。它是 cursor 这一对的 400 一半，过期的那一半是 `cursor_expired`。 |
 | `cursor_expired` | Server 拒绝了分页 cursor。应从列表开头重新请求。 |
 | `handoff_report_too_large` | 结果超出响应大小上限；Server 唯一的 413 来源是 Handoff Report 体积限制。应收窄筛选范围后重试。 |
 | `capacity_exceeded` | Server 达到容量上限。应稍后重试。 |
