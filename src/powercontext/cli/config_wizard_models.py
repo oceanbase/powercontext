@@ -156,8 +156,9 @@ def _collect_role(
         and shared is not None
         and shared.protocol != "anthropic"
         and ui.confirm(
-            "Use the same API address and API key as Generation for Embedding?",
-            "Embedding 是否使用与 Generation 相同的 API 地址和 API Key？",
+            "Reuse the same API address and API key as Generation for Embedding? "
+            "Choose No to configure a separate Embedding model.",
+            "Embedding 是否复用 Generation 的 API 地址和 API Key？选择“否”将继续配置单独的 Embedding 模型。",
             default=True,
         )
     ):
