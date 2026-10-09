@@ -213,6 +213,7 @@ def dry_run_plan(
     histories = {case.sample_id: _history(case, history_limit) for case in cases}
     truncated = any(len(_history(case, history_limit)) < len(case.sessions) for case in cases)
     scope = "full" if profile == "full" and limit is None and not truncated and not dataset.exclusions else "subset"
+    projection_requests = sum(case.category == 6 for case in cases)
     return {
         "benchmark": "LoCoMo-Plus",
         "requested_profile": profile,
@@ -236,8 +237,11 @@ def dry_run_plan(
         if arm.startswith("memory")
         else 0,
         "answer_requests": len(cases),
-        "judge_requests": len(cases),
-        "note": "Subset scores are not complete benchmark results. Extraction and embedding add model calls.",
+        "judge_requests": len(cases) + projection_requests,
+        "judge_projection_requests": projection_requests,
+        "judge_verdict_requests": len(cases),
+        "note": "Subset scores are not complete benchmark results. Judge requests include claim projection and verdicts "
+        "for a fresh run without retries. Extraction, embedding and reranking add model calls.",
     }
 
 
@@ -1157,11 +1161,6 @@ async def run_benchmark(  # noqa: C901
                         artifact_processing_role="api"
                         if reuse_ingestion_directory is not None and selected_database.kind == "oceanbase"
                         else "all",
-                        # OceanBase Family declarations are part of the existing tenant's
-                        # deployment identity; disable execution through its role instead.
-                        artifact_processing_families=()
-                        if reuse_ingestion_directory is not None and selected_database.kind == "sqlite"
-                        else None,
                         memory_rerank_enabled=memory_rerank and memory_reranker is None,
                         memory_rerank_candidate_limit=rerank_candidate_limit,
                     ),
@@ -1181,6 +1180,10 @@ async def run_benchmark(  # noqa: C901
                     if memory_reranker is None
                     else open_builtin_runtime(runtime_config, memory_reranker=memory_reranker)
                 )
+                # Embedded backends require role=all. Stop execution through the lifecycle
+                # handle, not by changing the donor's persisted Family declaration.
+                if reuse_ingestion_directory is not None and runtime.artifact_processing_supervisor is not None:
+                    await runtime.artifact_processing_supervisor.close()
                 if runtime.scopes is None:
                     raise RuntimeError("Memory runs require a Scope registry")  # noqa: TRY003, TRY301
                 for scope_id in scope_ids.values():

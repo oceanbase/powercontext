@@ -149,7 +149,9 @@ uv run python -m evaluation.memory.locomo_plus run --profile full --limit 2 --dr
 
 These commands may download the pinned dataset but require no model credentials and make no inference requests.
 `--data-directory PATH` changes the cache location. `inspect` reports provenance, raw counts, exclusions, and construction
-policy. `--dry-run` reports the selected cases and ingestion plan before incurring inference cost.
+policy. `--dry-run` reports the selected cases and ingestion plan before incurring inference cost. Its Judge budget
+includes one verdict per case and an additional claim-projection request per Cognitive case, with separate counts for
+both stages. These counts assume a fresh run without retries; extraction, embedding, and reranking add model calls.
 
 Inspect and plan the bundled ten cases without downloading any data:
 
@@ -363,8 +365,10 @@ the database target fingerprint and its version, history hashes, extraction and 
 and the saved Memory snapshot before use. A changed database target is rejected before opening services; password
 rotation alone does not change an OceanBase target. Donors without a database fingerprint cannot be reused.
 It does not capture or extract Sources again. OceanBase reuse keeps the tenant's processing Family declarations
-and uses the API-only role to prevent supervisor execution; SQLite reuse disables processing Families instead
-because its role must remain `all`. Use a new output directory and run ID for each treatment. SQLite
+and uses the API-only role to prevent supervisor execution. SQLite and seekdb retain their processing Family
+declarations and required `all` role; the reuse run closes the supervisor after opening Runtime and before retrieval.
+Use a quiescent donor with no pending background work, since embedded Runtime startup precedes that shutdown.
+Use a new output directory and run ID for each treatment. SQLite
 reuse opens the donor database; OceanBase reuse uses the configured tenant and the donor's exact scope IDs.
 For chained SQLite reuse (A to B to C), the runner verifies each saved donor link and opens A's backing database,
 not a new database in B. Missing databases or changed donor identities are rejected before opening resources.

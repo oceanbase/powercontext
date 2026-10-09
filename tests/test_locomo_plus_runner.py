@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -188,6 +189,49 @@ def test_scope_fair_scheduler_round_robins_conversations() -> None:
         replace(template, case_id="b-2", sample_id="b"),
     )
     assert [case.case_id for case in runner._fair_cases(cases)] == ["a-1", "b-1", "a-2", "b-2"]
+
+
+@pytest.mark.parametrize(
+    ("profile", "limit", "projections", "verdicts"), [("smoke", None, 4, 4), ("full", None, 4, 5), ("full", 1, 0, 1)]
+)
+def test_dry_run_judge_budget_matches_fresh_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, limit: int | None, projections: int, verdicts: int
+) -> None:
+    calls = {"answer": 0, "judge": 0}
+
+    async def open_model(name, settings, resources):
+        async def respond(messages, info):
+            if name == "test-answer":
+                calls["answer"] += 1
+                output = "I do not know."
+            else:
+                calls["judge"] += 1
+                output = _judge_reply(
+                    messages, '{"label":"wrong","reason":"No recall.","prediction_support":"","historical_support":""}'
+                )
+            return ModelResponse(parts=[TextPart(output)])
+
+        return FunctionModel(respond, model_name=name)
+
+    monkeypatch.setattr(runner, "open_model", open_model)
+    plan = runner.dry_run_plan(_dataset(), profile=profile, limit=limit, arm="query-only")
+    assert plan["judge_projection_requests"] == projections
+    assert plan["judge_verdict_requests"] == verdicts
+    assert plan["judge_requests"] == projections + verdicts
+    summary = asyncio.run(
+        runner.run_benchmark(
+            _dataset(),
+            settings=_settings(),
+            output_directory=tmp_path,
+            run_id="judge-budget",
+            judge_model="test-judge",
+            arm="query-only",
+            profile=profile,
+            limit=limit,
+        )
+    )
+    assert summary["overall"]["completed_count"] == verdicts
+    assert calls == {"answer": plan["answer_requests"], "judge": plan["judge_requests"]}
 
 
 def test_oceanbase_selection_uses_configured_database_without_serializing_url(tmp_path: Path) -> None:
@@ -388,6 +432,83 @@ class _EmbeddingModel:
 
     async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+
+def test_sqlite_reuse_preserves_configured_processing_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from powercontext.builtin.runtime import composition
+
+    extraction_requests = 0
+
+    async def extract(messages, info):
+        nonlocal extraction_requests
+        extraction_requests += 1
+        return ModelResponse(
+            parts=[
+                TextPart(
+                    '{"candidates":[{"intent":"add","kind":"fact",'
+                    '"text":"Walking helped Alice.","evidence_ids":["source:0"]}]}'
+                )
+            ]
+        )
+
+    async def generation_models(*args, **kwargs):
+        model = FunctionModel(extract, model_name="test-answer")
+        return model, model
+
+    async def embedding_models(*args, **kwargs):
+        model = _EmbeddingModel()
+        return model, model
+
+    async def open_model(name, settings, resources):
+        async def respond(messages, info):
+            output = (
+                "I do not know."
+                if name == "test-answer"
+                else _judge_reply(
+                    messages, '{"label":"wrong","reason":"No recall.","prediction_support":"","historical_support":""}'
+                )
+            )
+            return ModelResponse(parts=[TextPart(output)])
+
+        return FunctionModel(respond, model_name=name)
+
+    # Replace only providers: keep the configured model, real SQLite deployment
+    # validation, pipelines, and supervisor lifecycle intact.
+    monkeypatch.setattr(composition, "_open_pydantic_ai_model", generation_models)
+    monkeypatch.setattr(composition, "_embedding_models", embedding_models)
+    monkeypatch.setattr(runner, "open_model", open_model)
+    donor = tmp_path / "donor"
+    reused = tmp_path / "reused"
+
+    def run(directory, run_id, **kwargs):
+        return asyncio.run(
+            runner.run_benchmark(
+                _dataset(),
+                settings=_settings(),
+                output_directory=directory,
+                run_id=run_id,
+                judge_model="test-judge",
+                arm="memory-source",
+                limit=1,
+                **kwargs,
+            )
+        )
+
+    assert run(donor, "donor")["overall"]["completed_count"] == 1
+    assert extraction_requests > 0
+    donor_requests = extraction_requests
+    with sqlite3.connect(donor / "state.sqlite3") as database:
+        manifest = database.execute("SELECT config_manifest FROM pc_artifact_processing_schema").fetchone()[0]
+    assert '"memory"' in manifest
+
+    summary = run(reused, "reuse", reuse_ingestion_directory=donor)
+    assert summary["overall"]["completed_count"] == 1
+    assert summary["ingestion"]["usage"]["requests"] == 0
+    assert extraction_requests == donor_requests
+    assert _rows(reused)[-1]["context"] == _rows(donor)[-1]["context"]
+    assert _rows(reused)[-1]["scope_id"] == _rows(donor)[-1]["scope_id"]
+    with sqlite3.connect(donor / "state.sqlite3") as database:
+        assert database.execute("SELECT config_manifest FROM pc_artifact_processing_schema").fetchone()[0] == manifest
 
 
 @pytest.fixture

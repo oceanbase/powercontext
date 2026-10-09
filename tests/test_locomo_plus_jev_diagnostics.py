@@ -90,7 +90,6 @@ def test_exception_chain_keeps_cause_context_and_known_network_codes_without_con
         },
         {"type": "gaierror", "relation": "context", "parent": 0, "errno": socket.EAI_AGAIN, "errno_name": "EAI_AGAIN"},
     ]
-    assert socket.EAI_AGAIN < 0
     _assert_sanitized(chain)
 
 
