@@ -138,6 +138,7 @@ function LocomoPlusResults({ benchmark }: { benchmark: BenchmarkContent }) {
               </div>
             ))}
           </dl>
+          <p className="mt-4 text-sm leading-relaxed text-fd-muted-foreground">{experiment.provenance_note}</p>
         </section>
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">

@@ -157,6 +157,7 @@ export default async function BenchmarksPage({ params }: PageProps) {
               </dl>
             </div>
             <div className="grid min-w-0 gap-6 lg:col-span-2">
+              <p className="text-sm leading-relaxed text-fd-muted-foreground">{plus.provenance_note}</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="rounded-xl border border-fd-border p-5">
                   <p className="text-sm text-fd-muted-foreground">{plus.best_label}</p>

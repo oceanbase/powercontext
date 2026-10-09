@@ -159,6 +159,7 @@ export type BenchmarkContent = {
     title: string;
     lead: string;
     results_title: string;
+    provenance_note: string;
     table_label: string;
     best_label: string;
     gain_label: string;

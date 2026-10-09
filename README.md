@@ -122,6 +122,8 @@ See the [methods, full results, and limitations](https://powercontext.oceanbase.
 
 *LoCoMo Plus scores with and without Jev candidate filtering after retrieval. Each model is used for both Memory extraction and answering; embeddings use qwen3.7-text-embedding (1024 dimensions). Jev score differences are +8.925, +8.577, and +4.198 percentage points, respectively.*
 
+These six scores were supplied by the project owner; the run artifacts are not publicly available for verification. The reproducibility instructions describe the evaluation harness, not verification of these scores.
+
 ## Build PowerContext
 
 ```bash

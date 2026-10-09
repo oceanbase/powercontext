@@ -5,6 +5,11 @@ with hybrid search, generates an answer, and grades it with an explicitly select
 SQLite database by default. `--database oceanbase` instead uses the OceanBase configuration in the environment file
 and isolates data with a stable run-specific benchmark namespace.
 
+The six model-comparison scores displayed in the website and root READMEs were supplied by the project owner.
+Their run manifests, summaries, protocol identities, model/Judge configurations, run hashes and raw outputs are
+not publicly available for verification. This guide documents a reproducible harness workflow; it does not
+establish that those specific scores have been reproduced or independently verified.
+
 ## Dataset and evaluation contract
 
 The `dataset/` directory contains a pinned ten-case smoke snapshot with complete conversation histories.

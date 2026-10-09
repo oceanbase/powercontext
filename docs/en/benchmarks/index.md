@@ -143,7 +143,8 @@ benchmark:
   locomo_plus:
     title: "LoCoMo Plus: apply implicit memory constraints"
     lead: Even when a new question does not resemble an earlier cue, the system must retain and apply the user's state, goals, values, and causal background. These results compare native PowerContext with Jev candidate filtering across three models.
-    results_title: Same model, with and without Jev
+    results_title: Project-owner-supplied scores, with and without Jev
+    provenance_note: These six scores were supplied by the project owner. The corresponding run manifests, summaries, protocol and model/Judge configurations, run hashes and raw outputs are not publicly available for verification. Reproducibility documentation describes the harness, not verification of these scores.
     table_label: Native PowerContext and PowerContext with Jev scores across three models
     best_label: Highest reported score
     gain_label: Largest score difference
@@ -558,8 +559,8 @@ benchmark:
             label: xjtuleeyf/Locomo-Plus · 059f4e3
             href: https://github.com/xjtuleeyf/Locomo-Plus/tree/059f4e3d38f7f1f96765e8e2cb7de3097551bffb
           - type: PowerContext harness and scoring notes
-            label: benchmark/locomo_plus
-            href: https://github.com/Teingi/powercontext/tree/master/benchmark/locomo_plus
+            label: benchmark/locomo_plus · 87fceeb7
+            href: https://github.com/oceanbase/powercontext/tree/87fceeb7bbc703b6d2efa2003277e40b0fc2262b/benchmark/locomo_plus
       - id: swe
         title: SWE-bench Pro
         items:

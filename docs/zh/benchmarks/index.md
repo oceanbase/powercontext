@@ -143,7 +143,8 @@ benchmark:
   locomo_plus:
     title: LoCoMo Plus：运用隐含的记忆约束
     lead: 当新问题与早先线索并不相似，系统仍需要记住并运用用户的状态、目标、价值取向与因果背景。这里对比三个模型下，原生 PowerContext 与接入 Jev 候选筛选后的测试得分。
-    results_title: 同模型，Jev 接入前后
+    results_title: 项目方提供的得分：同模型，Jev 接入前后
+    provenance_note: 这六组分数由项目方提供，对应的运行清单、汇总、协议与模型/Judge 配置、运行哈希及原始输出尚未公开供复核。可复现说明针对评测工具，不代表这些具体分数已公开验证。
     table_label: 三个模型下原生 PowerContext 与 PowerContext 加 Jev 的得分对比
     best_label: 本组最高得分
     gain_label: 最大得分差
@@ -558,8 +559,8 @@ benchmark:
             label: xjtuleeyf/Locomo-Plus · 059f4e3
             href: https://github.com/xjtuleeyf/Locomo-Plus/tree/059f4e3d38f7f1f96765e8e2cb7de3097551bffb
           - type: PowerContext 评测工具与评分说明
-            label: benchmark/locomo_plus
-            href: https://github.com/Teingi/powercontext/tree/master/benchmark/locomo_plus
+            label: benchmark/locomo_plus · 87fceeb7
+            href: https://github.com/oceanbase/powercontext/tree/87fceeb7bbc703b6d2efa2003277e40b0fc2262b/benchmark/locomo_plus
       - id: swe
         title: SWE-bench Pro
         items:

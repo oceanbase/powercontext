@@ -113,6 +113,8 @@ Codex 标为 `official`，其他宿主及 Python Agent 框架标为 `community`�
 
 *接入 Jev 检索后候选筛选前后的 LoCoMo Plus 得分。每组模型同时用于 Memory 抽取与回答，向量模型为 qwen3.7-text-embedding（1024 维）。三个模型的得分差分别为 +8.925、+8.577、+4.198 个百分点。*
 
+这六组分数由项目方提供，运行产物尚未公开供复核。可复现说明针对评测工具，不代表这些具体分数已公开验证。
+
 ## 参与构建 PowerContext
 
 ```bash

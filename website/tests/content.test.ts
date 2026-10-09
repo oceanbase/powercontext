@@ -44,6 +44,13 @@ test('LoCoMo Plus preserves the supplied model comparisons in both languages', a
     const targets = content.hero.actions.map((action) => action.target);
     assert.equal(targets[targets.indexOf('locomo') + 1], 'locomo-plus');
     assert.ok(content.sources.groups.some((group) => group.id === 'locomo-plus'));
+    assert.match(plus.provenance_note, /project owner|项目方/);
+    assert.match(plus.provenance_note, /not publicly available for verification|尚未公开供复核/);
+    assert.match(plus.provenance_note, /harness|评测工具/);
+    const methods = content.sources.groups.find((group) => group.id === 'locomo-plus')!.items;
+    const harness = methods.find((item) => item.label.startsWith('benchmark/locomo_plus'));
+    assert.ok(harness);
+    assert.match(harness.href, /^https:\/\/github\.com\/oceanbase\/powercontext\/tree\/[0-9a-f]{40}\/benchmark\/locomo_plus$/);
     // These results do not inherit the previous experiment's unconfirmed protocol.
     assert.doesNotMatch(JSON.stringify(plus), /2,387|55\.611|v7|Top-8/);
   }
@@ -80,6 +87,7 @@ test('LoCoMo Plus public comparisons retain Cognitive scores and linked evaluati
     assert.ok(plusPanel.includes('65.082%'));
     assert.ok(plusPanel.includes('69.28%'));
     assert.ok(plusPanel.includes('href="#locomo-plus"'));
+    assert.ok(plusPanel.includes(benchmark.locomo_plus.provenance_note));
   }
 });
 
