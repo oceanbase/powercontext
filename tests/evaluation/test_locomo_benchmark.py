@@ -14,12 +14,24 @@
 
 """Focused tests for the deterministic LoCoMo benchmark boundary."""
 
+import asyncio
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from benchmark.locomo.dataset import load_locomo, render_session
+from benchmark.locomo import runner
+from benchmark.locomo.dataset import (
+    LoCoMoConversation,
+    LoCoMoDataset,
+    LoCoMoQuestion,
+    LoCoMoSession,
+    LoCoMoTurn,
+    load_locomo,
+    render_session,
+)
 from benchmark.locomo.metrics import (
     bleu1,
     diagnose_observations,
@@ -35,8 +47,18 @@ from benchmark.locomo.runner import (
     prepare_run,
     scope_id,
 )
+from powercontext.builtin.artifacts.memory import EmbeddingProfile, MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.inference import EmbeddingResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig, MemoryExtractionProfile, RuntimeConfig
+from powercontext.builtin.runtime import (
+    BuiltinConfig,
+    InferenceConfig,
+    MemoryExtractionProfile,
+    RuntimeConfig,
+    open_builtin_runtime,
+)
+from powercontext.builtin.scope import ScopeNotFoundError
+from powercontext.builtin.sources import ContentSource
 from powercontext.server.settings import ServerSettings
 
 DATASET = Path(__file__).parents[2] / "benchmark" / "locomo" / "dataset" / "locomo10.json"
@@ -371,4 +393,208 @@ def test_rejudge_manifest_freezes_answers_and_records_independent_judge(tmp_path
             output_directory=output_directory,
             run_id="qwen topical judge",
             judge_model="openai:different-judge",
+        )
+
+
+class _CandidatePipeline:
+    """Deterministic in-process stand-in for the configured extraction pipeline."""
+
+    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
+        return tuple(
+            MemoryEntryInput(kind="fact", text=source.content, sources=(source,), reason="recorded dialogue")
+            for source in request.sources
+            if isinstance(source, ContentSource)
+        )
+
+
+class _EmbeddingModel:
+    """Deterministic in-process stand-in for the configured embedding profile."""
+
+    profile = EmbeddingProfile(
+        profile_id="locomo-test", model="deterministic", dimension=3, distance="l2", normalization="unit"
+    )
+
+    async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+        return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+
+def _use_offline_runtime(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Open the runtime with extraction and embeddings that never leave this process."""
+
+    @asynccontextmanager
+    async def runtime_factory(config: BuiltinConfig):
+        offline = config.model_copy(update={"inference": InferenceConfig()})
+        async with open_builtin_runtime(
+            offline,
+            scheduler_path=tmp_path / "scheduler.db",
+            candidate_pipeline=_CandidatePipeline(),
+            embedding_model=_EmbeddingModel(),
+        ) as runtime:
+            yield runtime
+
+    monkeypatch.setattr(runner, "open_builtin_runtime", runtime_factory)
+
+
+def _synthetic_conversation(sample_id: str) -> LoCoMoConversation:
+    return LoCoMoConversation(
+        sample_id,
+        "Alice",
+        "Bob",
+        (LoCoMoSession("D1", 1, "1:56 pm on 8 May, 2023", (LoCoMoTurn("D1:1", "Alice", "I bought a book."),)),),
+        (),
+    )
+
+
+def _scored_conversation(sample_id: str) -> LoCoMoConversation:
+    """One conversation that both ingestion and scoring accept."""
+
+    conversation = _synthetic_conversation(sample_id)
+    question = LoCoMoQuestion(
+        question_id=f"{sample_id}:q001",
+        sample_id=sample_id,
+        question="What did Alice buy?",
+        answer="A book.",
+        category=1,
+        evidence_raw=("D1:1",),
+        evidence=("D1:1",),
+    )
+    return LoCoMoConversation(
+        conversation.sample_id,
+        conversation.speaker_a,
+        conversation.speaker_b,
+        conversation.sessions,
+        (question,),
+    )
+
+
+def test_ingestion_registers_the_scopes_a_later_phase_must_resolve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test for #1778: the runner captures into Scopes nothing ever registered.
+
+    The Scope registry assigns Scope ids, so a name the runner derives by itself resolves
+    nowhere and the first `capture` fails with ScopeNotFoundError. Ingestion has to register
+    each conversation's Scope, and a later phase has to resolve that same Scope rather than
+    mint a second one.
+    """
+
+    _use_offline_runtime(monkeypatch, tmp_path)
+    dataset = LoCoMoDataset(
+        path=DATASET,
+        sha256="0" * 64,
+        conversations=(_synthetic_conversation("conv-26"), _synthetic_conversation("conv-27")),
+    )
+    settings = ServerSettings(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'locomo.db'}"),
+        inference=InferenceConfig(),
+    )
+
+    def ingest() -> dict[str, Any]:
+        return asyncio.run(
+            runner.ingest_dataset(
+                dataset,
+                settings=settings,
+                run_id="scope-registration",
+                output_directory=tmp_path,
+                progress=lambda _message: None,
+            )
+        )
+
+    first = ingest()
+    scopes = {sample_id: entry["scope_id"] for sample_id, entry in first["conversations"].items()}
+    assert set(scopes) == {"conv-26", "conv-27"}
+    assert all(scope.startswith("scp_") for scope in scopes.values())
+    assert runner.scope_id("scope-registration", "conv-26") not in scopes.values()
+    assert first["resumed_session_count"] == 0
+    assert first["newly_processed_session_count"] == 2
+
+    # The same run resolves to the same Scopes, so a later evaluation resumes the ingested
+    # sessions instead of capturing them again under freshly minted Scopes.
+    second = ingest()
+    assert {entry["scope_id"] for entry in second["conversations"].values()} == set(scopes.values())
+    assert second["resumed_session_count"] == 2
+    assert second["newly_processed_session_count"] == 0
+
+
+def test_evaluation_requires_the_scope_ingestion_registered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression test for the #1894 review: evaluation must not register a replacement Scope.
+
+    Evaluating against a database that never ingested this run used to register an empty Scope,
+    score empty retrieval as a valid observation, and spend answer and judge requests on it. Those
+    observations were then skipped on resume, so a configuration mistake silently produced
+    benchmark results. Evaluation has to resolve the Scope ingestion recorded, and reject a
+    database that has none before any inference is set up.
+    """
+
+    _use_offline_runtime(monkeypatch, tmp_path)
+    dataset = LoCoMoDataset(
+        path=DATASET,
+        sha256="0" * 64,
+        conversations=(_scored_conversation("conv-26"),),
+    )
+    asyncio.run(
+        runner.ingest_dataset(
+            dataset,
+            settings=ServerSettings(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'ingested.db'}"),
+                inference=InferenceConfig(),
+            ),
+            run_id="scope-required",
+            output_directory=tmp_path,
+            progress=lambda _message: None,
+        )
+    )
+    recorded = {
+        entry["scope_id"] for entry in json.loads((tmp_path / "ingestion.json").read_text())["conversations"].values()
+    }
+    assert len(recorded) == 1
+
+    def no_inference(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("evaluation must reject a database that never ingested the run before opening models")
+
+    monkeypatch.setattr(runner, "infer_model", no_inference)
+    with pytest.raises(ScopeNotFoundError):
+        asyncio.run(
+            runner.evaluate_dataset(
+                dataset,
+                settings=ServerSettings(
+                    database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'empty.db'}"),
+                    inference=InferenceConfig(generation_model="openai:answer-model"),
+                ),
+                run_id="scope-required",
+                output_directory=tmp_path,
+                progress=lambda _message: None,
+            )
+        )
+
+    # No observation may be written for a question that was never ingested.
+    assert not (tmp_path / "observations.jsonl").exists()
+
+
+def test_evaluation_rejects_a_run_without_a_recorded_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--skip-ingestion` in a directory that never ingested may not score anything."""
+
+    _use_offline_runtime(monkeypatch, tmp_path)
+    dataset = LoCoMoDataset(
+        path=DATASET,
+        sha256="0" * 64,
+        conversations=(_scored_conversation("conv-26"),),
+    )
+
+    def no_inference(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("evaluation must reject a run that never ingested before opening models")
+
+    monkeypatch.setattr(runner, "infer_model", no_inference)
+    with pytest.raises(FileNotFoundError, match="ingestion report is missing"):
+        asyncio.run(
+            runner.evaluate_dataset(
+                dataset,
+                settings=ServerSettings(
+                    database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'empty.db'}"),
+                    inference=InferenceConfig(generation_model="openai:answer-model"),
+                ),
+                run_id="never-ingested",
+                output_directory=tmp_path,
+                progress=lambda _message: None,
+            )
         )
