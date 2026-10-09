@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -131,9 +130,7 @@ def workflow_schema(schema, reference):
 
 
 def build():
-    # Canonical LF text makes generated contracts identical across Git's Windows checkouts.
-    raw = (ROOT / "openapi/powercontext.yaml").read_text(encoding="utf-8").encode("utf-8")
-    spec = yaml.safe_load(raw)
+    spec = yaml.safe_load((ROOT / "openapi/powercontext.yaml").read_text(encoding="utf-8"))
     schemas = spec["components"]["schemas"]
     selected = {value[0] for value in TOOLS.values()} | {"resolve_scope_binding", "get_scope"}
     operations = {}
@@ -183,7 +180,6 @@ def build():
             visit(list(responses.values()))
     visit({"$ref": "#/components/schemas/ErrorResponse"})
     contract = {
-        "openapi_sha256": hashlib.sha256(raw).hexdigest(),
         "api_version": spec["info"]["version"],
         "operations": operations,
         "tools": {name: values[0] for name, values in TOOLS.items()},
