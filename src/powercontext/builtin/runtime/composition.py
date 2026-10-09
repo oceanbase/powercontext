@@ -81,7 +81,6 @@ from powercontext.builtin.inference.usage import (
     UsageReportingStructuredGenerator,
 )
 from powercontext.builtin.persistence.dream_schema import ensure_dream_schema
-from powercontext.builtin.persistence.revision_meta import ensure_revision_metadata_schema
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
 from powercontext.builtin.persistence.oceanbase.memory_index import (
@@ -97,6 +96,7 @@ from powercontext.builtin.persistence.processing_migration import (
     assert_processing_schema_ready,
     bootstrap_processing_schema,
 )
+from powercontext.builtin.persistence.revision_meta import ensure_revision_metadata_schema
 from powercontext.builtin.persistence.scope_search_schema import ensure_scope_search_schema
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.skill_distribution_schema import ensure_skill_distribution_schema

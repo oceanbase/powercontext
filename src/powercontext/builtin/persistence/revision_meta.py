@@ -29,6 +29,7 @@ from sqlalchemy.schema import CreateColumn
 
 from powercontext.artifacts import Artifact
 from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE
+from powercontext.limits import MAX_ARTIFACT_REVISION_ACTOR_LENGTH
 
 _ROLLBACK_STAMP: ContextVar[PendingRollback | None] = ContextVar("powercontext_rollback_stamp", default=None)
 
@@ -78,12 +79,7 @@ def rollback_columns(family: str, artifact_id: str, revision: int) -> dict[str, 
     """Return rollback columns when this insert is the bound rollback revision."""
 
     stamp = _ROLLBACK_STAMP.get()
-    if (
-        stamp is None
-        or stamp.family != family
-        or stamp.artifact_id != artifact_id
-        or stamp.revision != revision
-    ):
+    if stamp is None or stamp.family != family or stamp.artifact_id != artifact_id or stamp.revision != revision:
         return {}
     created_by = None
     if stamp.created_by_type is not None and stamp.created_by_id is not None:
@@ -154,8 +150,7 @@ async def _widen_created_by(connection: AsyncConnection) -> None:
     columns = await connection.run_sync(lambda sync: inspect(sync).get_columns(ARTIFACTS_TABLE.name))
     column = next((item for item in columns if item["name"] == "created_by"), None)
     length = None if column is None else getattr(column["type"], "length", None)
-    target = ARTIFACTS_TABLE.c.created_by.type.length
-    if length is None or not isinstance(length, int) or length >= target:
+    if not isinstance(length, int) or length >= MAX_ARTIFACT_REVISION_ACTOR_LENGTH:
         return
     declaration = str(CreateColumn(ARTIFACTS_TABLE.c.created_by).compile(dialect=connection.dialect))
     await connection.exec_driver_sql(f"ALTER TABLE {ARTIFACTS_TABLE.name} MODIFY COLUMN {declaration}")

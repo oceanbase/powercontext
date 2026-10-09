@@ -36,6 +36,7 @@ from sqlalchemy.dialects.mysql import BINARY, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
 from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
     MAX_ARTIFACT_ID_LENGTH,
+    MAX_ARTIFACT_REVISION_ACTOR_LENGTH,
     MAX_BINDING_NAME_LENGTH,
     MAX_EXTERNAL_SKILL_DESCRIPTION_LENGTH,
     MAX_EXTERNAL_SKILL_HOST_ID_LENGTH,
@@ -196,7 +197,7 @@ ARTIFACTS_TABLE = Table(
     Column("content", _canonical_payload_type(), nullable=False),
     Column("memory_citations", _canonical_payload_type(), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=True),
-    Column("created_by", String(2048), nullable=True),
+    Column("created_by", String(MAX_ARTIFACT_REVISION_ACTOR_LENGTH), nullable=True),
     Column("restored_from_revision", Integer, nullable=True),
     Column("rollback_reason", String(1024), nullable=True),
 )

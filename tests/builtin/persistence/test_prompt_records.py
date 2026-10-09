@@ -29,7 +29,7 @@ from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.rollback import merged_source_revision
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE, BUILTIN_TABLES, CREATED_BY_LENGTH
+from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE, BUILTIN_TABLES
 from powercontext.builtin.records import (
     ArtifactRevisionActor,
     ArtifactRevisionPreconditionError,
@@ -39,6 +39,7 @@ from powercontext.builtin.records import (
     InvalidCursorError,
 )
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER
+from powercontext.limits import MAX_ARTIFACT_REVISION_ACTOR_LENGTH
 
 
 def _records(profile: SQLiteProfile, registry: PromptRegistry | None = None) -> RelationalRecordService:
@@ -268,9 +269,7 @@ def test_prompt_rollback_records_its_source_and_rejects_an_incomplete_restore() 
             assert restored.reason == "Restore the approved prompt"
             assert restored.created_at is not None
             assert restored.created_by == ArtifactRevisionActor(type="user", id="operator")
-            listed = await records.list_artifact_revisions(
-                "scope-a", "prompt", "memory.extract", limit=10, cursor=None
-            )
+            listed = await records.list_artifact_revisions("scope-a", "prompt", "memory.extract", limit=10, cursor=None)
             assert listed.items[0].reason == "Restore the approved prompt"
             assert listed.items[1].created_by is None
 
@@ -283,13 +282,11 @@ def test_rollback_actor_keeps_a_maximum_length_principal_id() -> None:
     from sqlalchemy.dialects.mysql.base import MySQLDialect
     from sqlalchemy.schema import CreateColumn
 
-    column = ARTIFACTS_TABLE.c.created_by.type.length
-    assert column == CREATED_BY_LENGTH
     ddl = str(CreateColumn(ARTIFACTS_TABLE.c.created_by).compile(dialect=MySQLDialect()))
     assert "VARCHAR(2048)" in ddl
     for value in (actor_id, quoted):
         payload = json.dumps({"type": "user", "id": value}, ensure_ascii=False, separators=(",", ":"))
-        assert len(payload) <= column
+        assert len(payload) <= MAX_ARTIFACT_REVISION_ACTOR_LENGTH
 
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
@@ -321,7 +318,11 @@ def test_rollback_actor_keeps_a_maximum_length_principal_id() -> None:
     asyncio.run(scenario())
 
 
+class _EmptyCommand(BaseModel):
+    pass
+
+
 def test_memory_replace_rejects_rollback_fields() -> None:
     write = ArtifactWrite(content={"changes": []}, restored_from_revision=1, reason="Restore memory")
     with pytest.raises(InvalidBaseAccessRequestError, match="is not supported for memory"):
-        merged_source_revision("memory", write, type("Command", (), {})())
+        merged_source_revision("memory", write, _EmptyCommand())

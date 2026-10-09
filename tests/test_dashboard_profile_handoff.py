@@ -18,7 +18,7 @@ import asyncio
 import re
 from html import unescape
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
@@ -220,7 +220,7 @@ def test_profile_compare_accepts_a_revision_outside_the_current_page(dashboard: 
 
 def test_prompt_page_shows_the_selected_revision(dashboard: TestClient) -> None:
     # This fixture has no generation model, so custom prompts are otherwise rejected.
-    writer = dashboard.app.state.application._records()._family_writers.get("prompt")
+    writer = cast(Any, dashboard.app).state.application._records()._family_writers.get("prompt")
     writer._registry = PromptRegistry(builtin_prompt_definitions(), supported=frozenset(PROMPT_KEYS))
     scope = create_scope(dashboard, "Prompt history")["scope_id"]
     created = dashboard.post(
@@ -260,7 +260,9 @@ def test_prompt_page_shows_the_selected_revision(dashboard: TestClient) -> None:
     assert "Keep a later prompt." not in opened.text
 
 
-def _put_content(client: TestClient, scope: str, family: str, artifact_id: str, content: dict[str, Any]) -> dict[str, Any]:
+def _put_content(
+    client: TestClient, scope: str, family: str, artifact_id: str, content: dict[str, Any]
+) -> dict[str, Any]:
     path = f"/v1/scopes/{scope}/artifacts/{family}/{artifact_id}"
     current = client.get(path)
     assert current.status_code == 200, (family, current.text)
@@ -345,6 +347,37 @@ def test_notes_page_shows_the_selected_memory_revision(dashboard: TestClient) ->
     assert "Revised note." in page.text
 
 
+def _hrefs(html: str) -> list[str]:
+    return [unescape(href) for href in re.findall(r'href="([^"]+)"', html)]
+
+
+def test_memory_history_link_replaces_the_previously_selected_note_version(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Memory revision navigation")["scope_id"]
+    remembered = dashboard.post(
+        "/v1/memory/remember",
+        json={"scope_id": scope, "kind": "fact", "text": "Original note."},
+    )
+    assert remembered.status_code == 200, remembered.text
+    entry = remembered.json()["entry"]
+    revised = dashboard.post(
+        "/v1/memory/entries/revise",
+        json={"scope_id": scope, "citation": entry["citation"], "kind": "fact", "text": "Revised note."},
+    )
+    assert revised.status_code == 200, revised.text
+    current = dashboard.get(
+        "/dashboard/notes",
+        params={"scope": scope, "entry": entry["citation"]["entry_id"], "lang": "en"},
+    )
+    assert current.status_code == 200, current.text
+    selected = dashboard.get(next(href for href in _hrefs(current.text) if "memory_id=" in href and "entry=" in href))
+    assert selected.status_code == 200, selected.text
+    page = dashboard.get(next(href for href in _hrefs(selected.text) if "memory_history=1" in href))
+    assert page.status_code == 200, page.text
+    reading = page.text.split('id="note-reading"', 1)[1]
+    assert "Original note." in reading
+    assert "Revised note." not in reading
+
+
 def test_older_memory_revision_ignores_a_later_notes_page(dashboard: TestClient) -> None:
     scope = create_scope(dashboard, "Paged memory history")["scope_id"]
     first = dashboard.post(
@@ -400,12 +433,9 @@ def test_memory_compare_stops_after_the_entry_budget() -> None:
             {"state": "active", "entry_id": f"entry-{index}", "entry_version_id": f"version-{index}"}
             for index in range(count)
         ]
-        changed = [
-            {**item, "entry_version_id": f"later-{item['entry_id']}"}
-            for item in entries
-        ]
+        changed = [{**item, "entry_version_id": f"later-{item['entry_id']}"} for item in entries]
         rows, truncated = await _memory_text_rows(
-            Api(),
+            cast(DashboardAPI, Api()),
             "scope",
             "memory",
             1,
