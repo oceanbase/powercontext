@@ -1536,6 +1536,138 @@ def test_related_coordination_fails_closed_and_keeps_cursor_when_history_exceeds
     asyncio.run(scenario())
 
 
+async def _union_over_stage_contract_setup():
+    """Window whose coordinate phase sees a candidate union above the stage contract.
+
+    Two proposals hit overlapping secondary candidates, so each per-proposal
+    retrieval stays inside ``topic_memory_history_max_candidates`` while the
+    deduplicated union is 21.
+    """
+    manager, profile, sources, _ = await _repositories()
+    published = {
+        f"history-{index:04d}": PublishedTopicMemory(
+            topic=TopicMemory(
+                artifact_id=f"history-{index:04d}",
+                revision=1,
+                content=_content(f"history-{index:04d}"),
+            ),
+            published_at=datetime(2026, 1, 1, tzinfo=UTC),
+            is_current=True,
+            current_artifact=TopicMemory(
+                artifact_id=f"history-{index:04d}",
+                revision=1,
+                content=_content(f"history-{index:04d}"),
+            ).as_ref(),
+        )
+        for index in range(1, 22)
+    }
+
+    class FakeTopics:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def search(self, _connection, _scope_id, _query, **_kwargs):
+            self.calls += 1
+            hits = ()
+            if self.calls == 2:
+                hits = tuple(
+                    TopicMemorySearchHit(
+                        artifact_ref=published[f"history-{index:04d}"].topic.as_ref(),
+                        title=f"history {index}",
+                        summary="shared durable state",
+                        score=90,
+                        matched_by=("topic_fts",),
+                    )
+                    for index in range(1, 22)
+                )
+            return TopicMemorySearchResult(mode="fts", hits=hits)
+
+        async def get_exact(self, _connection, _scope_id, ref):
+            return published[ref.artifact_id]
+
+    leases = ArtifactProcessingLeaseRepository()
+    async with profile.database.transaction() as connection:
+        await sources.add(
+            connection,
+            "scope-a",
+            NoteSource(
+                name="new-state",
+                materialization=SourceMaterialization.CAPTURED,
+                body="new shared state",
+            ),
+        )
+        term = await leases.start_single_process_term(connection, "holder")
+
+    topics = FakeTopics()
+    proposal = TopicMemoryProposal(content=_content("shared"), evidence_ids=("evidence-0001",))
+    processor = TopicMemoryProcessor(
+        database=profile.database,
+        sources=sources,
+        topics=cast(Any, topics),
+        stages=_stages(
+            probe=TopicMemoryProbeOutput(
+                probes=(TopicMemoryProbe(query="shared durable state", evidence_ids=("evidence-0001",)),)
+            ),
+            global_output=TopicMemoryGlobalOutput(proposals=(proposal,)),
+        ),
+        publisher=cast(Any, None),
+    )
+    return manager, profile, topics, processor, _assignment(term.fence("single-process"))
+
+
+async def _budget_row(profile):
+    async with profile.database.transaction() as connection:
+        row = (await connection.execute(select(TOPIC_MEMORY_WORK_BUDGETS_TABLE))).mappings().one_or_none()
+        return None if row is None else dict(row)
+
+
+def test_related_history_limit_is_persisted_as_its_own_terminal_code() -> None:
+    """A retry replays the same window input, so the rejection is decided, not attempted."""
+
+    async def scenario() -> None:
+        manager, profile, _, processor, assignment = await _union_over_stage_contract_setup()
+        try:
+            with pytest.raises(TopicMemoryGenerationError, match="related_history_limit"):
+                await processor.process(assignment)
+            row = await _budget_row(profile)
+            assert row is not None
+            assert row["failure_code"] == "related_history_limit"
+            assert row["attempts"] == 1
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())
+
+
+def test_related_history_limit_terminal_rejection_does_not_re_enter_generation() -> None:
+    """The recorded rejection terminates the frontier instead of spending the allowance."""
+
+    async def scenario() -> None:
+        manager, profile, topics, processor, assignment = await _union_over_stage_contract_setup()
+        try:
+            with pytest.raises(TopicMemoryGenerationError, match="related_history_limit"):
+                await processor.process(assignment)
+            terminal = await _budget_row(profile)
+            calls = topics.calls
+
+            with pytest.raises(TopicMemoryGenerationError, match="related_history_limit"):
+                await processor.process(assignment)
+            assert topics.calls == calls
+            assert await _budget_row(profile) == terminal
+
+            async with profile.database.transaction() as connection:
+                cursor = await SourceCursorRepository().load(
+                    connection,
+                    "scope-a",
+                    TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                )
+            assert cursor is None
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())
+
+
 def test_probe_query_is_bounded_before_embedding_and_repository_io() -> None:
     async def scenario() -> None:
         manager, profile, sources, _ = await _repositories()
