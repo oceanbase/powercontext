@@ -246,8 +246,9 @@ failures, and timeouts. Unacknowledged counts reflect the latest discovery; coun
 The `extraction` object in `GET /v1/capabilities` separates configuration, background execution, and local observations.
 Reading this snapshot does not query the database or call a model, and does not produce an overall health verdict.
 
-- `configuration` is `configured` when a local extraction model or custom pipeline is assembled, or `unconfigured`
-  when neither is available. It does not verify credentials or connectivity. External execution reports `unknown`.
+- `configuration` is `configured` when a local extraction model or custom pipeline is assembled, or a local Memory
+  worker is registered. It is `unconfigured` when none is available. Registration does not verify credentials or
+  connectivity. External execution reports `unknown`.
 - `background.location` is `local`, `external`, or `none`. The local Supervisor's `role` (`leader` or `standby`) is
   separate from its `state` (`running`, `degraded`, or `stopped`); standby is normal. A worker crash can coexist with a
   running Supervisor that arranges retries. `automatic_processing_enabled=false` still permits explicit work.

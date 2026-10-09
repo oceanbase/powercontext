@@ -223,8 +223,8 @@ Supervisor 实例重建而重置。
 `GET /v1/capabilities` 的 `extraction` 对象分别返回配置、后台执行状态和本地观察记录。
 读取快照不查询数据库、不调用模型，也不生成整个管道的健康结论。
 
-- `configuration` 在本地已装配提取模型或自定义管道时为 `configured`，两者均不可用时为 `unconfigured`。
-  这不验证凭证或连通性；外部执行返回 `unknown`。
+- `configuration` 在本地已装配提取模型、自定义管道或已注册本地 Memory worker 时为 `configured`，
+  均不可用时为 `unconfigured`。注册不验证凭证或连通性；外部执行返回 `unknown`。
 - `background.location` 为 `local`、`external` 或 `none`。本地 Supervisor 的 `role`（`leader` 或 `standby`）
   与 `state`（`running`、`degraded` 或 `stopped`）独立，standby 属于正常状态。Worker 崩溃时，Supervisor
   仍可能正常运行并安排重试。`automatic_processing_enabled=false` 仍允许显式处理请求。
