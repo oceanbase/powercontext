@@ -53,8 +53,9 @@ Use the configuration wizard to select full memory, or configure the deployment 
 - meaningful Source evidence in the Scope.
 
 Embedding is optional for Topic Memory itself. Configure a compatible Embedding model and dimension when the deployment
-should offer vector or hybrid retrieval. The Server exposes the selected retrieval mode in each search response; callers
-do not choose arbitrary retrieval controls.
+should offer vector or hybrid retrieval. The dedicated Topic search exposes the selected retrieval mode in each
+response and uses the deployment default. The [unified Artifact search](search-artifacts.md) also accepts explicit
+modes and supported search controls.
 
 The schedule is an admission interval, not a completion deadline. Topic generation also has provider and Worker
 timeouts. An unset schedule disables new automatic admission but does not discard already accepted work. For SQLite deployments, Topic Workers
@@ -108,8 +109,13 @@ Content-Type: application/json
 ```
 
 The response reports the deployment's actual `mode` (`fts` or `hybrid`) and `hits`. Each hit contains an exact `artifact`
-reference, `title`, `summary`, an optional `snippet`, `score`, and `matched_by`. Search sees only current Topic Memory
-heads in the current Scope; it does not search across Scopes or accept a caller-selected retrieval mode.
+reference, `title`, `summary`, an optional `snippet`, `score`, and `matched_by`. This dedicated search sees only current
+Topic Memory heads in the current Scope; it does not search across Scopes or accept a caller-selected retrieval mode.
+
+For complete Artifact results, explicit text/vector/hybrid modes, admission, score thresholds, or channel scores, use
+[Search Artifacts](search-artifacts.md). Topic fusion controls are documented in
+[Fusion algorithms and parameters](search-fusion.md). The dedicated route keeps its existing summary response and
+`0`–`100` score scale.
 
 ## Read exact detail
 

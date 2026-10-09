@@ -561,6 +561,17 @@ const OPERATIONS$1 = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	search_artifacts: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/search",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "family"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	search_topic_memory: {
 		method: "POST",
 		path: "/v1/topic-memory/search",

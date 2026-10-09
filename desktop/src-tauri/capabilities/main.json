@@ -1,0 +1,26 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Only the packaged main window can use typed connection, Scope and local diagnostic commands.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-foundation-info",
+    "allow-local-diagnostics",
+    "allow-remember-memory",
+    "allow-search-memory",
+    "allow-memory-entry",
+    "allow-cancel-memory-reads",
+    "allow-desktop-state",
+    "allow-save-profile",
+    "allow-remove-profile",
+    "allow-check-connection",
+    "allow-disconnect",
+    "allow-invalidate-profile",
+    "allow-list-scopes",
+    "allow-cancel-scope-reads",
+    "allow-default-scope",
+    "allow-select-scope"
+  ]
+}

@@ -15,11 +15,13 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import sqlite3
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
 
+import pytest
 from sqlalchemy import select, text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -28,7 +30,12 @@ from sqlalchemy.schema import CreateTable
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
 from powercontext.builtin.artifacts.skill import Skill, SkillContent
 from powercontext.builtin.persistence.artifact_governance import ArtifactLifecycleState
-from powercontext.builtin.persistence.experience_index import ensure_artifact_head_searchable_text
+from powercontext.builtin.persistence.experience_index import (
+    ensure_artifact_head_searchable_text,
+    experience_search_hits,
+    skill_search_hits,
+)
+from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, BUILTIN_TABLES
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
@@ -146,6 +153,21 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
             assert first_outcome.admission is not None
             assert first_outcome.admission.admitted == 1
             assert first_outcome.admission.retrieved >= 1
+            scored_hit = first_outcome.hits[0]
+            assert scored_hit.retrieval_score is not None
+            assert scored_hit.channel_scores is not None
+            raw = scored_hit.channel_scores["text"]
+            assert raw.metric == "sqlite_bm25"
+            assert raw.raw < 0
+            assert raw.higher_is_better is False
+            assert scored_hit.retrieval_score == -raw.raw / (1 - raw.raw)
+            async with contexts.database.transaction() as connection:
+                excluded = await contexts.experience_index.search(
+                    connection, "project", "hamsterlegacy", 8, min_score=1, require_scores=True
+                )
+            assert excluded.hits == ()
+            assert excluded.admission is not None
+            assert excluded.admission.admitted == 1
             assert await contexts.search_experience("other-project", "hamsterlegacy", 8) == ()
             assert await contexts.search_experience("project", "situation outcome", 8) == ()
 
@@ -177,6 +199,9 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
             assert skill_approval.result_artifact is not None
             skill_hits = await contexts.search_skills("project", "regenerate client", 8)
             assert tuple(hit.artifact_ref for hit in skill_hits) == (skill_approval.result_artifact,)
+            assert skill_hits[0].retrieval_score is not None
+            assert skill_hits[0].channel_scores is not None
+            assert skill_hits[0].channel_scores["text"].metric == "sqlite_bm25"
             governance = await contexts.update_skill_lifecycle(
                 "project",
                 skill_approval.result_artifact.artifact_id,
@@ -233,3 +258,142 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
             assert tuple(hit.artifact_ref for hit in rebuilt) == (replaced.result_artifact,)
 
     asyncio.run(scenario())
+
+
+def _experience_row(artifact_id: str, raw_score: float, metric: str, *, keyword: str = "client") -> dict[str, object]:
+    return {
+        "artifact_id": artifact_id,
+        "revision": 1,
+        "content": _experience(keyword, "Validate the generated contract.").model_dump_json().encode(),
+        "raw_score": raw_score,
+        "score_metric": metric,
+    }
+
+
+@pytest.mark.parametrize("metric,raw", [("sqlite_bm25", -2.0), ("oceanbase_match", 2.0)])
+def test_experience_scores_normalize_backend_direction_and_preserve_raw(metric: str, raw: float) -> None:
+    outcome = experience_search_hits([_experience_row("one", raw, metric)], "client", 8, "project", require_scores=True)
+
+    assert outcome.hits[0].retrieval_score == pytest.approx(2 / 3)
+    assert outcome.hits[0].channel_scores is not None
+    channel = outcome.hits[0].channel_scores["text"]
+    assert channel.raw == raw
+    assert channel.metric == metric
+    assert channel.higher_is_better is (metric == "oceanbase_match")
+
+
+@pytest.mark.parametrize("raw", [0.0, 1e308])
+def test_experience_scores_accept_zero_and_large_finite_relevance(raw: float) -> None:
+    hit = experience_search_hits(
+        [_experience_row("one", raw, "oceanbase_match")], "client", 8, "project", require_scores=True
+    ).hits[0]
+
+    assert hit.retrieval_score == (0 if raw == 0 else 1)
+    assert hit.retrieval_score is not None
+    assert math.isfinite(hit.retrieval_score)
+
+
+@pytest.mark.parametrize(
+    "metric,raw,error_name",
+    [
+        ("sqlite_bm25", 1.0, "InvalidSearchScore"),
+        ("oceanbase_match", -1.0, "InvalidSearchScore"),
+        ("oceanbase_match", math.inf, "InvalidSearchScore"),
+        ("oceanbase_match", math.nan, "InvalidSearchScore"),
+        ("unknown", 1.0, "UnsupportedScoreMetric"),
+    ],
+)
+def test_experience_scores_reject_invalid_relevance(metric: str, raw: float, error_name: str) -> None:
+    from powercontext.builtin.artifacts import search
+
+    with pytest.raises(getattr(search, error_name)):
+        experience_search_hits([_experience_row("one", raw, metric)], "client", 8, "project", require_scores=True)
+
+
+def test_experience_threshold_keeps_equal_scores_and_counts_lexical_admission() -> None:
+    rows = [
+        _experience_row("rejected", math.nan, "oceanbase_match", keyword="unrelated"),
+        _experience_row("equal", 1.0, "oceanbase_match"),
+        _experience_row("below", 0.25, "oceanbase_match"),
+    ]
+    # The invalid score belongs to a lexically rejected row and is never normalized.
+    rows[0]["content"] = (
+        ExperienceContent(situation="unrelated", action="ignore", outcome="absent", lesson="none")
+        .model_dump_json()
+        .encode()
+    )
+    outcome = experience_search_hits(rows, "client", 3, "project", min_score=0.5, require_scores=True)
+
+    assert tuple(hit.artifact_ref.artifact_id for hit in outcome.hits) == ("equal",)
+    assert outcome.admission is not None
+    assert (outcome.admission.retrieved, outcome.admission.admitted) == (3, 2)
+
+
+def test_experience_legacy_stops_at_limit_and_accepts_unscored_custom_rows() -> None:
+    rows = [_experience_row("one", 2.0, "oceanbase_match"), _experience_row("two", 1.0, "oceanbase_match")]
+    for row in rows:
+        del row["raw_score"]
+        del row["score_metric"]
+    outcome = experience_search_hits(rows, "client", 1, "project")
+
+    assert tuple(hit.artifact_ref.artifact_id for hit in outcome.hits) == ("one",)
+    assert outcome.hits[0].retrieval_score is None
+    assert outcome.admission is not None
+    assert (outcome.admission.retrieved, outcome.admission.admitted) == (1, 1)
+    with pytest.raises(RuntimeError):
+        experience_search_hits(rows, "client", 1, "project", require_scores=True)
+
+
+def test_skill_threshold_uses_same_score_and_admission_contract() -> None:
+    from powercontext.builtin.artifacts.search import AdmissionFloor
+
+    rows = [
+        {
+            "artifact_id": "equal",
+            "revision": 1,
+            "content": _skill().model_dump_json().encode(),
+            "raw_score": -1.0,
+            "score_metric": "sqlite_bm25",
+        },
+        {
+            "artifact_id": "below",
+            "revision": 1,
+            "content": _skill().model_dump_json().encode(),
+            "raw_score": -0.25,
+            "score_metric": "sqlite_bm25",
+        },
+    ]
+    hits = skill_search_hits(
+        rows,
+        "client unrelated absent",
+        3,
+        admission=AdmissionFloor(lexical_min_matched_terms=1),
+        min_score=0.5,
+        require_scores=True,
+    )
+
+    assert tuple(hit.artifact_ref.artifact_id for hit in hits) == ("equal",)
+    assert hits[0].retrieval_score == 0.5
+    assert hits[0].channel_scores is not None
+    assert hits[0].channel_scores["text"].raw == -1
+
+
+def test_oceanbase_search_selects_match_raw_and_preserves_candidate_window() -> None:
+    rows = [_experience_row("one", 2.0, "oceanbase_match")]
+    connection = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(mappings=lambda: rows)))
+    outcome = asyncio.run(
+        OceanBaseExperienceFTSIndex().search(
+            cast(AsyncConnection, connection), "project", "client", 8, require_scores=True
+        )
+    )
+    statement = connection.execute.await_args.args[0]
+    compiled = statement.compile(dialect=mysql.dialect())
+    sql = str(compiled)
+
+    assert "AS raw_score" in sql
+    assert "MATCH (pc_artifact_heads.searchable_text) AGAINST" in sql
+    assert "ORDER BY MATCH" in sql
+    assert " DESC, pc_artifact_heads.artifact_id, pc_artifact_heads.revision" in sql
+    assert 32 in compiled.params.values()
+    assert outcome.hits[0].channel_scores is not None
+    assert outcome.hits[0].channel_scores["text"].metric == "oceanbase_match"

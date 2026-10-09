@@ -10,6 +10,8 @@
     "ingest-text-files-with-opendal",
     "---Artifact 与知识---",
     "artifacts",
+    "search-artifacts",
+    "search-fusion",
     "memory-and-context",
     "---Experience---",
     "create-and-review-experience",

@@ -49,13 +49,17 @@ class _FailingExperienceIndex:
     async def replace(self, _connection, _scope_id, _experience, /) -> None:
         raise _IndexUnavailableError
 
-    async def search(self, _connection, _scope_id, _query, _limit, /, *, admission=None):
+    async def search(
+        self, _connection, _scope_id, _query, _limit, /, *, admission=None, min_score=None, require_scores=False
+    ):
         return ExperienceSearchOutcome()
 
     async def replace_skill(self, _connection, _scope_id, _skill, _package, /) -> None:
         pass
 
-    async def search_skills(self, _connection, _scope_id, _query, _limit, /):
+    async def search_skills(
+        self, _connection, _scope_id, _query, _limit, /, *, admission=None, min_score=None, require_scores=False
+    ):
         return ()
 
 

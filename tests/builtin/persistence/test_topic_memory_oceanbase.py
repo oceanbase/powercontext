@@ -119,8 +119,10 @@ def test_oceanbase_fts_initializes_and_queries_both_current_projection_channels(
             "ON pc_topic_memory_active_chunks (searchable_text) WITH PARSER SPACE",
         ]
         assert "MATCH (pc_topic_memory_active_topics.searchable_text) AGAINST" in query_statements[0]
+        assert " AS raw_score" in query_statements[0]
         assert "pc_topic_memory_active_topics.scope_id" in query_statements[0]
         assert "MATCH (pc_topic_memory_active_chunks.searchable_text) AGAINST" in query_statements[1]
+        assert " AS raw_score" in query_statements[1]
         assert "pc_topic_memory_active_chunks.scope_id" in query_statements[1]
         assert "row_number() OVER" in query_statements[1]
         assert "anon_1.topic_rank" in query_statements[1]
