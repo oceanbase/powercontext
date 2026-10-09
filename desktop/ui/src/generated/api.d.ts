@@ -596,6 +596,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/handoff/hint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare optional compact continuity hints from a selected Handoff
+         * @description Explicitly request untrusted historical orientation for a fresh session. Select an exact Revision, a complete transferred PreparedHandoff, or latest only after resolving the intended workstream Scope. Hints project existing Handoff fields and authorized evidence references without transcript summaries or model generation. They never replace full Handoff reads, evidence checks, current instructions, or live validation. The complete rendered UTF-8 hint is limited to max_bytes (at most 4000); omit it rather than truncate when budget or evidence is insufficient. Blocked hints include the full recorded state only when the complete hint fits. Authorization matches Continue: exact/latest require artifact.read and handoff.evidence.inspect on the selected Handoff, covering only its citation manifest without general Scope read; prepared requires scope.read. General evidence APIs retain their independent permission checks. Prepared selection provides no exact Revision reference; the receiver must retain the complete transferred PreparedHandoff.
+         */
+        post: operations["prepare_handoff_hint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/topic-memory/flush": {
         parameters: {
             query?: never;
@@ -2752,6 +2772,19 @@ export interface components {
             selection: components["schemas"]["HandoffSelection"];
             prepared?: components["schemas"]["PreparedHandoff"];
             revision?: components["schemas"]["ArtifactReference"];
+        };
+        PrepareHandoffHintRequest: {
+            scope_id: string;
+            selection: components["schemas"]["HandoffSelection"];
+            /** @description Required only for prepared selection; retain this complete value for continuation. */
+            prepared?: components["schemas"]["PreparedHandoff"];
+            /** @description Required only for exact selection. */
+            revision?: components["schemas"]["ArtifactReference"];
+            /**
+             * @description Complete rendered UTF-8 text budget including notice, boundaries, and exact references.
+             * @default 2000
+             */
+            max_bytes: number;
         };
         FinalizeHandoffRequest: {
             scope_id: string;
@@ -5512,6 +5545,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HandoffResolution"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    prepare_handoff_hint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrepareHandoffHintRequest"];
+            };
+        };
+        responses: {
+            /** @description Bounded orientation text, or empty when no complete supported hint can be delivered. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreparedContext"];
                 };
             };
             401: components["responses"]["Unauthorized"];
