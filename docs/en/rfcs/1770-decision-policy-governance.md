@@ -27,6 +27,11 @@ tool, change public HTTP/OpenAPI contracts, or claim that Jev, Laya, or any othe
 It establishes the contract that later Memory, Handoff, Experience, Skill, and safety-gate consumers must satisfy before
 they can move from experiments to runtime behaviour.
 
+This RFC also distinguishes decision gates from adjacent recall-preparation and context-projection helpers. Those helpers
+may improve query recall, make an injected projection safer, or describe what a host actually received, but they do not
+become policy consumers merely by using a model or a local rule. They cannot alter Scope resolution, authorization,
+Artifact history, or a domain action.
+
 # Motivation
 
 PowerContext now has a provider-neutral decision role through #1739 and #1740. Several follow-up issues ask whether a
@@ -237,6 +242,44 @@ Required observation fields:
 Raw subject/evidence text is not stored by default. Replay should prefer exact PowerContext references and re-resolve
 them under the same authorization context. If a deployment chooses to retain raw snippets for offline evaluation, that
 retention must be explicit and separately documented.
+
+## Adjacent recall and projection helpers
+
+DecisionPolicy governs a bounded verdict. A helper that transforms a retrieval query or renders a context projection has
+a different contract: it prepares information for a host or model but cannot adjudicate a domain object. Implementations
+must keep that distinction explicit rather than representing a rewrite, redaction, cache hit, or omitted context as a
+policy `allow` result.
+
+### Query preparation
+
+A host may optionally derive a retrieval query from the current user request before recall. A model-assisted rewrite is a
+preparation helper, not a `DecisionModel` consumer: it returns a candidate query, not a `yes`/`no`/`abstain` verdict.
+
+- It runs at a host/context boundary after Scope and authorization resolution, never inside a generic Memory service.
+- The original query remains the authoritative request. The helper must preserve it for diagnostics, and timeout, invalid
+  output, privacy refusal, or model failure must fall back to that original query without changing domain behaviour.
+- A rewrite must be treated as untrusted transformation output. It cannot introduce a Scope, Artifact reference, access
+  claim, instruction, or tool action. Local validation must bound its size and reject malformed output before search.
+- A new rewrite begins in shadow evaluation. It records a privacy-safe request fingerprint, rewrite/fallback reason,
+  latency, and candidate-set comparison, then earns activation only from PowerContext replay evidence. Evaluation must
+  measure recall quality, bad-recall and instruction-like cases, fallback rate, P95 latency, and added model cost.
+
+The deterministic query analyzer and recall-sufficiency policy remain the default path. A rewrite may complement them;
+it must not replace their bounded, model-free guarantees without a separate RFC.
+
+### Projection safety and Context Receipt
+
+Memory, Source, and Artifact revisions remain authoritative evidence even when their text is unsafe or unsuitable for a
+particular host/model projection. A deterministic safety helper may flag, redact, or withhold a projection before host
+injection or external-provider egress, but it must not silently rewrite history or claim that an uninspected item is
+clean. A privacy/transport refusal is `unadjudicated`, and a safety finding may create an existing review suggestion but
+does not authorize a Memory lifecycle action.
+
+Hosts need a separate Context Receipt for operational debugging and replay. It is a sidecar, not extra prompt text, and
+may contain the exact selected Artifact/Memory revisions and entry versions, selected and omitted item counts, truncation
+facts, safety/projection outcome, query-preparation outcome, and the relevant policy or model version. The receipt lets a
+host explain what it received without weakening the rule that current user instructions and live state take precedence
+over historical context. It does not create a public API, persist a new ledger, or expose raw content by itself.
 
 ## Consumer classes
 

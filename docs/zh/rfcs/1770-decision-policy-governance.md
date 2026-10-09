@@ -21,6 +21,8 @@
 本 RFC 为 PowerContext 中的窄域决策门定义一层共享治理契约。决策门是由确定性 Runtime 代码调用的
 `DecisionModel` 消费者：它只问一个有边界的问题，把模型回答与本地规则合并，然后返回一个类型化评估，供领域服务选择观察、标注、送审、暂缓或忽略。治理层提供 policy manifest、shadow/advisory/enforcing 模式、审计 observation、replay/rescore 规则、隐私边界和 promotion 条件。它不新增模型 provider，不把决策模型暴露成 tool，不改变公开 HTTP/OpenAPI 契约，也不宣称 Jev、Laya 或任何后端一定能提升 PowerContext 质量。它定义的是后续 Memory、Handoff、Experience、Skill 和安全门消费者从实验进入运行时行为之前必须满足的契约。
 
+本 RFC 还把 decision gate 与相邻的 recall preparation、context projection helper 区分开。这些 helper 可以改进 query recall、让注入 projection 更安全，或说明 host 实际收到什么，但即使它们使用模型或本地规则，也不会因此成为 policy consumer。它们不能改变 Scope resolution、authorization、Artifact history 或领域动作。
+
 # Motivation
 
 #1739 和 #1740 已经给 PowerContext 增加了 provider-neutral 的 decision role。随后几个 issue 都在问一个便宜的决策后端是否能帮助完成窄域判断：
@@ -200,6 +202,27 @@ DecisionAssessment:
 - fallback reason（如果有）。
 
 默认不保存 raw subject/evidence text。replay 应优先使用精确 PowerContext reference，并在相同 authorization context 下重新解析。如果部署选择为离线 evaluation 保留 raw snippet，该保留行为必须显式启用并单独记录。
+
+## 相邻的 recall 与 projection helper
+
+DecisionPolicy 管理的是有界 verdict。转换 retrieval query 或渲染 context projection 的 helper 具有不同契约：它为 host 或 model 准备信息，但不能对领域对象作出 adjudication。实现必须显式保持这个区别，不能把 rewrite、redaction、cache hit 或 omitted context 伪装成 policy 的 `allow` 结果。
+
+### Query preparation
+
+host 可以在 recall 前，从当前 user request 可选地导出 retrieval query。model-assisted rewrite 是 preparation helper，而不是 `DecisionModel` consumer：它返回候选 query，不返回 `yes`/`no`/`abstain` verdict。
+
+- 它在 Scope 和 authorization resolution 之后的 host/context boundary 运行，绝不能嵌入通用 Memory service。
+- 原始 query 始终是权威 request。helper 必须保留它供 diagnostics 使用；timeout、invalid output、privacy refusal 或 model failure 都必须无行为变化地降级回该原始 query。
+- rewrite 必须被视为不可信的 transformation output。它不能引入 Scope、Artifact reference、access claim、instruction 或 tool action。local validation 必须限制大小，并在 search 前拒绝 malformed output。
+- 新 rewrite 必须先进入 shadow evaluation。它记录 privacy-safe request fingerprint、rewrite/fallback reason、latency 和 candidate-set comparison，只有以 PowerContext replay evidence 证明后才能启用。evaluation 必须测量 recall quality、bad-recall 与 instruction-like case、fallback rate、P95 latency 和新增 model cost。
+
+确定性的 query analyzer 和 recall-sufficiency policy 仍是默认路径。rewrite 可以补充它们；除非有单独的 RFC，否则不能替换它们的有界、model-free guarantee。
+
+### Projection safety 与 Context Receipt
+
+即使某个文本对特定 host/model projection 不安全或不适合，Memory、Source 和 Artifact revision 仍是权威 evidence。确定性的 safety helper 可以在 host injection 或 external-provider egress 前 flag、redact 或 withhold 一个 projection，但不能静默改写 history，也不能宣称未检查的 item 是 clean。privacy/transport refusal 是 `unadjudicated`；safety finding 可以创建既有的 review suggestion，但不能授权 Memory lifecycle action。
+
+host 需要独立的 Context Receipt 来支持 operational debugging 和 replay。它是 sidecar，不是额外 prompt text；可以包含精确选中的 Artifact/Memory revision 和 entry version、selected/omitted item count、truncation fact、safety/projection outcome、query-preparation outcome，以及相关 policy 或 model version。receipt 让 host 可以说明自己收到了什么，同时不削弱“当前 user instruction 和 live state 优先于 historical context”的规则。它本身不新增 public API、不持久化新 ledger，也不自行暴露 raw content。
 
 ## Consumer classes
 
