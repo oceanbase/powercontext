@@ -20,6 +20,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
+from sqlite3 import SQLITE_INTERRUPT
 
 from aiosqlite import Connection as SQLiteConnection
 from sqlalchemy.exc import OperationalError
@@ -270,20 +271,8 @@ async def _sqlite_model_usage_transaction(connection: AsyncConnection, deadline:
         # without queuing work. Use that same thread-safe primitive in a timer so
         # each record needs no additional asyncio task.
         timer = loop.call_at(deadline, driver._conn.interrupt)
-        async with connection.begin():
-            if loop.time() >= deadline:
-                raise ModelUsageAttemptExpired
-            # sqlite3's legacy mode does not begin a transaction for SELECT.
-            # Include the Scope existence read in the write's actual snapshot.
-            await connection.exec_driver_sql("BEGIN")
+        async with _sqlite_usage_attempt(connection, deadline):
             yield
-            # The body is done, but the attempt may have outlived its slice. The
-            # statements are still uncommitted, so stopping here applies nothing
-            # and costs the record its usage; the native timer above, not this
-            # check, is what bounds work in progress. Expire as a repeatable
-            # attempt and let the recorder spend the rest of the record budget.
-            if loop.time() >= deadline:
-                raise ModelUsageAttemptExpired
         # busy_timeout stays bounded through COMMIT and any automatic ROLLBACK.
     finally:
         if timer is not None:
@@ -291,6 +280,34 @@ async def _sqlite_model_usage_transaction(connection: AsyncConnection, deadline:
         await _restore_sqlite_usage_connection(driver, busy_timeout)
     # SQLite cannot interrupt a user-defined function or a blocked filesystem
     # syscall. Await native cleanup rather than falsely report it as cancelled.
+
+
+@asynccontextmanager
+async def _sqlite_usage_attempt(connection: AsyncConnection, deadline: float) -> AsyncIterator[None]:
+    """Repeat only an expired body, never an interruption with an unknown commit."""
+
+    loop = asyncio.get_running_loop()
+    committing = False
+    try:
+        async with connection.begin():
+            if loop.time() >= deadline:
+                raise ModelUsageAttemptExpired
+            # sqlite3's legacy mode does not begin a transaction for SELECT.
+            # Include the Scope existence read in the write's actual snapshot.
+            await connection.exec_driver_sql("BEGIN")
+            yield
+            # Native interruption and a body that returns after its slice are
+            # both unapplied attempts. Let the recorder spend its remaining budget.
+            if loop.time() >= deadline:
+                raise ModelUsageAttemptExpired
+            committing = True
+    except OperationalError as error:
+        # The transaction has rolled back. Connection-level restoration must
+        # also succeed before the enclosing context can return this expiry.
+        sqlite_code = getattr(error.orig, "sqlite_errorcode", None)
+        if not committing and sqlite_code == SQLITE_INTERRUPT and loop.time() >= deadline:
+            raise ModelUsageAttemptExpired from error
+        raise
 
 
 def _disabled_progress() -> int:

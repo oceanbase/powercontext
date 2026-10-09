@@ -709,6 +709,43 @@ class _SlowQueryRepository(StatisticsRepository):
         await super().record(connection, scope_id, usage_date, purpose, operation, usage)
 
 
+@pytest.mark.parametrize("file_backed", [False, True])
+def test_native_deadline_before_commit_retries_usage_without_double_counting(tmp_path: Path, file_backed: bool) -> None:
+    class InterruptedOnceRepository(StatisticsRepository):
+        slow = True
+
+        async def record(self, connection, *args) -> None:
+            # Apply the increment before real SQLite VM work consumes the first
+            # attempt's slice. Its rollback must remove that increment before a
+            # retry, rather than either dropping the record or counting it twice.
+            await super().record(connection, *args)
+            if self.slow:
+                self.slow = False
+                await connection.exec_driver_sql(
+                    "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000000000) SELECT sum(x) FROM n"
+                )
+
+    async def scenario() -> None:
+        config = (
+            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'interrupted-usage.db'}")
+            if file_backed
+            else SQLiteConfig()
+        )
+        async with _database(config) as database:
+            recorder = _ModelUsageRecorder(database, InterruptedOnceRepository(), write_timeout_seconds=0.4)
+            try:
+                _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
+                await recorder.flush()
+                rows = await _rows(database)
+                assert len(rows) == 1
+                assert (rows[0].requests, rows[0].input_tokens, rows[0].output_tokens) == (1, 3, 5)
+                await _assert_connection_restored(database)
+            finally:
+                await recorder.close()
+
+    asyncio.run(scenario())
+
+
 def test_native_sqlite_deadline_stops_vm_work_and_preserves_in_memory_database() -> None:
     async def scenario() -> None:
         async with _database() as database:
@@ -729,6 +766,38 @@ def test_native_sqlite_deadline_stops_vm_work_and_preserves_in_memory_database()
                 await recorder.close()
 
     asyncio.run(scenario())
+
+
+def test_an_interrupted_commit_reply_does_not_repeat_applied_usage(caplog: pytest.LogCaptureFixture) -> None:
+    async def scenario() -> None:
+        async with _database() as database:
+
+            def lost_reply(connection) -> None:
+                # Commit for real, then let the native deadline expire before
+                # reporting an interrupted reply. Repeating this outcome would
+                # increment an already committed record a second time.
+                connection.connection.commit()
+                await_only(asyncio.sleep(0.12))
+                original = sqlite3.OperationalError("secret commit reply")
+                original.sqlite_errorcode = sqlite3.SQLITE_INTERRUPT
+                raise OperationalError("COMMIT", None, original)
+
+            event.listen(database.engine.sync_engine, "commit", lost_reply, once=True)
+            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=0.4)
+            try:
+                _offer(recorder)
+                await recorder.flush()
+                rows = await _rows(database)
+                assert len(rows) == 1
+                assert rows[0].requests == 1
+                await _assert_connection_restored(database)
+            finally:
+                await recorder.close()
+
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(scenario())
+    assert "will not be retried" in caplog.text
+    assert "secret commit reply" not in caplog.text
 
 
 class _BlockingNativeRepository(StatisticsRepository):
