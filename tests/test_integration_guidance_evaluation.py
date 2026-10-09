@@ -156,11 +156,16 @@ def test_failed_skill_read_keeps_specific_diagnosis_and_attempt() -> None:
 
 def test_mixed_skill_read_and_operation_retains_the_rejected_operation() -> None:
     response = call("read_skill_resource", {"resource": "powercontext-memory"})
-    response["tool_calls"] += call("pc_search")["tool_calls"]
-    catalog = {"host": "dsh", "guidance": "", "tools": [{"name": "pc_search"}], "skill_resources": {}}
+    response["tool_calls"] += call("mcp__powercontext__search_memory")["tool_calls"]
+    catalog = {
+        "host": "dsh",
+        "guidance": "",
+        "tools": [{"name": "mcp__powercontext__search_memory"}],
+        "skill_resources": {},
+    }
     result = asyncio.run(run_scenario(Model([response]), catalog, "skill_search", 0, "unloaded"))
     assert not result["routing_passed"]
-    assert "batched with ['pc_search']" in result["error"]
+    assert "batched with ['mcp__powercontext__search_memory']" in result["error"]
     assert result["skill_read_attempts"][0]["calls"] == response["tool_calls"]
 
 
@@ -335,7 +340,7 @@ def test_carrier_accepts_omitted_optional_null_metadata_but_requires_scope_and_e
     assert not fixture.carrier_returned(json.dumps(prepared))
 
 
-@pytest.mark.parametrize("host", ["dsh", "pi", "opencode"])
+@pytest.mark.parametrize("host", ["pi", "opencode"])
 def test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes(host: str) -> None:
     root = Path(__file__).resolve().parents[1]
     if not shutil.which("node") or not (root / "integrations" / host / "plugins/powercontext/node_modules").is_dir():
@@ -364,6 +369,45 @@ def test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes
             prepared = await session.call("pc_handoff_finalize", {"draft": draft["data"]}, fixture)
             assert fixture.carrier_returned(json.dumps(prepared["data"]))
             assert prepared["data"]["schema"] == "powercontext.prepared-handoff.v1"
+        finally:
+            await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_dsh_controlled_native_handoff_uses_only_mcp_tools_and_preserves_complete_carriers() -> None:
+    if not shutil.which("node"):
+        pytest.skip("Native guidance evaluation requires Node 22.19+")
+
+    async def scenario() -> None:
+        session, fixture = NativeHandoffSession("dsh"), HandoffFixture()
+        try:
+            reply = await session.call("mcp__powercontext__handoff_current_work", handoff_payload(), fixture)
+            assert len(session.requests) == 1  # The high-level operation captures its own boundary.
+            assert set(reply["data"]) == {"boundary", "handoff"}
+            assert fixture.carrier_returned(json.dumps(reply["data"]["handoff"]))
+            assert not fixture.carrier_returned(json.dumps(reply["data"]))
+
+            fixture = HandoffFixture()
+            capture = await session.call(
+                "mcp__powercontext__capture_content_source",
+                {"scope_id": "fixture-scope", "source_id": "aurora", "content": "README complete"},
+                fixture,
+            )
+            source = capture["data"]["source"]
+            activated = await session.call(
+                "mcp__powercontext__activate_handoff",
+                {"scope_id": "fixture-scope", "objective": "Document Aurora", "boundary_source": source},
+                fixture,
+            )
+            finalized = await session.call(
+                "mcp__powercontext__finalize_handoff",
+                {"scope_id": "fixture-scope", "draft": activated["data"]["draft"]},
+                fixture,
+            )
+            assert fixture.carrier_returned(json.dumps(finalized["data"]))
+            with pytest.raises(RuntimeError, match="no MCP tool"):
+                await session.call("mcp__powercontext__prepare_handoff", {}, fixture)
         finally:
             await session.close()
 

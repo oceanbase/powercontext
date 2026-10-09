@@ -15,7 +15,30 @@
  */
 
 const SECRET_MARKERS = ['sk-', 'api_key', 'BEGIN PRIVATE']
+const CONTENT_FIELDS = new Map<string, readonly string[]>([
+  ['remember_memory', ['text', 'content']],
+  ['capture_content_source', ['text', 'content']],
+  ['revise_memory_entry', ['text', 'content']],
+  ['handoff_current_work', ['handoff']],
+  ['activate_handoff', ['objective']],
+  ['prepare_handoff', ['objective']],
+  ['finalize_handoff', ['draft']],
+  ['commit_handoff', ['handoff']],
+])
 
 export function containsSecret(text: string): boolean {
   return SECRET_MARKERS.some((marker) => text.includes(marker))
+}
+
+function containsSecretValue(value: unknown): boolean {
+  if (typeof value === 'string') return containsSecret(value)
+  if (!value || typeof value !== 'object') return false
+  return Object.values(value).some(containsSecretValue)
+}
+
+export function hasSecretContent(operation: string, payload: unknown): boolean {
+  const fields = CONTENT_FIELDS.get(operation)
+  if (!fields || !payload || typeof payload !== 'object') return false
+  const content = payload as Record<string, unknown>
+  return fields.some(field => containsSecretValue(content[field]))
 }

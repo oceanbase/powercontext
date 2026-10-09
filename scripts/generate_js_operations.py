@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generate TypeScript HTTP operation tables from OpenAPI."""
+"""Generate TypeScript HTTP operations and the DSH public MCP approval catalog."""
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ GENERATED_PATHS = (
     ROOT / "integrations" / "opencode" / "plugins" / "powercontext" / "src" / "operations.generated.ts",
     ROOT / "integrations" / "pi" / "plugins" / "powercontext" / "src" / "operations.generated.ts",
 )
+MCP_GENERATED_PATH = ROOT / "integrations" / "dsh" / "plugins" / "powercontext" / "src" / "mcp-operations.generated.ts"
 DRIFT_MESSAGE = "Generated JS operations drifted; run 'make js-api-generate' and review the result."
 HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 LICENSE_HEADER = """\
@@ -106,14 +108,31 @@ def main() -> None:
     args = parser.parse_args()
     contract = yaml.safe_load(CONTRACT_PATH.read_text(encoding="utf-8"))
     source = render_operations_source(contract)
+    mcp_source = render_mcp_operations_source()
     if args.check:
         current = [path.read_text(encoding="utf-8") if path.is_file() else "" for path in GENERATED_PATHS]
         if any(item.replace("\r\n", "\n") != source.replace("\r\n", "\n") for item in current):
+            raise SystemExit(DRIFT_MESSAGE)
+        if not MCP_GENERATED_PATH.is_file() or MCP_GENERATED_PATH.read_text(encoding="utf-8") != mcp_source:
             raise SystemExit(DRIFT_MESSAGE)
         return
     for path in GENERATED_PATHS:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(source, encoding="utf-8", newline="\n")
+    MCP_GENERATED_PATH.write_text(mcp_source, encoding="utf-8", newline="\n")
+
+
+def render_mcp_operations_source() -> str:
+    from mcp_catalog import server_mcp_tools
+
+    metadata = {
+        tool.name: {"readOnly": tool.annotations is not None and tool.annotations.readOnlyHint is True}
+        for tool in sorted(server_mcp_tools(), key=lambda tool: tool.name)
+    }
+    return (
+        f"{LICENSE_HEADER}// generated from the Server's public MCP catalog; do not edit.\n\n"
+        f"export const MCP_OPERATIONS = {json.dumps(metadata, indent=2, ensure_ascii=False)} as const\n"
+    )
 
 
 def _render_row(row: dict[str, Any]) -> str:

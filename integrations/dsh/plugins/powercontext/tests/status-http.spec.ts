@@ -24,8 +24,10 @@ import type { PreStepDecision } from '../src/recall.ts'
 import { operationFailure } from '../src/doctor.ts'
 import { toToolResult } from '../src/invoke.ts'
 
+vi.mock('../src/mcp-transport.ts', () => ({ protectMcpEndpoint: async (_ctx: unknown, endpoint: string) => endpoint }))
+
 vi.mock('../src/peers.ts', () => ({ loadPeer: async (name: string) => name === '@deepseek-ai/dsh-llm'
-  ? { createUserMessage: (value: unknown) => value } : { defineTool: (value: unknown) => value } }))
+  ? { createUserMessage: (value: unknown) => value } : { apply: async () => undefined } }))
 
 const CAPTURE = '/v1/sources/content'
 const FLUSH = '/v1/memory/flush'
@@ -208,7 +210,7 @@ describe('registered /pc with real HTTP response failures', () => {
     expect(JSON.stringify(status)).not.toContain(PRIVATE)
   })
 
-  it('keeps body failure evidence for direct tools and Doctor API discovery', async () => {
+  it('keeps body failure evidence for lifecycle HTTP and Doctor API discovery', async () => {
     const h = await fixture('/openapi.json', fault(401, 'stall'))
     const error = await h.client.readOpenApi().catch(error => error)
     expect(toToolResult(error)).toMatchObject({ ok: false, code: 'authentication_failed', status: 401,

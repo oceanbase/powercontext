@@ -29,7 +29,7 @@ import {
   UnknownOperationError,
 } from './errors.ts'
 import { OPERATIONS, type OperationId } from './operations.generated.ts'
-import { containsSecret } from './secrets.ts'
+import { hasSecretContent } from './secrets.ts'
 
 export interface ToolResult extends BodyFailureDetails {
   ok: boolean
@@ -40,12 +40,6 @@ export interface ToolResult extends BodyFailureDetails {
   request_id?: string
   data?: unknown
 }
-
-const WRITE_OPS = new Set<OperationId>([
-  'remember_memory',
-  'capture_content_source',
-  'revise_memory_entry',
-])
 
 export function toolResultSchema(): Record<string, unknown> {
   return {
@@ -162,10 +156,7 @@ export async function invokeOperation(
   if (!(operationId in OPERATIONS)) return toToolResult(new UnknownOperationError(operationId))
   const id = operationId as OperationId
   const body = injectScope(id, payload, scopeId)
-  if (WRITE_OPS.has(id) && typeof body?.text === 'string' && containsSecret(body.text)) {
-    return toToolResult(new SecretRejectedError())
-  }
-  if (WRITE_OPS.has(id) && typeof body?.content === 'string' && containsSecret(body.content)) {
+  if (hasSecretContent(id, body)) {
     return toToolResult(new SecretRejectedError())
   }
   try {

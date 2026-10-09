@@ -289,7 +289,7 @@ function nativeMcpCatalog(catalog: unknown, scope?: unknown): DoctorCheck {
   }
   return check(operation, 'native_mcp_unconfigured',
     'No native MCP tools are registered in the active DSH tool catalog.',
-    'The HTTP PowerContext plugin remains supported. Configure a native MCP client only when native MCP tools are required.', 'skipped')
+    'MCP initialization may still be pending or have failed. Retry /pc doctor and inspect the PowerContext MCP startup logs and endpoint configuration.', 'skipped')
 }
 
 export async function diagnoseServer(

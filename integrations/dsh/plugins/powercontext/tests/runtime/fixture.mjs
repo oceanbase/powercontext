@@ -31,11 +31,16 @@ const sdkRequire = createRequire(process.env.DSH_TEST_SDK_ROOT
   : import.meta.resolve('@deepseek-ai/dsh-sdk-client'))
 export const dshBin = join(dirname(sdkRequire.resolve('@deepseek-ai/dsh/package.json')), 'lib/bin.js')
 export const CANARY = 'The aurora deployment color is violet-cedar-1457.'
+export const NATIVE_ERROR_CANARY = 'private-response-marker: api_key=FAKE_NATIVE_ERROR_CANARY'
 export const pluginRoot = resolve(import.meta.dirname, '../..')
 
 async function listen(handler) {
   const server = createServer((req, res) => {
-    Promise.resolve(handler(req, res)).catch(() => {
+    Promise.resolve(handler(req, res)).catch(error => {
+      if (res.headersSent || res.writableEnded) {
+        res.destroy()
+        return
+      }
       res.writeHead(500)
       res.end('test fixture failed')
     })
@@ -51,10 +56,15 @@ async function listen(handler) {
 }
 
 async function bodyOf(req) {
+  const buffer = await rawBodyOf(req)
+  const text = buffer.toString()
+  return text ? JSON.parse(text) : undefined
+}
+
+async function rawBodyOf(req) {
   const chunks = []
   for await (const chunk of req) chunks.push(chunk)
-  const text = Buffer.concat(chunks).toString()
-  return text ? JSON.parse(text) : undefined
+  return Buffer.concat(chunks)
 }
 
 function json(res, value, status = 200) {
@@ -62,9 +72,34 @@ function json(res, value, status = 200) {
   res.end(JSON.stringify(value))
 }
 
-export async function environment({ realModel } = {}) {
+function secretArguments(operation, scopeId) {
+  const text = 'api_key=FAKE_REVIEW_MARKER'
+  const source = { name: 'content', source_id: 'secret-fixture' }
+  const draft = {
+    objective: 'Continue the review', disposition: 'blocked', next_action: null, omissions: [],
+    state: [{ text, citations: [{ kind: 'source', source_ref: source }] }],
+  }
+  switch (operation) {
+    case 'handoff_current_work': return { scope_id: scopeId, source_id: source.source_id, handoff: {
+      schema: 'powercontext.current-work-handoff.v1', trust: 'untrusted_input', ...draft,
+      state: [{ text, basis: 'declared', evidence: [] }],
+    } }
+    case 'activate_handoff': return { scope_id: scopeId, boundary_source: source, objective: text }
+    case 'finalize_handoff': return { scope_id: scopeId, draft }
+    case 'commit_handoff': return { scope_id: scopeId, handoff: {
+      schema: 'powercontext.prepared-handoff.v1', scope_id: scopeId, base: null,
+      content: { schema: 'powercontext.handoff.v1', ...draft },
+    } }
+    case 'capture_content_source': return { scope_id: scopeId, source_id: source.source_id, content: text }
+    case 'revise_memory_entry': return { scope_id: scopeId, memory_id: 'secret-fixture', text, expected_version: 1 }
+    default: return { scope_id: scopeId, text, kind: 'decision' }
+  }
+}
+
+export async function environment({ realModel, fullCatalog = false } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'pc-dsh-runtime-'))
   const modelRequests = []
+  let scopeIdForModel = ''
   const model = await listen(async (req, res) => {
     const body = await bodyOf(req)
     modelRequests.push(body)
@@ -98,9 +133,12 @@ export async function environment({ realModel } = {}) {
       return
     }
     const skillMatch = JSON.stringify(body.messages).match(/LOAD_PC_SKILL:(powercontext-(?:memory|handoff|review))/)
-    const needsTool = (skillMatch || JSON.stringify(body.messages).includes('RUN_PC_SEARCH'))
+    const getScope = JSON.stringify(body.messages).includes('RUN_PC_GET_SCOPE')
+    const secretWrite = JSON.stringify(body.messages).match(/RUN_PC_SECRET:(remember_memory|revise_memory_entry|capture_content_source|handoff_current_work|activate_handoff|finalize_handoff|commit_handoff)/)?.[1]
+    const needsTool = (skillMatch || getScope || secretWrite || JSON.stringify(body.messages).includes('RUN_PC_SEARCH'))
       && !body.messages.some(message => message.role === 'tool')
     const content = JSON.stringify(body.messages).includes(CANARY) ? CANARY : 'Task completed.'
+    const requestedScopeId = scopeIdForModel
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
     const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
       id: 'dsh-fixture', object: 'chat.completion.chunk', model: body.model, created: 0,
@@ -111,7 +149,13 @@ export async function environment({ realModel } = {}) {
         index: 0, id: 'fixture-search', type: 'function',
         function: skillMatch
           ? { name: 'skill', arguments: JSON.stringify({ name: skillMatch[1] }) }
-          : { name: 'pc_search', arguments: JSON.stringify({ query: 'aurora deployment color' }) },
+          : secretWrite
+          ? { name: `mcp__powercontext__${secretWrite}`, arguments: JSON.stringify(secretArguments(secretWrite, requestedScopeId)) }
+          : getScope
+          ? { name: 'mcp__powercontext__get_scope', arguments: JSON.stringify({ scope_id: requestedScopeId }) }
+          : { name: 'mcp__powercontext__search_memory', arguments: JSON.stringify({
+            scope_id: requestedScopeId, query: 'aurora deployment color',
+          }) },
       }] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n')
     } else {
       res.end(chunk({ role: 'assistant', content }) + chunk({}, 'stop') + 'data: [DONE]\n\n')
@@ -121,6 +165,7 @@ export async function environment({ realModel } = {}) {
   try {
     server = await startPowerContextServer({ env: {
     OPENAI_API_KEY: 'runtime-fixture',
+    ...(fullCatalog ? { POWERCONTEXT_SERVER_HANDOFF_REPORT_ENABLED: 'true' } : {}),
     POWERCONTEXT_SERVER_INFERENCE: JSON.stringify({
       generation_model: `openai-chat:${realModel?.model ?? 'fixture'}`, generation_base_url: model.url + '/v1',
     }),
@@ -130,9 +175,69 @@ export async function environment({ realModel } = {}) {
     throw error
   }
   const calls = []
+  const mcpCalls = []
   let fault
+  const stalledInitializations = new Set()
   const proxy = await listen(async (req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname
+    if (path === '/mcp' || path.startsWith('/mcp/')) {
+      const rawBody = await rawBodyOf(req)
+      const requestHeaders = new Headers(req.headers)
+      for (const header of ['connection', 'content-length', 'host', 'transfer-encoding']) requestHeaders.delete(header)
+      const mcpCall = { path, method: req.method, body: rawBody.length ? JSON.parse(rawBody.toString()) : undefined }
+      mcpCalls.push(mcpCall)
+      if (fault?.path === '/mcp' && fault.hold && mcpCall.body?.method === 'initialize') {
+        await new Promise((resolve) => {
+          const release = () => {
+            stalledInitializations.delete(release)
+            res.off('close', closed)
+            resolve()
+          }
+          const closed = () => { mcpCall.closed = true; release() }
+          stalledInitializations.add(release)
+          res.once('close', closed)
+        })
+        if (res.destroyed) return
+      }
+      if (fault?.path === '/mcp' && fault.redirectTo && mcpCall.body?.method === 'tools/call') {
+        res.writeHead(307, { Location: fault.redirectTo }).end()
+        return
+      }
+      if (fault?.path === '/mcp' && fault.status && mcpCall.body?.method === 'tools/call') {
+        mcpCall.status = fault.status
+        res.writeHead(fault.status, { 'Content-Type': 'text/plain', 'X-Private-Diagnostic': NATIVE_ERROR_CANARY })
+        res.end(NATIVE_ERROR_CANARY)
+        return
+      }
+      const upstream = await fetch(server.baseUrl + req.url, {
+        method: req.method,
+        headers: requestHeaders,
+        // Copy the incoming buffer before handing it to Node's fetch. Node 22's
+        // undici detaches the buffer-backed ArrayBuffer while extracting the
+        // request body, which otherwise prevents the MCP tools/list request
+        // from completing through this proxy.
+        ...(rawBody.length ? { body: rawBody.toString() } : {}),
+      })
+      const responseHeaders = Object.fromEntries(upstream.headers)
+      for (const header of ['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']) {
+        delete responseHeaders[header]
+      }
+      res.writeHead(upstream.status, responseHeaders)
+      const catalogChunks = []
+      if (upstream.body) for await (const chunk of upstream.body) {
+        if (mcpCall.body?.method === 'tools/list') catalogChunks.push(Buffer.from(chunk))
+        res.write(chunk)
+      }
+      if (catalogChunks.length) {
+        const text = Buffer.concat(catalogChunks).toString()
+        const messages = upstream.headers.get('content-type')?.includes('text/event-stream')
+          ? text.split('\n').filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6)))
+          : [JSON.parse(text)]
+        mcpCall.result = messages.find(message => message.result?.tools)?.result
+      }
+      res.end()
+      return
+    }
     const body = await bodyOf(req)
     const call = { path, body }
     calls.push(call)
@@ -172,6 +277,7 @@ export async function environment({ realModel } = {}) {
     return value
   }
   const { scope_id: scopeId } = await api('/v1/scopes/default')
+  scopeIdForModel = scopeId
   const harnesses = []
   function harness(config = {}, options = {}) {
     const { initializeTimeoutMs = 30000, maxTokens = 128 } = options
@@ -211,7 +317,9 @@ export function apply(ctx) {
         baseUrl: proxy.url, timeoutMs: 15000, requestTimeoutMs: 5000, flushOnCapture: true, ...config,
       } }] },
     ]))
-    const processEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('POWERCONTEXT_DSH_')))
+    // Keep the runtime isolated from the developer's shared client endpoint; the patch owns this fixture's URL.
+    const processEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+      !key.startsWith('POWERCONTEXT_DSH_') && key !== 'POWERCONTEXT_CLIENT_SERVER_URL'))
     const env = { ...processEnv, DSH_HOME: dshHome, DSH_PROFILE: 'sdk', DEEPSEEK_API_KEY: 'runtime-fixture',
       DEEPSEEK_BASE_URL: model.url + '/v1', DSH_TELEMETRY_DISABLED: '1', ...options.env }
     const instance = new DeepSeekHarness({
@@ -239,8 +347,13 @@ export function apply(ctx) {
     return { instance, dshHome, workspace, installed, patch, env, diagnostics, doctor, status }
   }
   return {
-    home, api, scopeId, calls, modelRequests, harness, baseUrl: proxy.url,
-    setFault(value) { fault = value },
+    home, api, scopeId, calls, mcpCalls, modelRequests, harness, baseUrl: proxy.url,
+    setFault(value) {
+      fault = value
+      if (fault?.path !== '/mcp' || !fault.hold) {
+        for (const release of stalledInitializations) release()
+      }
+    },
     async close() {
       const results = await Promise.allSettled(harnesses.map(instance => instance.close()))
       results.push(...await Promise.allSettled([proxy.close(), server.stop(), model.close()]))
@@ -251,6 +364,8 @@ export function apply(ctx) {
 }
 
 export function injected(run) {
-  return run.events.filter(event => event.type === 'user/message' && event.data?.source?.plugin === 'powercontext-dsh')
+  return run.events.filter(event => event.type === 'user/message'
+    && event.data?.source?.plugin === 'powercontext-dsh'
+    && event.data?.source?.sections?.some(section => section.name === 'PowerContext'))
     .map(event => event.data)
 }

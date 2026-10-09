@@ -321,7 +321,7 @@ jobs:
         run: uv run pytest tests/test_dsh_transport.py --require-dsh-runtime
 
       - name: Verify DSH guidance adapter requests and results
-        run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[dsh]"
+        run: uv run pytest tests/test_integration_guidance_evaluation.py::test_dsh_controlled_native_handoff_uses_only_mcp_tools_and_preserves_complete_carriers
 
   pi-package:
     timeout-minutes: 20

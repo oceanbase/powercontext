@@ -109,3 +109,8 @@ def test_committed_js_operations_match_openapi() -> None:
         assert path.is_file()
         committed = path.read_text(encoding="utf-8").replace("\r\n", "\n")
         assert committed == generator.render_operations_source(doc)
+
+
+def test_committed_mcp_operations_match_public_catalog_and_approval_annotations() -> None:
+    generator = _load_generator()
+    assert generator.MCP_GENERATED_PATH.read_text(encoding="utf-8") == generator.render_mcp_operations_source()

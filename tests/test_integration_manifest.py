@@ -75,42 +75,46 @@ def test_codex_full_profile_includes_managed_and_external_skill_operations() -> 
     )
 
 
-@pytest.mark.parametrize("missing_operation", [False, True])
-def test_tool_surface_probe_handles_long_descriptions_without_borrowing_operations(
-    tmp_path: Path,
-    missing_operation: bool,
-) -> None:
-    source_root = MANIFEST_PATH.parent.parent
-    source = source_root / "integrations/dsh/plugins/powercontext/src/tools.ts"
-    target = tmp_path / source.relative_to(source_root)
-    target.parent.mkdir(parents=True)
-    content = source.read_text(encoding="utf-8").replace(
-        "name: 'pc_skill_generate',",
-        "name: 'pc_skill_generate',\n      /* " + "long guidance " * 200 + " */",
-    )
-    if missing_operation:
-        content = content.replace("run(runtime, exec, 'generate_skill',", "unbound(runtime, exec, 'generate_skill',")
-    target.write_text(content, encoding="utf-8")
+def test_dsh_mcp_surface_matches_the_server_operation_catalog() -> None:
     manifest = load_integration_manifest()
-    toolset = next(item for item in manifest.toolsets if item.id == "dsh-tools")
+    toolset = next(item for item in manifest.toolsets if item.id == "dsh-mcp")
+    assert toolset.probe == "dsh_mcp"
+    assert all(tool.id.startswith("mcp__powercontext__") for tool in toolset.tools)
     isolated = manifest.model_copy(update={"toolsets": (toolset,), "integrations": ()})
-    errors = tool_surface_errors(isolated, tmp_path)
-    if missing_operation:
-        assert errors == (
-            "dsh-tools: tool surface drift (missing ['pc_skill_generate:generate_skill']; unexpected [])",
-        )
-    else:
-        assert errors == ()
+    assert tool_surface_errors(isolated) == ()
 
 
-def test_dify_declares_the_dsh_tool_surface_without_host_lifecycle_claims() -> None:
+def test_dify_declares_http_tools_without_host_lifecycle_claims() -> None:
     manifest = load_integration_manifest()
     toolsets = {item.id: item for item in manifest.toolsets}
-    assert {tool.id for tool in toolsets["dify-tools"].tools} == {tool.id for tool in toolsets["dsh-tools"].tools}
+    assert toolsets["dify-tools"].probe == "dify_tools"
+    assert {"pc_search:search_memory", "pc_skill_generate:generate_skill"} <= {
+        tool.id for tool in toolsets["dify-tools"].tools
+    }
     dify = next(item for item in manifest.integrations if item.id == "dify")
     assert dify.availability is IntegrationAvailability.EXPERIMENTAL
     assert dify.profiles == ()
     assert not {"acknowledge", "work_contract", "external_skill"} & set(dify.capabilities)
+
+
+@pytest.mark.parametrize("change", ["missing", "typo"])
+def test_dsh_probe_detects_plugin_catalog_drift(tmp_path: Path, change: str) -> None:
+    source_root = MANIFEST_PATH.parent.parent
+    plugin = tmp_path / "integrations/dsh/plugins/powercontext/src"
+    plugin.mkdir(parents=True)
+    shutil.copy(source_root / "integrations/dsh/plugins/powercontext/src/mcp.ts", plugin)
+    path = source_root / "integrations/dsh/plugins/powercontext/src/mcp-operations.generated.ts"
+    catalog = path.read_text(encoding="utf-8")
+    entry = '  "search_memory": {\n    "readOnly": true\n  },\n'
+    assert entry in catalog
+    replacement = "" if change == "missing" else entry.replace('"search_memory"', '"search_memories"')
+    (plugin / path.name).write_text(catalog.replace(entry, replacement), encoding="utf-8")
+    manifest = load_integration_manifest()
+    toolset = next(item for item in manifest.toolsets if item.id == "dsh-mcp")
+    isolated = manifest.model_copy(update={"toolsets": (toolset,), "integrations": ()})
+    errors = tool_surface_errors(isolated, tmp_path)
+    assert len(errors) == 1
+    assert "mcp__powercontext__search_memory" in errors[0]
 
 
 @pytest.mark.parametrize("change", ["missing", "operation"])

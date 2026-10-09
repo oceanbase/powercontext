@@ -82,6 +82,9 @@ and unverifiable group children fail before connection settings or credentials a
 An unset, empty, or whitespace-only `DSH_HOME` selects `~/.dsh`. A nonblank path keeps its leading and trailing
 spaces. These rules apply to configuration inspection, stored credentials, and plugin dependency lookup.
 
+Setup does not start the Server. Restart DSH after installation.
+The model-facing PowerContext surface is registered through DSH's native `@deepseek-ai/dsh-mcp-client`.
+
 ## Start the Server and the host
 
 For automatic Source-to-Memory extraction, generate and validate a Server configuration:
@@ -119,9 +122,11 @@ liveness, readiness, capabilities, declared routes, the current Scope, and a rea
 A Scope failure leaves health results available. The endpoint summary shows only its origin, configuration source
 and whether a path prefix exists; credentials, prefix text, query strings and fragments are not printed.
 
-Doctor reports the active host's native MCP catalog separately. The documented DSH installation is HTTP-only, so
-`native_mcp_unconfigured` does not fail an otherwise healthy HTTP plugin. If other native MCP tools are visible
-but `mcp__powercontext__*` is absent, Doctor reports `native_mcp_powercontext_missing` with a recovery action.
+Doctor reports the active host's native MCP catalog separately, including the exact visible tool names.
+`native_mcp_unconfigured` means no native MCP tools are visible; initialization may still be pending or have failed.
+If other native MCP tools are visible but `mcp__powercontext__*` is absent, Doctor reports
+`native_mcp_powercontext_missing`. These results do not fail otherwise healthy lifecycle HTTP checks, but HTTP
+health alone does not establish that model-facing MCP operations are available.
 
 Each failed check identifies the operation, a stable code, HTTP status/request ID when available, and a recovery
 action. Protocol errors also include `protocol_issue`, identifying the violated JSON, status or PreparedContext field rule.
@@ -221,10 +226,37 @@ See the [runtime test procedure](https://github.com/oceanbase/powercontext/blob/
 
 ## Understand what the plugin does
 
-The plugin has two paths to the same Server:
+The plugin has three deliberately different paths to the same Server:
 
 - before each model step it asks the Runtime to prepare one final, bounded context value, then independently captures the user's prompt as Source evidence;
-- named `pc_*` tools call the public HTTP API to remember, search, revise, retire, and audit Memory.
+- DSH's native MCP client connects to `/mcp/` and exposes the Server tools as `mcp__powercontext__<operation>`;
+- `/pc` commands and automatic lifecycle stages use the bounded HTTP client for host control and diagnostics.
+
+The MCP surface covers the full PowerContext profile: Memory read/write, Source capture, Work Contract, Handoff and
+acknowledgement, task outcome, Experience, managed and external Skill workflows, candidate inspection, Scope
+organization, persistent Scope binding, and artifact publication. It also exposes the Server's additional MCP tools that
+are outside the profile contract. The plugin does not register Pi/Hermes-style direct HTTP operation tools.
+
+Scope-dependent MCP operations, including those with a path `scope_id`, must use the exact host-resolved Scope
+exposed in the current-turn routing metadata. Do not select a different Scope using
+`mcp__powercontext__resolve_scope_binding` with `allow_default: true`. The plugin refuses another Scope instead of
+rewriting MCP arguments; automatic lifecycle hooks and model operations use the same project context.
+
+Optional native MCP initialization waits at most five seconds during plugin startup. Ordinary DSH conversations
+continue if the handshake stalls, and the same client may finish connecting later. Tools are unavailable until
+registration completes; check the current tool catalog before selecting an MCP operation.
+
+Native MCP frames pass through a process-local streaming boundary to the fixed configured endpoint; all redirects
+are rejected, including during initialization and tool calls. The native client still owns discovery and sessions.
+HTTP failures expose controlled status/code information without upstream response bodies or diagnostic headers.
+The plugin rejects likely secret content, including nested Handoff state, Drafts and prepared carriers, with
+`secret_rejected` before write approval or dispatch. Its MCP catalog and mutation approval classification are generated
+from the Server's public `tools/list`, not the HTTP tool table.
+
+`mcp__powercontext__handoff_current_work` captures its own boundary and returns `{boundary, handoff}`. Transfer only
+the complete `handoff` member, then pass that exact value to `mcp__powercontext__continue_handoff` with
+`selection: "prepared"`. No preliminary Source capture is needed. In the separate low-level capture/activate/finalize
+flow, pass activation's top-level `draft` to finalization and transfer the complete native finalization result unchanged.
 
 The plugin resolves one Server-owned Scope in this order: `POWERCONTEXT_DSH_SCOPE_ID`, a durable binding for the
 session workspace, then the Server default. The workspace path is hashed only as an external binding key. A missing
@@ -232,11 +264,12 @@ workspace therefore uses the Server default instead of the Harness process direc
 
 The plugin calls `POST /v1/context/prepare` once before the model analyzes the prompt. Explicit `remember_memory` calls do not require a model.
 
-## Diagnose direct tool and command failures
+## Diagnose MCP and command failures
 
-Named tools and Scope-dependent `/pc` commands return a controlled failure if Scope resolution fails. They stop before
-the requested operation, without creating a binding or retrying with another Scope. Cancellation and the existing
-per-request timeout also apply to Scope resolution.
+Scope-dependent native MCP tools and `/pc` commands return a controlled failure before dispatch if host Scope
+resolution fails or returns no Scope. A failed refresh invalidates the session's cached Scope; MCP calls cannot use
+a previous turn's value to bypass the failure. Ordinary conversation continues without selecting another Scope or
+creating a binding. Cancellation and the existing per-request timeout also apply to lifecycle Scope resolution.
 
 Inside DeepSeek Harness:
 
@@ -350,7 +383,7 @@ powercontext doctor dsh
 | `POWERCONTEXT_DSH_BASE_URL` | `http://127.0.0.1:8000` | Server base URL used by the plugin |
 | `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_DSH_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
-| `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for plugin HTTP requests |
+| `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for MCP and lifecycle HTTP requests |
 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 

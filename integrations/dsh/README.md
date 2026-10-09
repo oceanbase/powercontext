@@ -21,8 +21,11 @@ powercontext setup dsh --source .
 The plugin is a client of the running Server:
 
 - before each model step it asks the Runtime for one bounded context value and captures the current prompt as independent Source evidence;
-- named `pc_*` tools call the public `/v1/...` HTTP API;
-- Server or transport failures do not block normal DeepSeek Harness work.
+- DSH's native MCP client exposes model-facing operations as `mcp__powercontext__<operation>`;
+- automatic lifecycle hooks and `/pc` commands use the bounded HTTP client for capture, control and diagnostics.
+
+The plugin does not register direct HTTP operation tools. Scope or transport failures leave ordinary conversation
+running; optional MCP initialization waits at most five seconds before continuing in the background.
 
 Automatic recall calls `POST /v1/context/prepare` once per turn. Explicit Memory writes use `remember_memory` and do not need a model. Prompt capture can be disabled with `POWERCONTEXT_DSH_CAPTURE_PROMPTS=false`.
 

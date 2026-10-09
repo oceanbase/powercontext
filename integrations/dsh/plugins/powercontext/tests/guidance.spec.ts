@@ -15,35 +15,41 @@
  */
 
 import { expect, it } from 'vitest'
-import { PowerContextClient } from '../src/client.ts'
-import { resolveConfig } from '../src/config.ts'
-import { registerTools } from '../src/tools.ts'
 import { registerGuidance, registerSkill } from '../src/skill.ts'
+import { MCP_OPERATIONS } from '../src/mcp-operations.generated.ts'
 
-it('exposes independently available guidance whose tool references resolve in the registered catalog', () => {
-  const tools: Array<Record<string, any>> = []
+it('exposes native MCP guidance', () => {
   const sections: Array<{ text: string }> = []
   const skills: Array<{ name: string; description: string; content: string }> = []
-  const config = resolveConfig({ baseUrl: 'http://127.0.0.1:1' })
-  registerTools({ tools: { register: tool => tools.push(tool as Record<string, any>) }, on: () => undefined }, {
-    client: new PowerContextClient({ baseUrl: config.baseUrl, requestTimeoutMs: 1000 }), config,
-    resolveScope: async () => 'fixture-scope', log: () => undefined,
-  }, definition => definition)
   const ctx = { get: (name: string) => name === 'systemPrompt'
     ? { section: (section: { text: string }) => sections.push(section) }
     : { register: (skill: typeof skills[number]) => skills.push(skill) } }
   registerGuidance(ctx)
-  // No Skill has been loaded or even registered at this point.
-  expect(sections.length).toBeGreaterThan(0)
-  const names = new Set(tools.map(tool => tool.name))
-  for (const name of (sections.map(section => section.text).join('\n') + tools.map(tool => tool.description).join('\n')).match(/\bpc_[a-z_]+\b/g) ?? []) {
-    expect(names.has(name), `unavailable tool referenced in DSH guidance: ${name}`).toBe(true)
-  }
+  expect(sections).toHaveLength(1)
+  const names = new Set(sections[0].text.match(/\bmcp__powercontext__[a-z_]+\b/g) ?? [])
+  expect(names.size).toBeGreaterThan(0)
+  expect(names.has('mcp__powercontext__search_memory')).toBe(true)
+  expect(names.has('mcp__powercontext__resolve_scope_binding')).toBe(true)
+  expect(names.has('mcp__powercontext__handoff_current_work')).toBe(true)
   registerSkill(ctx)
   expect(skills.some(skill => skill.name === 'powercontext-project-context')).toBe(true)
   for (const name of ['powercontext-memory', 'powercontext-handoff', 'powercontext-review']) {
     const skill = skills.find(item => item.name === name)
     expect(skill, `router points to unavailable runtime Skill: ${name}`).toBeDefined()
-    for (const tool of skill!.content.match(/\bpc_[a-z_]+\b/g) ?? []) expect(names.has(tool), tool).toBe(true)
+  }
+  for (const guidance of [sections[0].text, ...skills.map(skill => skill.content)]) {
+    for (const tool of guidance.match(/\bmcp__powercontext__[a-z_]+\b/g) ?? []) {
+      expect(MCP_OPERATIONS, `guidance references a tool outside the MCP catalog: ${tool}`)
+        .toHaveProperty(tool.slice('mcp__powercontext__'.length))
+    }
+  }
+  const handoff = skills.find(skill => skill.name === 'powercontext-handoff')!.content
+  expect(handoff).toContain('top-level `draft`')
+  expect(handoff).toContain('complete native finalization result unchanged')
+  expect(sections[0].text).toContain('complete native finalize_handoff result unchanged')
+  for (const guidance of [sections[0].text, handoff]) {
+    expect(guidance).not.toMatch(/data\.draft|finalize(?:_handoff)?\.data/)
+    expect(guidance).toContain('{boundary, handoff}')
+    expect(guidance).toContain('complete `handoff`')
   }
 })
