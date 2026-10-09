@@ -157,13 +157,25 @@ jobs:
       - name: Test unified migrations with embedded seekdb
         env:
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
-        run: >-
-          uv run --locked --extra seekdb pytest -q
-          tests/builtin/persistence/test_database_migration_backends.py
-          tests/builtin/persistence/test_database_backup_providers.py
-          tests/builtin/persistence/test_database_migration_connections.py
-          tests/builtin/persistence/test_mysql_migration_schema.py
-          tests/builtin/persistence/test_mysql_migration_runner.py -k seekdb
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -o pipefail
+          uv run --locked --extra seekdb pytest -vv \
+            -o faulthandler_timeout=120 --durations=20 \
+            tests/builtin/persistence/test_database_migration_backends.py \
+            tests/builtin/persistence/test_database_backup_providers.py \
+            tests/builtin/persistence/test_database_migration_connections.py \
+            tests/builtin/persistence/test_mysql_migration_schema.py \
+            tests/builtin/persistence/test_mysql_migration_runner.py -k seekdb \
+            2>&1 | tee seekdb-migrations.log
+
+      - name: Upload seekdb migration diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: seekdb-migrations-${{ matrix.python-version }}
+          path: seekdb-migrations.log
+          if-no-files-found: ignore
 
   windows-unit-portability:
     timeout-minutes: 20
