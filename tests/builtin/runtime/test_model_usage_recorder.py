@@ -19,6 +19,7 @@ import logging
 import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from contextvars import ContextVar
 from datetime import date
 from pathlib import Path
 from threading import Event as ThreadEvent
@@ -44,6 +45,7 @@ _DAY = date(2026, 1, 2)
 _SCOPE = "usage-secret-scope"
 _PURPOSE = ModelUsagePurpose.MEMORY_EXTRACTION
 _OPERATION = ModelUsageOperation.GENERATION
+_REQUEST_CONTEXT = ContextVar("model_usage_request_context", default="runtime")
 
 
 @asynccontextmanager
@@ -116,9 +118,16 @@ def test_flush_persists_copied_usage_with_unknown_tokens_and_original_date(tmp_p
 def test_queue_capacity_drops_without_sql_or_sensitive_logs(caplog: pytest.LogCaptureFixture) -> None:
     async def scenario() -> None:
         async with _database() as database:
-            # Keep queue overflow assertions independent of SQLite write deadlines.
+            capacity = 2
+            write_budget = 5.0
+            # Queue admission is under test. The default short flush may return
+            # before the accepted prefix settles, even with a healthy consumer.
             recorder = _ModelUsageRecorder(
-                database, StatisticsRepository(), queue_capacity=2, write_timeout_seconds=5.0, flush_timeout_seconds=5.0
+                database,
+                StatisticsRepository(),
+                queue_capacity=capacity,
+                write_timeout_seconds=write_budget,
+                flush_timeout_seconds=capacity * write_budget + 1,
             )
             try:
                 for _ in range(8):
@@ -182,7 +191,21 @@ def test_long_shared_transaction_drops_usage_without_invalidating_memory() -> No
     asyncio.run(scenario())
 
 
-def test_file_writer_lock_does_not_consume_busy_timeout(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("write_timeout_seconds", "flush_timeout_seconds", "maximum_settle_seconds", "require_settled_flush"),
+    [
+        pytest.param(0.25, 0.3, 2.0, False, id="bounded-best-effort-flush"),
+        pytest.param(0.2, 2.0, 3.0, True, id="settled-native-lock-wait"),
+    ],
+)
+def test_file_writer_lock_does_not_consume_busy_timeout(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    write_timeout_seconds: float,
+    flush_timeout_seconds: float,
+    maximum_settle_seconds: float,
+    require_settled_flush: bool,
+) -> None:
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'locked.db'}", busy_timeout_ms=5_000)
         async with _database(config) as database:
@@ -190,7 +213,10 @@ def test_file_writer_lock_does_not_consume_busy_timeout(tmp_path: Path) -> None:
             # sub-second event-loop scheduling. Keep enough separation to catch
             # a wait on that database timeout without flaking on a loaded runner.
             recorder = _ModelUsageRecorder(
-                database, StatisticsRepository(), write_timeout_seconds=0.25, flush_timeout_seconds=0.3
+                database,
+                StatisticsRepository(),
+                write_timeout_seconds=write_timeout_seconds,
+                flush_timeout_seconds=flush_timeout_seconds,
             )
             try:
                 async with database.transaction() as connection:
@@ -201,7 +227,7 @@ def test_file_writer_lock_does_not_consume_busy_timeout(tmp_path: Path) -> None:
                     # settles the expired write. Keep the lock held and wait for
                     # that prefix to settle within a bound still well below the
                     # configured busy timeout.
-                    async with asyncio.timeout(2.0):
+                    async with asyncio.timeout(maximum_settle_seconds):
                         while recorder._settled < target:
                             await recorder.flush(target)
                 assert await _rows(database) == ()
@@ -220,7 +246,10 @@ def test_file_writer_lock_does_not_consume_busy_timeout(tmp_path: Path) -> None:
             finally:
                 await recorder.close()
 
-    asyncio.run(scenario())
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(scenario())
+    if require_settled_flush:
+        assert "Model usage flush timed out" not in caplog.text
 
 
 def test_writer_lock_released_inside_the_budget_still_records(tmp_path: Path) -> None:
@@ -228,9 +257,11 @@ def test_writer_lock_released_inside_the_budget_still_records(tmp_path: Path) ->
         path = tmp_path / "retry.db"
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{path}", busy_timeout_ms=5_000)
         async with _database(config) as database:
-            # One record's budget is spent in slices, so a writer that lets go
-            # partway through still yields a recorded usage row.
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=2.0)
+            # The held lock is released inside the write budget. Wait longer
+            # than that budget before asserting the committed usage row.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=6.0
+            )
             holder = sqlite3.connect(path)
             try:
                 holder.execute("BEGIN IMMEDIATE")
@@ -815,6 +846,42 @@ def test_cancelled_flush_propagates_without_cancelling_consumer() -> None:
     asyncio.run(scenario())
 
 
+def test_consumer_does_not_inherit_the_request_context() -> None:
+    class ContextRepository(StatisticsRepository):
+        observed_context: str | None = None
+
+        async def record(
+            self,
+            connection: AsyncConnection,
+            scope_id: str,
+            usage_date: date,
+            purpose: ModelUsagePurpose,
+            operation: ModelUsageOperation,
+            usage: InferenceUsage,
+            /,
+        ) -> None:
+            self.observed_context = _REQUEST_CONTEXT.get()
+            await super().record(connection, scope_id, usage_date, purpose, operation, usage)
+
+    async def scenario() -> None:
+        async with _database() as database:
+            repository = ContextRepository()
+            recorder = _ModelUsageRecorder(database, repository)
+            try:
+                token = _REQUEST_CONTEXT.set("request")
+                try:
+                    _offer(recorder)
+                finally:
+                    _REQUEST_CONTEXT.reset(token)
+                await recorder.flush()
+                assert repository.observed_context == "runtime"
+                assert (await _rows(database))[0].requests == 1
+            finally:
+                await recorder.close()
+
+    asyncio.run(scenario())
+
+
 def test_close_drops_backlog_and_leaves_no_consumer_waiting_for_shared_guard() -> None:
     async def scenario() -> None:
         async with _database() as database:
@@ -840,7 +907,6 @@ class _GatedRepository(StatisticsRepository):
     def __init__(self) -> None:
         self.entered = (asyncio.Event(), asyncio.Event())
         self.release = (asyncio.Event(), asyncio.Event())
-        self.calls = 0
 
     async def record(
         self,
@@ -852,8 +918,8 @@ class _GatedRepository(StatisticsRepository):
         usage: InferenceUsage,
         /,
     ) -> None:
-        index = self.calls
-        self.calls += 1
+        # Retried attempts belong to the same logical record and gate.
+        index = usage.requests - 1
         self.entered[index].set()
         await self.release[index].wait()
         await super().record(connection, scope_id, usage_date, purpose, operation, usage)
@@ -862,23 +928,25 @@ class _GatedRepository(StatisticsRepository):
 @pytest.mark.parametrize("explicit_checkpoint", [False, True])
 def test_flush_waits_only_for_its_entry_prefix(explicit_checkpoint: bool) -> None:
     async def scenario() -> None:
-        async with _database() as database:
+        async with asyncio.timeout(10), _database() as database:
             repository = _GatedRepository()
-            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=1)
+            # Ordering is the contract here; the outer watchdog expires before
+            # best-effort flush can time out and imitate successful completion.
+            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=5, flush_timeout_seconds=30)
             try:
                 _offer(recorder)
                 await repository.entered[0].wait()
                 prefix = recorder.checkpoint()
                 waiter = asyncio.create_task(recorder.flush(prefix if explicit_checkpoint else None))
                 await asyncio.sleep(0)
-                _offer(recorder)
+                _offer(recorder, InferenceUsage(requests=2))
                 repository.release[0].set()
                 await repository.entered[1].wait()
-                await asyncio.wait_for(waiter, 0.1)
+                await asyncio.wait_for(waiter, 2)
                 assert not repository.release[1].is_set()
                 repository.release[1].set()
                 await recorder.flush()
-                assert (await _rows(database))[0].requests == 2
+                assert (await _rows(database))[0].requests == 3
             finally:
                 for gate in repository.release:
                     gate.set()

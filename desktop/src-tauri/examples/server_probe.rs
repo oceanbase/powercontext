@@ -18,7 +18,7 @@
 use powercontext_desktop::{
     connections::{
         profiles::ProfileRepository,
-        session::{ConnectionManager, WriteStatus},
+        session::{CompatibilityProfile, ConnectionManager, WriteStatus},
     },
     credentials::{Secret, WindowsVault},
     error::SafeError,
@@ -27,6 +27,7 @@ use powercontext_desktop::{
 use serde::Deserialize;
 #[derive(Deserialize)]
 struct Fixture {
+    compatibility_profile: CompatibilityProfile,
     response_loss_path: Option<String>,
     identity_change_path: Option<String>,
     endpoint: String,
@@ -115,31 +116,16 @@ async fn main() {
     assert_eq!(exact.text, text);
     // Exercise the same native context owner used by product IPC, not only bare HTTP adapters.
     let temporary = tempfile::tempdir().unwrap();
-    let manager = ConnectionManager::new(
+    let manager = ConnectionManager::with_compatibility(
         ProfileRepository::open(
             temporary.path().join("profiles.json"),
             std::sync::Arc::new(WindowsVault),
         )
         .unwrap(),
+        vec![fixture.compatibility_profile.clone()],
     );
     let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&args[1]).unwrap()).unwrap();
-    let contract: serde_json::Value =
-        serde_json::from_str(include_str!("../src/transport/operations.json")).unwrap();
-    let contract_sha256 = contract["contractSha256"].as_str().unwrap();
-    let state = manager.state().unwrap();
-    let mut qualified = state
-        .compatibility_profiles
-        .iter()
-        .filter(|profile| profile.contract_sha256 == contract_sha256);
-    let compatibility = qualified
-        .next()
-        .expect("qualified fixture contract")
-        .id
-        .clone();
-    assert!(
-        qualified.next().is_none(),
-        "ambiguous fixture qualification"
-    );
+    let compatibility = &fixture.compatibility_profile.id;
     let credential = raw["token"]
         .as_str()
         .map(|value| serde_json::json!({"secret":value,"storage":"session_only"}));

@@ -111,7 +111,7 @@ class InstalledPage:
         self.type("连接名称", name)
         self.type("Server 地址", endpoint)
         compatibility = fixture_compatibility_profile()
-        self.click(f"//label[normalize-space(text())='已验证兼容配置']/select/option[@value='{compatibility}']")
+        self.click(f"//label[normalize-space(text())='已验证兼容配置']/select//option[@value='{compatibility}']")
         self.button("保存配置")
         self.activate(name)
 

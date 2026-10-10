@@ -24,6 +24,10 @@ powercontext doctor codex
 该命令会把仓库添加为 Codex marketplace，安装 PowerContext 插件，并创建用户数据目录。重复执行是安全的。
 `--ref` 应与安装 PowerContext 工具时使用的 ref 一致。
 
+刷新安装时，setup `.env` 文件或进程环境中新声明的客户端地址会覆盖保存的客户端设置和之前安装的 MCP 地址。
+未提供新地址时，setup 复用保存的地址。文件与进程中声明的地址冲突时，仍需显式选择：使用 `--server-url`，
+并在重新执行前统一或清除运行时地址覆盖。`--source` 指定插件代码来源，不指定 Server 地址。
+
 配置完成后开启新的 Codex 会话。通过 `/hooks` 查看 PowerContext `UserPromptSubmit` Hook，并在收到提示时授予信任。
 
 `powercontext doctor codex --json` 通过 `mcp_tools` 报告基础 MCP 连接，通过 `mcp_full_profile` 报告完整工具覆盖。
@@ -169,6 +173,10 @@ Linux、macOS 和 Windows 上的新 Codex 会话无需每次导出授权变量�
 
 Windows setup 还会维护当前用户的授权环境，以兼容 Desktop。环境变更不会传给已经运行的进程。
 setup 后重启 Codex，让新进程加载更新后的插件配置。再次 setup 不提供 token 时保留凭据，提供新 token 时轮换凭据。
+切换 Server 地址但未提供新 token 时，旧凭据仍绑定之前的地址，不会发送给新 Server。setup 和 doctor 会在不使用
+该凭据的情况下验证新地址，因此关闭认证的 Server 可以正常连接。新 Server 需要认证时，在重新 setup 时通过
+`POWERCONTEXT_CODEX_AUTHORIZATION` 或 `POWERCONTEXT_CLIENT_API_TOKEN` 提供它的 token；新 token 会替换保存记录，
+并绑定本次选择的地址。
 
 在 Linux 或 macOS 上可这样验证不依赖进程授权变量的新会话：
 

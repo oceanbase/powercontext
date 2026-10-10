@@ -23,6 +23,10 @@ Work Contract 和 Task Outcome 也会保留 Source 证据。
 ## 选择采集入口
 
 - Agent Prompt Hook：在[接入指南](../integrations/index.md)中选择宿主对应的采集开关。
+- 安装前的 Codex Prompt：Server 运行时，使用 `powercontext import-sessions --host codex` 从 `CODEX_HOME`
+  或 `~/.codex` 导入 CLI 所在机器上的历史用户 Prompt，也可以写入远程 Server。该命令只写入普通 Content
+  Source，在 Codex home 目录下维护与目标 Server 绑定的持久 checkpoint，并跳过无法解析到 Scope 的
+  workspace。提取仍是独立操作；已配置的后台处理仍可处理导入的 Source。可先用 `--dry-run` 预览扫描结果。
 - 文件与对象存储：使用 [OpenDAL Connector](ingest-text-files-with-opendal.md)。
 - Scope Profile 的主体证据：按 [Scope Profile](use-profiles.md)写入。
 - 应用或评测事件：使用应用对应适配器；[Bub 采集](../integrations/evaluation.md)需要显式启用。

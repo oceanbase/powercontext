@@ -2,10 +2,10 @@ name: Desktop validation
 
 on:
   pull_request:
-    paths: ['desktop/**', 'src/powercontext/**', 'pyproject.toml', 'uv.lock', 'openapi/powercontext.yaml', 'tests/fixtures/transport_loopback_vectors.json', 'website/assets/**', '.github/workflows/desktop.yml']
+    paths: ['desktop/**', 'src/powercontext/**', 'pyproject.toml', 'uv.lock', 'openapi/powercontext.yaml', 'tests/fixtures/transport_loopback_vectors.json', 'tests/test_desktop_fixture_qualification.py', 'website/assets/**', '.github/workflows/desktop.yml']
   push:
     branches: [master, codex/desktop-preview]
-    paths: ['desktop/**', 'src/powercontext/**', 'pyproject.toml', 'uv.lock', 'openapi/powercontext.yaml', 'tests/fixtures/transport_loopback_vectors.json', 'website/assets/**', '.github/workflows/desktop.yml']
+    paths: ['desktop/**', 'src/powercontext/**', 'pyproject.toml', 'uv.lock', 'openapi/powercontext.yaml', 'tests/fixtures/transport_loopback_vectors.json', 'tests/test_desktop_fixture_qualification.py', 'website/assets/**', '.github/workflows/desktop.yml']
   workflow_dispatch:
     inputs:
       installer_run:
@@ -71,16 +71,22 @@ jobs:
       - name: Build Server wheel for isolated acceptance
         working-directory: .
         run: uv build --wheel --out-dir desktop/.artifacts/server-wheel
+      - name: Qualify the disposable checkout and built-wheel fixture
+        working-directory: .
+        run: uv run --no-sync python desktop/tests/fixture_qualification.py --server-commit $env:GITHUB_SHA
       - name: Check installed UI acceptance harness
         working-directory: .
         run: |
-          uv run --no-sync ruff check --no-fix desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py
+          uv run --no-sync ruff check --no-fix desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py desktop/tests/fixture_qualification.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          uv run --no-sync ruff format --check desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py
+          uv run --no-sync ruff format --check desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py desktop/tests/fixture_qualification.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          uv run --no-sync ty check desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py
+          uv run --no-sync ty check desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py desktop/tests/fixture_qualification.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          uv run --no-sync ty check --python-platform linux desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py
+          uv run --no-sync ty check --python-platform linux desktop/tests/installed_ui.py desktop/tests/installed_fixture.py desktop/tests/installed_workflow.py desktop/tests/fixture_qualification.py
+      - name: Check fixture qualification regressions
+        working-directory: .
+        run: uv run --no-sync python -m pytest tests/test_desktop_fixture_qualification.py
       - name: Build native API acceptance client
         run: cargo build --locked --manifest-path src-tauri/Cargo.toml --example server_probe --example diagnostic_cli_probe
       - name: Test native adapter with real SQLite Server
@@ -89,8 +95,8 @@ jobs:
       - name: Test native diagnostics with isolated real CLI
         working-directory: .
         run: uv run --no-sync python desktop/tests/real_cli.py
-      - name: Build unsigned internal Windows installer
-        run: pnpm desktop:build
+      - name: Build fixture-qualified unsigned internal Windows installer
+        run: pnpm tauri build --bundles nsis --ci --features ci-fixtures -- --locked
       - name: Prepare matching WebView2 driver
         run: ./scripts/prepare-webdriver.ps1
       - name: Smoke test installed package
@@ -104,6 +110,7 @@ jobs:
           path: |
             desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
             desktop/.artifacts/windows-smoke.json
+            desktop/.artifacts/ci-compatibility.json
             desktop/.artifacts/real-server.json
             desktop/.artifacts/real-cli.json
             desktop/.artifacts/installed-ui.json
@@ -142,6 +149,8 @@ jobs:
           uv sync --locked --python 3.12
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           uv build --wheel --out-dir desktop/.artifacts/server-wheel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --no-sync python desktop/tests/fixture_qualification.py --server-commit $env:GITHUB_SHA
       - name: Retrieve and verify exact installer
         env:
           GH_TOKEN: ${{ github.token }}

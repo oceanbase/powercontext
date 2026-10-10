@@ -10,6 +10,7 @@ Start with the operational task you need:
 | Task | Guide |
 | --- | --- |
 | Keep a personal Server running, deploy a container, or enable authentication | [Deploy the Server](deploy-server.md) |
+| Understand unified database upgrades, backups, and service lifecycle | [Database migration design](database-migrations.md) |
 | Upgrade or switch background supervision mode | [Migrate Artifact processing state](artifact-processing-migration.md) |
 | Inspect logs, metrics, and traces | [Observability](observability.md) |
 | Send traces to an analysis service | [Phoenix](trace-with-phoenix.md), [Langfuse](trace-with-langfuse.md) |

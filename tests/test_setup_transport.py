@@ -77,6 +77,59 @@ def test_explicit_remote_endpoint_overrides_file_and_local_port(tmp_path):
     assert path.read_text() == content
 
 
+@pytest.mark.parametrize("configuration", ["file", "process", "both", "explicit"])
+def test_new_codex_endpoint_replaces_saved_and_native_settings(tmp_path, monkeypatch, configuration):
+    """Refreshing setup persists a newly supplied URL despite stale installed settings."""
+    from powercontext.cli.hosts import setup_host
+    from powercontext.client.transport_policy import client_config_file, load_client_settings
+
+    old_url = "http://127.0.0.1:8100"
+    new_url = "http://127.0.0.1:17429"
+    settings = client_config_file()
+    settings.write_text(json.dumps({"version": 1, "hosts": {"codex": {"server_url": old_url, "custom": "keep"}}}))
+    # Obsolete cache versions must not prevent a new endpoint from being installed.
+    for version, url in (("0.1.0", old_url), ("0.2.0", "http://127.0.0.1:8000")):
+        cache = tmp_path / "codex/plugins/cache/powercontext/powercontext" / version
+        cache.mkdir(parents=True)
+        (cache / ".mcp.json").write_text(json.dumps({"mcpServers": {"powercontext": {"url": url + "/mcp/"}}}))
+    if configuration in {"file", "both"}:
+        (tmp_path / ".env").write_text(f"POWERCONTEXT_CLIENT_SERVER_URL={new_url}\n")
+    if configuration in {"process", "both"}:
+        monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", new_url)
+    installer = Mock(return_value="installed")
+    monkeypatch.setattr("powercontext.cli.hosts.install_host", installer)
+
+    result = setup_host(
+        "codex", source="local-source", ref="master", server_url=new_url if configuration == "explicit" else None
+    )
+
+    assert result.result == "installed"
+    assert installer.call_args.kwargs["server_url"] == new_url
+    assert load_client_settings("codex")["server_url"] == new_url
+    assert json.loads(settings.read_text())["hosts"]["codex"] == {
+        "server_url": new_url,
+        "custom": "keep",
+        "allow_insecure_http": False,
+    }
+
+
+def test_saved_endpoints_still_require_choice_without_new_configuration(tmp_path):
+    """Conflicting persisted settings remain ambiguous when no new URL is supplied."""
+    from powercontext.cli.transport import client_config_file, prepare_setup_transport
+
+    client_config_file().write_text(
+        json.dumps({"version": 1, "hosts": {"codex": {"server_url": "http://127.0.0.1:8100"}}})
+    )
+    cache = tmp_path / "codex/plugins/cache/powercontext/powercontext/0.1.0"
+    cache.mkdir(parents=True)
+    (cache / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"powercontext": {"url": "http://127.0.0.1:8000/mcp/"}}})
+    )
+
+    with pytest.raises(RuntimeError, match=r"Conflicting.*saved client settings, native host settings"):
+        prepare_setup_transport("codex")
+
+
 def test_conflicting_file_and_process_endpoints_require_choice(tmp_path, monkeypatch):
     """Ambiguous endpoints fail with remediation and without disclosing tokens."""
     from powercontext.cli.transport import prepare_setup_transport

@@ -1,5 +1,4 @@
 {
-  "openapi_sha256": "20132c01206e20f7ee295038940b8e5a79669a1fe12254088c98b10d0aecdbc3",
   "api_version": "1.2.0",
   "operations": {
     "get_scope": {

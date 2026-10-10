@@ -4,6 +4,7 @@
     "index",
     "deploy-server",
     "connect-remote-server",
+    "database-migrations",
     "artifact-processing-migration",
     "observability",
     "trace-with-phoenix",

@@ -181,6 +181,17 @@ def _explicit_setup_endpoint(host: str, server_url: str) -> str:
     return endpoint
 
 
+def _saved_setup_endpoints(host: str, native_endpoint: str | None) -> list[tuple[str, str]]:
+    """Read saved endpoint fallbacks, using the supplied native URL for DSH."""
+    saved = load_client_settings(host).get("server_url")
+    native = native_endpoint if host == "dsh" else existing_native_endpoint(host)
+    return [
+        (name, normalize_client_url(value).removesuffix("/mcp").rstrip("/"))
+        for name, value in (("saved client settings", saved), ("native host settings", native))
+        if value
+    ]
+
+
 def resolve_setup_endpoint(
     host: str,
     *,
@@ -190,8 +201,8 @@ def resolve_setup_endpoint(
 ) -> str:
     """Choose one endpoint, rejecting ambiguous explicit settings before installation.
 
-    A command-line URL is an explicit choice. Otherwise URL declarations must agree;
-    the local listening port is only a fallback when no client endpoint exists.
+    New URL declarations supersede saved installation settings but must agree with
+    active runtime overrides. Saved endpoints and the local port are fallbacks.
     """
     if server_url is not None:
         return _explicit_setup_endpoint(host, server_url)
@@ -204,11 +215,8 @@ def resolve_setup_endpoint(
         for name in keys
         if values.get(name)
     ]
-    saved = load_client_settings(host).get("server_url")
-    native = native_endpoint if host == "dsh" else existing_native_endpoint(host)
-    for name, value in (("saved client settings", saved), ("native host settings", native)):
-        if value:
-            candidates.append((name, normalize_client_url(value).removesuffix("/mcp").rstrip("/")))
+    if not candidates:
+        candidates = _saved_setup_endpoints(host, native_endpoint)
     if len({value for _, value in candidates}) > 1:
         names = ", ".join(dict.fromkeys(name for name, _ in candidates))
         raise ValueError(  # noqa: TRY003
