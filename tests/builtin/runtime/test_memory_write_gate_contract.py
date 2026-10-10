@@ -26,11 +26,13 @@ from powercontext.builtin.runtime.decision_model import (
     DecisionResult,
     FailOpenDecisionModel,
 )
+from powercontext.builtin.runtime.decision_policy import DecisionCoverage, DecisionVerdict
 from powercontext.builtin.runtime.memory_write_gate import (
     DecisionMemoryWriteGate,
     MemoryWriteGateRequest,
     MemoryWriteRejectionCode,
     MemoryWriteVerdict,
+    _assess_memory_write_decision,
     _candidate_subject,
     build_memory_write_gate,
 )
@@ -260,6 +262,27 @@ def test_a_failing_backend_is_fail_open() -> None:
         assert assessment.used_fallback is True
 
     asyncio.run(scenario())
+
+
+def test_memory_write_decision_policy_keeps_fallback_unadjudicated() -> None:
+    assessment = _assess_memory_write_decision(
+        _verdict(DecisionOutcome.ABSTAIN, used_fallback=True),
+        hold_on=DecisionOutcome.YES,
+    )
+
+    assert assessment.coverage is DecisionCoverage.UNADJUDICATED
+    assert assessment.verdict is DecisionVerdict.UNKNOWN
+    assert assessment.used_fallback is True
+
+
+def test_memory_write_decision_policy_uses_configured_hold_direction() -> None:
+    yes_holds = _assess_memory_write_decision(_verdict(DecisionOutcome.YES), hold_on=DecisionOutcome.YES)
+    no_holds = _assess_memory_write_decision(_verdict(DecisionOutcome.YES), hold_on=DecisionOutcome.NO)
+
+    assert yes_holds.coverage is DecisionCoverage.ADJUDICATED
+    assert yes_holds.verdict is DecisionVerdict.DENY
+    assert no_holds.coverage is DecisionCoverage.ADJUDICATED
+    assert no_holds.verdict is DecisionVerdict.ALLOW
 
 
 def test_the_hold_direction_cannot_be_abstain() -> None:

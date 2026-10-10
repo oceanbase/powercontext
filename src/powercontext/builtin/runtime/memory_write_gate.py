@@ -42,6 +42,16 @@ from powercontext.builtin.runtime.decision_model import (
     DecisionRequest,
     DecisionResult,
 )
+from powercontext.builtin.runtime.decision_policy import (
+    DecisionAssessment,
+    DecisionCoverage,
+    DecisionFailurePolicy,
+    DecisionPolicy,
+    DecisionPolicyMode,
+    DecisionPrivacyBoundary,
+    DecisionVerdict,
+    assess_decision_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +65,25 @@ _MAX_EVIDENCE_ITEMS = 32
 _MAX_SUBJECT_LENGTH = 4000
 _MAX_REASON_LENGTH = 512
 _DEFAULT_REASON = "the cited evidence does not clearly support this memory write"
+_MEMORY_WRITE_POLICY = DecisionPolicy(
+    policy_id="memory.write.evidence_sufficiency.v1",
+    decision_kind=DecisionKind.MEMORY_WRITE_GATE.value,
+    version="1",
+    consumer="memory_write_gate",
+    mode=DecisionPolicyMode.ENFORCING,
+    failure_policy=DecisionFailurePolicy.FAIL_OPEN,
+    privacy_boundary=DecisionPrivacyBoundary.HOSTED_REDACTED,
+    local_rules=("candidate_batch_budget", "evidence_projection_budget"),
+    question=_GATE_QUESTION,
+    subject_selector="candidate_text",
+    evidence_selector="candidate_citations",
+    outcome_mapping={
+        DecisionOutcome.YES.value: DecisionVerdict.DENY.value,
+        DecisionOutcome.NO.value: DecisionVerdict.ALLOW.value,
+        DecisionOutcome.ABSTAIN.value: DecisionVerdict.UNKNOWN.value,
+    },
+    promotion_criteria=("explicit runtime opt-in",),
+)
 
 
 def build_memory_write_gate(
@@ -125,13 +154,14 @@ class DecisionMemoryWriteGate:
         return assessment
 
     def _map(self, request: MemoryWriteGateRequest, decision: DecisionResult) -> MemoryWriteAssessment:
-        if decision.used_fallback or decision.outcome is DecisionOutcome.ABSTAIN:
+        assessment = _assess_memory_write_decision(decision, hold_on=self._hold_on)
+        if assessment.coverage is DecisionCoverage.UNADJUDICATED:
             return MemoryWriteAssessment(
                 verdict=MemoryWriteVerdict.ACCEPT,
                 policy_id=decision.policy_id,
-                used_fallback=decision.used_fallback,
+                used_fallback=assessment.used_fallback,
             )
-        if decision.outcome is not self._hold_on:
+        if assessment.verdict is DecisionVerdict.ALLOW:
             return MemoryWriteAssessment(verdict=MemoryWriteVerdict.ACCEPT, policy_id=decision.policy_id)
         reason = _bounded_reason(decision.rationale)
         if self._threshold is not None and decision.confidence is not None and decision.confidence < self._threshold:
@@ -171,6 +201,21 @@ def _rejection_code(request: MemoryWriteGateRequest) -> MemoryWriteRejectionCode
     return MemoryWriteRejectionCode.INSUFFICIENT_COVERAGE
 
 
+def _assess_memory_write_decision(decision: DecisionResult, /, *, hold_on: DecisionOutcome) -> DecisionAssessment:
+    if hold_on is DecisionOutcome.ABSTAIN:
+        raise ValueError("the hold direction cannot be abstain")  # noqa: TRY003
+    pass_on = DecisionOutcome.NO if hold_on is DecisionOutcome.YES else DecisionOutcome.YES
+    return assess_decision_result(
+        _MEMORY_WRITE_POLICY,
+        decision,
+        outcome_mapping={
+            hold_on: DecisionVerdict.DENY,
+            pass_on: DecisionVerdict.ALLOW,
+            DecisionOutcome.ABSTAIN: DecisionVerdict.UNKNOWN,
+        },
+    )
+
+
 def _bounded_subject(candidates: tuple[str, ...]) -> str:
     return _candidate_subject(candidates)[:_MAX_SUBJECT_LENGTH]
 
@@ -201,5 +246,6 @@ __all__ = [
     "MemoryWriteGateRequest",
     "MemoryWriteRejectionCode",
     "MemoryWriteVerdict",
+    "_assess_memory_write_decision",
     "build_memory_write_gate",
 ]
