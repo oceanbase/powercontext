@@ -31,10 +31,10 @@ RFC #1771.
 with each member pointing to an immutable entry version. Changing one memory writes a new entry version and then a
 collection revision that references it.
 
-After [RFC 1345](1345_scope_organization_and_agent_integration.md) introduced Scope, it still required one active
-Memory progression line per Scope, with one Memory head maintaining the collection. A memory therefore involves both
-collection and entry IDs and versions. Scope already organizes memories, and Artifact already provides revisions,
-evidence, permissions, and tags. The collection layer retains additional maintenance rules.
+After [RFC 1345](1345_scope_organization_and_agent_integration.md) introduced Scope, each Scope still retained one
+active Memory collection. A memory therefore involves both collection and entry IDs and versions. Scope already
+organizes memories, and Artifact already provides revisions, evidence, permissions, and tags. The collection layer
+retains additional maintenance rules.
 
 ## Changing one memory still stores the whole collection directory
 
@@ -158,23 +158,16 @@ restoration; routine extraction and merging remain automatic.
 ## Existing contracts and changes made here
 
 Scope membership and organization follow RFC 1345, Source processing follows RFC 0019, and identity, revisions, and
-evidence follow RFC 1549.
+evidence follow RFC 1549. Independent memory Artifacts do not each consume Source separately; the Scope's extraction
+flow still owns processing progress.
 
-This proposal replaces the collection and entry version layers of RFCs 0014 and 0019 and gives each Atomic Memory an
-independent head in place of RFC 1345's single Memory head per Scope. The Scope still uses one Source journal, and its
-extraction flow owns processing progress. Individual memories do not consume Source separately or have independent
-cursors.
+This proposal replaces the collection and entry version layers of RFCs 0014 and 0019 and removes RFC 1345's requirement
+for one active Memory collection per Scope.
 
 RFC 1652's evidence-preservation principles remain applicable. Atomic Memory creation, revision, and semantic merging
 run automatically, and the model resolves conflicts using time. Its per-operation merge approval and unresolved-conflict
 retention requirements do not apply to Atomic Memory. Merging multiple memories creates a new result and freezes the
 inputs. This RFC does not change approval or conflict-handling rules for other Artifact families.
-
-RFC 1652's `superseded` is derived validity for an exact entry version; it does not directly map to an entire Artifact's
-lifecycle state. The new Family uses the four Artifact lifecycle states defined here: when A advances from revision 1
-to revision 2, A remains active; revision 1 leaves normal search and remains readable by exact reference.
-Merging A and B into C freezes A and B as merged. Generic Artifact revisions, lineage, and explicit merge relationships
-preserve evidence and successor references.
 
 RFC 1718's collection capacity limits for complete manifests do not apply to the new Family. They are not converted
 into a Scope-wide memory count limit, and this proposal introduces no historical revision expiry policy. Release
@@ -187,14 +180,7 @@ Memory may use wide tables or separate projections, with no business-table joins
 When extraction selects memories it may modify, Scope, read/write permissions, and active state take effect during
 candidate selection.
 
-Ordinary Prepare Context follows existing Scope selection and authorization rules to retrieve active Atomic Memory
-Artifacts that the caller may read.
-Selection, ordering, entry limits, UTF-8 byte budgets, and assembly follow [Context Pack (RFC 0028)](0028_context_pack.md) and
-[Prepared Context Text Assembly (RFC 1489)](1489_prepared_context_text_assembly.md), retaining exact revision references
-to the selected Artifacts. Ordinary Prepare Context uses bounded recall; extraction requires complete enumeration of
-related memories meeting the threshold.
-
-During extraction, batch sizes bound individual reads and model inputs without truncating the total set meeting the threshold.
+Batch sizes bound individual reads and model inputs without truncating the total set meeting the threshold.
 Incomplete processing must not be reported as no new memory. Implementation design determines thresholds, batching,
 and index choices.
 
@@ -209,26 +195,62 @@ The checked conditions must still hold at commit, without overwriting intervenin
 ## Upgrade and compatibility
 
 Existing deployments upgrade offline under [RFC #1771](https://github.com/oceanbase/powercontext/pull/1771). Its unified
-process governs schema changes, data conversion, projection rebuilding, and old-table cleanup.
+process governs schema changes, data conversion, projection rebuilding, archive retention, and old-table cleanup.
 
-Migration preserves existing content, evidence, lifecycle history, exact references, permissions, tags, and Source
-processing progress. The change does not re-extract already processed Source. Old collection snapshots and references
-retain a corresponding read path; a collection reference cannot be reinterpreted as a single new memory. Entries that
-were recoverable or non-reactivatable retain those respective semantics. Missing or unexplained history cannot be
-silently discarded.
+Each legacy entry's complete content history, original direct evidence, and current lifecycle state migrate to Atomic
+Memory. Existing entry tags and Owners are retained. Valid entry sharing grants migrate automatically, preserving
+relationship identities, permissions, and revoked or expired status. Atomic follows the same Owner requirements as
+other Artifacts: migration does not invent Owners when authorization is disabled, and deployments with authorization
+enabled use the shared authorization rules.
+Source processing progress remains valid without re-extracting processed Source. Entries that were recoverable or
+non-reactivatable retain those respective semantics. Current content cannot stand in for missing historical versions.
 
-Legacy `memory` APIs are adapted where possible at the API layer. Compatibility does not add tables or continue
-maintaining collection versions and membership history in other tables. Existing exact references remain readable
-as history, and legacy entry identities can resolve to the new Artifacts. Requests, responses, tags, and concurrency
-preconditions retain their original meaning where supported. Authorization and execution must target the same object;
-collection-version preconditions must not be ignored. Operations requiring post-upgrade collection snapshots,
-collection CAS, or a continuous collection change history are no longer supported. Retained routes with changed
-responses and unsupported operations follow RFC #1771's declarations of contract changes, replacement calls, and
-retirement schedules. Compatibility does not promise that old clients can continue unchanged.
+Exact entry references still used by business operations become Atomic `ArtifactRef` values. They read the specified
+content revision without following the current head. Legacy random version IDs have no online aliases. Clients must
+use the migrated Artifact identity and revision rather than submit legacy `MemoryCitation` values.
 
-Each release declares old-API compatibility periods and cleanup conditions for objects retained during migration.
-This proposal does not require permanent support for collection writes, and removing old physical tables does not
-authorize deleting historical content.
+Old collection content, snapshots, and necessary metadata leave the online Artifact system for a new dedicated archive
+table. It preserves original data for offline verification and provides no API compatibility. Before removing
+whole-collection evidence from online lineage, the archive records where each reference came from and its association
+with the original collection. Such evidence is not expanded into members or Source, or reinterpreted as a single
+Atomic Memory. This explicitly ends online reading and tracing of old collections; exact entry evidence is still
+converted as described above. The archive does not participate in queries,
+search, or generation and cannot replace an upgrade backup. Rollback, archive retention, and cleanup follow RFC #1771.
+
+If removing whole-collection evidence makes a Handoff, Work, or Candidate record violate existing nonempty-evidence
+constraints, preflight blocks migration unless a maintainer decision file covers every such item. A decision may
+replace the reference with explicit exact `ArtifactRef`s, downgrade a verified Work claim or check to declared, or
+reject a pending Candidate; the original value is archived. This proposal does not introduce historical variants of
+business records to bypass those constraints.
+
+Only five legacy server entry points, `memory.get/list/search/remember/flush`, retain adapters. Memory results use
+Atomic identities and revisions:
+
+- `get` may locate the current Atomic head using the legacy collection ID and entry ID. Exact historical reads use
+  the new `ArtifactRef`.
+- `list` and `search` query Atomic Memory in the Scope using the new model's listing, state, and search semantics.
+- `remember` supports simple creation only, without legacy entry updates, collection revision appends, or evidence
+  referring to old objects.
+- `flush` continues extraction into Atomic Memory using the preserved Source processing progress.
+
+All other legacy entry points explicitly stop accepting the old model. These include generic `family=memory`
+operations, old tag targets and their ETags, old access selectors, collection CAS, and old cursors. Requests cannot be
+accepted by ignoring concurrency preconditions or filters. Clients use Atomic and shared Artifact APIs for reading,
+writing, tags, and authorization, and restart queries and pagination under the new contract. Authorization and execution
+target the same Atomic Memory.
+
+The SDK and runtime do not retain the legacy Memory domain model, `MemoryCitation`, or other legacy typed Memory references.
+Terminal Dream runs with old structures are converted offline into explicit untyped historical data for display only,
+without evidence resolution, execution, or recovery. Historical receipts retain unavailable collection addresses in
+`unavailable_evidence` as descriptions of what was unavailable. These addresses are not resolved or accepted as new evidence;
+exact entry citations are converted to Atomic references.
+Frozen legacy decoding belongs only to offline migration tools. The runtime keeps no legacy decoder and depends on
+neither old tables nor online mapping tables.
+
+Changed semantics of retained entry points, unsupported operations, replacement calls, and retirement arrangements are
+declared under RFC #1771. Compatibility does not promise unchanged clients. Each release declares compatibility periods
+and archive retention conditions; cleaning up old collection storage does not authorize deleting content history
+already migrated to Atomic Memory.
 
 # Drawbacks
 
@@ -241,8 +263,8 @@ authorize deleting historical content.
   require relying on Source order. Later evolution, edits, or restoration provide correction.
 - Undo removes later revisions of the merge result from normal search. Other Artifacts already referencing those
   revisions do not automatically roll back.
-- During compatibility periods, old requests, responses, and references require adapters; ending support needs an
-  explicit release arrangement.
+- Old clients must update their references and calls. Five legacy server entry points still need adapters, while
+  online reading and tracing of old collections end.
 
 # Rationale and alternatives
 
@@ -285,9 +307,9 @@ time, with history and restoration supporting correction, without a separate unr
 - Should other Artifact families adopt these four states? How should the existing `deprecated` state map to forgotten
   and merged? This RFC defines Atomic Memory behavior; adoption and adaptation by other families remain separate decisions.
 
-Physical deletion, automatic merging across Scopes, and whole-Scope snapshot rollback are outside this proposal.
-Table schemas, API parameters, locking, and transaction implementation belong in the implementation design. Migration
-follows RFC #1771.
+Physical deletion of Atomic content history, automatic merging across Scopes, and whole-Scope snapshot rollback are
+outside this proposal. Table schemas, API parameters, locking, and transaction implementation belong in the implementation
+design. Migration follows RFC #1771.
 
 # Future possibilities
 

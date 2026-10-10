@@ -223,7 +223,7 @@ export const messages = {
     featureSearch: "Full-text search",
     featureSearchHint: "Search without configuring a model.",
     featureRead: "Exact details",
-    featureReadHint: "Read the text and the complete citation.",
+    featureReadHint: "Read the text and the complete reference.",
     available: "Available",
     notAvailable: "Unavailable",
     catalogNote: "A full catalog and history browsing are not available.",
@@ -241,9 +241,9 @@ export const messages = {
       "Save a memory in the current exact scope, then find it with full-text search.",
     stepSave: "Save a memory",
     stepSaveHint: "Save project documents under the current exact Scope.",
-    stepSearch: "Search and verify citations",
+    stepSearch: "Search and verify references",
     stepSearchHint:
-      "Find memories with full-text search and read the complete citation.",
+      "Find memories with full-text search and read the complete reference.",
     openMemories: "Open memories",
     overviewBoundary:
       "Browsing scopes does not change Agent bindings; exiting Desktop does not stop the Server.",

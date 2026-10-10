@@ -20,11 +20,13 @@ from pathlib import Path
 import httpx
 import pytest
 
-from powercontext.builtin.artifacts.memory import EmbeddingProfile, MemoryEntryInput
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import EmbeddingResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
-from powercontext.builtin.tags import MemoryEntryTagTarget, TagFilter
+from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_projection
+from powercontext.builtin.tags import ArtifactTagTarget, TagFilter
 from powercontext.client import PowerContextClient
 from powercontext.http import QueryArtifactTagsRequest, ReplaceArtifactTagsRequest
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
@@ -45,8 +47,8 @@ class _EmbeddingModel:
     [
         ("GET", "/artifacts/experience/private/tags", None),
         ("PUT", "/artifacts/experience/private/tags", {"tags": ["private"]}),
-        ("GET", "/artifacts/memory/private/entries/private/tags", None),
-        ("PUT", "/artifacts/memory/private/entries/private/tags", {"tags": ["private"]}),
+        ("GET", "/artifacts/atomic-memory/private/tags", None),
+        ("PUT", "/artifacts/atomic-memory/private/tags", {"tags": ["private"]}),
         ("POST", "/artifact-tags/query", {"tags": ["private"]}),
     ],
 )
@@ -84,33 +86,41 @@ def test_tag_search_filters_before_candidate_limits_and_survives_rebuild(tmp_pat
     async def scenario() -> None:
         config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'candidates.db'}"))
         async with open_builtin_contexts(config, embedding_model=_EmbeddingModel()) as contexts:
-            service = (await contexts.get("project")).artifacts.memory
-            memory = await service.remember(
-                memory=None,
-                entries=tuple(MemoryEntryInput(kind="fact", text=f"Compatibility test {i:02d}.") for i in range(48)),
-                mode="append",
-            )
-            assert memory is not None
-            # Equal vector distances and text ranks leave this entry beyond the
-            # unfiltered candidate window. Filtering after top-k would lose it.
-            entry = max(memory.content.manifest.entries, key=lambda item: item.entry_id)
-            target = MemoryEntryTagTarget(artifact_id=memory.artifact_id, entry_id=entry.entry_id)
+            service = contexts.atomic_memory.for_scope("project")
+            memories = [
+                await contexts.records.create_artifact(
+                    "project",
+                    "atomic-memory",
+                    ArtifactWrite(content={"kind": "fact", "text": f"Compatibility test {i:02d}."}),
+                )
+                for i in range(48)
+            ]
+            # Equal distances and text ranks put the final identity past top-k.
+            # The label must restrict candidates before that window is applied.
+            artifact = max(memories, key=lambda item: item.artifact_id)
+            target = ArtifactTagTarget(family="atomic-memory", artifact_id=artifact.artifact_id)
             empty = await contexts.records.get_tags("project", target)
             tagged = await contexts.records.replace_tags("project", target, ("chosen",), expected_etag=empty.etag)
-            for mode in ("fts", "vector", "hybrid"):
-                unfiltered = await service.search("compatibility test", memories=(memory,), mode=mode, limit=32)
+            for mode in ("text", "vector", "hybrid"):
+                unfiltered = await service.search("compatibility test", mode=mode, limit=32)
                 assert len(unfiltered.hits) == 32
-                assert entry.entry_id not in {hit.entry_id for hit in unfiltered.hits}
+                assert artifact.artifact_id not in {hit.hit.artifact_ref.artifact_id for hit in unfiltered.hits}
                 result = await service.search(
-                    "compatibility test", memories=(memory,), mode=mode, limit=1, tag_filter=TagFilter(tags=("chosen",))
+                    "compatibility test", mode=mode, limit=1, tag_filter=TagFilter(tags=("chosen",))
                 )
-                assert [hit.entry_id for hit in result.hits] == [entry.entry_id]
-            await service.rebuild_projections()
+                assert [hit.hit.artifact_ref.artifact_id for hit in result.hits] == [artifact.artifact_id]
+            rebuilt_report = await rebuild_atomic_memory_projection(
+                contexts.database,
+                contexts.atomic_memory.index,
+                embedding_model=_EmbeddingModel(),
+                maintenance_confirmed=True,
+            )
+            assert rebuilt_report.ready, rebuilt_report.errors
             assert await contexts.records.get_tags("project", target) == tagged
             rebuilt = await service.search(
-                "compatibility test", memories=(memory,), mode="fts", limit=1, tag_filter=TagFilter(tags=("chosen",))
+                "compatibility test", mode="text", limit=1, tag_filter=TagFilter(tags=("chosen",))
             )
-            assert [hit.entry_id for hit in rebuilt.hits] == [entry.entry_id]
+            assert [hit.hit.artifact_ref.artifact_id for hit in rebuilt.hits] == [artifact.artifact_id]
 
     asyncio.run(scenario())
 
@@ -244,12 +254,7 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
                 "demonstrations": [],
             },
             "topic-memory": {"title": "Release", "summary": "Release checks", "detail": "Run tests before release."},
-            "memory": {
-                "entries": [
-                    {"kind": "decision", "text": "alpha compatibility check"},
-                    {"kind": "decision", "text": "alpha fallback check"},
-                ]
-            },
+            "atomic-memory": {"kind": "decision", "text": "alpha compatibility check"},
             "experience": {
                 "situation": "Compatibility failure",
                 "action": "Run tests",
@@ -283,13 +288,13 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
         }
         artifacts = {}
         for family, content in contents.items():
-            if family == "memory":
+            if family == "atomic-memory":
                 for text in ("alpha compatibility check", "alpha fallback check"):
                     remembered = await http.post(
                         "/v1/memory/remember", json={"scope_id": scope, "kind": "decision", "text": text}
                     )
                     assert remembered.status_code == 200, remembered.text
-                artifact_id = remembered.json()["memory"]["artifact_id"]
+                artifact_id = remembered.json()["records"][0]["artifact"]["artifact_id"]
             else:
                 created = await http.post(
                     f"/v1/scopes/{scope}/artifacts",
@@ -379,17 +384,16 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
         copy_id = published.json()["target"]["artifact"]["artifact_id"]
         copy_tags = await client.get_artifact_tags(target_scope, "experience", copy_id)
         assert copy_tags is not None and copy_tags.tag_set.tags == []
-        memory_id = artifacts["memory"]
         listed = await http.post("/v1/memory/entries/list", json={"scope_id": scope})
         assert listed.status_code == 200, listed.text
         entries = listed.json()["entries"]
-        entry = entries[-1]
-        entry_id = entry["citation"]["entry_id"]
-        empty = await client.get_memory_entry_tags(scope, memory_id, entry_id)
+        entry = next(item for item in entries if item["artifact"]["artifact_id"] != artifacts["atomic-memory"])
+        entry_id = entry["artifact"]["artifact_id"]
+        empty = await client.get_artifact_tags(scope, "atomic-memory", entry_id)
         assert empty is not None
-        state = await client.replace_memory_entry_tags(
+        state = await client.replace_artifact_tags(
             scope,
-            memory_id,
+            "atomic-memory",
             entry_id,
             ReplaceArtifactTagsRequest.model_validate({"tags": ["selected"]}),
             expected_etag=empty.etag,
@@ -406,17 +410,21 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
                 },
             )
             assert response.status_code == 200, response.text
-            assert [hit["citation"]["entry_id"] for hit in response.json()["hits"]] == [entry_id]
+            assert [hit["memory"]["artifact"]["artifact_id"] for hit in response.json()["hits"]] == [entry_id]
         filtered = await http.post(
             "/v1/memory/entries/list", json={"scope_id": scope, "tag_filter": {"tags": ["selected"]}}
         )
-        assert [item["citation"]["entry_id"] for item in filtered.json()["entries"]] == [entry_id]
+        assert [item["artifact"]["artifact_id"] for item in filtered.json()["entries"]] == [entry_id]
         retired = await http.post(
-            "/v1/memory/entries/retire",
-            json={"scope_id": scope, "citation": entry["citation"], "reason": "Tag lifecycle acceptance"},
+            "/v1/atomic-memory/lifecycle",
+            json={
+                "scope_id": scope,
+                "target": {"artifact": entry["artifact"], "state_version": entry["state_version"]},
+                "state": "forgotten",
+            },
         )
         assert retired.status_code == 200, retired.text
-        reloaded_entry = await client.get_memory_entry_tags(scope, memory_id, entry_id)
+        reloaded_entry = await client.get_artifact_tags(scope, "atomic-memory", entry_id)
         assert reloaded_entry is not None and reloaded_entry.etag == state.etag
         hidden = await client.query_artifact_tags(
             scope, QueryArtifactTagsRequest.model_validate({"tags": ["selected"]})
@@ -427,11 +435,11 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
         )
         assert len(inactive.items) == 1
         assert (
-            inactive.items[0].model_dump(mode="json")["reference"]["memory_ref"]["revision"]
-            == retired.json()["memory"]["revision"]
+            inactive.items[0].model_dump(mode="json")["reference"]["revision"]
+            == retired.json()["records"][0]["artifact"]["revision"]
         )
-        cleared = await client.replace_memory_entry_tags(
-            scope, memory_id, entry_id, ReplaceArtifactTagsRequest(tags=[]), expected_etag=state.etag
+        cleared = await client.replace_artifact_tags(
+            scope, "atomic-memory", entry_id, ReplaceArtifactTagsRequest(tags=[]), expected_etag=state.etag
         )
         assert cleared.tag_set.tags == []
         return scope

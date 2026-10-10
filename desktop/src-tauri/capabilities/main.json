@@ -10,7 +10,7 @@
     "allow-local-diagnostics",
     "allow-remember-memory",
     "allow-search-memory",
-    "allow-memory-entry",
+    "allow-atomic-memory-entry",
     "allow-cancel-memory-reads",
     "allow-desktop-state",
     "allow-save-profile",

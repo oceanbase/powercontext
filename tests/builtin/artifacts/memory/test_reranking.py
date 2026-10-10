@@ -44,7 +44,7 @@ class _RecordingGenerator:
 
 def _hit(rank: int) -> MemoryHit:
     return MemoryHit(
-        memory_ref=ArtifactRef(family="memory", artifact_id="memory", revision=1),
+        memory_ref=ArtifactRef(family="atomic-memory", artifact_id="memory", revision=1),
         entry_id=f"entry-{rank}",
         entry_version_id=f"entry-{rank}-v1",
         text=f"Candidate {rank}",

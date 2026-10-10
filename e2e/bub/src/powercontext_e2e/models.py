@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
+from powercontext.http import ArtifactReference
 from pydantic import BaseModel, ConfigDict, Field
 
 from .catalog import E2ETask
@@ -47,6 +48,8 @@ class SourceReferenceSnapshot(EvidenceModel):
 
 
 class MemoryEntrySnapshot(EvidenceModel):
+    """Retained legacy Entry evidence, readable by offline replay rescoring."""
+
     entry_id: str
     entry_version_id: str
     version: int
@@ -56,8 +59,21 @@ class MemoryEntrySnapshot(EvidenceModel):
     source_refs: tuple[SourceReferenceSnapshot, ...] = ()
 
 
+class AtomicMemorySnapshot(EvidenceModel):
+    """Current lifecycle state and lineage from the exact immutable revision."""
+
+    artifact: ArtifactReference
+    kind: str
+    text: str
+    state: str
+    state_version: int
+    merged_into_id: str | None
+    sources: tuple[SourceReferenceSnapshot, ...] = ()
+    artifacts: tuple[ArtifactReference, ...] = ()
+
+
 class MemorySnapshot(EvidenceModel):
-    entries: tuple[MemoryEntrySnapshot, ...] = ()
+    entries: tuple[AtomicMemorySnapshot | MemoryEntrySnapshot, ...] = ()
 
 
 class PreparedContextSnapshot(EvidenceModel):
@@ -81,6 +97,8 @@ class CaptureRecord(EvidenceModel):
     high_watermark: int | None = None
     processed_source_count: int | None = None
     memory_created: bool | None = None
+    cursor_advanced: bool | None = None
+    remaining_work: bool | None = None
     content_bytes: int | None = None
     captured_events: int | None = None
     flushed_position: int | None = None

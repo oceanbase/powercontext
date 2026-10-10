@@ -27,14 +27,12 @@ from typing import Any
 import pytest
 from pydantic import AnyHttpUrl, SecretStr, ValidationError
 
-from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     InferenceConfig,
-    RememberMemoryRequest,
     RuntimeConfig,
-    SearchMemoryRequest,
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft
@@ -268,16 +266,13 @@ def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(
                         idempotency_key="custom-inference",
                     )
                 )
-                memory = runtime.memory.for_scope(scope.scope_id)
-                await memory.remember(
-                    RememberMemoryRequest(
-                        entries=(
-                            MemoryEntryInput(kind="fact", text="Deployment uses the blue environment."),
-                            MemoryEntryInput(kind="fact", text="Deployment rollback uses the green environment."),
-                        )
-                    )
-                )
-                search = await memory.search(SearchMemoryRequest(query="deployment environment", mode="fts", limit=1))
+                assert runtime.atomic_memory is not None
+                memory = runtime.atomic_memory.for_scope(scope.scope_id)
+                await memory.create((
+                    AtomicMemoryContent(kind="fact", text="Deployment uses the blue environment."),
+                    AtomicMemoryContent(kind="fact", text="Deployment rollback uses the green environment."),
+                ))
+                search = await memory.search("deployment environment", mode="text", limit=1)
                 # Check readiness after the real model clients have completed their first requests.
                 readiness = await runtime.readiness()
 
@@ -344,9 +339,10 @@ def test_embedding_requests_omit_dimensions_when_sending_is_disabled(tmp_path: P
                         idempotency_key="omit-dimensions",
                     )
                 )
-                await runtime.memory.for_scope(scope.scope_id).remember(
-                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="bge-m3 stores 1024 values."),))
-                )
+                assert runtime.atomic_memory is not None
+                await runtime.atomic_memory.for_scope(scope.scope_id).create((
+                    AtomicMemoryContent(kind="fact", text="bge-m3 stores 1024 values."),
+                ))
 
         assert embedding_server.requests
         for embedding_request in embedding_server.requests:

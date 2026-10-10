@@ -229,10 +229,6 @@ async def _window(
     return await sources.list_window(connection, SCOPE, after=after, through=through)
 
 
-async def _missing_memory(*_args, **_kwargs):
-    raise AssertionError("recurrence tests do not resolve memory citations")  # noqa: TRY003
-
-
 def _ledger(database, sources, artifacts, repository) -> RelationalRecurrenceLedger:
     return RelationalRecurrenceLedger(
         database=database,
@@ -244,7 +240,6 @@ def _ledger(database, sources, artifacts, repository) -> RelationalRecurrenceLed
             scope_id=SCOPE,
             sources=sources,
             artifacts=artifacts,
-            memory_reader=_missing_memory,
         ),
     )
 

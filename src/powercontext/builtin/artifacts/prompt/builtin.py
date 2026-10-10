@@ -16,6 +16,16 @@
 
 from typing import cast
 
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+    atomic_memory_extraction_instructions,
+)
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
+    ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
+    AtomicMemoryReconciliationInput,
+    AtomicMemoryReconciliationOutput,
+)
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_GENERATION_INSTRUCTIONS,
     EXPERIENCE_GENERATION_INSTRUCTIONS_VERSION,
@@ -91,6 +101,26 @@ def builtin_prompt_definitions(
     """Keep existing Auto instructions unchanged while exposing replaceable custom guidance."""
 
     return (
+        PromptDefinition(
+            key="atomic_memory.extract",
+            definition_version="powercontext.prompt.atomic-memory.extract.v1",
+            input_type=AtomicMemoryExtractionInput,
+            output_type=AtomicMemoryExtractionOutput,
+            builtin_version=f"powercontext.atomic-memory.extract.{profile.value}.v1",
+            invariant_instructions=atomic_memory_extraction_instructions(profile),
+            default_instructions=atomic_memory_extraction_instructions(profile),
+            builtin_profile=profile.value,
+            noop_field="candidates",
+        ),
+        PromptDefinition(
+            key="atomic_memory.reconcile",
+            definition_version="powercontext.prompt.atomic-memory.reconcile.v1",
+            input_type=AtomicMemoryReconciliationInput,
+            output_type=AtomicMemoryReconciliationOutput,
+            builtin_version="powercontext.atomic-memory.reconcile.v1",
+            invariant_instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
+            default_instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
+        ),
         PromptDefinition(
             key="memory.extract",
             definition_version="powercontext.prompt.memory.extract.v1",

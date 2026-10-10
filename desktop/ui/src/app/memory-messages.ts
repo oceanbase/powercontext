@@ -29,7 +29,7 @@ export const memoryMessages = {
     empty: "请输入非空正文。",
     success: "保存成功。",
     noEntry:
-      "保存操作成功，Server 未返回可打开的条目；不据此认定创建了新记录。",
+      "保存操作成功，Server 未返回可打开的记忆；不据此认定创建了新记录。",
     unknown:
       "提交结果未知。请不要直接重复保存；可以回到原连接和范围查询，但相同文字不能证明本次提交成功。",
     retry: "上次提交结果未知，再次保存可能产生重复记录。仍要提交这次输入吗？",
@@ -55,10 +55,8 @@ export const memoryMessages = {
     read: "阅读精确版本",
     loading: "正在读取精确版本…",
     detail: "记忆详情",
-    badgeActive: "有效",
-    badgeInactive: "停用",
     scopeBelong: "所属范围",
-    citationNote: "引用摘要 · 复制时保留完整引用",
+    referenceNote: "引用摘要 · 复制时保留完整引用",
     agentScopeNote: "切换浏览范围不会修改 Agent 的保存位置。",
     sources: "来源引用",
     noSources: "Server 未返回来源引用。",
@@ -86,7 +84,7 @@ export const memoryMessages = {
     empty: "Enter nonblank text.",
     success: "Saved successfully.",
     noEntry:
-      "The save succeeded, but the Server returned no entry to open. This does not establish that a new record was created.",
+      "The save succeeded, but the Server returned no memory to open. This does not establish that a new record was created.",
     unknown:
       "The submission outcome is unknown. Avoid saving again immediately. You can inspect the original connection and scope, but matching text does not prove this submission succeeded.",
     retry:
@@ -114,16 +112,14 @@ export const memoryMessages = {
     read: "Read exact version",
     loading: "Reading exact version…",
     detail: "Memory details",
-    badgeActive: "Active",
-    badgeInactive: "Inactive",
     scopeBelong: "Scope",
-    citationNote: "Citation summary · the copy keeps the complete citation",
+    referenceNote: "Reference summary · the copy keeps the complete reference",
     agentScopeNote:
       "Changing the browsing scope does not change where Agents save.",
     sources: "Source references",
     noSources: "The Server returned no source references.",
     reference: "Exact reference",
-    referenceFull: "Complete citation structure",
+    referenceFull: "Complete reference structure",
     copyText: "Copy text",
     copyReference: "Copy exact reference",
     copied: "Copied",

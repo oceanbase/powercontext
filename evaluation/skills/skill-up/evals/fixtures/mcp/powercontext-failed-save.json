@@ -12,6 +12,9 @@
     "capture_content_source": {
       "error": "unexpected"
     },
+    "change_atomic_memory_lifecycle": {
+      "error": "unexpected"
+    },
     "clear_scope_binding": {
       "error": "unexpected"
     },
@@ -33,6 +36,15 @@
     "finalize_handoff": {
       "error": "unexpected"
     },
+    "generate_experience": {
+      "error": "unexpected"
+    },
+    "generate_skill": {
+      "error": "unexpected"
+    },
+    "get_artifact": {
+      "error": "unexpected"
+    },
     "get_artifact_candidate": {
       "default": {
         "candidate_id": "fixture-candidate-001",
@@ -52,14 +64,22 @@
         },
         "source_refs": [],
         "artifact_refs": [],
-        "memory_citations": [],
         "target": null,
         "reason": "Fixture for read-only candidate inspection.",
         "result_artifact": null,
         "decision_reason": null
       }
     },
+    "get_artifact_revision": {
+      "error": "unexpected"
+    },
+    "get_atomic_memory_state": {
+      "error": "unexpected"
+    },
     "get_dream_run": {
+      "error": "unexpected"
+    },
+    "get_experience": {
       "error": "unexpected"
     },
     "get_handoff_report": {
@@ -74,10 +94,16 @@
         "name": "Skill-up fixture scope"
       }
     },
+    "get_skill": {
+      "error": "unexpected"
+    },
     "get_topic_memory": {
       "error": "unexpected"
     },
     "handoff_current_work": {
+      "error": "unexpected"
+    },
+    "import_external_skill": {
       "error": "unexpected"
     },
     "list_artifact_candidates": {
@@ -101,7 +127,6 @@
             },
             "source_refs": [],
             "artifact_refs": [],
-            "memory_citations": [],
             "target": null,
             "reason": "Fixture for read-only candidate inspection.",
             "result_artifact": null,
@@ -111,13 +136,37 @@
         "next_cursor": null
       }
     },
+    "list_atomic_memories": {
+      "error": "unexpected"
+    },
     "list_dream_runs": {
+      "error": "unexpected"
+    },
+    "list_external_skills": {
+      "error": "unexpected"
+    },
+    "list_managed_skills": {
       "error": "unexpected"
     },
     "list_memory_entries": {
       "error": "unexpected"
     },
     "list_scopes": {
+      "error": "unexpected"
+    },
+    "merge_atomic_memories": {
+      "error": "unexpected"
+    },
+    "prepare_handoff_hint": {
+      "error": "unexpected"
+    },
+    "preview_atomic_memory_restoration": {
+      "error": "unexpected"
+    },
+    "propose_experience": {
+      "error": "unexpected"
+    },
+    "propose_skill": {
       "error": "unexpected"
     },
     "publish_artifact": {
@@ -141,6 +190,12 @@
         }
       }
     },
+    "replace_artifact": {
+      "error": "unexpected"
+    },
+    "resolve_external_skill": {
+      "error": "unexpected"
+    },
     "resolve_scope_binding": {
       "default": {
         "key": {
@@ -151,19 +206,21 @@
         "scope_id": "skill-up-fixture-scope"
       }
     },
-    "retire_memory_entry": {
+    "restore_atomic_memory": {
       "error": "unexpected"
     },
     "revise_artifact_candidate": {
       "error": "unexpected"
     },
-    "revise_memory_entry": {
+    "scan_external_skills": {
+      "error": "unexpected"
+    },
+    "search_atomic_memory": {
       "error": "unexpected"
     },
     "search_memory": {
       "default": {
-        "memory": null,
-        "mode": null,
+        "mode": "text",
         "hits": []
       }
     },

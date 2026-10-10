@@ -14,13 +14,13 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import fields, replace
 
 import pytest
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceSearchHit
-from powercontext.builtin.artifacts.memory import MemoryHit
 from powercontext.builtin.artifacts.memory.fusion import _MIN_SEMANTIC_SIMILARITY, admit_vector_candidates
 from powercontext.builtin.artifacts.memory.models import MemoryChannelHit, MemoryMatchedBy
 from powercontext.builtin.artifacts.search import (
@@ -33,10 +33,12 @@ from powercontext.builtin.artifacts.search import (
     fts_query_requirements,
 )
 from powercontext.builtin.artifacts.topic_memory import TopicMemorySearchHit
+from powercontext.builtin.persistence.atomic_memory_index import AtomicMemoryIndexHit
 from powercontext.builtin.runtime.application import (
     _families_with_recoverable_candidates,
     _families_with_retrieved_candidates,
 )
+from powercontext.builtin.runtime.atomic_memory import AtomicMemorySearchHit
 from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.builtin.runtime.prepared_context import PreparedContextOmissions
 from powercontext.builtin.runtime.recall_sufficiency import (
@@ -67,7 +69,7 @@ from powercontext.builtin.runtime.recall_sufficiency import (
     recall_effort_measurement,
 )
 
-MEMORY_REF = ArtifactRef(family="memory", artifact_id="memory", revision=3)
+MEMORY_REF = ArtifactRef(family="atomic-memory", artifact_id="memory", revision=3)
 
 
 def _budget_bound_view() -> RecallBudgetView:
@@ -87,8 +89,8 @@ def _memory_candidate(text: str, *, artifact_id: str = "memory", revision: int =
         family="memory",
         artifact_id=artifact_id,
         revision=revision,
-        entry_id="entry",
-        entry_version_id="entry-v1",
+        entry_id=None,
+        entry_version_id=None,
         score=1.0,
         text=text,
     )
@@ -126,13 +128,24 @@ def _experience_candidate(text: str, *, artifact_id: str = "experience") -> Reca
     )
 
 
-def _memory_hit(*, score: float, matched_by: tuple[MemoryMatchedBy, ...], text: str = "alpha beta") -> MemoryHit:
-    return MemoryHit(
-        memory_ref=MEMORY_REF,
-        entry_id="entry",
-        entry_version_id="entry-v1",
-        text=text,
-        score=score,
+def _memory_hit(
+    *,
+    score: float,
+    matched_by: tuple[MemoryMatchedBy, ...],
+    text: str = "alpha beta",
+    artifact_ref: ArtifactRef = MEMORY_REF,
+    relevance: float | None = None,
+) -> AtomicMemorySearchHit:
+    return AtomicMemorySearchHit(
+        hit=AtomicMemoryIndexHit(
+            artifact_ref=artifact_ref,
+            state_version=0,
+            kind="fact",
+            text=text,
+            score=score,
+            # Unit-vector L2 distance whose cosine similarity is ``relevance``.
+            distance=None if relevance is None else math.sqrt(2 * (1 - relevance)),
+        ),
         matched_by=matched_by,
     )
 
@@ -367,30 +380,21 @@ def test_gate_scores_each_scope_by_its_own_first_fused_hit() -> None:
 def test_build_recall_candidates_wires_scope_ids_into_the_per_scope_rule() -> None:
     """Deleting ``memory_scope_ids`` must change observable behavior: without it every
     Memory hit shares one group and the flat first hit decides scoring for all Scopes."""
-    fts_first = MemoryHit(
-        memory_ref=MEMORY_REF,
-        entry_id="a-fts",
-        entry_version_id="a-fts-v1",
-        text="alpha beta",
+    fts_first = _memory_hit(
         score=1 / 61,
         matched_by=("fts",),
+        artifact_ref=ArtifactRef(family="atomic-memory", artifact_id="a-fts", revision=1),
     )
-    deep_vector = MemoryHit(
-        memory_ref=MEMORY_REF,
-        entry_id="a-vector",
-        entry_version_id="a-vector-v1",
-        text="alpha beta",
+    deep_vector = _memory_hit(
         score=1 / 62,
         matched_by=("vector",),
+        artifact_ref=ArtifactRef(family="atomic-memory", artifact_id="a-vector", revision=1),
         relevance=0.9,
     )
-    ref_vector = MemoryHit(
-        memory_ref=ArtifactRef(family="memory", artifact_id="memory-b", revision=1),
-        entry_id="b-vector",
-        entry_version_id="b-vector-v1",
-        text="alpha beta",
+    ref_vector = _memory_hit(
         score=1 / 61,
         matched_by=("vector",),
+        artifact_ref=ArtifactRef(family="atomic-memory", artifact_id="b-vector", revision=1),
         relevance=0.31,
     )
     gate = RecallSufficiencyGate()
@@ -695,11 +699,12 @@ def test_memory_two_channel_hit_normalizes_against_its_wider_upper_bound() -> No
 
 def test_memory_vector_relevance_reaches_gate_without_changing_rank_score() -> None:
     hits = (
-        _memory_hit(score=2 / 61, matched_by=("fts", "vector"), text="alpha beta").model_copy(
-            update={"relevance": 0.3}
-        ),
-        _memory_hit(score=1 / 62, matched_by=("vector",), text="alpha beta").model_copy(
-            update={"entry_id": "other", "relevance": 0.1}
+        _memory_hit(score=2 / 61, matched_by=("fts", "vector"), relevance=0.3),
+        _memory_hit(
+            score=1 / 62,
+            matched_by=("vector",),
+            artifact_ref=ArtifactRef(family="atomic-memory", artifact_id="other", revision=1),
+            relevance=0.1,
         ),
     )
     candidates = build_recall_candidates(memory_hits=hits, topic_memory_hits=(), experience_hits=())
@@ -751,13 +756,13 @@ def test_lexical_overlap_selects_the_maximum_over_candidates() -> None:
 # ── Candidate projection and identity ───────────────────────────────────────────────────────
 
 
-def test_candidate_identity_matches_the_builder_origin_identity() -> None:
+def test_candidate_identity_preserves_the_exact_artifact_revision() -> None:
     memory = build_recall_candidates(
         memory_hits=(_memory_hit(score=1 / 61, matched_by=("fts",)),),
         topic_memory_hits=(),
         experience_hits=(),
     )[0]
-    assert candidate_identity(memory) == ("memory", "memory", 3, "entry", "entry-v1")
+    assert candidate_identity(memory) == ("memory", "memory", 3, None, None)
 
     experience = build_recall_candidates(
         memory_hits=(),
@@ -767,12 +772,10 @@ def test_candidate_identity_matches_the_builder_origin_identity() -> None:
     assert candidate_identity(experience) == ("experience", "experience", 1, None, None)
 
 
-def test_distinct_source_count_uses_the_memory_entry_identity() -> None:
+def test_distinct_source_count_uses_each_atomic_memory_identity() -> None:
     memory_hits = tuple(
-        MemoryHit(
-            memory_ref=MEMORY_REF,
-            entry_id=f"entry-{index}",
-            entry_version_id=f"entry-{index}-v1",
+        _memory_hit(
+            artifact_ref=ArtifactRef(family="atomic-memory", artifact_id=f"memory-{index}", revision=3),
             text="alpha beta",
             score=1 / (61 + index),
             matched_by=("fts",),
@@ -795,9 +798,7 @@ def test_distinct_source_count_uses_the_memory_entry_identity() -> None:
         )
         .signals
     )
-    # Three distinct Memory entries share one memory_ref revision, so the coarse
-    # (family, artifact_id, revision) tuple the RFC warns against would report 2 here; the
-    # family-specific identity counts the entries independently, plus the one Experience Artifact.
+    # Independent Atomic artifacts remain distinct even when they share a revision number.
     assert signals.distinct_source_count == 4
 
 

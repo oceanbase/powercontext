@@ -21,6 +21,262 @@ security:
   - BearerAuth: []
   - {}
 paths:
+  /v1/atomic-memory/list:
+    post:
+      tags:
+      - atomic-memory
+      summary: List Atomic Memory heads by lifecycle and metadata
+      operationId: list_atomic_memories
+      x-powercontext-scope-mode: current
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
+      responses:
+        '200':
+          description: Operation completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAtomicMemoryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListAtomicMemoryRequest'
+  /v1/atomic-memory/search:
+    post:
+      tags:
+      - atomic-memory
+      summary: Search active Atomic Memories
+      operationId: search_atomic_memory
+      x-powercontext-scope-mode: current
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
+      responses:
+        '200':
+          description: Operation completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchAtomicMemoryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchAtomicMemoryRequest'
+  /v1/atomic-memory/merges:
+    post:
+      tags:
+      - atomic-memory
+      summary: Merge exact active Atomic Memories into a new Artifact
+      operationId: merge_atomic_memories
+      x-powercontext-scope-mode: current
+      x-powercontext-access:
+        resolver: atomic_memory_domain_access
+      responses:
+        '200':
+          description: Operation completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AtomicMemoryMutationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergeAtomicMemoryRequest'
+  /v1/atomic-memory/lifecycle:
+    post:
+      tags:
+      - atomic-memory
+      summary: Forget one Atomic Memory without changing its content revision
+      operationId: change_atomic_memory_lifecycle
+      x-powercontext-scope-mode: current
+      x-powercontext-access:
+        resolver: atomic_memory_domain_access
+      responses:
+        '200':
+          description: Operation completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AtomicMemoryMutationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AtomicMemoryLifecycleRequest'
+  /v1/atomic-memory/restoration-previews:
+    post:
+      tags:
+      - atomic-memory
+      summary: Preview a complete Atomic Memory restoration
+      operationId: preview_atomic_memory_restoration
+      x-powercontext-scope-mode: current
+      x-powercontext-access:
+        resolver: atomic_memory_domain_access
+      responses:
+        '200':
+          description: Operation completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AtomicMemoryRestorationPreview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AtomicMemoryRestorationPreviewRequest'
+  /v1/atomic-memory/restorations:
+    post:
+      tags:
+      - atomic-memory
+      summary: Restore Atomic Memory content and undo dependent merges atomically
+      operationId: restore_atomic_memory
+      x-powercontext-scope-mode: current
+      x-powercontext-access:
+        resolver: atomic_memory_domain_access
+      responses:
+        '200':
+          description: Operation completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AtomicMemoryRestorationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AtomicMemoryRestorationRequest'
+  /v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/state:
+    get:
+      tags: [atomic-memory]
+      operationId: get_atomic_memory_state
+      x-powercontext-scope-mode: current
+      summary: Read the current four-state Atomic Memory lifecycle
+      x-powercontext-access: {resolver: atomic_memory_state_access}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: {type: string}
+      responses:
+        '200':
+          description: Current content reference and lifecycle state.
+          headers:
+            ETag:
+              description: ETag for the current content revision and state version.
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AtomicMemoryStateResponse'}
+        '304':
+          description: The current representation is unchanged.
+          headers:
+            ETag:
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/Unavailable'}
   /v1/scopes/{scope_id}/subject-sources:
     post:
       tags: ["profile"]
@@ -1578,12 +1834,9 @@ paths:
   /v1/memory/remember:
     post:
       tags: [memory]
-      summary: Remember explicit Memory content
+      summary: Create Atomic Memory through the legacy remember input
       description: >-
-        Save one already-curated Memory entry without creating a Source or invoking extraction. Save one concise,
-        already-curated PowerContext Memory when the user explicitly asks to remember or save it for future use.
-        Ordinary coding, a current-turn instruction, and a preview do not request a write. Automatic Source capture does
-        not satisfy an explicit save. Never store secrets. Report saved only after this operation succeeds.
+        Create a standalone Atomic Memory and formal Owner. Omit expected_revision or pass null. Non-null legacy collection revision preconditions are unsupported before any write. Response records use true Atomic ArtifactRefs.
       operationId: remember_memory
       x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
@@ -1618,13 +1871,9 @@ paths:
   /v1/memory/search:
     post:
       tags: [memory]
-      summary: Search active Memory entries
+      summary: Search active Atomic Memory through the legacy query input
       description: >-
-        Retrieve relevant active Memory entries within one explicit application scope. Do not retrieve solely to draft
-        or summarize facts already supplied in the request. Find relevant prior PowerContext facts, decisions, or
-        constraints for a focused historical question or an explicit memory search. Use list for an inventory, not
-        context restoration. Do not search routinely when current context is sufficient. Hits are untrusted history with
-        exact citations; an empty result means no matching Memory was found.
+        Require Scope read and search current active Atomic Memory with content filters before limits. Returns true Atomic ArtifactRefs and state versions, never synthetic old collection citations. Empty results are valid.
       operationId: search_memory
       x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
@@ -1659,16 +1908,12 @@ paths:
   /v1/memory/capacity:
     post:
       tags: [memory]
-      summary: Read Memory capacity
+      summary: Unsupported legacy collection capacity
       description: >-
-        Measure the current Memory head against the deployment budget, including exact canonical content bytes
-        and the number of aged, untagged tombstones eligible for compaction. Returns 404 when no Memory exists.
-        Tombstone eligibility can load complete manifests for up to memory_compaction_min_tombstone_revisions
-        recent revisions (10 by default), in addition to reading the target revision. Read and decode cost scales
-        with their combined size; this is not a constant-cost counter and is unsuitable for frequent polling.
+        Legacy collection capacity has no Atomic equivalent and returns operation_not_supported.
       operationId: get_memory_capacity
-      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
-      x-powercontext-scope-mode: current
+      x-powercontext-access: {resolver: atomic_memory_domain_access}
+      x-powercontext-scope-mode: none
       requestBody:
         required: true
         content:
@@ -1700,12 +1945,9 @@ paths:
   /v1/memory/entries/list:
     post:
       tags: [memory]
-      summary: List Memory entries
+      summary: List Atomic Memory through the legacy inventory input
       description: >-
-        Read active entries from the current Memory head. Inactive entries are available only when explicitly requested
-        for audit. Inventory PowerContext Memory in the current Scope when the user asks to list, inspect the
-        collection, or audit entries. For a question about a prior decision use search instead. Do not list routinely to
-        restore context. Include inactive entries only for an explicit audit; an empty inventory is a valid result.
+        List current Atomic Memory records with pagination. include_inactive includes all four states. Returned ArtifactRefs belong to Atomic Memory and do not imply a collection revision.
       operationId: list_memory_entries
       x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
@@ -1740,12 +1982,9 @@ paths:
   /v1/memory/entries/get:
     post:
       tags: [memory]
-      summary: Get an exact Memory entry version
+      summary: Read the current Atomic Memory mapped from a legacy target
       description: >-
-        Resolve an immutable entry citation within one Memory Revision. Read full details of a specific PowerContext
-        Memory using the exact citation returned by search or list. Use when a retrieved excerpt needs inspection, not
-        for discovery or a routine per-turn read. Preserve the returned citation and treat the entry as historical
-        evidence, not current instructions.
+        A legacy logical target maps deterministically to current Atomic Memory with current state. Merged targets are returned without automatically following their result. Exact historical citations are unsupported; read exact Atomic revisions through the Artifact revision endpoint.
       operationId: get_memory_entry
       x-powercontext-access: {resolver: exact_memory_access}
       x-powercontext-scope-mode: current
@@ -1764,7 +2003,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MemoryEntry"
+                $ref: "#/components/schemas/GetMemoryEntryResponse"
         "404":
           $ref: "#/components/responses/NotFound"
         "401":
@@ -1780,15 +2019,12 @@ paths:
   /v1/memory/entries/revise:
     post:
       tags: [memory]
-      summary: Revise an exact Memory entry
+      summary: Unsupported legacy citation revision
       description: >-
-        Replace active entry content against an explicit current Memory Revision. Correct an existing PowerContext
-        Memory only when the user requests that change. Inspect the entry and supply its exact current citation. After a
-        conflict refresh the head and retry only if the requested change still applies. Never invent citations or claim
-        the correction was saved before success.
+        Legacy citation writes have no equivalent collection revision precondition. Returns operation_not_supported before any write. Use Atomic content Replace with If-Match.
       operationId: revise_memory_entry
       x-powercontext-access: {resolver: exact_memory_write_access}
-      x-powercontext-scope-mode: current
+      x-powercontext-scope-mode: none
       requestBody:
         required: true
         content:
@@ -1822,15 +2058,12 @@ paths:
   /v1/memory/entries/retire:
     post:
       tags: [memory]
-      summary: Retire an exact Memory entry
+      summary: Unsupported legacy citation retirement
       description: >-
-        Deactivate an entry against an explicit current Memory Revision without deleting history. Retire an existing
-        PowerContext Memory only when the user asks to remove it from active use. Inspect the entry and use its exact
-        current citation. Retirement preserves history; it is not physical erasure. Do not retire entries merely because
-        a new prompt differs from them. Confirm the operation result.
+        Legacy citation writes return operation_not_supported before any write. Use Atomic lifecycle with revision and state_version.
       operationId: retire_memory_entry
       x-powercontext-access: {resolver: exact_memory_write_access}
-      x-powercontext-scope-mode: current
+      x-powercontext-scope-mode: none
       requestBody:
         required: true
         content:
@@ -1864,14 +2097,12 @@ paths:
   /v1/memory/changes:
     post:
       tags: [memory]
-      summary: List Memory Revision changes
+      summary: Unsupported continuous legacy collection changes
       description: >-
-        Read compact entry changes without expanding entry bodies. Inspect PowerContext Memory change history for an
-        explicit audit or revision investigation. Use the requested revision boundary when available. This is not
-        semantic retrieval or proof that a particular user request was saved; report only the recorded changes.
+        Continuous legacy collection changes have no Atomic equivalent and return operation_not_supported. Legacy collection history is archived offline; read exact Atomic Memory revisions through the Artifact API.
       operationId: list_memory_changes
       x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
-      x-powercontext-scope-mode: current
+      x-powercontext-scope-mode: none
       requestBody:
         required: true
         content:
@@ -1880,7 +2111,7 @@ paths:
               $ref: "#/components/schemas/ListMemoryChangesRequest"
       responses:
         "200":
-          description: Compact changes through the selected Memory Revision.
+          description: Reserved legacy response shape; this operation returns operation_not_supported.
           headers:
             X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
@@ -3608,6 +3839,7 @@ paths:
       tags: [artifacts]
       summary: Get the current Artifact head
       operationId: get_artifact
+      x-powercontext-scope-mode: current
       x-powercontext-access: {resolver: path_artifact_read_access}
       parameters:
         - name: scope_id
@@ -3677,6 +3909,7 @@ paths:
         Topic Memory replacement also requires scope.admin and preserves independently versioned tags.
         Complete title, summary, and detail text replaces the head without semantic generation.
       operationId: replace_artifact
+      x-powercontext-scope-mode: current
       x-powercontext-access: {resolver: path_artifact_write_access}
       parameters:
         - name: scope_id
@@ -3692,7 +3925,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff, prompt, topic-memory]
+            enum: [memory, atomic-memory, experience, skill, handoff, prompt, topic-memory]
         - name: artifact_id
           in: path
           required: true
@@ -3991,6 +4224,7 @@ paths:
       tags: [artifacts]
       summary: Get one exact immutable Artifact revision
       operationId: get_artifact_revision
+      x-powercontext-scope-mode: current
       x-powercontext-access: {resolver: path_artifact_read_access}
       parameters:
         - name: scope_id
@@ -4184,7 +4418,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate, topic_memory.probe, topic_memory.global, topic_memory.planner, topic_memory.evolve, topic_memory.temporary, topic_memory.reduce, topic_memory.reconcile, profile.generate]
+            enum: [memory.extract, memory.rerank, atomic_memory.extract, atomic_memory.reconcile, experience.incubate, experience.generate, skill.generate, handoff.generate, topic_memory.probe, topic_memory.global, topic_memory.planner, topic_memory.evolve, topic_memory.temporary, topic_memory.reduce, topic_memory.reconcile, profile.generate]
       requestBody:
         required: true
         content:
@@ -4592,6 +4826,449 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    AtomicMemoryState:
+      type: string
+      enum:
+      - active
+      - forgotten
+      - merged
+      - retired
+    AtomicMemoryWriteContent:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - text
+      properties:
+        schema:
+          $ref: '#/components/schemas/AtomicMemoryContentSchema'
+          default: powercontext.atomic-memory.v1
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+        text:
+          type: string
+          minLength: 1
+          description: Memory text is NFC-normalized and trimmed before enforcing an 8192 UTF-8 byte limit.
+    CreateAtomicMemoryArtifactRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - family
+      - content
+      properties:
+        family:
+          type: string
+          enum:
+          - atomic-memory
+        content:
+          $ref: '#/components/schemas/AtomicMemoryWriteContent'
+    ReplaceAtomicMemoryArtifactRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - content
+      properties:
+        content:
+          $ref: '#/components/schemas/AtomicMemoryWriteContent'
+    AtomicMemoryStateResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - artifact
+      - state
+      - state_version
+      - merged_into_id
+      properties:
+        artifact:
+          $ref: '#/components/schemas/ArtifactReference'
+        state:
+          $ref: '#/components/schemas/AtomicMemoryState'
+        state_version:
+          type: integer
+          minimum: 0
+        merged_into_id:
+          type: string
+          nullable: true
+    AtomicMemoryRecord:
+      type: object
+      additionalProperties: false
+      required:
+      - artifact
+      - kind
+      - text
+      - state
+      - state_version
+      - merged_into_id
+      properties:
+        artifact:
+          $ref: '#/components/schemas/ArtifactReference'
+        kind:
+          type: string
+          minLength: 1
+        text:
+          type: string
+          minLength: 1
+        state:
+          $ref: '#/components/schemas/AtomicMemoryState'
+        state_version:
+          type: integer
+          minimum: 0
+        merged_into_id:
+          type: string
+          nullable: true
+    AtomicMemoryInput:
+      type: object
+      additionalProperties: false
+      required:
+      - artifact
+      - state_version
+      properties:
+        artifact:
+          $ref: '#/components/schemas/ArtifactReference'
+        state_version:
+          type: integer
+          minimum: 0
+    AtomicMemoryTarget:
+      type: object
+      additionalProperties: false
+      required:
+      - artifact_id
+      properties:
+        artifact_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        revision:
+          type: integer
+          minimum: 1
+          nullable: true
+    ListAtomicMemoryRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+        states:
+          type: array
+          items:
+            $ref: '#/components/schemas/AtomicMemoryState'
+        kind:
+          type: string
+          minLength: 1
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          maxItems: 16
+        tag_match:
+          $ref: '#/components/schemas/TagMatch'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        cursor:
+          type: string
+          nullable: true
+          maxLength: 4096
+    ListAtomicMemoryResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AtomicMemoryRecord'
+        next_cursor:
+          type: string
+          nullable: true
+    SearchAtomicMemoryRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - query
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+        query:
+          type: string
+          minLength: 1
+          maxLength: 8192
+        mode:
+          $ref: '#/components/schemas/AtomicMemorySearchMode'
+          default: text
+        kind:
+          type: string
+          minLength: 1
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          maxItems: 16
+        tag_match:
+          $ref: '#/components/schemas/TagMatch'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+    AtomicMemorySearchHit:
+      type: object
+      additionalProperties: false
+      required:
+      - memory
+      - score
+      - matched_by
+      properties:
+        memory:
+          $ref: '#/components/schemas/AtomicMemoryRecord'
+        score:
+          type: number
+        matched_by:
+          type: array
+          items:
+            type: string
+            enum:
+            - text
+            - vector
+    SearchAtomicMemoryResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - mode
+      - hits
+      properties:
+        mode:
+          $ref: '#/components/schemas/AtomicMemorySearchMode'
+        hits:
+          type: array
+          items:
+            $ref: '#/components/schemas/AtomicMemorySearchHit'
+    MergeAtomicMemoryRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - inputs
+      - content
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+        inputs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AtomicMemoryInput'
+          minItems: 2
+        content:
+          $ref: '#/components/schemas/AtomicMemoryWriteContent'
+        source_refs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceReference'
+        artifact_refs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArtifactReference'
+    AtomicMemoryMutationResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - changed
+      - records
+      properties:
+        changed:
+          type: boolean
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/AtomicMemoryRecord'
+    AtomicMemoryLifecycleRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - target
+      - state
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+        target:
+          $ref: '#/components/schemas/AtomicMemoryInput'
+        state:
+          $ref: '#/components/schemas/AtomicMemoryLifecycleState'
+    AtomicMemoryRestorationRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - target
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+        target:
+          $ref: '#/components/schemas/AtomicMemoryTarget'
+        operation:
+          $ref: '#/components/schemas/AtomicMemoryRestorationOperation'
+          default: restore
+        preview_token:
+          type: string
+          nullable: true
+    AtomicMemoryRestorationPreviewRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - target
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+        target:
+          $ref: '#/components/schemas/AtomicMemoryTarget'
+        operation:
+          $ref: '#/components/schemas/AtomicMemoryRestorationOperation'
+          default: restore
+    AtomicMemoryRestorationItem:
+      type: object
+      additionalProperties: false
+      required:
+      - artifact_id
+      - source_revision
+      - creates_revision
+      properties:
+        artifact_id:
+          type: string
+          minLength: 1
+        source_revision:
+          type: integer
+          minimum: 1
+        creates_revision:
+          type: boolean
+    AtomicMemoryRestorationEndpoint:
+      type: object
+      additionalProperties: false
+      required:
+      - artifact_id
+      - revision
+      - state_version
+      properties:
+        artifact_id:
+          type: string
+          minLength: 1
+        revision:
+          type: integer
+          minimum: 1
+        state_version:
+          type: integer
+          minimum: 0
+    AtomicMemoryRestorationPreview:
+      type: object
+      additionalProperties: false
+      required:
+      - preview_token
+      - expires_at
+      - endpoint
+      - restore
+      - retire
+      - undo_merge_results
+      properties:
+        preview_token:
+          type: string
+          minLength: 1
+        expires_at:
+          type: string
+          format: date-time
+        endpoint:
+          $ref: '#/components/schemas/AtomicMemoryRestorationEndpoint'
+        restore:
+          type: array
+          items:
+            $ref: '#/components/schemas/AtomicMemoryRestorationItem'
+        retire:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArtifactReference'
+        undo_merge_results:
+          type: array
+          items:
+            type: string
+            minLength: 1
+    AtomicMemoryRestorationResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - changed
+      - restored
+      - retired
+      - undo_merge_results
+      properties:
+        changed:
+          type: boolean
+        restored:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArtifactReference'
+        retired:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArtifactReference'
+        undo_merge_results:
+          type: array
+          items:
+            type: string
+            minLength: 1
+    LegacyMemoryTarget:
+      $ref: '#/components/schemas/MemoryEntryTagTarget'
+    GetMemoryEntryResponse:
+      $ref: '#/components/schemas/AtomicMemoryRecord'
+    AtomicMemoryContentSchema:
+      type: string
+      enum:
+      - powercontext.atomic-memory.v1
+    AtomicMemorySearchMode:
+      type: string
+      enum:
+      - text
+      - vector
+      - hybrid
+    AtomicMemoryRestorationOperation:
+      type: string
+      enum:
+      - restore
+      - undo_merge
+    AtomicMemoryLifecycleState:
+      type: string
+      enum:
+      - forgotten
     CreateSubjectSourceRequest:
       type: "object"
       additionalProperties: false
@@ -4934,11 +5611,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ArtifactReference"
-        memory_citations:
-          type: array
-          default: []
-          items:
-            $ref: "#/components/schemas/MemoryCitation"
         content_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
@@ -5379,11 +6051,6 @@ components:
           items:
             $ref: '#/components/schemas/ArtifactReference'
           type: array
-        memory_citations:
-          default: []
-          items:
-            $ref: '#/components/schemas/MemoryCitation'
-          type: array
         sources:
           default: []
           items:
@@ -5401,8 +6068,8 @@ components:
       - operation
       - idempotency_key
       type: object
-      description: Select 1-20 exact Experience or Memory citations after deduplication, with at most 32 combined references
-        including Sources. Only refine_experience accepts Memory citations or a target.
+      description: Select 1-20 exact Experience or Atomic Memory Artifacts after deduplication, with at most 32 combined
+        references including Sources. Only refine_experience accepts Atomic Memory Artifacts or a target.
     DreamBudget:
       additionalProperties: false
       properties:
@@ -5498,11 +6165,6 @@ components:
           items:
             $ref: '#/components/schemas/ArtifactReference'
           type: array
-        memory_citations:
-          default: []
-          items:
-            $ref: '#/components/schemas/MemoryCitation'
-          type: array
         sources:
           default: []
           items:
@@ -5550,19 +6212,11 @@ components:
         artifact:
           $ref: '#/components/schemas/ArtifactReference'
           nullable: true
-        memory_citations:
-          default: []
-          items:
-            $ref: '#/components/schemas/MemoryCitation'
-          type: array
         role:
           $ref: '#/components/schemas/DreamEvidenceRole'
         historical:
           default: false
           type: boolean
-        current_entry_version_id:
-          type: string
-          nullable: true
       required:
       - evidence_id
       - kind
@@ -5638,6 +6292,10 @@ components:
         model_config_id:
           type: string
           nullable: true
+        historical_data:
+          type: object
+          additionalProperties: true
+          description: Original request and input manifest of a terminal run migrated from the legacy Memory format. Present only on such runs; never accepted as evidence.
       required:
       - scope_id
       - run_id
@@ -5675,13 +6333,6 @@ components:
         - result_artifact
         - decision_reason
       properties:
-        memory_citations:
-          type: array
-          maxItems: 32
-          default: []
-          description: Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.
-          items:
-            $ref: "#/components/schemas/MemoryCitation"
         permissions:
           $ref: "#/components/schemas/CandidatePermissions"
           nullable: true
@@ -6951,13 +7602,11 @@ components:
       oneOf:
         - $ref: "#/components/schemas/HandoffSourceCitation"
         - $ref: "#/components/schemas/HandoffArtifactCitation"
-        - $ref: "#/components/schemas/HandoffMemoryCitation"
       discriminator:
         propertyName: kind
         mapping:
           source: "#/components/schemas/HandoffSourceCitation"
           artifact: "#/components/schemas/HandoffArtifactCitation"
-          memory: "#/components/schemas/HandoffMemoryCitation"
     HandoffContent:
       type: object
       additionalProperties: false
@@ -7036,16 +7685,6 @@ components:
           maxItems: 32
           items:
             $ref: "#/components/schemas/HandoffCitation"
-    HandoffMemoryCitation:
-      type: object
-      additionalProperties: false
-      required: [kind, memory_citation]
-      properties:
-        kind:
-          type: string
-          enum: [memory]
-        memory_citation:
-          $ref: "#/components/schemas/MemoryCitation"
     HandoffOmission:
       type: object
       additionalProperties: false
@@ -7257,13 +7896,6 @@ components:
       additionalProperties: false
       required: [artifact, content, source_refs, artifact_refs]
       properties:
-        memory_citations:
-          type: array
-          maxItems: 32
-          default: []
-          description: Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.
-          items:
-            $ref: "#/components/schemas/MemoryCitation"
         artifact:
           $ref: "#/components/schemas/ArtifactReference"
         content:
@@ -7403,13 +8035,6 @@ components:
       additionalProperties: false
       required: [artifact, content, source_refs, artifact_refs]
       properties:
-        memory_citations:
-          type: array
-          maxItems: 32
-          default: []
-          description: Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.
-          items:
-            $ref: "#/components/schemas/MemoryCitation"
         artifact:
           $ref: "#/components/schemas/ArtifactReference"
         content:
@@ -8422,17 +9047,21 @@ components:
         memory:
           $ref: "#/components/schemas/ArtifactReference"
           nullable: true
+        remaining_work:
+          type: boolean
+          default: false
+          description: More Source journal work remains after the committed window.
         held_count:
           type: integer
           minimum: 0
           default: 0
-          description: Number of source windows held by the Memory write gate.
+          description: Compatibility field; Atomic Memory processing always returns zero.
         hold_codes:
           type: array
           items:
             type: string
           default: []
-          description: Structured Memory write gate refusal codes for held windows.
+          description: Compatibility field; Atomic Memory processing always returns an empty array.
     FlushTopicMemoryRequest:
       type: object
       additionalProperties: false
@@ -8506,7 +9135,11 @@ components:
     GetMemoryEntryRequest:
       type: object
       additionalProperties: false
-      required: [scope_id, citation]
+      required: [scope_id]
+      x-powercontext-exclusive-fields: [citation, target]
+      oneOf:
+        - required: [citation]
+        - required: [target]
       properties:
         scope_id:
           type: string
@@ -8514,7 +9147,11 @@ components:
           maxLength: 256
           pattern: '.*\S.*'
         citation:
-          $ref: "#/components/schemas/MemoryCitation"
+          type: object
+          description: Legacy exact Memory entry citation. Requests that supply it are rejected as unsupported.
+        target:
+          $ref: "#/components/schemas/LegacyMemoryTarget"
+      description: Supply a legacy logical target mapped to current Atomic Memory. A supplied citation is rejected as unsupported.
     GetTopicMemoryRequest:
       type: object
       additionalProperties: false
@@ -8653,19 +9290,28 @@ components:
         include_inactive:
           type: boolean
           default: false
-          description: Include inactive entries from the current Memory head for explicit audit.
+          description: Include all four Atomic Memory lifecycle states.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        cursor:
+          type: string
+          minLength: 1
+          nullable: true
     ListMemoryEntriesResponse:
       type: object
       additionalProperties: false
       required: [entries]
       properties:
-        memory:
-          $ref: "#/components/schemas/ArtifactReference"
-          nullable: true
         entries:
           type: array
           items:
-            $ref: "#/components/schemas/MemoryEntry"
+            $ref: "#/components/schemas/AtomicMemoryRecord"
+        next_cursor:
+          type: string
+          nullable: true
     ListArtifactCandidatesRequest:
       type: object
       additionalProperties: false
@@ -8705,64 +9351,19 @@ components:
         include_unavailable:
           type: boolean
           default: false
-    MemoryEntry:
-      type: object
-      additionalProperties: false
-      required:
-        - citation
-        - version
-        - kind
-        - text
-        - state
-        - source_refs
-        - artifact_refs
-      properties:
-        citation:
-          $ref: "#/components/schemas/MemoryCitation"
-        version:
-          type: integer
-          minimum: 1
-        kind:
-          type: string
-        text:
-          type: string
-        state:
-          $ref: "#/components/schemas/MemoryEntryState"
-        source_refs:
-          type: array
-          items:
-            $ref: "#/components/schemas/SourceReference"
-        artifact_refs:
-          type: array
-          items:
-            $ref: "#/components/schemas/ArtifactReference"
     MemoryMutationResponse:
       type: object
       additionalProperties: false
-      required: [memory]
+      required:
+      - changed
+      - records
       properties:
-        memory:
-          $ref: "#/components/schemas/ArtifactReference"
-        entry:
-          $ref: "#/components/schemas/MemoryEntry"
-          nullable: true
-    MemoryCitation:
-      type: object
-      additionalProperties: false
-      required: [memory_ref, entry_id, entry_version_id]
-      properties:
-        memory_ref:
-          $ref: "#/components/schemas/ArtifactReference"
-        entry_id:
-          type: string
-          minLength: 1
-          maxLength: 128
-          pattern: '^[\x21-\x7E]+$'
-        entry_version_id:
-          type: string
-          minLength: 1
-          maxLength: 128
-          pattern: '^[\x21-\x7E]+$'
+        changed:
+          type: boolean
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/AtomicMemoryRecord'
     MemoryRevisionChanges:
       type: object
       additionalProperties: false
@@ -9198,13 +9799,6 @@ components:
       additionalProperties: false
       required: [scope_id, proposal, source_refs, artifact_refs]
       properties:
-        memory_citations:
-          type: array
-          maxItems: 32
-          default: []
-          description: Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.
-          items:
-            $ref: "#/components/schemas/MemoryCitation"
         scope_id:
           type: string
           minLength: 1
@@ -9394,7 +9988,8 @@ components:
           maxLength: 256
           pattern: '.*\S.*'
         citation:
-          $ref: "#/components/schemas/MemoryCitation"
+          type: object
+          description: Legacy exact Memory entry citation. Requests that supply it are rejected as unsupported.
         reason:
           type: string
           maxLength: 512
@@ -9427,13 +10022,6 @@ components:
       additionalProperties: false
       required: [scope_id, candidate_id, expected_version, proposal, source_refs, artifact_refs]
       properties:
-        memory_citations:
-          type: array
-          maxItems: 32
-          nullable: true
-          description: Omission or null retains the current citations; an explicit array replaces them, including an empty array. Non-empty only for Experience.
-          items:
-            $ref: "#/components/schemas/MemoryCitation"
         scope_id:
           type: string
           minLength: 1
@@ -9483,7 +10071,8 @@ components:
           maxLength: 256
           pattern: '.*\S.*'
         citation:
-          $ref: "#/components/schemas/MemoryCitation"
+          type: object
+          description: Legacy exact Memory entry citation. Requests that supply it are rejected as unsupported.
         kind:
           type: string
           minLength: 1
@@ -9496,23 +10085,6 @@ components:
           type: string
           maxLength: 512
           nullable: true
-    SearchMemoryHit:
-      type: object
-      additionalProperties: false
-      required: [citation, text, score, matched_by]
-      properties:
-        citation:
-          $ref: "#/components/schemas/MemoryCitation"
-        text:
-          type: string
-        score:
-          type: number
-          minimum: 0
-          maximum: 1
-        matched_by:
-          type: array
-          items:
-            $ref: "#/components/schemas/MemoryMatchedBy"
     SearchTopicMemoryHit:
       type: object
       additionalProperties: false
@@ -9720,18 +10292,16 @@ components:
     SearchMemoryResponse:
       type: object
       additionalProperties: false
-      required: [hits]
+      required:
+      - mode
+      - hits
       properties:
-        memory:
-          $ref: "#/components/schemas/ArtifactReference"
-          nullable: true
         mode:
-          $ref: "#/components/schemas/MemoryUsedSearchMode"
-          nullable: true
+          $ref: '#/components/schemas/AtomicMemorySearchMode'
         hits:
           type: array
           items:
-            $ref: "#/components/schemas/SearchMemoryHit"
+            $ref: '#/components/schemas/AtomicMemorySearchHit'
     TopicMemoryArtifact:
       type: object
       additionalProperties: false
@@ -9757,6 +10327,7 @@ components:
             $ref: "#/components/schemas/SourceReference"
     CreateArtifactRequest:
       oneOf:
+        - $ref: "#/components/schemas/CreateAtomicMemoryArtifactRequest"
         - $ref: "#/components/schemas/CreateTopicMemoryArtifactRequest"
         - $ref: "#/components/schemas/CreateMemoryArtifactRequest"
         - $ref: "#/components/schemas/CreateExperienceArtifactRequest"
@@ -9767,6 +10338,7 @@ components:
       discriminator:
         propertyName: family
         mapping:
+          atomic-memory: "#/components/schemas/CreateAtomicMemoryArtifactRequest"
           memory: "#/components/schemas/CreateMemoryArtifactRequest"
           topic-memory: "#/components/schemas/CreateTopicMemoryArtifactRequest"
           experience: "#/components/schemas/CreateExperienceArtifactRequest"
@@ -9893,7 +10465,7 @@ components:
     TaggableArtifactFamily:
       type: string
       description: All readable Artifact families support logical tags on persisted Artifacts.
-      enum: [memory, experience, skill, handoff, profile, prompt, topic-memory]
+      enum: [memory, atomic-memory, experience, skill, handoff, profile, prompt, topic-memory]
     TagMatch:
       type: string
       enum: [all, any]
@@ -10012,9 +10584,7 @@ components:
           pattern: '^sha256:[0-9a-f]{64}$'
           description: Digest of canonical display labels; informational, not a mutation precondition.
         reference:
-          oneOf:
-            - $ref: '#/components/schemas/ArtifactReference'
-            - $ref: '#/components/schemas/MemoryCitation'
+          $ref: '#/components/schemas/ArtifactReference'
     ArtifactTagPage:
       type: object
       additionalProperties: false
@@ -10047,6 +10617,7 @@ components:
           nullable: true
     ReplaceArtifactRequest:
       oneOf:
+        - $ref: "#/components/schemas/ReplaceAtomicMemoryArtifactRequest"
         - $ref: "#/components/schemas/ReplaceTopicMemoryArtifactRequest"
         - $ref: "#/components/schemas/ReplaceMemoryArtifactRequest"
         - $ref: "#/components/schemas/ReplaceExperienceArtifactRequest"
@@ -10137,7 +10708,7 @@ components:
           nullable: true
     PromptKey:
       type: string
-      enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate, topic_memory.probe, topic_memory.global, topic_memory.planner, topic_memory.evolve, topic_memory.temporary, topic_memory.reduce, topic_memory.reconcile, profile.generate]
+      enum: [memory.extract, memory.rerank, atomic_memory.extract, atomic_memory.reconcile, experience.incubate, experience.generate, skill.generate, handoff.generate, topic_memory.probe, topic_memory.global, topic_memory.planner, topic_memory.evolve, topic_memory.temporary, topic_memory.reduce, topic_memory.reconcile, profile.generate]
     PromptContent:
       type: object
       additionalProperties: false
@@ -10409,10 +10980,10 @@ components:
       enum: [accepted]
     BaseArtifactFamily:
       type: string
-      enum: [memory, experience, skill, handoff, profile, prompt, topic-memory]
+      enum: [memory, atomic-memory, experience, skill, handoff, profile, prompt, topic-memory]
     ArtifactReadFamily:
       type: string
-      enum: [memory, experience, skill, handoff, profile, prompt, topic-memory]
+      enum: [memory, atomic-memory, experience, skill, handoff, profile, prompt, topic-memory]
     StatsPeriod:
       type: string
       enum: [today, 7d, 30d]
@@ -10449,12 +11020,6 @@ components:
     TopicMemoryUsedSearchMode:
       type: string
       enum: [fts, hybrid]
-    MemoryEntryState:
-      type: string
-      enum: [active, inactive]
-    MemoryMatchedBy:
-      type: string
-      enum: [fts, vector]
     MemorySearchMode:
       type: string
       enum: [auto, fts, vector, hybrid]

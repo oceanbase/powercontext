@@ -114,14 +114,14 @@ pub struct WriteRecord {
     pub operation_id: String,
     pub context: MemoryContext,
     pub status: WriteStatus,
-    pub citation: Option<MemoryCitation>,
+    pub artifact: Option<ArtifactReference>,
     pub error: Option<ApiFailure>,
 }
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct WriteOutcome {
     pub record: WriteRecord,
-    pub result: Option<MemoryMutationResponse>,
+    pub result: Option<crate::transport::MemorySaveResponse>,
 }
 struct WriteGuard<'a> {
     manager: &'a ConnectionManager,
@@ -573,7 +573,7 @@ impl ConnectionManager {
         &self,
         generation: u32,
         query: &str,
-    ) -> Result<SearchMemoryResponse, ApiFailure> {
+    ) -> Result<crate::transport::MemorySearchResponse, ApiFailure> {
         let (
             ReadSnapshot {
                 api,
@@ -592,11 +592,11 @@ impl ConnectionManager {
         )
         .await
     }
-    pub async fn memory_entry(
+    pub async fn atomic_memory_entry(
         &self,
         generation: u32,
-        citation: &MemoryCitation,
-    ) -> Result<MemoryEntry, ApiFailure> {
+        artifact: &ArtifactReference,
+    ) -> Result<crate::transport::AtomicMemoryDetail, ApiFailure> {
         let (
             ReadSnapshot {
                 api,
@@ -604,13 +604,13 @@ impl ConnectionManager {
                 mut cancelled,
             },
             context,
-        ) = self.memory_snapshot(generation, "get_memory_entry")?;
+        ) = self.memory_snapshot(generation, "get_artifact_revision")?;
         let mut query_cancelled = self.begin_memory_read(generation)?;
         Self::cancellable(
             &mut cancelled,
             Self::cancellable(&mut query_cancelled, async {
                 self.identity_unchanged(&api, &identity, generation).await?;
-                api.entry(&context.scope_id, citation).await
+                api.atomic_entry(&context.scope_id, artifact).await
             }),
         )
         .await
@@ -635,7 +635,7 @@ impl ConnectionManager {
             operation_id: uuid::Uuid::new_v4().to_string(),
             context,
             status: WriteStatus::Pending,
-            citation: None,
+            artifact: None,
             error: None,
         };
         {
@@ -654,7 +654,8 @@ impl ConnectionManager {
         let result = match response {
             Ok(value) => {
                 record.status = WriteStatus::Succeeded;
-                record.citation = value.entry.as_ref().map(|e| e.citation.clone());
+                record.artifact =
+                    (value.records.len() == 1).then(|| value.records[0].artifact.clone());
                 Some(value)
             }
             Err(error) => {

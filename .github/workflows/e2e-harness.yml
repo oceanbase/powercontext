@@ -163,6 +163,127 @@ jobs:
         if: always()
         run: docker rm --force recall-effort-oceanbase || true
 
+  atomic-memory-clean-oceanbase:
+    name: Atomic Memory clean migration (OceanBase)
+    if: github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
+      POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
+        mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/powercontext_test?charset=utf8mb4
+      PYTHONUNBUFFERED: "1"
+      MIGRATION_REPORTS: ${{ github.workspace }}/.powercontext/atomic-memory-clean-oceanbase
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Start the isolated OceanBase test instance
+        run: |
+          docker run --detach --name atomic-memory-clean-oceanbase \
+            --publish 127.0.0.1:2881:2881 \
+            --ulimit nofile=65536:65536 \
+            --env MODE=slim \
+            --env OB_DATABASE=powercontext_test \
+            --env OB_TENANT_PASSWORD=powercontext-e2e \
+            "$OCEANBASE_IMAGE"
+          for attempt in $(seq 1 120); do
+            if docker exec atomic-memory-clean-oceanbase \
+              obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e \
+              -Dpowercontext_test -e 'SELECT 1' >/dev/null 2>&1; then
+              # The slim image's default 1 GB maximum is too small for the
+              # indexes created across the clean migration acceptance cases.
+              docker exec atomic-memory-clean-oceanbase \
+                obclient -h127.0.0.1 -P2881 -uroot@sys \
+                -e "ALTER SYSTEM SET datafile_maxsize='8G'; ALTER SYSTEM SET datafile_next='512M'; ALTER SYSTEM SET datafile_size='4G';"
+              datafile_ready=false
+              for config_attempt in $(seq 1 30); do
+                docker exec atomic-memory-clean-oceanbase \
+                  obclient -h127.0.0.1 -P2881 -uroot@sys --batch --skip-column-names \
+                  -e "SHOW PARAMETERS WHERE name IN ('datafile_size', 'datafile_maxsize', 'datafile_next');" \
+                  > "$RUNNER_TEMP/atomic-memory-datafile.tsv"
+                if awk '
+                  $5 == "datafile_size" && $7 == "4G" { size = 1 }
+                  $5 == "datafile_maxsize" && $7 == "8G" { maximum = 1 }
+                  $5 == "datafile_next" && $7 == "512M" { increment = 1 }
+                  END { exit !(size && maximum && increment) }
+                ' "$RUNNER_TEMP/atomic-memory-datafile.tsv"; then
+                  datafile_ready=true
+                  break
+                fi
+                sleep 2
+              done
+              cat "$RUNNER_TEMP/atomic-memory-datafile.tsv"
+              if [ "$datafile_ready" != true ]; then
+                echo 'OceanBase datafile configuration did not become effective within one minute.' >&2
+                exit 1
+              fi
+              docker exec atomic-memory-clean-oceanbase \
+                obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e \
+                -Dpowercontext_test \
+                -e "SET GLOBAL recyclebin=OFF; SELECT VERSION(); SHOW VARIABLES LIKE 'ob_compatibility_mode'; SHOW VARIABLES LIKE 'recyclebin';"
+              exit 0
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' atomic-memory-clean-oceanbase)" != true ]; then
+              echo 'OceanBase exited before becoming ready.' >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          echo 'OceanBase did not become ready within 10 minutes.' >&2
+          exit 1
+
+      - name: Run clean migration evidence, grants and vectors without skips
+        timeout-minutes: 45
+        run: |
+          uv run --locked python scripts/run_atomic_memory_clean_migration.py \
+            oceanbase --output "$MIGRATION_REPORTS"
+
+      - name: Collect the database log
+        if: always()
+        run: |
+          mkdir -p "$MIGRATION_REPORTS"
+          docker logs atomic-memory-clean-oceanbase > "$MIGRATION_REPORTS/oceanbase.log" 2>&1 || true
+          for logfile in observer.log observer.log.wf; do
+            docker exec atomic-memory-clean-oceanbase tail -n 20000 "/root/demo/log/$logfile" \
+              > "$MIGRATION_REPORTS/$logfile" 2>&1 || true
+          done
+          docker inspect --format 'MemoryBytes={{.HostConfig.Memory}} NanoCpus={{.HostConfig.NanoCpus}} CpuQuota={{.HostConfig.CpuQuota}}' \
+            atomic-memory-clean-oceanbase > "$MIGRATION_REPORTS/container-resources.txt" 2>&1 || true
+          docker stats --no-stream atomic-memory-clean-oceanbase \
+            > "$MIGRATION_REPORTS/container-stats.txt" 2>&1 || true
+          docker exec atomic-memory-clean-oceanbase \
+            obclient -h127.0.0.1 -P2881 -uroot@sys \
+            -e "SHOW PARAMETERS WHERE name IN ('datafile_size', 'datafile_maxsize', 'datafile_next', 'memory_limit', 'system_memory', 'cpu_count');" \
+            > "$MIGRATION_REPORTS/database-parameters.txt" 2>&1 || true
+
+      - name: Save complete observer logs on failure
+        if: failure()
+        run: |
+          mkdir -p "$MIGRATION_REPORTS/observer"
+          docker cp atomic-memory-clean-oceanbase:/root/demo/log/. "$MIGRATION_REPORTS/observer/" || true
+
+      - name: Save clean migration reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: atomic-memory-clean-oceanbase-${{ github.sha }}
+          path: ${{ env.MIGRATION_REPORTS }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Stop and remove the test instance
+        if: always()
+        run: docker rm --force atomic-memory-clean-oceanbase || true
+
   acceptance:
     needs: validate
     runs-on: ubuntu-latest
@@ -183,6 +304,57 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: ${{ env.UV_VERSION }}
+
+      - name: Verify OceanBase Atomic Memory and HTTP regressions
+        if: matrix.database == 'oceanbase'
+        env:
+          COMPOSE_PROJECT_NAME: powercontext-e2e-oceanbase
+          POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/oceanbase/acceptance
+        run: |
+          mkdir -p "$POWERCONTEXT_E2E_OUTPUT"
+          compose=(docker compose -f e2e/bub/compose.yaml -f e2e/bub/compose.oceanbase.yaml)
+          "${compose[@]}" up --detach --wait --wait-timeout 660 oceanbase
+          container_id=$("${compose[@]}" ps -q oceanbase)
+          oceanbase_ip=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_id")
+          test -n "$oceanbase_ip"
+          export POWERCONTEXT_TEST_OCEANBASE_URL="mysql+aoceanbase://root%40test:powercontext-e2e@${oceanbase_ip}:2881/powercontext?charset=utf8mb4"
+          uv run --locked --extra server python - <<'PY'
+          import asyncio
+          import os
+
+          from pydantic import SecretStr
+
+          from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
+
+          async def version():
+              config = OceanBaseConfig(url=SecretStr(os.environ["POWERCONTEXT_TEST_OCEANBASE_URL"]))
+              async with OceanBaseProfile.open(config, tables=()) as profile:
+                  async with profile.database.transaction() as connection:
+                      result = await connection.exec_driver_sql("SELECT VERSION()")
+                      print("OceanBase engine:", result.scalar_one())
+
+          asyncio.run(version())
+          PY
+          uv run --locked --extra server python -m pytest -vv -ra \
+            tests/e2e/test_atomic_memory_search_authorization_snapshot.py \
+            tests/e2e/test_atomic_memory_read_snapshot.py \
+            tests/e2e/test_runtime_server.py -k oceanbase \
+            --junitxml="$RUNNER_TEMP/atomic-memory-oceanbase-snapshots.xml"
+          uv run --locked --extra server python - <<'PY'
+          import json
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          suites = ET.parse(Path(os.environ["RUNNER_TEMP"]) / "atomic-memory-oceanbase-snapshots.xml").iter("testsuite")
+          counts = {key: 0 for key in ("tests", "failures", "errors", "skipped")}
+          for suite in suites:
+              for key in counts:
+                  counts[key] += int(suite.get(key, "0"))
+          print("OceanBase Atomic Memory and HTTP results:", json.dumps(counts))
+          if not counts["tests"] or any(counts[key] for key in ("failures", "errors", "skipped")):
+              raise SystemExit("OceanBase Atomic Memory and HTTP regressions must execute without failures, errors, or skips")
+          PY
 
       - name: Run deterministic scenarios
         id: acceptance_scenarios

@@ -28,6 +28,8 @@ import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
+from urllib.parse import quote
 
 import httpx
 from fixture_qualification import fixture_profile
@@ -36,6 +38,30 @@ from real_server import HarnessFailure, control_pipe
 
 def fixture_compatibility_profile() -> str:
     return fixture_profile()["id"]
+
+
+def search_reference(hit: dict[str, Any]) -> dict[str, Any]:
+    return hit["memory"]["artifact"]
+
+
+def saved_reference(saved: dict[str, Any]) -> dict[str, Any]:
+    if len(saved["records"]) != 1:
+        raise HarnessFailure("installed_saved_atomic_record_count")
+    return saved["records"][0]["artifact"]
+
+
+def exact_memory_text(server: httpx.Client, scope: str, reference: dict[str, Any]) -> str:
+    if reference["family"] != "atomic-memory":
+        raise HarnessFailure("installed_unsupported_memory_reference")
+    response = server.get(
+        f"/v1/scopes/{quote(scope, safe='')}/artifacts/atomic-memory/"
+        f"{quote(reference['artifact_id'], safe='')}/revisions/{reference['revision']}"
+    )
+    response.raise_for_status()
+    value = response.json()
+    if value["scope_id"] != scope or any(value[key] != reference[key] for key in ("family", "artifact_id", "revision")):
+        raise HarnessFailure("installed_independent_exact_read_mismatch")
+    return value["content"]["text"]
 
 
 def wait_ready(client: httpx.Client, process: subprocess.Popen[bytes]) -> None:

@@ -65,23 +65,26 @@ class DreamRepository:
         *,
         current: bool = False,
     ) -> DreamRecord | None:
-        statement = select(RUNS.c.payload).where(
+        statement = select(RUNS.c.payload, RUNS.c.request_digest).where(
             RUNS.c.scope_id == scope_id,
             RUNS.c.principal_key == content_digest(principal_id.encode())[7:],
             RUNS.c.idempotency_key == request.idempotency_key,
         )
         if current:
             statement = statement.with_for_update()
-        row = await connection.scalar(statement)
+        row = (await connection.execute(statement)).one_or_none()
         if row is None:
             return None
-        record = _decode(row)
-        if record.request.digest() != request.digest():
+        record = _decode(row.payload)
+        # A historical run keeps only the digest of the request it accepted.
+        if row.request_digest != request.digest():
             raise DreamError("idempotency_conflict")
         return record
 
     async def create(self, connection: AsyncConnection, record: DreamRecord) -> DreamRecord:
         run = record.run
+        if record.request is None:
+            raise DreamError("dream_request_unavailable")
         # Admission already holds the Scope write lock and rechecks the durable key.
         # A plain insert avoids driver-dependent nested transaction semantics.
         await connection.execute(

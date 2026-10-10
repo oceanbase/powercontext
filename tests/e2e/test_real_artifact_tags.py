@@ -76,8 +76,8 @@ async def _generated_journey(settings: ServerSettings, *, token: str | None = No
         entries = listed.json()["entries"]
         assert entries, "real model produced no durable entries"
         entry = entries[0]
-        citation = entry["citation"]
-        path = f"/v1/scopes/{scope}/artifacts/memory/{citation['memory_ref']['artifact_id']}/entries/{citation['entry_id']}/tags"
+        reference = entry["artifact"]
+        path = f"/v1/scopes/{scope}/artifacts/atomic-memory/{reference['artifact_id']}/tags"
         current = await client.get(path)
         assigned = await client.put(
             path, json={"tags": ["real-generated", "客户验收"]}, headers={"If-Match": current.headers["ETag"]}
@@ -95,9 +95,9 @@ async def _generated_journey(settings: ServerSettings, *, token: str | None = No
                 },
             )
             assert result.status_code == 200, f"{mode} search status {result.status_code}"
-            assert [item["citation"]["entry_id"] for item in result.json()["hits"]] == [citation["entry_id"]], (
-                f"{mode} lost eligible generated entry"
-            )
+            assert [item["memory"]["artifact"]["artifact_id"] for item in result.json()["hits"]] == [
+                reference["artifact_id"]
+            ], f"{mode} lost eligible generated entry"
         print(
             json.dumps({
                 "database": settings.database.kind,

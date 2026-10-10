@@ -41,7 +41,6 @@ from powercontext.builtin.artifacts.handoff.models import (
     HandoffEvidenceCheck,
     HandoffGenerationEvidence,
     HandoffGenerationRequest,
-    HandoffMemoryCitation,
     HandoffResolution,
     HandoffResolutionSelection,
     HandoffSourceCitation,
@@ -487,13 +486,6 @@ def _source_lineage(content: HandoffContent) -> tuple[SourceRef, ...]:
 def _artifact_lineage(content: HandoffContent) -> tuple[ArtifactRef, ...]:
     artifacts: list[ArtifactRef] = []
     for citation in _direct_citations(content):
-        reference = (
-            citation.artifact_ref
-            if isinstance(citation, HandoffArtifactCitation)
-            else citation.memory_citation.memory_ref
-            if isinstance(citation, HandoffMemoryCitation)
-            else None
-        )
-        if reference is not None and reference not in artifacts:
-            artifacts.append(reference)
+        if isinstance(citation, HandoffArtifactCitation) and citation.artifact_ref not in artifacts:
+            artifacts.append(citation.artifact_ref)
     return tuple(artifacts)

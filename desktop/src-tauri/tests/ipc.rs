@@ -21,6 +21,11 @@ use tauri::{
     webview::InvokeRequest,
 };
 
+fn test_context<R: tauri::Runtime>() -> tauri::Context<R> {
+    // The macOS plist must be embedded once per test executable.
+    tauri::generate_context!()
+}
+
 #[test]
 fn permissions_reject_untrusted_window_origin_and_arbitrary_commands() {
     let dir = tempfile::tempdir().unwrap();
@@ -40,7 +45,7 @@ fn permissions_reject_untrusted_window_origin_and_arbitrary_commands() {
             powercontext_desktop::commands::desktop_state,
             powercontext_desktop::commands::disconnect
         ])
-        .build(tauri::generate_context!())
+        .build(test_context())
         .unwrap();
     for (label, origin, command, allowed) in [
         ("main", "http://tauri.localhost", "foundation_info", true),
@@ -109,7 +114,7 @@ fn diagnostic_command_is_narrow_and_requires_the_trusted_window() {
         .invoke_handler(tauri::generate_handler![
             powercontext_desktop::commands::local_diagnostics
         ])
-        .build(tauri::generate_context!())
+        .build(test_context())
         .unwrap();
     for (label, origin, kind, expected_missing) in [
         ("main", "http://tauri.localhost", "service", true),
@@ -156,24 +161,21 @@ fn memory_commands_reject_untrusted_callers_before_accessing_the_connection() {
         .invoke_handler(tauri::generate_handler![
             commands::remember_memory,
             commands::search_memory,
-            commands::memory_entry,
+            commands::atomic_memory_entry,
             commands::cancel_memory_reads
         ])
-        .build(tauri::generate_context!())
+        .build(test_context())
         .unwrap();
     let args = serde_json::json!({
         "generation": 0,
         "text": "synthetic permission test",
         "query": "synthetic",
-        "citation": {
-            "memory_ref": {"family":"memory", "artifact_id":"test", "revision":1},
-            "entry_id":"test", "entry_version_id":"v1"
-        }
+        "artifact": {"family":"atomic-memory", "artifact_id":"test", "revision":1}
     });
     for command in [
         "remember_memory",
         "search_memory",
-        "memory_entry",
+        "atomic_memory_entry",
         "cancel_memory_reads",
     ] {
         for (label, origin) in [

@@ -22,7 +22,7 @@ use powercontext_desktop::{
     },
     credentials::{Secret, WindowsVault},
     error::SafeError,
-    transport::{Endpoint, ServerApi},
+    transport::{Endpoint, ServerApi, wire::ArtifactReference},
 };
 use serde::Deserialize;
 #[derive(Deserialize)]
@@ -91,7 +91,12 @@ async fn main() {
         );
     }
     let capabilities = api.capabilities().await.unwrap();
-    assert!(capabilities.artifact_families.iter().any(|v| v == "memory"));
+    assert!(
+        capabilities
+            .artifact_families
+            .iter()
+            .any(|v| v == "atomic-memory")
+    );
     api.default_scope().await.unwrap();
     let scopes = api.scopes("", None).await.unwrap();
     assert!(!scopes.items.is_empty());
@@ -102,17 +107,19 @@ async fn main() {
     let keyword = format!("desktop{}", uuid::Uuid::new_v4().simple());
     let text = format!("{keyword} 中文记录 café\nSecond line.");
     let saved = api.remember(&fixture.scope_id, &text).await.unwrap();
-    let entry = saved
-        .entry
-        .expect("unique synthetic note must produce an exact entry");
+    assert_eq!(saved.records.len(), 1);
+    let entry = &saved.records[0];
     let results = api.search(&fixture.scope_id, &keyword).await.unwrap();
     assert!(
         results
             .hits
             .iter()
-            .any(|hit| hit.citation == entry.citation)
+            .any(|hit| hit.artifact == entry.artifact)
     );
-    let exact = api.entry(&fixture.scope_id, &entry.citation).await.unwrap();
+    let exact = api
+        .atomic_entry(&fixture.scope_id, &entry.artifact)
+        .await
+        .unwrap();
     assert_eq!(exact.text, text);
     // Exercise the same native context owner used by product IPC, not only bare HTTP adapters.
     let temporary = tempfile::tempdir().unwrap();
@@ -145,17 +152,19 @@ async fn main() {
     let expected = format!("{keyword} 中文 café\nSecond line.");
     let saved = manager.remember(generation, &submitted).await.unwrap();
     assert_eq!(saved.record.status, WriteStatus::Succeeded);
-    let entry = saved.result.unwrap().entry.unwrap();
+    let result = saved.result.unwrap();
+    assert_eq!(result.records.len(), 1);
+    let entry = &result.records[0];
     assert_eq!(entry.text, expected);
     let matches = manager.search_memory(generation, &keyword).await.unwrap();
     assert!(
         matches
             .hits
             .iter()
-            .any(|hit| hit.citation == entry.citation)
+            .any(|hit| hit.artifact == entry.artifact)
     );
     let exact = manager
-        .memory_entry(generation, &entry.citation)
+        .atomic_memory_entry(generation, &entry.artifact)
         .await
         .unwrap();
     assert_eq!(exact.text, expected);
@@ -188,7 +197,7 @@ async fn main() {
         assert_eq!(matches.hits.len(), 10);
         let start = std::time::Instant::now();
         let exact = manager
-            .memory_entry(generation, &entry.citation)
+            .atomic_memory_entry(generation, &entry.artifact)
             .await
             .unwrap();
         exact_ms.push(start.elapsed().as_secs_f64() * 1000.0);
@@ -204,14 +213,14 @@ async fn main() {
         let results = manager.search_memory(generation, &keyword).await.unwrap();
         assert_eq!(results.hits.len(), 1);
         let committed = manager
-            .memory_entry(generation, &results.hits[0].citation)
+            .atomic_memory_entry(generation, &results.hits[0].artifact)
             .await
             .unwrap();
         assert_eq!(committed.text, text);
         assert_eq!(std::fs::read_to_string(path).unwrap(), "1");
     }
     if let Some(reader_token) = raw["reader_token"].as_str() {
-        verify_revocation(&fixture, &raw, reader_token, &entry.citation, &expected).await;
+        verify_revocation(&fixture, &raw, reader_token, &entry.artifact, &expected).await;
         verify_scope_pages(&fixture, &raw, &manager, generation).await;
     }
     if let Some(path) = fixture.identity_change_path {
@@ -219,7 +228,7 @@ async fn main() {
         std::fs::write(path, b"change").unwrap();
         assert_eq!(
             manager
-                .memory_entry(generation, &entry.citation)
+                .atomic_memory_entry(generation, &entry.artifact)
                 .await
                 .err()
                 .unwrap()
@@ -230,7 +239,7 @@ async fn main() {
         assert!(state.active.is_none());
         assert!(state.generation > generation);
         assert_eq!(
-            api.entry(&fixture.scope_id, &entry.citation)
+            api.atomic_entry(&fixture.scope_id, &entry.artifact)
                 .await
                 .err()
                 .unwrap()
@@ -256,6 +265,8 @@ async fn main() {
         "{}",
         serde_json::json!({
             "result":"passed",
+            "qualification":"candidate native real-Server evidence; product profile is separate",
+            "contractSha256":fixture.compatibility_profile.contract_sha256,
             "performance": {
                 "scope":"Native ConnectionManager round trips, including identity recheck; local fixture; no UI latency or approved budget",
                 "noteCount":13,
@@ -275,7 +286,7 @@ async fn verify_revocation(
     fixture: &Fixture,
     raw: &serde_json::Value,
     reader_token: &str,
-    citation: &powercontext_desktop::transport::wire::MemoryCitation,
+    artifact: &ArtifactReference,
     expected: &str,
 ) {
     // Only the isolated test administrator mutates fixture policy; never exposed to Desktop IPC.
@@ -306,7 +317,7 @@ async fn verify_revocation(
     let principal = reader.principal().await.unwrap();
     assert_eq!(
         reader
-            .entry(&fixture.scope_id, citation)
+            .atomic_entry(&fixture.scope_id, artifact)
             .await
             .unwrap()
             .text,
@@ -327,7 +338,7 @@ async fn verify_revocation(
     assert_eq!(reader.principal().await.unwrap(), principal);
     assert_eq!(
         reader
-            .entry(&fixture.scope_id, citation)
+            .atomic_entry(&fixture.scope_id, artifact)
             .await
             .err()
             .unwrap()

@@ -27,14 +27,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.artifacts.memory import Memory
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.runtime.composition import BuiltinConfigurationError
 from powercontext.server.authz import (
     AccessAction,
     AccessAuditContext,
     AccessControlService,
-    MemoryEntrySelector,
     PrincipalRef,
     ResourceRef,
 )
@@ -107,44 +105,6 @@ class WorkerSecurity:
 
     async def authorize_transaction(self, connection: AsyncConnection, scope_id: str) -> None:
         await self._authorize_scope(self.access.with_connection(connection), scope_id)
-
-    async def authorize_memory(self, scope_id: str, current: Memory | None) -> None:
-        await self._authorize_memory(self.access, scope_id, current)
-
-    async def _authorize_memory(self, access: AccessControlService, scope_id: str, current: Memory | None) -> None:
-        if current is None:
-            return
-        await access.require_all(
-            self.principal,
-            tuple(
-                (AccessAction.ARTIFACT_WRITE, self._memory_resource(scope_id, current, entry.entry_id))
-                for entry in current.content.manifest.entries
-            ),
-            context=self.context,
-        )
-
-    @staticmethod
-    def _memory_resource(scope_id: str, memory: Memory, entry_id: str) -> ResourceRef:
-        return ResourceRef.artifact(
-            scope_id, family="memory", artifact_id=memory.artifact_id, selector=MemoryEntrySelector(entry_id=entry_id)
-        )
-
-    async def memory_commit(
-        self, connection: AsyncConnection, before: Memory | None, after: Memory | None, *, scope_id: str
-    ) -> None:
-        bound = self.access.with_connection(connection)
-        await self._authorize_memory(bound, scope_id, before)
-        if after is None:
-            return
-        old = set() if before is None else {entry.entry_id for entry in before.content.manifest.entries}
-        for entry in after.content.manifest.entries:
-            if entry.entry_id not in old:
-                await bound.establish_artifact_owner(
-                    self._memory_resource(scope_id, after, entry.entry_id),
-                    self.principal,
-                    idempotency_key=f"background-memory-owner:{scope_id}:{after.artifact_id}:{entry.entry_id}",
-                    context=self.context,
-                )
 
     async def experience_commit(self, connection: AsyncConnection, candidates: Sequence[Any], *, scope_id: str) -> None:
         bound = self.access.with_connection(connection)

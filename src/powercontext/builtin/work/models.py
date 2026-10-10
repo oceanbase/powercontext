@@ -19,7 +19,7 @@ from __future__ import annotations
 from hashlib import sha256
 from typing import Annotated, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import TASK_OUTCOME_SOURCE_KIND
@@ -28,9 +28,11 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffDisposition,
     HandoffResolution,
     HandoffResolutionSelection,
+    HandoffSourceCitation,
     PreparedHandoff,
 )
 from powercontext.builtin.artifacts.handoff.models import MAX_HANDOFF_CITATIONS, MAX_HANDOFF_STATE_STATEMENTS
+from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH, MAX_ARTIFACT_ID_LENGTH
 from powercontext.sources import SourceRef
 
 MAX_WORK_TEXT_LENGTH = 8_192
@@ -284,6 +286,33 @@ class AcknowledgeHandoff(_WorkValue):
         return self
 
 
+class _UnavailableArtifactAddress(_WorkValue):
+    """An address recorded as unavailable, without promising a live Artifact family."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    family: Annotated[str, Field(max_length=MAX_ARTIFACT_FAMILY_LENGTH)]
+    artifact_id: Annotated[str, Field(max_length=MAX_ARTIFACT_ID_LENGTH)]
+    revision: StrictInt = Field(ge=1)
+
+    @field_validator("family", "artifact_id")
+    @classmethod
+    def require_identity(cls, value: str, info) -> str:
+        return _require_text(info.field_name, value)
+
+
+class _UnavailableArtifactCitation(_WorkValue):
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: Literal["artifact"] = "artifact"
+    artifact_ref: _UnavailableArtifactAddress
+
+
+_UnavailableCitation: TypeAlias = Annotated[
+    HandoffSourceCitation | _UnavailableArtifactCitation, Field(discriminator="kind")
+]
+
+
 class HandoffReceipt(_WorkValue):
     """The receiving participant's bounded acknowledgement of one resolved Handoff."""
 
@@ -300,7 +329,7 @@ class HandoffReceipt(_WorkValue):
     receiver_checks: ReceiverChecks | None = None
     evidence_status: ReceiptEvidenceStatus
     unavailable_evidence: Annotated[
-        tuple[HandoffCitation, ...],
+        tuple[_UnavailableCitation, ...],
         Field(max_length=MAX_HANDOFF_RECEIPT_EVIDENCE),
     ] = ()
     message: str | None = None

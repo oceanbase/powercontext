@@ -164,7 +164,6 @@ class DreamService:
                 connection,
                 sources=request.sources,
                 artifacts=request.artifacts,
-                memory_citations=request.memory_citations,
                 project=False,
                 lock_memory=True,
             )
@@ -291,6 +290,8 @@ class DreamService:
             generated.usage.output_tokens is not None and generated.usage.output_tokens > run.budget.max_output_tokens
         ):
             raise DreamError("budget_exceeded")
+        if record.request is None:
+            raise DreamError("dream_request_unavailable")
         generated.output.validate_operation(record.request)
         plan = _supported_plan(record, generated.output, resolved)
         if isinstance(plan.proposal, SkillContent):
@@ -300,6 +301,8 @@ class DreamService:
 
     async def _resolve(self, record: DreamRecord, connection: AsyncConnection | None = None) -> ResolvedEvidence:
         request = record.request
+        if request is None:
+            raise DreamError("dream_request_unavailable")
         async with self.database.connection(connection) as bound:
             await self._check_target(bound, record.run.scope_id, record.principal_id, request.target)
             resolver = self._resolver(record.run.scope_id, record.principal_id)
@@ -308,7 +311,6 @@ class DreamService:
                 bound,
                 sources=request.sources,
                 artifacts=request.artifacts,
-                memory_citations=request.memory_citations,
                 include_memory_text=request.operation != "derive_skill",
                 pinned=record.run.input_manifest,
                 lock_memory=connection is not None,
@@ -357,7 +359,6 @@ class DreamService:
                 plan.proposal,
                 sources=selected.sources,
                 artifacts=selected.artifacts,
-                memory_citations=selected.memory_citations,
                 target=record.run.target,
                 reason=plan.reason,
                 candidate_id=_candidate_id(record),

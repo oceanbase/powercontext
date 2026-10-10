@@ -22,6 +22,7 @@ class PromptError(ValueError):
         self.code = code
         self.during_inference = during_inference
         messages = {
+            "legacy_memory_prompt_unsupported": "Convert the legacy memory.extract custom Prompt to Atomic Memory contracts",
             "unknown_prompt_key": "Prompt key is not registered",
             "prompt_customization_unavailable": "The effective component cannot honor a custom Prompt",
             "prompt_definition_incompatible": "Prompt demonstrations do not match the deployed Definition",

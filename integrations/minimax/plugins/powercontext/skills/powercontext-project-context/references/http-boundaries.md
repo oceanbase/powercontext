@@ -7,7 +7,7 @@ The runtime tool catalog determines which capabilities are callable. PowerContex
 | Area | Raw MCP operation names |
 | --- | --- |
 | Scopes and bindings | `list_scopes`, `get_scope`, `create_scope`, `resolve_scope_binding`, `set_scope_binding`, `clear_scope_binding` |
-| Memory | `search_memory`, `list_memory_entries`, `get_memory_entry`, `remember_memory`, `revise_memory_entry`, `retire_memory_entry` |
+| Memory | `search_memory`, `list_atomic_memories`, `get_artifact`, `get_artifact_revision`, `get_atomic_memory_state`, `remember_memory`, `replace_artifact`, `change_atomic_memory_lifecycle`, `merge_atomic_memories`, `preview_atomic_memory_restoration`, `restore_atomic_memory`; `get_memory_entry` only maps a legacy logical target to current Atomic content |
 | Topic Memory | `search_topic_memory`, `get_topic_memory` |
 | Sources and work | `capture_content_source`, `create_work_contract`, `handoff_current_work`, `acknowledge_handoff`, `record_task_outcome` |
 | Handoffs | `activate_handoff`, `finalize_handoff`, `commit_handoff`, `continue_handoff`, `get_handoff_report` |

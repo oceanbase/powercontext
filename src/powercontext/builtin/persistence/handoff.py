@@ -30,15 +30,8 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffCitation,
     HandoffEvidenceUnavailableError,
     HandoffGenerationEvidence,
-    HandoffMemoryCitation,
-    HandoffMemoryEvidence,
     HandoffSourceCitation,
     HandoffSourceEvidence,
-)
-from powercontext.builtin.artifacts.memory import (
-    InvalidMemoryCitationError,
-    MemoryEntryNotFoundError,
-    MemoryService,
 )
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -125,14 +118,12 @@ class RelationalHandoffEvidenceResolver:
         scope_id: str,
         sources: GenerationSourceAccess,
         artifacts: ArtifactRepository,
-        memory: MemoryService,
         connection: AsyncConnection | None = None,
     ) -> None:
         self._database = database
         self._scope_id = scope_id
         self._sources = sources
         self._artifacts = artifacts
-        self._memory = memory
         self._bound_connection = connection
 
     async def resolve(self, citation: HandoffCitation, /) -> HandoffGenerationEvidence:
@@ -178,12 +169,6 @@ class RelationalHandoffEvidenceResolver:
                         artifact=artifact_values[(reference.family, reference.artifact_id, reference.revision)],
                     )
                 )
-            elif isinstance(citation, HandoffMemoryCitation):
-                try:
-                    entry = await self._memory.validate_citation(citation.memory_citation)
-                except (ArtifactNotFoundError, InvalidMemoryCitationError, MemoryEntryNotFoundError) as error:
-                    raise HandoffEvidenceUnavailableError(citation) from error
-                evidence.append(HandoffMemoryEvidence(citation=citation, entry=entry))
             else:
                 raise TypeError(f"unsupported Handoff citation: {type(citation).__name__}")  # noqa: TRY003
         return tuple(evidence)

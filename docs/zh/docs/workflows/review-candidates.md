@@ -21,20 +21,16 @@ pending Candidate 后开始。
 
 ## 从已有证据发起 Dream
 
-Dream 在后台将选中的 Memory 条目或 Experience Revision 提炼成一个待审核候选；也可以返回 `no_change` 或
+Dream 在后台将选中的 Atomic Memory 或 Experience Revision 提炼成一个待审核候选；也可以返回 `no_change` 或
 `needs_evidence`，不创建候选。先用 `powercontext capabilities` 确认 Server 返回 `artifact_dreaming: true`。
 内置模型适配器目前支持 OpenAI 兼容和 Anthropic 生成配置；SDK 自动重试被关闭，由运行记录统一控制调用预算。
 
-将 Memory API 返回的精确条目引用写入 `dream.json`：
+将 Memory API 返回的精确 Atomic Memory 引用写入 `dream.json`：
 
 ```json
 {
   "operation": "refine_experience",
-  "memory_citations": [{
-    "memory_ref": {"family": "memory", "artifact_id": "memory", "revision": 3},
-    "entry_id": "ENTRY_ID",
-    "entry_version_id": "ENTRY_VERSION_ID"
-  }],
+  "artifacts": [{"family": "atomic-memory", "artifact_id": "ARTIFACT_ID", "revision": 3}],
   "idempotency_key": "review-write-retry-evidence"
 }
 ```
@@ -53,27 +49,25 @@ GET `/v1/scopes/{scope_id}/dream/{run_id}` 查询详情。POST 对进行中的�
 Candidate ID 按下文审核。运行成功不会自动批准或安装制品。
 
 派生 Skill 时，将 `operation` 改为 `derive_skill`，并在 `artifacts` 中放入已批准的 Experience 引用。
-直接 Memory 条目引用仅用于 `refine_experience`。要替换已有 Experience，将其当前精确引用同时放入
+Atomic Memory 引用仅用于 `refine_experience`。要替换已有 Experience，将其当前精确引用同时放入
 `artifacts` 和 `target`。
 
-输入去重后包含 1–20 个 Memory 条目和 Experience 引用；加上补充 `sources` 后最多 32 项。Source 使用
+输入去重后包含 1–20 个 Atomic Memory 和 Experience 引用；加上补充 `sources` 后最多 32 项。Source 使用
 `source_type` 和 `source_id`。默认预算为 32 项投影、64 KiB 模型输入、两次模型调用、每次最多 4,096 输出 token，
 从首次执行起最多 120 秒。每个 Scope 默认最多容纳 32 个排队或运行中的请求。重启后，Worker 通过租约恢复
 已保存的请求，保持原证据快照和执行截止时间。
 
-使用下文的 Candidate 命令或 `POST /v1/artifact-candidates/get` 读取当前版本及 `memory_citations`，
-再通过 `POST /v1/memory/entries/get` 和精确 Source／Artifact 读取接口核对引用正文。
+使用下文的 Candidate 命令或 `POST /v1/artifact-candidates/get` 读取当前版本及其 `source_refs`、`artifact_refs`，
+再通过精确 Source／Artifact revision 读取接口核对引用正文。
 Dream 运行详情中的 `input_manifest` 保留生成时的根 Source 分组和独立性说明；同一根来源的重复引用不增加独立观察次数，
-无法确认独立性时保留“未知”。审核按当前 Candidate version 及审核者当前权限重新校验证据；条目不可用或已停用时不能批准。
-修订省略 `memory_citations` 或设为 null 会保留现有引用，
-HTTP revise 请求可以显式替换该集合，`[]` 表示清空。批准后的 Experience Revision 在 lineage 中保存这些引用。
+无法确认独立性时保留“未知”。审核按当前 Candidate version 及审核者当前权限重新校验证据；引用不可用时不能批准。
+批准后的 Experience Revision 在 lineage 中保存 Candidate 的引用。
 
 Dashboard 默认关闭，是与 Server 共用访问模式的个人内容查看器；启用认证时使用静态 Bearer token。启用后可阅读已批准的 Experience 和 Skill，
-并沿精确引用查看历史 Memory 条目；Dream 发起、运行查询和候选审核通过 CLI／Client／HTTP API 完成。
+并沿精确引用查看被引用的 Atomic Memory revision；Dream 发起、运行查询和候选审核通过 CLI／Client／HTTP API 完成。
 个人启用步骤见[安装和运行](../get-started/install-and-run.md)。
 
-Runtime 启动时创建 `pc_dream_runs`，并为 `pc_artifacts` 和 `pc_artifact_candidate_versions` 增加可空的
-`memory_citations` 列；旧行按空引用读取。运行表不复制 Memory 条目正文。部署数据库结构变更前应备份已有数据库。
+Runtime 启动时创建 `pc_dream_runs`。运行表不复制 Memory 正文。部署数据库结构变更前应备份已有数据库。
 
 ## 1. 列出待审核 Candidate
 

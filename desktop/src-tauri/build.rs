@@ -37,7 +37,7 @@ fn main() {
             "local_diagnostics",
             "remember_memory",
             "search_memory",
-            "memory_entry",
+            "atomic_memory_entry",
             "cancel_memory_reads",
             "desktop_state",
             "save_profile",

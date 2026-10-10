@@ -70,9 +70,6 @@ from .helpers import (
     config_value as _config_value,
 )
 from .helpers import (
-    entry_identity as _entry_identity,
-)
-from .helpers import (
     load_json_config as _load_json_config,
 )
 from .helpers import (
@@ -81,6 +78,7 @@ from .helpers import (
 from .helpers import (
     new_precompress_entries as _new_precompress_entries,
 )
+from .helpers import normalize_memory_reference as _normalize_memory_reference
 from .helpers import (
     precompress_entries as _precompress_entries,
 )
@@ -705,11 +703,11 @@ class PowerContextMemoryProvider(MemoryProvider):
             "not an explicit Memory save and may produce no Memory. Ordinary coding needs no routine calls. Use "
             "sufficient current context when continuing work. Explicit search my memories / 搜索记忆 requests require "
             "powercontext_search_memory with a focused query. Use powercontext_list_memory_entries for an explicit "
-            "inventory or audit, and powercontext_get_memory with the returned exact citation for details.\n"
+            "inventory or audit, and powercontext_get_memory with the returned exact Atomic reference for details.\n"
             "Explicit remember this / 记住这个供以后使用 requests require powercontext_remember and its successful "
             "result. A current-turn instruction, conceptual question, or preview does not request a write. Never "
             "store secrets or duplicate automatic capture. Correct or retire Memory only on request with its exact "
-            "current citation.\n"
+            "current Atomic reference.\n"
             "For a requested transfer, powercontext_handoff_current_work records the inspected boundary and returns "
             "a temporary Handoff; commit only for a requested durable milestone. Preparation does not establish "
             "commitment, acceptance, or receiver execution.\n"
@@ -1157,15 +1155,15 @@ class PowerContextMemoryProvider(MemoryProvider):
             return
 
         citation = _citation_from_response(response)
-        if citation is None:
-            citation = self._find_memory_citation(text, scope_id=effective_scope_id)
-        if citation is not None:
-            identity = _entry_identity(citation)
-            if identity is not None:
-                self._memory_map[key] = identity
-                self._save_memory_map()
+        if citation is None or "artifact" not in citation:
+            self._emit_failure_diagnostic(
+                "memory_mirror", PowerContextInvalidResponseError("Remember returned no precise Atomic Memory snapshot")
+            )
+            return
+        self._memory_map[key] = citation
+        self._save_memory_map()
 
-    def _find_memory_citations(self, text: str, *, scope_id: str | None = None) -> list[dict[str, Any]]:
+    def _find_memory_snapshots(self, text: str, *, scope_id: str | None = None) -> list[dict[str, Any]]:
         effective_scope_id = scope_id if scope_id is not None else self._scope_id
         try:
             response = self._client.search_memory(
@@ -1179,40 +1177,38 @@ class PowerContextMemoryProvider(MemoryProvider):
             return []
         hits = response.get("hits", []) if isinstance(response, dict) else []
         citations: list[dict[str, Any]] = []
-        identities: set[tuple[str, str]] = set()
+        identities: set[str] = set()
         for hit in hits:
             if not isinstance(hit, dict):
                 continue
-            hit_text = str(hit.get("text", "")).strip()
-            if not hit_text or text.strip() not in hit_text:
+            memory = hit.get("memory")
+            if not isinstance(memory, dict) or memory.get("state") != "active":
                 continue
-            citation = hit.get("citation")
-            normalized = _citation_from_response({"entry": {"citation": citation}})
-            if normalized is None:
+            hit_text = memory.get("text")
+            if not isinstance(hit_text, str) or text.strip() not in hit_text.strip():
                 continue
-            entry_identity = _entry_identity(normalized)
-            if entry_identity is None:
+            normalized = _citation_from_response(hit)
+            if normalized is None or "artifact" not in normalized:
                 continue
-            identity_key = (entry_identity["entry_id"], entry_identity["entry_version_id"])
+            identity_key = json.dumps(normalized, sort_keys=True)
             if identity_key in identities:
                 continue
             identities.add(identity_key)
             citations.append(normalized)
         return citations
 
-    def _find_memory_citation(
-        self,
-        text: str,
-        *,
-        identity: dict[str, str] | None = None,
-        scope_id: str | None = None,
-    ) -> dict[str, Any] | None:
-        for citation in self._find_memory_citations(text, scope_id=scope_id):
-            if identity is None or _entry_identity(citation) == identity:
-                return citation
+    def _mapped_memory_snapshot(self, scope_id: str, snapshot: dict[str, Any], text: str) -> dict[str, Any] | None:
+        try:
+            record = self._client.get_memory_entry(scope_id, snapshot)
+        except PowerContextError as error:
+            self._emit_failure_diagnostic("memory_citation_lookup", error)
+            return None
+        body = record.get("content")
+        if isinstance(body, dict) and isinstance(body.get("text"), str) and text in body["text"].strip():
+            return snapshot
         return None
 
-    def _lookup_memory_citation(
+    def _lookup_memory_snapshot(
         self,
         target: str,
         text: str,
@@ -1225,18 +1221,26 @@ class PowerContextMemoryProvider(MemoryProvider):
         if not query:
             return key, None
 
-        candidates = self._find_memory_citations(query, scope_id=effective_scope_id)
+        # The map keeps the committed snapshot. Do not refresh its revision or
+        # lifecycle version implicitly when resolving a later host mutation.
+        stored = _normalize_memory_reference(self._memory_map.get(key))
+        if stored is not None:
+            return key, self._mapped_memory_snapshot(effective_scope_id, stored, query)
+        if key in self._memory_map:
+            logger.warning("Hermes memory mapping is not an Atomic snapshot; explicitly rebind it")
+            return key, None
+
+        candidates = self._find_memory_snapshots(query, scope_id=effective_scope_id)
         target_prefix = f"{effective_scope_id}:{target}:"
         matches: list[tuple[str, dict[str, Any]]] = []
-        for mapped_key, stored in self._memory_map.items():
+        for mapped_key, value in self._memory_map.items():
             if not mapped_key.startswith(target_prefix):
                 continue
-            identity = _entry_identity(stored)
-            if identity is None:
+            snapshot = _normalize_memory_reference(value)
+            if snapshot is None:
                 continue
-            matching_candidates = [candidate for candidate in candidates if _entry_identity(candidate) == identity]
-            if len(matching_candidates) == 1:
-                matches.append((mapped_key, matching_candidates[0]))
+            if snapshot in candidates:
+                matches.append((mapped_key, snapshot))
 
         if len(matches) != 1:
             logger.debug(
@@ -1256,24 +1260,39 @@ class PowerContextMemoryProvider(MemoryProvider):
         scope_id: str | None = None,
     ) -> None:
         effective_scope_id = scope_id if scope_id is not None else self._scope_id
-        old_key, citation = self._lookup_memory_citation(target, old_text, scope_id=effective_scope_id)
+        old_key, citation = self._lookup_memory_snapshot(target, old_text, scope_id=effective_scope_id)
         if citation is None:
             logger.debug("Skipping Hermes memory %s because old memory was not found", action)
             return
-        try:
-            self._client.retire_memory_entry(
-                effective_scope_id,
-                citation,
-                reason=f"mirrored Hermes built-in memory ({action}, {target})",
-            )
-        except PowerContextError as error:
-            self._emit_failure_diagnostic("memory_retirement", error)
+        if action == "replace" and not content.strip():
+            logger.debug("Skipping an empty Hermes memory replacement")
             return
-
-        self._memory_map.pop(old_key, None)
+        try:
+            if action == "replace":
+                kind = "hermes-user-memory" if target == "user" else "hermes-memory"
+                response = self._client.revise_memory_entry(effective_scope_id, citation, kind=kind, text=content)
+                revised = _citation_from_response(response)
+                if revised is None:
+                    raise PowerContextInvalidResponseError("Revision returned no exact Atomic Memory reference")  # noqa: TRY003
+                # Read the actual state after the content write. Content ETags
+                # deliberately do not include lifecycle state versions.
+                self._memory_map.pop(old_key, None)
+                new_key = self._memory_item_key(target, content, scope_id=effective_scope_id)
+                self._memory_map[new_key] = revised
+                self._save_memory_map()
+                try:
+                    snapshot = self._client.get_memory_state(effective_scope_id, revised)
+                except PowerContextError as error:
+                    self._emit_failure_diagnostic("memory_state_refresh_after_revision", error)
+                    return
+                self._memory_map[new_key] = snapshot
+            else:
+                self._client.retire_memory_entry(effective_scope_id, citation)
+                self._memory_map.pop(old_key, None)
+        except PowerContextError as error:
+            self._emit_failure_diagnostic("memory_mirror_change", error)
+            return
         self._save_memory_map()
-        if action == "replace" and content.strip():
-            self._remember_new(target, content, scope_id=effective_scope_id)
 
     def _request_operation(self, operation: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return commands.request_operation(self, operation, payload)

@@ -39,6 +39,7 @@ The built-in deployment currently exposes these capabilities through this route:
 | `experience` | Supported | `text`; omitted mode selects text | Approved, active Experience heads |
 | `skill` | Supported | `text`; omitted mode selects text | Approved, active managed Skill heads; external Skill catalogs are excluded |
 | `topic-memory` | Supported | `text`, `vector`, `hybrid`; default is hybrid with configured Embedding, otherwise text | Current Topic Memory heads, including title/summary and detail channels |
+| `atomic-memory` | Supported | `text`, `vector`, `hybrid`, `auto`; default is `auto` | Current active Atomic Memory content |
 | `memory` | Unsupported | Existing Memory search remains available | See [Memory and context](memory-and-context.md) |
 | `profile` | Unsupported | No relevance search through this route | See [Use Profiles](use-profiles.md) |
 | `handoff` | Unsupported | No relevance search through this route | See [Memory and Handoff](memory-and-handoff.md) |
@@ -52,22 +53,35 @@ Embedding model and index Profile. See [Configure vector search](configure-vecto
 
 | Field | Type and default | Supported behavior |
 | --- | --- | --- |
-| `query` | Required non-empty string | Surrounding whitespace is trimmed. Experience and Topic allow at most 8192 characters; Skill allows 2000. |
-| `limit` | Integer, default `10` | Experience and Skill: `1`–`200`; Topic: `1`–`20`. This is a maximum, not a promise to fill the result. |
+| `query` | Required non-empty string | Surrounding whitespace is trimmed. Experience, Topic, and Atomic allow at most 8192 characters; Skill allows 2000. |
+| `limit` | Integer, default `10` | Experience and Skill: `1`–`200`; Topic: `1`–`20`; Atomic: `1`–`100`. This is a maximum, not a promise to fill the result. |
 | `mode` | Optional string | Select one of the Family's supported modes, or omit it to use its default. |
-| `filters` | Object, default `{}` | Only an empty object is supported by these three Families. |
+| `filters` | Object, default `{}` | Experience, Skill, and Topic support only an empty object; Atomic controls are listed below. |
 | `admission` | Optional object | Controls whether a retrieved candidate may contribute; fields are described below. |
 | `min_score` | Optional finite number in `[0, 1]` | Keeps only results whose normalized retrieval score is at least this value. Omitted means no score threshold. |
 | `include_scores` | Boolean, default `false` | Adds retrieval and available channel scores to each result. |
 | `fusion` | Optional object | Only Topic exposes `rrf`; see [Fusion algorithms and parameters](search-fusion.md). |
 
 Omit optional fields to use their defaults. Explicit `null`, unknown fields, numeric strings, and booleans in numeric
-fields are rejected. `limit` must be an integer; `include_scores` must be a JSON boolean. Non-empty `filters`, `rerank`,
+fields are rejected. `limit` must be an integer; `include_scores` must be a JSON boolean. Experience, Skill, and Topic reject non-empty `filters`; `rerank`
 and the `weighted_score` fusion method are unsupported. Experience and Skill reject `fusion` entirely.
 
 Thresholds are applied after admission and score calculation, before the final limit. The search does not add lower
 scoring candidates to fill a result after `min_score` removes hits. Enabling scores changes only response metadata;
 it does not change candidate admission, identities, ordering, or thresholds.
+
+## Atomic Memory search
+
+`atomic-memory` delegates to the same current-content retrieval as the dedicated Atomic Memory endpoint.
+It requires `scope.read`; an individual Artifact share remains available through exact get and history.
+Results contain full exact Artifacts in the existing RRF order. The retired `memory` Family is not a search fallback.
+
+Atomic accepts `query`, `limit`, `mode`, `filters`, and `include_scores: false`. `filters.kind` selects a kind;
+`filters.tag_filter` accepts `{"tags": ["release"], "match": "all"}` (or `"any"`).
+`auto` chooses hybrid when a compatible Embedding model is configured, otherwise text.
+The existing retrieval page does not retain every raw channel score, so `include_scores: true` returns HTTP `422`
+with `artifact_search_not_supported` and field `include_scores`. Other Family-specific controls such as
+`admission`, `fusion`, `min_score`, and `rerank` are not accepted by this adapter.
 
 ## Experience and Skill text search
 

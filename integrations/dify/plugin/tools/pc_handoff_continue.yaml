@@ -73,9 +73,9 @@ parameters:
     persisted generation origin. Raw copied metadata is not accepted as verified input
     without a valid receipt. Prompt references are configuration lineage, not factual
     citations.","required":["scope_id","prompt_key","selection","artifact","definition_version","builtin_version","compiled_digest","original_draft_digest","edit_status"],"properties":{"scope_id":{"type":"string","minLength":1,"maxLength":256},"prompt_key":{"type":"string","enum":["handoff.generate"]},"selection":{"type":"string","enum":["built_in","artifact"]},"artifact":{"anyOf":[{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}},{"type":"null"}]},"definition_version":{"type":"string","minLength":1,"maxLength":256},"builtin_version":{"type":"string","minLength":1,"maxLength":256},"compiled_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"original_draft_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"edit_status":{"type":"string","enum":["unchanged","edited"]}}},{"type":"null"}]},"schema":{"type":"string","enum":["powercontext.handoff.v1"]},"objective":{"type":"string","minLength":1,"maxLength":8192,"pattern":".*\\S.*"},"state":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["text","citations"],"properties":{"text":{"type":"string","minLength":1,"maxLength":8192,"pattern":".*\\S.*"},"citations":{"type":"array","minItems":1,"maxItems":32,"items":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind","source_ref"],"properties":{"kind":{"type":"string","enum":["source"]},"source_ref":{"type":"object","additionalProperties":false,"required":["name","source_id"],"properties":{"name":{"type":"string","description":"Stable
-    Source type."},"source_id":{"type":"string"}}}}},{"type":"object","additionalProperties":false,"required":["kind","artifact_ref"],"properties":{"kind":{"type":"string","enum":["artifact"]},"artifact_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}}}},{"type":"object","additionalProperties":false,"required":["kind","memory_citation"],"properties":{"kind":{"type":"string","enum":["memory"]},"memory_citation":{"type":"object","additionalProperties":false,"required":["memory_ref","entry_id","entry_version_id"],"properties":{"memory_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}},"entry_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"entry_version_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"}}}}}],"discriminator":{"propertyName":"kind","mapping":{"source":"#/components/schemas/HandoffSourceCitation","artifact":"#/components/schemas/HandoffArtifactCitation","memory":"#/components/schemas/HandoffMemoryCitation"}}}}}}},"disposition":{"type":"string","enum":["continuable","blocked","complete"]},"next_action":{"anyOf":[{"type":"object","additionalProperties":false,"required":["text","citations"],"properties":{"text":{"type":"string","minLength":1,"maxLength":8192,"pattern":".*\\S.*"},"citations":{"type":"array","minItems":1,"maxItems":32,"items":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind","source_ref"],"properties":{"kind":{"type":"string","enum":["source"]},"source_ref":{"type":"object","additionalProperties":false,"required":["name","source_id"],"properties":{"name":{"type":"string","description":"Stable
-    Source type."},"source_id":{"type":"string"}}}}},{"type":"object","additionalProperties":false,"required":["kind","artifact_ref"],"properties":{"kind":{"type":"string","enum":["artifact"]},"artifact_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}}}},{"type":"object","additionalProperties":false,"required":["kind","memory_citation"],"properties":{"kind":{"type":"string","enum":["memory"]},"memory_citation":{"type":"object","additionalProperties":false,"required":["memory_ref","entry_id","entry_version_id"],"properties":{"memory_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}},"entry_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"entry_version_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"}}}}}],"discriminator":{"propertyName":"kind","mapping":{"source":"#/components/schemas/HandoffSourceCitation","artifact":"#/components/schemas/HandoffArtifactCitation","memory":"#/components/schemas/HandoffMemoryCitation"}}}}}},{"type":"null"}]},"omissions":{"type":"array","maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["text","citation"],"properties":{"text":{"type":"string","minLength":1,"maxLength":8192,"pattern":".*\\S.*"},"citation":{"anyOf":[{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind","source_ref"],"properties":{"kind":{"type":"string","enum":["source"]},"source_ref":{"type":"object","additionalProperties":false,"required":["name","source_id"],"properties":{"name":{"type":"string","description":"Stable
-    Source type."},"source_id":{"type":"string"}}}}},{"type":"object","additionalProperties":false,"required":["kind","artifact_ref"],"properties":{"kind":{"type":"string","enum":["artifact"]},"artifact_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}}}},{"type":"object","additionalProperties":false,"required":["kind","memory_citation"],"properties":{"kind":{"type":"string","enum":["memory"]},"memory_citation":{"type":"object","additionalProperties":false,"required":["memory_ref","entry_id","entry_version_id"],"properties":{"memory_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}},"entry_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"entry_version_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"}}}}}],"discriminator":{"propertyName":"kind","mapping":{"source":"#/components/schemas/HandoffSourceCitation","artifact":"#/components/schemas/HandoffArtifactCitation","memory":"#/components/schemas/HandoffMemoryCitation"}}},{"type":"null"}]}}}}}}}},{"type":"null"}]}'
+    Source type."},"source_id":{"type":"string"}}}}},{"type":"object","additionalProperties":false,"required":["kind","artifact_ref"],"properties":{"kind":{"type":"string","enum":["artifact"]},"artifact_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}}}}],"discriminator":{"propertyName":"kind","mapping":{"source":"#/components/schemas/HandoffSourceCitation","artifact":"#/components/schemas/HandoffArtifactCitation"}}}}}}},"disposition":{"type":"string","enum":["continuable","blocked","complete"]},"next_action":{"anyOf":[{"type":"object","additionalProperties":false,"required":["text","citations"],"properties":{"text":{"type":"string","minLength":1,"maxLength":8192,"pattern":".*\\S.*"},"citations":{"type":"array","minItems":1,"maxItems":32,"items":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind","source_ref"],"properties":{"kind":{"type":"string","enum":["source"]},"source_ref":{"type":"object","additionalProperties":false,"required":["name","source_id"],"properties":{"name":{"type":"string","description":"Stable
+    Source type."},"source_id":{"type":"string"}}}}},{"type":"object","additionalProperties":false,"required":["kind","artifact_ref"],"properties":{"kind":{"type":"string","enum":["artifact"]},"artifact_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}}}}],"discriminator":{"propertyName":"kind","mapping":{"source":"#/components/schemas/HandoffSourceCitation","artifact":"#/components/schemas/HandoffArtifactCitation"}}}}}},{"type":"null"}]},"omissions":{"type":"array","maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["text","citation"],"properties":{"text":{"type":"string","minLength":1,"maxLength":8192,"pattern":".*\\S.*"},"citation":{"anyOf":[{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind","source_ref"],"properties":{"kind":{"type":"string","enum":["source"]},"source_ref":{"type":"object","additionalProperties":false,"required":["name","source_id"],"properties":{"name":{"type":"string","description":"Stable
+    Source type."},"source_id":{"type":"string"}}}}},{"type":"object","additionalProperties":false,"required":["kind","artifact_ref"],"properties":{"kind":{"type":"string","enum":["artifact"]},"artifact_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}}}}],"discriminator":{"propertyName":"kind","mapping":{"source":"#/components/schemas/HandoffSourceCitation","artifact":"#/components/schemas/HandoffArtifactCitation"}}},{"type":"null"}]}}}}}}}},{"type":"null"}]}'
 - name: revision
   type: string
   required: false
@@ -493,61 +493,11 @@ output_schema:
                                 revision:
                                   type: integer
                                   minimum: 1
-                        - type: object
-                          additionalProperties: false
-                          required:
-                          - kind
-                          - memory_citation
-                          properties:
-                            kind:
-                              type: string
-                              enum:
-                              - memory
-                            memory_citation:
-                              type: object
-                              additionalProperties: false
-                              required:
-                              - memory_ref
-                              - entry_id
-                              - entry_version_id
-                              properties:
-                                memory_ref:
-                                  type: object
-                                  additionalProperties: false
-                                  required:
-                                  - family
-                                  - artifact_id
-                                  - revision
-                                  properties:
-                                    family:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    artifact_id:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    revision:
-                                      type: integer
-                                      minimum: 1
-                                entry_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
-                                entry_version_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
                         discriminator:
                           propertyName: kind
                           mapping:
                             source: '#/components/schemas/HandoffSourceCitation'
                             artifact: '#/components/schemas/HandoffArtifactCitation'
-                            memory: '#/components/schemas/HandoffMemoryCitation'
               disposition:
                 type: string
                 enum: *id007
@@ -623,61 +573,11 @@ output_schema:
                                 revision:
                                   type: integer
                                   minimum: 1
-                        - type: object
-                          additionalProperties: false
-                          required:
-                          - kind
-                          - memory_citation
-                          properties:
-                            kind:
-                              type: string
-                              enum:
-                              - memory
-                            memory_citation:
-                              type: object
-                              additionalProperties: false
-                              required:
-                              - memory_ref
-                              - entry_id
-                              - entry_version_id
-                              properties:
-                                memory_ref:
-                                  type: object
-                                  additionalProperties: false
-                                  required:
-                                  - family
-                                  - artifact_id
-                                  - revision
-                                  properties:
-                                    family:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    artifact_id:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    revision:
-                                      type: integer
-                                      minimum: 1
-                                entry_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
-                                entry_version_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
                         discriminator:
                           propertyName: kind
                           mapping:
                             source: '#/components/schemas/HandoffSourceCitation'
                             artifact: '#/components/schemas/HandoffArtifactCitation'
-                            memory: '#/components/schemas/HandoffMemoryCitation'
                 - type: 'null'
               omissions:
                 type: array
@@ -750,61 +650,11 @@ output_schema:
                                 revision:
                                   type: integer
                                   minimum: 1
-                        - type: object
-                          additionalProperties: false
-                          required:
-                          - kind
-                          - memory_citation
-                          properties:
-                            kind:
-                              type: string
-                              enum:
-                              - memory
-                            memory_citation:
-                              type: object
-                              additionalProperties: false
-                              required:
-                              - memory_ref
-                              - entry_id
-                              - entry_version_id
-                              properties:
-                                memory_ref:
-                                  type: object
-                                  additionalProperties: false
-                                  required:
-                                  - family
-                                  - artifact_id
-                                  - revision
-                                  properties:
-                                    family:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    artifact_id:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    revision:
-                                      type: integer
-                                      minimum: 1
-                                entry_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
-                                entry_version_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
                         discriminator:
                           propertyName: kind
                           mapping:
                             source: '#/components/schemas/HandoffSourceCitation'
                             artifact: '#/components/schemas/HandoffArtifactCitation'
-                            memory: '#/components/schemas/HandoffMemoryCitation'
                       - type: 'null'
           - type: 'null'
         selection:
@@ -939,61 +789,11 @@ output_schema:
                           revision:
                             type: integer
                             minimum: 1
-                  - type: object
-                    additionalProperties: false
-                    required:
-                    - kind
-                    - memory_citation
-                    properties:
-                      kind:
-                        type: string
-                        enum:
-                        - memory
-                      memory_citation:
-                        type: object
-                        additionalProperties: false
-                        required:
-                        - memory_ref
-                        - entry_id
-                        - entry_version_id
-                        properties:
-                          memory_ref:
-                            type: object
-                            additionalProperties: false
-                            required:
-                            - family
-                            - artifact_id
-                            - revision
-                            properties:
-                              family:
-                                type: string
-                                minLength: 1
-                                maxLength: 128
-                                pattern: ^[\x21-\x7E]+$
-                              artifact_id:
-                                type: string
-                                minLength: 1
-                                maxLength: 128
-                                pattern: ^[\x21-\x7E]+$
-                              revision:
-                                type: integer
-                                minimum: 1
-                          entry_id:
-                            type: string
-                            minLength: 1
-                            maxLength: 128
-                            pattern: ^[\x21-\x7E]+$
-                          entry_version_id:
-                            type: string
-                            minLength: 1
-                            maxLength: 128
-                            pattern: ^[\x21-\x7E]+$
                   discriminator:
                     propertyName: kind
                     mapping:
                       source: '#/components/schemas/HandoffSourceCitation'
                       artifact: '#/components/schemas/HandoffArtifactCitation'
-                      memory: '#/components/schemas/HandoffMemoryCitation'
       description: Complete successful HTTP response; empty object on error or unknown
         outcome.
 extra:

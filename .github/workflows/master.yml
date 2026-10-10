@@ -205,6 +205,56 @@ jobs:
             seekdb-native.log
           if-no-files-found: ignore
 
+  atomic-memory-clean-seekdb:
+    name: Atomic Memory clean migration (SeekDB)
+    timeout-minutes: 40
+    runs-on: ubuntu-latest
+    env:
+      POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
+      PYTHONUNBUFFERED: "1"
+      MIGRATION_REPORTS: ${{ github.workspace }}/.powercontext/atomic-memory-clean-seekdb
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Run clean migration evidence, grants and vectors without skips
+        timeout-minutes: 35
+        env:
+          TMPDIR: ${{ runner.temp }}/am-seekdb
+        run: |
+          mkdir -p "$TMPDIR"
+          uv run --locked --extra seekdb python scripts/run_atomic_memory_clean_migration.py \
+            seekdb --output "$MIGRATION_REPORTS"
+
+      - name: Collect native diagnostics
+        if: always()
+        env:
+          TMPDIR: ${{ runner.temp }}/am-seekdb
+        run: |
+          mkdir -p "$MIGRATION_REPORTS"
+          df -h . /tmp > "$MIGRATION_REPORTS/disk.txt"
+          if [ -d "$TMPDIR" ]; then
+            find "$TMPDIR" -type f \( -name '*.log' -o -name '*.log.wf' \) \
+              -print -exec tail -c 8388608 {} \; > "$MIGRATION_REPORTS/seekdb-native.log"
+          fi
+
+      - name: Save clean migration reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: atomic-memory-clean-seekdb-${{ github.sha }}
+          path: ${{ env.MIGRATION_REPORTS }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
   windows-unit-portability:
     timeout-minutes: 20
     runs-on: windows-latest

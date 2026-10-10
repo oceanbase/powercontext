@@ -1839,7 +1839,9 @@ def _print_stats(response: ScopedStats) -> None:
         f"{inventory.candidates.rejected} rejected"
     )
     entries = inventory.memory.entries
-    typer.echo(f"Memory entries: {entries.total} total, {entries.active} active, {entries.inactive} inactive")
+    typer.echo(f"Atomic memories: {entries.total} total, {entries.active} active, {entries.inactive} inactive")
+    if entries.inactive:
+        typer.echo("  Inactive includes forgotten, merged and retired memories.")
     period = response.usage.period
     typer.echo(f"Model usage: {period.start_date} to {period.end_date} ({period.timezone})")
     _print_model_usage("Generation", response.usage.totals.generation)

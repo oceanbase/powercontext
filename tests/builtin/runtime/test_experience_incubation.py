@@ -99,7 +99,8 @@ def test_incubation_uses_an_independent_cursor_and_keeps_candidates_gated() -> N
             )
 
             ordinary = await runtime.experience.for_scope(scope).incubate(limit=1)
-            memory_cursor = await runtime.memory.for_scope(scope).cursor()
+            assert runtime.atomic_memory is not None
+            memory_cursor = await runtime.atomic_memory.for_scope(scope).cursor()
             incubated = await runtime.experience.for_scope(scope).incubate(limit=1)
             replay = await runtime.experience.for_scope(scope).incubate(limit=1)
             inbox = await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest(family="experience"))
@@ -201,8 +202,8 @@ def test_incubation_skips_lineage_only_sources_but_advances_the_full_window() ->
         ) as runtime:
             scope = await _create_scope(runtime, "lineage-only")
             created = await runtime.records.for_scope(scope).create_artifact(
-                "memory",
-                ArtifactWrite(content={"entries": [{"kind": "working_note", "text": "Do not incubate direct writes"}]}),
+                "atomic-memory",
+                ArtifactWrite(content={"kind": "working_note", "text": "Do not incubate direct writes"}),
             )
             result = await runtime.experience.for_scope(scope).incubate()
 

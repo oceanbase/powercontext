@@ -41,7 +41,7 @@ pub fn run() {
             commands::local_diagnostics,
             commands::remember_memory,
             commands::search_memory,
-            commands::memory_entry,
+            commands::atomic_memory_entry,
             commands::cancel_memory_reads,
             commands::desktop_state,
             commands::save_profile,

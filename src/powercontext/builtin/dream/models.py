@@ -19,9 +19,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
-from powercontext.artifacts import ArtifactRef, MemoryCitation
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.evidence.models import (
@@ -52,7 +52,6 @@ class CreateDreamRunRequest(BaseModel):
 
     operation: DreamOperation
     artifacts: tuple[ArtifactRef, ...] = ()
-    memory_citations: tuple[MemoryCitation, ...] = ()
     sources: tuple[SourceRef, ...] = ()
     target: ArtifactRef | None = None
     idempotency_key: str = Field(min_length=1, max_length=128)
@@ -64,29 +63,22 @@ class CreateDreamRunRequest(BaseModel):
             raise DreamError("invalid_idempotency_key")
         return value
 
-    @field_validator("artifacts", "memory_citations", "sources")
+    @field_validator("artifacts", "sources")
     @classmethod
     def normalize_references(cls, value):
         return tuple(sorted(unique_references(value), key=reference_key))
 
     @model_validator(mode="after")
     def validate_selection(self):
-        selected = len(self.artifacts) + len(self.memory_citations)
+        selected = len(self.artifacts)
         if not 1 <= selected <= 20 or selected + len(self.sources) > 32:
             raise DreamError("evidence_limit_exceeded")
-        if any(ref.family != "experience" for ref in self.artifacts):
+        if any(ref.family not in {"experience", "atomic-memory"} for ref in self.artifacts):
             raise DreamError("invalid_artifact_family")
-        if any(
-            ref.memory_ref.family != "memory"
-            or not 1 <= len(ref.entry_id) <= 128
-            or not 1 <= len(ref.entry_version_id) <= 128
-            for ref in self.memory_citations
-        ):
-            raise DreamError("invalid_memory_citation")
-        if self.target is not None and self.target not in self.artifacts:
+        if self.target is not None and (self.target not in self.artifacts or self.target.family != "experience"):
             raise DreamError("invalid_target")
         if self.operation == "derive_skill" and (
-            self.memory_citations or self.target is not None or not self.artifacts
+            self.target is not None or not self.artifacts or any(ref.family != "experience" for ref in self.artifacts)
         ):
             raise DreamError("invalid_dream_operation")
         return self
@@ -133,6 +125,7 @@ class DreamRun(BaseModel):
     budget: DreamBudget = Field(default_factory=DreamBudget)
     prompt_version: str = DREAM_PROMPT_VERSION
     model_config_id: str | None = None
+    historical_data: dict[str, JsonValue] | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @property
     def terminal(self) -> bool:
@@ -156,10 +149,14 @@ class GetDreamRunRequest(BaseModel):
 
 
 class DreamRecord(BaseModel):
-    """Private execution state; a principal identity is never a credential."""
+    """Private execution state; a principal identity is never a credential.
+
+    A terminal run migrated from the legacy Memory format has no executable
+    request; its original request is kept only in ``run.historical_data``.
+    """
 
     run: DreamRun
-    request: CreateDreamRunRequest
+    request: CreateDreamRunRequest | None
     principal_id: str
     generation: int = 0
     request_generation: int = 0

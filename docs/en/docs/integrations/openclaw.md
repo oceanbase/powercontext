@@ -51,7 +51,7 @@ The plugin exposes five tools: `powercontext_memory_search`, `powercontext_memor
 `powercontext_memory_store`, `powercontext_memory_revise`, and `powercontext_memory_retire`. The mutating tools
 require the model to call them explicitly; OpenClaw controls side-effecting tool execution.
 
-Explicit search and get calls use `/v1/memory/search` and `/v1/memory/entries/get` directly; they do not call
+Explicit search uses `/v1/memory/search` and get reads the exact Atomic Memory Artifact revision; they do not call
 `/v1/context/prepare`. Search limits the query to 8192 characters and clamps the requested result limit to 1–50
 (default 10), while each get returns at most 120 lines and 12,000 characters.
 

@@ -246,16 +246,16 @@ def test_dream_injection_requires_a_reconstructible_worker(tmp_path: Path, famil
     asyncio.run(scenario())
 
 
-def test_injected_memory_write_gate_requires_a_reconstructible_worker(tmp_path: Path) -> None:
+def test_injected_legacy_memory_write_gate_is_rejected_before_worker_composition(tmp_path: Path) -> None:
     async def scenario() -> None:
         config = BuiltinConfig(
             database=_sqlite(tmp_path / "memory-gate-injection.db"),
             inference=InferenceConfig(generation_model="test"),
             runtime=RuntimeConfig(artifact_processing_families=("memory",)),
         )
-        with pytest.raises(BuiltinConfigurationError, match="child-reconstructible inference resources"):
+        with pytest.raises(BuiltinConfigurationError, match="legacy Memory write gate"):
             async with open_builtin_runtime(config, memory_write_gate=_InjectedGate()):
-                pytest.fail("a spawned Worker must not silently ignore an injected Memory write gate")
+                pytest.fail("Runtime must reject the legacy Memory write gate before worker composition")
 
     asyncio.run(scenario())
 

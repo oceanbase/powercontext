@@ -29,7 +29,16 @@ def source_view(source: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def memory_view(response: dict[str, Any]) -> list[dict[str, Any]]:
-    return [{**entry, **entry["citation"]} for entry in response["entries"]]
+    """Keep the independent Artifact identity of each Atomic Memory record."""
+
+    return [
+        {
+            **item,
+            **item["artifact"],
+            "note_key": f"atomic-memory/{item['artifact']['artifact_id']}@{item['artifact']['revision']}",
+        }
+        for item in response["items"]
+    ]
 
 
 def usage_view(usage: dict[str, Any], recall: dict[str, Any]) -> dict[str, Any]:

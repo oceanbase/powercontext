@@ -12,4 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Capacity envelope benchmark without model calls."""
+"""Dify entry point for pc_memory_state."""
+
+from powercontext_dify import tool
+
+
+class PcMemoryStateTool(tool.PowerContextTool):
+    operation = "get_atomic_memory_state"

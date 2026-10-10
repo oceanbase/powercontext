@@ -100,7 +100,11 @@ globs. Even single-turn cases use `input.turns`; turn-scoped rules do not work w
 All relative config paths start at this project root, not at `evals/`.
 
 Both arms receive the same `evals/fixtures/repos/powercontext-tool-contract/CLAUDE.md`: required/optional top-level
-argument names, types and defaults derived from OpenAPI. This fills the generic mock schemas' parameter information gap
+argument names, types and defaults derived from OpenAPI and its MCP specialization, including content CAS headers.
+The mock catalog contains the Server's complete declared MCP tool subset (54 operations), verified against
+`src/powercontext/server/mcp.py` and the generated operation IDs. The successful save reply contains Atomic
+`records`; empty search returns the current `text` mode and an empty `hits` list.
+This fills the generic mock schemas' parameter information gap
 without providing routing rules, fixture values or answers. Refresh it with `python3 validate_suite.py --write-tool-contract`
 after reviewing an API change. Validation rejects reference drift or overridden case context.
 

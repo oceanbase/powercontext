@@ -52,9 +52,14 @@ for (const name of Object.keys(schemas)) {
 }
 const selectors = [
   ['pc_prepare_context',['result','content'],'string'],
-  ['pc_memory_get',['result','citation'],'object'],
-  ['pc_memory_get',['result','citation','entry_id'],'string'],
-  ['pc_memory_get',['result','citation','memory_ref','revision'],'number'],
+  ['pc_memory_get',['result','artifact_id'],'string'],
+  ['pc_memory_get',['result','revision'],'number'],
+  ['pc_memory_get',['result','content','text'],'string'],
+  ['pc_memory_get',['result','etag'],'string'],
+  ['pc_memory_revise',['result','revision'],'number'],
+  ['pc_memory_retire',['result','records'],'array'],
+  ['pc_memory_state',['result','artifact','revision'],'number'],
+  ['pc_memory_state',['result','state_version'],'number'],
   ['pc_handoff_prepare',['result','next_action'],'object'],
   ['pc_handoff_finalize',['result','base'],'object'],
   ['pc_handoff_activate',['result','draft'],'object'],

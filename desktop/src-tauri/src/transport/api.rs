@@ -47,6 +47,30 @@ impl From<SafeError> for ApiFailure {
     }
 }
 
+#[derive(Clone, Serialize, TS)]
+pub struct MemorySaveResponse {
+    pub changed: bool,
+    pub records: Vec<AtomicMemoryRecord>,
+}
+#[derive(Clone, Serialize, TS)]
+pub struct MemorySearchHit {
+    pub artifact: ArtifactReference,
+    pub text: String,
+    pub score: f64,
+    pub matched_by: Vec<String>,
+}
+#[derive(Clone, Serialize, TS)]
+pub struct MemorySearchResponse {
+    pub hits: Vec<MemorySearchHit>,
+}
+#[derive(Clone, Debug, Serialize, TS)]
+pub struct AtomicMemoryDetail {
+    pub artifact: ArtifactReference,
+    pub kind: String,
+    pub text: String,
+    pub source_refs: Vec<SourceTypeReference>,
+}
+
 pub struct ServerApi {
     transport: Transport,
     endpoint: Endpoint,
@@ -72,6 +96,18 @@ impl ServerApi {
         body: Option<serde_json::Value>,
         allow_not_ready: bool,
     ) -> Result<T, ApiFailure> {
+        self.execute_path(operation, scope, query, body, allow_not_ready, None)
+            .await
+    }
+    async fn execute_path<T: DeserializeOwned>(
+        &self,
+        operation: &str,
+        scope: Option<&str>,
+        query: &[(String, String)],
+        body: Option<serde_json::Value>,
+        allow_not_ready: bool,
+        artifact: Option<&ArtifactReference>,
+    ) -> Result<T, ApiFailure> {
         let _permit = self
             .transport
             .slots
@@ -86,7 +122,33 @@ impl ServerApi {
         let method =
             Method::from_bytes(method.as_bytes()).map_err(|_| SafeError::InvalidResponse)?;
         let mut url = self.endpoint.operation_url(operation)?;
-        if let Some(id) = scope {
+        if let Some(artifact) = artifact {
+            if operation != "get_artifact_revision"
+                || !descriptor["path"].as_str().is_some_and(|p| {
+                    p.ends_with(
+                        "/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
+                    )
+                })
+            {
+                return Err(SafeError::InvalidResponse.into());
+            }
+            let revision = artifact.revision.to_string();
+            let mut segments = url
+                .path_segments_mut()
+                .map_err(|_| SafeError::InvalidEndpoint)?;
+            for _ in 0..7 {
+                segments.pop();
+            }
+            segments.extend([
+                "scopes",
+                scope.ok_or(SafeError::ScopeRequired)?,
+                "artifacts",
+                "atomic-memory",
+                &artifact.artifact_id,
+                "revisions",
+                &revision,
+            ]);
+        } else if let Some(id) = scope {
             validate_scope(id)?;
             // Replace the generated placeholder using URL path-segment encoding, never string interpolation.
             if !descriptor["path"]
@@ -249,7 +311,7 @@ impl ServerApi {
         &self,
         scope: &str,
         text: &str,
-    ) -> Result<MemoryMutationResponse, ApiFailure> {
+    ) -> Result<MemorySaveResponse, ApiFailure> {
         validate_scope(scope)?;
         validate_text(text)?;
         let result: MemoryMutationResponse = self
@@ -261,22 +323,24 @@ impl ServerApi {
                 false,
             )
             .await?;
-        if !valid_reference(&result.memory)
-            || result.memory.family != "memory"
-            || result.entry.as_ref().is_some_and(|entry| {
-                !valid_entry(entry) || entry.citation.memory_ref != result.memory
-            })
+        if result
+            .records
+            .iter()
+            .any(|record| !valid_atomic_record(record))
         {
             return Err(invalid_received());
         }
-        Ok(result)
+        Ok(MemorySaveResponse {
+            changed: result.changed,
+            records: result.records,
+        })
     }
 
     pub async fn search(
         &self,
         scope: &str,
         query: &str,
-    ) -> Result<SearchMemoryResponse, ApiFailure> {
+    ) -> Result<MemorySearchResponse, ApiFailure> {
         validate_scope(scope)?;
         validate_text(query)?;
         let result: SearchMemoryResponse = self
@@ -288,40 +352,79 @@ impl ServerApi {
                 false,
             )
             .await?;
-        if result.hits.len() > 10
-            || result
-                .hits
-                .iter()
-                .any(|hit| validate_citation(&hit.citation).is_err())
-            || result
-                .mode
-                .as_ref()
-                .is_some_and(|mode| *mode != MemoryUsedSearchMode::Fts)
+        if result.mode != AtomicMemorySearchMode::Text
+            || result.hits.len() > 10
+            || result.hits.iter().any(|hit| {
+                !valid_atomic_record(&hit.memory)
+                    || hit.memory.state != AtomicMemoryState::Active
+                    || !hit.score.is_finite()
+                    || hit
+                        .matched_by
+                        .iter()
+                        .any(|channel| !matches!(channel.as_str(), "text" | "vector"))
+            })
         {
             return Err(SafeError::InvalidResponse.into());
         }
-        Ok(result)
+        let hits = result
+            .hits
+            .into_iter()
+            .map(|hit| MemorySearchHit {
+                artifact: hit.memory.artifact,
+                text: hit.memory.text,
+                score: hit.score,
+                matched_by: hit.matched_by,
+            })
+            .collect();
+        Ok(MemorySearchResponse { hits })
     }
-    pub async fn entry(
+    pub async fn atomic_entry(
         &self,
         scope: &str,
-        citation: &MemoryCitation,
-    ) -> Result<MemoryEntry, ApiFailure> {
+        artifact: &ArtifactReference,
+    ) -> Result<AtomicMemoryDetail, ApiFailure> {
         validate_scope(scope)?;
-        validate_citation(citation)?;
-        let result: MemoryEntry = self
-            .execute(
-                "get_memory_entry",
-                None,
+        if artifact.family != "atomic-memory" || !valid_reference(artifact) {
+            return Err(SafeError::InvalidInput.into());
+        }
+        let result: ArtifactRevision = self
+            .execute_path(
+                "get_artifact_revision",
+                Some(scope),
                 &[],
-                Some(serde_json::json!({"scope_id":scope,"citation":citation})),
+                None,
                 false,
+                Some(artifact),
             )
             .await?;
-        if result.citation != *citation || !valid_entry(&result) {
+        if result.scope_id != scope
+            || result.family != ArtifactReadFamily::AtomicMemory
+            || result.artifact_id != artifact.artifact_id
+            || result.revision != artifact.revision
+            || result.content.get("schema").and_then(|v| v.as_str())
+                != Some("powercontext.atomic-memory.v1")
+            || !result.artifacts.iter().all(valid_reference)
+        {
             return Err(SafeError::InvalidResponse.into());
         }
-        Ok(result)
+        let kind = result
+            .content
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.trim().is_empty() && v.chars().count() <= 128)
+            .ok_or(SafeError::InvalidResponse)?;
+        let text = result
+            .content
+            .get("text")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .ok_or(SafeError::InvalidResponse)?;
+        Ok(AtomicMemoryDetail {
+            artifact: artifact.clone(),
+            kind: kind.into(),
+            text: text.into(),
+            source_refs: result.sources,
+        })
     }
 }
 pub fn validate_scope(id: &str) -> Result<(), SafeError> {
@@ -337,18 +440,6 @@ pub fn validate_text(text: &str) -> Result<(), SafeError> {
     }
     Ok(())
 }
-fn validate_citation(c: &MemoryCitation) -> Result<(), SafeError> {
-    if c.memory_ref.family != "memory"
-        || !valid_reference(&c.memory_ref)
-        || [&c.memory_ref.artifact_id, &c.entry_id, &c.entry_version_id]
-            .iter()
-            .any(|v| v.is_empty() || v.len() > 128 || !v.bytes().all(|b| b.is_ascii_graphic()))
-    {
-        return Err(SafeError::InvalidInput);
-    }
-    Ok(())
-}
-
 fn valid_reference(reference: &ArtifactReference) -> bool {
     (1..=9_007_199_254_740_991).contains(&reference.revision)
         && !reference.family.is_empty()
@@ -357,10 +448,13 @@ fn valid_reference(reference: &ArtifactReference) -> bool {
         && reference.artifact_id.len() <= 128
         && reference.artifact_id.bytes().all(|b| b.is_ascii_graphic())
 }
-fn valid_entry(entry: &MemoryEntry) -> bool {
-    validate_citation(&entry.citation).is_ok()
-        && (1..=9_007_199_254_740_991).contains(&entry.version)
-        && entry.artifact_refs.iter().all(valid_reference)
+fn valid_atomic_record(record: &AtomicMemoryRecord) -> bool {
+    record.artifact.family == "atomic-memory"
+        && valid_reference(&record.artifact)
+        && (0..=9_007_199_254_740_991).contains(&record.state_version)
+        && !record.kind.trim().is_empty()
+        && record.kind.chars().count() <= 128
+        && !record.text.is_empty()
 }
 fn invalid_received() -> ApiFailure {
     ApiFailure {

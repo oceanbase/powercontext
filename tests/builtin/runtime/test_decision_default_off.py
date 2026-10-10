@@ -19,9 +19,9 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
     BuiltinConfig,
-    MemoryEntryInput,
     RuntimeConfig,
     open_builtin_contexts,
     open_builtin_runtime,
@@ -66,14 +66,12 @@ def test_disabled_decision_builds_no_backend_and_no_readiness_probe() -> None:
 def test_disabled_decision_leaves_the_ordinary_memory_path_unchanged(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(_config(tmp_path)) as contexts:
-            context = await contexts.get("project")
-            stored = await context.artifacts.memory.remember(
-                memory=None,
-                entries=(MemoryEntryInput(kind="decision", text="Baseline memory."),),
-                mode="append",
+            await contexts.get("project")
+            stored = await contexts.records.create_artifact(
+                "project", "atomic-memory", ArtifactWrite(content={"kind": "decision", "text": "Baseline memory."})
             )
-            assert stored is not None
-            result = await context.artifacts.memory.search("baseline", memories=(stored,), mode="fts")
+            assert stored.family == "atomic-memory" and stored.revision == 1
+            result = await contexts.atomic_memory.for_scope("project").search("baseline", mode="text")
 
             assert [hit.text for hit in result.hits] == ["Baseline memory."]
 

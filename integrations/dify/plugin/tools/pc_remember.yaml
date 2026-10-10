@@ -117,91 +117,49 @@ output_schema:
       $ref: '#/definitions/Result'
       type: object
       properties:
-        memory:
-          $ref: '#/definitions/Result/properties/memory'
-          type: object
-          properties:
-            family:
-              $ref: '#/definitions/Result/properties/memory/properties/family'
-              type: string
-            artifact_id:
-              $ref: '#/definitions/Result/properties/memory/properties/artifact_id'
-              type: string
-            revision:
-              $ref: '#/definitions/Result/properties/memory/properties/revision'
-              type: number
-        entry:
-          $ref: '#/definitions/Result/properties/entry'
-          type: object
-          properties:
-            citation:
-              $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/citation'
-              type: object
-              properties:
-                memory_ref:
-                  $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/citation/properties/memory_ref'
-                  type: object
-                  properties:
-                    family:
-                      $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/citation/properties/memory_ref/properties/family'
-                      type: string
-                    artifact_id:
-                      $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/citation/properties/memory_ref/properties/artifact_id'
-                      type: string
-                    revision:
-                      $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/citation/properties/memory_ref/properties/revision'
-                      type: number
-                entry_id:
-                  $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/citation/properties/entry_id'
-                  type: string
-                entry_version_id:
-                  $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/citation/properties/entry_version_id'
-                  type: string
-            version:
-              $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/version'
-              type: number
-            kind:
-              $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/kind'
-              type: string
-            text:
-              $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/text'
-              type: string
-            state:
-              $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/state'
-              type: string
-              enum: &id001
-              - active
-              - inactive
-            source_refs:
-              $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/source_refs'
-              type: array
-              items:
-                $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/source_refs/items'
-                type: object
-                properties:
-                  name:
-                    $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/source_refs/items/properties/name'
-                    type: string
-                    description: Stable Source type.
-                  source_id:
-                    $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/source_refs/items/properties/source_id'
-                    type: string
-            artifact_refs:
-              $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/artifact_refs'
-              type: array
-              items:
-                $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/artifact_refs/items'
+        changed:
+          $ref: '#/definitions/Result/properties/changed'
+          type: boolean
+        records:
+          $ref: '#/definitions/Result/properties/records'
+          type: array
+          items:
+            $ref: '#/definitions/Result/properties/records/items'
+            type: object
+            properties:
+              artifact:
+                $ref: '#/definitions/Result/properties/records/items/properties/artifact'
                 type: object
                 properties:
                   family:
-                    $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/artifact_refs/items/properties/family'
+                    $ref: '#/definitions/Result/properties/records/items/properties/artifact/properties/family'
                     type: string
                   artifact_id:
-                    $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/artifact_refs/items/properties/artifact_id'
+                    $ref: '#/definitions/Result/properties/records/items/properties/artifact/properties/artifact_id'
                     type: string
                   revision:
-                    $ref: '#/definitions/Result/properties/entry/anyOf/0/properties/artifact_refs/items/properties/revision'
+                    $ref: '#/definitions/Result/properties/records/items/properties/artifact/properties/revision'
                     type: number
+              kind:
+                $ref: '#/definitions/Result/properties/records/items/properties/kind'
+                type: string
+              text:
+                $ref: '#/definitions/Result/properties/records/items/properties/text'
+                type: string
+              state:
+                $ref: '#/definitions/Result/properties/records/items/properties/state'
+                type: string
+                enum: &id001
+                - active
+                - forgotten
+                - merged
+                - retired
+              state_version:
+                $ref: '#/definitions/Result/properties/records/items/properties/state_version'
+                type: number
+              merged_into_id:
+                $ref: '#/definitions/Result/properties/records/items/properties/merged_into_id'
+                type: string
       description: Complete successful HTTP response; empty object on error or unknown
         outcome.
   required:
@@ -217,127 +175,58 @@ output_schema:
       type: object
       additionalProperties: false
       properties:
-        memory:
-          type: object
-          additionalProperties: false
-          required:
-          - family
-          - artifact_id
-          - revision
-          properties:
-            family:
-              type: string
-              minLength: 1
-              maxLength: 128
-              pattern: ^[\x21-\x7E]+$
-            artifact_id:
-              type: string
-              minLength: 1
-              maxLength: 128
-              pattern: ^[\x21-\x7E]+$
-            revision:
-              type: integer
-              minimum: 1
-        entry:
-          anyOf:
-          - type: object
+        changed:
+          type: boolean
+        records:
+          type: array
+          items:
+            type: object
             additionalProperties: false
             required:
-            - citation
-            - version
+            - artifact
             - kind
             - text
             - state
-            - source_refs
-            - artifact_refs
+            - state_version
+            - merged_into_id
             properties:
-              citation:
+              artifact:
                 type: object
                 additionalProperties: false
                 required:
-                - memory_ref
-                - entry_id
-                - entry_version_id
+                - family
+                - artifact_id
+                - revision
                 properties:
-                  memory_ref:
-                    type: object
-                    additionalProperties: false
-                    required:
-                    - family
-                    - artifact_id
-                    - revision
-                    properties:
-                      family:
-                        type: string
-                        minLength: 1
-                        maxLength: 128
-                        pattern: ^[\x21-\x7E]+$
-                      artifact_id:
-                        type: string
-                        minLength: 1
-                        maxLength: 128
-                        pattern: ^[\x21-\x7E]+$
-                      revision:
-                        type: integer
-                        minimum: 1
-                  entry_id:
+                  family:
                     type: string
                     minLength: 1
                     maxLength: 128
                     pattern: ^[\x21-\x7E]+$
-                  entry_version_id:
+                  artifact_id:
                     type: string
                     minLength: 1
                     maxLength: 128
                     pattern: ^[\x21-\x7E]+$
-              version:
-                type: integer
-                minimum: 1
+                  revision:
+                    type: integer
+                    minimum: 1
               kind:
                 type: string
+                minLength: 1
               text:
                 type: string
+                minLength: 1
               state:
                 type: string
                 enum: *id001
-              source_refs:
-                type: array
-                items:
-                  type: object
-                  additionalProperties: false
-                  required:
-                  - name
-                  - source_id
-                  properties:
-                    name:
-                      type: string
-                      description: Stable Source type.
-                    source_id:
-                      type: string
-              artifact_refs:
-                type: array
-                items:
-                  type: object
-                  additionalProperties: false
-                  required:
-                  - family
-                  - artifact_id
-                  - revision
-                  properties:
-                    family:
-                      type: string
-                      minLength: 1
-                      maxLength: 128
-                      pattern: ^[\x21-\x7E]+$
-                    artifact_id:
-                      type: string
-                      minLength: 1
-                      maxLength: 128
-                      pattern: ^[\x21-\x7E]+$
-                    revision:
-                      type: integer
-                      minimum: 1
-          - type: 'null'
+              state_version:
+                type: integer
+                minimum: 0
+              merged_into_id:
+                anyOf:
+                - type: string
+                - type: 'null'
       description: Complete successful HTTP response; empty object on error or unknown
         outcome.
 extra:

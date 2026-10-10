@@ -450,31 +450,25 @@ def test_missing_memory_in_readable_scope_is_not_owner_pending(tmp_path, backend
                 json={"scope_id": source_scope, "kind": "fact", "text": "PRIVATE_SCOPE_FACT"},
             )
             assert remembered.status_code == 200, remembered.text
-            entries = await client.post("/v1/memory/entries/list", json={"scope_id": source_scope})
-            citation = entries.json()["entries"][0]["citation"]
+            entries = await client.post("/v1/atomic-memory/list", json={"scope_id": source_scope})
+            assert entries.status_code == 200, entries.text
+            artifact = entries.json()["items"][0]["artifact"]
             reader = {"Authorization": "Bearer reader"}
-            correct = await client.post(
-                "/v1/memory/entries/get", headers=reader, json={"scope_id": source_scope, "citation": citation}
-            )
+            suffix = f"/artifacts/atomic-memory/{artifact['artifact_id']}/revisions/{artifact['revision']}"
+            correct = await client.get(f"/v1/scopes/{source_scope}{suffix}", headers=reader)
             assert correct.status_code == 200, correct.text
+            assert correct.json()["content"]["text"] == "PRIVATE_SCOPE_FACT"
             for _ in range(2):
-                missing = await client.post(
-                    "/v1/memory/entries/get", headers=reader, json={"scope_id": empty_scope, "citation": citation}
-                )
+                missing = await client.get(f"/v1/scopes/{empty_scope}{suffix}", headers=reader)
                 assert missing.status_code == 404, missing.text
-                assert missing.json()["error"]["code"] == "memory_not_found"
+                assert missing.json()["error"]["code"] == "artifact_not_found"
                 assert "PRIVATE_SCOPE_FACT" not in missing.text
-            unknown = {**citation, "entry_id": "absent-entry"}
-            missing = await client.post(
-                "/v1/memory/entries/get", headers=reader, json={"scope_id": source_scope, "citation": unknown}
+            missing = await client.get(
+                f"/v1/scopes/{source_scope}/artifacts/atomic-memory/absent-artifact/revisions/1", headers=reader
             )
             assert missing.status_code == 404, missing.text
             denied = [
-                await client.post(
-                    "/v1/memory/entries/get",
-                    headers={"Authorization": "Bearer stranger"},
-                    json={"scope_id": scope, "citation": citation},
-                )
+                await client.get(f"/v1/scopes/{scope}{suffix}", headers={"Authorization": "Bearer stranger"})
                 for scope in (source_scope, empty_scope, "absent-scope")
             ]
             assert [response.status_code for response in denied] == [403, 403, 403]
@@ -492,25 +486,44 @@ def test_owner_failure_blocks_collections_and_context_before_content(tmp_path, m
                 raise AccessUnavailableError("artifact_owner_pending")
 
             with monkeypatch.context() as patch:
-                patch.setattr(access, "establish_artifact_owner", unavailable)
+                patch.setattr(type(access), "establish_artifact_owner", unavailable)
                 created = await client.post(
                     f"/v1/scopes/{scope_id}/artifacts",
                     json={
-                        "family": "memory",
-                        "content": {"entries": [{"kind": "fact", "text": "OWNER_PENDING_PRIVATE_CONTENT"}]},
+                        "family": "atomic-memory",
+                        "content": {"kind": "fact", "text": "OWNER_PENDING_PRIVATE_CONTENT"},
                     },
                 )
                 assert created.status_code == 503, created.text
-            # The content is durably committed, but the owner did not commit.
             records = app.state.application.records.for_scope(scope_id)
-            identities = await records.logical_artifacts()
-            stored = await records.get_artifact("memory", identities[0].artifact_id)
-            entry = stored.content["manifest"]["entries"][0]
-            citation = {
-                "memory_ref": {"family": "memory", "artifact_id": stored.artifact_id, "revision": stored.revision},
-                "entry_id": entry["entry_id"],
-                "entry_version_id": entry["entry_version_id"],
-            }
+            assert await records.logical_artifacts() == ()
+            seeded = await client.post(
+                f"/v1/scopes/{scope_id}/artifacts",
+                json={"family": "atomic-memory", "content": {"kind": "fact", "text": "OWNER_PENDING_PRIVATE_CONTENT"}},
+            )
+            assert seeded.status_code == 201, seeded.text
+            stored = seeded.json()
+            searchable = await client.post(
+                "/v1/memory/search",
+                json={"scope_id": scope_id, "query": "OWNER_PENDING_PRIVATE_CONTENT", "mode": "fts"},
+            )
+            assert searchable.status_code == 200, searchable.text
+            assert len(searchable.json()["hits"]) == 1
+            # Simulate a preexisting identity whose owner record is unavailable.
+            # A failed new Atomic write above must not produce this partial state.
+            from sqlalchemy import delete
+
+            from powercontext.server.authz.repository import ACCESS_OWNERS_TABLE
+
+            async with access.relationships._database.transaction() as connection:
+                await connection.execute(
+                    delete(ACCESS_OWNERS_TABLE).where(
+                        ACCESS_OWNERS_TABLE.c.scope_id == scope_id,
+                        ACCESS_OWNERS_TABLE.c.family == "atomic-memory",
+                        ACCESS_OWNERS_TABLE.c.artifact_id == stored["artifact_id"],
+                    )
+                )
+            artifact_url = f"/v1/scopes/{scope_id}/artifacts/atomic-memory/{stored['artifact_id']}"
             referencing = await client.post(
                 "/v1/scopes",
                 json={
@@ -523,14 +536,20 @@ def test_owner_failure_blocks_collections_and_context_before_content(tmp_path, m
             assert referencing.status_code == 201
             current = referencing.json()["scope_id"]
             requests = [
-                ("POST", "/v1/memory/entries/get", {"scope_id": scope_id, "citation": citation}),
-                ("POST", "/v1/context/prepare", {"scope_id": current, "query": "PRIVATE"}),
-                ("POST", "/v1/context/prepare", {"scope_id": current, "query": "PRIVATE", "assembly": {}}),
+                ("GET", artifact_url + f"/revisions/{stored['revision']}", None),
+                ("POST", "/v1/context/prepare", {"scope_id": current, "query": "OWNER_PENDING_PRIVATE_CONTENT"}),
+                (
+                    "POST",
+                    "/v1/context/prepare",
+                    {"scope_id": current, "query": "OWNER_PENDING_PRIVATE_CONTENT", "assembly": {}},
+                ),
+                ("POST", "/v1/atomic-memory/list", {"scope_id": scope_id}),
+                ("POST", "/v1/atomic-memory/search", {"scope_id": scope_id, "query": "OWNER_PENDING_PRIVATE_CONTENT"}),
                 ("POST", "/v1/memory/entries/list", {"scope_id": scope_id}),
-                ("POST", "/v1/memory/search", {"scope_id": scope_id, "query": "PRIVATE"}),
-                ("POST", "/v1/context/prepare", {"scope_id": scope_id, "query": "PRIVATE"}),
-                ("GET", f"/v1/scopes/{scope_id}/artifacts/memory/memory", None),
-                ("GET", f"/v1/scopes/{scope_id}/artifacts/memory", None),
+                ("POST", "/v1/memory/search", {"scope_id": scope_id, "query": "OWNER_PENDING_PRIVATE_CONTENT"}),
+                ("POST", "/v1/context/prepare", {"scope_id": scope_id, "query": "OWNER_PENDING_PRIVATE_CONTENT"}),
+                ("GET", artifact_url, None),
+                ("GET", f"/v1/scopes/{scope_id}/artifacts/atomic-memory", None),
                 ("POST", "/v1/skill/library", {"scope_id": scope_id}),
                 ("POST", "/v1/stats", {"selection": {"mode": "all"}}),
             ]
@@ -982,11 +1001,11 @@ def test_prompt_management_respects_scope_and_artifact_permissions(tmp_path: Pat
             contributor = {"Authorization": "Bearer contributor"}
             reader = {"Authorization": "Bearer reader"}
             outsider = {"Authorization": "Bearer outsider"}
-            configuration_path = f"/v1/scopes/{scope}/prompts/memory.extract"
+            configuration_path = f"/v1/scopes/{scope}/prompts/atomic_memory.extract"
             default = await client.get(configuration_path, headers=reader)
             assert default.status_code == 200 and default.json()["artifact"] is None
             for hidden_scope in (scope, "absent-scope"):
-                denied = await client.get(f"/v1/scopes/{hidden_scope}/prompts/memory.extract", headers=outsider)
+                denied = await client.get(f"/v1/scopes/{hidden_scope}/prompts/atomic_memory.extract", headers=outsider)
                 assert denied.status_code == 403
             content = {
                 "schema_version": "powercontext.prompt.v1",
@@ -998,17 +1017,17 @@ def test_prompt_management_respects_scope_and_artifact_permissions(tmp_path: Pat
                 denied = await client.post(
                     f"/v1/scopes/{scope}/artifacts",
                     headers=headers,
-                    json={"family": "prompt", "prompt_key": "memory.extract", "content": content},
+                    json={"family": "prompt", "prompt_key": "atomic_memory.extract", "content": content},
                 )
                 assert denied.status_code == 403, denied.text
             assert (await client.get(configuration_path, headers=reader)).json()["artifact"] is None
             created = await client.post(
                 f"/v1/scopes/{scope}/artifacts",
                 headers=author,
-                json={"family": "prompt", "prompt_key": "memory.extract", "content": content},
+                json={"family": "prompt", "prompt_key": "atomic_memory.extract", "content": content},
             )
             assert created.status_code == 201, created.text
-            path = f"/v1/scopes/{scope}/artifacts/prompt/memory.extract"
+            path = f"/v1/scopes/{scope}/artifacts/prompt/atomic_memory.extract"
             configuration = await client.get(configuration_path, headers=reader)
             assert configuration.status_code == 200
             assert configuration.json()["artifact"]["revision"] == 1
@@ -1040,7 +1059,7 @@ def test_prompt_management_respects_scope_and_artifact_permissions(tmp_path: Pat
             assert [item["revision"] for item in history.json()["items"]] == [2, 1]
             for headers in (contributor, reader, outsider):
                 denied = await client.post(
-                    f"/v1/scopes/{scope}/prompts/memory.extract/demonstrations",
+                    f"/v1/scopes/{scope}/prompts/atomic_memory.extract/demonstrations",
                     headers=headers,
                     json={"instructions": "Keep stable preferences.", "demonstration_count": 1},
                 )
@@ -1069,13 +1088,13 @@ def test_prompt_owner_cannot_mutate_after_scope_role_revocation(
             created = await client.post(
                 f"/v1/scopes/{scope}/artifacts",
                 headers=author,
-                json={"family": "prompt", "prompt_key": "memory.extract", "content": content},
+                json={"family": "prompt", "prompt_key": "atomic_memory.extract", "content": content},
             )
             assert created.status_code == 201, created.text
             bindings = (
                 [administrator, contributor] if revoked_role == "scope.contributor" else [contributor, administrator]
             )
-            path = f"/v1/scopes/{scope}/artifacts/prompt/memory.extract"
+            path = f"/v1/scopes/{scope}/artifacts/prompt/atomic_memory.extract"
             tags = await client.get(path + "/tags", headers=author)
             assert tags.status_code == 200, tags.text
             for binding in bindings:
@@ -1108,7 +1127,7 @@ def test_prompt_owner_cannot_mutate_after_scope_role_revocation(
                 )
                 assert denied.status_code == 403, denied.text
             denied = await client.post(
-                f"/v1/scopes/{scope}/prompts/memory.extract/demonstrations",
+                f"/v1/scopes/{scope}/prompts/atomic_memory.extract/demonstrations",
                 headers=author,
                 json={"instructions": "Keep stable preferences.", "demonstration_count": 1},
             )
@@ -1118,7 +1137,7 @@ def test_prompt_owner_cannot_mutate_after_scope_role_revocation(
             assert current.headers["etag"] == '"revision:1"'
             history = await client.get(path + "/revisions")
             assert [item["revision"] for item in history.json()["items"]] == [1]
-            configuration = await client.get(f"/v1/scopes/{scope}/prompts/memory.extract")
+            configuration = await client.get(f"/v1/scopes/{scope}/prompts/atomic_memory.extract")
             assert configuration.json()["effective"]["instructions"] == content["instructions"]
             # Scope administration remains sufficient even when a revoked user owns the Artifact.
             await _grant(client, scope, "manager", "scope.admin")
@@ -1153,7 +1172,7 @@ def test_prompt_configuration_does_not_fall_back_when_saved_owner_is_pending(tmp
                     f"/v1/scopes/{scope}/artifacts",
                     json={
                         "family": "prompt",
-                        "prompt_key": "memory.extract",
+                        "prompt_key": "atomic_memory.extract",
                         "content": {
                             "schema_version": "powercontext.prompt.v1",
                             "mode": "auto",
@@ -1163,9 +1182,148 @@ def test_prompt_configuration_does_not_fall_back_when_saved_owner_is_pending(tmp
                     },
                 )
                 assert created.status_code == 503
-            response = await client.get(f"/v1/scopes/{scope}/prompts/memory.extract")
+            response = await client.get(f"/v1/scopes/{scope}/prompts/atomic_memory.extract")
             assert response.status_code == 503
             assert response.json()["error"]["code"] == "artifact_owner_pending"
             assert "effective" not in response.json()
+
+    asyncio.run(scenario())
+
+
+def test_atomic_state_read_keeps_content_and_lifecycle_in_one_snapshot(tmp_path, monkeypatch):
+    """A concurrent write cannot pair an old content identity with new state."""
+    from powercontext.server.settings import BearerAuthConfig
+
+    async def scenario():
+        app = create_server_app(
+            settings=ServerSettings(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'atomic-read-snapshot.db'}"),
+                runtime=RuntimeConfig(artifact_processing_families=()),
+                auth=BearerAuthConfig(enabled=False),
+                mcp=McpConfig(enabled=False),
+            )
+        )
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+        ):
+            scope = await _scope(client)
+            created = await client.post(
+                f"/v1/scopes/{scope}/artifacts",
+                json={"family": "atomic-memory", "content": {"kind": "fact", "text": "Original content"}},
+            )
+            assert created.status_code == 201, created.text
+            identity = created.json()["artifact_id"]
+            path = f"/v1/scopes/{scope}/artifacts/atomic-memory/{identity}"
+            repository = app.state.application.atomic_memory._application.service.artifacts
+            latest = repository.latest
+            changed = False
+
+            async def interleaved_latest(connection, scope_id, family, artifact_id, **kwargs):
+                nonlocal changed
+                value = await latest(connection, scope_id, family, artifact_id, **kwargs)
+                if not changed and artifact_id == identity and not kwargs.get("for_update", False):
+                    changed = True
+                    replaced = await client.put(
+                        path,
+                        headers={"If-Match": created.headers["ETag"]},
+                        json={"content": {"kind": "fact", "text": "Updated content"}},
+                    )
+                    assert replaced.status_code == 200, replaced.text
+                    forgotten = await client.post(
+                        "/v1/atomic-memory/lifecycle",
+                        json={
+                            "scope_id": scope,
+                            "target": {
+                                "artifact": {"family": "atomic-memory", "artifact_id": identity, "revision": 2},
+                                "state_version": 0,
+                            },
+                            "state": "forgotten",
+                        },
+                    )
+                    assert forgotten.status_code == 200, forgotten.text
+                return value
+
+            with monkeypatch.context() as patch:
+                patch.setattr(repository, "latest", interleaved_latest)
+                snapshot = await client.get(path + "/state")
+            assert changed
+            assert snapshot.status_code == 200, snapshot.text
+            assert snapshot.json()["artifact"]["revision"] == 1
+            assert snapshot.json()["state"] == "active"
+            assert snapshot.json()["state_version"] == 0
+            current = await client.get(path + "/state")
+            assert current.status_code == 200, current.text
+            assert current.json()["artifact"]["revision"] == 2
+            assert current.json()["state"] == "forgotten"
+            assert current.json()["state_version"] == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("provider", ["builtin", "casbin", "custom"])
+def test_atomic_scope_search_and_list_keep_exact_artifact_shares_separate(tmp_path, provider):
+    class ConfiguredProvider:
+        def __init__(self, inner):
+            self.inner = inner
+
+        async def check(self, request):
+            return await self.inner.check(request)
+
+        async def check_batch(self, requests):
+            return await self.inner.check_batch(requests)
+
+    async def scenario():
+        async with _server(tmp_path, "builtin" if provider == "custom" else provider) as (_, client, access):
+            if provider == "custom":
+                access.provider = ConfiguredProvider(access.provider)
+            scope_id = await _scope(client)
+            response = await client.post(
+                "/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": "Alpha scope fact."}
+            )
+            assert response.status_code == 200, response.text
+            memory = response.json()["records"][0]
+            identity = memory["artifact"]["artifact_id"]
+            path = f"/v1/scopes/{scope_id}/artifacts/atomic-memory/{identity}"
+            await _grant(
+                client,
+                scope_id,
+                "reader",
+                "artifact.viewer",
+                resource={
+                    "type": "artifact",
+                    "scope_id": scope_id,
+                    "identity": {"family": "atomic-memory", "artifact_id": identity},
+                    "selector": None,
+                },
+            )
+            reader = {"Authorization": "Bearer reader"}
+            for endpoint in [path, path + "/revisions/1", path + "/revisions"]:
+                exact = await client.get(endpoint, headers=reader)
+                assert exact.status_code == 200, exact.text
+            queries = [
+                ("/v1/atomic-memory/search", {"scope_id": scope_id, "query": "alpha"}),
+                ("/v1/memory/search", {"scope_id": scope_id, "query": "alpha"}),
+                ("/v1/atomic-memory/list", {"scope_id": scope_id}),
+                ("/v1/memory/entries/list", {"scope_id": scope_id}),
+            ]
+            for endpoint, payload in queries:
+                denied = await client.post(endpoint, headers=reader, json=payload)
+                assert denied.status_code == 403, denied.text
+            additional = await client.post(
+                "/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": "Alpha unshared fact."}
+            )
+            assert additional.status_code == 200, additional.text
+            additional_memory = additional.json()["records"][0]
+            await _grant(client, scope_id, "reader", "scope.viewer")
+            # Scope authority reads another principal's current memory.
+            for endpoint, payload in queries:
+                allowed = await client.post(endpoint, headers=reader, json=payload)
+                assert allowed.status_code == 200, allowed.text
+            search = await client.post(queries[0][0], headers=reader, json=queries[0][1])
+            assert {hit["memory"]["artifact"]["artifact_id"] for hit in search.json()["hits"]} == {
+                identity,
+                additional_memory["artifact"]["artifact_id"],
+            }
 
     asyncio.run(scenario())

@@ -91,7 +91,9 @@ def test_sqlite_startup_upgrades_legacy_artifact_heads_without_searchable_text(t
                 contexts.database.transaction() as connection,
             ):
                 columns = tuple((await connection.exec_driver_sql("PRAGMA table_info('pc_artifact_heads')")).mappings())
-                assert tuple(column["name"] for column in columns).count("searchable_text") == 1
+                names = tuple(column["name"] for column in columns)
+                for name in ("searchable_text", "lifecycle_state", "replacement_artifact_id", "governance_generation"):
+                    assert names.count(name) == 1
 
     asyncio.run(scenario())
 

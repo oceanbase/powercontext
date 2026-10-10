@@ -19,35 +19,41 @@ import json
 
 import pytest
 
-from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput, MemoryRerankDecision
-from powercontext.builtin.inference import InferenceUsage
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+)
+from powercontext.builtin.artifacts.memory import MemoryRerankDecision
+from powercontext.builtin.inference import GenerationResult, InferenceUsage
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     CaptureSource,
     CommitConnectorCheckpoint,
     PrepareContextRequest,
-    RememberMemoryRequest,
-    SearchMemoryRequest,
     SubmitSourceObservation,
     open_builtin_contexts,
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft, ScopeMutation, ScopeNotFoundError
-from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION, ContentCapture, ContentSource
+from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION, ContentCapture
 from powercontext.sources import ConnectorBinding, SourceDefinitionRegistry, project_source_for_transport
+from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 
 
 class _ContentCandidatePipeline:
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        return tuple(
-            MemoryEntryInput(
-                kind="fact",
-                text=source.content,
-                sources=(source,),
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        return GenerationResult(
+            output=AtomicMemoryExtractionOutput(
+                candidates=tuple(
+                    AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,))
+                    for evidence in request.evidence
+                    if (text := memory_source_text(evidence)) is not None
+                )
             )
-            for source in request.sources
-            if isinstance(source, ContentSource)
         )
 
 
@@ -118,7 +124,7 @@ def test_builtin_runtime_uses_sqlite_fts_without_vector_extension(tmp_path, monk
     async def scenario() -> None:
         async with open_builtin_runtime(
             BuiltinConfig(database=SQLiteConfig()),
-            candidate_pipeline=_ContentCandidatePipeline(),
+            candidate_pipeline=atomic_memory_pipeline(_ContentCandidatePipeline()),
         ) as runtime:
             assert runtime.scopes is not None
             project = await runtime.scopes.create(
@@ -134,10 +140,9 @@ def test_builtin_runtime_uses_sqlite_fts_without_vector_extension(tmp_path, monk
                     metadata={"origin": "e2e"},
                 )
             )
-            flushed = await runtime.memory.for_scope(project.scope_id).flush()
-            found = await runtime.memory.for_scope(project.scope_id).search(
-                SearchMemoryRequest(query="atomic SQL provider")
-            )
+            assert runtime.atomic_memory is not None
+            flushed = await runtime.atomic_memory.for_scope(project.scope_id).flush()
+            found = await runtime.atomic_memory.for_scope(project.scope_id).search("atomic SQL provider")
             prepared = await runtime.context.for_scope(project.scope_id).prepare(
                 PrepareContextRequest(query="atomic SQL provider")
             )
@@ -148,13 +153,13 @@ def test_builtin_runtime_uses_sqlite_fts_without_vector_extension(tmp_path, monk
 
             assert captured.sequence == 1
             assert flushed.current_cursor == captured.sequence
-            assert flushed.memory_ref is not None
+            assert flushed.memory_ref is None
             assert tuple(hit.text for hit in found.hits) == ("PowerContext composes an atomic SQL provider.",)
             assert prepared.status == "ready"
             assert prepared.content is not None
             item = json.loads(prepared.content.splitlines()[-2])["items"][0]
             assert item["content"] == "PowerContext composes an atomic SQL provider."
-            assert item["citation"]["memory_ref"] == flushed.memory_ref.model_dump(mode="json")
+            assert item["citation"]["artifact_ref"] == found.hits[0].hit.artifact_ref.model_dump(mode="json")
             assert no_memory.status == "empty"
             assert no_memory.content is None
             assert no_match.status == "empty"
@@ -194,12 +199,13 @@ def test_prepare_context_reads_only_direct_context_references() -> None:
                     idempotency_key="child",
                 )
             )
-            await runtime.memory.for_scope(shared.scope_id).remember(
-                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Shared direct context evidence."),))
-            )
-            await runtime.memory.for_scope(middle.scope_id).remember(
-                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Middle reverse-only evidence."),))
-            )
+            assert runtime.atomic_memory is not None
+            shared_memory = await runtime.atomic_memory.for_scope(shared.scope_id).create((
+                AtomicMemoryContent(kind="fact", text="Shared direct context evidence."),
+            ))
+            await runtime.atomic_memory.for_scope(middle.scope_id).create((
+                AtomicMemoryContent(kind="fact", text="Middle reverse-only evidence."),
+            ))
 
             direct = await runtime.context.for_scope(middle.scope_id).prepare(
                 PrepareContextRequest(query="direct context evidence")
@@ -217,7 +223,8 @@ def test_prepare_context_reads_only_direct_context_references() -> None:
             assert direct.status == "ready"
             assert direct.content is not None
             item = json.loads(direct.content.splitlines()[-2])["items"][0]
-            assert item["citation"]["memory"]["scope_id"] == shared.scope_id
+            assert item["citation"]["artifact"]["scope_id"] == shared.scope_id
+            assert item["citation"]["artifact"]["artifact"] == shared_memory.records[0].ref.model_dump(mode="json")
             assert transitive.status == "empty"
             assert reverse.status == "empty"
             assert parent_only.status == "empty"
@@ -255,19 +262,16 @@ def test_prepare_context_keeps_referenced_scope_eligible_when_local_recall_is_fu
                     idempotency_key="reader-full-recall",
                 )
             )
-            await runtime.memory.for_scope(reader.scope_id).remember(
-                RememberMemoryRequest(
-                    entries=tuple(
-                        MemoryEntryInput(kind="fact", text=f"Candidate saturation local evidence {index}.")
-                        for index in range(16)
-                    )
+            assert runtime.atomic_memory is not None
+            await runtime.atomic_memory.for_scope(reader.scope_id).create(
+                tuple(
+                    AtomicMemoryContent(kind="fact", text=f"Candidate saturation local evidence {index}.")
+                    for index in range(16)
                 )
             )
-            await runtime.memory.for_scope(shared.scope_id).remember(
-                RememberMemoryRequest(
-                    entries=(MemoryEntryInput(kind="fact", text="Candidate saturation shared evidence."),)
-                )
-            )
+            shared_memory = await runtime.atomic_memory.for_scope(shared.scope_id).create((
+                AtomicMemoryContent(kind="fact", text="Candidate saturation shared evidence."),
+            ))
 
             prepared = await runtime.context.for_scope(reader.scope_id).prepare(
                 PrepareContextRequest(query="candidate saturation evidence")
@@ -276,13 +280,18 @@ def test_prepare_context_keeps_referenced_scope_eligible_when_local_recall_is_fu
             assert prepared.status == "ready"
             assert prepared.content is not None
             items = json.loads(prepared.content.splitlines()[-2])["items"]
-            assert any(item["citation"].get("memory", {}).get("scope_id") == shared.scope_id for item in items)
+            assert any(
+                item["citation"].get("artifact", {}).get("scope_id") == shared.scope_id
+                and item["citation"]["artifact"]["artifact"] == shared_memory.records[0].ref.model_dump(mode="json")
+                for item in items
+            )
 
     asyncio.run(scenario())
 
 
 class _ConcurrentReranker:
     policy_id = "test.concurrent-rerank.v1"
+    supports_atomic_memory = True
 
     def __init__(self) -> None:
         self._entered = 0
@@ -306,9 +315,10 @@ def test_prepare_build_reports_no_recall_effort_while_the_gate_is_disabled() -> 
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Gate off", summary="Disabled gate", idempotency_key="gate-off")
             )
-            await runtime.memory.for_scope(scope.scope_id).remember(
-                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Disabled gate evidence."),))
-            )
+            assert runtime.atomic_memory is not None
+            await runtime.atomic_memory.for_scope(scope.scope_id).create((
+                AtomicMemoryContent(kind="fact", text="Disabled gate evidence."),
+            ))
             request = PrepareContextRequest(query="disabled gate evidence")
             application = runtime.context.for_scope(scope.scope_id)
             async with runtime._scope_operation(scope.scope_id) as descriptor:
@@ -330,15 +340,31 @@ def test_same_scope_read_only_searches_do_not_serialize_reranking() -> None:
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Parallel", summary="Concurrent read acceptance", idempotency_key="parallel-search")
             )
-            memory = runtime.memory.for_scope(scope.scope_id)
-            await memory.remember(
-                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Parallel search fact."),))
-            )
+            assert runtime.atomic_memory is not None
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            await memory.create((AtomicMemoryContent(kind="fact", text="Parallel search fact."),))
 
-            first = asyncio.create_task(memory.search(SearchMemoryRequest(query="parallel", mode="fts", limit=1)))
-            second = asyncio.create_task(memory.search(SearchMemoryRequest(query="parallel", mode="fts", limit=1)))
+            first = asyncio.create_task(memory.search("parallel", mode="text", limit=1))
+            second = asyncio.create_task(memory.search("parallel", mode="text", limit=1))
             pages = await asyncio.wait_for(asyncio.gather(first, second), timeout=5)
 
             assert all(page.rerank is not None for page in pages)
+
+    asyncio.run(scenario())
+
+
+def test_atomic_get_inside_in_memory_write_keeps_the_outer_rollback() -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+            with pytest.raises(RuntimeError, match="abort outer write"):
+                async with contexts.database.transaction():
+                    created = await contexts.records.create_artifact(
+                        "project", "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": "Uncommitted fact"})
+                    )
+                    loaded = await contexts.atomic_memory.for_scope("project").get(created.artifact_id)
+                    assert loaded.artifact.content.text == "Uncommitted fact"
+                    raise RuntimeError("abort outer write")  # noqa: TRY003 - deliberate transaction abort
+            assert await contexts.records.logical_artifacts("project") == ()
+            assert (await contexts.atomic_memory.for_scope("project").list()).items == ()
 
     asyncio.run(scenario())

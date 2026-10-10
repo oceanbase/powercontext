@@ -74,10 +74,10 @@ def test_dsh_http_paths_work_without_a_model(tmp_path: Path) -> None:
 
         assert live.status == "ok"
         assert ready.status in {ReadinessStatus.READY, ReadinessStatus.DEGRADED}
-        assert remembered.entry is not None
-        assert remembered.entry.text == TEXT
+        assert len(remembered.records) == 1
+        assert remembered.records[0].text == TEXT
         assert found.hits
-        assert {hit.text for hit in found.hits} == {TEXT}
+        assert {hit.memory.text for hit in found.hits} == {TEXT}
         assert prepared.schema_ == "powercontext.prepared-context.v1"
         assert captured.position >= 1
 

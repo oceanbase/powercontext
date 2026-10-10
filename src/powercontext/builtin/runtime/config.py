@@ -204,6 +204,15 @@ class RuntimeConfig(BaseModel):
     experience_schedule_seconds: float | None = Field(default=None, gt=0)
     dream_enabled: bool = True
     dream_max_pending_per_scope: int = Field(default=32, ge=1, le=1000)
+    atomic_memory_related_mode: Literal["auto", "fts", "vector", "hybrid"] = "auto"
+    atomic_memory_related_max_distance: float = Field(default=1.0, ge=0)
+    atomic_memory_related_fts_fallback: bool = False
+    atomic_memory_comparison_batch_size: int = Field(default=20, ge=1)
+    atomic_memory_input_tokens_limit: int = Field(default=24000, ge=1)
+    atomic_memory_restore_retry_budget: int = Field(default=3, ge=0, le=10)
+    atomic_memory_preview_signing_secret: SecretStr | None = Field(default=None, repr=False, min_length=32)
+    atomic_memory_preview_signing_key_id: str = Field(default="atomic-memory-v1", min_length=1, max_length=128)
+    atomic_memory_preview_ttl_seconds: int = Field(default=300, ge=1, le=3600)
     generation_concurrency: int = Field(default=4, ge=1, le=64)
     dream_budget: DreamBudget = Field(default_factory=DreamBudget)
     topic_memory_schedule_seconds: float | None = Field(default=None, gt=0)

@@ -22,7 +22,7 @@ from typing import Any, ClassVar
 import pytest
 from pydantic_ai import Embedder
 
-from powercontext.builtin.artifacts.memory import EmbeddingProfile, MemoryEntryInput
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryCapabilityError,
     TopicMemoryContent,
@@ -31,6 +31,7 @@ from powercontext.builtin.artifacts.topic_memory import (
 )
 from powercontext.builtin.inference import EmbeddingResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.composition import _embedding_models
 from powercontext.builtin.runtime.config import InferenceConfig
@@ -126,24 +127,24 @@ def test_empty_topic_database_allows_embedding_configuration_changes(tmp_path: P
         memory = None
         async with open_builtin_contexts(config) as contexts:
             if existing_memory:
-                context = await contexts.get("project")
-                memory = await context.artifacts.memory.remember(
-                    memory=None,
-                    entries=(MemoryEntryInput(kind="decision", text="Preserve ordinary Memory."),),
-                    mode="append",
+                memory = await contexts.records.create_artifact(
+                    "project",
+                    "atomic-memory",
+                    ArtifactWrite(content={"kind": "decision", "text": "Preserve ordinary Memory."}),
                 )
 
         # Reopening an unused Topic store must not lock out ordinary Memory
         # embeddings, disabling embeddings, or changing a compatible profile.
         for embedding in (Embedding("first"), Embedding("second"), None, Embedding("third")):
             async with open_builtin_contexts(config, embedding_model=embedding) as contexts:
-                assert contexts.index.capabilities.vector is (embedding is not None)
+                assert contexts.atomic_memory.index.capabilities.vector is (embedding is not None)
                 assert contexts.topic_memory_index.capabilities.vector is (embedding is not None)
                 if existing_memory:
                     assert memory is not None
-                    context = await contexts.get("project")
-                    result = await context.artifacts.memory.search("ordinary", memories=(memory,), mode="fts")
+                    result = await contexts.atomic_memory.for_scope("project").search("ordinary", mode="text")
                     assert [hit.text for hit in result.hits] == ["Preserve ordinary Memory."]
+                    assert result.hits[0].hit.artifact_ref.artifact_id == memory.artifact_id
+                    assert result.hits[0].hit.artifact_ref.revision == memory.revision
 
     asyncio.run(scenario())
 

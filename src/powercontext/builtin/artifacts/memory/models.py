@@ -17,12 +17,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar, Literal, TypeAlias
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, Field, model_validator
 
 from powercontext.artifacts import Artifact, ArtifactRef
-from powercontext.artifacts import MemoryCitation as MemoryCitation
 from powercontext.builtin.artifacts.search import AdmissionCounts
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.sources import Source, SourceRef
@@ -49,7 +48,7 @@ class EmbeddingProfile(BaseModel):
 class MemoryQueryEmbedding:
     """One already-computed query vector together with the profile it was computed under.
 
-    Carried back out of :meth:`MemoryService.search` so a later recall round can reuse the
+    Carried back out of a Memory search so a later recall round can reuse the
     round-0 vector instead of paying for a second embedding call. The profile is part of the
     value because a vector is only meaningful against the profile that produced it: reusing a
     vector across profiles would silently compare incompatible spaces, so a mismatch is
@@ -70,22 +69,6 @@ class MemoryCapabilities(BaseModel):
     embedding_profile: EmbeddingProfile | None = None
 
 
-class MemoryManifestEntry(BaseModel):
-    """One logical entry pointer and state in an immutable Revision."""
-
-    entry_id: str
-    entry_version_id: str
-    entry_content_hash: str
-    state: MemoryEntryState
-
-
-class MemoryManifest(BaseModel):
-    """The authoritative directory for one Memory Revision."""
-
-    entries: tuple[MemoryManifestEntry, ...] = ()
-    format: Literal["flat-v1"] = "flat-v1"
-
-
 class MemoryChange(BaseModel):
     """A compact entry change recorded by one Memory Revision."""
 
@@ -94,23 +77,6 @@ class MemoryChange(BaseModel):
     from_entry_version_id: str | None
     to_entry_version_id: str | None
     reason: str | None = None
-
-
-class MemoryContent(BaseModel):
-    """The complete canonical content of one Memory Artifact Revision."""
-
-    manifest: MemoryManifest
-    changes: tuple[MemoryChange, ...] = ()
-    schema_version: Literal["powercontext.memory.v1"] = Field(
-        default="powercontext.memory.v1",
-        alias="schema",
-    )
-
-
-class Memory(Artifact[MemoryContent]):
-    """An immutable snapshot in a Memory lifecycle."""
-
-    family: ClassVar[str] = "memory"
 
 
 class MemoryCapacityBudget(BaseModel):
@@ -146,18 +112,6 @@ class MemoryCompactionPolicy(BaseModel):
     min_tombstone_revisions: int = Field(
         default=10, ge=0, description="Completed Revision advances since deactivation; zero permits immediate removal."
     )
-
-
-class MemoryCompactionResult(BaseModel):
-    """A compaction preview or committed Revision, retaining all historical bodies."""
-
-    memory: Memory
-    entry_ids: tuple[str, ...] = ()
-    reclaimed_bytes: int = Field(
-        default=0,
-        description="Signed decrease in complete canonical content bytes, including compaction audit records.",
-    )
-    dry_run: bool
 
 
 class MemoryEntryInput(BaseModel):

@@ -611,7 +611,7 @@ class AccessControlService:
         provider = self.provider
         if isinstance(provider, BuiltinAuthorizationProvider):
             provider = provider.with_repository(repository)
-        return AccessControlService(
+        bound = AccessControlService(
             provider,
             relationships=repository,
             audit=repository,
@@ -620,6 +620,8 @@ class AccessControlService:
             clock=self._clock,
             static_scope_principal=self._static_scope_principal,
         )
+        bound._deferred_decisions = self._deferred_decisions
+        return bound
 
     async def require_scope_read(self, principal, scope_id: str, *, connection, context: AccessAuditContext):
         """Use a local policy snapshot when available, preserving external point decisions."""

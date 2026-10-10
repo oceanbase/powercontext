@@ -24,15 +24,13 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
-from powercontext.artifacts import MemoryCitation
-from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     BuiltinRuntime,
-    GetMemoryEntryRequest,
     PrepareContextRequest,
-    RememberMemoryRequest,
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft
@@ -53,11 +51,12 @@ async def _prepare(runtime: BuiltinRuntime, scope_id: str, query: str) -> dict[s
             citation = item["citation"]
             # The current renderer uses relative citations for the requested Scope.
             # Resolving through that Scope validates ownership as well as entry identity.
-            record = await runtime.memory.for_scope(scope_id).get(
-                GetMemoryEntryRequest(citation=MemoryCitation.model_validate(citation))
-            )
-            if item.get("truncated") or record.entry.text != item["content"]:
-                raise ValueError("Prepared evidence does not match its complete persisted Memory entry")  # noqa: TRY003
+            ref = ArtifactRef.model_validate(citation["artifact_ref"])
+            if runtime.atomic_memory is None:
+                raise RuntimeError("Atomic Memory is unavailable")  # noqa: TRY003
+            record = await runtime.atomic_memory.for_scope(scope_id).get(ref.artifact_id, revision=ref.revision)
+            if item.get("truncated") or record.artifact.content.text != item["content"]:
+                raise ValueError("Prepared evidence does not match its persisted Atomic Memory")  # noqa: TRY003
             citations.append({"scope_id": scope_id, **citation})
     return {"prepared": prepared.model_dump(mode="json"), "citations": citations, "pid": os.getpid()}
 
@@ -70,6 +69,9 @@ async def execute(request: dict[str, Any]) -> dict[str, Any]:
     await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=True)
     config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{directory / 'runtime.db'}"))
     async with open_builtin_runtime(config, scheduler_path=directory / "scheduler.db") as runtime:
+        memory = runtime.atomic_memory
+        if memory is None:
+            raise RuntimeError("Atomic Memory is unavailable")  # noqa: TRY003
         if request["mode"] == "seed":
             if runtime.scopes is None:
                 raise RuntimeError("The example requires the Scope registry")  # noqa: TRY003
@@ -87,28 +89,24 @@ async def execute(request: dict[str, Any]) -> dict[str, Any]:
                     idempotency_key="systemone-example:analytics",
                 )
             )
-            saved = await runtime.memory.for_scope(scope.scope_id).remember(
-                RememberMemoryRequest(entries=(MemoryEntryInput(kind="decision", text=SCENARIO["policy"]),))
-            )
-            other_saved = await runtime.memory.for_scope(other.scope_id).remember(
-                RememberMemoryRequest(
-                    entries=(
-                        MemoryEntryInput(
-                            kind="decision",
-                            text=(
-                                f"{SCENARIO['query']}\n"
-                                "Analytics project amount policy: use Decimal ROUND_HALF_EVEN for integer cents. "
-                                "This decision belongs only to the separate analytics project."
-                            ),
-                        ),
-                    )
-                )
-            )
+            saved = await memory.for_scope(scope.scope_id).create((
+                AtomicMemoryContent(kind="decision", text=SCENARIO["policy"]),
+            ))
+            other_saved = await memory.for_scope(other.scope_id).create((
+                AtomicMemoryContent(
+                    kind="decision",
+                    text=(
+                        f"{SCENARIO['query']}\n"
+                        "Analytics project amount policy: use Decimal ROUND_HALF_EVEN for integer cents. "
+                        "This decision belongs only to the separate analytics project."
+                    ),
+                ),
+            ))
             return {
                 "scope_id": scope.scope_id,
                 "other_scope_id": other.scope_id,
-                "memory_ref": saved.memory_ref.model_dump(mode="json"),
-                "other_memory_ref": other_saved.memory_ref.model_dump(mode="json"),
+                "artifact_ref": saved.primary.ref.model_dump(mode="json"),
+                "other_artifact_ref": other_saved.primary.ref.model_dump(mode="json"),
                 "pid": os.getpid(),
             }
         if request["mode"] == "recall":
@@ -134,10 +132,10 @@ async def execute(request: dict[str, Any]) -> dict[str, Any]:
             summary = request["summary"]
             if not isinstance(summary, str) or not summary.strip():
                 raise ValueError("An observed outcome summary is required")  # noqa: TRY003
-            saved = await runtime.memory.for_scope(request["scope_id"]).remember(
-                RememberMemoryRequest(entries=(MemoryEntryInput(kind="outcome", text=f"invoice-outcome {summary}"),))
-            )
-            return {"memory_ref": saved.memory_ref.model_dump(mode="json"), "pid": os.getpid()}
+            saved = await memory.for_scope(request["scope_id"]).create((
+                AtomicMemoryContent(kind="fact", text=f"invoice-outcome {summary}"),
+            ))
+            return {"artifact_ref": saved.primary.ref.model_dump(mode="json"), "pid": os.getpid()}
         if request["mode"] == "resume":
             return await _prepare(runtime, request["scope_id"], "invoice-outcome")
         raise ValueError("Unknown Memory worker mode")  # noqa: TRY003

@@ -95,22 +95,27 @@ def _add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--user-id", default="", help="Hermes user identifier exposed to the provider.")
 
 
-def _add_citation_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("family")
-    parser.add_argument("artifact_id")
-    parser.add_argument("revision", type=int)
-    parser.add_argument("entry_id")
-    parser.add_argument("entry_version_id")
+def _add_reference_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("family", help="Exact Atomic reference JSON, or atomic-memory.")
+    parser.add_argument("artifact_id", nargs="?")
+    parser.add_argument("revision", type=int, nargs="?")
+    parser.add_argument("--state-version", type=int, default=None)
 
 
-def _citation_args(args: argparse.Namespace) -> dict[str, Any]:
-    return {
+def _reference_args(args: argparse.Namespace) -> dict[str, Any]:
+    if args.family.lstrip().startswith("{"):
+        value = json.loads(args.family)
+        if not isinstance(value, dict):
+            raise ValueError("reference must be a JSON object")  # noqa: TRY003
+        return {"reference": value}
+    fields = {
         "family": args.family,
         "artifact_id": args.artifact_id,
         "revision": args.revision,
-        "entry_id": args.entry_id,
-        "entry_version_id": args.entry_version_id,
     }
+    if args.state_version is not None:
+        fields["state_version"] = args.state_version
+    return fields
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -157,7 +162,7 @@ def cmd_remember(args: argparse.Namespace) -> None:
 def cmd_get(args: argparse.Namespace) -> None:
     provider = _provider(args)
     try:
-        _print_result(provider.handle_tool_call("powercontext_get_memory", _citation_args(args)))
+        _print_result(provider.handle_tool_call("powercontext_get_memory", _reference_args(args)))
     finally:
         provider.shutdown()
 
@@ -165,7 +170,7 @@ def cmd_get(args: argparse.Namespace) -> None:
 def cmd_retire(args: argparse.Namespace) -> None:
     provider = _provider(args)
     try:
-        payload = _citation_args(args)
+        payload = _reference_args(args)
         payload["reason"] = args.reason
         _print_result(provider.handle_tool_call("powercontext_retire_memory", payload))
     finally:
@@ -227,13 +232,13 @@ def register_cli(subparser: argparse.ArgumentParser) -> None:
     _add_common_options(remember)
     remember.set_defaults(func=cmd_remember)
 
-    get = commands.add_parser("get", help="Read one exact memory citation.")
-    _add_citation_options(get)
+    get = commands.add_parser("get", help="Read one exact Atomic Memory revision.")
+    _add_reference_options(get)
     _add_common_options(get)
     get.set_defaults(func=cmd_get)
 
-    retire = commands.add_parser("retire", help="Retire one exact memory citation.")
-    _add_citation_options(retire)
+    retire = commands.add_parser("retire", help="Forget one exact Atomic Memory snapshot.")
+    _add_reference_options(retire)
     retire.add_argument("--reason", default=None)
     _add_common_options(retire)
     retire.set_defaults(func=cmd_retire)

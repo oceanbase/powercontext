@@ -153,15 +153,15 @@ Check the returned cursor and the Scope's Memory/Source references. `idle` can m
 it does not necessarily mean no memory exists. Memory flush does not complete all Topic/Profile/Experience processing.
 Use `powercontext stats --scope-id "$POWERCONTEXT_CODEX_SCOPE_ID"` to inspect usage.
 
-For a repeatable acceptance record, assign a source identifier before sending the test input and inspect the resulting
-entry. The list response exposes `current_cursor` and each entry's `position`, `entry_id`, `source_refs`, and `matched_by`
-fields; these let you distinguish captured evidence from a later generated Artifact.
+Inspect `previous_cursor` and `current_cursor` from `flush`, then list current memories. Each list item contains its real
+`artifact` reference, content, state, and `state_version`; continue with `next_cursor`. To inspect Source evidence, read
+the exact Artifact revision and its lineage.
 
 ```bash
-SOURCE_ID="quickstart-$(date +%s)-$$"
-echo "Send the acceptance input with source id: $SOURCE_ID"
-curl -fsS "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/entries/list?scope_id=$POWERCONTEXT_CODEX_SCOPE_ID" \
-  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN"
+curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/atomic-memory/list" \
+  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\",\"limit\":50}"
 ```
 
 | Symptom | Check first |

@@ -10,6 +10,251 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "version": "1.2.0",
     },
     "paths": {
+        "/v1/atomic-memory/list": {
+            "post": {
+                "tags": ["atomic-memory"],
+                "summary": "List Atomic Memory heads by lifecycle and metadata",
+                "operationId": "list_atomic_memories",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ListAtomicMemoryRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Operation completed.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ListAtomicMemoryResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+            }
+        },
+        "/v1/atomic-memory/search": {
+            "post": {
+                "tags": ["atomic-memory"],
+                "summary": "Search active Atomic Memories",
+                "operationId": "search_atomic_memory",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SearchAtomicMemoryRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Operation completed.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SearchAtomicMemoryResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+            }
+        },
+        "/v1/atomic-memory/merges": {
+            "post": {
+                "tags": ["atomic-memory"],
+                "summary": "Merge exact active Atomic Memories into a new Artifact",
+                "operationId": "merge_atomic_memories",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/MergeAtomicMemoryRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Operation completed.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/AtomicMemoryMutationResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "atomic_memory_domain_access"},
+            }
+        },
+        "/v1/atomic-memory/lifecycle": {
+            "post": {
+                "tags": ["atomic-memory"],
+                "summary": "Forget one Atomic Memory without changing its content revision",
+                "operationId": "change_atomic_memory_lifecycle",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/AtomicMemoryLifecycleRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Operation completed.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/AtomicMemoryMutationResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "atomic_memory_domain_access"},
+            }
+        },
+        "/v1/atomic-memory/restoration-previews": {
+            "post": {
+                "tags": ["atomic-memory"],
+                "summary": "Preview a complete Atomic Memory restoration",
+                "operationId": "preview_atomic_memory_restoration",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/AtomicMemoryRestorationPreviewRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Operation completed.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/AtomicMemoryRestorationPreview"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "atomic_memory_domain_access"},
+            }
+        },
+        "/v1/atomic-memory/restorations": {
+            "post": {
+                "tags": ["atomic-memory"],
+                "summary": "Restore Atomic Memory content and undo dependent merges atomically",
+                "operationId": "restore_atomic_memory",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/AtomicMemoryRestorationRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Operation completed.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/AtomicMemoryRestorationResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "atomic_memory_domain_access"},
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/state": {
+            "get": {
+                "tags": ["atomic-memory"],
+                "operationId": "get_atomic_memory_state",
+                "x-powercontext-scope-mode": "current",
+                "summary": "Read the current four-state Atomic Memory lifecycle",
+                "x-powercontext-access": {"resolver": "atomic_memory_state_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                    },
+                    {"name": "If-None-Match", "in": "header", "required": False, "schema": {"type": "string"}},
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Current content reference and lifecycle state.",
+                        "headers": {
+                            "ETag": {
+                                "description": "ETag for the current content revision and state version.",
+                                "schema": {"type": "string"},
+                            }
+                        },
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/AtomicMemoryStateResponse"}}
+                        },
+                    },
+                    "304": {
+                        "description": "The current representation is unchanged.",
+                        "headers": {"ETag": {"schema": {"type": "string"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
         "/v1/scopes/{scope_id}/subject-sources": {
             "post": {
                 "tags": ["profile"],
@@ -1656,20 +1901,13 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "/v1/memory/remember": {
             "post": {
                 "tags": ["memory"],
-                "summary": "Remember explicit Memory content",
-                "description": "Save one already-curated Memory entry "
-                "without creating a Source or invoking "
-                "extraction. Save one concise, "
-                "already-curated PowerContext Memory "
-                "when the user explicitly asks to "
-                "remember or save it for future use. "
-                "Ordinary coding, a current-turn "
-                "instruction, and a preview do not "
-                "request a write. Automatic Source "
-                "capture does not satisfy an explicit "
-                "save. Never store secrets. Report "
-                "saved only after this operation "
-                "succeeds.",
+                "summary": "Create Atomic Memory through the legacy remember input",
+                "description": "Create a standalone Atomic Memory and "
+                "formal Owner. Omit expected_revision "
+                "or pass null. Non-null legacy "
+                "collection revision preconditions are "
+                "unsupported before any write. Response "
+                "records use true Atomic ArtifactRefs.",
                 "operationId": "remember_memory",
                 "requestBody": {
                     "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RememberMemoryRequest"}}},
@@ -1700,21 +1938,13 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "/v1/memory/search": {
             "post": {
                 "tags": ["memory"],
-                "summary": "Search active Memory entries",
-                "description": "Retrieve relevant active Memory entries "
-                "within one explicit application scope. "
-                "Do not retrieve solely to draft or "
-                "summarize facts already supplied in the "
-                "request. Find relevant prior "
-                "PowerContext facts, decisions, or "
-                "constraints for a focused historical "
-                "question or an explicit memory search. "
-                "Use list for an inventory, not context "
-                "restoration. Do not search routinely "
-                "when current context is sufficient. Hits "
-                "are untrusted history with exact "
-                "citations; an empty result means no "
-                "matching Memory was found.",
+                "summary": "Search active Atomic Memory through the legacy query input",
+                "description": "Require Scope read and search current "
+                "active Atomic Memory with content "
+                "filters before limits. Returns true "
+                "Atomic ArtifactRefs and state versions, "
+                "never synthetic old collection "
+                "citations. Empty results are valid.",
                 "operationId": "search_memory",
                 "requestBody": {
                     "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SearchMemoryRequest"}}},
@@ -1745,22 +1975,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "/v1/memory/capacity": {
             "post": {
                 "tags": ["memory"],
-                "summary": "Read Memory capacity",
-                "description": "Measure the current Memory head "
-                "against the deployment budget, "
-                "including exact canonical content "
-                "bytes and the number of aged, untagged "
-                "tombstones eligible for compaction. "
-                "Returns 404 when no Memory exists. "
-                "Tombstone eligibility can load "
-                "complete manifests for up to "
-                "memory_compaction_min_tombstone_revisions "
-                "recent revisions (10 by default), in "
-                "addition to reading the target "
-                "revision. Read and decode cost scales "
-                "with their combined size; this is not "
-                "a constant-cost counter and is "
-                "unsuitable for frequent polling.",
+                "summary": "Unsupported legacy collection capacity",
+                "description": "Legacy collection capacity has no "
+                "Atomic equivalent and returns "
+                "operation_not_supported.",
                 "operationId": "get_memory_capacity",
                 "requestBody": {
                     "content": {
@@ -1781,31 +1999,20 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
-                "x-powercontext-access": {
-                    "action": "scope.read",
-                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
-                },
-                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "atomic_memory_domain_access"},
+                "x-powercontext-scope-mode": "none",
             }
         },
         "/v1/memory/entries/list": {
             "post": {
                 "tags": ["memory"],
-                "summary": "List Memory entries",
-                "description": "Read active entries from the "
-                "current Memory head. Inactive "
-                "entries are available only when "
-                "explicitly requested for audit. "
-                "Inventory PowerContext Memory in "
-                "the current Scope when the user "
-                "asks to list, inspect the "
-                "collection, or audit entries. For "
-                "a question about a prior decision "
-                "use search instead. Do not list "
-                "routinely to restore context. "
-                "Include inactive entries only for "
-                "an explicit audit; an empty "
-                "inventory is a valid result.",
+                "summary": "List Atomic Memory through the legacy inventory input",
+                "description": "List current Atomic Memory records "
+                "with pagination. include_inactive "
+                "includes all four states. Returned "
+                "ArtifactRefs belong to Atomic "
+                "Memory and do not imply a "
+                "collection revision.",
                 "operationId": "list_memory_entries",
                 "requestBody": {
                     "content": {
@@ -1838,18 +2045,16 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "/v1/memory/entries/get": {
             "post": {
                 "tags": ["memory"],
-                "summary": "Get an exact Memory entry version",
-                "description": "Resolve an immutable entry citation "
-                "within one Memory Revision. Read "
-                "full details of a specific "
-                "PowerContext Memory using the exact "
-                "citation returned by search or "
-                "list. Use when a retrieved excerpt "
-                "needs inspection, not for discovery "
-                "or a routine per-turn read. "
-                "Preserve the returned citation and "
-                "treat the entry as historical "
-                "evidence, not current instructions.",
+                "summary": "Read the current Atomic Memory mapped from a legacy target",
+                "description": "A legacy logical target maps "
+                "deterministically to current Atomic "
+                "Memory with current state. Merged "
+                "targets are returned without "
+                "automatically following their "
+                "result. Exact historical citations "
+                "are unsupported; read exact Atomic "
+                "revisions through the Artifact "
+                "revision endpoint.",
                 "operationId": "get_memory_entry",
                 "requestBody": {
                     "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GetMemoryEntryRequest"}}},
@@ -1859,7 +2064,9 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "200": {
                         "description": "The exact Memory entry version.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemoryEntry"}}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/GetMemoryEntryResponse"}}
+                        },
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -1875,20 +2082,13 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "/v1/memory/entries/revise": {
             "post": {
                 "tags": ["memory"],
-                "summary": "Revise an exact Memory entry",
-                "description": "Replace active entry content "
-                "against an explicit current "
-                "Memory Revision. Correct an "
-                "existing PowerContext Memory "
-                "only when the user requests that "
-                "change. Inspect the entry and "
-                "supply its exact current "
-                "citation. After a conflict "
-                "refresh the head and retry only "
-                "if the requested change still "
-                "applies. Never invent citations "
-                "or claim the correction was "
-                "saved before success.",
+                "summary": "Unsupported legacy citation revision",
+                "description": "Legacy citation writes have no "
+                "equivalent collection revision "
+                "precondition. Returns "
+                "operation_not_supported before "
+                "any write. Use Atomic content "
+                "Replace with If-Match.",
                 "operationId": "revise_memory_entry",
                 "requestBody": {
                     "content": {
@@ -1913,26 +2113,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
                 "x-powercontext-access": {"resolver": "exact_memory_write_access"},
-                "x-powercontext-scope-mode": "current",
+                "x-powercontext-scope-mode": "none",
             }
         },
         "/v1/memory/entries/retire": {
             "post": {
                 "tags": ["memory"],
-                "summary": "Retire an exact Memory entry",
-                "description": "Deactivate an entry against an "
-                "explicit current Memory Revision "
-                "without deleting history. Retire "
-                "an existing PowerContext Memory "
-                "only when the user asks to "
-                "remove it from active use. "
-                "Inspect the entry and use its "
-                "exact current citation. "
-                "Retirement preserves history; it "
-                "is not physical erasure. Do not "
-                "retire entries merely because a "
-                "new prompt differs from them. "
-                "Confirm the operation result.",
+                "summary": "Unsupported legacy citation retirement",
+                "description": "Legacy citation writes return "
+                "operation_not_supported before "
+                "any write. Use Atomic lifecycle "
+                "with revision and state_version.",
                 "operationId": "retire_memory_entry",
                 "requestBody": {
                     "content": {
@@ -1957,22 +2148,19 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
                 "x-powercontext-access": {"resolver": "exact_memory_write_access"},
-                "x-powercontext-scope-mode": "current",
+                "x-powercontext-scope-mode": "none",
             }
         },
         "/v1/memory/changes": {
             "post": {
                 "tags": ["memory"],
-                "summary": "List Memory Revision changes",
-                "description": "Read compact entry changes without "
-                "expanding entry bodies. Inspect "
-                "PowerContext Memory change history for "
-                "an explicit audit or revision "
-                "investigation. Use the requested "
-                "revision boundary when available. This "
-                "is not semantic retrieval or proof that "
-                "a particular user request was saved; "
-                "report only the recorded changes.",
+                "summary": "Unsupported continuous legacy collection changes",
+                "description": "Continuous legacy collection changes "
+                "have no Atomic equivalent and return "
+                "operation_not_supported. Legacy "
+                "collection history is archived offline; "
+                "read exact Atomic Memory revisions "
+                "through the Artifact API.",
                 "operationId": "list_memory_changes",
                 "requestBody": {
                     "content": {
@@ -1982,7 +2170,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
                 "responses": {
                     "200": {
-                        "description": "Compact changes through the selected Memory Revision.",
+                        "description": "Reserved legacy "
+                        "response shape; "
+                        "this operation "
+                        "returns "
+                        "operation_not_supported.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/ListMemoryChangesResponse"}}
@@ -1999,7 +2191,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "action": "scope.read",
                     "resource": {"type": "scope", "scope-id-from": "scope_id"},
                 },
-                "x-powercontext-scope-mode": "current",
+                "x-powercontext-scope-mode": "none",
             }
         },
         "/v1/scopes/{scope_id}/dream": {
@@ -3681,6 +3873,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "tags": ["artifacts"],
                 "summary": "Get the current Artifact head",
                 "operationId": "get_artifact",
+                "x-powercontext-scope-mode": "current",
                 "x-powercontext-access": {"resolver": "path_artifact_read_access"},
                 "parameters": [
                     {
@@ -3797,6 +3990,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "semantic "
                 "generation.",
                 "operationId": "replace_artifact",
+                "x-powercontext-scope-mode": "current",
                 "x-powercontext-access": {"resolver": "path_artifact_write_access"},
                 "parameters": [
                     {
@@ -3811,7 +4005,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "required": True,
                         "schema": {
                             "type": "string",
-                            "enum": ["memory", "experience", "skill", "handoff", "prompt", "topic-memory"],
+                            "enum": [
+                                "memory",
+                                "atomic-memory",
+                                "experience",
+                                "skill",
+                                "handoff",
+                                "prompt",
+                                "topic-memory",
+                            ],
                         },
                     },
                     {
@@ -4206,6 +4408,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "tags": ["artifacts"],
                 "summary": "Get one exact immutable Artifact revision",
                 "operationId": "get_artifact_revision",
+                "x-powercontext-scope-mode": "current",
                 "x-powercontext-access": {"resolver": "path_artifact_read_access"},
                 "parameters": [
                     {
@@ -4458,6 +4661,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             "enum": [
                                 "memory.extract",
                                 "memory.rerank",
+                                "atomic_memory.extract",
+                                "atomic_memory.reconcile",
                                 "experience.incubate",
                                 "experience.generate",
                                 "skill.generate",
@@ -4728,6 +4933,261 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     },
     "components": {
         "schemas": {
+            "AtomicMemoryState": {"type": "string", "enum": ["active", "forgotten", "merged", "retired"]},
+            "AtomicMemoryWriteContent": {
+                "properties": {
+                    "schema": {
+                        "$ref": "#/components/schemas/AtomicMemoryContentSchema",
+                        "default": "powercontext.atomic-memory.v1",
+                    },
+                    "kind": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Memory "
+                        "text "
+                        "is "
+                        "NFC-normalized "
+                        "and "
+                        "trimmed "
+                        "before "
+                        "enforcing "
+                        "an "
+                        "8192 "
+                        "UTF-8 "
+                        "byte "
+                        "limit.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "text"],
+            },
+            "CreateAtomicMemoryArtifactRequest": {
+                "properties": {
+                    "family": {"type": "string", "enum": ["atomic-memory"]},
+                    "content": {"$ref": "#/components/schemas/AtomicMemoryWriteContent"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "content"],
+            },
+            "ReplaceAtomicMemoryArtifactRequest": {
+                "properties": {"content": {"$ref": "#/components/schemas/AtomicMemoryWriteContent"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["content"],
+            },
+            "AtomicMemoryStateResponse": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "state": {"$ref": "#/components/schemas/AtomicMemoryState"},
+                    "state_version": {"type": "integer", "minimum": 0.0},
+                    "merged_into_id": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "state", "state_version", "merged_into_id"],
+            },
+            "AtomicMemoryRecord": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "kind": {"type": "string", "minLength": 1},
+                    "text": {"type": "string", "minLength": 1},
+                    "state": {"$ref": "#/components/schemas/AtomicMemoryState"},
+                    "state_version": {"type": "integer", "minimum": 0.0},
+                    "merged_into_id": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "kind", "text", "state", "state_version", "merged_into_id"],
+            },
+            "AtomicMemoryInput": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "state_version": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "state_version"],
+            },
+            "AtomicMemoryTarget": {
+                "properties": {
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "revision": {"type": "integer", "minimum": 1.0, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact_id"],
+            },
+            "ListAtomicMemoryRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "states": {"items": {"$ref": "#/components/schemas/AtomicMemoryState"}, "type": "array"},
+                    "kind": {"type": "string", "minLength": 1, "nullable": True},
+                    "tags": {"items": {"type": "string", "minLength": 1}, "type": "array", "maxItems": 16},
+                    "tag_match": {"$ref": "#/components/schemas/TagMatch"},
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                    "cursor": {"type": "string", "maxLength": 4096, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "ListAtomicMemoryResponse": {
+                "properties": {
+                    "items": {"items": {"$ref": "#/components/schemas/AtomicMemoryRecord"}, "type": "array"},
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items", "next_cursor"],
+            },
+            "SearchAtomicMemoryRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "query": {"type": "string", "maxLength": 8192, "minLength": 1},
+                    "mode": {"$ref": "#/components/schemas/AtomicMemorySearchMode", "default": "text"},
+                    "kind": {"type": "string", "minLength": 1, "nullable": True},
+                    "tags": {"items": {"type": "string", "minLength": 1}, "type": "array", "maxItems": 16},
+                    "tag_match": {"$ref": "#/components/schemas/TagMatch"},
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 20},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "query"],
+            },
+            "AtomicMemorySearchHit": {
+                "properties": {
+                    "memory": {"$ref": "#/components/schemas/AtomicMemoryRecord"},
+                    "score": {"type": "number"},
+                    "matched_by": {"items": {"type": "string", "enum": ["text", "vector"]}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["memory", "score", "matched_by"],
+            },
+            "SearchAtomicMemoryResponse": {
+                "properties": {
+                    "mode": {"$ref": "#/components/schemas/AtomicMemorySearchMode"},
+                    "hits": {"items": {"$ref": "#/components/schemas/AtomicMemorySearchHit"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["mode", "hits"],
+            },
+            "MergeAtomicMemoryRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "inputs": {
+                        "items": {"$ref": "#/components/schemas/AtomicMemoryInput"},
+                        "type": "array",
+                        "minItems": 2,
+                    },
+                    "content": {"$ref": "#/components/schemas/AtomicMemoryWriteContent"},
+                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
+                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "inputs", "content"],
+            },
+            "AtomicMemoryMutationResponse": {
+                "properties": {
+                    "changed": {"type": "boolean"},
+                    "records": {"items": {"$ref": "#/components/schemas/AtomicMemoryRecord"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["changed", "records"],
+            },
+            "AtomicMemoryLifecycleRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target": {"$ref": "#/components/schemas/AtomicMemoryInput"},
+                    "state": {"$ref": "#/components/schemas/AtomicMemoryLifecycleState"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target", "state"],
+            },
+            "AtomicMemoryRestorationRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target": {"$ref": "#/components/schemas/AtomicMemoryTarget"},
+                    "operation": {
+                        "$ref": "#/components/schemas/AtomicMemoryRestorationOperation",
+                        "default": "restore",
+                    },
+                    "preview_token": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target"],
+            },
+            "AtomicMemoryRestorationPreviewRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target": {"$ref": "#/components/schemas/AtomicMemoryTarget"},
+                    "operation": {
+                        "$ref": "#/components/schemas/AtomicMemoryRestorationOperation",
+                        "default": "restore",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target"],
+            },
+            "AtomicMemoryRestorationItem": {
+                "properties": {
+                    "artifact_id": {"type": "string", "minLength": 1},
+                    "source_revision": {"type": "integer", "minimum": 1.0},
+                    "creates_revision": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact_id", "source_revision", "creates_revision"],
+            },
+            "AtomicMemoryRestorationEndpoint": {
+                "properties": {
+                    "artifact_id": {"type": "string", "minLength": 1},
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "state_version": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact_id", "revision", "state_version"],
+            },
+            "AtomicMemoryRestorationPreview": {
+                "properties": {
+                    "preview_token": {"type": "string", "minLength": 1},
+                    "expires_at": {"type": "string", "format": "date-time"},
+                    "endpoint": {"$ref": "#/components/schemas/AtomicMemoryRestorationEndpoint"},
+                    "restore": {"items": {"$ref": "#/components/schemas/AtomicMemoryRestorationItem"}, "type": "array"},
+                    "retire": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "undo_merge_results": {"items": {"type": "string", "minLength": 1}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["preview_token", "expires_at", "endpoint", "restore", "retire", "undo_merge_results"],
+            },
+            "AtomicMemoryRestorationResponse": {
+                "properties": {
+                    "changed": {"type": "boolean"},
+                    "restored": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "retired": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "undo_merge_results": {"items": {"type": "string", "minLength": 1}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["changed", "restored", "retired", "undo_merge_results"],
+            },
+            "LegacyMemoryTarget": {"$ref": "#/components/schemas/MemoryEntryTagTarget"},
+            "GetMemoryEntryResponse": {"$ref": "#/components/schemas/AtomicMemoryRecord"},
+            "AtomicMemoryContentSchema": {"type": "string", "enum": ["powercontext.atomic-memory.v1"]},
+            "AtomicMemorySearchMode": {"type": "string", "enum": ["text", "vector", "hybrid"]},
+            "AtomicMemoryRestorationOperation": {"type": "string", "enum": ["restore", "undo_merge"]},
+            "AtomicMemoryLifecycleState": {"type": "string", "enum": ["forgotten"]},
             "CreateSubjectSourceRequest": {
                 "properties": {
                     "subject_key": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
@@ -4952,11 +5412,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "content": {"additionalProperties": True, "type": "object"},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
                     "artifacts": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
-                    "memory_citations": {
-                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
-                        "type": "array",
-                        "default": [],
-                    },
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
                 },
                 "type": "object",
@@ -5271,11 +5726,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "array",
                         "default": [],
                     },
-                    "memory_citations": {
-                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
-                        "type": "array",
-                        "default": [],
-                    },
                     "sources": {
                         "items": {"$ref": "#/components/schemas/DreamSourceReference"},
                         "type": "array",
@@ -5293,12 +5743,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["operation", "idempotency_key"],
                 "description": "Select 1-20 exact Experience "
-                "or Memory citations after "
-                "deduplication, with at most "
-                "32 combined references "
+                "or Atomic Memory Artifacts "
+                "after deduplication, with at "
+                "most 32 combined references "
                 "including Sources. Only "
                 "refine_experience accepts "
-                "Memory citations or a "
+                "Atomic Memory Artifacts or a "
                 "target.",
             },
             "DreamBudget": {
@@ -5350,11 +5800,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "array",
                         "default": [],
                     },
-                    "memory_citations": {
-                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
-                        "type": "array",
-                        "default": [],
-                    },
                     "sources": {
                         "items": {"$ref": "#/components/schemas/DreamSourceReference"},
                         "type": "array",
@@ -5390,14 +5835,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "digest": {"type": "string"},
                     "source": {"$ref": "#/components/schemas/DreamSourceReference", "nullable": True},
                     "artifact": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
-                    "memory_citations": {
-                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
-                        "type": "array",
-                        "default": [],
-                    },
                     "role": {"$ref": "#/components/schemas/DreamEvidenceRole"},
                     "historical": {"type": "boolean", "default": False},
-                    "current_entry_version_id": {"type": "string", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -5434,6 +5873,33 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "budget": {"$ref": "#/components/schemas/DreamBudget"},
                     "prompt_version": {"type": "string", "default": "powercontext.dream.v1"},
                     "model_config_id": {"type": "string", "nullable": True},
+                    "historical_data": {
+                        "additionalProperties": True,
+                        "type": "object",
+                        "description": "Original "
+                        "request "
+                        "and "
+                        "input "
+                        "manifest "
+                        "of a "
+                        "terminal "
+                        "run "
+                        "migrated "
+                        "from "
+                        "the "
+                        "legacy "
+                        "Memory "
+                        "format. "
+                        "Present "
+                        "only "
+                        "on "
+                        "such "
+                        "runs; "
+                        "never "
+                        "accepted "
+                        "as "
+                        "evidence.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -5450,26 +5916,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ArtifactCandidate": {
                 "properties": {
-                    "memory_citations": {
-                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
-                        "type": "array",
-                        "maxItems": 32,
-                        "description": "Exact "
-                        "Memory "
-                        "entry "
-                        "provenance; "
-                        "non-empty "
-                        "only "
-                        "for "
-                        "Experience. "
-                        "Counted "
-                        "toward "
-                        "the "
-                        "combined "
-                        "evidence "
-                        "bound.",
-                        "default": [],
-                    },
                     "permissions": {
                         "$ref": "#/components/schemas/CandidatePermissions",
                         "description": "Current "
@@ -6847,14 +7293,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "oneOf": [
                     {"$ref": "#/components/schemas/HandoffSourceCitation"},
                     {"$ref": "#/components/schemas/HandoffArtifactCitation"},
-                    {"$ref": "#/components/schemas/HandoffMemoryCitation"},
                 ],
                 "discriminator": {
                     "propertyName": "kind",
                     "mapping": {
                         "source": "#/components/schemas/HandoffSourceCitation",
                         "artifact": "#/components/schemas/HandoffArtifactCitation",
-                        "memory": "#/components/schemas/HandoffMemoryCitation",
                     },
                 },
             },
@@ -6917,15 +7361,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["claim", "state_index", "status", "unavailable_evidence"],
-            },
-            "HandoffMemoryCitation": {
-                "properties": {
-                    "kind": {"type": "string", "enum": ["memory"]},
-                    "memory_citation": {"$ref": "#/components/schemas/MemoryCitation"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["kind", "memory_citation"],
             },
             "HandoffOmission": {
                 "properties": {
@@ -7102,26 +7537,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ExperienceArtifact": {
                 "properties": {
-                    "memory_citations": {
-                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
-                        "type": "array",
-                        "maxItems": 32,
-                        "description": "Exact "
-                        "Memory "
-                        "entry "
-                        "provenance; "
-                        "non-empty "
-                        "only "
-                        "for "
-                        "Experience. "
-                        "Counted "
-                        "toward "
-                        "the "
-                        "combined "
-                        "evidence "
-                        "bound.",
-                        "default": [],
-                    },
                     "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
                     "content": {"$ref": "#/components/schemas/ExperienceProposal"},
                     "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
@@ -7219,26 +7634,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "SkillArtifact": {
                 "properties": {
-                    "memory_citations": {
-                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
-                        "type": "array",
-                        "maxItems": 32,
-                        "description": "Exact "
-                        "Memory "
-                        "entry "
-                        "provenance; "
-                        "non-empty "
-                        "only "
-                        "for "
-                        "Experience. "
-                        "Counted "
-                        "toward "
-                        "the "
-                        "combined "
-                        "evidence "
-                        "bound.",
-                        "default": [],
-                    },
                     "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
                     "content": {"$ref": "#/components/schemas/SkillProposal"},
                     "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
@@ -7967,16 +8362,21 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "high_watermark": {"type": "integer", "minimum": 0.0},
                     "processed_source_count": {"type": "integer", "minimum": 0.0},
                     "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "remaining_work": {
+                        "type": "boolean",
+                        "description": "More Source journal work remains after the committed window.",
+                        "default": False,
+                    },
                     "held_count": {
                         "type": "integer",
                         "minimum": 0.0,
-                        "description": "Number of source windows held by the Memory write gate.",
+                        "description": "Compatibility field; Atomic Memory processing always returns zero.",
                         "default": 0,
                     },
                     "hold_codes": {
                         "items": {"type": "string"},
                         "type": "array",
-                        "description": "Structured Memory write gate refusal codes for held windows.",
+                        "description": "Compatibility field; Atomic Memory processing always returns an empty array.",
                         "default": [],
                     },
                 },
@@ -8054,13 +8454,36 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 ],
             },
             "GetMemoryEntryRequest": {
+                "oneOf": [{"required": ["citation"]}, {"required": ["target"]}],
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "citation": {"$ref": "#/components/schemas/MemoryCitation"},
+                    "citation": {
+                        "type": "object",
+                        "description": "Legacy "
+                        "exact "
+                        "Memory "
+                        "entry "
+                        "citation. "
+                        "Requests "
+                        "that "
+                        "supply "
+                        "it "
+                        "are "
+                        "rejected "
+                        "as "
+                        "unsupported.",
+                    },
+                    "target": {"$ref": "#/components/schemas/LegacyMemoryTarget"},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["scope_id", "citation"],
+                "required": ["scope_id"],
+                "description": "Supply a legacy logical "
+                "target mapped to current "
+                "Atomic Memory. A supplied "
+                "citation is rejected as "
+                "unsupported.",
+                "x-powercontext-exclusive-fields": ["citation", "target"],
             },
             "GetTopicMemoryRequest": {
                 "properties": {
@@ -8170,9 +8593,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "include_inactive": {
                         "type": "boolean",
-                        "description": "Include inactive entries from the current Memory head for explicit audit.",
+                        "description": "Include all four Atomic Memory lifecycle states.",
                         "default": False,
                     },
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                    "cursor": {"type": "string", "minLength": 1, "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -8180,8 +8605,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ListMemoryEntriesResponse": {
                 "properties": {
-                    "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
-                    "entries": {"items": {"$ref": "#/components/schemas/MemoryEntry"}, "type": "array"},
+                    "entries": {"items": {"$ref": "#/components/schemas/AtomicMemoryRecord"}, "type": "array"},
+                    "next_cursor": {"type": "string", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -8208,43 +8633,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id"],
             },
-            "MemoryEntry": {
-                "properties": {
-                    "citation": {"$ref": "#/components/schemas/MemoryCitation"},
-                    "version": {"type": "integer", "minimum": 1.0},
-                    "kind": {"type": "string"},
-                    "text": {"type": "string"},
-                    "state": {"$ref": "#/components/schemas/MemoryEntryState"},
-                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
-                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["citation", "version", "kind", "text", "state", "source_refs", "artifact_refs"],
-            },
             "MemoryMutationResponse": {
                 "properties": {
-                    "memory": {"$ref": "#/components/schemas/ArtifactReference"},
-                    "entry": {"$ref": "#/components/schemas/MemoryEntry", "nullable": True},
+                    "changed": {"type": "boolean"},
+                    "records": {"items": {"$ref": "#/components/schemas/AtomicMemoryRecord"}, "type": "array"},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["memory"],
-            },
-            "MemoryCitation": {
-                "properties": {
-                    "memory_ref": {"$ref": "#/components/schemas/ArtifactReference"},
-                    "entry_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
-                    "entry_version_id": {
-                        "type": "string",
-                        "maxLength": 128,
-                        "minLength": 1,
-                        "pattern": "^[\\x21-\\x7E]+$",
-                    },
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["memory_ref", "entry_id", "entry_version_id"],
+                "required": ["changed", "records"],
             },
             "MemoryRevisionChanges": {
                 "properties": {
@@ -8686,26 +9082,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "ContextAssemblyMetadata": {"type": "string", "enum": ["confidence", "recall_rank"]},
             "ProposeExperienceRequest": {
                 "properties": {
-                    "memory_citations": {
-                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
-                        "type": "array",
-                        "maxItems": 32,
-                        "description": "Exact "
-                        "Memory "
-                        "entry "
-                        "provenance; "
-                        "non-empty "
-                        "only "
-                        "for "
-                        "Experience. "
-                        "Counted "
-                        "toward "
-                        "the "
-                        "combined "
-                        "evidence "
-                        "bound.",
-                        "default": [],
-                    },
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "proposal": {"$ref": "#/components/schemas/ExperienceProposal"},
                     "source_refs": {
@@ -8935,7 +9311,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "RetireMemoryEntryRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "citation": {"$ref": "#/components/schemas/MemoryCitation"},
+                    "citation": {
+                        "type": "object",
+                        "description": "Legacy "
+                        "exact "
+                        "Memory "
+                        "entry "
+                        "citation. "
+                        "Requests "
+                        "that "
+                        "supply "
+                        "it "
+                        "are "
+                        "rejected "
+                        "as "
+                        "unsupported.",
+                    },
                     "reason": {"type": "string", "maxLength": 512, "nullable": True},
                 },
                 "additionalProperties": False,
@@ -8955,32 +9346,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ReviseArtifactCandidateRequest": {
                 "properties": {
-                    "memory_citations": {
-                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
-                        "type": "array",
-                        "maxItems": 32,
-                        "description": "Omission "
-                        "or "
-                        "null "
-                        "retains "
-                        "the "
-                        "current "
-                        "citations; "
-                        "an "
-                        "explicit "
-                        "array "
-                        "replaces "
-                        "them, "
-                        "including "
-                        "an "
-                        "empty "
-                        "array. "
-                        "Non-empty "
-                        "only "
-                        "for "
-                        "Experience.",
-                        "nullable": True,
-                    },
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                     "expected_version": {"type": "integer", "minimum": 1.0},
@@ -9044,7 +9409,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "ReviseMemoryEntryRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "citation": {"$ref": "#/components/schemas/MemoryCitation"},
+                    "citation": {
+                        "type": "object",
+                        "description": "Legacy "
+                        "exact "
+                        "Memory "
+                        "entry "
+                        "citation. "
+                        "Requests "
+                        "that "
+                        "supply "
+                        "it "
+                        "are "
+                        "rejected "
+                        "as "
+                        "unsupported.",
+                    },
                     "kind": {"type": "string", "maxLength": 128, "minLength": 1},
                     "text": {
                         "type": "string",
@@ -9056,17 +9436,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["scope_id", "citation", "kind", "text"],
-            },
-            "SearchMemoryHit": {
-                "properties": {
-                    "citation": {"$ref": "#/components/schemas/MemoryCitation"},
-                    "text": {"type": "string"},
-                    "score": {"type": "number", "maximum": 1.0, "minimum": 0.0},
-                    "matched_by": {"items": {"$ref": "#/components/schemas/MemoryMatchedBy"}, "type": "array"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["citation", "text", "score", "matched_by"],
             },
             "SearchTopicMemoryHit": {
                 "properties": {
@@ -9234,13 +9603,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "SearchMemoryResponse": {
                 "properties": {
-                    "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
-                    "mode": {"$ref": "#/components/schemas/MemoryUsedSearchMode", "nullable": True},
-                    "hits": {"items": {"$ref": "#/components/schemas/SearchMemoryHit"}, "type": "array"},
+                    "mode": {"$ref": "#/components/schemas/AtomicMemorySearchMode"},
+                    "hits": {"items": {"$ref": "#/components/schemas/AtomicMemorySearchHit"}, "type": "array"},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["hits"],
+                "required": ["mode", "hits"],
             },
             "TopicMemoryArtifact": {
                 "properties": {
@@ -9256,6 +9624,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "CreateArtifactRequest": {
                 "oneOf": [
+                    {"$ref": "#/components/schemas/CreateAtomicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/CreateTopicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/CreateMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/CreateExperienceArtifactRequest"},
@@ -9267,6 +9636,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "discriminator": {
                     "propertyName": "family",
                     "mapping": {
+                        "atomic-memory": "#/components/schemas/CreateAtomicMemoryArtifactRequest",
                         "memory": "#/components/schemas/CreateMemoryArtifactRequest",
                         "topic-memory": "#/components/schemas/CreateTopicMemoryArtifactRequest",
                         "experience": "#/components/schemas/CreateExperienceArtifactRequest",
@@ -9458,7 +9828,16 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "TaggableArtifactFamily": {
                 "type": "string",
-                "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"],
+                "enum": [
+                    "memory",
+                    "atomic-memory",
+                    "experience",
+                    "skill",
+                    "handoff",
+                    "profile",
+                    "prompt",
+                    "topic-memory",
+                ],
                 "description": "All readable Artifact families support logical tags on persisted Artifacts.",
             },
             "TagMatch": {"type": "string", "enum": ["all", "any"]},
@@ -9618,12 +9997,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "mutation "
                         "precondition.",
                     },
-                    "reference": {
-                        "oneOf": [
-                            {"$ref": "#/components/schemas/ArtifactReference"},
-                            {"$ref": "#/components/schemas/MemoryCitation"},
-                        ]
-                    },
+                    "reference": {"$ref": "#/components/schemas/ArtifactReference"},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -9655,6 +10029,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ReplaceArtifactRequest": {
                 "oneOf": [
+                    {"$ref": "#/components/schemas/ReplaceAtomicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceTopicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceExperienceArtifactRequest"},
@@ -9729,6 +10104,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "enum": [
                     "memory.extract",
                     "memory.rerank",
+                    "atomic_memory.extract",
+                    "atomic_memory.reconcile",
                     "experience.incubate",
                     "experience.generate",
                     "skill.generate",
@@ -10027,11 +10404,29 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "CaptureStatus": {"type": "string", "enum": ["accepted"]},
             "BaseArtifactFamily": {
                 "type": "string",
-                "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"],
+                "enum": [
+                    "memory",
+                    "atomic-memory",
+                    "experience",
+                    "skill",
+                    "handoff",
+                    "profile",
+                    "prompt",
+                    "topic-memory",
+                ],
             },
             "ArtifactReadFamily": {
                 "type": "string",
-                "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"],
+                "enum": [
+                    "memory",
+                    "atomic-memory",
+                    "experience",
+                    "skill",
+                    "handoff",
+                    "profile",
+                    "prompt",
+                    "topic-memory",
+                ],
             },
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
             "CandidateFamily": {"type": "string", "enum": ["experience", "skill", "profile"]},
@@ -10051,8 +10446,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "enum": ["topic_fts", "topic_vector", "detail_fts", "detail_vector"],
             },
             "TopicMemoryUsedSearchMode": {"type": "string", "enum": ["fts", "hybrid"]},
-            "MemoryEntryState": {"type": "string", "enum": ["active", "inactive"]},
-            "MemoryMatchedBy": {"type": "string", "enum": ["fts", "vector"]},
             "MemorySearchMode": {"type": "string", "enum": ["auto", "fts", "vector", "hybrid"]},
             "MemoryUsedSearchMode": {"type": "string", "enum": ["fts", "vector", "hybrid"]},
             "HandoffClaim": {"type": "string", "enum": ["state", "next_action"]},

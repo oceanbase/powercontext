@@ -27,10 +27,8 @@ from pydantic import SecretStr
 from starlette.middleware import Middleware
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef, ArtifactSearchExecutionContext
-from powercontext.builtin.artifacts.memory import MemoryEntryVersion
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.publication import ArtifactPublication, ArtifactPublicationRequest
-from powercontext.builtin.runtime import MemoryEntryRecord
 from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.server.app import create_app
 from powercontext.server.authentication import (
@@ -48,11 +46,11 @@ from powercontext.server.authz import (
     BuiltinAuthorizationProvider,
     CreateBinding,
     GroupRef,
-    MemoryEntrySelector,
     PrincipalRef,
     ResourceRef,
 )
 from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.server.authz.service import BindingSearchRequest
 from powercontext.server.factory import create_server_app
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, ServerSettings
@@ -448,6 +446,49 @@ def test_compound_access_check_supports_all_and_any_without_a_batch_route() -> N
     asyncio.run(scenario())
 
 
+def test_access_requests_reject_legacy_memory_targets() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
+            repository = RelationalAccessRepository(profile.database)
+            await _seed_admin(repository)
+            service = AccessControlService(
+                BuiltinAuthorizationProvider(repository),
+                relationships=repository,
+                audit=repository,
+            )
+            app = _app(service, principal=ADMIN, token="admin-token")  # noqa: S106 - test credential.
+            legacy = {
+                "type": "artifact",
+                "scope_id": "scope-a",
+                "identity": {"family": "memory", "artifact_id": "memory-a"},
+                "selector": {"type": "memory_entry", "entry_id": "entry-a"},
+            }
+            async with _client(app) as client:
+                responses = [
+                    await client.post(
+                        "/v1/access/check",
+                        headers=_auth("admin-token"),
+                        json={"match": "all", "requirements": [{"action": "artifact.read", "resource": legacy}]},
+                    ),
+                    await client.post(
+                        "/v1/access/bindings/create",
+                        headers=_auth("admin-token"),
+                        json={
+                            "subject": {"type": "user", "id": "bob"},
+                            "resource": legacy,
+                            "role": "artifact.viewer",
+                            "idempotency_key": "bob-legacy-memory",
+                        },
+                    ),
+                ]
+            for response in responses:
+                assert response.status_code == 422, response.text
+                assert response.json()["error"]["code"] == "legacy_memory_operation_unsupported"
+            assert await repository.list_bindings(BindingSearchRequest(ResourceRef.server(), subject=BOB)) == ()
+
+    asyncio.run(scenario())
+
+
 def test_access_binding_replace_is_generic_and_atomic() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
@@ -624,19 +665,6 @@ class _HandoffShareability:
         return object()
 
 
-class _MemoryApplication:
-    def __init__(self, record: MemoryEntryRecord) -> None:
-        self.record = record
-
-    def for_scope(self, scope_id: str) -> Self:
-        del scope_id
-        return self
-
-    async def get(self, request) -> MemoryEntryRecord:
-        del request
-        return self.record
-
-
 class _ArtifactPublicationApplication:
     def __init__(self) -> None:
         self.requests: list[ArtifactPublicationRequest] = []
@@ -707,6 +735,7 @@ def test_access_api_and_handoff_pep_enforce_exact_receiver_visibility() -> None:
                 assert {
                     profile["family"] for profile in principal.json()["artifact_families"] if profile["enabled"]
                 } == {
+                    "atomic-memory",
                     "handoff",
                     "memory",
                     "experience",
@@ -823,89 +852,6 @@ def test_access_api_and_handoff_pep_enforce_exact_receiver_visibility() -> None:
 
                 unauthenticated = await bob.get("/v1/access/me")
                 assert unauthenticated.status_code == 401
-
-    asyncio.run(scenario())
-
-
-def test_logical_memory_entry_grant_allows_every_entry_version_but_not_scope_listing() -> None:
-    async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
-            repository = RelationalAccessRepository(profile.database)
-            await _seed_admin(repository)
-            service = AccessControlService(
-                BuiltinAuthorizationProvider(repository),
-                relationships=repository,
-                audit=repository,
-            )
-            exact = ResourceRef.artifact(
-                "scope-a",
-                family="memory",
-                artifact_id="memory-a",
-                selector=MemoryEntrySelector(entry_id="entry-a"),
-            )
-            await service.establish_artifact_owner(
-                exact,
-                ADMIN,
-                idempotency_key="owner-memory-entry-a",
-                context=AUDIT,
-            )
-            await service.create_binding(
-                ADMIN,
-                CreateBinding(
-                    subject=BOB,
-                    resource=exact,
-                    role=AccessRole.ARTIFACT_VIEWER,
-                    idempotency_key="bob-exact-memory",
-                ),
-                context=AUDIT,
-            )
-            memory_ref = ArtifactRef(family="memory", artifact_id="memory-a", revision=4)
-            record = MemoryEntryRecord(
-                memory_ref=memory_ref,
-                state="active",
-                entry=MemoryEntryVersion(
-                    memory_artifact_id="memory-a",
-                    entry_id="entry-a",
-                    entry_version_id="entry-version-2",
-                    version=2,
-                    previous_version_id="entry-version-1",
-                    kind="decision",
-                    text="Only this exact Memory Entry Version is shared.",
-                    entry_content_hash="a" * 64,
-                    created_in_revision=4,
-                ),
-            )
-            app = _app(
-                service,
-                principal=BOB,
-                token="bob-token",  # noqa: S106 - test credential.
-                application=SimpleNamespace(memory=_MemoryApplication(record)),
-            )
-            request = {
-                "scope_id": "scope-a",
-                "citation": {
-                    "memory_ref": {"family": "memory", "artifact_id": "memory-a", "revision": 4},
-                    "entry_id": "entry-a",
-                    "entry_version_id": "entry-version-2",
-                },
-            }
-            async with _client(app) as client:
-                allowed = await client.post("/v1/memory/entries/get", headers=_auth("bob-token"), json=request)
-                assert allowed.status_code == 200, allowed.json()
-                assert allowed.json()["text"] == "Only this exact Memory Entry Version is shared."
-
-                future_version = request | {"citation": request["citation"] | {"entry_version_id": "entry-version-3"}}
-                allowed_future = await client.post(
-                    "/v1/memory/entries/get", headers=_auth("bob-token"), json=future_version
-                )
-                assert allowed_future.status_code == 200
-
-                aggregate = await client.post(
-                    "/v1/memory/entries/list",
-                    headers=_auth("bob-token"),
-                    json={"scope_id": "scope-a"},
-                )
-                assert aggregate.status_code == 403
 
     asyncio.run(scenario())
 

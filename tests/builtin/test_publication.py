@@ -20,7 +20,6 @@ import pytest
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceDraft, ExperienceSearchOutcome
-from powercontext.builtin.artifacts.memory import MemoryEntryInput
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import NoExperienceIndex
@@ -32,9 +31,9 @@ from powercontext.builtin.publication import (
     ArtifactPublicationRequest,
     ArtifactPublicationUnsupportedError,
 )
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.scope import ScopeApplication, ScopeDraft
-from powercontext.errors import ArtifactNotFoundError
 from tests.builtin.persistence.contract import Report, ReportContent, ReportDraft
 
 
@@ -325,6 +324,8 @@ def test_profile_publication_is_rejected_without_changing_target(target_has_prof
 
 
 def test_memory_publication_is_rejected_without_target_state() -> None:
+    family = "atomic-memory"
+
     async def scenario() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
             source_scope = await contexts.scopes.create(
@@ -333,13 +334,13 @@ def test_memory_publication_is_rejected_without_target_state() -> None:
             target_scope = await contexts.scopes.create(
                 ScopeDraft(title="Target", summary="Accepted result", idempotency_key="target")
             )
-            source = await contexts.get(source_scope.scope_id)
-            memory = await source.artifacts.memory.remember(
-                memory=None,
-                entries=(MemoryEntryInput(kind="decision", text="Keep publication state complete."),),
-                mode="append",
+            created = await contexts.records.create_artifact(
+                source_scope.scope_id,
+                family,
+                ArtifactWrite(content={"kind": "decision", "text": "Keep publication state complete."}),
             )
-            assert memory is not None
+            memory = await contexts.atomic_memory.for_scope(source_scope.scope_id).get(created.artifact_id)
+            ref = memory.ref
             publications = ArtifactPublicationApplication(
                 contexts.database,
                 contexts.repositories.artifacts,
@@ -348,23 +349,25 @@ def test_memory_publication_is_rejected_without_target_state() -> None:
                 id_factory=lambda: "pub_blocked",
             )
             request = ArtifactPublicationRequest(
-                source=ArtifactAddress(scope_id=source_scope.scope_id, artifact=memory.as_ref()),
+                source=ArtifactAddress(scope_id=source_scope.scope_id, artifact=ref),
                 target_scope_id=target_scope.scope_id,
                 idempotency_key="publish-memory",
             )
 
             for _ in range(2):
-                with pytest.raises(ArtifactPublicationUnsupportedError, match="family: memory") as raised:
+                with pytest.raises(ArtifactPublicationUnsupportedError, match=f"family: {family}") as raised:
                     await publications.publish(request)
-                assert raised.value.family == "memory"
+                assert raised.value.family == family
 
             target_address = ArtifactAddress(
                 scope_id=target_scope.scope_id,
-                artifact=ArtifactRef(family="memory", artifact_id="pub_blocked", revision=1),
+                artifact=ArtifactRef(family=family, artifact_id="pub_blocked", revision=1),
             )
             assert await publications.get(target_address) is None
-            target = await contexts.get(target_scope.scope_id)
-            with pytest.raises(ArtifactNotFoundError):
-                await target.artifacts.memory.revision(target_address.artifact)
+            async with contexts.database.transaction() as connection:
+                with pytest.raises(RepositoryNotFoundError):
+                    await contexts.repositories.artifacts.get(
+                        connection, target_scope.scope_id, target_address.artifact
+                    )
 
     asyncio.run(scenario())

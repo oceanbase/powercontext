@@ -40,8 +40,17 @@ from sqlalchemy.exc import ArgumentError
 
 from evaluation.memory.locomo.dataset import LoCoMoSession
 from evaluation.memory.locomo.metrics import retrieval_metrics
-from evaluation.memory.locomo.runner import load_settings, normalize_run_id, public_configuration
-from powercontext.builtin.artifacts.memory.prompts import memory_extraction_instructions_version
+from evaluation.memory.locomo.runner import (
+    _all_atomic_records,
+    _atomic_snapshot,
+    _lineage_source_ids,
+    load_settings,
+    normalize_run_id,
+    public_configuration,
+)
+from powercontext.builtin.artifacts.atomic_memory.extraction import atomic_memory_extraction_instructions
+from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryStateValue
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS
 from powercontext.builtin.artifacts.memory.reranking import MemoryReranker
 from powercontext.builtin.inference import InvalidInferenceOutputError, character_token_estimator
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -50,7 +59,6 @@ from powercontext.builtin.runtime import (
     CaptureSource,
     MemoryExtractionProfile,
     RuntimeConfig,
-    SearchMemoryRequest,
     open_builtin_runtime,
 )
 from powercontext.builtin.runtime.config import DatabaseConfig
@@ -72,7 +80,7 @@ from .prompts import (
 )
 
 ARMS = ("memory", "memory-source", "query-only", "oracle-cue", "full-context")
-HARNESS_VERSION = "powercontext.locomo-plus.v1"
+HARNESS_VERSION = "powercontext.locomo-plus.v2"
 
 # Only application-authored details are safe to copy verbatim. Provider exception messages can contain credentials.
 _KNOWN_DETAILS = frozenset({
@@ -103,7 +111,7 @@ def describe_error(error: BaseException) -> dict[str, Any]:
         seen.add(id(current))
         item: dict[str, Any] = {"type": type(current).__name__}
         if isinstance(current, InvalidInferenceOutputError):
-            if current.operation in {"generate", "embed", "memory-extract"}:
+            if current.operation in {"generate", "embed", "atomic-memory-extract", "atomic-memory-reconcile"}:
                 item["operation"] = current.operation
             if current.detail in _KNOWN_DETAILS:
                 item["detail"] = current.detail
@@ -415,7 +423,12 @@ def _configuration(
             "embedding": _digest(str(inference.embedding_base_url)),
         },
         "memory_extraction_profile": "conversation",
-        "memory_extraction_instructions": memory_extraction_instructions_version(MemoryExtractionProfile.CONVERSATION),
+        "memory_extraction_instructions_sha256": hashlib.sha256(
+            atomic_memory_extraction_instructions(MemoryExtractionProfile.CONVERSATION).encode("utf-8")
+        ).hexdigest(),
+        "memory_reconciliation_instructions_sha256": hashlib.sha256(
+            ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS.encode("utf-8")
+        ).hexdigest(),
     }
 
 
@@ -511,12 +524,12 @@ async def _reuse_page(runtime, scope, sessions, donor_record, directory, records
     if scope in cache:
         return cache[scope]
     started = perf_counter()
-    memory = runtime.memory.for_scope(scope)
+    memory = runtime.atomic_memory.for_scope(scope)
     cursor = await memory.cursor()
     if cursor.sequence != len(sessions):
         raise ValueError("reused Memory cursor does not match the complete history")  # noqa: TRY003
-    page = await memory.list()
-    memories = [entry.model_dump(mode="json") for entry in page.entries]
+    atomic_records = await _all_atomic_records(memory, include_inactive=True)
+    memories = [record.model_dump(mode="json", by_alias=True) for record in atomic_records]
     if _digest(memories) != _digest(donor_record["memories"]):
         raise ValueError("reused Memory differs from the donor snapshot")  # noqa: TRY003
     records[scope] = {
@@ -528,14 +541,16 @@ async def _reuse_page(runtime, scope, sessions, donor_record, directory, records
         "session_count": len(sessions),
         "planned_session_count": len(sessions),
         "processed_session_count": cursor.sequence,
-        "memory_count": len(memories),
+        "schema": "powercontext.benchmark.locomo-plus.ingestion.v2",
+        "atomic_memory_count": sum(record.state.state is AtomicMemoryStateValue.ACTIVE for record in atomic_records),
+        "atomic_memory_snapshot": [read.model_dump(mode="json") for read in _atomic_snapshot(atomic_records)],
         "memories": memories,
         "latency_ms": (perf_counter() - started) * 1_000,
         "usage": {"reuse": {"requests": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0}},
     }
     _write_json(directory / "ingestion.json", records)
-    cache[scope] = page
-    return page
+    cache[scope] = atomic_records
+    return atomic_records
 
 
 async def _flush_session(memory_app, session, position, scope, output_directory, record):
@@ -561,7 +576,7 @@ async def _flush_session(memory_app, session, position, scope, output_directory,
 
 async def _ingest(runtime, case, sessions, scope, output_directory, records, prices, settings, extraction_model):
     source_app = runtime.sources.for_scope(scope)
-    memory_app = runtime.memory.for_scope(scope)
+    memory_app = runtime.atomic_memory.for_scope(scope)
     started = perf_counter()
     record = records.setdefault(scope, {"scope_id": scope, "latency_ms": 0.0})
     flush_inflight = False
@@ -590,16 +605,18 @@ async def _ingest(runtime, case, sessions, scope, output_directory, records, pri
             cursor = await memory_app.cursor()
             record["processed_session_count"] = cursor.sequence
             _write_json(output_directory / "ingestion.json", records)
-        page = await memory_app.list()
+        memories = await _all_atomic_records(memory_app, include_inactive=True)
         record.update({
             "status": "ok",
             "session_count": len(sessions),
-            "memory_count": len(page.entries),
-            "memories": [entry.model_dump(mode="json") for entry in page.entries],
+            "schema": "powercontext.benchmark.locomo-plus.ingestion.v2",
+            "atomic_memory_count": sum(memory.state.state is AtomicMemoryStateValue.ACTIVE for memory in memories),
+            "atomic_memory_snapshot": [read.model_dump(mode="json") for read in _atomic_snapshot(memories)],
+            "memories": [memory.model_dump(mode="json", by_alias=True) for memory in memories],
         })
         record.pop("error_type", None)
         record.pop("error", None)
-        return page  # noqa: TRY300
+        return memories  # noqa: TRY300
     except Exception as error:
         record.update({"status": "error", "error_type": type(error).__name__, "error": describe_error(error)})
         if flush_inflight:
@@ -664,9 +681,11 @@ def _finish_usage(observation, stage, usage, model, prices):
 
 async def _recall_usage(runtime, scope):
     statistics = await runtime.statistics.for_scope(scope).overview()
-    return _sum_usage([
-        row.embedding.model_dump() for row in statistics.usage.by_purpose if row.purpose.value == "memory_recall"
-    ])
+    rows = [row for row in statistics.usage.by_purpose if row.purpose.value == "memory_recall"]
+    return {
+        "embedding": _sum_usage([{**row.embedding.model_dump(), "output_tokens": 0} for row in rows]),
+        "generation": _sum_usage([row.generation.model_dump() for row in rows]),
+    }
 
 
 def _record_rerank_usage(observation, usages, trace, retrieved, model, prices):
@@ -686,18 +705,28 @@ def _record_rerank_usage(observation, usages, trace, retrieved, model, prices):
     observation["usage"]["rerank"]["model"] = model
 
 
-async def _retrieve(runtime, case, page, scope, sessions, top_k, source_expansion):
-    result = await runtime.memory.for_scope(scope).search(
-        SearchMemoryRequest(query=case.question, limit=top_k, mode="hybrid")
-    )
-    sources = {(record.entry.entry_id, record.entry.entry_version_id): record.entry.sources for record in page.entries}
+async def _retrieve(runtime, case, scope, sessions, top_k, source_expansion):
+    result = await runtime.atomic_memory.for_scope(scope).search(case.question, limit=top_k, mode="hybrid")
+    records = runtime.records.for_scope(scope)
+    cache: dict[tuple[str, str, int], tuple[str, ...]] = {}
     rendered: list[str] = []
     hits: list[dict[str, Any]] = []
     session_map = {session.session_id: session for session in sessions}
     selected_ids: list[str] = []
-    for hit in result.hits:
-        ids = tuple(ref.source_id for ref in sources.get((hit.entry_id, hit.entry_version_id), ()))
-        hits.append({**hit.model_dump(mode="json"), "source_ids": list(ids)})
+    for rank, wrapper in enumerate(result.hits, 1):
+        hit = wrapper.hit
+        ids = await _lineage_source_ids(records, hit.artifact_ref, cache)
+        hits.append({
+            "rank": rank,
+            "artifact_ref": hit.artifact_ref.model_dump(mode="json"),
+            "state_version": hit.state_version,
+            "kind": hit.kind,
+            "text": hit.text,
+            "score": hit.score,
+            "distance": hit.distance,
+            "matched_by": list(wrapper.matched_by),
+            "source_ids": list(ids),
+        })
         rendered.append(f"Memory: {hit.text}\nSources: {', '.join(ids)}")
         for source_id in ids:
             local_id = source_id.rsplit(":", maxsplit=1)[-1]
@@ -710,8 +739,41 @@ async def _retrieve(runtime, case, page, scope, sessions, top_k, source_expansio
     metrics = retrieval_metrics(
         evidence_sessions=evidence_sessions, hit_source_ids=tuple(tuple(hit["source_ids"]) for hit in hits)
     )
-    trace = result.rerank.model_dump(mode="json") if result.rerank is not None else None
-    return "\n\n".join(rendered), hits, selected_ids, metrics, trace
+    retrieval = {
+        **metrics,
+        "mode": result.mode,
+        "score_kind": "rrf-ranking-score",
+        "embedding_calls": result.embedding_calls,
+        "generation_calls": result.generation_calls,
+        "rerank": None
+        if result.rerank is None
+        else {
+            "policy_id": result.rerank.policy_id,
+            "candidate_count": len(result.rerank.candidate_hits),
+            "selected_ranks": list(result.rerank.selected_ranks),
+            "discarded_rank_count": result.rerank.discarded_rank_count,
+            "used_fallback": result.rerank.used_fallback,
+            "latency_ms": result.rerank.latency_ms,
+            "usage": result.rerank.usage.model_dump(mode="json"),
+        },
+    }
+    return "\n\n".join(rendered), hits, selected_ids, retrieval, retrieval["rerank"]
+
+
+def _record_retrieval_usage(observation, before, after, settings, prices):
+    for channel, stage, model in (
+        ("embedding", "retrieval", settings.inference.embedding_model),
+        ("generation", "retrieval_generation", settings.inference.generation_model),
+    ):
+        usage = {
+            key: None
+            if (end := after[channel][key]) is None or (start := before[channel][key]) is None
+            else end - start
+            for key in ("requests", "input_tokens", "output_tokens")
+        }
+        if stage == "retrieval_generation":
+            _start_usage(observation, stage, model, prices)
+        _finish_usage(observation, stage, usage, model, prices)
 
 
 async def _evaluate(
@@ -749,6 +811,7 @@ async def _evaluate(
         if previous
         else {
             "case_id": case.case_id,
+            "schema": "powercontext.benchmark.locomo-plus.observation.v2",
             "category": case.category,
             "constraint_type": case.relation_type,
             "question": case.question,
@@ -771,7 +834,7 @@ async def _evaluate(
                 async with scope_lock:
                     if reuse_directory is not None:
                         scope = reused_scopes[case.sample_id]
-                        page = await _reuse_page(
+                        await _reuse_page(
                             runtime,
                             scope,
                             sessions,
@@ -786,7 +849,7 @@ async def _evaluate(
                         scope = await _registered_scope(
                             runtime, namespace, scope_namespace, scope_ids, ingestion, output_directory
                         )
-                        page = await _ingest(
+                        await _ingest(
                             runtime,
                             case,
                             sessions,
@@ -808,7 +871,7 @@ async def _evaluate(
                     retrieved = False
                     try:
                         context, hits, selected_ids, retrieval, rerank_trace = await _retrieve(
-                            runtime, case, page, scope, sessions, top_k, arm == "memory-source"
+                            runtime, case, scope, sessions, top_k, arm == "memory-source"
                         )
                         retrieved = True
                         observation["rerank"] = rerank_trace
@@ -822,12 +885,7 @@ async def _evaluate(
                             _append(output_directory / "observations.jsonl", observation)
                     observation["latency_ms"]["query"] = (perf_counter() - queried) * 1_000
                     after = await _recall_usage(runtime, scope)
-                    usage = {
-                        key: None if after[key] is None or before[key] is None else after[key] - before[key]
-                        for key in ("requests", "input_tokens")
-                    }
-                    usage["output_tokens"] = 0
-                    _finish_usage(observation, "retrieval", usage, settings.inference.embedding_model, prices)
+                    _record_retrieval_usage(observation, before, after, settings, prices)
             elif arm == "query-only":
                 context = ""
             else:

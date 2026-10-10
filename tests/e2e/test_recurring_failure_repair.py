@@ -159,10 +159,6 @@ async def _record(sources: SourceRepository, ledger: RelationalRecurrenceLedger,
         return through, await ledger.record_window(connection, rows)
 
 
-async def _missing_memory(*_args, **_kwargs):
-    raise AssertionError("recurring failure e2e does not resolve memory citations")  # noqa: TRY003
-
-
 def _ledger(database, sources, artifacts, repository) -> RelationalRecurrenceLedger:
     return RelationalRecurrenceLedger(
         database=database,
@@ -174,7 +170,6 @@ def _ledger(database, sources, artifacts, repository) -> RelationalRecurrenceLed
             scope_id=SCOPE,
             sources=sources,
             artifacts=artifacts,
-            memory_reader=_missing_memory,
         ),
     )
 

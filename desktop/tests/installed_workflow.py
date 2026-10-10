@@ -23,7 +23,13 @@ from pathlib import Path
 
 import httpx
 from installed_boundaries import exercise_note_budget, exercise_search_limit
-from installed_fixture import fixture_compatibility_profile, isolated_server
+from installed_fixture import (
+    exact_memory_text,
+    fixture_compatibility_profile,
+    isolated_server,
+    saved_reference,
+    search_reference,
+)
 from real_server import HarnessFailure
 
 ELEMENT = "element-6066-11e4-a52e-4f735466cecf"
@@ -190,10 +196,8 @@ def exercise_memory(client: httpx.Client, prefix: str) -> dict[str, object]:
             raise HarnessFailure("installed_enter_submitted_without_button")
         page.button("保存")
         page.wait_text("保存成功。")
-        citation = page.search_read(NOTE)
-        response = server.post("/v1/memory/entries/get", json={"scope_id": scope_id, "citation": citation})
-        response.raise_for_status()
-        if response.json()["text"] != NOTE or response.json()["citation"] != citation:
+        reference = page.search_read(NOTE)
+        if exact_memory_text(server, scope_id, reference) != NOTE:
             raise HarnessFailure("installed_independent_exact_read_mismatch")
         page.button("复制正文")
         page.wait_text("已复制")
@@ -201,11 +205,11 @@ def exercise_memory(client: httpx.Client, prefix: str) -> dict[str, object]:
             raise HarnessFailure("installed_body_clipboard_mismatch")
         page.clear_note()
         page.button("复制精确引用")
-        if json.loads(page.paste()) != citation:
-            raise HarnessFailure("installed_citation_clipboard_mismatch")
+        if json.loads(page.paste()) != reference:
+            raise HarnessFailure("installed_reference_clipboard_mismatch")
         page.clear_note()
         exercise_search_limit(page, server, scope_id)
-        exercise_connection_isolation(page, server, scope_id, citation)
+        exercise_connection_isolation(page, server, scope_id, reference)
         exercise_late_save(page)
         exercise_unknown_write(page)
         return {
@@ -214,7 +218,7 @@ def exercise_memory(client: httpx.Client, prefix: str) -> dict[str, object]:
             "explicitConnectionAndScope": True,
             "saveSearchExactRead": True,
             "independentServerExactRead": True,
-            "bodyAndCitationClipboardPaste": True,
+            "bodyAndReferenceClipboardPaste": True,
             "twoServerConnectionIsolation": True,
             "disconnectReconnectClearsContent": True,
             "unsavedDraftCancelAndDiscard": True,
@@ -236,31 +240,29 @@ def current_unchanged_entry(server: httpx.Client, scope: str, original: dict[str
     current_hits = current.json()["hits"]
     if len(current_hits) != 1:
         raise HarnessFailure("installed_original_server_search_ambiguous")
-    current_citation_a = current_hits[0]["citation"]
-    # New independent notes advance the artifact revision, while this entry's
-    # version remains unchanged. Preserve the original citation for exact reads.
-    if any(current_citation_a[key] != original[key] for key in ("entry_id", "entry_version_id")):
-        raise HarnessFailure("installed_original_entry_version_changed")
-    return current_citation_a
+    current_reference_a = search_reference(current_hits[0])
+    if current_reference_a != original:
+        raise HarnessFailure("installed_original_reference_changed")
+    return current_reference_a
 
 
 def exercise_connection_isolation(
     page: InstalledPage,
     server_a: httpx.Client,
     scope_a: str,
-    citation_a: dict[str, object],
+    reference_a: dict[str, object],
 ) -> None:
-    current_citation_a = current_unchanged_entry(server_a, scope_a, citation_a)
+    current_reference_a = current_unchanged_entry(server_a, scope_a, reference_a)
     text_b = "desktopinstalledci B 独立服务中的另一条记忆"
     with isolated_server() as (server_b, scope_b, _):
         seeded = server_b.post("/v1/memory/remember", json={"scope_id": scope_b, "kind": "note", "text": text_b})
         seeded.raise_for_status()
-        citation_b = seeded.json()["entry"]["citation"]
+        reference_b = saved_reference(seeded.json())
         page.connect("Desktop CI B", str(server_b.base_url).rstrip("/"))
         page.expect_empty_context()
         page.select_scope(scope_b)
-        if page.search_read(text_b) != citation_b:
-            raise HarnessFailure("installed_second_server_citation_mismatch")
+        if page.search_read(text_b) != reference_b:
+            raise HarnessFailure("installed_second_server_reference_mismatch")
         draft = "desktopunsavedci 不应写入的草稿"
         page.type("记忆内容", draft, "textarea")
         page.open_connection_menu()
@@ -284,24 +286,22 @@ def exercise_connection_isolation(
         page.activate("Desktop CI synthetic")
         page.expect_empty_context()
         page.select_scope(scope_a)
-        if page.search_read(NOTE) != current_citation_a:
-            raise HarnessFailure("installed_reconnected_citation_mismatch")
+        if page.search_read(NOTE) != current_reference_a:
+            raise HarnessFailure("installed_reconnected_reference_mismatch")
         page.button("连接")
         page.profile("Desktop CI B")
         page.button("移除连接")
         page.post("/alert/accept", {})
         page.wait("""return ![...document.querySelectorAll('.profile-name')].some(
           name => name.textContent.trim() === 'Desktop CI B');""")
-        for server, scope, citation, expected in (
-            (server_a, scope_a, citation_a, NOTE),
-            (server_b, scope_b, citation_b, text_b),
+        for server, scope, reference, expected in (
+            (server_a, scope_a, reference_a, NOTE),
+            (server_b, scope_b, reference_b, text_b),
         ):
-            response = server.post("/v1/memory/entries/get", json={"scope_id": scope, "citation": citation})
-            response.raise_for_status()
-            if response.json()["text"] != expected:
+            if exact_memory_text(server, scope, reference) != expected:
                 raise HarnessFailure("installed_profile_operation_changed_server_data")
         page.button("记忆")
-        if page.search_read(NOTE) != current_citation_a:
+        if page.search_read(NOTE) != current_reference_a:
             raise HarnessFailure("installed_inactive_profile_removal_changed_active_connection")
 
 
@@ -318,7 +318,7 @@ def exercise_unknown_write(page: InstalledPage) -> None:
             page.wait_text("提交结果未知。")
             if page.observe("return document.querySelector('.memory-workspace textarea')?.value;") != note:
                 raise HarnessFailure("installed_unknown_write_lost_draft")
-            citation = page.search_read(note, "desktoplostuici")
+            reference = page.search_read(note, "desktoplostuici")
             matches = server.post(
                 "/v1/memory/search",
                 json={
@@ -330,7 +330,7 @@ def exercise_unknown_write(page: InstalledPage) -> None:
             )
             matches.raise_for_status()
             hits = matches.json()["hits"]
-            if len(hits) != 1 or hits[0]["citation"] != citation or counter.read_text(encoding="utf-8") != "1":
+            if len(hits) != 1 or search_reference(hits[0]) != reference or counter.read_text(encoding="utf-8") != "1":
                 raise HarnessFailure("installed_unknown_write_replayed_or_missing")
             page.clear_note()
 

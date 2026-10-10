@@ -5,16 +5,15 @@ description: 为逻辑制品和记忆条目设置标签，并通过精确标签�
 
 # 使用标签整理内容
 
-所有内置制品类型都可以在各自 Scope 内设置标签：Memory、Topic Memory、Experience、Skill、Handoff、Profile 和 Prompt。
-一个 Memory 制品与其中的每条逻辑记忆分别拥有独立的标签集合。
-标签跟随逻辑 ID，不会修改内容 Revision、条目版本、血缘、向量或 Context Version。
+当前记忆以 Atomic Memory 独立制品保存，每条记忆有自己的标签。标签跟随逻辑 ID，不改变内容版本、lineage 或向量。
+其他制品也可在各自 Scope 内设置标签。
 
-对应的 `family` 值为 `memory`、`topic-memory`、`experience`、`skill`、`handoff`、`profile`、`prompt`。
-Profile 的 `artifact_id` 为 `profile`，Prompt 的 `artifact_id` 为提示词 key（例如 `memory.extract`）。
+对应的 `family` 值为 `atomic-memory`、`topic-memory`、`experience`、`skill`、`handoff`、`profile`、`prompt`。
+Profile 的 `artifact_id` 为 `profile`，Prompt 的 `artifact_id` 为提示词 key（例如 `atomic_memory.extract`）。
 标签要求对象已经保存为制品；尚未保存的内置默认 Prompt 没有独立标签，需要先保存 Prompt 制品，再设置标签。
 
 开启访问控制时，标签遵循所属对象的读取与修改权限。只读分享者可以读取该对象的标签，不能修改标签或执行 Scope 级标签查询。
-跨对象查询需要 `scope.read`；Memory、Topic Memory 整体标签使用 `scope.read` 读取、`scope.admin` 修改。
+跨对象查询需要 `scope.read`；Topic Memory 标签使用 `scope.read` 读取、`scope.admin` 修改。
 Prompt 标签沿用 Prompt 的读取权限，修改需要当前 `scope.admin` 权限；撤销 Scope 管理权限后不能凭保留的制品所有权继续修改标签。
 Profile、Experience、Skill、Handoff 和单条记忆的标签使用对应对象的 `artifact.read` / `artifact.write` 权限。
 权限不足返回 **403**，撤销分享后立即失去相应标签访问权限。
@@ -68,16 +67,19 @@ async def main():
 asyncio.run(main())
 ```
 
-输出应包含保存的两个标签和匹配的对象。对记忆条目，使用 `get_memory_entry_tags` 与 `replace_memory_entry_tags`，
-传入 `(scope_id, artifact_id, entry_id)`。entry ID 来自当前 manifest 或 Memory citation，不是 `entry_version_id`。
-一个 Scope 可以有多个 Memory 制品；已有的 Scope 级记忆列表和检索接口操作的是运行时指定的 Memory。
+输出应包含保存的两个标签和匹配的对象。Atomic Memory 使用同一套 `get_artifact_tags` / `replace_artifact_tags`，
+传入 `family="atomic-memory"` 和搜索或列表返回的 `artifact_id`。
+
+迁移前的 entry 标签接口仍可接受旧 `(scope_id, artifact_id, entry_id)`，并在 API 层映射到对应的新制品。
+迁移时已经不在旧当前 manifest 中的条目无法通过该逻辑入口定位；保留的旧 citation 用于精确历史读取。
+新记忆不生成旧 entry ID。兼容范围见[原子记忆](atomic-memory.md)。
 
 ## HTTP 接口与检索过滤
 
 | Method | Path | 用途 |
 | --- | --- | --- |
 | GET / PUT | `/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags` | 读取或替换制品标签 |
-| GET / PUT | `/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags` | 读取或替换逻辑记忆条目的标签 |
+| GET / PUT | `/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags` | 兼容读取或替换迁移前 entry 的标签 |
 | POST | `/v1/scopes/{scope_id}/artifact-tags/query` | 跨制品类型精确查找标签对象 |
 
 PUT 请求体是 `{"tags":["customer-a","release"]}`，并且必须通过 `If-Match` 提交 GET 返回的 ETag。
@@ -88,20 +90,19 @@ PUT 请求体是 `{"tags":["customer-a","release"]}`，并且必须通过 `If-Ma
 `/v1/scopes/{scope_id}/artifacts/skill?tag=release&tag=customer-a&tag_match=all`。
 没有 `tag` 时不能单独传入 `tag_match`。
 
-记忆条目列表和检索请求支持以下可选字段：
+Atomic Memory 的 list/search 接口使用如下标签字段：
 
 ```json
-{"tag_filter":{"tags":["customer-a","release"],"match":"all"}}
+{"tags":["customer-a","release"],"tag_match":"all"}
 ```
 
-记忆检索匹配的是条目自己的标签，不是所属 Memory 制品的标签，且仍然只返回活跃条目。
-全文与向量通道都在数据库候选集阶段过滤，之后才应用候选数量限制、融合与重排。
-SQLite 和 OceanBase 的带标签向量查询会对符合条件的集合进行精确距离排序，成本可能高于不带标签的近似搜索。
-不支持标签过滤的后端会明确拒绝请求，不会静默改成先截断再过滤。
+`/v1/memory/search` 等兼容入口仍接受旧 `tag_filter` 请求结构。两者都匹配独立记忆的标签。
+全文和向量查询先应用权限、标签等资格条件，再限制候选数量和重排；搜索只返回在役记忆。
+当前 SQLite 和 OceanBase 的 Atomic Memory 向量搜索使用精确距离排序，计算量随合格向量数和维度增长。
 
-标签查询返回当前的精确 Artifact 引用或 Memory citation，按制品类型、对象类型、制品 ID、对象 ID 排序。
-不传 `families` 时查询所有七种制品类型；例如 `{"tags":["release"],"families":["topic-memory","profile","prompt","handoff"]}`
-只查找所选类型。所有制品类型都支持上述标签读写、列表过滤和跨类型查询，标签会在内容更新和服务重启后保留。
+标签查询返回当前精确 Artifact 引用，按制品类型、对象类型、制品 ID、对象 ID 排序。
+不传 `families` 时查询当前支持的制品类型，也可指定 `{"tags":["release"],"families":["atomic-memory","skill"]}`。
+旧 `memory` 集合不作为当前记忆的发现入口。标签会在内容更新和服务重启后保留。
 翻页时原样传回 `next_cursor`，并保持 Scope、过滤条件和调用方一致。游标有效期是一小时；无效或不匹配返回 **400**，
 过期返回 **410**。单页内部保持一致，但跨页不固定数据库快照。
 
@@ -113,7 +114,7 @@ SQLite 和 OceanBase 的带标签向量查询会对符合条件的集合进行�
   `Straße` 和 `STRASSE` 等规范化后重复的标签会让整次请求失败；规范化键不能超过 128 个码点。
 - 标签是 Scope 内的检索元数据，不是权限或可信指令，不会进入模型提示词、Skill 包 frontmatter 或发布/导入内容。
   发布后的副本不会继承源对象的标签。
-- 只要条目仍在当前权威 manifest 中，即使已经停用也可以维护标签。重建活跃搜索投影不会删除标签。
+- 非在役记忆的标签仍保留在权威标签表中；重建搜索投影不会删除这些标签。
 
 所有关联都存储在 `pc_artifact_tags` 一张表中，通过外键关联所属制品的 head。
 表内保留完整规范化键，并使用 32 字节 SHA-256 键摘要建立索引，以同时满足 OceanBase 的外键列长度要求和 3072 字节索引限制。

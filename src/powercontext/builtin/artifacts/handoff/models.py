@@ -25,7 +25,6 @@ from powercontext.builtin.artifacts.handoff.generation_metadata import (
     HandoffGenerationEnvelope,
     HandoffGenerationMetadata,
 )
-from powercontext.builtin.artifacts.memory import MemoryCitation, MemoryEntryVersion
 from powercontext.sources import Source, SourceRef
 
 DEFAULT_HANDOFF_MAX_BYTES = 8000
@@ -67,15 +66,8 @@ class HandoffArtifactCitation(_HandoffValue):
     artifact_ref: ArtifactRef
 
 
-class HandoffMemoryCitation(_HandoffValue):
-    """Cite one exact Memory entry version."""
-
-    kind: Literal["memory"] = "memory"
-    memory_citation: MemoryCitation
-
-
 HandoffCitation: TypeAlias = Annotated[
-    HandoffSourceCitation | HandoffArtifactCitation | HandoffMemoryCitation,
+    HandoffSourceCitation | HandoffArtifactCitation,
     Field(discriminator="kind"),
 ]
 
@@ -156,25 +148,7 @@ class HandoffArtifactEvidence(_HandoffValue):
         return self
 
 
-class HandoffMemoryEvidence(_HandoffValue):
-    """One exact Memory entry version resolved for Handoff generation."""
-
-    citation: HandoffMemoryCitation
-    entry: MemoryEntryVersion
-
-    @model_validator(mode="after")
-    def require_exact_entry_version(self) -> HandoffMemoryEvidence:
-        reference = self.citation.memory_citation
-        if (
-            reference.memory_ref.artifact_id != self.entry.memory_artifact_id
-            or reference.entry_id != self.entry.entry_id
-            or reference.entry_version_id != self.entry.entry_version_id
-        ):
-            raise ValueError("resolved Memory entry does not match its Handoff citation")  # noqa: TRY003
-        return self
-
-
-HandoffGenerationEvidence: TypeAlias = HandoffSourceEvidence | HandoffArtifactEvidence | HandoffMemoryEvidence
+HandoffGenerationEvidence: TypeAlias = HandoffSourceEvidence | HandoffArtifactEvidence
 
 
 class HandoffGenerationRequest(_HandoffValue):

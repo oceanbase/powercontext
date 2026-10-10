@@ -57,8 +57,10 @@ def contains_secret(value):
 
 
 def request_for(operation: str, parameters: dict, connection: Connection, scope_id: str):
-    reference = CONTRACT["operations"][operation]["request"]
-    schema = CONTRACT["components"]["schemas"][reference["$ref"].rsplit("/", 1)[-1]]
+    reference = CONTRACT["tool_requests"].get(operation, CONTRACT["operations"][operation]["request"])
+    schema = (
+        CONTRACT["components"]["schemas"][reference["$ref"].rsplit("/", 1)[-1]] if "$ref" in reference else reference
+    )
     allowed = set(schema["properties"]) - HIDDEN_PARAMETERS
     if set(parameters) - allowed:
         raise PluginError("invalid_request")
@@ -139,11 +141,11 @@ class PowerContextTool(Tool):
             client = Client(connection)
             scope_id = client.resolve_scope()
             request = request_for(self.operation, tool_parameters, connection, scope_id)
-            data = client.call(self.operation, request)
+            data = client.call_memory(self.operation, request)
             empty = (
                 (self.operation == "prepare_context" and data["status"] == "empty")
                 or (self.operation == "search_memory" and not data["hits"])
-                or (self.operation == "list_memory_entries" and not data["entries"])
+                or (self.operation == "list_memory_entries" and not data["items"])
                 or (self.operation == "list_artifact_candidates" and not data["candidates"])
             )
             outcome = {

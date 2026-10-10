@@ -161,8 +161,8 @@ def test_explicit_generation_rejects_a_lineage_only_source_before_model_use() ->
         ) as runtime:
             scope_id = await _create_scope(runtime)
             created = await runtime.records.for_scope(scope_id).create_artifact(
-                "memory",
-                ArtifactWrite(content={"entries": [{"kind": "fact", "text": "Direct input."}]}),
+                "atomic-memory",
+                ArtifactWrite(content={"kind": "fact", "text": "Direct input."}),
             )
 
             with pytest.raises(SourceNotEligibleError) as error:

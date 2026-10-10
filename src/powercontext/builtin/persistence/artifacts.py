@@ -30,9 +30,7 @@ from powercontext.artifacts import (
     ArtifactDraft,
     ArtifactLineage,
     ArtifactRef,
-    MemoryCitation,
 )
-from powercontext.builtin.persistence.citation_codec import dump_memory_citations, load_memory_citations
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes, validate_json_model
 from powercontext.builtin.persistence.errors import (
     IdentityMismatchError,
@@ -65,7 +63,6 @@ class RepositoryArtifactDraft(BaseModel):
     content: BaseModel
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
-    memory_citations: tuple[MemoryCitation, ...] = ()
 
 
 class ArtifactRepository:
@@ -118,9 +115,7 @@ class ArtifactRepository:
                 artifact_type,
                 ref,
                 draft.content,
-                ArtifactLineage(
-                    sources=draft.sources, artifacts=draft.artifacts, memory_citations=draft.memory_citations
-                ),
+                ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts),
             )
             await connection.execute(
                 insert(ARTIFACT_HEADS_TABLE).values(
@@ -187,7 +182,7 @@ class ArtifactRepository:
             artifact_type,
             ref,
             draft.content,
-            ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts, memory_citations=draft.memory_citations),
+            ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts),
         )
         advanced = await connection.execute(
             update(ARTIFACT_HEADS_TABLE)
@@ -299,6 +294,46 @@ class ArtifactRepository:
             for_update=for_update,
         )
 
+    async def lock_heads(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        refs: Sequence[ArtifactRef],
+        /,
+    ) -> None:
+        """Lock current logical identities in deterministic order, independent of revisions.
+
+        A no-op UPDATE takes a write lock on SQLite as well as row locks on
+        OceanBase. Callers must perform current reads and validate their saved
+        revisions after all of these locks have been acquired.
+        """
+
+        _require_scope(scope_id)
+        for family, artifact_id in sorted({(ref.family, ref.artifact_id) for ref in refs}):
+            locked = await connection.execute(
+                update(ARTIFACT_HEADS_TABLE)
+                .where(
+                    ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                    ARTIFACT_HEADS_TABLE.c.family == family,
+                    ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
+                )
+                .values(revision=ARTIFACT_HEADS_TABLE.c.revision)
+            )
+            if locked.rowcount != 1:
+                raise RepositoryNotFoundError("artifact-head", (scope_id, family, artifact_id))
+
+    async def validate_lineage_sources(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        target: ArtifactRef,
+        sources: tuple[SourceRef, ...],
+        /,
+    ) -> None:
+        """Validate prospective evidence using the same rules as create/revise."""
+
+        await self._validate_lineage_sources(connection, scope_id, target, sources)
+
     async def revisions(
         self,
         connection: AsyncConnection,
@@ -387,7 +422,6 @@ class ArtifactRepository:
                 artifact_id=ref.artifact_id,
                 revision=ref.revision,
                 content=payload,
-                memory_citations=dump_memory_citations(lineage.memory_citations),
             )
         )
         if lineage.sources:
@@ -454,7 +488,6 @@ class ArtifactRepository:
     ) -> Artifact[Any]:
         family = str(row["family"])
         artifact_type = self._artifact_type(family)
-        lineage = lineage.model_copy(update={"memory_citations": load_memory_citations(row.get("memory_citations"))})
         content = load_model(
             self._content_types[family],
             stored_bytes(row["content"], column="payload"),

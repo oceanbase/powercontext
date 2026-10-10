@@ -28,6 +28,7 @@ import tomllib
 import uuid
 from pathlib import Path
 
+import httpx
 import pytest
 from dotenv import load_dotenv
 from pydantic import SecretStr
@@ -44,11 +45,10 @@ from powercontext.http import (
     CreateScopeRequest,
     GenerateExperienceRequest,
     GetExperienceRequest,
-    GetMemoryEntryRequest,
     MemorySearchMode,
     PrepareContextRequest,
     RememberMemoryRequest,
-    ReviseMemoryEntryRequest,
+    ReplaceArtifactRequest,
     SearchMemoryRequest,
     UpdateScopeRequest,
 )
@@ -109,7 +109,7 @@ def test_configured_services_and_native_codex_consume_standard_text(tmp_path, py
             (tmp_path / "assembly-report.json").write_text(json.dumps(report, indent=2))
         print("Starting isolated configured-service context assembly acceptance", flush=True)
         server = _start_configured_server(settings, tmp_path / "scheduler.db")
-        scope_id, nonce, entry_version = asyncio.run(_api_scenario(server.base_url, token, scope_ids, report, tmp_path))
+        scope_id, nonce, artifact_ref = asyncio.run(_api_scenario(server.base_url, token, scope_ids, report, tmp_path))
         with tempfile.TemporaryDirectory(prefix="powercontext-assembly-host-") as temp:
             root = Path(temp)
             home = _install_codex_plugin(root, real_home, server.base_url, token)
@@ -133,14 +133,13 @@ def test_configured_services_and_native_codex_consume_standard_text(tmp_path, py
             prompt = (
                 "Repair the deployment configuration and verify the release gate. Use the historical context already "
                 "supplied by the PowerContext prompt hook as evidence, inspect current files, and keep test_config.py "
-                "unchanged. Do not call additional memory/context tools. Return the release nonce, exact Memory entry "
-                "version, confidence label, and verification result found in the context and live check. "
+                "unchanged. Do not call additional memory/context tools. Return the release nonce, exact Atomic Memory citation in ID@revision format, confidence label, and verification result found in the context and live check. "
                 "Use unknown for any missing evidence."
             )
             print("Configured API scenarios passed; running native Codex with standard text", flush=True)
             result = _codex_turn(root, repository, environment, prompt, timeout=timeout, name="enabled")
             assert result["nonce"] == nonce, "Native Codex did not receive the selected Memory evidence"
-            assert entry_version in result["entry_version"], "Native Codex lost the exact citation"
+            assert artifact_ref in result["artifact_ref"], "Native Codex lost the exact Atomic Artifact revision"
             assert "unknown" in result["confidence"].lower(), "The host invented a confidence value"
             assert (repository / "test_config.py").read_text() == CHECK
             check = subprocess.run([sys.executable, "test_config.py"], cwd=repository, capture_output=True, text=True)
@@ -158,7 +157,7 @@ def test_configured_services_and_native_codex_consume_standard_text(tmp_path, py
                 name="disabled",
             )
             assert disabled["nonce"].lower() == "unknown"
-            assert disabled["entry_version"].lower() == "unknown"
+            assert disabled["artifact_ref"].lower() == "unknown"
             report["checks"].append("native_codex_empty_sections_negative_control")
             report["codex_disabled"] = disabled
     finally:
@@ -195,8 +194,9 @@ async def _api_scenario(url, token, scope_ids, report, output):
                 text=f"Deployment repair: set config.json mode to strict, keep test_config.py unchanged, and run python3 test_config.py. Release nonce: {nonce}.",
             )
         )
-        assert remembered.entry is not None
-        citation = remembered.entry.citation
+        assert len(remembered.records) == 1
+        memory = remembered.records[0]
+        citation = memory.artifact
         await client.remember_memory(
             RememberMemoryRequest(
                 scope_id=shared,
@@ -224,7 +224,7 @@ async def _api_scenario(url, token, scope_ids, report, output):
         vector = await client.search_memory(
             SearchMemoryRequest(scope_id=current, query=QUERY, mode=MemorySearchMode.VECTOR, limit=8)
         )
-        assert any(hit.citation.entry_version_id == citation.entry_version_id for hit in vector.hits)
+        assert any(hit.memory.artifact == citation for hit in vector.hits)
         report["checks"].append("configured_embedding_and_database_vector_recall")
         verified_output = await asyncio.to_thread(_verify_source_fixture)
         print("Configured vector retrieval passed; generating Experience with the real LLM", flush=True)
@@ -319,17 +319,22 @@ async def _api_scenario(url, token, scope_ids, report, output):
         )
         assert disabled.content is None and disabled.content_bytes == 0
         report["checks"].append("legacy_default_and_explicit_empty_sections")
-        revised = await client.revise_memory_entry(
-            ReviseMemoryEntryRequest(
-                scope_id=current,
-                citation=citation,
-                kind="release-gate",
-                text=remembered.entry.text + " Revalidated for the current release.",
-            )
+        headers = {} if token is None else {"Authorization": f"Bearer {token}"}
+        async with httpx.AsyncClient(base_url=url, headers=headers) as transport:
+            head = await transport.get(f"/v1/scopes/{current}/artifacts/atomic-memory/{citation.artifact_id}")
+            head.raise_for_status()
+        revised = await client.replace_artifact(
+            current,
+            citation.family,
+            citation.artifact_id,
+            ReplaceArtifactRequest.model_validate({
+                "content": {"kind": "release-gate", "text": memory.text + " Revalidated for the current release."}
+            }),
+            expected_etag=head.headers["ETag"],
         )
-        exact = await client.get_memory_entry(GetMemoryEntryRequest(scope_id=current, citation=citation))
-        assert exact.text == remembered.entry.text
-        assert revised.entry is not None
+        exact = await client.get_artifact_revision(current, citation.family, citation.artifact_id, citation.revision)
+        assert exact.content["text"] == memory.text
+        assert revised.revision == citation.revision + 1
         report["checks"].append("historical_memory_version_remains_exact_after_revision")
         descriptor = await client.get_scope(current)
         await client.update_scope(
@@ -345,7 +350,7 @@ async def _api_scenario(url, token, scope_ids, report, output):
         await client.prepare_context(
             PrepareContextRequest.model_validate({"scope_id": current, "query": QUERY, "assembly": ASSEMBLY})
         )
-        return current, nonce, revised.entry.citation.entry_version_id
+        return current, nonce, f"{revised.artifact_id}@{revised.revision}"
 
 
 def _verify_source_fixture():
@@ -416,8 +421,8 @@ def _codex_turn(root, repository, environment, prompt, *, timeout, name):
         json.dumps({
             "type": "object",
             "additionalProperties": False,
-            "required": ["nonce", "entry_version", "confidence", "validation"],
-            "properties": {key: {"type": "string"} for key in ["nonce", "entry_version", "confidence", "validation"]},
+            "required": ["nonce", "artifact_ref", "confidence", "validation"],
+            "properties": {key: {"type": "string"} for key in ["nonce", "artifact_ref", "confidence", "validation"]},
         })
     )
     output = root / f"{name}.json"

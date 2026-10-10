@@ -95,21 +95,6 @@ class InvalidEmbeddingError(MemoryLayerError, ValueError):
         super().__init__(messages.get(code, f"invalid embedding: {code}"))
 
 
-class InvalidMemoryCitationError(MemoryLayerError, ValueError):
-    def __init__(self, code: str) -> None:
-        self.code = code
-        messages = {
-            "base-mismatch": "memory value does not match its exact stored Revision",
-            "duplicate-versions": "backend returned duplicate entry version identities",
-            "missing-version": "manifest entry version is missing",
-            "cross-identity": "entry version crosses Memory or logical entry identity",
-            "hash-mismatch": "manifest content hash does not match canonical entry bytes",
-            "expand-count": "invalid memory citation expansion count",
-            "expand-anchor": "invalid memory citation anchor",
-        }
-        super().__init__(messages.get(code, f"invalid memory citation: {code}"))
-
-
 class MemoryWriteRejectedError(MemoryLayerError, RuntimeError):
     """A structured, caller-visible refusal to apply one Memory write.
 

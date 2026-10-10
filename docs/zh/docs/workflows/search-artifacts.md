@@ -38,6 +38,7 @@ Content-Type: application/json
 | `experience` | 支持 | `text`；省略模式时使用文本检索 | 已批准、处于 active 状态的 Experience head |
 | `skill` | 支持 | `text`；省略模式时使用文本检索 | 已批准、处于 active 状态的托管 Skill head；不检索外部 Skill 目录 |
 | `topic-memory` | 支持 | `text`、`vector`、`hybrid`；配置 Embedding 时默认混合检索，否则默认文本检索 | Topic Memory 当前 head，分别检索标题/摘要和详情通道 |
+| `atomic-memory` | 支持 | `text`、`vector`、`hybrid`、`auto`；默认 `auto` | 当前 active 的 Atomic Memory 正文 |
 | `memory` | 不支持 | 保留原有 Memory 检索入口 | 见 [Memory 与上下文](memory-and-context.md) |
 | `profile` | 不支持 | 此入口不提供相关性检索 | 见[使用 Profile](use-profiles.md) |
 | `handoff` | 不支持 | 此入口不提供相关性检索 | 见 [Memory 与 Handoff](memory-and-handoff.md) |
@@ -50,21 +51,34 @@ Topic 向量或混合检索还需要兼容的 Embedding 模型和索引 Profile�
 
 | 字段 | 类型与默认值 | 支持范围 |
 | --- | --- | --- |
-| `query` | 必填非空字符串 | 去除首尾空白。Experience 和 Topic 最多 8192 个字符，Skill 最多 2000 个字符。 |
-| `limit` | 整数，默认 `10` | Experience、Skill 为 `1`–`200`；Topic 为 `1`–`20`。这是返回上限，不保证填满。 |
+| `query` | 必填非空字符串 | 去除首尾空白。Experience、Topic、Atomic 最多 8192 个字符，Skill 最多 2000 个字符。 |
+| `limit` | 整数，默认 `10` | Experience、Skill 为 `1`–`200`；Topic 为 `1`–`20`；Atomic 为 `1`–`100`。这是返回上限，不保证填满。 |
 | `mode` | 可省略的字符串 | 选择该 Family 支持的模式；省略时使用默认策略。 |
-| `filters` | 对象，默认 `{}` | 这三个 Family 只支持空对象。 |
+| `filters` | 对象，默认 `{}` | Experience、Skill、Topic 只支持空对象；Atomic 的参数见下文。 |
 | `admission` | 可省略的对象 | 决定检索到的候选能否参与评分；字段见下文。 |
 | `min_score` | 可省略的有限数值，范围 `[0, 1]` | 只保留归一化检索分数不低于该值的结果；省略时不设评分阈值。 |
 | `include_scores` | 布尔值，默认 `false` | 在结果中附加检索分数和实际存在的通道原分。 |
 | `fusion` | 可省略的对象 | 只有 Topic 开放 `rrf`，见[融合算法与参数](search-fusion.md)。 |
 
 使用默认值时省略对应字段。显式 `null`、未知字段、数字字符串、数值字段中的布尔值均会被拒绝。
-`limit` 必须是整数，`include_scores` 必须是 JSON 布尔值。非空 `filters`、`rerank` 和 `weighted_score` 融合方法
+`limit` 必须是整数，`include_scores` 必须是 JSON 布尔值。Experience、Skill、Topic 不接受非空 `filters`；`rerank` 和 `weighted_score` 融合方法
 均未开放。Experience 和 Skill 不接受 `fusion`。
 
 准入和评分完成后，先应用 `min_score`，再截取最终 `limit`。阈值过滤后不会用更低分的候选补齐数量。
 开启评分只增加响应元数据，不改变候选准入、结果身份、顺序或阈值行为。
+
+## Atomic Memory 检索
+
+`atomic-memory` 使用独立 Atomic Memory 入口已有的当前正文检索，要求 `scope.read`。
+单条 Artifact 分享仍可通过精确读取和历史读取访问。结果保留现有 RRF 顺序，并返回完整的精确版本 Artifact。
+已退役的 `memory` Family 不作为检索回退。
+
+Atomic 接受 `query`、`limit`、`mode`、`filters` 和 `include_scores: false`。
+`filters.kind` 筛选类型；`filters.tag_filter` 接受 `{"tags": ["release"], "match": "all"}`，也可使用 `"any"`。
+配置兼容的 Embedding 模型时，`auto` 使用混合检索，否则使用文本检索。
+现有检索结果未保留所有通道的原始分数，因此 `include_scores: true` 返回 HTTP `422`，错误码为
+`artifact_search_not_supported`，字段为 `include_scores`。此适配层不接受 `admission`、`fusion`、
+`min_score`、`rerank` 等其他 Family 参数。
 
 ## Experience 和 Skill 文本检索
 

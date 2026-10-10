@@ -21,10 +21,12 @@ from typing import Literal
 
 from .catalog import MemoryEvaluationSpec, OutcomeEvaluationSpec, normalize_context_fragment
 from .models import (
+    AtomicMemorySnapshot,
     CaseEvaluation,
     EvaluationReport,
     EvaluationValue,
     HarborTrialObservation,
+    MemoryEntrySnapshot,
     RecallProbeObservation,
     TaskObservation,
 )
@@ -122,13 +124,16 @@ class MemoryEvaluator:
         captured_records = [record for record in eligible_records if record.status == "captured"]
         capture_coverage = len(captured_records) / len(eligible_records) if eligible_records else 0.0
 
-        memory_before_ids = {entry.entry_id for entry in observation.memory_before.entries}
-        new_memory = [entry for entry in observation.memory_after.entries if entry.entry_id not in memory_before_ids]
+        memory_before_ids = {_memory_identity(entry) for entry in observation.memory_before.entries}
+        new_memory = [
+            entry for entry in observation.memory_after.entries if _memory_identity(entry) not in memory_before_ids
+        ]
         captured_source_ids = {record.source_id for record in captured_records if record.source_id is not None}
         grounded_memory = [
             entry
             for entry in new_memory
-            if entry.source_refs and all(source.source_id in captured_source_ids for source in entry.source_refs)
+            if (sources := entry.sources if isinstance(entry, AtomicMemorySnapshot) else entry.source_refs)
+            and all(source.source_id in captured_source_ids for source in sources)
         ]
         groundedness = len(grounded_memory) / len(new_memory) if new_memory else 0.0
 
@@ -278,6 +283,12 @@ class MemoryEvaluator:
                 ),
             ),
         )
+
+
+def _memory_identity(entry: AtomicMemorySnapshot | MemoryEntrySnapshot) -> tuple[str, str]:
+    if isinstance(entry, AtomicMemorySnapshot):
+        return entry.artifact.family, entry.artifact.artifact_id
+    return "memory", entry.entry_id
 
 
 def _contains_fragments(value: str, expected: tuple[str, ...]) -> bool:

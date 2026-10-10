@@ -37,17 +37,22 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+)
+from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.oceanbase.profile import _register_official_dialect
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import BuiltinConfig, RetireMemoryEntryRequest, RuntimeConfig, open_builtin_runtime
+from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_runtime
 from powercontext.builtin.runtime.config import InferenceConfig
-from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient
 from powercontext.client.errors import ServerResponseError
 from powercontext.http import (
     ApproveArtifactCandidateRequest,
+    ArtifactReference,
     CaptureContentSourceRequest,
     CreateDreamRunRequest,
     CreateScopeRequest,
@@ -57,11 +62,11 @@ from powercontext.http import (
     GetExperienceRequest,
     GetSkillRequest,
     ListDreamRunsRequest,
-    MemoryCitation,
     PrepareContextRequest,
 )
 from powercontext.server.app import ServerApplication, create_app
 from powercontext.server.settings import ServerSettings
+from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 
 ENV_FILE = Path(".env")
 CASE = "sqlite-global"
@@ -138,15 +143,19 @@ def historical_task_evidence() -> tuple[str, ...]:
 
 
 class TaskMemory:
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        return tuple(
-            MemoryEntryInput(kind="task_record", text=rendering, sources=(item,))
-            for item in request.sources
-            if isinstance(item, ContentSource)
-            for rendering in (
-                (item.content, "Another rendering of the same check: " + item.content)
-                if item.name == "task-2"
-                else (item.content,)
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        return GenerationResult(
+            output=AtomicMemoryExtractionOutput(
+                candidates=tuple(
+                    AtomicMemoryCandidate(kind="working_note", text=rendering, evidence_ids=(evidence.evidence_id,))
+                    for evidence in request.evidence
+                    if (text := memory_source_text(evidence)) is not None
+                    for rendering in (
+                        (text, "Another rendering of the same check: " + text)
+                        if evidence.source_ref.source_id == "task-2"
+                        else (text,)
+                    )
+                )
             )
         )
 
@@ -233,7 +242,7 @@ async def validate_backend(
 
 async def validate_runtime(label, configuration, *, dream_generator=None):
     async with open_builtin_runtime(
-        configuration, candidate_pipeline=TaskMemory(), dream_generator=dream_generator
+        configuration, candidate_pipeline=atomic_memory_pipeline(TaskMemory()), dream_generator=dream_generator
     ) as runtime:
         app = create_app(application=cast(ServerApplication, runtime))
         original_handler = app.exception_handlers[Exception]
@@ -286,15 +295,16 @@ async def validate_runtime(label, configuration, *, dream_generator=None):
                     await client.capture_content_source(
                         CaptureContentSourceRequest(scope_id=scope.scope_id, source_id=f"task-{index}", content=content)
                     )
-                await runtime.memory.for_scope(scope.scope_id).flush()
-                entries = await runtime.memory.for_scope(scope.scope_id).list()
+                assert runtime.atomic_memory is not None
+                await runtime.atomic_memory.for_scope(scope.scope_id).flush()
+                entries = await runtime.atomic_memory.for_scope(scope.scope_id).list()
                 citations = [
-                    MemoryCitation.model_validate_json(entry.citation.model_dump_json()) for entry in entries.entries
+                    ArtifactReference.model_validate_json(entry.ref.model_dump_json()) for entry in entries.items
                 ]
                 assert len(citations) == 4
                 request = CreateDreamRunRequest(
                     operation=DreamOperation.REFINE_EXPERIENCE,
-                    memory_citations=citations,
+                    artifacts=citations,
                     idempotency_key="memory-to-experience",
                 )
                 progress(
@@ -313,7 +323,7 @@ async def validate_runtime(label, configuration, *, dream_generator=None):
                     GetArtifactCandidateRequest(scope_id=scope.scope_id, candidate_id=run.candidate.candidate_id)
                 )
                 report[label]["experience_candidate"] = candidate.model_dump(mode="json")
-                assert candidate.memory_citations and candidate.source_refs
+                assert candidate.artifact_refs and candidate.source_refs
                 assert run.input_manifest is not None and len(run.input_manifest.root_groups) == 3
                 approved = await client.approve_artifact_candidate(
                     ApproveArtifactCandidateRequest(
@@ -324,7 +334,7 @@ async def validate_runtime(label, configuration, *, dream_generator=None):
                 experience = await client.get_experience(
                     GetExperienceRequest(scope_id=scope.scope_id, artifact=approved.result_artifact)
                 )
-                assert experience.memory_citations == candidate.memory_citations
+                assert experience.artifact_refs == candidate.artifact_refs
                 assert await client.create_dream_run(scope.scope_id, request) == run
                 report[label]["experience"] = experience.model_dump(mode="json")
                 followup = await client.prepare_context(
@@ -355,7 +365,7 @@ async def validate_runtime(label, configuration, *, dream_generator=None):
                     GetArtifactCandidateRequest(scope_id=scope.scope_id, candidate_id=skill_run.candidate.candidate_id)
                 )
                 report[label]["skill_candidate"] = skill_candidate.model_dump(mode="json")
-                assert not skill_candidate.memory_citations and skill_candidate.artifact_refs == [experience.artifact]
+                assert skill_candidate.artifact_refs == [experience.artifact]
                 skill_approved = await client.approve_artifact_candidate(
                     ApproveArtifactCandidateRequest(
                         scope_id=scope.scope_id,
@@ -371,15 +381,18 @@ async def validate_runtime(label, configuration, *, dream_generator=None):
                 assert len((await client.list_dream_runs(scope.scope_id, ListDreamRunsRequest())).runs) == 2
                 report[label]["skill"] = skill.model_dump(mode="json")
                 retired = next(
-                    entry.citation
-                    for entry in entries.entries
-                    if entry.citation.entry_id == candidate.memory_citations[0].entry_id
+                    entry for entry in entries.items if entry.ref.artifact_id == candidate.artifact_refs[0].artifact_id
                 )
-                await runtime.memory.for_scope(scope.scope_id).retire(RetireMemoryEntryRequest(citation=retired))
+                assert runtime.atomic_memory is not None
+                await runtime.atomic_memory.for_scope(scope.scope_id).forget(
+                    retired.ref.artifact_id,
+                    expected_revision=retired.ref.revision,
+                    expected_state_version=retired.state.state_version,
+                )
                 rejected = CreateDreamRunRequest(
                     operation=DreamOperation.REFINE_EXPERIENCE,
-                    memory_citations=[MemoryCitation.model_validate_json(retired.model_dump_json())],
-                    idempotency_key="retired-entry",
+                    artifacts=[ArtifactReference.model_validate_json(retired.ref.model_dump_json())],
+                    idempotency_key="forgotten-memory",
                 )
                 try:
                     await client.create_dream_run(scope.scope_id, rejected)

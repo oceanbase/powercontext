@@ -16,21 +16,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
-from powercontext.builtin.artifacts.memory import MemoryCitation, MemoryService
 from powercontext.builtin.inference import TokenEstimator
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.sources import SourceRepository
-from powercontext.builtin.runtime.prepared_context import (
-    MemoryEntryAddress,
-    PreparedContextBuild,
-    PreparedContextOrigin,
-)
+from powercontext.builtin.runtime.prepared_context import PreparedContextBuild, PreparedContextOrigin
 from powercontext.builtin.sources import ContentSource, ExternalSkillSnapshotSource
 from powercontext.builtin.statistics import RecallTokenMeasurement
 from powercontext.sources import Source, SourceRef
@@ -53,38 +46,17 @@ class _RecallOriginResolver:
         connection: AsyncConnection,
         current_scope_id: str,
         artifacts: ArtifactRepository,
-        memory_service: Callable[[str, AsyncConnection], MemoryService],
     ) -> None:
         self._connection = connection
         self._current_scope_id = current_scope_id
         self._artifacts = artifacts
-        self._memory_service = memory_service
         self._artifact_sources: dict[tuple[str, str, str, int], frozenset[SourceAddress]] = {}
         self._resolving_artifacts: set[tuple[str, str, str, int]] = set()
 
     async def resolve(self, origin: PreparedContextOrigin, /) -> set[SourceAddress]:
-        if isinstance(origin, MemoryCitation):
-            return await self._memory(self._current_scope_id, origin)
-        if isinstance(origin, MemoryEntryAddress):
-            return await self._memory(
-                origin.memory.scope_id,
-                MemoryCitation(
-                    memory_ref=origin.memory.artifact,
-                    entry_id=origin.entry_id,
-                    entry_version_id=origin.entry_version_id,
-                ),
-            )
         if isinstance(origin, ArtifactAddress):
             return set(await self._artifact(origin.scope_id, origin.artifact))
         return set(await self._artifact(self._current_scope_id, origin))
-
-    async def _memory(self, scope_id: str, citation: MemoryCitation) -> set[SourceAddress]:
-        memory = self._memory_service(scope_id, self._connection)
-        entry = await memory.validate_citation(citation)
-        sources = _source_identities(scope_id, entry.sources)
-        for artifact_ref in entry.artifacts:
-            sources.update(await self._artifact(scope_id, artifact_ref))
-        return sources
 
     async def _artifact(self, scope_id: str, artifact_ref: ArtifactRef) -> frozenset[SourceAddress]:
         identity = _artifact_identity(scope_id, artifact_ref)
@@ -113,14 +85,12 @@ class RelationalRecallTokenEstimator:
         scope_id: str,
         sources: SourceRepository,
         artifacts: ArtifactRepository,
-        memory_service: Callable[[str, AsyncConnection], MemoryService],
         estimator: TokenEstimator,
     ) -> None:
         self._database = database
         self._scope_id = scope_id
         self._sources = sources
         self._artifacts = artifacts
-        self._memory_service = memory_service
         self._estimator = estimator
 
     async def estimate(self, build: PreparedContextBuild, /) -> RecallTokenMeasurement:
@@ -132,7 +102,6 @@ class RelationalRecallTokenEstimator:
                 connection=connection,
                 current_scope_id=self._scope_id,
                 artifacts=self._artifacts,
-                memory_service=self._memory_service,
             )
             for origin in build.origins:
                 origin_sources = await resolver.resolve(origin)

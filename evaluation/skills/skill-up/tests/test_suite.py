@@ -158,6 +158,22 @@ class SuiteValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "forbid persistence claims"):
             validate_suite.validate(self.project)
 
+    def test_save_positive_control_rejects_legacy_entry_response(self):
+        reference = "evals/fixtures/mcp/powercontext-default.json"
+        fixture = self.read(reference)
+        fixture["tool_responses"]["remember_memory"] = {"default": {"memory": {}, "entry": {}}}
+        self.write(reference, fixture)
+        with self.assertRaisesRegex(ValueError, "Atomic Memory save response"):
+            validate_suite.validate(self.project)
+
+    def test_mock_cannot_omit_a_current_atomic_tool(self):
+        reference = "evals/fixtures/mcp/powercontext-default.json"
+        fixture = self.read(reference)
+        fixture["tool_responses"].pop("list_atomic_memories")
+        self.write(reference, fixture)
+        with self.assertRaisesRegex(ValueError, "current MCP tools"):
+            validate_suite.validate(self.project)
+
     def test_skill_copy_drift_fails_before_model_execution(self):
         skill = self.project / "vendor/powercontext-project-context/SKILL.md"
         skill.write_text(skill.read_text(encoding="utf-8") + "\nChanged guidance\n", encoding="utf-8")

@@ -45,6 +45,7 @@ from powercontext.server.authz import (
     AccessBinding,
     AccessBindingState,
     AccessConflictError,
+    AccessControlService,
     AccessRequest,
     AccessRole,
     AccessUnavailableError,
@@ -210,6 +211,31 @@ def test_providers_read_decision_inputs_from_one_snapshot() -> None:
                     )
                 )
                 assert counting.transactions == 1, "filter must read from one snapshot transaction"
+
+    asyncio.run(scenario())
+
+
+def test_connection_binding_preserves_configured_casbin_decision_repository() -> None:
+    async def scenario() -> None:
+        async with (
+            SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as relationship_profile,
+            SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as decision_profile,
+        ):
+            relationships = RelationalAccessRepository(relationship_profile.database)
+            decisions = RelationalAccessRepository(decision_profile.database)
+            handoff = await _seed_handoff(relationships)
+            request = AccessRequest(subject=BOB, action=AccessAction.ARTIFACT_READ, resource=handoff, context=AUDIT)
+            assert (await CasbinAuthorizationProvider(relationships).check(request)).allowed
+            access = AccessControlService(
+                CasbinAuthorizationProvider(decisions), relationships=relationships, audit=relationships
+            )
+            configured = await access.check(BOB, AccessAction.ARTIFACT_READ, handoff, context=AUDIT)
+            assert not configured.allowed
+
+            async with relationship_profile.database.transaction() as connection:
+                bound = access.with_connection(connection)
+                decision = await bound.check(BOB, AccessAction.ARTIFACT_READ, handoff, context=AUDIT)
+                assert decision == configured
 
     asyncio.run(scenario())
 

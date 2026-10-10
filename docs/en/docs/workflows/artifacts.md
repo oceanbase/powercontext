@@ -5,7 +5,7 @@ description: Read current and historical revisions, then choose the write workfl
 
 # Manage Artifacts
 
-Artifacts preserve versioned results. Memory, Topic Memory, Experience, Skill, Handoff, Profile, and Prompt have
+Artifacts preserve versioned results. Atomic Memory, Topic Memory, Experience, Skill, Handoff, Profile, and Prompt have
 family-specific write rules; sharing a REST envelope does not make those workflows interchangeable.
 
 ## Create and replace
@@ -18,8 +18,9 @@ the new head and its `ETag`:
 | Create | `POST /v1/scopes/{scope_id}/artifacts` | Create an Artifact and Revision 1 from the request `family` and `content`. The server generates `artifact_id` for every family except Handoff. |
 | Replace | `PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}` | Fully replace the selected Artifact and create the next Revision. The current head must be sent in `If-Match`. |
 
-The request body is a discriminated union by `family`; content from one family cannot be submitted to another. Memory
-Replace uses the `entries` command, while other families submit complete content. Handoff is a Scope singleton: Create
+The request body is a discriminated union by `family`; content from one family cannot be submitted to another. Atomic
+Memory submits complete `kind` and `text` content. Legacy `family=memory` collection Create/Replace returns
+`422 legacy_memory_operation_unsupported`. Handoff is a Scope singleton: Create
 returns `409` when it already exists, so use Replace instead. Missing `If-Match` returns `428`; a stale ETag returns
 `412`. The API does not perform automatic merging.
 
@@ -57,12 +58,12 @@ thresholds, and failure behavior, and [Fusion algorithms and parameters](search-
 
 ## Change content through its workflow
 
-- [Memory](memory-and-context.md): explicitly write, revise, or retire entries.
+- [Atomic Memory](atomic-memory.md): create, replace, forget, merge and restore independent memories.
 - [Topic Memory](topic-memory.md): submit complete topic content directly, or read a topic by exact Revision.
 - [Experience and Skill](experience-and-skill-lifecycle.md): inspect and approve Candidates before publication or export.
 - [Handoff](handoff-with-codex.md): inspect and commit the current work boundary.
 - [Prompt](manage-prompts.md): customize operation guidance within one Scope.
-- [Tags](manage-artifact-tags.md): organize logical Artifacts and individual Memory entries without rewriting content.
+- [Tags](manage-artifact-tags.md): organize logical Artifacts; old Memory entry targets map to migrated Artifacts.
 
 For direct REST replacement, read the current `ETag` and send it in `If-Match`. Missing preconditions return `428`;
 a stale head returns `412`. Reload and reconcile the content before retrying. Candidate review uses its own

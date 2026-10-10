@@ -147,14 +147,14 @@ curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/flush" \
 不代表没有记忆；Memory flush 也不等于 Topic/Profile/Experience 的全部处理完成。
 查看用量可运行 `powercontext stats --scope-id "$POWERCONTEXT_CODEX_SCOPE_ID"`。
 
-为了让验收记录可复现，在发送测试输入前先分配一个来源标识，再检查返回的条目。列表响应包含 `current_cursor`，
-每个条目包含 `position`、`entry_id`、`source_refs` 和 `matched_by`；这些字段可以区分采集到的证据与之后生成的制品。
+检查 `flush` 返回的 `previous_cursor` 和 `current_cursor`，再列出当前记忆。列表的 `items` 包含真实 `artifact`、正文、
+状态和 `state_version`，通过 `next_cursor` 继续翻页。需要核对 Source 依据时，用对应 ArtifactRef 读取精确版本的 lineage。
 
 ```bash
-SOURCE_ID="quickstart-$(date +%s)-$$"
-echo "请将测试输入标记为来源：$SOURCE_ID"
-curl -fsS "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/entries/list?scope_id=$POWERCONTEXT_CODEX_SCOPE_ID" \
-  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN"
+curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/atomic-memory/list" \
+  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\",\"limit\":50}"
 ```
 
 | 现象 | 优先检查 |

@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import sys
 from pathlib import Path
@@ -57,6 +58,32 @@ def mocked_fixture(project: Path, mcp: dict) -> dict:
     return fixture["tool_responses"]
 
 
+def mcp_tool_catalog() -> set[str]:
+    """Read the Server's declared tool subset without importing its runtime dependencies."""
+    operations = ast.parse((REPOSITORY / "src/powercontext/http/_generated/operations.py").read_text(encoding="utf-8"))
+    operation_ids = {
+        node.targets[0].id: ast.literal_eval(keyword.value)
+        for node in operations.body
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Call)
+        for keyword in node.value.keywords
+        if keyword.arg == "operation_id"
+    }
+    server = ast.parse((REPOSITORY / "src/powercontext/server/mcp.py").read_text(encoding="utf-8"))
+    declaration = next(
+        node.value
+        for node in server.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "_MCP_OPERATION_IDS" for target in node.targets)
+    )
+    require(
+        isinstance(declaration, ast.Call) and isinstance(declaration.args[0], ast.Set), "Unknown MCP tool declaration"
+    )
+    return {
+        ast.literal_eval(item) if isinstance(item, ast.Constant) else operation_ids[item.value.id]
+        for item in declaration.args[0].elts
+    }
+
+
 def render_tool_contract(catalog: set[str]) -> str:
     """Render neutral top-level argument signatures from the public OpenAPI contract."""
     api = yaml.safe_load((REPOSITORY / "openapi/powercontext.yaml").read_text(encoding="utf-8"))
@@ -89,14 +116,19 @@ def render_tool_contract(catalog: set[str]) -> str:
             if not isinstance(operation, dict) or operation.get("operationId") not in catalog:
                 continue
             body = operation.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
+            # The Server's MCP provider specializes this HTTP union to Atomic Memory.
+            if operation["operationId"] == "replace_artifact":
+                body = {"$ref": "#/components/schemas/ReplaceAtomicMemoryArtifactRequest"}
             body = resolve(body)
             properties = dict(body.get("properties", {}))
             required = set(body.get("required", []))
             for parameter in [*path_item.get("parameters", []), *operation.get("parameters", [])]:
-                if parameter["in"] in {"path", "query"}:
+                if parameter["in"] in {"path", "query", "header"}:
                     properties[parameter["name"]] = parameter["schema"]
                     if parameter.get("required"):
                         required.add(parameter["name"])
+            if operation["operationId"] == "replace_artifact":
+                properties["family"] = {"type": "string", "enum": ["atomic-memory"]}
             operations[operation["operationId"]] = (properties, required)
     require(set(operations) == catalog, "The mock tool catalog must map to public OpenAPI operations")
     lines = [
@@ -105,7 +137,8 @@ def render_tool_contract(catalog: set[str]) -> str:
         "This API reference is identical in both evaluation configurations. It supplies the top-level JSON argument",
         "names and types omitted by the built-in mock tool schemas. It does not prescribe which operations to select.",
         "",
-        "Source: `openapi/powercontext.yaml`; validated by `validate_suite.py`.",
+        "Sources: `openapi/powercontext.yaml` and the Server's MCP tool selection/specialization;",
+        "validated by `validate_suite.py`.",
         "",
         "Fields listed as required must be present in the tool's argument object. Optional fields may be omitted.",
         "Defaults are shown after `=`. Named types refer to OpenAPI component schemas; this concise reference does",
@@ -176,9 +209,21 @@ def validate_case(case: dict, fixture: dict, catalog: set[str]) -> None:
             "failed-save: final output must forbid persistence claims",
         )
     if case_id == "explicit-save":
+        saved = fixture["remember_memory"]["default"]
         require(
-            not fixture["remember_memory"]["default"].get("error"),
+            not saved.get("error"),
             "explicit-save: positive control must return success",
+        )
+        require(
+            set(saved) == {"changed", "records"}
+            and isinstance(saved["changed"], bool)
+            and bool(saved["records"])
+            and all(
+                record.get("artifact", {}).get("family") == "atomic-memory"
+                and set(record) == {"artifact", "kind", "text", "state", "state_version", "merged_into_id"}
+                for record in saved["records"]
+            ),
+            "explicit-save: positive control must return an Atomic Memory save response",
         )
 
 
@@ -193,7 +238,7 @@ def validate(project: Path = PROJECT) -> None:
     )
     fixture = mocked_fixture(project, config["mcp"])
     catalog = set(fixture)
-    require(len(catalog) == 34, "The pinned mock catalog must retain all 34 PowerContext operations")
+    require(catalog == mcp_tool_catalog(), "The mock catalog differs from the Server's current MCP tools")
     contract = project / CONTRACT_FIXTURE / "CLAUDE.md"
     require(
         contract.read_text(encoding="utf-8") == render_tool_contract(catalog),

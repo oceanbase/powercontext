@@ -208,9 +208,9 @@ describe('plugin runtime with header.cwd === undefined', () => {
     const found = await search.execute({ query: 'optional cwd harness working directory' }, {
       signal: AbortSignal.timeout(5000),
       agent: sessionWithoutCwd(),
-    }) as { ok: boolean; data?: { hits?: Array<{ text?: string }> } }
+    }) as { ok: boolean; data?: { hits?: Array<{ memory: { text: string } }> } }
     expect(found.ok).toBe(true)
-    expect(found.data?.hits?.some((hit) => hit.text === TEXT)).toBe(true)
+    expect(found.data?.hits?.some((hit) => hit.memory.text === TEXT)).toBe(true)
 
     const recalled = await recallWithoutCwd(runtime, 'optional cwd harness working directory')
     expect(recalled.kind).toBe('enter')

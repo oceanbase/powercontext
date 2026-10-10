@@ -872,15 +872,15 @@ dd {
   padding: 16px;
   background: var(--background);
 }
-.citation-block {
+.reference-block {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px;
 }
-.citation-block h3 {
+.reference-block h3 {
   margin: 0 0 8px;
 }
-.citation-summary {
+.reference-summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 4px 24px;
@@ -890,17 +890,17 @@ dd {
   font-size: 14px;
   margin-bottom: 8px;
 }
-.citation-summary dt {
+.reference-summary dt {
   color: var(--muted);
 }
-.citation-summary dd {
+.reference-summary dd {
   margin: 0;
   color: var(--text);
   text-align: left;
   font-family: ui-monospace, Consolas, monospace;
   overflow-wrap: anywhere;
 }
-.citation-block .primary-outline {
+.reference-block .primary-outline {
   width: 100%;
   margin-top: 8px;
   border-color: var(--accent);

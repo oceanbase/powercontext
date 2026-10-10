@@ -76,7 +76,8 @@ async def search_memory(param: SearchInput, *, context: Any) -> str:
             {
                 "matched_by": [value.value for value in hit.matched_by],
                 "score": hit.score,
-                "text": hit.text,
+                "memory": hit.memory.model_dump(mode="json"),
+                "text": hit.memory.text,
             }
             for hit in response.hits
         ],
@@ -99,9 +100,9 @@ async def remember_memory(param: RememberInput, *, context: Any) -> str:
             reason=param.reason,
         )
         response = await client.remember_memory(request)
-    if response.entry is None:
-        return "(PowerContext accepted the memory without an entry receipt)"
-    return f"Remembered {response.entry.kind}: {response.entry.text}"
+    if not response.records:
+        return "(PowerContext accepted the request without a memory record)"
+    return "\n".join(f"Remembered {record.kind}: {record.text}" for record in response.records)
 
 
 @tool(context=True, name="powercontext.context")

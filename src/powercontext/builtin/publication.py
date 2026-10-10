@@ -111,6 +111,8 @@ class ArtifactPublicationApplication:
         self._id_factory = generate_publication_artifact_id if id_factory is None else id_factory
 
     async def publish(self, request: ArtifactPublicationRequest, /) -> ArtifactPublication:
+        if request.source.artifact.family == "atomic-memory":
+            raise ArtifactPublicationUnsupportedError("atomic-memory")
         await self._scopes.get(request.source.scope_id)
         await self._scopes.get(request.target_scope_id)
         projection = None
@@ -141,7 +143,7 @@ class ArtifactPublicationApplication:
         projection: TopicMemoryProjection | None = None,
     ) -> ArtifactPublication:
         source = await self._artifacts.get(connection, request.source.scope_id, request.source.artifact)
-        if source.family in {"memory", "profile", "prompt"}:
+        if source.family in {"profile", "prompt"}:
             raise ArtifactPublicationUnsupportedError(source.family)
         existing = await self._find_request(connection, request.target_scope_id, request.idempotency_key)
         if existing is not None:
