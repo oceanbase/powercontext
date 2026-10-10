@@ -2073,6 +2073,8 @@ export interface components {
             boundary_source: components["schemas"]["SourceReference"];
             objective: string;
             /** @default [] */
+            rollover_reasons: components["schemas"]["HandoffRolloverReason"][];
+            /** @default [] */
             evidence: components["schemas"]["HandoffCitation"][];
             /** @default 8000 */
             max_bytes: number;
@@ -2953,6 +2955,8 @@ export interface components {
         PrepareHandoffRequest: {
             scope_id: string;
             objective: string;
+            /** @default [] */
+            rollover_reasons: components["schemas"]["HandoffRolloverReason"][];
             evidence: components["schemas"]["HandoffCitation"][];
             /** @default 8000 */
             max_bytes: number;
@@ -4271,6 +4275,8 @@ export interface components {
         HandoffEvidenceStatus: "available" | "unavailable";
         /** @enum {string} */
         HandoffResolutionStatus: "empty" | "resolved";
+        /** @enum {string} */
+        HandoffRolloverReason: "user_requested" | "host_context_budget" | "host_compaction" | "context_quality" | "delegation" | "manual_checkpoint";
         /** @enum {string} */
         HandoffSchema: "powercontext.handoff.v1";
         /** @enum {string} */
