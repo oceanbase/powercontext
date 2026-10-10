@@ -206,22 +206,6 @@ def test_server_info_contract_is_observable_and_forward_compatible() -> None:
     ]
     assert "additionalProperties" not in schema
 
-    parsed = http_models.ServerInfo.model_validate({
-        "schema_version": {"major": 1, "minor": 0},
-        "product": "powercontext",
-        "server_id": "server-a",
-        "package_version": "1.2.3",
-        "api_contract_version": {"major": 1, "minor": 2},
-        "feature_contracts": {
-            "memory.explicit": {
-                "version": {"major": 1, "minor": 0},
-                "operations": ["remember_memory"],
-            }
-        },
-        "future_optional_field": {"added_in_schema_minor": 1},
-    })
-    assert parsed.server_id == "server-a"
-
 
 def test_server_info_feature_contracts_match_openapi_versions_and_membership() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import json
 import os
 import subprocess
@@ -28,6 +29,7 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 import powercontext.client.cli as client_cli
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.cli.app import create_cli
 from powercontext.client import ServerResponseError
 from powercontext.client.receiver_service import ReceiverServiceInstallation
@@ -68,6 +70,7 @@ from powercontext.http import (
     UnpublishRemoteSkillRequest,
 )
 from powercontext.server.cli import app as server_app
+from powercontext.server.identity import open_server_identity_repository
 
 
 def _empty_inventory() -> dict[str, object]:
@@ -651,15 +654,26 @@ def test_server_identity_reset_requires_offline_confirmation_and_rotates(tmp_pat
     assert first.exit_code == second.exit_code == 0
     assert first.output.strip() != second.output.strip()
 
+    async def readback() -> str:
+        async with open_server_identity_repository(SQLiteConfig(url=f"sqlite+aiosqlite:///{database}")) as repository:
+            return await repository.load_or_create()
+
+    assert asyncio.run(readback()) == second.output.strip()
+
 
 @pytest.mark.parametrize(
     "url",
     [
+        "sqlite+aiosqlite:///:memory:",
         "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=1",
-        "sqlite+aiosqlite:///file:%3Amemory%3A?cache=shared&uri=true",
+        "sqlite+aiosqlite:///file:?uri=true",
+        "sqlite+aiosqlite:///file:?cache=shared&uri=true",
+        "sqlite+aiosqlite:///file:%00tail?uri=true",
+        "sqlite+aiosqlite:///file:deployment?mode=memory%2500tail&uri=true",
+        "sqlite+aiosqlite:///file:deployment?vfs=memdb&uri=true",
     ],
 )
-def test_server_identity_reset_rejects_sqlite_memory_uri(tmp_path, url: str) -> None:
+def test_server_identity_reset_rejects_nonpersistent_sqlite(tmp_path, url: str) -> None:
     environment = tmp_path / "server.env"
     environment.write_text(f"POWERCONTEXT_SERVER_DATABASE_URL={url}\n")
 

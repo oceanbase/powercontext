@@ -16,22 +16,27 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from typing import TypeVar
 from uuid import uuid4
 
 from sqlalchemy import CheckConstraint, Column, Integer, MetaData, String, Table, insert, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.schema import CreateTable
 
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
-from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile, is_sqlite_lock_error
 from powercontext.builtin.runtime.config import DatabaseConfig
 
 _IDENTITY_METADATA = MetaData()
 _SINGLETON_KEY = 1
+_INITIALIZATION_TIMEOUT_SECONDS = 5.0
+_LOCK_RETRY_SECONDS = 0.05
+_T = TypeVar("_T")
 
 SERVER_IDENTITY_TABLE = Table(
     "pc_server_identity",
@@ -45,24 +50,29 @@ SERVER_IDENTITY_TABLE = Table(
 class ServerIdentityRepository:
     """Own the singleton deployment identity in the primary relational backend."""
 
-    def __init__(self, database: AsyncDatabase, *, id_factory: Callable[[], str] | None = None) -> None:
+    def __init__(self, database: AsyncDatabase) -> None:
         self._database = database
-        self._id_factory = (lambda: str(uuid4())) if id_factory is None else id_factory
 
     async def initialize(self) -> None:
         """Create the identity schema safely across concurrent initializers."""
 
+        await _retry_initialization(self._initialize)
+
+    async def _initialize(self) -> None:
         async with self._database.transaction() as connection:
             await connection.execute(CreateTable(SERVER_IDENTITY_TABLE, if_not_exists=True))
 
     async def load_or_create(self) -> str:
         """Return the durable identity, creating it once across concurrent replicas."""
 
+        return await _retry_initialization(self._load_or_create)
+
+    async def _load_or_create(self) -> str:
         server_id = await self._load()
         if server_id is not None:
             return server_id
 
-        candidate = self._id_factory()
+        candidate = str(uuid4())
         try:
             async with self._database.transaction() as connection:
                 await connection.execute(
@@ -79,7 +89,7 @@ class ServerIdentityRepository:
     async def rotate(self) -> str:
         """Replace the identity during an operator-confirmed offline clone procedure."""
 
-        candidate = self._id_factory()
+        candidate = str(uuid4())
         async with self._database.transaction() as connection:
             result = await connection.execute(
                 update(SERVER_IDENTITY_TABLE)
@@ -99,6 +109,23 @@ class ServerIdentityRepository:
             )
             value = result.scalar_one_or_none()
         return None if value is None else str(value)
+
+
+async def _retry_initialization(operation: Callable[[], Awaitable[_T]]) -> _T:
+    # SQLite's busy timeout does not wait for shared-cache table/schema locks.
+    # Replay only these rolled-back, idempotent initialization operations.
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _INITIALIZATION_TIMEOUT_SECONDS
+    while True:
+        try:
+            return await operation()
+        except OperationalError as error:
+            remaining = deadline - loop.time()
+            if not is_sqlite_lock_error(error) or remaining <= 0:
+                raise
+            await asyncio.sleep(min(_LOCK_RETRY_SECONDS, remaining))
+            if loop.time() >= deadline:
+                raise
 
 
 @asynccontextmanager

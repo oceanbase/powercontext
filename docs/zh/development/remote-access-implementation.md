@@ -117,11 +117,18 @@ OpenAPI 根级 `x-powercontext-feature-contracts` 显式声明 feature version�
 Server 使用 Runtime 持有的主关系数据库保存一条 identity singleton。启动时先幂等创建 identity table，再原子创建或读取
 singleton，因此并发 initializer 会收敛到同一 ID，进程重启、package 升级、备份恢复以及共享同一数据库的 replica
 也会保持该 ID。identity schema 初始化或读取失败时，Server 会在进入 readiness 之前直接启动失败，而不会发布
-临时 identity。内存 SQLite（包括 SQLite URI memory mode）没有持久存储，所以每个数据库生命周期都会获得新 ID。
+临时 identity。identity repository 只重试 SQLite busy/locked 错误，在事务回滚后重新执行完整的 schema 或 singleton
+操作。重试窗口为五秒，每次等待 50 ms；每条 SQL 仍使用 driver 配置的 busy timeout。窗口耗尽或其他错误会直接
+传播，离线轮换不重试。内存或临时 SQLite 没有持久存储，所以每个数据库生命周期都会获得新 ID。
 使用同一共享内存 SQLite 数据库的 application 会共享数据和 identity；只要仍有 Runtime 连接，数据库就保持存活。
 最后一个连接关闭后，再次打开会重新创建数据和 identity。
-内存分类使用 dialect 的实际连接参数和解码后的 SQLite URI，包括支持的 true 拼写（`true`、`1`、`yes`、`on`）以及
-百分号编码的 `:memory:` path。连接池选择和离线维护检查统一使用 `SQLiteConfig.is_in_memory` 的分类结果。
+SQLite 存储分类使用 dialect 的实际连接参数和解码后的 URI，包括支持的 true 拼写（`true`、`1`、`yes`、`on`）以及
+百分号编码的 `:memory:` path 以及内置的 `vfs=memdb` 内存文件系统。`file:?uri=true` 和 `file:?cache=shared&uri=true` 这类空路径 URI 创建的是连接独占的
+临时数据库，而非持久文件。分类也遵循 SQLite 在解码后的 NUL 处终止文件名和查询参数名/值的行为：`file:%00tail?uri=true` 属于临时存储，
+编码后的 `:memory:` 即使后接 `%00` 也仍是内存存储，SQLAlchemy URL 中的 `mode=memory%2500tail` 或
+`mode%2500tail=memory` 也仍会选择原生 memory mode。只有精确的小写 `file:` 前缀才启用 SQLite URI 解释，
+不会归一化大写 scheme、前导空格或文件名中的控制字符。`SQLiteConfig.is_in_memory` 区分内存存储；`SQLiteConfig.is_persistent` 同时排除内存与临时
+存储。非持久存储的连接池保留一个连接；离线维护、cursor secret 持久化及子进程 worker 统一使用该持久性分类。
 
 [RFC #1771](../rfcs/1771-unified-database-migrations.md) 对应的统一迁移实现目前只覆盖已注册的四张 Artifact 表。
 它尚未管理 `pc_server_identity`、接管普通 Server 启动检查或证明完整 Server readiness；维护命令会拒绝包含未管理表的
@@ -140,7 +147,7 @@ migration readiness marker。
 uv run powercontext server identity-reset --env-file /path/to/clone.env --maintenance-confirmed
 ```
 
-该命令拒绝内存数据库，并要求显式 maintenance confirmation。它无法检测仍在运行的 replica，因此停服是 operator
+该命令拒绝内存和临时数据库，并要求显式 maintenance confirmation。它无法检测仍在运行的 replica，因此停服是 operator
 前置条件。逻辑 application-data import 不会复制 identity，除非显式包含 `pc_server_identity` 表。
 
 ## Python Client

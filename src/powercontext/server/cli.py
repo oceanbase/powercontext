@@ -132,7 +132,7 @@ async def _processing_maintenance(
     manifest = canonical_processing_manifest(config)
     database = settings.database
     if isinstance(database, SQLiteConfig):
-        if database.is_in_memory:
+        if not database.is_persistent:
             raise typer.BadParameter("offline migration requires a persistent database")  # noqa: TRY003
         opened = SQLiteProfile.open(database, tables=())
     elif isinstance(database, OceanBaseConfig):
@@ -179,7 +179,7 @@ def identity_reset(
             "identity reset requires --maintenance-confirmed after stopping every Server process"
         )
     with server_settings_context(env_file=env_file) as settings:
-        if isinstance(settings.database, SQLiteConfig) and settings.database.is_in_memory:
+        if isinstance(settings.database, SQLiteConfig) and not settings.database.is_persistent:
             raise typer.BadParameter("identity reset requires a persistent database")  # noqa: TRY003
         server_id = asyncio.run(_reset_server_identity(settings))
     typer.echo(server_id)

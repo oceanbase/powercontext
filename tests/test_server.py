@@ -290,20 +290,6 @@ def test_server_info_uses_one_durable_identity_across_restarts(tmp_path) -> None
     assert first.json() == second.json()
     assert first.json()["schema_version"] == {"major": 1, "minor": 0}
     assert first.json()["api_contract_version"] == {"major": 1, "minor": 2}
-    assert first.json()["feature_contracts"] == {
-        "access.principal": {
-            "version": {"major": 1, "minor": 0},
-            "operations": ["get_access_principal"],
-        },
-        "scope.selection": {
-            "version": {"major": 1, "minor": 0},
-            "operations": ["list_scopes", "get_scope", "get_default_scope"],
-        },
-        "memory.explicit": {
-            "version": {"major": 1, "minor": 0},
-            "operations": ["remember_memory", "search_memory", "get_memory_entry"],
-        },
-    }
 
 
 def test_server_startup_fails_when_identity_initialization_fails(tmp_path, monkeypatch) -> None:

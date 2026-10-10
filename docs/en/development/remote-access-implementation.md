@@ -123,13 +123,23 @@ features without operations. Version bumps remain an explicit contract edit, not
 The Server stores one identity singleton using the Runtime-owned primary relational database. Startup creates the identity
 table idempotently, then atomically creates or loads the singleton, so concurrent initializers converge on one ID and
 restarts, package upgrades, backup restore, and replicas sharing that database retain it. If identity schema
-initialization or loading fails, Server startup fails before readiness instead of publishing a temporary identity. An
-in-memory SQLite deployment, including SQLite URI memory mode, receives a new ID with each database lifetime because it
-has no durable store. Applications using the same shared-memory SQLite database share both data and identity while any
+initialization or loading fails, Server startup fails before readiness instead of publishing a temporary identity.
+The identity repository retries only SQLite busy/locked errors, replaying the complete schema or singleton operation
+after rollback. It admits retries for up to five seconds with 50 ms waits; each SQL attempt also retains the driver's
+configured busy timeout. Exhaustion and all other errors propagate; offline rotation is not retried.
+An in-memory or temporary SQLite deployment receives a new ID with each database lifetime because it has no durable store. Applications using the same shared-memory SQLite database share both data and identity while any
 Runtime connection keeps that database alive; after the last connection closes, reopening creates new data and identity.
-Memory classification uses the dialect's effective connection arguments and the decoded SQLite URI, including supported
-true spellings (`true`, `1`, `yes`, `on`) and percent-encoded `:memory:` paths. Pooling and offline maintenance guards
-consume the same `SQLiteConfig.is_in_memory` classification.
+SQLite storage classification uses the dialect's effective connection arguments and the decoded SQLite URI, including
+supported true spellings (`true`, `1`, `yes`, `on`), percent-encoded `:memory:` paths, and the built-in `vfs=memdb`
+in-memory filesystem. Empty-path file URIs such as
+`file:?uri=true` and `file:?cache=shared&uri=true` create connection-local temporary databases, not durable files.
+Classification also honors SQLite's decoded NUL termination for filenames and query parameter names/values:
+`file:%00tail?uri=true` is temporary, an encoded `:memory:` followed by `%00` remains memory storage, and
+`mode=memory%2500tail` or `mode%2500tail=memory` in a SQLAlchemy URL still selects native memory mode. Only an exact lowercase `file:` prefix enables
+SQLite URI interpretation; uppercase schemes, leading spaces, and literal filename controls are not normalized.
+`SQLiteConfig.is_in_memory` distinguishes memory storage; `SQLiteConfig.is_persistent` excludes both memory and temporary
+storage. Pooling keeps one connection for nonpersistent storage; offline maintenance, cursor-secret persistence, and
+subprocess workers consume that same persistence classification.
 
 The unified migration implementation from [RFC #1771](../rfcs/1771-unified-database-migrations.md) currently
 covers only a registered four-table Artifact bundle. It does not manage `pc_server_identity`, gate ordinary Server
@@ -150,7 +160,7 @@ stop every Server process using the clone database and rotate only the clone:
 uv run powercontext server identity-reset --env-file /path/to/clone.env --maintenance-confirmed
 ```
 
-The command refuses in-memory databases and requires the explicit maintenance confirmation. It cannot detect active
+The command refuses in-memory and temporary databases and requires the explicit maintenance confirmation. It cannot detect active
 replicas, so stopping them is an operator precondition. Logical application-data imports do not copy the identity unless
 the `pc_server_identity` table itself is included.
 

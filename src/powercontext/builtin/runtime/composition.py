@@ -788,7 +788,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
             or (family == "memory" and injected_memory_write_gate is not None)
         ):
             raise BuiltinConfigurationError("artifact-processing-child-resources")
-        if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
+        if isinstance(config.database, SQLiteConfig) and not config.database.is_persistent:
             raise BuiltinConfigurationError("topic-memory-database")
         prefix = family.replace("-", "_")
         if family == "topic-memory":
