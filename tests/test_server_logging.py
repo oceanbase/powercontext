@@ -121,6 +121,17 @@ def test_json_formatter_emits_stable_operational_fields() -> None:
         "code": "insufficient_coverage",
         "held_count": 1,
         "hold_codes": ("insufficient_coverage",),
+        "consumer": "memory_write_gate",
+        "policy_id": "memory.write.evidence_sufficiency.v1",
+        "policy_version": "1",
+        "privacy_boundary": "local_only",
+        "privacy_outcome": "local_model_called",
+        "coverage": "adjudicated",
+        "verdict": "deny",
+        "final_action": "memory_write_hold",
+        "fallback_reason": "decision_model_fallback",
+        "candidate_count": 1,
+        "evidence_count": 2,
         "ignored": "not serialized",
     })
     OperationalContextFilter().filter(record)
@@ -136,6 +147,16 @@ def test_json_formatter_emits_stable_operational_fields() -> None:
     assert payload["code"] == "insufficient_coverage"
     assert payload["held_count"] == 1
     assert payload["hold_codes"] == ["insufficient_coverage"]
+    assert payload["consumer"] == "memory_write_gate"
+    assert payload["policy_id"] == "memory.write.evidence_sufficiency.v1"
+    assert payload["policy_version"] == "1"
+    assert payload["privacy_boundary"] == "local_only"
+    assert payload["privacy_outcome"] == "local_model_called"
+    assert payload["coverage"] == "adjudicated"
+    assert payload["verdict"] == "deny"
+    assert payload["final_action"] == "memory_write_hold"
+    assert payload["fallback_reason"] == "decision_model_fallback"
+    assert (payload["candidate_count"], payload["evidence_count"]) == (1, 2)
     assert "ignored" not in payload
 
 

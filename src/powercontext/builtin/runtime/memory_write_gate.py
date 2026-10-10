@@ -86,18 +86,38 @@ _MEMORY_WRITE_POLICY = DecisionPolicy(
         DecisionOutcome.NO.value: DecisionVerdict.ALLOW.value,
         DecisionOutcome.ABSTAIN.value: DecisionVerdict.UNKNOWN.value,
     },
-    promotion_criteria=("explicit runtime opt-in",),
+    promotion_criteria=(
+        "labeled calibration and held-out evaluation",
+        "measured fallback, latency, cost, and friction",
+        "rollback path",
+    ),
 )
 
 
 def memory_write_policy(
     *,
-    mode: DecisionPolicyMode = DecisionPolicyMode.ENFORCING,
+    hold_on: DecisionOutcome = DecisionOutcome.YES,
+    threshold: float | None = None,
+    mode: DecisionPolicyMode = DecisionPolicyMode.SHADOW,
     privacy_boundary: DecisionPrivacyBoundary = DecisionPrivacyBoundary.LOCAL_ONLY,
 ) -> DecisionPolicy:
     """Return the immutable Memory write policy with its configured runtime boundaries."""
 
-    return _MEMORY_WRITE_POLICY.model_copy(update={"mode": mode, "privacy_boundary": privacy_boundary})
+    if hold_on is DecisionOutcome.ABSTAIN:
+        raise ValueError("the hold direction cannot be abstain")  # noqa: TRY003
+    pass_on = DecisionOutcome.NO if hold_on is DecisionOutcome.YES else DecisionOutcome.YES
+    return _MEMORY_WRITE_POLICY.model_copy(
+        update={
+            "version": _policy_version(hold_on, threshold),
+            "mode": mode,
+            "privacy_boundary": privacy_boundary,
+            "outcome_mapping": {
+                hold_on.value: DecisionVerdict.DENY.value,
+                pass_on.value: DecisionVerdict.ALLOW.value,
+                DecisionOutcome.ABSTAIN.value: DecisionVerdict.UNKNOWN.value,
+            },
+        }
+    )
 
 
 def build_memory_write_gate(
@@ -106,7 +126,7 @@ def build_memory_write_gate(
     enabled: bool,
     hold_on: Literal["yes", "no"] = "yes",
     threshold: float | None = None,
-    mode: DecisionPolicyMode = DecisionPolicyMode.ENFORCING,
+    mode: DecisionPolicyMode = DecisionPolicyMode.SHADOW,
     privacy_boundary: DecisionPrivacyBoundary = DecisionPrivacyBoundary.LOCAL_ONLY,
 ) -> MemoryWriteGate | None:
     """Build the opt-in gate, or return ``None`` while it stays disabled.
@@ -121,8 +141,12 @@ def build_memory_write_gate(
         decision_model,
         hold_on=DecisionOutcome(hold_on),
         threshold=threshold,
-        policy=memory_write_policy(mode=mode, privacy_boundary=privacy_boundary),
-        allow_model_evaluation=privacy_boundary is DecisionPrivacyBoundary.LOCAL_ONLY,
+        policy=memory_write_policy(
+            hold_on=DecisionOutcome(hold_on),
+            threshold=threshold,
+            mode=mode,
+            privacy_boundary=privacy_boundary,
+        ),
     )
 
 
@@ -144,15 +168,19 @@ class DecisionMemoryWriteGate:
         hold_on: DecisionOutcome = DecisionOutcome.YES,
         threshold: float | None = None,
         policy: DecisionPolicy | None = None,
-        allow_model_evaluation: bool = True,
+        allow_model_evaluation: bool | None = None,
     ) -> None:
         if hold_on is DecisionOutcome.ABSTAIN:
             raise ValueError("the hold direction cannot be abstain")  # noqa: TRY003
         self._decision_model = decision_model
         self._hold_on = hold_on
         self._threshold = threshold
-        self._policy = memory_write_policy() if policy is None else policy
-        self._allow_model_evaluation = allow_model_evaluation
+        self._policy = _MEMORY_WRITE_POLICY if policy is None else policy
+        self._allow_model_evaluation = (
+            self._policy.privacy_boundary is DecisionPrivacyBoundary.LOCAL_ONLY
+            and bool(getattr(decision_model, "is_local_only", False))
+            and allow_model_evaluation is not False
+        )
         self.policy_id = decision_model.policy_id
 
     @property
@@ -202,6 +230,21 @@ class DecisionMemoryWriteGate:
         await self._observe(
             request, _assess_memory_write_decision(decision, hold_on=self._hold_on, policy=self._policy), assessment
         )
+        self._log(assessment)
+        return assessment
+
+    async def assess_preflight(
+        self, request: MemoryWriteGateRequest, rejection: MemoryWriteAssessment, /
+    ) -> MemoryWriteAssessment:
+        """Apply this policy's mode and observation handling to a service-side evidence rejection."""
+
+        policy_assessment = assess_local_rule(
+            self._policy,
+            verdict=DecisionVerdict.DENY,
+            reason="evidence_projection_budget",
+        )
+        assessment = self._mode_assessment(rejection)
+        await self._observe(request, policy_assessment, assessment)
         self._log(assessment)
         return assessment
 
@@ -262,6 +305,7 @@ class DecisionMemoryWriteGate:
             evidence_refs=request.evidence_refs
             or tuple(f"evidence:{index}" for index in range(1, len(request.evidence) + 1)),
             privacy_boundary=self._policy.privacy_boundary,
+            privacy_outcome=self._privacy_outcome(policy_assessment),
             model_policy_id=None if policy_assessment.source.value == "none" else self.policy_id,
             assessment=_safe_observation_assessment(policy_assessment),
             final_action=f"memory_write_{assessment.verdict.value}",
@@ -288,6 +332,19 @@ class DecisionMemoryWriteGate:
                     "error_type": type(error).__name__,
                 },
             )
+
+    def _privacy_outcome(self, assessment: DecisionAssessment) -> str:
+        if assessment.source.value == "local_rule":
+            return "local_rule"
+        if assessment.source.value == "decision_model":
+            return "local_model_called"
+        if self._policy.privacy_boundary is DecisionPrivacyBoundary.NO_EXTERNAL_CALL:
+            return "no_external_call"
+        if not self._allow_model_evaluation:
+            return "local_only_refused"
+        if assessment.used_fallback:
+            return "local_model_fallback"
+        return "no_call"
 
     def _log(self, assessment: MemoryWriteAssessment) -> None:
         event = {
@@ -338,6 +395,13 @@ def _assess_memory_write_decision(
     )
 
 
+def _policy_version(hold_on: DecisionOutcome, threshold: float | None) -> str:
+    """Bind every action-changing calibration input into the reviewable policy version."""
+
+    threshold_value = "none" if threshold is None else format(threshold, ".17g")
+    return f"1;hold_on={hold_on.value};threshold={threshold_value}"
+
+
 def _bounded_subject(candidates: tuple[str, ...]) -> str:
     return _candidate_subject(candidates)[:_MAX_SUBJECT_LENGTH]
 
@@ -372,6 +436,7 @@ def _safe_observation_reason(reason: str | None, /) -> str | None:
 
     return {
         "candidate_batch_budget": "candidate_batch_budget",
+        "evidence_projection_budget": "evidence_projection_budget",
         "privacy_boundary": "privacy_boundary",
         "decision_model_fallback": "decision_model_fallback",
         "abstain": "abstain",

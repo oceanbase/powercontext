@@ -92,6 +92,7 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemorySearchRequest,
     MemoryWriteAssessment,
     MemoryWriteGate,
+    MemoryWriteGatePreflight,
     MemoryWriteGateRequest,
     MemoryWriteObservationSink,
     MemoryWritePlan,
@@ -1380,22 +1381,23 @@ class MemoryService:
         if self._write_gate is None:
             return None
         projection = await self._gate_evidence(base, candidates, evidence, current_entries)
+        request = MemoryWriteGateRequest(
+            candidates=tuple(candidate.text for candidate in candidates),
+            evidence=projection.entries,
+            expected_revision=None if base is None else base.revision,
+            scope_id=self._scope_id,
+            operation_id=_gate_operation_id(base),
+            subject_refs=_gate_subject_refs(candidates),
+            evidence_refs=tuple(_gate_evidence_ref(entry) for entry in projection.entries),
+            observation_sink=self._write_gate_observation_sink,
+        )
         if projection.rejection is not None:
+            if isinstance(self._write_gate, MemoryWriteGatePreflight):
+                return await self._write_gate.assess_preflight(request, projection.rejection)
             _log_gate_assessment(projection.rejection)
             return projection.rejection
         try:
-            return await self._write_gate.assess(
-                MemoryWriteGateRequest(
-                    candidates=tuple(candidate.text for candidate in candidates),
-                    evidence=projection.entries,
-                    expected_revision=None if base is None else base.revision,
-                    scope_id=self._scope_id,
-                    operation_id=_gate_operation_id(base),
-                    subject_refs=_gate_subject_refs(candidates),
-                    evidence_refs=tuple(_gate_evidence_ref(entry) for entry in projection.entries),
-                    observation_sink=self._write_gate_observation_sink,
-                )
-            )
+            return await self._write_gate.assess(request)
         except Exception:
             return MemoryWriteAssessment(
                 verdict=MemoryWriteVerdict.ACCEPT,

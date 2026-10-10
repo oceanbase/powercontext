@@ -53,8 +53,8 @@ from powercontext.builtin.runtime.decision_model import (
     DecisionResult,
     FailOpenDecisionModel,
 )
-from powercontext.builtin.runtime.decision_policy import DecisionPrivacyBoundary
-from powercontext.builtin.runtime.memory_write_gate import DecisionMemoryWriteGate
+from powercontext.builtin.runtime.decision_policy import DecisionPolicyMode, DecisionPrivacyBoundary
+from powercontext.builtin.runtime.memory_write_gate import DecisionMemoryWriteGate, memory_write_policy
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import ContentCapture, ContentSource
 from powercontext.errors import ArtifactNotFoundError
@@ -140,6 +140,7 @@ class _FailingGate:
 
 class _FailingDecisionModel:
     policy_id = "test.decision.failing.v1"
+    is_local_only = True
 
     async def evaluate(self, request: DecisionRequest, /) -> DecisionResult:
         raise ValueError("backend unavailable")  # noqa: TRY003
@@ -149,6 +150,7 @@ class _InsufficientDecisionModel:
     """A backend that always answers "evidence is insufficient" (the hold direction)."""
 
     policy_id = "test.decision.insufficient.v1"
+    is_local_only = True
 
     async def evaluate(self, request: DecisionRequest, /) -> DecisionResult:
         return DecisionResult(DecisionOutcome.YES, self.policy_id, InferenceUsage(requests=1))
@@ -250,6 +252,7 @@ def test_config_enables_the_gate_over_the_decision_backend(tmp_path: Path) -> No
             tmp_path,
             RuntimeConfig(
                 memory_write_gate_enabled=True,
+                memory_write_gate_mode=DecisionPolicyMode.ENFORCING,
                 memory_write_gate_privacy_boundary=DecisionPrivacyBoundary.LOCAL_ONLY,
             ),
             database="enabled.db",
@@ -660,6 +663,46 @@ def test_incomplete_gate_evidence_is_held_before_backend_assessment(tmp_path: Pa
             assert plan.decision.verdict is MemoryWriteVerdict.HOLD
             assert plan.decision.code is MemoryWriteRejectionCode.EVIDENCE_LIMIT_EXCEEDED
             assert gate.requests == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("mode", "verdict"),
+    [
+        (DecisionPolicyMode.SHADOW, MemoryWriteVerdict.ACCEPT),
+        (DecisionPolicyMode.ADVISORY, MemoryWriteVerdict.FLAG),
+    ],
+)
+def test_mode_aware_gate_observes_projection_budget_rejections_without_holding(
+    tmp_path: Path, mode: DecisionPolicyMode, verdict: MemoryWriteVerdict
+) -> None:
+    async def scenario() -> None:
+        gate = DecisionMemoryWriteGate(
+            _InsufficientDecisionModel(),
+            policy=memory_write_policy(mode=mode),
+        )
+        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
+            context = await contexts.get("project")
+            long_source, _ = await context.sources.capture(
+                ContentCapture(source_id="over-budget", content=f"{'Evidence. ' * 500}Tail."),
+            )
+
+            plan = await context.artifacts.memory.plan_remember(
+                memory=None,
+                sources=(long_source,),
+                entries=(MemoryEntryInput(kind="fact", text="Tail.", sources=(long_source,)),),
+                mode="append",
+            )
+            async with contexts.database.transaction() as connection:
+                observations = await DecisionObservationRepository().observations(connection, "project")
+
+        assert plan.commit is not None
+        assert plan.decision is not None
+        assert plan.decision.verdict is verdict
+        assert len(observations) == 1
+        assert observations[0].assessment.reason == "evidence_projection_budget"
+        assert observations[0].final_action == f"memory_write_{verdict.value}"
 
     asyncio.run(scenario())
 

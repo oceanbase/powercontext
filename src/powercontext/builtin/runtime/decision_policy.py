@@ -152,6 +152,8 @@ def emit_decision_observation(observation: DecisionObservation, /) -> None:
             "policy_id": observation.policy_id,
             "policy_version": observation.policy_version,
             "mode": observation.mode.value,
+            "privacy_boundary": observation.privacy_boundary.value,
+            "privacy_outcome": observation.privacy_outcome,
             "coverage": observation.assessment.coverage.value,
             "verdict": observation.assessment.verdict.value,
             "final_action": observation.final_action,

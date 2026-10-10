@@ -20,12 +20,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import AnyHttpUrl
 
 from powercontext.builtin.inference import InferenceUnavailableError, InferenceUsage
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     RuntimeConfig,
+    composition,
     open_builtin_runtime,
     preflight_builtin_runtime,
 )
@@ -186,3 +188,18 @@ def test_decision_role_is_not_registered_as_an_mcp_tool() -> None:
     from powercontext.server import mcp
 
     assert all("decision" not in operation_id for operation_id in mcp._MCP_OPERATION_IDS)
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "expected"),
+    [
+        ("http://localhost:11434/v1", True),
+        ("http://127.0.0.1:11434/v1", True),
+        ("http://[::1]:11434/v1", True),
+        ("http://0.0.0.0:11434/v1", False),
+        ("http://192.168.1.2:11434/v1", False),
+        ("https://api.example.test/v1", False),
+    ],
+)
+def test_only_explicit_loopback_decision_endpoints_are_local(endpoint: str, expected: bool) -> None:
+    assert composition._is_loopback_endpoint(AnyHttpUrl(endpoint)) is expected

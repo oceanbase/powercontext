@@ -144,7 +144,7 @@ class RuntimeConfig(BaseModel):
     memory_rerank_candidate_limit: int = Field(default=30, ge=1, le=100)
     decision_assistance_enabled: bool = False
     memory_write_gate_enabled: bool = False
-    memory_write_gate_mode: DecisionPolicyMode = DecisionPolicyMode.ENFORCING
+    memory_write_gate_mode: DecisionPolicyMode = DecisionPolicyMode.SHADOW
     memory_write_gate_privacy_boundary: DecisionPrivacyBoundary = DecisionPrivacyBoundary.NO_EXTERNAL_CALL
     # Direction only: which verdict means "evidence is insufficient". The strength threshold
     # stays unset until a calibration probe establishes it, so a hold never depends on a made-up

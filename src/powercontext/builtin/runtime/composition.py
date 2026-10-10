@@ -23,6 +23,7 @@ from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from datetime import timedelta
 from functools import partial
+from ipaddress import ip_address
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
@@ -175,6 +176,24 @@ from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
 from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
 
+
+def _is_loopback_endpoint(base_url: AnyHttpUrl | None, /) -> bool:
+    """Return whether an explicitly configured HTTP endpoint is local to this machine."""
+
+    if base_url is None:
+        return False
+    host = base_url.host
+    if host is None:
+        return False
+    normalized = host.strip("[]").lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
     from pydantic_ai.models.instrumented import InstrumentationSettings
@@ -289,6 +308,7 @@ class _TracingDecisionModel:
         self._delegate = delegate
         self._tracing = tracing
         self.policy_id = delegate.policy_id
+        self.is_local_only = bool(getattr(delegate, "is_local_only", False))
 
     async def evaluate(self, request: DecisionRequest, /) -> DecisionResult:
         with self._tracing.stage(
@@ -1525,7 +1545,12 @@ async def _generation_decision(
         model_settings=decision_request_settings,
         name="decision_evaluate",
     )
-    generated_decision = LLMDecisionModel(UsageReportingStructuredGenerator(decision_generator))
+    generated_decision = LLMDecisionModel(
+        UsageReportingStructuredGenerator(decision_generator),
+        is_local_only=_is_loopback_endpoint(
+            settings.decision_base_url if settings.decision_model is not None else settings.generation_base_url
+        ),
+    )
 
     decision_readiness: ReadinessProbe | None = None
     if separate_decision_model or settings.decision_model_settings:

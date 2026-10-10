@@ -19,7 +19,7 @@ from __future__ import annotations
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
@@ -140,6 +140,18 @@ class MemoryWriteGate(Protocol):
 
     async def assess(self, request: MemoryWriteGateRequest, /) -> MemoryWriteAssessment:
         """Return one verdict for a candidate set and its bounded evidence projection."""
+
+        ...
+
+
+@runtime_checkable
+class MemoryWriteGatePreflight(Protocol):
+    """Optionally map a deterministic service-side preflight rejection through a gate policy."""
+
+    async def assess_preflight(
+        self, request: MemoryWriteGateRequest, rejection: MemoryWriteAssessment, /
+    ) -> MemoryWriteAssessment:
+        """Return the mode-aware decision for a bounded preflight rejection."""
 
         ...
 

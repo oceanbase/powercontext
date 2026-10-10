@@ -21,7 +21,7 @@ from pydantic import AnyHttpUrl, SecretStr, ValidationError
 
 from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.builtin.runtime.config import InferenceConfig
-from powercontext.builtin.runtime.decision_policy import DecisionPrivacyBoundary
+from powercontext.builtin.runtime.decision_policy import DecisionPolicyMode, DecisionPrivacyBoundary
 
 
 def test_decision_assistance_is_disabled_by_default() -> None:
@@ -30,6 +30,10 @@ def test_decision_assistance_is_disabled_by_default() -> None:
 
 def test_memory_write_gate_defaults_to_no_external_call() -> None:
     assert RuntimeConfig().memory_write_gate_privacy_boundary is DecisionPrivacyBoundary.NO_EXTERNAL_CALL
+
+
+def test_memory_write_gate_defaults_to_shadow_mode() -> None:
+    assert RuntimeConfig().memory_write_gate_mode is DecisionPolicyMode.SHADOW
 
 
 def test_decision_observation_retention_is_disabled_until_explicitly_configured() -> None:

@@ -57,6 +57,7 @@ class _StaticDecisionModel:
     """A backend that always returns one prepared verdict."""
 
     policy_id = "powercontext.decision.static.v1"
+    is_local_only = True
 
     def __init__(self, result: DecisionResult) -> None:
         self._result = result
@@ -79,6 +80,7 @@ class _FailingDecisionModel:
     """A backend whose every evaluation raises."""
 
     policy_id = "powercontext.decision.failing.v1"
+    is_local_only = True
 
     async def evaluate(self, request: DecisionRequest, /) -> DecisionResult:
         raise ValueError("backend unavailable")  # noqa: TRY003
@@ -98,6 +100,7 @@ class _PolarityBackend:
     """A backend that calls one known answer insufficient and the other sufficient."""
 
     policy_id = "powercontext.decision.polarity.v1"
+    is_local_only = True
 
     def __init__(self, *, insufficient_for: frozenset[str]) -> None:
         self._insufficient_for = frozenset(_candidate_subject((value,)) for value in insufficient_for)
@@ -355,6 +358,8 @@ def test_gate_emits_policy_observation_without_raw_subject_or_evidence(caplog: p
     record = next(record for record in caplog.records if getattr(record, "event", None) == "decision.observation")
     assert record.__dict__["policy_id"] == "memory.write.evidence_sufficiency.v1"
     assert record.__dict__["mode"] == "shadow"
+    assert record.__dict__["privacy_boundary"] == "local_only"
+    assert record.__dict__["privacy_outcome"] == "local_model_called"
     assert record.__dict__["coverage"] == "adjudicated"
     assert "secret claim" not in str(record.__dict__)
     assert "secret evidence" not in str(record.__dict__)
@@ -386,6 +391,7 @@ def test_gate_offers_a_bounded_observation_to_the_request_sink() -> None:
         assert observation.subject_refs == ("entry:entry-a@version-a",)
         assert observation.evidence_refs == ("source:task:1",)
         assert observation.final_action == "memory_write_hold"
+        assert observation.privacy_outcome == "local_model_called"
         assert "secret claim" not in observation.model_dump_json()
         assert "secret evidence" not in observation.model_dump_json()
 
@@ -490,6 +496,18 @@ def test_the_gate_is_built_from_configuration() -> None:
     assert gate.mode is DecisionPolicyMode.SHADOW
 
 
+def test_new_memory_write_policies_default_to_shadow_mode() -> None:
+    assert memory_write_policy().mode is DecisionPolicyMode.SHADOW
+
+
+def test_memory_write_policy_version_binds_the_hold_direction_and_threshold() -> None:
+    default = memory_write_policy(hold_on=DecisionOutcome.YES, threshold=None)
+    different_direction = memory_write_policy(hold_on=DecisionOutcome.NO, threshold=None)
+    different_threshold = memory_write_policy(hold_on=DecisionOutcome.YES, threshold=0.4)
+
+    assert len({default.version, different_direction.version, different_threshold.version}) == 3
+
+
 def test_disabled_mode_does_not_construct_a_memory_write_gate() -> None:
     gate = build_memory_write_gate(
         _StaticDecisionModel(_verdict(DecisionOutcome.YES)),
@@ -526,6 +544,45 @@ def test_no_external_call_boundary_skips_the_backend_and_emits_an_unadjudicated_
     assert record.__dict__["coverage"] == "unadjudicated"
     assert record.__dict__["verdict"] == "unknown"
     assert record.__dict__["fallback_reason"] == "privacy_boundary"
+
+
+def test_direct_gate_construction_honors_the_no_external_call_boundary() -> None:
+    async def scenario() -> None:
+        backend = _RecordingDecisionModel(_verdict(DecisionOutcome.YES))
+        gate = DecisionMemoryWriteGate(
+            backend,
+            policy=memory_write_policy(privacy_boundary=DecisionPrivacyBoundary.NO_EXTERNAL_CALL),
+        )
+
+        assessment = await gate.assess(_request(evidence=("source:task:1",)))
+
+        assert assessment.verdict is MemoryWriteVerdict.ACCEPT
+        assert assessment.used_fallback is True
+        assert backend.requests == []
+
+    asyncio.run(scenario())
+
+
+def test_local_only_boundary_refuses_a_backend_without_a_locality_attestation() -> None:
+    class _RemoteDecisionModel(_RecordingDecisionModel):
+        is_local_only = False
+
+    async def scenario() -> None:
+        backend = _RemoteDecisionModel(_verdict(DecisionOutcome.YES))
+        gate = build_memory_write_gate(
+            backend,
+            enabled=True,
+            privacy_boundary=DecisionPrivacyBoundary.LOCAL_ONLY,
+        )
+
+        assert isinstance(gate, DecisionMemoryWriteGate)
+        assessment = await gate.assess(_request(evidence=("source:task:1",)))
+
+        assert assessment.verdict is MemoryWriteVerdict.ACCEPT
+        assert assessment.used_fallback is True
+        assert backend.requests == []
+
+    asyncio.run(scenario())
 
 
 def _request(
