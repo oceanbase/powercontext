@@ -3,6 +3,27 @@
 This suite runs an existing ZCode CLI bundle against a real PowerContext Server and a disposable SQLite database.
 It does not download a host, deploy a remote service, or operate the desktop UI.
 
+## Continuous integration
+
+[ZCode acceptance](../../../.github/workflows/zcode-acceptance.yml) runs on every pull request, every push to master,
+weekly on Sunday at 03:23 UTC, and by manual dispatch. It builds the actual open-source CLI on Windows from ZCode commit
+`29628c9acdb81b703bbd4080c207a0e7ce5e276e` (ZCode 3.14.3 / CLI 0.16.9), using Node 24.15.0, pnpm 10.33.2 and the
+host's frozen lockfile. Dependency install scripts are disabled; only the CLI and its required workspace builds run.
+
+The job runs all plugin Node tests, including the actual host test, then explicitly selects two independent
+controlled-model acceptances covering P3-01 through P3-09. Host build errors, missing prerequisites and failed scenarios
+fail the job. The controlled inference fixtures need no model keys or repository secrets. This is actual CLI + real
+Server acceptance with controlled inference; it does not establish live-model or official desktop acceptance.
+
+The artifact `zcode-controlled-<run-id>-<attempt>` retains build provenance, each run's `summary.json` and only selected
+`evidence/*.json` for 14 days, including completed evidence from failed runs. Private profiles, model configuration,
+databases, workspaces and raw transcripts are excluded. The Actions summary lists individual scenario results.
+P3-10 stays `not_run`; compact and reconnect limitations remain explicit in the evidence.
+
+To upgrade the supported host, change `ZCODE_REF` in the workflow to an exact reviewed commit, check its Node/pnpm and
+build requirements, and run the complete job. Keep the host pin and this guide consistent. Scheduled runs check the
+fixed host against current master and dependency availability; they do not silently adopt newer ZCode releases.
+
 ## Prerequisites
 
 - Install this checkout with its development dependencies and Server extras.

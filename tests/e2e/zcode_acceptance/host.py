@@ -24,6 +24,18 @@ import time
 from typing import Any
 from uuid import uuid4
 
+_RPC_METHODS = {
+    "mcp/list",
+    "session/close",
+    "session/create",
+    "session/events",
+    "session/resume",
+    "session/send",
+}
+_PROCESS_EXCEPTION_PREFIX = "[zcode-process-exception] "
+_PROCESS_EXCEPTION_KINDS = ("uncaughtException", "unhandledRejection")
+_STDERR_LINE_LIMIT = 128 * 1024
+
 
 class NativeHost:
     def __init__(self, run: Any) -> None:
@@ -32,6 +44,16 @@ class NativeHost:
         self.responses: dict[int, dict[str, Any]] = {}
         self.sequence = 0
         self.allowed: set[str] = set()
+        self.closing = False
+        self.stdout_eof = False
+        self.unexpected_stdout_eof = False
+        self.stdout_eof_returncode: int | None = None
+        self.stdout_reader_finished = False
+        self.stderr_reader_finished = False
+        self.process_exception: dict[str, str] | None = None
+        self.last_rpc_method: str | None = None
+        self.last_rpc_id: int | None = None
+        self.diagnostic_written = False
         self.process = subprocess.Popen(
             [str(run.node), str(run.cli), "app-server", "--cwd", str(run.workspace), "--no-color"],
             cwd=run.workspace,
@@ -50,18 +72,45 @@ class NativeHost:
 
     def read(self) -> None:
         assert self.process.stdout is not None
-        for line in self.process.stdout:
-            try:
-                message = json.loads(line)
-            except ValueError:
-                continue
-            self.incoming.put(message)
-        self.incoming.put(None)
+        try:
+            for line in self.process.stdout:
+                try:
+                    message = json.loads(line)
+                except ValueError:
+                    continue
+                self.incoming.put(message)
+            self.stdout_eof = True
+            self.unexpected_stdout_eof = not self.closing
+            self.stdout_eof_returncode = self.process.poll()
+            self.incoming.put(None)
+        finally:
+            self.stdout_reader_finished = True
 
     def drain_stderr(self) -> None:
         assert self.process.stderr is not None
-        for _ in self.process.stderr:
-            pass
+        oversized = False
+        try:
+            while line := self.process.stderr.readline(_STDERR_LINE_LIMIT + 1):
+                if oversized or len(line) > _STDERR_LINE_LIMIT:
+                    oversized = not line.endswith("\n")
+                    continue
+                if not line.startswith(_PROCESS_EXCEPTION_PREFIX):
+                    continue
+                try:
+                    value = json.loads(line[len(_PROCESS_EXCEPTION_PREFIX) :])
+                except ValueError:
+                    continue
+                if (
+                    isinstance(value, dict)
+                    and type(value.get("version")) is int
+                    and value["version"] == 1
+                    and value.get("kind") in _PROCESS_EXCEPTION_KINDS
+                    and value.get("origin") in _PROCESS_EXCEPTION_KINDS
+                ):
+                    # Exception text and stacks may contain provider data; retain only fixed enums.
+                    self.process_exception = {"kind": value["kind"], "origin": value["origin"]}
+        finally:
+            self.stderr_reader_finished = True
 
     def send(self, message: dict[str, Any]) -> None:
         assert self.process.stdin is not None
@@ -114,6 +163,8 @@ class NativeHost:
     def request(self, method: str, params: dict[str, Any], *, timeout: float = 30) -> dict[str, Any]:
         self.sequence += 1
         request_id = self.sequence
+        self.last_rpc_method = method if method in _RPC_METHODS else "other"
+        self.last_rpc_id = request_id
         self.send({"id": request_id, "method": method, "params": params})
         deadline = min(self.run.budget, time.monotonic() + timeout)
         while request_id not in self.responses:
@@ -166,11 +217,15 @@ class NativeHost:
         raise AssertionError("host_turn_timeout")
 
     def close(self) -> None:
+        self.closing = True
+        returncode_before_cleanup = self.process.poll()
+        client_terminated = False
         if self.process.stdin:
             self.process.stdin.close()
         try:
             self.process.wait(timeout=10)
         except subprocess.TimeoutExpired:
+            client_terminated = True
             self.process.terminate()
             self.process.wait(timeout=10)
         self.reader.join(timeout=5)
@@ -178,3 +233,28 @@ class NativeHost:
         for stream in (self.process.stdout, self.process.stderr):
             if stream:
                 stream.close()
+        if not self.diagnostic_written and (self.unexpected_stdout_eof or self.process.returncode != 0):
+            diagnostic = {
+                "schema": "powercontext.zcode.host-process.v1",
+                "stdout_eof": self.stdout_eof,
+                "unexpected_stdout_eof": self.unexpected_stdout_eof,
+                "returncode_at_stdout_eof": self.stdout_eof_returncode,
+                "returncode_before_cleanup": returncode_before_cleanup,
+                "returncode_final": self.process.returncode,
+                "client_terminated": client_terminated,
+                "last_rpc_method": self.last_rpc_method,
+                "last_rpc_id": self.last_rpc_id,
+                "stdout_reader_finished": self.stdout_reader_finished,
+                "stderr_reader_finished": self.stderr_reader_finished,
+                "process_exception": self.process_exception,
+            }
+            try:
+                directory = self.run.root / "evidence"
+                directory.mkdir(parents=True, exist_ok=True)
+                (directory / f"host-rpc-{uuid4().hex}.json").write_text(
+                    json.dumps(diagnostic, indent=2) + "\n", encoding="utf-8"
+                )
+                self.diagnostic_written = True
+            except OSError:
+                # Diagnostics must not replace the existing acceptance failure.
+                pass

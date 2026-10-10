@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "source_path": "integrations/zcode/plugins/powercontext/skills/powercontext-project-context",
+  "source_commit": "5cf66be6292eba4ad6e05a4e24e409ebfe1da22a",
+  "files": {
+    "SKILL.md": "88b6eed1a865b395dedc9508ab6cfcb15f2fc800f13bd9d5df02b963234906a1",
+    "references/review-publication.md": "83f3fa674d83785d06945669cbbe08b6d679665fed7e165d778dbfbcd9d10841",
+    "references/scope-memory.md": "0e6441569d116d76e79fc84089ce646aea7b07257eb39748068c4c835c2f68be",
+    "references/work-handoff.md": "76dea45b708f2155e395029afe57b31ac112d8b13d614a6ab604aa436e3d2b2e"
+  }
+}

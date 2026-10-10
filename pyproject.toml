@@ -199,6 +199,7 @@ exclude = [
     "evaluation/coding",
     "evaluation/memory/longmemeval_v2",
     "evaluation/skills",
+    "evaluation/zcode_guidance",
 ]
 
 [tool.ty.rules]

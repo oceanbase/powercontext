@@ -300,6 +300,10 @@ node --test integrations/zcode/plugins/powercontext/tests/host.test.mjs
 ```
 
 第二条需要将 `ZCODE_CLI_BIN` 指向已构建的开源 CLI；它使用模拟模型和 Server，不能代替真实宿主验收。
+仓库的 ZCode acceptance CI 在 Windows 上构建固定提交的开源 CLI，运行完整 Node 测试和两轮
+真实 CLI + PowerContext Server 的可控模型核心验收；PR、master 更新和每周检查都会触发。
+构建版本、逐场景摘要和选定证据随 Actions artifact 保留 14 天；详细范围与升级步骤见
+[可重复 CLI 验收](https://github.com/oceanbase/powercontext/blob/master/integrations/zcode/acceptance/README.md#continuous-integration)。
 官方 Windows 桌面版 3.14.3 已分别连接本地无鉴权与 Bearer 鉴权 Server：MCP `list_scopes` 成功，
 普通提示词经 Hook 形成可读回的 Source。断服期间普通对话仍能回答；本轮隔离验收中，Server 重启后
 同一任务的原生 MCP 调用返回 `Session not found`；新建任务后原生 MCP 恢复，无需重启程序。

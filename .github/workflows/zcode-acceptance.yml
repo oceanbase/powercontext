@@ -1,0 +1,141 @@
+name: ZCode acceptance
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zcode-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # ZCode 3.14.3 contains CLI 0.16.9. Update this pin only with a new acceptance run.
+  ZCODE_REF: 29628c9acdb81b703bbd4080c207a0e7ce5e276e
+  ZCODE_CLI_BIN: ${{ github.workspace }}/.powercontext/zcode-ci-source/apps/zcode-cli/packages/cli/dist/zcode.cjs
+  CI: 'true'
+  HUSKY: '0'
+
+jobs:
+  controlled-cli:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out PowerContext
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check out the supported ZCode host
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: zai-org/ZCode
+          ref: ${{ env.ZCODE_REF }}
+          path: .powercontext/zcode-ci-source
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.15.0'
+
+      - name: Install the host package manager
+        run: npm install --global pnpm@10.33.2
+
+      - name: Validate the ZCode Skill pin and behavior evaluation harness
+        run: |
+          uv run --locked --no-sync python -m evaluation.zcode_guidance.pin --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --locked --no-sync python -m evaluation.zcode_guidance.run --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --locked --no-sync python -m pytest evaluation/zcode_guidance/tests tests/test_zcode_acceptance_protocol.py tests/test_zcode_acceptance_host.py -q
+
+      - name: Record build provenance
+        run: |
+          $hostCommit = git -C .powercontext/zcode-ci-source rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $hostCommit -ne $env:ZCODE_REF) { throw 'Unexpected ZCode commit' }
+          $reportDir = Join-Path $env:RUNNER_TEMP 'zcode-ci-evidence'
+          New-Item -ItemType Directory -Path $reportDir | Out-Null
+          [ordered]@{
+            repository_commit = (git rev-parse HEAD)
+            host_repository = 'zai-org/ZCode'
+            host_commit = $hostCommit
+            node_version = (node --version)
+            pnpm_version = (pnpm --version)
+            model_mode = 'fixture'
+            server_mode = 'real-sqlite'
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reportDir 'provenance.json') -Encoding utf8
+
+      - name: Install frozen host build dependencies
+        run: >-
+          pnpm --dir .powercontext/zcode-ci-source
+          --filter zcode --filter zcode-cli --filter '@zcode/cli...'
+          install --frozen-lockfile --ignore-scripts
+
+      - name: Build the actual CLI
+        run: |
+          pnpm --dir .powercontext/zcode-ci-source exec turbo --skip-infer --cwd apps/zcode-cli run build --filter=@zcode/cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path -LiteralPath $env:ZCODE_CLI_BIN -PathType Leaf)) { throw 'CLI bundle not built' }
+          node $env:ZCODE_CLI_BIN --version
+
+      - name: Run all plugin Node tests including native host discovery
+        run: node --test integrations/zcode/plugins/powercontext/tests/*.test.mjs
+
+      - name: Run two independent controlled CLI acceptances
+        run: >-
+          uv run --locked --no-sync pytest tests/e2e/test_zcode_host_acceptance.py
+          -m 'zcode_host_acceptance and not zcode_live_model'
+          --zcode-acceptance-output "$env:RUNNER_TEMP/zcode-acceptance" -q
+
+      - name: Retain only summaries and selected evidence
+        if: always()
+        run: |
+          $reportDir = Join-Path $env:RUNNER_TEMP 'zcode-ci-evidence'
+          $output = Join-Path $env:RUNNER_TEMP 'zcode-acceptance'
+          if (Test-Path -LiteralPath $output) {
+            foreach ($run in Get-ChildItem -LiteralPath $output -Directory) {
+              if ($run.Name -notmatch '^[0-9a-f]{32}$') { continue }
+              $summary = Join-Path $run.FullName 'summary.json'
+              if (-not (Test-Path -LiteralPath $summary -PathType Leaf)) { continue }
+              $target = Join-Path $reportDir $run.Name
+              New-Item -ItemType Directory -Force -Path $target | Out-Null
+              Copy-Item -LiteralPath $summary -Destination $target
+              $evidence = Join-Path $run.FullName 'evidence'
+              if (Test-Path -LiteralPath $evidence -PathType Container) {
+                $evidenceTarget = Join-Path $target 'evidence'
+                New-Item -ItemType Directory -Path $evidenceTarget | Out-Null
+                Get-ChildItem -LiteralPath $evidence -File -Filter '*.json' |
+                  Copy-Item -Destination $evidenceTarget
+              }
+              $result = Get-Content -LiteralPath $summary -Raw | ConvertFrom-Json
+              "### Run $($run.Name): $($result.overall_status)" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+              foreach ($scenario in $result.scenarios) {
+                "- $($scenario.id): $($scenario.status)" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+              }
+            }
+          }
+
+      - name: Upload controlled acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: zcode-controlled-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/zcode-ci-evidence/
+          if-no-files-found: warn
+          retention-days: 14

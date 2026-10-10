@@ -9,7 +9,7 @@ Python environment and build configuration.
 | [`coding/`](coding/README.md) | Coding-task completion and continuation quality | [SWE-bench Pro](coding/swebench_pro/README.md), [Work continuity](coding/work_continuity/README.md) |
 | [`memory/`](memory/README.md) | Memory retrieval and answer quality | [LoCoMo](memory/locomo/README.md), [LoCoMo-Plus](memory/locomo_plus/README.md), [LongMemEval-V2](memory/longmemeval_v2/README.md) |
 | [`performance/`](performance/README.md) | Capacity, storage growth, latency, and compaction cost | [Memory capacity](performance/memory_capacity/README.md) |
-| [`skills/`](skills/README.md) | Agent instruction routing and authorization regressions | [Claude Code skill-up](skills/skill-up/README.md) |
+| [`skills/`](skills/README.md) | Agent instruction routing and authorization regressions | [Claude Code skill-up](skills/skill-up/README.md), [ZCode native CLI](zcode_guidance/README.md) |
 
 ```text
 evaluation/
@@ -39,6 +39,7 @@ evaluation/
 │       └── tests/
 ├── performance/
 │   └── memory_capacity/
+├── zcode_guidance/                 # Native ZCode Skill routing and authorization
 └── skills/
     └── skill-up/
 ```
@@ -48,7 +49,7 @@ evaluation/
 Run these commands from the repository root. LoCoMo, LoCoMo-Plus, and performance modules use the root project's
 Python dependencies. SWE-bench Pro, Work continuity, and LongMemEval-V2 share this directory's locked environment and
 expose independent `swebench-pro`, `work-continuity`, and `longmemeval-v2` commands. Skill-up has its own validation
-dependencies and pinned CLI.
+dependencies and pinned CLI. ZCode guidance uses the root project's dependencies and its pinned native CLI.
 
 ```bash
 # Install the shared environment, then choose a suite command.
@@ -69,6 +70,10 @@ uv run python -m evaluation.performance.memory_capacity --help
 # Skill regression: validate the pinned Skill and controlled fixtures locally.
 uv run python evaluation/skills/skill-up/sync_skill.py --check
 uv run python evaluation/skills/skill-up/validate_suite.py
+
+# Native ZCode Skill regression: validate the pin and runner without calling a model.
+uv run --locked python -m evaluation.zcode_guidance.pin --check
+uv run --locked python -m evaluation.zcode_guidance.run --help
 ```
 
 The [SWE-bench Pro console guide](coding/swebench_pro/docs/console.md) covers its Web and worker deployment.
@@ -92,7 +97,7 @@ The `powercontext-eval` distribution contains three packages: `powercontext_eval
 `powercontext_eval_work_continuity`, and `powercontext_eval_longmemeval_v2`. Editable installs and wheels expose the
 independent `swebench-pro`, `work-continuity`, and `longmemeval-v2` commands and their suite modules.
 LoCoMo behavior tests remain under [`tests/`](../tests/), including [`tests/evaluation/`](../tests/evaluation/).
-Skill-up keeps its own validation tests. The [Bub replay harness](../e2e/bub/README.md) and
+Skill-up and ZCode guidance keep their own validation tests. The [Bub replay harness](../e2e/bub/README.md) and
 [product E2E tests](../tests/e2e/) cover cross-component acceptance.
 
 Keep fixed datasets, locks, configuration examples, and scoring rules with their owning suite. Store local outputs in

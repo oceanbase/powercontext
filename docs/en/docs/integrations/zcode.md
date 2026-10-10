@@ -343,7 +343,13 @@ node --test integrations/zcode/plugins/powercontext/tests/host.test.mjs
 ```
 
 The second command needs `ZCODE_CLI_BIN` pointing to a built CLI. It uses a fake model and Server and does not replace
-a live-host acceptance run. Official Windows desktop 3.14.3 connected to local unauthenticated and Bearer-authenticated
+a live-host acceptance run. The ZCode acceptance CI builds a pinned open-source CLI on Windows, runs all Node tests
+and two actual CLI + PowerContext Server core acceptances with controlled inference on PRs, master updates and weekly
+checks. Build provenance, scenario summaries and selected evidence are retained as Actions artifacts for 14 days.
+See [repeatable CLI acceptance](https://github.com/oceanbase/powercontext/blob/master/integrations/zcode/acceptance/README.md#continuous-integration) for scope
+and host upgrade instructions.
+
+Official Windows desktop 3.14.3 connected to local unauthenticated and Bearer-authenticated
 Servers: MCP `list_scopes` succeeded, and ordinary prompts became readable Sources through the Hook. An ordinary
 conversation continued during a Server outage. In the current isolated acceptance, a native MCP call in the same task
 after Server restart failed with `Session not found`. Creating a new task restored native MCP without restarting

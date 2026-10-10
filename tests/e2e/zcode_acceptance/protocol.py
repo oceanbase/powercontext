@@ -19,7 +19,9 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import threading
 from collections.abc import Callable
+from hashlib import sha256
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -88,11 +90,53 @@ class WireEvidence:
         raise AssertionError(message)
 
 
+class CaptureResponseGate:
+    """Withhold one accepted capture receipt until its owning host turn has completed."""
+
+    def __init__(self, content: str, *, release_timeout: float = 185) -> None:
+        self.content = content
+        self.release_timeout = release_timeout
+        self.accepted = threading.Event()
+        self._released = threading.Event()
+        self.receipt: dict[str, Any] | None = None
+        self.release_timed_out = False
+
+    def release(self) -> None:
+        self._released.set()
+
+    async def hold(self, response: dict[str, Any]) -> None:
+        source = response.get("source", {})
+        assert response.get("status") == "accepted" and source.get("name") == "content", (
+            "capture_gate_accepted_receipt_missing"
+        )
+        assert isinstance(source.get("source_id"), str) and source["source_id"], "capture_gate_source_identity_missing"
+        assert isinstance(response.get("position"), int) and response["position"] > 0, (
+            "capture_gate_source_position_missing"
+        )
+        self.receipt = {
+            "source": {"name": "content", "source_id": source["source_id"]},
+            "position": response["position"],
+        }
+        self.accepted.set()
+        if not await asyncio.to_thread(self._released.wait, self.release_timeout):
+            self.release_timed_out = True
+            raise AssertionError("capture_response_gate_release_timeout")
+
+    def evidence(self) -> dict[str, Any]:
+        return {
+            "target_content_digest": "sha256:" + sha256(self.content.encode()).hexdigest(),
+            "accepted": self.accepted.is_set(),
+            "accepted_receipt": self.receipt,
+            "explicitly_released": self._released.is_set(),
+            "release_timed_out": self.release_timed_out,
+        }
+
+
 class ObserveServer:
     def __init__(self, app: ASGIApp, evidence: WireEvidence) -> None:
         self.app = app
         self.evidence = evidence
-        self.capture_response_delay = 0.0
+        self.capture_response_gate: CaptureResponseGate | None = None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: C901
         if scope["type"] != "http":
@@ -104,8 +148,9 @@ class ObserveServer:
         request_body = bytearray()
         response_body = bytearray()
         status = 0
-        delayed_messages: list[Message] = []
-        delay = self.capture_response_delay if scope["path"] == "/v1/sources/content" else 0
+        held_messages: list[Message] = []
+        gate = self.capture_response_gate if scope["path"] == "/v1/sources/content" else None
+        hold_response = False
 
         async def receive_observed() -> Message:
             message = await receive()
@@ -117,9 +162,10 @@ class ObserveServer:
             return message
 
         async def send_observed(message: Message) -> None:
-            nonlocal status
+            nonlocal status, hold_response
             if message["type"] == "http.response.start":
                 status = message["status"]
+                hold_response = bool(gate and status == 202 and arrived["request"].get("content") == gate.content)
             elif message["type"] == "http.response.body":
                 response_body.extend(message.get("body", b""))
                 assert len(response_body) <= 1_048_576, "acceptance response exceeded evidence limit"
@@ -130,15 +176,16 @@ class ObserveServer:
                         "request": decode_response(bytes(request_body)) if request_body else {},
                         "response": decode_response(bytes(response_body)),
                     })
-            if delay:
-                delayed_messages.append(message)
+            if hold_response:
+                held_messages.append(message)
             else:
                 await send(message)
 
         await self.app(scope, receive_observed, send_observed)
-        if delay:
-            await asyncio.sleep(delay)
-            for message in delayed_messages:
+        if hold_response:
+            assert gate is not None
+            await gate.hold(decode_response(bytes(response_body)))
+            for message in held_messages:
                 await send(message)
 
 

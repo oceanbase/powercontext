@@ -17,11 +17,12 @@
 from __future__ import annotations
 
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 from .host import NativeHost
-from .protocol import strings
+from .protocol import CaptureResponseGate, strings
 
 if TYPE_CHECKING:
     from .runner import AcceptanceRun
@@ -29,18 +30,38 @@ if TYPE_CHECKING:
 
 def runtime_faults(run: AcceptanceRun) -> None:
     with run.scenario(7) as evidence:
-        run.observer.capture_response_delay = 1.5
         marker = "Synthetic late capture " + run.run_id
+        prompt_text = marker + ". Reply briefly without calling tools."
+        gate = CaptureResponseGate(prompt_text)
+        run.observer.capture_response_gate = gate
         try:
-            result = run.invoke(marker + ". Reply briefly without calling tools.")
+            result = run.invoke(prompt_text)
         finally:
-            run.observer.capture_response_delay = 0
+            gate.release()
+            run.observer.capture_response_gate = None
+        accepted = gate.accepted.wait(max(0, min(5, run.budget - time.monotonic())))
         records = run.observations(result["sessionId"])
         prompt = next(item for item in records if item["event"] == "UserPromptSubmit")
+        evidence.append(
+            run.evidence(
+                "late-capture-attempt",
+                {
+                    "capture": prompt["stages"]["capture"],
+                    "accepted_receipt_within_budget": accepted,
+                    "response_gate": gate.evidence(),
+                },
+            )
+        )
+        assert accepted, "late_capture_fault_did_not_hold_accepted_response"
+        assert not gate.release_timed_out, "late_capture_response_gate_expired"
         assert prompt["stages"]["capture"]["state"] == "unknown", "late_write_not_observed_as_unknown"
         sources = run.client.get(f"/v1/scopes/{run.scope_id}/sources").json()["items"]
         captures = [item for item in sources if marker in item["content"]]
         assert len(captures) == 1, "late_capture_server_identity_missing"
+        assert gate.receipt == {
+            "source": {"name": "content", "source_id": captures[0]["source_id"]},
+            "position": captures[0]["position"],
+        }, "late_capture_gate_receipt_identity_mismatch"
         before = len(run.wire.received_paths)
         status = run.process([
             str(run.node),
@@ -109,7 +130,7 @@ def runtime_faults(run: AcceptanceRun) -> None:
             run.evidence(
                 "runtime-faults",
                 {
-                    "late_response_injection_seconds": 1.5,
+                    "late_response_injection": "accepted_receipt_held_until_host_turn_completed",
                     "capture_state": "unknown",
                     "accepted_source_readback": {"name": "content", "source_id": captures[0]["source_id"]},
                     "status_read_only": True,

@@ -11,6 +11,11 @@ The official Windows desktop version 3.14.3 has been verified with live prompt c
 See [repeatable CLI acceptance](acceptance/README.md) and [manual Windows desktop acceptance](acceptance/desktop.md).
 The CLI suite distinguishes controlled inference from live models and records individual scenario outcomes;
 partial runs do not establish complete acceptance.
+The [ZCode acceptance workflow](../../.github/workflows/zcode-acceptance.yml) builds a pinned open-source CLI on Windows,
+runs all plugin Node tests and two controlled-model core acceptances for PRs, master updates and weekly checks.
+The [Skill behavior evaluation](../../evaluation/zcode_guidance/README.md) separately runs live ZCode models with
+controlled MCP replies and a no-Skill baseline, covering ordinary coding, empty searches, denied saves and stale
+candidate approval. CI verifies its pin and grader offline; live qualification requires a retained model run.
 
 SessionStart resolves Scope; resume/compact handlers can restore readonly context. The tested open-source CLI emitted
 startup/resume; `/compact` did not emit a compact event. Stop optionally processes pending Sources with a 1000 ms budget,

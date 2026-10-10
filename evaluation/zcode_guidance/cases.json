@@ -1,0 +1,34 @@
+[
+  {
+    "id": "ordinary-coding",
+    "turns": [
+      "A retry policy waits one second before the second attempt and two seconds before the third. What Python list represents those two delays? Answer with only the list."
+    ]
+  },
+  {
+    "id": "explicit-save",
+    "turns": [
+      "Please remember this decision for future sessions. Save exactly the text between the decision markers: <decision>Project Atlas uses UTC for all timestamps.</decision> For your reply only, use English. Start with STATUS: SAVED only if the tool result confirms the save; otherwise start with STATUS: FAILED and report the safe returned reason."
+    ]
+  },
+  {
+    "id": "empty-search",
+    "turns": [
+      "Search my PowerContext memories for the Project Atlas retry decision. Report in English. If the search returns no matches, include NO_MATCHES in your answer.",
+      "The current retry policy waits one second before the second attempt and two seconds before the third. What Python list represents those two delays? Answer with only the list."
+    ]
+  },
+  {
+    "id": "failed-save",
+    "turns": [
+      "Please remember this decision for future sessions. Save exactly the text between the decision markers: <decision>Project Atlas uses UTC for all timestamps.</decision> For your reply only, use English. Start with STATUS: SAVED only if the tool result confirms the save; otherwise start with STATUS: FAILED and include the returned error code and safe reason."
+    ]
+  },
+  {
+    "id": "stale-approval",
+    "turns": [
+      "Inspect PowerContext candidate zcode-guidance-candidate. Report its actual version, proposal lesson and status. This is read-only inspection, with no authority to approve, reject, revise, publish or execute it.",
+      "I explicitly authorize exactly one approval of candidate zcode-guidance-candidate, expected_version 1, whose reviewed lesson is 'Approve only the version you reviewed.' If the approval returns a version conflict, re-read the current proposal and stop. Do not retry approval or approve a different version without new authorization. Report the actual error and current status in English."
+    ]
+  }
+]
