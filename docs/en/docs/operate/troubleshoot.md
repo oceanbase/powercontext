@@ -283,7 +283,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_artifact_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
+      --table 'pc_artifact_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_evidence,pc_memory_entry_heads,pc_memory_entry_lifecycle_projections,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
      -f <export-directory>
    ```
 
@@ -307,6 +307,24 @@ so the previous database remains available for recovery:
 
 If records were previously merged because the old collation considered their identities equal, changing the schema
 cannot reconstruct them. Resolve those records from an authoritative source before accepting writes.
+
+## A remote Source Definition stops registering
+
+A Source Definition manifest is immutable and keyed by its `name` and `version`. Its `fingerprint` covers exactly the
+fields the manifest was emitted with, so a Definition that is emitted differently for the same `name` and `version`
+no longer matches the registration already in the database. A worker re-registers its Definition on every run, which
+makes an upgrade the ordinary way to hit this:
+
+- Registering the Definition returns HTTP 409 `source_conflict`.
+- Submitting an observation whose `definition_fingerprint` no longer matches returns HTTP 422
+  `invalid_source_ingestion`.
+
+Register the changed Definition under a new `version`, then restart the worker so it submits observations against the
+new manifest. Do not edit a stored manifest in place, and do not reuse a `version` with different content.
+
+A declaration that carries no ranking preference — an absent `memory_evidence` or the neutral default — is excluded
+from the fingerprint, so upgrading across the introduction of that field does not change any Definition's identity.
+Only a declaration that asserts an authority or verification level changes it.
 
 ## An inference readiness check fails
 

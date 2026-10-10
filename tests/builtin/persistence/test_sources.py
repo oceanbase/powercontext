@@ -19,7 +19,7 @@ import asyncio
 import pytest
 from sqlalchemy import insert
 
-from powercontext import InvalidSourceDefinitionError
+from powercontext import InvalidSourceDefinitionError, InvalidSourceObservationError
 from powercontext.builtin.persistence import (
     InvalidRepositoryArgumentError,
     RepositoryNotFoundError,
@@ -29,8 +29,13 @@ from powercontext.builtin.persistence.codec import dump_model
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import SHARED_TABLES, SOURCES_TABLE
+from powercontext.builtin.runtime.models import SubmitSourceObservation
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.sources import (
+    MemoryEvidenceAuthority,
+    MemoryEvidenceDeclaration,
+    MemoryEvidenceVerification,
+    SourceDefinitionManifest,
     SourceDefinitionRegistry,
     SourceMaterialization,
     SourceObservation,
@@ -38,12 +43,34 @@ from powercontext.sources import (
     manifest_for_definition,
     project_source_for_transport,
 )
+from powercontext.sources.definitions import AdapterSourceDefinition
+from powercontext.sources.observations import _source_definition_fingerprint
 from tests.builtin.persistence.contract import (
     SOURCE_ADAPTERS,
     CommitSource,
+    NoteAdapter,
+    NoteInput,
     NoteSource,
     repository_profile,
 )
+
+
+def _legacy_manifest(current: SourceDefinitionManifest) -> SourceDefinitionManifest:
+    """Return the declaration shape registered before the evidence field existed."""
+
+    return SourceDefinitionManifest(
+        name=current.name,
+        version=current.version,
+        fingerprint=_source_definition_fingerprint(
+            name=current.name,
+            version=current.version,
+            source_schema=current.source_schema,
+            projections=current.projections,
+            memory_evidence=None,
+        ),
+        source_schema=current.source_schema,
+        projections=current.projections,
+    )
 
 
 def test_two_source_adapters_share_one_repository_and_journal() -> None:
@@ -174,6 +201,123 @@ def test_remote_definition_cannot_shadow_the_active_registry() -> None:
 
             with pytest.raises(InvalidSourceDefinitionError, match="active Source Definition"):
                 await contexts.register_source_definition(manifest)
+
+    asyncio.run(scenario())
+
+
+def test_legacy_definition_manifest_registers_reads_back_and_accepts_an_observation() -> None:
+    async def scenario() -> None:
+        worker_registry = SourceDefinitionRegistry.from_adapters(SOURCE_ADAPTERS)
+        definition = worker_registry.definition_for_name("note")
+        legacy = _legacy_manifest(manifest_for_definition(definition))
+        source = await worker_registry.resolve(NoteInput(note_id="note-1", body="Registered before the declaration."))
+        projected = project_source_for_transport(worker_registry, source)
+        observation = SourceObservation.model_validate(
+            projected.model_dump(mode="json", exclude={"memory_evidence"})
+            | {"definition_fingerprint": legacy.fingerprint}
+        )
+
+        async with repository_profile() as (profile, _repositories):
+            # The server owns its own registry, so the worker definition stays remote.
+            contexts = RelationalContexts(database=profile.database)
+            first = await contexts.register_source_definition(legacy)
+            second = await contexts.register_source_definition(legacy)
+            receipt = await contexts.submit_source_observation(
+                SubmitSourceObservation(scope_id="scope-a", observation=observation)
+            )
+
+        assert first == legacy
+        assert second == first
+        assert receipt.source_ref == SourceRef(source_type="note", source_id="note-1")
+
+    asyncio.run(scenario())
+
+
+def test_neutral_declaration_keeps_a_registered_definition_re_registrable() -> None:
+    """A neutral declaration must not change a Definition's content-addressed identity.
+
+    A deployed worker re-registers its Definition manifest on every run against an
+    immutable ``(name, version)`` key. Definitions registered before the evidence
+    declaration existed carry the same neutral meaning, so the fingerprint the
+    worker emits after an upgrade has to stay identical.
+    """
+
+    async def scenario() -> None:
+        worker_registry = SourceDefinitionRegistry.from_adapters(SOURCE_ADAPTERS)
+        definition = worker_registry.definition_for_name("note")
+        manifest = manifest_for_definition(definition)
+
+        # A worker that omits the declaration must emit a manifest that is
+        # indistinguishable from the neutral default, and one whose fingerprint
+        # matches the historical, pre-declaration identity.
+        assert _legacy_manifest(manifest).fingerprint == manifest.fingerprint
+        neutral = SourceDefinitionManifest.model_validate(
+            manifest.model_dump(mode="json") | {"memory_evidence": MemoryEvidenceDeclaration().model_dump(mode="json")}
+        )
+        assert neutral.fingerprint == manifest.fingerprint
+
+        async with repository_profile() as (profile, _repositories):
+            contexts = RelationalContexts(database=profile.database)
+            first = await contexts.register_source_definition(manifest)
+            # The upgraded worker re-registers the same Definition on its next run.
+            second = await contexts.register_source_definition(manifest_for_definition(definition))
+
+        assert first == manifest
+        assert second == first
+
+    asyncio.run(scenario())
+
+
+def test_source_observation_cannot_contradict_the_registered_declaration() -> None:
+    """The registered manifest owns the evidence declaration, and a contradiction is rejected.
+
+    The declaration reaches storage only from the Definition-owned manifest. An
+    observation that omits the field is stamped from the manifest, and one that
+    asserts a different authority is rejected instead of silently downgraded or
+    upgraded.
+    """
+
+    async def scenario() -> None:
+        declared = MemoryEvidenceDeclaration(
+            authority=MemoryEvidenceAuthority.SYSTEM_ATTESTED,
+            verification=MemoryEvidenceVerification.VERIFIED,
+        )
+        definition = AdapterSourceDefinition(NoteAdapter(), memory_evidence=declared)
+        worker_registry = SourceDefinitionRegistry((definition,))
+        manifest = manifest_for_definition(definition)
+        assert manifest.memory_evidence == declared
+
+        source = await worker_registry.resolve(NoteInput(note_id="note-1", body="Server owns the declaration."))
+        projected = project_source_for_transport(worker_registry, source)
+
+        async with repository_profile() as (profile, repositories):
+            # The remote Definition must become the active one for this server.
+            contexts = RelationalContexts(
+                database=profile.database,
+                source_registry=SourceDefinitionRegistry(()),
+            )
+            await contexts.register_source_definition(manifest)
+
+            # A worker that omits the declaration is accepted; the manifest supplies it.
+            omitted = SourceObservation.model_validate(projected.model_dump(mode="json", exclude={"memory_evidence"}))
+            receipt = await contexts.submit_source_observation(
+                SubmitSourceObservation(scope_id="scope-a", observation=omitted)
+            )
+            async with profile.database.transaction() as connection:
+                stored = await repositories.sources.get(connection, "scope-a", receipt.source_ref)
+            assert isinstance(stored.value, SourceObservation)
+            assert stored.value.memory_evidence == declared
+
+            # A worker that asserts a different authority cannot override the Definition.
+            contradicted = SourceObservation.model_validate(
+                projected.model_dump(mode="json")
+                | {"memory_evidence": MemoryEvidenceDeclaration().model_dump(mode="json")}
+            )
+            with pytest.raises(InvalidSourceObservationError) as error:
+                await contexts.submit_source_observation(
+                    SubmitSourceObservation(scope_id="scope-a", observation=contradicted)
+                )
+            assert error.value.issue == "memory_evidence"
 
     asyncio.run(scenario())
 

@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic, Protocol, TypeVar, cast
 
 from pydantic import BaseModel, JsonValue, TypeAdapter
@@ -34,7 +34,7 @@ from powercontext.errors import (
     SourceProjectionNotFoundError,
 )
 from powercontext.sources.adapters import SourceAdapter
-from powercontext.sources.models import Source, SourceProjectionKey
+from powercontext.sources.models import MemoryEvidenceDeclaration, Source, SourceProjectionKey
 
 InputT = TypeVar("InputT")
 SourceT = TypeVar("SourceT", bound=Source)
@@ -60,6 +60,7 @@ class SourceDefinition(SourceAdapter[InputT, SourceT, ValueT_co], Protocol[Input
 
     version: str
     projections: tuple[SourceProjection[SourceT], ...]
+    memory_evidence: MemoryEvidenceDeclaration
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,7 @@ class AdapterSourceDefinition(Generic[InputT, SourceT, ValueT_co]):
     adapter: SourceAdapter[InputT, SourceT, ValueT_co]
     version: str = "1"
     projections: tuple[SourceProjection[SourceT], ...] = ()
+    memory_evidence: MemoryEvidenceDeclaration = field(default_factory=MemoryEvidenceDeclaration)
 
     @property
     def input_class(self) -> type[InputT]:
@@ -171,7 +173,7 @@ class SourceDefinitionRegistry:
         if type(source) is not definition.source_class:
             raise InvalidSourceResultError(definition.name, "resolve", definition.source_class, type(source))
         self.definition_for_source(source)
-        return cast(Source, source)
+        return cast(Source, source.model_copy(update={"memory_evidence": definition_memory_evidence(definition)}))
 
     async def read(self, source: Source, /) -> object:
         definition = self.definition_for_source(source)
@@ -202,6 +204,28 @@ class SourceDefinitionRegistry:
         except (TypeError, ValueError) as error:
             raise InvalidSourceProjectionError(key.name, "result", "must match the declared output schema") from error
 
+    def memory_evidence(self, source: Source, /) -> MemoryEvidenceDeclaration:
+        """Return the declaration that applies to one exact Source value."""
+
+        from powercontext.sources.observations import SourceObservation
+
+        if isinstance(source, SourceObservation):
+            return source.memory_evidence
+        self.definition_for_source(source)
+        return source.memory_evidence
+
+
+def definition_memory_evidence(definition: object, /) -> MemoryEvidenceDeclaration:
+    """Return a Definition's evidence declaration, or the neutral one when absent.
+
+    Adapters built against the contract before the declaration existed do not carry
+    the attribute at all. Resolving that case here keeps every consumer of the
+    declaration on one answer instead of requiring the caller to re-check it.
+    """
+
+    declared = getattr(definition, "memory_evidence", None)
+    return declared if isinstance(declared, MemoryEvidenceDeclaration) else MemoryEvidenceDeclaration()
+
 
 def _validate_definition(definition: object) -> tuple[type[object], type[Source]]:
     definition_type = type(definition)
@@ -220,6 +244,19 @@ def _validate_definition(definition: object) -> tuple[type[object], type[Source]
     projections = getattr(definition, "projections", None)
     if not isinstance(projections, tuple):
         raise InvalidSourceDefinitionError(definition_type, "projections", "must be a tuple")
+    memory_evidence = getattr(definition, "memory_evidence", None)
+    if memory_evidence is None:
+        # An adapter built against the contract before the declaration existed owns
+        # no evidence metadata, which is exactly the neutral declaration. Tolerating
+        # the missing attribute keeps that adapter registering, mirroring how the
+        # manifest and observation paths accept an absent declaration.
+        memory_evidence = MemoryEvidenceDeclaration()
+    if not isinstance(memory_evidence, MemoryEvidenceDeclaration):
+        raise InvalidSourceDefinitionError(
+            definition_type,
+            "memory_evidence",
+            "must be a MemoryEvidenceDeclaration",
+        )
     for method_name in ("resolve", "read"):
         if not callable(getattr(definition, method_name, None)):
             raise InvalidSourceAdapterError(definition_type, method_name, "must be callable")

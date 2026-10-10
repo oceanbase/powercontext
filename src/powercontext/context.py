@@ -55,6 +55,7 @@ class Sources(BaseModel):
     async def add(self, source: Source, /) -> Source:
         """Persist a resolved Source without deriving Artifacts."""
 
+        source = self.catalog.materialize(source)
         self.catalog.as_ref(source)
         stored = await self.store.add(source)
         self.catalog.as_ref(stored)

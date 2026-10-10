@@ -275,7 +275,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_artifact_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
+      --table 'pc_artifact_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_evidence,pc_memory_entry_heads,pc_memory_entry_lifecycle_projections,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
      -f <export-directory>
    ```
 
@@ -296,6 +296,21 @@ collation，但不会包含数据库 URL 或凭据。
 
 如果旧 collation 曾因 identity 相等而合并记录，重建 schema 无法恢复这些记录。接受新的写入之前，请从权威数据源
 修复它们。
+
+## 远程 Source Definition 无法注册
+
+Source Definition manifest 不可变，并以 `name` 和 `version` 作为键。它的 `fingerprint` 只覆盖 manifest 发出时
+实际携带的字段，因此同一个 `name` 和 `version` 若发出内容不同，就无法匹配数据库中已存在的注册记录。worker
+每次运行都会重新注册自己的 Definition，所以升级是最常见的触发方式：
+
+- 注册该 Definition 返回 HTTP 409 `source_conflict`。
+- 提交的 observation 其 `definition_fingerprint` 不再匹配时，返回 HTTP 422 `invalid_source_ingestion`。
+
+请用新的 `version` 注册变更后的 Definition，然后重启 worker，让它基于新的 manifest 提交 observation。不要就地
+修改已存储的 manifest，也不要用同一个 `version` 承载不同内容。
+
+不带任何排序偏好的声明——缺失的 `memory_evidence` 或中性默认值——不参与 fingerprint 计算，因此跨越该字段引入的
+升级不会改变任何 Definition 的 identity。只有真正声明了 authority 或 verification 等级的声明才会改变它。
 
 ## 推理服务 readiness 检查失败
 

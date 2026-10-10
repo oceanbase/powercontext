@@ -51,6 +51,9 @@ from powercontext.errors import (
 )
 from powercontext.sources import (
     AdapterSourceDefinition,
+    MemoryEvidenceAuthority,
+    MemoryEvidenceDeclaration,
+    MemoryEvidenceVerification,
     Source,
     SourceAdapter,
     SourceCatalog,
@@ -90,6 +93,9 @@ __all__ = [
     "InvalidSourceProjectionError",
     "InvalidSourceReferenceError",
     "InvalidSourceResultError",
+    "MemoryEvidenceAuthority",
+    "MemoryEvidenceDeclaration",
+    "MemoryEvidenceVerification",
     "PolicyTransition",
     "PowerContext",
     "PowerContextError",
