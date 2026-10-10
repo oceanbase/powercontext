@@ -45,13 +45,17 @@ Python 依赖下载缓慢或失败时，可按[镜像重试步骤](https://power
 Agent 官方订阅不会自动给 PowerContext Server 提供这些凭据。选择**基础记忆**则可显式保存与召回，无需额外模型 API。
 
 向导生成一个 `.env` 环境文件和 `.env.next-steps.md`。
-选择 seekdb 且缺少依赖时，会在确认后后台增量安装。按照最后打印的连接信息，在当前终端启动 Server：
+选择 seekdb 且缺少依赖时，会在确认后后台增量安装。依赖就绪后，受支持的 macOS 和 Linux 本机使用推荐安装个人服务：
 
 ```bash
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-保持 Server 运行，在另一个终端回到 `powercontext-config` 目录，仅加载客户端配置并检查服务：
+关闭终端后 Server 会继续运行，并在重启后登录时恢复。
+具体要求见[个人服务](https://powercontext.oceanbase.io/zh/docs/operate/deploy-server/#运行持久个人-server)。
+
+在当前终端加载客户端连接配置并检查服务：
 
 ```bash
 set -a
@@ -62,6 +66,7 @@ powercontext capabilities
 ```
 
 接着按 `.env.next-steps.md` 创建并绑定 Scope、安装相同版本的插件，再打开新 Agent 会话。
+修改 `.env`（包括写入 Scope ID）或升级 PowerContext 后，重新执行 `powercontext service install --env-file .env`。
 [完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)包含 Codex、Claude Code、Dashboard 登录、
 SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
 
@@ -72,6 +77,9 @@ powercontext doctor codex
 
 `doctor` 通过只代表集成安装就绪。自动记忆验收需要确认：真实输入进入 Source、产生 Topic、相关输入推动主题演进，
 并能在使用同一 Scope 的新会话中召回。
+
+开发、调试、临时使用或不支持个人服务的平台，可执行 `powercontext server run --env-file .env`。
+保持该终端打开，在另一个终端执行客户端和 Agent 命令。
 
 Codex 标为 `official`，其他宿主及 Python Agent 框架标为 `community`，Bub 标为 `evaluation`，仅用于评测。
 这些标签表示 PowerContext 集成的维护归属和用途，具体功能及可用状态见

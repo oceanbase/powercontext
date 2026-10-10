@@ -61,14 +61,7 @@ Profile 审核行为见[Scope 画像](../workflows/use-profiles.md)。
 
 ## 启动后检查
 
-在 Server 终端执行：
-
-```bash
-powercontext config validate --env-file .env
-powercontext server run --env-file .env
-```
-
-另一个终端只加载客户端文件：
+按[Server 启动步骤](configure-server-environment.md#3-使用同一份配置启动)应用保存的配置，再加载客户端连接设置进行检查：
 
 ```bash
 set -a

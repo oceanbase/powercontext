@@ -47,23 +47,25 @@ These files can contain credentials; do not commit them.
 If seekdb is still installing, the wizard waits with an activity indicator. Complete any reported dependency recovery
 before starting the Server. Saving files or installing dependencies does not start the Server.
 
-## 2. Start the Server
+## 2. Install and verify the personal service
 
-In this terminal, run:
+For supported local macOS and Linux installations, run in this terminal:
 
 ```bash
 powercontext config validate --env-file .env
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-Keep the terminal running. Open the Dashboard URL printed by the wizard, using the port saved as
+Server keeps running after the terminal closes and resumes when you log in after a reboot.
+See [personal-service requirements](../operate/deploy-server.md#run-a-persistent-personal-server).
+
+Open the Dashboard URL printed by the wizard, using the port saved as
 `POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. With authentication disabled, the page opens directly. Otherwise, sign in
 with the **Server token**, not a model API key.
-An empty Dashboard is expected before you capture data. For operation after closing the terminal, stop the foreground
-Server and install a [persistent personal service](../operate/deploy-server.md#run-a-persistent-personal-server)
-with `powercontext service install --env-file .env` to reuse the same configuration.
+An empty Dashboard is expected before you capture data.
 
-Open another terminal, load the client settings, and check the running service:
+In the same terminal, load the client connection settings and check the running service:
 
 ```bash
 cd ~/powercontext-demo
@@ -89,6 +91,12 @@ POWERCONTEXT_CODEX_SCOPE_ID=replace-with-returned-scope-id
 The planned `codex-xxxxxxxx` value is a title, not an ID. For Claude Code, put the ID returned by its creation request
 in `POWERCONTEXT_CLAUDE_SCOPE_ID`. Agents can have separate Scopes or explicitly share an existing one.
 Changing directories does not create isolation. Use the same Scope in the Dashboard and Agent during this check.
+
+After saving the Scope IDs, update the personal service with the same file:
+
+```bash
+powercontext service install --env-file .env
+```
 
 Reload the client settings and install the matching plugin:
 
@@ -141,7 +149,7 @@ additional triggers or review requirements; see [Capability behavior](configure-
 
 ## Continue
 
-- [Install and run](install-and-run.md): versions, seekdb dependencies, existing storage, and updates.
+- [Install and run](install-and-run.md): versions, seekdb dependencies, existing storage, updates, and optional foreground startup.
 - [Deploy the Server](../operate/deploy-server.md): background services, SSH, HTTPS, and backups.
 - [Configure models](configure-models.md): API protocols, vector dimensions, and extraction checks.
 - [Troubleshoot](../operate/troubleshoot.md): service, model, capture, or recall failures.

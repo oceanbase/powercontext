@@ -90,10 +90,10 @@ For an existing file, choose **Edit selected modules**, then **Dashboard and acc
 choose **Review and save**, and confirm. You can also restore `8000` this way. The wizard saves
 `POWERCONTEXT_SERVER_HTTP_PORT`; configure Agent connections again when their saved endpoints need updating.
 
-Start the Server with `powercontext server run --env-file .env`. If it is already running, stop it and
-restart it with that file; saving does not reload or restart the process. With port `18000`, open
+After saving, apply the configuration using the [startup steps below](#3-run-the-same-configuration).
+Saving alone does not reload or restart Server. With port `18000`, open
 `http://127.0.0.1:18000/` for Dashboard; MCP uses `http://127.0.0.1:18000/mcp`.
-CLI options and process environment variables still override the saved file.
+Foreground CLI options and process environment variables still override the saved file.
 
 For remote access, the public HTTPS URL remains separate from the internal listener port. With SSH
 forwarding, select the Server port and the client-side forwarded port separately, then use the generated tunnel command.
@@ -129,16 +129,18 @@ inference-dependent runtime features are configured, it also checks the Runtime 
 
 ## 3. Run the same configuration
 
+For supported personal macOS and Linux installations with a loopback listener, install the service with this file:
+
 ```bash
-powercontext server run
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-`server run` discovers `.env` in the current directory. Use `--env-file <path>` to select a different file or
-`--no-env-file` to disable file loading. CLI options take precedence, followed by process environment variables, the
-selected file, and defaults. The command prints the resolved file path without printing credentials.
+Re-run installation with the same file after editing it. For service requirements and maintenance, or non-loopback
+and managed deployments, see [Deploy the Server](../operate/deploy-server.md). For development, debugging, temporary
+use, or unsupported platforms, see [foreground startup](install-and-run.md#foreground-use-for-development-or-debugging).
 
-Keep the Server running. In another terminal, return to the configuration directory and load the generated client
-configuration before checking the service:
+In the same terminal, load the generated client connection settings before checking the service:
 
 ```bash
 set -a

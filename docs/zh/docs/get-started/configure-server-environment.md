@@ -82,9 +82,9 @@ Dashboard、HTTP API 和 MCP 共用一个 Server 监听端口，没有独立的 
 也可以通过相同步骤恢复 `8000`。向导将端口保存为 `POWERCONTEXT_SERVER_HTTP_PORT`；
 已有 Agent 的连接地址需要更新时，请重新配置 Agent 连接。
 
-通过 `powercontext server run --env-file .env` 启动服务。如果 Server 已在运行，请先停止，再使用该文件重新启动；
-保存文件不会自动重载或重启进程。选择 `18000` 后，Dashboard 入口为 `http://127.0.0.1:18000/`，
-MCP 地址为 `http://127.0.0.1:18000/mcp`。CLI 参数和进程环境变量仍优先于文件中的配置。
+保存后按[下方启动步骤](#3-使用同一份配置启动)应用配置。只保存文件不会重载或重启 Server。
+选择 `18000` 后，Dashboard 入口为 `http://127.0.0.1:18000/`，MCP 地址为 `http://127.0.0.1:18000/mcp`。
+前台运行时，CLI 参数和进程环境变量仍优先于文件中的配置。
 
 远程访问时，公开 HTTPS URL 与内部监听端口相互独立。使用 SSH 转发时，分别选择 Server 端口和客户端转发端口，
 然后执行向导生成的隧道命令。
@@ -119,14 +119,17 @@ powercontext config validate --env-file .env
 
 ## 3. 使用同一份配置启动
 
+在受支持的个人 macOS 和 Linux 环境中，监听 loopback 的 Server 推荐使用这份文件安装服务：
+
 ```bash
-powercontext server run
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-`server run` 会发现当前目录的 `.env`。使用 `--env-file <path>` 可选择其他文件，使用 `--no-env-file` 可禁用文件加载。
-配置优先级依次为 CLI 参数、进程环境变量、所选文件和默认值。命令会显示实际加载文件的绝对路径，但不会输出凭据。
+修改文件后，使用同一份文件重新安装。服务要求与维护、非 loopback 监听和托管部署见[部署 Server](../operate/deploy-server.md)。
+开发、调试、临时使用或不支持个人服务的平台，见[前台启动](install-and-run.md#开发或调试时在前台运行)。
 
-保持 Server 运行，在另一个终端回到配置目录，加载向导生成的客户端配置后再检查：
+在当前终端加载向导生成的客户端连接配置后再检查：
 
 ```bash
 set -a

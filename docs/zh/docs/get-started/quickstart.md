@@ -45,21 +45,24 @@ powercontext config init --language zh --output .env
 若 seekdb 仍在安装，向导会在当前界面显示活动进度并等待；安装失败时先按提示完成依赖安装。
 保存配置或装好依赖，都不代表 Server 已经启动。
 
-## 2. 启动 Server
+## 2. 安装并验证个人后台服务
 
-在当前终端执行：
+受支持的 macOS 和 Linux 本机安装，在当前终端执行：
 
 ```bash
 powercontext config validate --env-file .env
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-保持终端运行。在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的
-`POWERCONTEXT_SERVER_HTTP_PORT` 为准。未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。
-首次没有数据是正常现象。需要关闭终端后继续运行时，先停止前台 Server，再通过
-`powercontext service install --env-file .env` 安装[个人后台服务](../operate/deploy-server.md#运行持久个人-server)，复用同一份配置。
+关闭终端后 Server 仍会运行，并在重启后登录时恢复。
+具体要求见[个人服务](../operate/deploy-server.md#运行持久个人-server)。
 
-另开终端，加载客户端连接配置并检查服务：
+在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的
+`POWERCONTEXT_SERVER_HTTP_PORT` 为准。未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。
+首次没有数据是正常现象。
+
+在当前终端加载客户端连接配置并检查服务：
 
 ```bash
 cd ~/powercontext-demo
@@ -85,6 +88,12 @@ POWERCONTEXT_CODEX_SCOPE_ID=替换为返回的scope_id
 `codex-xxxxxxxx` 是向导规划的标题，不是 ID。配置 Claude Code 时，将其创建请求返回的 ID 写入
 `POWERCONTEXT_CLAUDE_SCOPE_ID`。不同 Agent 可以各自隔离，也可以显式绑定同一已有 Scope。
 切换目录本身不会创建隔离。验收期间，Dashboard 和 Agent 必须使用相同的 Scope。
+
+保存 Scope ID 后，使用同一份文件更新个人服务：
+
+```bash
+powercontext service install --env-file .env
+```
 
 重新加载客户端文件并安装匹配的插件：
 
@@ -133,7 +142,7 @@ codex
 
 ## 继续使用
 
-- [安装和运行](install-and-run.md)：版本、seekdb 依赖、已有存储与更新。
+- [安装和运行](install-and-run.md)：版本、seekdb 依赖、已有存储、更新与可选的前台启动。
 - [部署 Server](../operate/deploy-server.md)：后台服务、SSH、HTTPS 和数据备份。
 - [配置模型](configure-models.md)：API 协议、向量维度与提取检查。
 - [故障排查](../operate/troubleshoot.md)：服务、模型、采集或召回失败。

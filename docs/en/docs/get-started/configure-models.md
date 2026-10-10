@@ -65,14 +65,8 @@ Profile review is described in [Scope profiles](../workflows/use-profiles.md).
 
 ## Check after startup
 
-In the Server terminal:
-
-```bash
-powercontext config validate --env-file .env
-powercontext server run --env-file .env
-```
-
-In another terminal, load only the client file:
+Apply the saved configuration using the [Server startup instructions](configure-server-environment.md#3-run-the-same-configuration).
+Load the client connection settings before checking:
 
 ```bash
 set -a

@@ -57,11 +57,16 @@ Agent 的安装、连接参数和验证步骤见[各自的集成文档](../integ
 
 ## 运行本地 Server
 
+受支持的个人 macOS 和 Linux 安装推荐使用原生当前用户服务管理器：
+
 ```bash
-powercontext server run
+powercontext service install
+powercontext service status
 ```
 
-没有环境变量或环境文件时，Server 会：
+服务会在后台启动 Server，并在重启后登录时恢复。服务要求及远程或共享部署见[部署 Server](../operate/deploy-server.md)。
+
+没有配置环境文件时，Server 使用以下默认值：
 
 - 监听 `127.0.0.1:8000`；
 - 在 `/mcp` 启用 Streamable HTTP MCP；
@@ -69,7 +74,8 @@ powercontext server run
 - 在操作系统的用户数据目录中创建持久化 SQLite 数据库；
 - 无需推理服务即可支持显式 Memory 操作。
 
-按 `Ctrl-C` 可正常关闭。再次运行该命令会打开同一个数据库。
+使用向导生成的配置时，传入 `--env-file .env`；安装服务不会自动发现 `.env`。
+在文件中保留已有存储路径和其他自定义设置。
 
 Dashboard 是个人使用和演示的可选内容查看器，默认关闭。它不需要单独安装前端或配置模型。
 本地免 token 启用时，在环境文件中设置以下值：
@@ -86,7 +92,8 @@ POWERCONTEXT_SERVER_ACCESS_MODE=disabled
 ```bash
 chmod 600 /path/to/powercontext.env
 powercontext config validate --env-file /path/to/powercontext.env
-powercontext server run --env-file /path/to/powercontext.env
+powercontext service install --env-file /path/to/powercontext.env
+powercontext service status
 ```
 
 打开 `http://127.0.0.1:8000/dashboard/home`，更改端口后使用实际端口。未启用认证时可直接进入页面；
@@ -106,6 +113,17 @@ powercontext server run --env-file /path/to/powercontext.env
 这种最小启动方式不会启用依赖模型的抽取或向量搜索。如需生成并校验一份显式环境文件以启用这些能力，请继续阅读
 [启用提取与向量搜索](configure-models.md)。
 
+### 开发或调试时在前台运行
+
+开发、调试、临时使用或没有受支持的个人服务管理器时，可执行：
+
+```bash
+powercontext server run --env-file /path/to/powercontext.env
+```
+
+没有环境文件时使用 `powercontext server run`。保持该终端打开，在另一个终端执行客户端命令。
+按 `Ctrl-C` 停止；机器重启后需要手动启动。已有服务与前台运行的切换，按[服务生命周期步骤](../operate/deploy-server.md#运行持久个人-server)操作。
+
 ## 使用嵌入式 seekDB
 
 在有兼容 `pylibseekdb` wheel 的 Linux 和 macOS 系统上可以使用嵌入式 seekDB；Windows 不支持该嵌入式
@@ -115,24 +133,20 @@ powercontext server run --env-file /path/to/powercontext.env
 uv tool install --force "powercontext[cli,server,seekdb]==1.2.0"
 ```
 
-从 SQLite 切换时，需要从 Server 进程环境中删除 `POWERCONTEXT_SERVER_DATABASE_URL`；seekDB 不接受显式的
-SQLAlchemy 数据库 URL。然后选择 seekDB 后端并启动 Server：
+通过配置向导选择 seekDB，或编辑受保护的环境文件。从 SQLite 切换时，需要从文件中删除
+`POWERCONTEXT_SERVER_DATABASE_URL`；seekDB 不接受显式的 SQLAlchemy 数据库 URL。在文件中设置后端：
 
-```bash
-unset POWERCONTEXT_SERVER_DATABASE_URL
-export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
-powercontext server run
+```dotenv
+POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
 ```
 
-当前目录存在 `.env` 时，`server run` 会自动加载该文件。可以在 shell 中导出变量来覆盖文件值，使用
-`--env-file <path>` 选择其他文件，或使用 `--no-env-file` 忽略环境文件。进程管理器和容器通常应提供显式环境，
-不要依赖其工作目录。
+按上方[本地启动步骤](#运行本地-server)应用这份文件。
 
 PowerContext 固定使用 seekDB 内置的 `test` 数据库。未设置 `POWERCONTEXT_SERVER_DATABASE_PATH` 时，实例保存在
 PowerContext 用户数据目录的 `seekdb` 子目录中；如果设置了 `POWERCONTEXT_HOME`，默认路径为
 `$POWERCONTEXT_HOME/seekdb`。只有需要其他位置时才设置 `POWERCONTEXT_SERVER_DATABASE_PATH`。
 
-在另一个终端确认 Server 和数据库已经就绪：
+按[快速开始](quickstart.md)加载客户端连接配置，再确认服务就绪：
 
 ```bash
 powercontext doctor
@@ -153,7 +167,7 @@ powercontext capabilities
 操作退出流量。`ready` 和 `capabilities` 用于查看运行中服务的就绪状态和已启用能力。
 Agent 诊断见[各自的集成文档](../integrations/index.md)；Server 状态解释和恢复步骤见[排查问题](../operate/troubleshoot.md)。
 
-需要长期运行进程、使用 Docker、启用鉴权或允许远程访问时，请继续阅读[部署 Server](../operate/deploy-server.md)。
+个人服务的具体要求、Docker、鉴权和远程访问见[部署 Server](../operate/deploy-server.md)。
 
 ## 更新或替换安装
 
@@ -176,8 +190,9 @@ uv tool install --force "powercontext[cli,server]==1.2.0"
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
 ```
 
-按[各自的集成文档](../integrations/index.md)更新已安装宿主，并使用同一个 ref。更新后重启 Server，再开启新的宿主会话。只要没有修改
-`POWERCONTEXT_HOME` 或数据库 URL，现有 SQLite 数据会继续保留。
+按[各自的集成文档](../integrations/index.md)更新已安装宿主，并使用同一个 ref。完成所需迁移后，重新执行
+`powercontext service install`；原服务配置了环境文件时，继续传入原来的 `--env-file`，详见[服务维护](../operate/deploy-server.md#运行持久个人-server)。
+前台实例需手动重启，再开启新的宿主会话。只要没有修改 `POWERCONTEXT_HOME` 或数据库 URL，现有 SQLite 数据会继续保留。
 
 ## 为 Python 项目安装角色
 

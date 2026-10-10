@@ -60,11 +60,17 @@ Follow the [guide for each integration](../integrations/index.md) for Agent inst
 
 ## Run the local Server
 
+For supported personal macOS and Linux installations, use the native per-user service manager:
+
 ```bash
-powercontext server run
+powercontext service install
+powercontext service status
 ```
 
-Without environment variables or an environment file, the Server:
+The service starts Server in the background and resumes it when you log in after a reboot.
+See [Deploy the Server](../operate/deploy-server.md) for service requirements and remote or shared deployments.
+
+Without a configured environment file, the Server uses these defaults:
 
 - binds to `127.0.0.1:8000`;
 - enables Streamable HTTP MCP at `/mcp`;
@@ -72,7 +78,8 @@ Without environment variables or an environment file, the Server:
 - creates a persistent SQLite database in the operating system's user data directory;
 - supports explicit Memory operations without an inference provider.
 
-`Ctrl-C` performs a clean shutdown. Restarting the command reopens the same database.
+For a wizard-generated configuration, pass `--env-file .env`; service installation does not discover `.env`.
+Preserve existing storage paths and other custom settings in that file.
 
 The Dashboard is an optional content viewer for personal use and demonstrations. It is disabled by default and needs
 no separate frontend installation or model configuration. To enable it locally without a token, save these settings
@@ -91,7 +98,8 @@ also offers this choice when enabling Dashboard locally.
 ```bash
 chmod 600 /path/to/powercontext.env
 powercontext config validate --env-file /path/to/powercontext.env
-powercontext server run --env-file /path/to/powercontext.env
+powercontext service install --env-file /path/to/powercontext.env
+powercontext service status
 ```
 
 Open `http://127.0.0.1:8000/dashboard/home`, using the actual port if you change it. With authentication disabled, the
@@ -116,6 +124,18 @@ This minimal launch does not enable model-backed extraction or vector search. To
 environment file for those capabilities, continue with the
 [Enable extraction and vector search](configure-models.md).
 
+### Foreground use for development or debugging
+
+For development, debugging, temporary use, or platforms without a supported personal-service manager:
+
+```bash
+powercontext server run --env-file /path/to/powercontext.env
+```
+
+Without an environment file, use `powercontext server run`. Keep the terminal open and run client commands in
+another terminal. Press `Ctrl-C` to stop; after a reboot, start it manually. To switch between an existing service
+and foreground use, follow [service lifecycle steps](../operate/deploy-server.md#run-a-persistent-personal-server).
+
 ## Use embedded seekDB
 
 Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` wheel is available. Windows does not
@@ -125,25 +145,22 @@ support this embedded backend. Install or replace the tool with the optional see
 uv tool install --force "powercontext[cli,server,seekdb]==1.2.0"
 ```
 
-When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit
-SQLAlchemy database URL is not valid for seekDB. Then select the backend and start the Server:
+Use the configuration wizard to select seekDB, or edit the protected environment file. When switching from SQLite,
+remove `POWERCONTEXT_SERVER_DATABASE_URL` from that file; an explicit SQLAlchemy database URL is not valid for seekDB.
+Set the backend in the file:
 
-```bash
-unset POWERCONTEXT_SERVER_DATABASE_URL
-export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
-powercontext server run
+```dotenv
+POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
 ```
 
-`server run` loads `.env` from the current directory when present. Export values in the shell to override that file,
-pass `--env-file <path>` to select another file, or pass `--no-env-file` to ignore environment files. Process managers
-and containers should normally provide an explicit environment instead of relying on their working directory.
+Apply the file using the [local startup steps](#run-the-local-server) above.
 
 PowerContext always uses seekDB's built-in `test` database. Leave `POWERCONTEXT_SERVER_DATABASE_PATH` unset to store
 the instance in the `seekdb` subdirectory of the PowerContext user data directory. If `POWERCONTEXT_HOME` is set, the
 default is `$POWERCONTEXT_HOME/seekdb`; set `POWERCONTEXT_SERVER_DATABASE_PATH` only when a different location is
 required.
 
-In another terminal, verify that the Server and database are ready:
+Load the client connection settings as shown in [Quick Start](quickstart.md), then verify readiness:
 
 ```bash
 powercontext doctor
@@ -165,7 +182,7 @@ readiness covers the database and each configured inference provider. Runtime or
 `ready` and `capabilities` show the readiness and enabled capabilities of the running service.
 For Agent diagnostics, use the [guide for each integration](../integrations/index.md). For Server status definitions and recovery steps, see [Troubleshoot](../operate/troubleshoot.md).
 
-For a long-running process, Docker, authentication, or remote access, continue with
+For personal-service requirements, Docker, authentication, or remote access, continue with
 [Deploy the Server](../operate/deploy-server.md).
 
 ## Update or replace an installation
@@ -191,9 +208,10 @@ To replace the installed tool with another Git ref:
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
 ```
 
-Update each installed host using its [integration guide](../integrations/index.md) and the same ref. Restart the Server and open a new host session
-after updating. Existing SQLite data remains in the user data directory unless `POWERCONTEXT_HOME` or the database URL
-changes.
+Update each installed host using its [integration guide](../integrations/index.md) and the same ref. After completing
+required migrations, re-run `powercontext service install` with the original `--env-file` when configured;
+see [service maintenance](../operate/deploy-server.md#run-a-persistent-personal-server). Restart foreground instances
+manually, then open a new host session. Existing SQLite data remains unless `POWERCONTEXT_HOME` or the database URL changes.
 
 ## Install a Python role
 

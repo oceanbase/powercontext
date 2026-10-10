@@ -29,9 +29,9 @@ home:
       - title: 完成配置向导
         description: 依次选择存储、访问场景、记忆能力、Dashboard 和 Agent。向导会生成配置文件，以及适合当前配置的后续操作说明。
         command: powercontext config init
-      - title: 启动 Server
-        description: 在生成 .env 的目录执行启动命令。若开启 Dashboard，使用向导给出的地址和 Token 登录。
-        command: powercontext server run --env-file .env
+      - title: 安装个人后台服务
+        description: 在受支持的 macOS 和 Linux 环境中，使用生成的 .env 安装个人服务并检查状态。
+        command: powercontext service install --env-file .env
       - title: 接入 Agent 并验收记忆
         description: 按 .env.next-steps.md 创建或选择 Scope、接入 Agent。先确认真实对话进入 Source，再检查已启用的记忆处理能力。
   continuity:
