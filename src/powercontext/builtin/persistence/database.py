@@ -108,8 +108,7 @@ class AsyncDatabase:
         An already borrowed MySQL transaction cannot be upgraded in place.
         """
 
-        owner = asyncio.current_task()
-        if self._shared_connection is not None and self._transaction_owner is owner:
+        if self._shared_connection is not None and self._transaction_owner is asyncio.current_task():
             # Nested lookups join their caller's transaction. Only its owner
             # runs connection cleanup, so nested exits cannot close its cursors.
             connection = self._shared_connection

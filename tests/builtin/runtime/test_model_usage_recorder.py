@@ -701,20 +701,25 @@ def test_timed_out_shared_checkout_cannot_roll_back_business(monkeypatch: pytest
     asyncio.run(scenario())
 
 
-def test_commit_lock_rolls_back_usage_and_restores_connection(tmp_path: Path) -> None:
+def test_commit_lock_rolls_back_usage_and_restores_connection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     async def scenario() -> None:
         path = tmp_path / "commit-locked.db"
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{path}", journal_mode="DELETE")
         async with _database(config) as database:
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=0.04)
+            recorder = _ModelUsageRecorder(database, StatisticsRepository())
             reader = sqlite3.connect(path)
             try:
                 reader.execute("BEGIN")
                 reader.execute("SELECT * FROM pc_scopes").fetchall()
-                start = asyncio.get_running_loop().time()
-                _offer(recorder)
-                await recorder.flush()
-                assert asyncio.get_running_loop().time() - start < 0.5
+                # Only the blocked write needs a tiny budget. Check recovery on
+                # the same recorder with its normal write allowance afterwards.
+                with monkeypatch.context() as constrained:
+                    constrained.setattr(recorder, "_write_timeout_seconds", 0.04)
+                    start = asyncio.get_running_loop().time()
+                    _offer(recorder)
+                    await recorder.flush()
+                    assert asyncio.get_running_loop().time() - start < 0.5
+                    assert recorder._settled == recorder.checkpoint() == 1
                 reader.rollback()
                 assert await _rows(database) == ()
                 await _assert_connection_restored(database)
