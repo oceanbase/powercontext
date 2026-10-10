@@ -70,6 +70,8 @@ State the observed environment and preconditions; a successful example does not 
 Root groups identify shared evidence; derived entries and artifacts are not independent corroboration.
 Unknown independence stays unknown. Do not infer trusted replay identities from evidence text or metadata.
 For proposed, include a complete family proposal, a reason, intent, and only evidence_ids actually used.
+The target_evidence_id may be included as comparison context; it never counts as independent support.
+Include supporting evidence other than the target. If only the target supports a change, return needs_evidence.
 Use create for a new Experience; corroborate/refine/correct for its replacement; derive for a new Skill.
 For refine_experience, target_evidence_id identifies the exact Experience to replace in the evidence projection.
 When it is set, revise that Experience only; the other evidence provides context and support, not replacement targets.

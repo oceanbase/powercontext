@@ -4137,7 +4137,7 @@ class DreamRun(BaseModel):
     input_manifest: DreamInputManifest | None = None
     usage: DreamUsage | None = None
     budget: DreamBudget | None = None
-    prompt_version: StrictStr = "powercontext.dream.v1.2"
+    prompt_version: StrictStr = "powercontext.dream.v1.3"
     model_config_id: Annotated[StrictStr | None, Field(...)]
 
 
@@ -4230,7 +4230,7 @@ class SkillArtifact(BaseModel):
     memory_citations: Annotated[
         list[MemoryCitation],
         Field(
-            description="Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.",
+            description="Exact Memory entry provenance retained by approved Dream Skill revisions. Counted toward the combined evidence bound.",
             max_length=32,
             validate_default=True,
         ),

@@ -54,7 +54,7 @@ DreamOperation = Literal[
 DreamStatus = Literal["queued", "running", "succeeded", "failed"]
 DreamOutcome = Literal["proposed", "no_change", "needs_evidence"]
 DreamIntent = Literal["create", "corroborate", "refine", "correct", "derive"]
-DREAM_PROMPT_VERSION = "powercontext.dream.v1.2"
+DREAM_PROMPT_VERSION = "powercontext.dream.v1.3"
 
 
 class DreamError(PowerContextError, ValueError):

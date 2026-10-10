@@ -933,9 +933,9 @@ def test_handoff_dream_publishes_for_explicit_continue(database: DatabaseConfig,
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("indirect_evidence", [False, True], ids=["source", "approved-experience"])
+@pytest.mark.parametrize("evidence_kind", ["source", "approved-experience", "memory"])
 def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
-    database: DatabaseConfig, indirect_evidence: bool
+    database: DatabaseConfig, evidence_kind: str
 ) -> None:
     class SkillRevisionGenerator(Generator):
         async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
@@ -953,13 +953,17 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
                         instructions="Check the receipt first, then retry if needed.",
                         validation=("No duplicate action was issued.",),
                     ),
-                    evidence_ids=tuple(item.evidence_id for item in value.evidence.evidence if item.kind == "source"),
+                    evidence_ids=tuple(
+                        item.evidence_id for item in value.evidence.evidence if item.kind in {"source", "memory"}
+                    ),
                 ),
                 usage=InferenceUsage(requests=1),
             )
 
     async def scenario() -> None:
-        async with open_builtin_runtime(config(database), dream_generator=SkillRevisionGenerator()) as runtime:
+        async with open_builtin_runtime(
+            config(database), candidate_pipeline=MemoryPipeline(), dream_generator=SkillRevisionGenerator()
+        ) as runtime:
             assert runtime.scopes is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Skill Revision", summary="Package stays pending", idempotency_key="skill-revision")
@@ -997,7 +1001,12 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
             ).revision == 1
             artifacts = (target.as_ref(),)
             sources = (source.source_ref,)
-            if indirect_evidence:
+            citations = ()
+            if evidence_kind == "memory":
+                await runtime.memory.for_scope(scope.scope_id).flush()
+                citations = ((await runtime.memory.for_scope(scope.scope_id).list()).entries[0].citation,)
+                sources = ()
+            if evidence_kind == "approved-experience":
                 evidence = await runtime.experience.for_scope(scope.scope_id).propose(
                     ProposeExperienceRequest(proposal=experience(), sources=sources)
                 )
@@ -1013,6 +1022,7 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
                     target=target.as_ref(),
                     artifacts=artifacts,
                     sources=sources,
+                    memory_citations=citations,
                     idempotency_key="skill-feedback",
                 )
             )
@@ -1022,6 +1032,7 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
             candidate = await runtime.review.for_scope(scope.scope_id).get(
                 GetCandidateRequest(candidate_id=completed.candidate.candidate_id)
             )
+            assert candidate.memory_citations == citations
             changed_metadata = await runtime._provider.review(scope.scope_id).prepare_skill(
                 candidate.proposal.model_copy(update={"name": "changed-name", "package": None})
             )
@@ -1051,6 +1062,27 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
             assert skill.content.name == "receipt-check" and skill.content.license == "MIT"
             assert skill.content.instructions.startswith("Check the receipt first, then retry if needed.")
             assert skill.content.package is not None and skill.content.package.file_count == 1
+            assert skill.lineage.memory_citations == citations
+            import httpx
+
+            from powercontext.client import PowerContextClient
+            from powercontext.http import GetSkillRequest as TransportGetSkillRequest
+            from powercontext.server.app import create_app
+
+            app = create_app(application=cast(ServerApplication, runtime))
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+            ) as transport:
+                client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+                result = await client.get_skill(
+                    TransportGetSkillRequest.model_validate({
+                        "scope_id": scope.scope_id,
+                        "artifact": approved.result_artifact.model_dump(mode="json"),
+                    })
+                )
+                assert [item.model_dump(mode="json") for item in result.memory_citations] == [
+                    item.model_dump(mode="json") for item in citations
+                ]
 
     asyncio.run(scenario())
 

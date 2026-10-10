@@ -41,14 +41,17 @@ def select_evidence(
     nodes = {node.evidence_id: node for node in manifest.nodes}
     for node_id in used:
         node = nodes.get(node_id)
-        if node is None or node.role in {"unresolved", "lineage_only", "target"} or (skill and node.kind == "memory"):
+        if node is None or node.role in {"unresolved", "lineage_only"} or (skill and node.kind == "memory"):
             raise EvidenceResolutionError("invalid_generation_output")
-    chosen = set(used)
+    # Targets may be named as comparison context, but cannot support their own revision.
+    chosen = {node_id for node_id in used if nodes[node_id].role != "target"}
+    if not chosen:
+        raise EvidenceResolutionError("needs_evidence")
     origins = (*manifest.artifacts, *manifest.memory_citations)
     # A model that cites a root must retain the exact selected entry/Artifact path.
     for origin in origins:
         origin_id = evidence_id(origin)
-        if _reachable(origin_id, manifest) & chosen:
+        if nodes[origin_id].role != "target" and _reachable(origin_id, manifest) & chosen:
             chosen.add(origin_id)
     dependencies = set().union(*(_reachable(node_id, manifest) for node_id in chosen))
     sources = tuple(

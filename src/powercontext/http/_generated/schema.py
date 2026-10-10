@@ -5541,7 +5541,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "input_manifest": {"$ref": "#/components/schemas/DreamInputManifest", "nullable": True},
                     "usage": {"$ref": "#/components/schemas/DreamUsage"},
                     "budget": {"$ref": "#/components/schemas/DreamBudget"},
-                    "prompt_version": {"type": "string", "default": "powercontext.dream.v1.2"},
+                    "prompt_version": {"type": "string", "default": "powercontext.dream.v1.3"},
                     "model_config_id": {"type": "string", "nullable": True},
                 },
                 "additionalProperties": False,
@@ -7380,11 +7380,13 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "description": "Exact "
                         "Memory "
                         "entry "
-                        "provenance; "
-                        "non-empty "
-                        "only "
-                        "for "
-                        "Experience. "
+                        "provenance "
+                        "retained "
+                        "by "
+                        "approved "
+                        "Dream "
+                        "Skill "
+                        "revisions. "
                         "Counted "
                         "toward "
                         "the "

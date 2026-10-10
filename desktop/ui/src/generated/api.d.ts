@@ -2435,7 +2435,7 @@ export interface components {
             input_manifest?: components["schemas"]["DreamInputManifest"];
             usage?: components["schemas"]["DreamUsage"];
             budget?: components["schemas"]["DreamBudget"];
-            /** @default powercontext.dream.v1.2 */
+            /** @default powercontext.dream.v1.3 */
             prompt_version: string;
             model_config_id: string | null;
         };
@@ -3124,7 +3124,7 @@ export interface components {
         };
         SkillArtifact: {
             /**
-             * @description Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.
+             * @description Exact Memory entry provenance retained by approved Dream Skill revisions. Counted toward the combined evidence bound.
              * @default []
              */
             memory_citations: components["schemas"]["MemoryCitation"][];

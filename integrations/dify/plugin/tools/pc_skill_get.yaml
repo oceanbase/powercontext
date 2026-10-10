@@ -94,8 +94,8 @@ output_schema:
               entry_version_id:
                 $ref: '#/definitions/Result/properties/memory_citations/items/properties/entry_version_id'
                 type: string
-          description: Exact Memory entry provenance; non-empty only for Experience.
-            Counted toward the combined evidence bound.
+          description: Exact Memory entry provenance retained by approved Dream Skill
+            revisions. Counted toward the combined evidence bound.
         artifact:
           $ref: '#/definitions/Result/properties/artifact'
           type: object
@@ -208,8 +208,8 @@ output_schema:
           type: array
           maxItems: 32
           default: []
-          description: Exact Memory entry provenance; non-empty only for Experience.
-            Counted toward the combined evidence bound.
+          description: Exact Memory entry provenance retained by approved Dream Skill
+            revisions. Counted toward the combined evidence bound.
           items:
             type: object
             additionalProperties: false

@@ -813,7 +813,7 @@ def _supported_plan(record: DreamRecord, plan: DreamPlan, resolved: ResolvedEvid
             raise
         return DreamPlan(
             outcome="needs_evidence",
-            reason="The selected Memory-derived evidence has no usable root Source supporting task actions and results.",
+            reason="The selected evidence lacks independent support beyond the target or usable root Sources for Memory-derived claims.",
         )
     return plan
 

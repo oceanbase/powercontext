@@ -3145,7 +3145,7 @@
             "type": "array",
             "maxItems": 32,
             "default": [],
-            "description": "Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.",
+            "description": "Exact Memory entry provenance retained by approved Dream Skill revisions. Counted toward the combined evidence bound.",
             "items": {
               "$ref": "#/components/schemas/MemoryCitation"
             }

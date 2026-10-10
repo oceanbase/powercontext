@@ -1018,7 +1018,7 @@ def skill_response(value: Skill) -> SkillArtifact:
         content=skill_proposal(value.content),
         source_refs=[source_reference(source) for source in value.lineage.sources],
         artifact_refs=[artifact_reference(artifact) for artifact in value.lineage.artifacts],
-        memory_citations=[],
+        memory_citations=[transport_citation(citation) for citation in value.lineage.memory_citations],
     )
 
 
