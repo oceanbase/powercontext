@@ -34,6 +34,7 @@ from powercontext.builtin.artifacts.memory import (
 )
 from powercontext.builtin.artifacts.memory.errors import MemoryWriteRejectedError
 from powercontext.builtin.inference import InferenceUsage
+from powercontext.builtin.persistence import DecisionObservationRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
@@ -555,6 +556,44 @@ def test_gate_request_carries_scope_operation_and_content_free_references(tmp_pa
             assert request.subject_refs == ("candidate:1",)
             assert request.evidence_refs == ("candidate:1 source:content:requirements",)
             assert "MySQL 8" not in "\n".join(request.evidence_refs)
+
+    asyncio.run(scenario())
+
+
+def test_decision_gate_persists_a_content_free_observation_sidecar(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def scenario() -> None:
+        gate = DecisionMemoryWriteGate(_InsufficientDecisionModel())
+        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
+            context = await contexts.get("project")
+            source, _ = await context.sources.capture(ContentCapture(source_id="private", content="secret evidence"))
+
+            plan = await context.artifacts.memory.plan_remember(
+                memory=None,
+                sources=(source,),
+                entries=(MemoryEntryInput(kind="fact", text="secret claim", sources=(source,)),),
+                mode="append",
+            )
+            async with contexts.database.transaction() as connection:
+                observations = await DecisionObservationRepository().observations(connection, "project")
+
+        failures = [
+            record for record in caplog.records if getattr(record, "event", None) == "decision.observation_sink_failed"
+        ]
+
+        assert plan.decision is not None
+        assert plan.decision.verdict is MemoryWriteVerdict.HOLD
+        assert [record.__dict__["error_type"] for record in failures] == []
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.final_action == "memory_write_hold"
+        assert observation.subject_refs == ("candidate:1",)
+        assert observation.evidence_refs == ("candidate:1 source:content:private",)
+        assert observation.assessment.reason is None
+        payload = observation.model_dump_json()
+        assert "secret claim" not in payload
+        assert "secret evidence" not in payload
 
     asyncio.run(scenario())
 

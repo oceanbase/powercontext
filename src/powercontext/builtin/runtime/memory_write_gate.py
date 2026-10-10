@@ -177,7 +177,7 @@ class DecisionMemoryWriteGate:
                 reason="the candidate batch exceeds the gate assessment budget",
             )
             assessment = self._mode_assessment(held)
-            self._observe(request, policy_assessment, assessment)
+            await self._observe(request, policy_assessment, assessment)
             self._log(assessment)
             return assessment
         if not self._allow_model_evaluation:
@@ -187,7 +187,7 @@ class DecisionMemoryWriteGate:
                 policy_id=self.policy_id,
                 used_fallback=True,
             )
-            self._observe(request, policy_assessment, assessment)
+            await self._observe(request, policy_assessment, assessment)
             self._log(assessment)
             return assessment
         decision = await self._decision_model.evaluate(
@@ -199,7 +199,7 @@ class DecisionMemoryWriteGate:
             )
         )
         assessment = self._map(request, decision)
-        self._observe(
+        await self._observe(
             request, _assess_memory_write_decision(decision, hold_on=self._hold_on, policy=self._policy), assessment
         )
         self._log(assessment)
@@ -244,7 +244,7 @@ class DecisionMemoryWriteGate:
             )
         return assessment
 
-    def _observe(
+    async def _observe(
         self,
         request: MemoryWriteGateRequest,
         policy_assessment: DecisionAssessment,
@@ -263,12 +263,31 @@ class DecisionMemoryWriteGate:
             or tuple(f"evidence:{index}" for index in range(1, len(request.evidence) + 1)),
             privacy_boundary=self._policy.privacy_boundary,
             model_policy_id=None if policy_assessment.source.value == "none" else self.policy_id,
-            assessment=policy_assessment,
+            assessment=_safe_observation_assessment(policy_assessment),
             final_action=f"memory_write_{assessment.verdict.value}",
-            fallback_reason=policy_assessment.reason if policy_assessment.used_fallback else None,
+            fallback_reason=_safe_observation_reason(policy_assessment.reason)
+            if policy_assessment.used_fallback
+            else None,
             metadata={"candidate_count": len(request.candidates), "evidence_count": len(request.evidence)},
         )
         emit_decision_observation(observation)
+        if request.observation_sink is None:
+            return
+        try:
+            await request.observation_sink.record(observation)
+        except Exception as error:
+            log_safely(
+                logger,
+                logging.WARNING,
+                "Decision observation sink failed",
+                extra={
+                    "event": "decision.observation_sink_failed",
+                    "consumer": observation.consumer,
+                    "policy_id": observation.policy_id,
+                    "operation_id": observation.operation_id,
+                    "error_type": type(error).__name__,
+                },
+            )
 
     def _log(self, assessment: MemoryWriteAssessment) -> None:
         event = {
@@ -340,6 +359,23 @@ def _bounded_reason(value: str | None) -> str:
         return _DEFAULT_REASON
     normalized = value.strip()
     return normalized[:_MAX_REASON_LENGTH] if normalized else _DEFAULT_REASON
+
+
+def _safe_observation_assessment(assessment: DecisionAssessment, /) -> DecisionAssessment:
+    """Keep durable sidecars free of model-provided rationale text."""
+
+    return assessment.model_copy(update={"reason": _safe_observation_reason(assessment.reason)})
+
+
+def _safe_observation_reason(reason: str | None, /) -> str | None:
+    """Map gate-internal explanations to bounded machine-readable audit codes."""
+
+    return {
+        "candidate_batch_budget": "candidate_batch_budget",
+        "privacy_boundary": "privacy_boundary",
+        "decision_model_fallback": "decision_model_fallback",
+        "abstain": "abstain",
+    }.get(reason, "decision_model_verdict" if reason is not None else None)
 
 
 __all__ = [

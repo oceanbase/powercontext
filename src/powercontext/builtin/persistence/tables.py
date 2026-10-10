@@ -21,6 +21,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    Float,
     ForeignKeyConstraint,
     Index,
     Integer,
@@ -1071,6 +1072,46 @@ ARTIFACT_TAGS_TABLE = Table(
 
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
+DECISION_OBSERVATIONS_TABLE = Table(
+    "pc_decision_observations",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("observation_id", identity_string(128), primary_key=True),
+    Column("operation_id", identity_string(256), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("consumer", identity_string(128), nullable=False),
+    Column("policy_id", identity_string(256), nullable=False),
+    Column("policy_version", identity_string(64), nullable=False),
+    Column("mode", identity_string(16), nullable=False),
+    Column("privacy_boundary", identity_string(32), nullable=False),
+    Column("coverage", identity_string(16), nullable=False),
+    Column("verdict", identity_string(16), nullable=False),
+    Column("assessment_source", identity_string(32), nullable=False),
+    Column("final_action", identity_string(128), nullable=False),
+    Column("used_fallback", Boolean, nullable=False),
+    Column("fallback_reason", identity_string(128)),
+    Column("provider_id", identity_string(128)),
+    Column("backend_model_id", identity_string(256)),
+    Column("model_policy_id", identity_string(256)),
+    Column("requests", BigInteger, nullable=False),
+    Column("input_tokens", BigInteger),
+    Column("output_tokens", BigInteger),
+    Column("latency_ms", Float),
+    Column("payload", _canonical_payload_type(), nullable=False),
+    Index("ix_pc_decision_observations_scope_created", "scope_id", "created_at", "observation_id"),
+    Index("ix_pc_decision_observations_operation", "scope_id", "operation_id", "created_at"),
+    CheckConstraint("requests >= 0", name="ck_pc_decision_observations_requests_nonnegative"),
+    CheckConstraint(
+        "input_tokens IS NULL OR input_tokens >= 0", name="ck_pc_decision_observations_input_tokens_nonnegative"
+    ),
+    CheckConstraint(
+        "output_tokens IS NULL OR output_tokens >= 0", name="ck_pc_decision_observations_output_tokens_nonnegative"
+    ),
+    CheckConstraint("latency_ms IS NULL OR latency_ms >= 0", name="ck_pc_decision_observations_latency_nonnegative"),
+)
+
+DECISION_OBSERVATION_TABLES = (DECISION_OBSERVATIONS_TABLE,)
+
 DREAM_RUNS_TABLE = Table(
     "pc_dream_runs",
     SHARED_METADATA,
@@ -1196,6 +1237,7 @@ BUILTIN_TABLES = (
     + TOPIC_MEMORY_TABLES
     + MEMORY_TABLES
     + STATISTICS_TABLES
+    + DECISION_OBSERVATION_TABLES
     + RECURRENCE_TABLES
     + (ARTIFACT_TAGS_TABLE, DREAM_RUNS_TABLE, RECEIPT_MIGRATION_REVIEW_TABLE)
 )

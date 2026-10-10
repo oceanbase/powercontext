@@ -968,6 +968,7 @@ async def open_builtin_contexts(
                 memory_reranker=memory_reranker,
                 decision_model=decision_model,
                 memory_write_gate=memory_write_gate,
+                decision_observation_retention_days=config.runtime.decision_observation_retention_days,
                 memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
                 memory_capacity_budget=MemoryCapacityBudget(
                     max_active_entries=config.runtime.memory_max_active_entries,
@@ -1045,6 +1046,7 @@ async def open_builtin_contexts(
             memory_reranker=memory_reranker,
             decision_model=decision_model,
             memory_write_gate=memory_write_gate,
+            decision_observation_retention_days=config.runtime.decision_observation_retention_days,
             memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
             memory_capacity_budget=MemoryCapacityBudget(
                 max_active_entries=config.runtime.memory_max_active_entries,

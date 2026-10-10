@@ -29,6 +29,7 @@ from powercontext.builtin.runtime.decision_model import (
 )
 from powercontext.builtin.runtime.decision_policy import (
     DecisionCoverage,
+    DecisionObservation,
     DecisionPolicyMode,
     DecisionPrivacyBoundary,
     DecisionVerdict,
@@ -81,6 +82,16 @@ class _FailingDecisionModel:
 
     async def evaluate(self, request: DecisionRequest, /) -> DecisionResult:
         raise ValueError("backend unavailable")  # noqa: TRY003
+
+
+class _RecordingObservationSink:
+    """Collect the safe sidecar a gate offers to durable runtime storage."""
+
+    def __init__(self) -> None:
+        self.observations: list[DecisionObservation] = []
+
+    async def record(self, observation: DecisionObservation, /) -> None:
+        self.observations.append(observation)
 
 
 class _PolarityBackend:
@@ -347,6 +358,71 @@ def test_gate_emits_policy_observation_without_raw_subject_or_evidence(caplog: p
     assert record.__dict__["coverage"] == "adjudicated"
     assert "secret claim" not in str(record.__dict__)
     assert "secret evidence" not in str(record.__dict__)
+
+
+def test_gate_offers_a_bounded_observation_to_the_request_sink() -> None:
+    async def scenario() -> None:
+        sink = _RecordingObservationSink()
+        gate = DecisionMemoryWriteGate(_StaticDecisionModel(_verdict(DecisionOutcome.YES)))
+
+        assessment = await gate.assess(
+            MemoryWriteGateRequest(
+                candidates=("secret claim",),
+                evidence=("secret evidence",),
+                expected_revision=1,
+                scope_id="scope-a",
+                operation_id="memory-write:memory-a@2",
+                subject_refs=("entry:entry-a@version-a",),
+                evidence_refs=("source:task:1",),
+                observation_sink=sink,
+            )
+        )
+
+        assert assessment.verdict is MemoryWriteVerdict.HOLD
+        assert len(sink.observations) == 1
+        observation = sink.observations[0]
+        assert observation.scope_id == "scope-a"
+        assert observation.operation_id == "memory-write:memory-a@2"
+        assert observation.subject_refs == ("entry:entry-a@version-a",)
+        assert observation.evidence_refs == ("source:task:1",)
+        assert observation.final_action == "memory_write_hold"
+        assert "secret claim" not in observation.model_dump_json()
+        assert "secret evidence" not in observation.model_dump_json()
+
+    asyncio.run(scenario())
+
+
+def test_a_failing_observation_sink_keeps_the_gate_verdict_and_logs_only_its_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class _FailingObservationSink:
+        async def record(self, observation: DecisionObservation, /) -> None:
+            raise RuntimeError("secret sink failure detail")  # noqa: TRY003
+
+    async def scenario() -> None:
+        gate = DecisionMemoryWriteGate(_StaticDecisionModel(_verdict(DecisionOutcome.YES)))
+
+        assessment = await gate.assess(
+            MemoryWriteGateRequest(
+                candidates=("secret claim",),
+                evidence=("secret evidence",),
+                expected_revision=1,
+                scope_id="scope-a",
+                operation_id="memory-write:memory-a@2",
+                observation_sink=_FailingObservationSink(),
+            )
+        )
+
+        assert assessment.verdict is MemoryWriteVerdict.HOLD
+
+    caplog.set_level(logging.WARNING, logger="powercontext.builtin.runtime.memory_write_gate")
+    asyncio.run(scenario())
+
+    record = next(
+        record for record in caplog.records if getattr(record, "event", None) == "decision.observation_sink_failed"
+    )
+    assert record.__dict__["error_type"] == "RuntimeError"
+    assert "secret sink failure detail" not in str(record.__dict__)
 
 
 def test_the_hold_direction_cannot_be_abstain() -> None:

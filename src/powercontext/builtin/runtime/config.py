@@ -151,6 +151,7 @@ class RuntimeConfig(BaseModel):
     # number.
     memory_write_gate_hold_on: Literal["yes", "no"] = "yes"
     memory_write_gate_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    decision_observation_retention_days: int | None = Field(default=None, ge=1, le=3650)
     memory_max_active_entries: int = Field(default=5_000, ge=1, le=100_000)
     memory_max_manifest_entries: int = Field(default=10_000, ge=1, le=200_000)
     memory_max_manifest_bytes: int = Field(default=4_194_304, ge=1_024, le=67_108_864)

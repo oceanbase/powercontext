@@ -93,6 +93,7 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemoryWriteAssessment,
     MemoryWriteGate,
     MemoryWriteGateRequest,
+    MemoryWriteObservationSink,
     MemoryWritePlan,
     MemoryWriteRejectionCode,
     MemoryWriteVerdict,
@@ -261,6 +262,7 @@ class MemoryService:
         prompt_context: ScopedPrompts | None = None,
         scope_id: str = "unscoped",
         write_gate: MemoryWriteGate | None = None,
+        write_gate_observation_sink: MemoryWriteObservationSink | None = None,
         capacity_budget: MemoryCapacityBudget | None = None,
         compaction: MemoryCompactionPolicy | None = None,
         max_history_revisions: int = 100,
@@ -269,6 +271,7 @@ class MemoryService:
         self._prompt_context = prompt_context
         self._candidate_pipeline = candidate_pipeline
         self._write_gate = write_gate
+        self._write_gate_observation_sink = write_gate_observation_sink
         self._scope_id = scope_id
         self._embedding_model = embedding_model
         if rerank_candidate_limit < 1:
@@ -1390,6 +1393,7 @@ class MemoryService:
                     operation_id=_gate_operation_id(base),
                     subject_refs=_gate_subject_refs(candidates),
                     evidence_refs=tuple(_gate_evidence_ref(entry) for entry in projection.entries),
+                    observation_sink=self._write_gate_observation_sink,
                 )
             )
         except Exception:
