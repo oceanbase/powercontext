@@ -25,6 +25,7 @@ name = "powercontext_desktop"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
+ci-fixtures = []
 
 [build-dependencies]
 tauri-build = { version = "=2.6.0", features = [] }

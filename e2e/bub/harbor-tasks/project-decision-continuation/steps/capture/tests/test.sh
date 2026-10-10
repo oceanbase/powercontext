@@ -21,3 +21,9 @@ if grep -q 'receive' /workspace/README.md && ! grep -q 'recieve' /workspace/READ
 else
     echo 0 > /logs/verifier/reward.txt
 fi
+
+# Harbor keeps the container for the recall session, so leave it only the corrected README: notes the agent wrote
+# into the workspace would otherwise stand in for memory of the conversation. The reward above is already written;
+# a file the reset could not remove is reported in the verifier output and the README is rewritten regardless.
+find /workspace -mindepth 1 -delete || echo 'workspace reset incomplete' >&2
+printf '# Ticket service\n\nThe service will receive tickets from the support queue.\n' > /workspace/README.md

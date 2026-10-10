@@ -30,7 +30,10 @@ from powercontext.builtin.persistence.processing import ArtifactProcessingPendin
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, TOPIC_MEMORY_PROCESSING_TARGETS_TABLE
+from powercontext.builtin.persistence.topic_memory_budget import exhausted_reason, load_topic_memory_work_budget
 from powercontext.builtin.runtime.processing_contracts import (
+    ArtifactProcessingBlock,
+    ArtifactProcessingBlockedError,
     ArtifactProcessingWorkAssignment,
     ArtifactProcessingWorkerCompletion,
     ArtifactProcessingWorkerOutcome,
@@ -53,6 +56,40 @@ class TopicMemoryProcessingTarget:
     source_through: int
     captured_flush_generation: int
     observed_dirty_generation: int
+
+
+async def topic_memory_processing_block(
+    connection: AsyncConnection, scope_id: str, binding_name: str
+) -> ArtifactProcessingBlock | None:
+    """Check only the current Cursor, target/head and durable work allowance.
+
+    Input selection, projections, token estimation and models stay in the
+    Worker. A finished target must still be allowed to retire its intent.
+    """
+    cursor = await SourceCursorRepository().load(connection, scope_id, binding_name)
+    source_after = 0 if cursor is None else cursor.cursor.sequence
+    targets = TOPIC_MEMORY_PROCESSING_TARGETS_TABLE
+    target = await connection.scalar(
+        select(targets.c.source_through).where(targets.c.scope_id == scope_id, targets.c.binding_name == binding_name)
+    )
+    through = target
+    if through is None:
+        through = await connection.scalar(
+            select(SOURCE_JOURNAL_HEADS_TABLE.c.position).where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
+        )
+    if through is None or through <= source_after:
+        return None
+    row = await load_topic_memory_work_budget(connection, scope_id, binding_name, source_after)
+    if row is None or not (reason := exhausted_reason(row)):
+        return None
+    return ArtifactProcessingBlock(
+        key=str(source_after),
+        stage="topic_memory",
+        error_code=reason,
+        details=tuple(
+            (name, int(row[name])) for name in ("source_after", "source_through", "attempts", "requests", "tokens")
+        ),
+    )
 
 
 class TopicMemoryScopeProcessor:
@@ -112,6 +149,12 @@ class TopicMemoryScopeProcessor:
             return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.LEADERSHIP_LOST)
         except GenerationConflictError:
             return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.CURSOR_CONFLICT)
+        except TopicMemoryGenerationError as error:
+            async with self._database.transaction() as connection:
+                block = await topic_memory_processing_block(connection, assignment.scope_id, assignment.binding_name)
+            if block is not None and block.error_code == error.code:
+                raise ArtifactProcessingBlockedError(block) from error
+            raise
         raise TopicMemoryGenerationError("target_did_not_converge")
 
     async def _target(self, assignment: ArtifactProcessingWorkAssignment) -> TopicMemoryProcessingTarget | None:
@@ -303,4 +346,4 @@ class TopicMemoryScopeProcessor:
         )
 
 
-__all__ = ["TopicMemoryProcessingTarget", "TopicMemoryScopeProcessor"]
+__all__ = ["TopicMemoryProcessingTarget", "TopicMemoryScopeProcessor", "topic_memory_processing_block"]

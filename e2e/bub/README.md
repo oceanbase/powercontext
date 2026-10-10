@@ -155,6 +155,17 @@ whatever the task's multi-step reward
 strategy; earlier steps' rewards are recorded for diagnosis only. A task may not set `min_reward` on an earlier
 step, because Harbor would then skip the recall step when that step's unrelated job falls short.
 
+`e2e/bub/paired-tasks/` holds three such workloads, each with a different answer shape:
+`project-decision-continuation` asks for a name and a count, `api-contract-continuation` for a URL path and a header
+name, and `revised-decision-continuation` for a value that was revised before the session together with the value it
+replaced, both stated in one message, so a run that keeps only the first value scores 0. All three run by default, so
+a default run takes about three times as long as one workload; `--id` selects one. The three share one capture-session
+shape, a fact stated in the first user message next to a one-word edit, and differ in what is asked back, so three
+passes show three answer shapes recalled, not three ways of capturing. Harbor keeps the container between the two
+sessions, so each capture step's verifier, after recording its diagnostic reward, resets the workspace to the
+corrected README: notes the capture agent wrote there cannot stand in for memory in the recall session. The reset
+covers the workspace only; a file the agent writes elsewhere in the container is not reset.
+
 The `paired` command runs each selected workload with PowerContext off and on, in separate containers, and repeats
 this for `--trials` trials. The arm that runs first alternates between trials. `--host` selects the agent host for
 both arms: `bub` by default, `codex`, `claude-code`, `opencode`, or `pi`. Each host uses its own PowerContext

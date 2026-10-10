@@ -20,7 +20,7 @@ import asyncio
 from collections.abc import Mapping
 from types import TracebackType
 from typing import Any, Self, TypeVar, cast
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
@@ -317,7 +317,7 @@ from powercontext.http._generated.operations import (
     UPDATE_SKILL_LIFECYCLE,
     Operation,
 )
-from powercontext.transport import is_plaintext_non_loopback
+from powercontext.transport import is_loopback_host, is_plaintext_non_loopback
 
 REQUEST_ID_HEADER = "X-PowerContext-Request-ID"
 _RequestT = TypeVar("_RequestT")
@@ -358,7 +358,11 @@ class PowerContextClient:
         self._headers = {"Authorization": f"Bearer {token}"} if token else None
         self._owned_http_client: httpx.AsyncClient | None = None
         if http_client is None:
-            self._owned_http_client = httpx.AsyncClient(timeout=timeout)
+            # Loopback traffic must not leave the machine through environment or OS-level proxy
+            # discovery. An explicit transport bypasses proxies while still honoring HTTPX's
+            # SSL_CERT_FILE/SSL_CERT_DIR handling; remote targets keep normal proxy behavior.
+            transport = httpx.AsyncHTTPTransport() if is_loopback_host(urlsplit(self._base_url).hostname) else None
+            self._owned_http_client = httpx.AsyncClient(timeout=timeout, transport=transport)
             self._http_client = self._owned_http_client
         else:
             self._http_client = http_client

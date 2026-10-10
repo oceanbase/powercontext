@@ -104,6 +104,8 @@ var ServerResponseError = class extends ClientError {
 	path;
 	code;
 	serverMessage;
+	/** The machine-readable `error.details` object, when the response body carried one. */
+	serverDetails;
 	constructor(options) {
 		const suffix = typeof options.code === "string" ? ` (${options.code})` : "";
 		super(`PowerContext Server returned HTTP ${options.statusCode}${suffix}`, options.requestId);
@@ -111,6 +113,7 @@ var ServerResponseError = class extends ClientError {
 		this.path = options.path ?? "";
 		this.code = options.code;
 		this.serverMessage = options.message;
+		this.serverDetails = options.details;
 	}
 };
 function observedResponse(error) {
@@ -1569,13 +1572,18 @@ async function readLimitedBody(response, maxBytes = MAX_RESPONSE_BYTES) {
 function decodeError(bytes) {
 	try {
 		const parsed = JSON.parse(Buffer.from(bytes).toString("utf8"));
+		const details = parsed.error?.details;
 		return {
 			code: parsed.error?.code,
-			message: parsed.error?.message
+			message: parsed.error?.message,
+			...isPlainObject(details) ? { details } : {}
 		};
 	} catch {
 		return {};
 	}
+}
+function isPlainObject(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function queryString(payload) {
 	const params = new URLSearchParams();
@@ -1759,7 +1767,8 @@ var PowerContextClient = class {
 			path,
 			requestId: requestId$1,
 			code: decoded.code,
-			message: decoded.message
+			message: decoded.message,
+			details: decoded.details
 		});
 	}
 };
@@ -1793,6 +1802,12 @@ const PUBLIC_ERROR_CODES = new Set([
 	"conflict",
 	"revision_conflict",
 	"memory_entry_inactive",
+	"memory_capacity_exceeded",
+	"tag_precondition_failed",
+	"invalid_cursor",
+	"cursor_expired",
+	"precondition_required",
+	"capacity_exceeded",
 	"source_conflict",
 	"candidate_conflict",
 	"artifact_conflict",
@@ -1855,8 +1870,32 @@ function responseDiagnostic(event, outcome, error) {
 		...error.statusCode === 409 && code === "scope_binding_target_missing" ? { recovery: SCOPE_BINDING_TARGET_MISSING_RECOVERY } : {}
 	};
 }
+/**
+* The statuses `src/powercontext/server/app.py` maps a *domain* error to.
+*
+* `mapServerError` gives each of them a branch of its own, because the tail wording is
+* only true for an availability outcome. Keeping the two in step is what makes a domain
+* status behave the same whichever layer meets it: a rejection is returned to the caller
+* as a tool result on the path it arrives on, so it is not also logged, and it stays
+* visible on the automatic paths, where no caller sees it.
+*
+* 401 and 403 are authentication outcomes and 5xx are availability outcomes; those are
+* reported whichever path they arrive on. `src/invoke.ts` branches on this set plus the
+* two authentication statuses, and `tests/error-mapping.spec.ts` asserts that pairing.
+*/
+const DOMAIN_STATUSES = new Set([
+	400,
+	404,
+	409,
+	410,
+	412,
+	413,
+	422,
+	428,
+	429
+]);
 function isDomainStatus(status) {
-	return status === 404 || status === 409 || status === 422;
+	return DOMAIN_STATUSES.has(status);
 }
 function failureEvent(event, error) {
 	const rejection = authenticationRejection(error);
@@ -2354,6 +2393,10 @@ function toolResultSchema() {
 			data: {
 				type: "object",
 				additionalProperties: true
+			},
+			details: {
+				type: "object",
+				additionalProperties: true
 			}
 		}
 	};
@@ -2367,8 +2410,25 @@ function renderToolResult(_args, value) {
 function requestIdField(requestId$1) {
 	return requestId$1 === void 0 ? {} : { request_id: requestId$1 };
 }
-function mapServerError(error) {
+/**
+* Maps a Server response error onto the tool result the host sees.
+*
+* Every status `src/powercontext/server/app.py` maps a domain error to gets a branch of
+* its own, because the tail message ("PowerContext is unavailable, continue the task.")
+* is only true for an availability outcome. Reaching the tail with a domain error tells
+* the model to abandon an operation that a retry would have completed, and records an
+* outage that never happened. 5xx deliberately falls through: those are availability
+* outcomes, not domain outcomes.
+*/
+function mapServerErrorCore(error) {
 	const code = publicErrorCode(error.code);
+	if (error.statusCode === 400) return {
+		ok: false,
+		code: code ?? "invalid_request",
+		message: code === "invalid_cursor" ? "PowerContext rejected a pagination cursor that is invalid or does not match this request. Restart the listing from the beginning." : "PowerContext rejected the request as malformed.",
+		status: 400,
+		...requestIdField(error.requestId)
+	};
 	if (error.statusCode === 401) return {
 		ok: false,
 		code: "authentication_failed",
@@ -2416,11 +2476,46 @@ function mapServerError(error) {
 			...requestIdField(error.requestId)
 		};
 	}
+	if (error.statusCode === 410) return {
+		ok: false,
+		code: code ?? "cursor_expired",
+		message: "PowerContext rejected an expired pagination cursor. Restart the listing from the beginning.",
+		status: 410,
+		...requestIdField(error.requestId)
+	};
+	if (error.statusCode === 412) return {
+		ok: false,
+		code: code ?? "precondition_failed",
+		message: "PowerContext rejected the request because a precondition no longer matches the current state. Re-read the current revision or tag, then retry with the fresh value.",
+		status: 412,
+		...requestIdField(error.requestId)
+	};
+	if (error.statusCode === 413) return {
+		ok: false,
+		code: code ?? "handoff_report_too_large",
+		message: "PowerContext rejected the request because the result exceeds the response limit. Narrow the selection and retry.",
+		status: 413,
+		...requestIdField(error.requestId)
+	};
 	if (error.statusCode === 422) return {
 		ok: false,
 		code: code ?? "invalid_request",
 		message: "PowerContext rejected the request.",
 		status: 422,
+		...requestIdField(error.requestId)
+	};
+	if (error.statusCode === 428) return {
+		ok: false,
+		code: code ?? "precondition_required",
+		message: "PowerContext requires the current ETag in If-Match for this mutation. Read the resource, then retry with its ETag.",
+		status: 428,
+		...requestIdField(error.requestId)
+	};
+	if (error.statusCode === 429) return {
+		ok: false,
+		code: code ?? "capacity_exceeded",
+		message: "PowerContext reached a capacity limit. Retry after a short delay.",
+		status: 429,
 		...requestIdField(error.requestId)
 	};
 	if (error.statusCode === 503) return {
@@ -2436,6 +2531,34 @@ function mapServerError(error) {
 		message: "PowerContext is unavailable, continue the task.",
 		status: error.statusCode,
 		...requestIdField(error.requestId)
+	};
+}
+/**
+* Recovery fields the contract documents for a published code.
+*
+* `docs/en/development/plugin-contract.md` requires the direct surfaces to return a
+* generic failure result without exposing request details, so a response body may only
+* cross that boundary where a published code says which fields the caller can act on.
+* A code the plugin cannot name is mapped onto a generic one, and a generic one has no
+* recovery fields: the body is not a model-facing channel.
+*/
+const RECOVERY_DETAIL_FIELDS = { memory_capacity_exceeded: [
+	"dimension",
+	"limit",
+	"observed"
+] };
+function recoveryDetails(code, details) {
+	if (code === void 0 || details === void 0) return {};
+	const allowed = RECOVERY_DETAIL_FIELDS[code];
+	if (allowed === void 0) return {};
+	const kept = Object.fromEntries(allowed.filter((field) => details[field] !== void 0).map((field) => [field, details[field]]));
+	return Object.keys(kept).length === 0 ? {} : { details: kept };
+}
+function mapServerError(error) {
+	const mapped = mapServerErrorCore(error);
+	return {
+		...mapped,
+		...recoveryDetails(mapped.code, error.serverDetails)
 	};
 }
 function toToolResult(error) {

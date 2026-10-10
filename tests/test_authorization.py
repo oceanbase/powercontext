@@ -26,6 +26,7 @@ from powercontext.cli.authorization import (
     AuthorizationResolution,
     clear_stored_authorization,
     configure_codex_desktop_authorization,
+    configure_stored_authorization,
     credential_path,
     normalize_authorization,
     read_codex_desktop_authorization,
@@ -239,6 +240,29 @@ def test_stored_authorization_remains_bound_to_proxy_path(tmp_path, server_url):
     assert read_stored_authorization(path, server_url=server_url + "-other") == AuthorizationResolution(
         "url_mismatch", None
     )
+
+
+@pytest.mark.parametrize("replacement_token", [None, "replacement-token"])
+def test_setup_endpoint_change_preserves_or_replaces_url_bound_credential(replacement_token):
+    """Only a supplied new token can replace the previous endpoint's credential."""
+    path = credential_path("codex")
+    old_url = "http://127.0.0.1:8100"
+    new_url = "http://127.0.0.1:17429"
+    write_stored_authorization(path, server_url=old_url, value="old-token")
+    original = path.read_bytes()
+
+    status = configure_stored_authorization("codex", server_url=new_url, value=replacement_token)
+
+    if replacement_token is None:
+        assert status == "url_mismatch"
+        assert path.read_bytes() == original
+        assert read_stored_authorization(path, server_url=new_url) == AuthorizationResolution("url_mismatch", None)
+    else:
+        assert status == "configured"
+        assert read_stored_authorization(path, server_url=new_url) == AuthorizationResolution(
+            "configured", "Bearer replacement-token"
+        )
+        assert read_stored_authorization(path, server_url=old_url) == AuthorizationResolution("url_mismatch", None)
 
 
 def test_credential_path_uses_host_owned_roots(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

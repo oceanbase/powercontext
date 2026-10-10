@@ -23,12 +23,12 @@ from __future__ import annotations
 
 import json
 import sys
-import unicodedata
 from pathlib import Path
 
 EXPECTED_DATABASE = "oceanbase"
 EXPECTED_SHARD_COUNT = 12
 ANSWER_KEYS = {"database", "shard_count"}
+ASCII_WHITESPACE = " \t\r\n"
 
 
 class DuplicateKeyError(ValueError):
@@ -45,9 +45,11 @@ def score(answer: str) -> int:
         return 0
     database = payload.get("database")
     shard_count = payload.get("shard_count")
+    # The name is case-insensitive, but only ASCII case: a look-alike such as a fullwidth letter is a different name.
     return int(
         isinstance(database, str)
-        and unicodedata.normalize("NFKC", database).strip().casefold() == EXPECTED_DATABASE
+        and database.isascii()
+        and database.strip(ASCII_WHITESPACE).lower() == EXPECTED_DATABASE
         and _integer(shard_count) == EXPECTED_SHARD_COUNT
     )
 
@@ -62,8 +64,9 @@ def _unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
 def _integer(value: object) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
-    if isinstance(value, str) and value.strip().isdecimal():
-        return int(value.strip())
+    # ASCII digits only: a fullwidth or other look-alike digit is not accepted, as a look-alike letter is not.
+    if isinstance(value, str) and value.isascii() and value.strip(ASCII_WHITESPACE).isdecimal():
+        return int(value.strip(ASCII_WHITESPACE))
     return None
 
 

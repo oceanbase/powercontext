@@ -25,7 +25,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from pydantic import ValidationError
 
-from powercontext.http import HealthResponse
+from powercontext.http import HealthResponse, ReadinessResponse, ReadinessStatus
 from powercontext.service.model import ProbeResult, ProbeState
 
 _REQUEST_ID = re.compile(r"^[0-9a-f]{16}$")
@@ -77,4 +77,33 @@ def probe_server(endpoint: str, *, timeout: float = 2.0) -> ProbeResult:
     return ProbeResult(ProbeState.LIVE, f"{endpoint} status=ok")
 
 
-__all__ = ["probe_server"]
+def probe_readiness(endpoint: str, *, timeout: float = 2.0) -> ProbeResult:
+    """Check business readiness, including the startup compatibility gate."""
+
+    if probe_server(endpoint, timeout=timeout).state is not ProbeState.LIVE:
+        return ProbeResult(ProbeState.UNREACHABLE, "the PowerContext service is not live")
+    request = Request(  # noqa: S310 - probe_server validates the registered local endpoint first.
+        f"{endpoint.rstrip('/')}/health/ready",
+        headers={"Accept": "application/json", "User-Agent": "powercontext-service"},
+    )
+    try:
+        with build_opener(ProxyHandler({})).open(request, timeout=timeout) as response:
+            if response.getcode() != 200 or response.headers.get_content_type() != "application/json":
+                return ProbeResult(ProbeState.CONFLICT, "listener returned an invalid readiness response")
+            if _REQUEST_ID.fullmatch(response.headers.get("X-PowerContext-Request-ID", "")) is None:
+                return ProbeResult(ProbeState.CONFLICT, "listener returned an invalid readiness request ID")
+            readiness = ReadinessResponse.model_validate(json.load(response))
+    except HTTPError as error:
+        error.close()
+        state = ProbeState.UNREACHABLE if error.code == 503 else ProbeState.CONFLICT
+        return ProbeResult(state, f"readiness returned HTTP {error.code}")
+    except (OSError, URLError):
+        return ProbeResult(ProbeState.UNREACHABLE, "cannot reach service readiness")
+    except (ValueError, ValidationError):
+        return ProbeResult(ProbeState.CONFLICT, "listener returned invalid readiness JSON")
+    if readiness.status is ReadinessStatus.NOT_READY:
+        return ProbeResult(ProbeState.UNREACHABLE, "required Server bindings are not ready")
+    return ProbeResult(ProbeState.LIVE, f"{endpoint} readiness={readiness.status.value}")
+
+
+__all__ = ["probe_readiness", "probe_server"]

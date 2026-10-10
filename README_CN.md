@@ -107,6 +107,14 @@ Codex 标为 `official`，其他宿主及 Python Agent 框架标为 `community`�
 
 这些对比的评测方法、完整结果和适用边界请见[官网评测页](https://powercontext.oceanbase.io/zh/benchmarks/)。
 
+### LoCoMo Plus：Jev 接入对比
+
+![GPT-4o-mini、Qwen3.7-plus、GPT-4o 在原生 PowerContext 与 PowerContext + Jev 下的 LoCoMo Plus 得分对比](docs/assets/readme-locomo-plus.svg)
+
+*接入 Jev 检索后候选筛选前后的 LoCoMo Plus 得分。每组模型同时用于 Memory 抽取与回答，向量模型为 qwen3.7-text-embedding（1024 维）。三个模型的得分差分别为 +8.925、+8.577、+4.198 个百分点。*
+
+这六组分数由项目方提供，运行产物尚未公开供复核。可复现说明针对评测工具，不代表这些具体分数已公开验证。
+
 ## 参与构建 PowerContext
 
 ```bash
@@ -116,6 +124,7 @@ make test
 ```
 
 完整开发流程请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+编程能力评测、记忆质量评测、性能压测和 Skill 回归统一放在 [`evaluation/`](evaluation/README.md)，按用途选择对应目录。
 
 ## 进一步了解
 

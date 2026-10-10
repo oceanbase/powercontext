@@ -227,6 +227,7 @@ def control_pipe(process: subprocess.Popen[bytes]) -> IO[bytes]:
 
 def main() -> None:
     import httpx
+    from fixture_qualification import fixture_profile
 
     root = Path(__file__).resolve().parents[2]
     desktop = root / "desktop"
@@ -235,6 +236,7 @@ def main() -> None:
     if len(wheels) != 1:
         raise HarnessFailure("wheel_count")
     wheel = wheels[0]
+    compatibility = fixture_profile()
     executable = (
         desktop / "src-tauri/target/debug/examples" / ("server_probe.exe" if os.name == "nt" else "server_probe")
     )
@@ -322,6 +324,7 @@ def main() -> None:
                         result.raise_for_status()
                         scope_id = result.json()["scope_id"]
                         fixture = {
+                            "compatibility_profile": compatibility,
                             "response_loss_path": config["response_loss_path"],
                             "reader_token": config["reader_token"] if config["provider"] else None,
                             "identity_change_path": config["identity_change_path"] if config["provider"] else None,

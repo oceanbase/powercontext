@@ -15,6 +15,15 @@
  */
 
 fn main() {
+    if std::env::var_os("CARGO_FEATURE_CI_FIXTURES").is_some() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../.artifacts/ci-compatibility.json");
+        println!("cargo:rerun-if-changed={}", manifest.display());
+        let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+        std::fs::copy(manifest, output.join("ci-compatibility.json")).expect(
+            "ci-fixtures requires explicit built-wheel qualification; run fixture_qualification.py",
+        );
+    }
     // Integration-test executables also need ComCtl32 v6 for Tauri's menu imports.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");

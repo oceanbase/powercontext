@@ -45,6 +45,7 @@ from powercontext.server.configuration import (
     resolve_server_environment_file,
     server_settings_context,
 )
+from powercontext.server.database_migration import app as database_migration_app
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import configure_server_logging
 from powercontext.server.processing_security import build_worker_security
@@ -81,6 +82,7 @@ app = typer.Typer(
     help="Run a configured PowerContext service.",
     no_args_is_help=True,
 )
+app.add_typer(database_migration_app, name="db-migrate")
 
 
 @app.callback()

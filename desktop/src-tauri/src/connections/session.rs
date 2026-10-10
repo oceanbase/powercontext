@@ -164,10 +164,31 @@ pub struct ConnectionManager {
 }
 impl ConnectionManager {
     pub fn new(profiles: ProfileRepository) -> Self {
-        let (changed, _) = watch::channel(0);
         // No configuration becomes qualified merely because a health probe returned 200.
-        let compatibility = serde_json::from_str(include_str!("compatibility.json"))
-            .expect("bundled compatibility manifest");
+        let compatibility: Vec<CompatibilityProfile> =
+            serde_json::from_str(include_str!("compatibility.json"))
+                .expect("bundled compatibility manifest");
+        #[cfg(feature = "ci-fixtures")]
+        let compatibility = {
+            let mut compatibility = compatibility;
+            compatibility.push(
+                serde_json::from_str(include_str!(concat!(
+                    env!("OUT_DIR"),
+                    "/ci-compatibility.json"
+                )))
+                .expect("explicit CI fixture qualification"),
+            );
+            compatibility
+        };
+        Self::with_compatibility(profiles, compatibility)
+    }
+    /// Supply explicit native qualification evidence, including synthetic test fixtures.
+    /// This constructor is never exposed through IPC or renderer configuration.
+    pub fn with_compatibility(
+        profiles: ProfileRepository,
+        compatibility: Vec<CompatibilityProfile>,
+    ) -> Self {
+        let (changed, _) = watch::channel(0);
         Self {
             inner: Mutex::new(Inner {
                 profiles,

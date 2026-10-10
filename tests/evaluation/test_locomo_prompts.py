@@ -16,7 +16,7 @@
 
 import pytest
 
-from benchmark.locomo.prompts import (
+from evaluation.memory.locomo.prompts import (
     ANSWER_SOURCE_INFERENCE_INSTRUCTIONS_VERSION,
     ANSWER_SOURCE_UNKNOWN_FALLBACK_INSTRUCTIONS_VERSION,
     JUDGE_INSTRUCTIONS_VERSION,

@@ -46,6 +46,30 @@ class ArtifactProcessingWorkAssignment:
 
 
 @dataclass(frozen=True, slots=True)
+class ArtifactProcessingBlock:
+    """A domain-owned durable rejection, independent of invocation generation.
+
+    Details contain operational counters only, never input or provider data.
+    The opaque key identifies the progress frontier within one ProcessingKey.
+    """
+
+    key: str
+    stage: str
+    error_code: str
+    details: tuple[tuple[str, int], ...] = ()
+
+
+class ArtifactProcessingBlockedError(RuntimeError):
+    """A Worker encountered a durable rejection after the admission check."""
+
+    def __init__(self, block: ArtifactProcessingBlock) -> None:
+        super().__init__(block.error_code)
+        self.block = block
+        self.stage = block.stage
+        self.error_code = block.error_code
+
+
+@dataclass(frozen=True, slots=True)
 class ArtifactProcessingWorkerFailure:
     """Sanitized metadata safe to return across a child process boundary."""
 
@@ -53,6 +77,7 @@ class ArtifactProcessingWorkerFailure:
     error_code: str
     exception_type: str
     traceback: str
+    block: ArtifactProcessingBlock | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +107,8 @@ WorkerEntrypoint = Callable[[ArtifactProcessingWorkAssignment], ArtifactProcessi
 
 
 __all__ = [
+    "ArtifactProcessingBlock",
+    "ArtifactProcessingBlockedError",
     "ArtifactProcessingWorkAssignment",
     "ArtifactProcessingWorkerCompletion",
     "ArtifactProcessingWorkerFailure",
