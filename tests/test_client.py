@@ -64,6 +64,38 @@ from powercontext.http import (
 )
 
 
+def test_client_reads_server_info_and_ignores_future_optional_fields() -> None:
+    async def scenario() -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/v1/server-info"
+            return httpx.Response(
+                200,
+                json={
+                    "schema_version": {"major": 1, "minor": 0},
+                    "product": "powercontext",
+                    "server_id": "server-a",
+                    "package_version": "1.2.3",
+                    "api_contract_version": {"major": 1, "minor": 2},
+                    "feature_contracts": {
+                        "access.principal": {
+                            "version": {"major": 1, "minor": 0},
+                            "operations": ["get_access_principal"],
+                        }
+                    },
+                    "future_optional_field": True,
+                },
+                request=request,
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            info = await PowerContextClient("https://memory.example", http_client=http_client).get_server_info()
+
+        assert info.server_id == "server-a"
+        assert info.api_contract_version.minor == 2
+
+    asyncio.run(scenario())
+
+
 def test_artifact_search_client_preserves_path_identity_unset_fields_and_complete_results() -> None:
     async def scenario() -> None:
         sent: list[httpx.Request] = []

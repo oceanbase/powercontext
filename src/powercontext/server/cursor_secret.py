@@ -35,7 +35,7 @@ def resolve_cursor_secret(database: DatabaseConfig, configured_secret: str | Non
     if configured_secret is not None:
         return configured_secret.encode()
     if isinstance(database, SQLiteConfig):
-        if database.is_in_memory:
+        if not database.is_persistent:
             return None
         database_name = make_url(database.url).database
         if database_name:

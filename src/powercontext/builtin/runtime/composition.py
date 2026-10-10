@@ -613,6 +613,7 @@ async def open_builtin_runtime(
             BuiltinRuntime(
                 code_service=await resources.enter_async_context(open_code_service(config.code, config.database)),
                 provider=contexts,
+                primary_database=contexts.database,
                 capabilities=RuntimeCapabilities(
                     memory_extraction=contexts.memory_extraction,
                     experience_generation=contexts.experience_generation,
@@ -792,7 +793,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
             or (family == "memory" and injected_memory_write_gate is not None)
         ):
             raise BuiltinConfigurationError("artifact-processing-child-resources")
-        if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
+        if isinstance(config.database, SQLiteConfig) and not config.database.is_persistent:
             raise BuiltinConfigurationError("topic-memory-database")
         prefix = family.replace("-", "_")
         if family == "topic-memory":

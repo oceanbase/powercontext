@@ -47,6 +47,7 @@ from powercontext.server.configuration import (
 )
 from powercontext.server.database_migration import app as database_migration_app
 from powercontext.server.factory import create_server_app
+from powercontext.server.identity import open_server_identity_repository
 from powercontext.server.logging import configure_server_logging
 from powercontext.server.processing_security import build_worker_security
 from powercontext.server.settings import (
@@ -131,7 +132,7 @@ async def _processing_maintenance(
     manifest = canonical_processing_manifest(config)
     database = settings.database
     if isinstance(database, SQLiteConfig):
-        if database.is_in_memory:
+        if not database.is_persistent:
             raise typer.BadParameter("offline migration requires a persistent database")  # noqa: TRY003
         opened = SQLiteProfile.open(database, tables=())
     elif isinstance(database, OceanBaseConfig):
@@ -161,6 +162,32 @@ async def _processing_maintenance(
             verification = await verify_processing_migration(connection, config_manifest=manifest)
         typer.echo(verification.model_dump_json())
         return verification.ready
+
+
+@app.command("identity-reset")
+def identity_reset(
+    env_file: Annotated[Path | None, typer.Option(help="Load deployment settings from this environment file.")] = None,
+    maintenance_confirmed: Annotated[
+        bool,
+        typer.Option(help="Confirm every Server process using the primary database is stopped."),
+    ] = False,
+) -> None:
+    """Rotate the durable Server identity after cloning a stopped deployment."""
+
+    if not maintenance_confirmed:
+        raise typer.BadParameter(  # noqa: TRY003
+            "identity reset requires --maintenance-confirmed after stopping every Server process"
+        )
+    with server_settings_context(env_file=env_file) as settings:
+        if isinstance(settings.database, SQLiteConfig) and not settings.database.is_persistent:
+            raise typer.BadParameter("identity reset requires a persistent database")  # noqa: TRY003
+        server_id = asyncio.run(_reset_server_identity(settings))
+    typer.echo(server_id)
+
+
+async def _reset_server_identity(settings: ServerSettings) -> str:
+    async with open_server_identity_repository(settings.database) as repository:
+        return await repository.rotate()
 
 
 @app.command()

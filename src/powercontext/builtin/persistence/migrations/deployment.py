@@ -83,7 +83,7 @@ def deployment_runner(
     if not isinstance(database, SQLiteConfig):
         raise MigrationError("unsupported_backend", "The database has no registered migration adapter.")
     url = make_url(database.url)
-    if database.is_in_memory or url.query or not url.database or url.username or url.password or url.host or url.port:
+    if url.query or not url.database or url.username or url.password or url.host or url.port or database.is_in_memory:
         raise MigrationError(
             "unsupported_target", "Use a regular SQLite file URL without credentials, host, port or URI options."
         )

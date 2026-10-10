@@ -102,6 +102,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/server-info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get stable Server deployment identity and protocol contracts
+         * @description Returns deployment identity and compatibility metadata only. Runtime availability, enabled behavior, limits and inventory remain owned by health, capabilities and statistics endpoints.
+         */
+        get: operations["get_server_info"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/capabilities": {
         parameters: {
             query?: never;
@@ -1984,6 +2004,32 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A major/minor compatibility version. A major increment may remove or incompatibly change the governed contract. A minor increment only adds backward-compatible behavior or fields. */
+        ContractVersion: {
+            major: number;
+            minor: number;
+        };
+        /** @description Compatibility version for exactly the listed OpenAPI operation IDs. Adding operations or compatible semantics increments minor; removing, renaming or incompatibly changing a listed operation increments major. */
+        FeatureContract: {
+            version: components["schemas"]["ContractVersion"];
+            operations: string[];
+        };
+        /** @description Stable deployment identity and protocol compatibility metadata. Compatible clients must ignore unknown optional fields added by a future schema minor version. This contract intentionally excludes runtime capabilities, health, limits, inventory and authorization-principal identity. */
+        ServerInfo: {
+            /** @description Compatibility version for this response shape and field semantics. */
+            schema_version: components["schemas"]["ContractVersion"];
+            /** @enum {string} */
+            product: "powercontext";
+            /** @description Opaque identity of the durable Server deployment. It is unrelated to Access deployment_id and remains stable across restarts, upgrades, backup restore and replicas sharing the same primary database. */
+            server_id: string;
+            package_version: string;
+            /** @description Major/minor projection of the OpenAPI info.version served by this package. */
+            api_contract_version: components["schemas"]["ContractVersion"];
+            /** @description Stable feature groups keyed by contract name. */
+            feature_contracts: {
+                [key: string]: components["schemas"]["FeatureContract"];
+            };
+        };
         CreateSubjectSourceRequest: {
             subject_key: string;
             /**
@@ -4841,6 +4887,30 @@ export interface operations {
                     "application/json": components["schemas"]["ReadinessResponse"];
                 };
             };
+        };
+    };
+    get_server_info: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stable deployment identity and protocol compatibility metadata. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerInfo"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
         };
     };
     get_capabilities: {

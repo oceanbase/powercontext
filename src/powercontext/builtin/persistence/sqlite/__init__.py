@@ -14,7 +14,7 @@
 
 """SQLite async relational profile."""
 
-from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile, is_sqlite_lock_error
 from powercontext.builtin.persistence.sqlite.topic_memory_index import (
     SQLiteTopicMemoryFTSIndex,
     SQLiteTopicMemoryVectorIndex,
@@ -25,4 +25,5 @@ __all__ = (
     "SQLiteProfile",
     "SQLiteTopicMemoryFTSIndex",
     "SQLiteTopicMemoryVectorIndex",
+    "is_sqlite_lock_error",
 )

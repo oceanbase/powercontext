@@ -87,6 +87,7 @@ The source contract is `openapi/powercontext.yaml`. Generated Pydantic models an
 | Area | Operations |
 | --- | --- |
 | Health | liveness and readiness |
+| Server discovery | stable deployment identity and protocol contracts |
 | Capabilities | source types, Artifact families, extraction, search modes |
 | Sources | capture durable content evidence |
 | Memory | flush pending Sources, remember explicit entries, search |
@@ -99,6 +100,69 @@ the Builtin runtime. HTTP request models are transport values and remain separat
 Server errors use the OpenAPI error schema and include a Server-owned `X-PowerContext-Request-ID` response header
 derived from the inbound request span. Validation errors, revision conflicts, missing entries, unavailable inference,
 and internal failures map to stable HTTP status codes.
+
+### Server identity and compatibility discovery
+
+`GET /v1/server-info` is protected by `server.observe` and returns the stable deployment `server_id`, installed package
+version, API contract version, response schema version, and initial feature contracts. It deliberately does not report
+health, enabled runtime capabilities, limits, inventory, secrets, filesystem paths, or the authenticated principal.
+Use the dedicated health, capabilities, statistics, and access endpoints for those concerns.
+
+All discovery versions use integers with `major >= 1` and `minor >= 0`. A major increment may remove or incompatibly
+change the governed contract; a minor increment is backward compatible. The response `schema_version` governs its fields and
+semantics, while `api_contract_version` is the major/minor projection of the OpenAPI `info.version`. Each feature
+contract version applies only to its listed OpenAPI operation IDs: adding an operation or compatible semantics increments
+minor; removing, renaming, or incompatibly changing a listed operation increments major. Compatible clients must ignore
+unknown optional fields introduced by a schema minor version.
+
+OpenAPI's root `x-powercontext-feature-contracts` declares the explicit feature versions. Each governed operation lists
+its membership in the same extension; `make api-generate` produces the discovery metadata from those declarations.
+Generation rejects invalid versions (including values outside these bounds), unknown or duplicate memberships, and
+features without operations. Version bumps remain an explicit contract edit, not an automatic consequence of changing membership.
+
+The Server stores one identity singleton using the Runtime-owned primary relational database. Startup creates the identity
+table idempotently, then atomically creates or loads the singleton, so concurrent initializers converge on one ID and
+restarts, package upgrades, backup restore, and replicas sharing that database retain it. If identity schema
+initialization or loading fails, Server startup fails before readiness instead of publishing a temporary identity.
+The identity repository retries only SQLite busy/locked errors, replaying the complete schema or singleton operation
+after rollback. It admits retries for up to five seconds with 50 ms waits; each SQL attempt also retains the driver's
+configured busy timeout. Exhaustion and all other errors propagate; offline rotation is not retried.
+An in-memory or temporary SQLite deployment receives a new ID with each database lifetime because it has no durable store. Applications using the same shared-memory SQLite database share both data and identity while any
+Runtime connection keeps that database alive; after the last connection closes, reopening creates new data and identity.
+SQLite storage classification uses the dialect's effective connection arguments and the decoded SQLite URI, including
+supported true spellings (`true`, `1`, `yes`, `on`), percent-encoded `:memory:` paths, and the built-in `vfs=memdb`
+in-memory filesystem. Empty-path file URIs such as
+`file:?uri=true` and `file:?cache=shared&uri=true` create connection-local temporary databases, not durable files.
+Classification also honors SQLite's decoded NUL termination for filenames and query parameter names/values:
+`file:%00tail?uri=true` is temporary, an encoded `:memory:` followed by `%00` remains memory storage, and
+`mode=memory%2500tail` or `mode%2500tail=memory` in a SQLAlchemy URL still selects native memory mode. Only an exact lowercase `file:` prefix enables
+SQLite URI interpretation; uppercase schemes, leading spaces, and literal filename controls are not normalized.
+`SQLiteConfig.is_in_memory` distinguishes memory storage; `SQLiteConfig.is_persistent` excludes both memory and temporary
+storage. Pooling keeps one connection for nonpersistent storage; offline maintenance, cursor-secret persistence, and
+subprocess workers consume that same persistence classification.
+
+The unified migration implementation from [RFC #1771](../rfcs/1771-unified-database-migrations.md) currently
+covers only a registered four-table Artifact bundle. It does not manage `pc_server_identity`, gate ordinary Server
+startup, or establish complete Server readiness; its maintenance commands reject a complete business database with
+unmanaged tables. Do not use that partial bundle to migrate a Server database.
+
+When unified migration takes ownership of the complete Server schema, identity table creation must move from startup
+DDL into an immutable managed revision, with schema verification before Runtime composition. If discovery is already
+released, the supported historical baseline must include the existing identity table and preserve its singleton value;
+if still unmerged at framework enablement, discovery must ship that revision alongside the model. Deployment identity
+remains distinct from `pc_schema_revision`, and schema adoption or upgrades must not rotate `server_id`. Clone rotation
+remains an explicit offline operation. No independent schema-version or migration-readiness marker is added for identity.
+
+Treat a restored backup as the same deployment and keep its ID. When a backup is used to create an independent clone,
+stop every Server process using the clone database and rotate only the clone:
+
+```bash
+uv run powercontext server identity-reset --env-file /path/to/clone.env --maintenance-confirmed
+```
+
+The command refuses in-memory and temporary databases and requires the explicit maintenance confirmation. It cannot detect active
+replicas, so stopping them is an operator precondition. Logical application-data imports do not copy the identity unless
+the `pc_server_identity` table itself is included.
 
 ## Python Client
 
@@ -117,6 +181,7 @@ from powercontext.client import PowerContextClient
 
 async def search() -> None:
     async with PowerContextClient("http://127.0.0.1:8000") as client:
+        server_info = await client.get_server_info()
         capabilities = await client.get_capabilities()
         result = await client.search_memory(
             SearchMemoryRequest(
@@ -126,6 +191,7 @@ async def search() -> None:
                 mode="auto",
             )
         )
+        print(server_info.model_dump())
         print(capabilities.model_dump())
         print(result.model_dump())
 ```

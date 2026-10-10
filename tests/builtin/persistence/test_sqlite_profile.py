@@ -389,6 +389,73 @@ def test_sqlite_config_requires_the_async_dialect() -> None:
         SQLiteConfig(url="sqlite:///:memory:")
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "sqlite+aiosqlite:///:memory:",
+        "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=true",
+        "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=1",
+        "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=yes",
+        "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=on",
+        "sqlite+aiosqlite:///file::memory:?cache=shared&uri=true",
+        "sqlite+aiosqlite:///file:%3Amemory%3A?cache=shared&uri=true",
+        "sqlite+aiosqlite:///file:%3Amemory%3A%00tail?uri=true",
+        "sqlite+aiosqlite:///file:deployment?mode=memory%2500tail&uri=true",
+        "sqlite+aiosqlite:///file:deployment?mode%2500tail=memory&uri=true",
+        "sqlite+aiosqlite:///file:deployment?mode=rwc&mode%2500tail=memory&uri=true",
+        "sqlite+aiosqlite:///file:deployment?vfs=memdb&uri=true",
+    ],
+)
+def test_sqlite_config_recognizes_memory_urls(url: str) -> None:
+    config = SQLiteConfig(url=url)
+    assert config.is_in_memory
+    assert not config.is_persistent
+
+
+@pytest.mark.parametrize("uri", ["", "&uri=false", "&uri=0", "&uri=no", "&uri=off"])
+def test_sqlite_config_does_not_treat_uri_like_filename_as_memory_without_uri_mode(uri: str) -> None:
+    assert not SQLiteConfig(url=f"sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared{uri}").is_in_memory
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "FILE:deployment?mode=memory",
+        " file:deployment?mode=memory",
+        "file::mem\nory:",
+        "file:deployment?mode=memory&mode%2500tail=rwc",
+    ],
+)
+def test_sqlite_config_preserves_persistent_targets(filename: str) -> None:
+    separator = "&" if "?" in filename else "?"
+    config = SQLiteConfig(url=f"sqlite+aiosqlite:///{filename}{separator}uri=true")
+    assert config.is_persistent
+    assert not config.is_in_memory
+
+
+@pytest.mark.parametrize("uri", ["file:?uri=true", "file:?cache=shared&uri=true", "file:%00tail?uri=true"])
+def test_temporary_sqlite_database_is_connection_local_and_not_persistent(uri: str) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{uri}")
+        assert not config.is_in_memory
+        assert not config.is_persistent
+        async with SQLiteProfile.open(config, tables=()) as profile:
+            async with profile.database.transaction() as connection:
+                await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER)")
+                await connection.exec_driver_sql("INSERT INTO probe VALUES (1)")
+            async with profile.database.transaction() as connection:
+                assert (await connection.exec_driver_sql("SELECT value FROM probe")).scalar_one() == 1
+        async with (
+            SQLiteProfile.open(config, tables=()) as reopened,
+            reopened.database.transaction() as connection,
+        ):
+            assert (
+                await connection.exec_driver_sql("SELECT count(*) FROM sqlite_master WHERE name = 'probe'")
+            ).scalar_one() == 0
+
+    asyncio.run(scenario())
+
+
 def test_sqlite_profile_creates_a_missing_database_directory(tmp_path) -> None:
     async def scenario() -> None:
         database = tmp_path / "nested" / "powercontext.db"

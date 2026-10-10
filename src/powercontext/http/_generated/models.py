@@ -22,6 +22,42 @@ from pydantic import (
 )
 
 
+class ContractVersion(BaseModel):
+    major: Annotated[StrictInt, Field(ge=1)]
+    minor: Annotated[StrictInt, Field(ge=0)]
+
+
+class FeatureContract(BaseModel):
+    version: ContractVersion
+    operations: Annotated[list[StrictStr], Field(min_length=1)]
+
+
+class Product(StrEnum):
+    POWERCONTEXT = "powercontext"
+
+
+class ServerInfo(BaseModel):
+    schema_version: Annotated[
+        ContractVersion, Field(description="Compatibility version for this response shape and field semantics.")
+    ]
+    product: Product
+    server_id: Annotated[
+        StrictStr,
+        Field(
+            description="Opaque identity of the durable Server deployment. It is unrelated to Access deployment_id and remains stable across restarts, upgrades, backup restore and replicas sharing the same primary database.",
+            max_length=128,
+            min_length=1,
+        ),
+    ]
+    package_version: Annotated[StrictStr, Field(min_length=1)]
+    api_contract_version: Annotated[
+        ContractVersion, Field(description="Major/minor projection of the OpenAPI info.version served by this package.")
+    ]
+    feature_contracts: Annotated[
+        dict[str, FeatureContract], Field(description="Stable feature groups keyed by contract name.")
+    ]
+
+
 class SubjectType(StrEnum):
     USER = "user"
 
