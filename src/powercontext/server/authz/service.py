@@ -621,6 +621,42 @@ class AccessControlService:
             static_scope_principal=self._static_scope_principal,
         )
 
+    async def require_scope_read(self, principal, scope_id: str, *, connection, context: AccessAuditContext):
+        """Use a local policy snapshot when available, preserving external point decisions."""
+
+        access = self
+        provider = self.provider
+        canonical = type(provider) is BuiltinAuthorizationProvider
+        if not canonical and type(provider).__module__ == "powercontext.server.authz.casbin":
+            from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+
+            canonical = type(provider) is CasbinAuthorizationProvider
+        if canonical:
+            from powercontext.server.authz.repository import RelationalAccessRepository
+
+            repository = provider._repository
+            # Binding either a Provider or Repository subclass could discard its custom rules.
+            if type(repository) is RelationalAccessRepository:
+                try:
+                    bound_repository = repository.with_connection(connection)
+                except AccessUnavailableError as error:
+                    if error.code != "transactional_relationships_unavailable":
+                        raise
+                    # A separate policy database still supports its original point decision.
+                else:
+                    access = AccessControlService(
+                        provider.with_repository(bound_repository),
+                        relationships=self.relationships,
+                        audit=self.audit,
+                        deployment_id=self.deployment_id,
+                        provider_capabilities=self.provider_capabilities,
+                        clock=self._clock,
+                        cursor_secret=self._cursor_secret,
+                        static_scope_principal=self._static_scope_principal,
+                    )
+                    access._deferred_decisions = self._deferred_decisions
+        return await access.require(principal, AccessAction.SCOPE_READ, ResourceRef.scope(scope_id), context=context)
+
     async def bootstrap_subject_scope(self, connection, principal, scope_id, *, context):
         """Grant only a newly created ordinary Scope, in the Source transaction."""
         from powercontext.server.authz.repository import RelationalAccessRepository

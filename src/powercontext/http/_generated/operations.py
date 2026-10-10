@@ -111,6 +111,7 @@ from powercontext.http._generated.models import (
     PreparedContext,
     PreparedHandoff,
     PreparedWorkHandoff,
+    PrepareHandoffHintRequest,
     PrepareHandoffRequest,
     ProfilePolicyResponse,
     PromptConfiguration,
@@ -154,6 +155,8 @@ from powercontext.http._generated.models import (
     ScopeDescriptor,
     ScopedStats,
     ScopePage,
+    SearchArtifactsRequest,
+    SearchArtifactsResponse,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SearchTopicMemoryRequest,
@@ -179,7 +182,7 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "1.1.0"
+API_VERSION = "1.2.0"
 
 RequestT = TypeVar("RequestT")
 ResponseT = TypeVar("ResponseT")
@@ -528,6 +531,7 @@ GET_DEFAULT_SCOPE = Operation[None, ScopeDescriptor](
     responses={
         200: {"description": "The ordinary Scope selected by the host default pointer."},
         404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
         503: {"$ref": "#/components/responses/Unavailable"},
@@ -595,6 +599,7 @@ RESOLVE_SCOPE_BINDING = Operation[ResolveScopeBindingRequest, ScopeDescriptor](
     responses={
         200: {"description": "The resolved Scope descriptor."},
         404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
         503: {"$ref": "#/components/responses/Unavailable"},
@@ -1092,6 +1097,33 @@ CONTINUE_HANDOFF = Operation[ContinueHandoffRequest, HandoffResolution](
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="continue_handoff_access"),
 )
 
+PREPARE_HANDOFF_HINT = Operation[PrepareHandoffHintRequest, PreparedContext](
+    method="POST",
+    path="/v1/handoff/hint",
+    operation_id="prepare_handoff_hint",
+    request_type=PrepareHandoffHintRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=PreparedContext,
+    success_status=200,
+    summary="Prepare optional compact continuity hints from a selected Handoff",
+    tags=("handoff",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "Bounded orientation text, or empty when no complete supported hint can be delivered.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="continue_handoff_access"),
+)
+
 FLUSH_TOPIC_MEMORY = Operation[FlushTopicMemoryRequest, FlushTopicMemoryResponse](
     method="POST",
     path="/v1/topic-memory/flush",
@@ -1118,6 +1150,30 @@ FLUSH_TOPIC_MEMORY = Operation[FlushTopicMemoryRequest, FlushTopicMemoryResponse
     access=AccessRequirement(
         action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
     ),
+)
+
+SEARCH_ARTIFACTS = Operation[SearchArtifactsRequest, SearchArtifactsResponse](
+    method="POST",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/search",
+    operation_id="search_artifacts",
+    request_type=SearchArtifactsRequest,
+    request_location="body",
+    path_parameters=("scope_id", "family"),
+    response_type=SearchArtifactsResponse,
+    success_status=200,
+    summary="Search one Artifact Family in a Scope",
+    tags=("artifacts",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Complete matching Artifact revisions in retrieval order."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
 SEARCH_TOPIC_MEMORY = Operation[SearchTopicMemoryRequest, SearchTopicMemoryResponse](

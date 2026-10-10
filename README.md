@@ -16,7 +16,7 @@ PowerContext keeps context with the work across conversations. When you return, 
 
 [Website](https://powercontext.oceanbase.io/) · [Installation walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 
-PowerContext 1.1.0 includes the guided setup. The commands below install the stable release and connect
+PowerContext 1.2.0 includes the guided setup. The commands below install this version and connect
 the matching Agent integration.
 
 ## Pick up where the work left off
@@ -25,15 +25,18 @@ You see the context the work needs now: confirmed decisions, constraints, progre
 
 You decide what will matter later and what needs to move with the task. PowerContext stores durable information as Memory and organizes the current objective and state into a Handoff. You can record reusable approaches as Experience or Skill. PowerContext keeps every item within the scope of the work and preserves its sources and earlier revisions.
 
+The optional recall-sufficiency gate records scope-local daily search effort and budget omissions for later policy
+evaluation. See the [configuration reference](docs/en/docs/operate/configuration.md) for its recording and failure behavior.
+
 ## Install, configure, and connect your Agent
 
 You need Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), and your Agent's CLI.
 Python 3.11+ is required; uv can provision it. macOS and Linux are supported; Windows support is `experimental`.
 
-Install 1.1.0 and open the interactive configuration wizard in a dedicated directory:
+Install 1.2.0 and open the interactive configuration wizard in a dedicated directory:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
+uv tool install --force "powercontext[cli,server]==1.2.0"
 mkdir -p powercontext-config
 cd powercontext-config
 powercontext config init --language en --output .env
@@ -71,7 +74,7 @@ covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisit
 For example, the matching Codex installation is:
 
 ```bash
-powercontext setup codex --ref powercontext-v1.1.0
+powercontext setup codex --ref powercontext-v1.2.0
 powercontext doctor codex
 ```
 
@@ -116,6 +119,14 @@ Explore the [22 Chinese Jupyter tutorials and a complete team workflow](examples
 
 See the [methods, full results, and limitations](https://powercontext.oceanbase.io/en/benchmarks/) behind these comparisons.
 
+### LoCoMo Plus: comparison with Jev
+
+![LoCoMo Plus scores for native PowerContext and PowerContext + Jev across GPT-4o-mini, Qwen3.7-plus, and GPT-4o](docs/assets/readme-locomo-plus.svg)
+
+*LoCoMo Plus scores with and without Jev candidate filtering after retrieval. Each model is used for both Memory extraction and answering; embeddings use qwen3.7-text-embedding (1024 dimensions). Jev score differences are +8.925, +8.577, and +4.198 percentage points, respectively.*
+
+These six scores were supplied by the project owner; the run artifacts are not publicly available for verification. The reproducibility instructions describe the evaluation harness, not verification of these scores.
+
 ## Build PowerContext
 
 ```bash
@@ -125,6 +136,8 @@ make test
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow.
+Coding and memory evaluations, performance benchmarks, and Skill regressions live under
+[`evaluation/`](evaluation/README.md).
 
 ## Learn more
 

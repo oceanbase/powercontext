@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -902,6 +903,124 @@ def test_parser_timeout_is_visible_and_never_publishes_false_edges(repository):
     result = query(constrained, "symbols", query="fit")
     assert result.coverage["failed_files"] > 0
     assert not any(item["kind"] == "function" for item in result.items)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Darwin uses parent-enforced RSS budgets")
+@pytest.mark.parametrize("started", [False, True], ids=["startup", "parsing"])
+def test_parser_memory_budget_terminates_worker_and_preserves_evidence(repository, monkeypatch, started):
+    from powercontext.builtin.code import CodeLimits, process
+
+    _, service = repository
+    before = query(service, "symbols", query="prepare")
+    constrained = CodeService(
+        service.config.model_copy(
+            update={"limits": CodeLimits(worker_memory_bytes=64 * 1024 * 1024, parse_seconds=30, build_seconds=20)}
+        )
+    )
+    popen = subprocess.Popen
+    workers = []
+
+    def over_budget_worker(arguments, **kwargs):
+        if arguments[1:3] != ["-m", "powercontext.builtin.code.worker"]:
+            return popen(arguments, **kwargs)
+        # A real child exceeds the configured budget and would otherwise sleep for 30 seconds.
+        progress = "print('begin:0', flush=True); time.sleep(0.2); " if started else ""
+        worker = popen(
+            [sys.executable, "-c", f"import time; {progress}allocation = bytearray(128 * 1024 * 1024); time.sleep(30)"],
+            **kwargs,
+        )
+        workers.append(worker)
+        return worker
+
+    started_at = time.monotonic()
+    with monkeypatch.context() as patch:
+        patch.setattr(process.subprocess, "Popen", over_budget_worker)
+        if started:
+            constrained.index("scope", full=True)
+        else:
+            with pytest.raises(CodeError, match="code_parser_failed"):
+                constrained.index("scope", full=True)
+
+    assert time.monotonic() - started_at < 5
+    assert workers
+    assert all(worker.returncode is not None and worker.returncode < 0 for worker in workers)
+    after = query(service, "symbols", query="prepare")
+    if started:
+        assert after.coverage["failed_files"] > 0
+        assert not any(item["kind"] == "function" for item in after.items)
+        files = query(service, "symbols", query="src/sample/api.py")
+        file = next(item for item in files.items if item["path"] == "src/sample/api.py")
+        evidence = query(
+            service,
+            "read",
+            expected=files.fingerprint,
+            path=file["path"],
+            file_sha256=file["file_sha256"],
+            start_line=1,
+            end_line=4,
+        )
+        assert "def prepare" in evidence.items[0]["content"]
+    else:
+        assert after.fingerprint == before.fingerprint
+        assert after.items == before.items
+        assert service.status("scope").last_build["reason"] == "code_parser_failed"
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Darwin uses parent-enforced RSS budgets")
+def test_parser_memory_monitor_failure_aborts_rebuild(repository, monkeypatch):
+    psutil = pytest.importorskip("psutil")
+
+    _, service = repository
+    before = query(service, "symbols", query="prepare")
+
+    def unavailable_memory(process):
+        raise psutil.AccessDenied(process.pid)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(psutil.Process, "memory_info", unavailable_memory)
+        with pytest.raises(CodeError, match="code_parser_failed"):
+            service.index("scope", full=True)
+
+    after = query(service, "symbols", query="prepare")
+    assert after.fingerprint == before.fingerprint
+    assert after.items == before.items
+    assert service.status("scope").last_build["reason"] == "code_parser_failed"
+
+
+def test_parser_reconciles_buffered_progress_before_memory_failure(tmp_path, monkeypatch):
+    import select
+
+    from powercontext.builtin.code import process
+
+    job_file = tmp_path / "jobs.json"
+    job_file.write_text("{}")
+    popen = subprocess.Popen
+    workers = []
+
+    def buffered_worker(arguments, **kwargs):
+        worker = popen(
+            [
+                sys.executable,
+                "-c",
+                "import sys,time; sys.stdout.write('begin:0\\nend:0\\nbegin:1\\nend:1\\nbegin:2\\n'); sys.stdout.flush(); time.sleep(30)",
+            ],
+            **kwargs,
+        )
+        workers.append(worker)
+        assert worker.stdout is not None
+        ready, _, _ = select.select([worker.stdout], [], [], 5)
+        assert ready
+        return worker
+
+    with monkeypatch.context() as patch:
+        patch.setattr(process.subprocess, "Popen", buffered_worker)
+        patch.setattr(process, "_budget_failure", lambda *args: "memory_limit")
+        completed, failed, reason = process._batch(job_file, 3, time.monotonic() + 10, 30, 64 * 1024 * 1024)
+
+    assert completed == {0, 1}
+    assert failed == 2
+    assert reason == "memory_limit"
+    assert workers[0].returncode is not None and workers[0].returncode < 0
 
 
 def test_corrupt_cache_pointer_and_build_status_recover_on_sync(repository):

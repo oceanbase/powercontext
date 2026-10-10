@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -27,12 +28,13 @@ import pytest
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
 from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import AccessUnavailableError, PrincipalRef
+from powercontext.server.authz import AccessAuditContext, AccessUnavailableError, PrincipalRef, ResourceRef
 from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 
 ADMIN = PrincipalRef(type="service", id="admin")
+AUDIT = AccessAuditContext(transport="http", operation="test")
 
 
 class _Authentication:
@@ -76,6 +78,50 @@ async def _scope(client):
     )
     assert result.status_code == 201, result.text
     return result.json()["scope_id"]
+
+
+@pytest.mark.parametrize("backend", ["builtin", "casbin"])
+@pytest.mark.parametrize("target_contributor", [False, True])
+def test_missing_subject_target_preserves_authorization(tmp_path, backend, target_contributor):
+    async def scenario():
+        async with _server(tmp_path, backend) as (_, client, _):
+            origin = await _scope(client)
+            path = f"/v1/scopes/{origin}/subject-sources"
+            payload = {"subject_key": "private-subject", "content": "Subject evidence"}
+            created = await client.post(path, json=payload)
+            assert created.status_code == 201, created.text
+            target = created.json()["subject_scope_id"]
+            await _grant(client, origin, "writer", "scope.contributor")
+            if target_contributor:
+                await _grant(client, target, "writer", "scope.contributor")
+            headers = {"Authorization": "Bearer writer"}
+            healthy = await client.post(path, headers=headers, json=payload)
+            assert healthy.status_code == (201 if target_contributor else 403), healthy.text
+            if not target_contributor:
+                assert target not in healthy.text
+            sources_before = await client.get(f"/v1/scopes/{origin}/sources")
+            assert sources_before.status_code == 200, sources_before.text
+
+            # Simulate out-of-band loss while preserving bindings and access grants.
+            with sqlite3.connect(tmp_path / "regressions.db") as connection:
+                connection.execute("DELETE FROM pc_scopes WHERE scope_id = ?", (target,))
+
+            missing = await client.post(path, headers=headers, json=payload)
+            if target_contributor:
+                assert missing.status_code == 409, missing.text
+                assert missing.json()["error"]["code"] == "scope_binding_target_missing"
+                assert missing.json()["error"]["details"]["scope_id"] == target
+            else:
+                assert missing.status_code == 403, missing.text
+                assert missing.json()["error"]["code"] == healthy.json()["error"]["code"]
+                assert target not in missing.text
+            sources_after = await client.get(f"/v1/scopes/{origin}/sources")
+            assert sources_after.status_code == 200, sources_after.text
+            assert {item["source_id"] for item in sources_after.json()["items"]} == {
+                item["source_id"] for item in sources_before.json()["items"]
+            }
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("backend", ["builtin", "casbin"])
@@ -274,6 +320,97 @@ async def _handoff(client, scope_id):
     )
     assert created.status_code == 201, created.text
     return {"family": "handoff", "artifact_id": "handoff", "revision": created.json()["revision"]}
+
+
+@pytest.mark.parametrize("backend", ["builtin", "casbin"])
+def test_hints_share_continue_manifest_authority_and_resolve_published_evidence_in_its_original_scope(
+    tmp_path, backend
+):
+    async def scenario():
+        async with _server(tmp_path, backend) as (_, client, _):
+            scope_id = await _scope(client)
+            revision = await _handoff(client, scope_id)
+            await _grant(client, scope_id, "bob", "handoff.viewer", _resource(scope_id, "handoff", "handoff"))
+            bob = {"Authorization": "Bearer bob"}
+            payload = {"scope_id": scope_id, "selection": "exact", "revision": revision}
+            for selection in (payload, {"scope_id": scope_id, "selection": "latest"}):
+                continued = await client.post("/v1/handoff/continue", headers=bob, json=selection)
+                assert continued.status_code == 200 and continued.json()["status"] == "resolved", continued.text
+                ready = await client.post("/v1/handoff/hint", headers=bob, json=selection | {"max_bytes": 4000})
+                assert ready.status_code == 200 and ready.json()["status"] == "ready", ready.text
+            source_ref = continued.json()["content"]["state"][0]["citations"][0]["source_ref"]
+            direct = await client.get(
+                f"/v1/scopes/{scope_id}/sources/{source_ref['name']}/{source_ref['source_id']}", headers=bob
+            )
+            assert direct.status_code == 403, direct.text
+            prepared = {
+                "schema": "powercontext.prepared-handoff.v1",
+                "scope_id": scope_id,
+                "base": revision,
+                "content": continued.json()["content"],
+            }
+            prepared_payload = {"scope_id": scope_id, "selection": "prepared", "prepared": prepared}
+            for path in ("/v1/handoff/continue", "/v1/handoff/hint"):
+                denied = await client.post(path, headers=bob, json=prepared_payload)
+                assert denied.status_code == 403, denied.text
+
+            target = await client.post(
+                "/v1/scopes", json={"title": "Target", "summary": "Published Handoff", "idempotency_key": "hint-target"}
+            )
+            target_id = target.json()["scope_id"]
+            publication = await client.post(
+                "/v1/artifact-publications",
+                json={
+                    "source": {"scope_id": scope_id, "artifact": revision},
+                    "target_scope_id": target_id,
+                    "idempotency_key": "hint-publication",
+                },
+            )
+            assert publication.status_code == 201, publication.text
+            published_revision = publication.json()["target"]["artifact"]
+            published_access = await _grant(
+                client,
+                target_id,
+                "bob",
+                "handoff.viewer",
+                _resource(target_id, "handoff", published_revision["artifact_id"]),
+            )
+            published_payload = {"scope_id": target_id, "selection": "exact", "revision": published_revision}
+            continued = await client.post("/v1/handoff/continue", headers=bob, json=published_payload)
+            assert continued.status_code == 200 and continued.json()["status"] == "resolved", continued.text
+            ready = await client.post("/v1/handoff/hint", headers=bob, json=published_payload | {"max_bytes": 4000})
+            assert ready.status_code == 200 and ready.json()["status"] == "ready", ready.text
+            hint_data = json.loads(
+                "\n".join(
+                    line.removeprefix(">     ")
+                    for line in ready.json()["content"].splitlines()
+                    if line.startswith(">     ")
+                )
+            )
+            assert hint_data["evidence_scope_id"] == scope_id
+            assert hint_data["scope_id"] == target_id
+            revoked = await client.post(
+                "/v1/access/bindings/revoke",
+                json={
+                    "binding_id": published_access["binding_id"],
+                    "expected_version": published_access["version"],
+                    "idempotency_key": "revoke-hint-handoff-access",
+                },
+            )
+            assert revoked.status_code == 200, revoked.text
+            for path in ("/v1/handoff/continue", "/v1/handoff/hint"):
+                denied = await client.post(path, headers=bob, json=published_payload)
+                assert denied.status_code == 403, denied.text
+            await _grant(client, scope_id, "bob", "scope.viewer")
+            for path in ("/v1/handoff/continue", "/v1/handoff/hint"):
+                request = prepared_payload | {"max_bytes": 4000} if path.endswith("hint") else prepared_payload
+                allowed = await client.post(path, headers=bob, json=request)
+                assert allowed.status_code == 200, allowed.text
+                assert allowed.json()["status"] == ("ready" if path.endswith("hint") else "resolved"), allowed.text
+            denied = await client.post("/v1/handoff/hint", headers={"Authorization": "Bearer stranger"}, json=payload)
+            assert denied.status_code == 403
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("backend", ["builtin", "casbin"])
@@ -697,6 +834,52 @@ def test_startup_migrates_legacy_receipts_without_changing_public_source(tmp_pat
                 (scope_id, ordinary_id, "missing_committed_receipt"),
                 (scope_id, reserved_only_id, "missing_committed_receipt"),
             }
+
+
+def test_startup_removes_legacy_topic_memory_owners_and_keeps_other_relations(tmp_path):
+    import sqlite3
+
+    async def seed():
+        async with _server(tmp_path) as (_, client, access):
+            scope_id = await _scope(client)
+            legacy = ResourceRef.artifact(scope_id, family="topic-memory", artifact_id="legacy-topic")
+            skill = ResourceRef.artifact(scope_id, family="skill", artifact_id="skill-a")
+            await access.establish_artifact_owner(legacy, ADMIN, idempotency_key="legacy-topic", context=AUDIT)
+            await access.establish_artifact_owner(skill, ADMIN, idempotency_key="skill-a", context=AUDIT)
+            await access.attest_candidate_owner(
+                scope_id=scope_id,
+                candidate_id="candidate-a",
+                family="experience",
+                proposed_owner=ADMIN,
+                target=None,
+                idempotency_key="candidate-a",
+            )
+
+    def relations():
+        with sqlite3.connect(tmp_path / "regressions.db") as connection:
+            return set(
+                connection.execute(
+                    "SELECT owner_kind, family, artifact_id, candidate_id FROM pc_access_owners"
+                ).fetchall()
+            )
+
+    asyncio.run(seed())
+    before = relations()
+    assert ("artifact", "topic-memory", "legacy-topic", None) in before
+
+    async def restart():
+        async with _server(tmp_path) as (_, client, _):
+            assert (await client.get("/v1/scopes")).status_code == 200
+
+    asyncio.run(restart())
+    after = relations()
+    assert ("artifact", "topic-memory", "legacy-topic", None) not in after
+    assert ("artifact", "skill", "skill-a", None) in after
+    assert ("candidate", "experience", None, "candidate-a") in after
+
+    # A later restart of an already-clean database changes nothing.
+    asyncio.run(restart())
+    assert relations() == after
 
 
 def test_generic_receipt_markers_cannot_block_source_collection(tmp_path):

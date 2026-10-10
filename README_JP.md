@@ -16,8 +16,8 @@ PowerContext は、会話をまたいでもコンテキストを作業ととも�
 
 [Web サイト](https://powercontext.oceanbase.io/en/) · [インストール手順](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 
-PowerContext 1.1.0 には対話式セットアップが含まれています。
-以下のコマンドで正式リリースと同じバージョンの Agent 連携をインストールします。
+PowerContext 1.2.0 には対話式セットアップが含まれています。
+以下のコマンドでこのバージョンの PowerContext と、対応する Agent 連携をインストールします。
 
 ## 作業の続きをそのまま引き継ぐ
 
@@ -27,10 +27,10 @@ PowerContext 1.1.0 には対話式セットアップが含まれています。
 
 ## 利用中の Agent と接続する
 
-Git、uv、Agent CLI を用意して、1.1.0 をインストールします：
+Git、uv、Agent CLI を用意して、1.2.0 をインストールします：
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
+uv tool install --force "powercontext[cli,server]==1.2.0"
 mkdir -p powercontext-config
 cd powercontext-config
 powercontext config init --language en --output .env
@@ -50,7 +50,7 @@ Server を起動したまま、別のターミナルで同じ設定ディレク�
 クライアント環境の読み込み、Scope の作成・紐付け、同じバージョンの Agent プラグインのインストールを行います。例：
 
 ```bash
-powercontext setup codex --ref powercontext-v1.1.0
+powercontext setup codex --ref powercontext-v1.2.0
 powercontext doctor codex
 ```
 
@@ -93,6 +93,14 @@ Python で段階的に試すには、チーム作業の一連の流れも学べ�
 
 比較に用いた評価方法、詳細な結果、適用範囲は[公式ベンチマークページ](https://powercontext.oceanbase.io/en/benchmarks/)を参照してください。
 
+### LoCoMo Plus：Jev 導入による比較
+
+![GPT-4o-mini、Qwen3.7-plus、GPT-4o における PowerContext 単体と PowerContext + Jev の LoCoMo Plus スコア比較](docs/assets/readme-locomo-plus.svg)
+
+*検索後の候補選別に Jev を使用した場合と使用しない場合の LoCoMo Plus スコア。各モデルは Memory 抽出と回答生成の両方に使用し、埋め込みには qwen3.7-text-embedding（1024 次元）を使用。スコア差は順に +8.925、+8.577、+4.198 パーセントポイント。*
+
+この6件のスコアはプロジェクト所有者から提供された値であり、検証用の実行成果物は公開されていません。再現手順は評価ハーネスの説明であり、これらのスコアの公開検証を意味するものではありません。
+
 ## PowerContext を開発する
 
 ```bash
@@ -102,6 +110,7 @@ make test
 ```
 
 開発ワークフロー全体については [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
+コーディング評価、メモリ品質評価、性能ベンチマーク、Skill 回帰テストは [`evaluation/`](evaluation/README.md) にまとめています。
 
 ## さらに詳しく
 

@@ -24,6 +24,11 @@ powercontext doctor codex
 The command adds the repository as a Codex marketplace, installs the PowerContext plugin, and creates the user data
 directory. It is safe to run again. Pass the same `--ref` used to install the PowerContext tool.
 
+When refreshing setup, client endpoint declarations in the setup `.env` file or process environment supersede saved
+client settings and the previously installed MCP URL. Without a new declaration, setup reuses saved endpoints.
+Conflicting file and process declarations still require an explicit choice; use `--server-url` and align or unset
+runtime URL overrides before rerunning setup. `--source` selects plugin code, not the Server endpoint.
+
 Open a new Codex session after setup. Use `/hooks` to inspect and, when prompted, trust the PowerContext
 `UserPromptSubmit` hook.
 
@@ -155,8 +160,8 @@ This adds inference latency to each prompt and is not the normal interactive set
 
 ## Connect to an authenticated local Server
 
-Local Server authentication is disabled by default. Enable it when needed; enabling Dashboard also requires
-authenticated access. A fresh local configuration wizard leaves Dashboard off unless you select it.
+Local Server authentication is disabled by default and can be enabled independently of Dashboard.
+A fresh local configuration wizard leaves Dashboard off unless you select it; selecting it does not require a token.
 
 Load one token from your local secret manager, then start the Server with authentication enabled:
 
@@ -193,6 +198,10 @@ authorization without changing it. Do not put the token in `.mcp.json`, the Serv
 On Windows, setup also maintains the current user's authorization environment for Desktop compatibility. Existing
 processes do not receive environment changes. Restart Codex after setup to load the updated plugin configuration.
 Rerunning setup without a token preserves the saved credential; supplying a new token rotates it.
+If the Server endpoint changes without a new token, the old credential remains bound to the previous endpoint and is
+not forwarded. Setup and doctor probe the new endpoint without that credential, so an unauthenticated Server can
+connect normally. For an authenticated Server, supply its token through `POWERCONTEXT_CODEX_AUTHORIZATION` or
+`POWERCONTEXT_CLIENT_API_TOKEN` while rerunning setup; the new token replaces the saved record for the selected URL.
 
 To verify a new session without a process override on Linux or macOS:
 

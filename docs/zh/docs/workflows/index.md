@@ -24,6 +24,7 @@ Scope 管理 Source、Artifact 和 Candidate。Source 保存证据；制品可�
 | 隔离项目并控制访问范围 | Scope | [Scope 与访问控制](scopes-and-access.md) |
 | 保存原始证据或外部材料引用 | Source | [Sources 与采集](sources.md)、[从文本文件采集](ingest-text-files-with-opendal.md) |
 | 读取制品版本并选择写入方式 | Artifact | [Artifact](artifacts.md) |
+| 查找相关的当前制品并配置 Topic 融合 | Artifact 检索 | [检索 Artifact](search-artifacts.md)、[融合算法与参数](search-fusion.md) |
 | 保存和召回长期事实、决定与约束 | Memory | [Memory 与上下文](memory-and-context.md) |
 | 形成可复用的经验并经过审核 | Experience | [创建和审核 Experience](create-and-review-experience.md)、[Experience 生命周期](experience-and-skill-lifecycle.md) |
 | 管理可导出的指令集合 | Skill | [创建和导出 Skill](create-and-export-skill.md)、[配置 Skill 目标](configure-agent-skill-targets.md) |

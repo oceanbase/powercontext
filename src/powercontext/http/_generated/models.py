@@ -17,6 +17,7 @@ from pydantic import (
     StrictFloat,
     StrictInt,
     StrictStr,
+    field_validator,
     model_validator,
 )
 
@@ -452,6 +453,93 @@ class ApproveArtifactCandidateRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     expected_version: Annotated[StrictInt, Field(ge=1)]
+
+
+class Configuration(StrEnum):
+    CONFIGURED = "configured"
+    UNCONFIGURED = "unconfigured"
+    UNKNOWN = "unknown"
+
+
+class Location(StrEnum):
+    LOCAL = "local"
+    EXTERNAL = "external"
+    NONE = "none"
+
+
+class Role(StrEnum):
+    LEADER = "leader"
+    STANDBY = "standby"
+
+
+class State(StrEnum):
+    RUNNING = "running"
+    DEGRADED = "degraded"
+    STOPPED = "stopped"
+    UNKNOWN = "unknown"
+
+
+class ExtractionBackground(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    location: Annotated[
+        Location,
+        Field(
+            description="Placement of the Memory Supervisor. None means no background executor; synchronous flush may still work."
+        ),
+    ]
+    role: Annotated[
+        Role | None,
+        Field(
+            description="Current local Supervisor leadership role. Standby is normal; null means no running local Supervisor."
+        ),
+    ] = None
+    state: Annotated[
+        State,
+        Field(
+            description="Local Supervisor lifecycle and control state, independent of individual worker outcomes. A running Supervisor may be retrying failed workers. External state is unknown."
+        ),
+    ]
+    automatic_processing_enabled: Annotated[
+        StrictBool | None,
+        Field(
+            description="Whether this process schedules automatic Memory extraction. False still permits explicit flush and recovery of accepted work. Null means the external worker schedule is unknown."
+        ),
+    ] = None
+
+
+class Status1(StrEnum):
+    UNVERIFIED = "unverified"
+    OBSERVED = "observed"
+
+
+class Stage(StrEnum):
+    INFERENCE = "inference"
+    FLUSH = "flush"
+    WORKER = "worker"
+    SUPERVISOR = "supervisor"
+    LEASE_RENEWAL = "lease_renewal"
+    SCOPE_DISCOVERY = "scope_discovery"
+
+
+class ExtractionFailure(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    code: Annotated[
+        StrictStr,
+        Field(
+            description="Sanitized category: model_configuration_error, model_timeout, model_unavailable, invalid_model_output, worker_timeout, worker_crash, invalid_worker_result, missing_durable_acknowledgement, supervisor_failed, lease_renewal_failed, scope_discovery_failed, or processing_failed. Raw exception messages, model inputs, and credentials are never returned."
+        ),
+    ]
+    stage: Annotated[
+        Stage,
+        Field(
+            description="Inference for recognized model failures; otherwise the boundary where failure was observed. Flush or worker does not identify the failing internal component."
+        ),
+    ]
+    occurred_at: Annotated[AwareDatetime, Field(description="UTC time when this process observed the failure.")]
 
 
 class FamilyCount(BaseModel):
@@ -1619,7 +1707,7 @@ class GitObjectFormat(StrEnum):
     SHA256 = "sha256"
 
 
-class Status1(StrEnum):
+class Status2(StrEnum):
     OK = "ok"
     PARTIAL = "partial"
 
@@ -1637,7 +1725,7 @@ class CodeQueryResult(BaseModel):
     dirty: StrictBool
     checked_at: StrictStr
     operation: StrictStr
-    status: Status1 = Status1.OK
+    status: Status2 = Status2.OK
     items: list[dict[str, Any]] | None = None
     coverage: dict[str, Any] | None = None
     limitations: list[StrictStr] | None = None
@@ -1647,7 +1735,7 @@ class Schema5(StrEnum):
     POWERCONTEXT_CODE_STATUS_V1 = "powercontext.code-status.v1"
 
 
-class Status2(StrEnum):
+class Status3(StrEnum):
     DISABLED = "disabled"
     MISSING = "missing"
     BUILDING = "building"
@@ -1668,7 +1756,7 @@ class CodeStatus(BaseModel):
     )
     schema_: Annotated[Schema5, Field(alias="schema")] = Schema5.POWERCONTEXT_CODE_STATUS_V1
     scope_id: StrictStr
-    status: Status2
+    status: Status3
     freshness: Freshness = Freshness.UNKNOWN
     fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
     engine: StrictStr = "powercontext-native-v1"
@@ -1766,6 +1854,170 @@ class ReviseMemoryEntryRequest(BaseModel):
     kind: Annotated[StrictStr, Field(max_length=128, min_length=1)]
     text: Annotated[StrictStr, Field(description="Must not exceed 8192 UTF-8 bytes after normalization.", min_length=1)]
     reason: Annotated[StrictStr | None, Field(max_length=512)] = None
+
+
+class ArtifactSearchFusion(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    method: Annotated[StrictStr, Field(min_length=1, pattern=".*\\S.*")]
+    params: dict[str, Any] = {}
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _reject_invalid_search_value(cls, value: Any) -> Any:
+        from math import isfinite
+
+        from pydantic import ValidationError
+        from pydantic_core import InitErrorDetails
+
+        if value is None:
+            raise ValueError("omit the field instead of sending null")  # noqa: TRY003
+        errors: list[InitErrorDetails] = []
+        pending: list[tuple[Any, tuple[str | int, ...]]] = [(value, ())]
+        visited: set[int] = set()
+        while pending:
+            item, path = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                errors.append({"type": "finite_number", "loc": path, "input": item})
+            elif isinstance(item, (dict, list, tuple)) and id(item) not in visited:
+                visited.add(id(item))
+                entries = item.items() if isinstance(item, dict) else enumerate(item)
+                pending.extend((nested, (*path, key)) for key, nested in entries)
+        if errors:
+            raise ValidationError.from_exception_data(cls.__name__, errors)
+        return value
+
+
+class SearchArtifactsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    limit: Annotated[StrictInt, Field(ge=1, le=200)] = 10
+    mode: Annotated[StrictStr | None, Field(min_length=1, pattern=".*\\S.*")] = None
+    filters: dict[str, Any] | None = None
+    admission: dict[str, Any] | None = None
+    fusion: ArtifactSearchFusion | None = None
+    min_score: Annotated[StrictFloat | None, Field(ge=0.0, le=1.0)] = None
+    include_scores: StrictBool = False
+    rerank: dict[str, Any] | None = None
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def _trim_search_query(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _reject_invalid_search_value(cls, value: Any) -> Any:
+        from math import isfinite
+
+        from pydantic import ValidationError
+        from pydantic_core import InitErrorDetails
+
+        if value is None:
+            raise ValueError("omit the field instead of sending null")  # noqa: TRY003
+        errors: list[InitErrorDetails] = []
+        pending: list[tuple[Any, tuple[str | int, ...]]] = [(value, ())]
+        visited: set[int] = set()
+        while pending:
+            item, path = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                errors.append({"type": "finite_number", "loc": path, "input": item})
+            elif isinstance(item, (dict, list, tuple)) and id(item) not in visited:
+                visited.add(id(item))
+                entries = item.items() if isinstance(item, dict) else enumerate(item)
+                pending.extend((nested, (*path, key)) for key, nested in entries)
+        if errors:
+            raise ValidationError.from_exception_data(cls.__name__, errors)
+        return value
+
+
+class ArtifactChannelScore(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    raw: StrictFloat
+    metric: Annotated[StrictStr, Field(min_length=1, pattern=".*\\S.*")]
+    higher_is_better: StrictBool
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _reject_invalid_search_value(cls, value: Any) -> Any:
+        from math import isfinite
+
+        from pydantic import ValidationError
+        from pydantic_core import InitErrorDetails
+
+        if value is None:
+            raise ValueError("omit the field instead of sending null")  # noqa: TRY003
+        errors: list[InitErrorDetails] = []
+        pending: list[tuple[Any, tuple[str | int, ...]]] = [(value, ())]
+        visited: set[int] = set()
+        while pending:
+            item, path = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                errors.append({"type": "finite_number", "loc": path, "input": item})
+            elif isinstance(item, (dict, list, tuple)) and id(item) not in visited:
+                visited.add(id(item))
+                entries = item.items() if isinstance(item, dict) else enumerate(item)
+                pending.extend((nested, (*path, key)) for key, nested in entries)
+        if errors:
+            raise ValidationError.from_exception_data(cls.__name__, errors)
+        return value
+
+
+class ArtifactSearchScores(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    retrieval: Annotated[StrictFloat, Field(ge=0.0, le=1.0)]
+    channels: dict[str, ArtifactChannelScore]
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _reject_invalid_search_value(cls, value: Any) -> Any:
+        from math import isfinite
+
+        from pydantic import ValidationError
+        from pydantic_core import InitErrorDetails
+
+        if value is None:
+            raise ValueError("omit the field instead of sending null")  # noqa: TRY003
+        errors: list[InitErrorDetails] = []
+        pending: list[tuple[Any, tuple[str | int, ...]]] = [(value, ())]
+        visited: set[int] = set()
+        while pending:
+            item, path = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                errors.append({"type": "finite_number", "loc": path, "input": item})
+            elif isinstance(item, (dict, list, tuple)) and id(item) not in visited:
+                visited.add(id(item))
+                entries = item.items() if isinstance(item, dict) else enumerate(item)
+                pending.extend((nested, (*path, key)) for key, nested in entries)
+        if errors:
+            raise ValidationError.from_exception_data(cls.__name__, errors)
+        return value
+
+
+class ArtifactSearchItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Annotated[StrictStr, Field(min_length=1)]
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    revision: Annotated[StrictInt, Field(ge=1)]
+    content: dict[str, Any]
+    lineage: dict[str, Any]
+    scores: ArtifactSearchScores | None = None
+
+
+class SearchArtifactsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: list[ArtifactSearchItem]
 
 
 class SearchTopicMemoryRequest(BaseModel):
@@ -2110,7 +2362,7 @@ class PromptDemonstration(BaseModel):
     expected_output: Annotated[Any, Field(description="Desired JSON output matching the registered Prompt Definition.")]
 
 
-class Status3(StrEnum):
+class Status4(StrEnum):
     SUPPORTED = "supported"
     DISABLED = "disabled"
     UNSUPPORTED = "unsupported"
@@ -2139,7 +2391,7 @@ class PromptCapability(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    status: Status3
+    status: Status4
     reason: Annotated[Reason | None, Field(...)]
     definition_version: StrictStr
     builtin_version: StrictStr
@@ -2192,7 +2444,7 @@ class PromptConfiguration(BaseModel):
     )
     scope_id: StrictStr
     prompt_key: PromptKey
-    status: Status3
+    status: Status4
     reason: Annotated[Reason1 | None, Field(...)]
     mode: Mode3
     artifact: Annotated[ArtifactReference | None, Field(...)]
@@ -2925,32 +3177,34 @@ class DreamEvidenceNode(BaseModel):
     current_entry_version_id: StrictStr | None = None
 
 
-class Capabilities(BaseModel):
+class ExtractionObservation(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    prompts: Annotated[dict[str, PromptCapability], Field(validate_default=True)] = {}
-    artifact_dreaming: Annotated[
-        StrictBool, Field(description="Whether asynchronous Artifact Dream execution is configured.")
-    ] = False
-    source_types: list[StrictStr]
-    artifact_families: list[StrictStr]
-    memory_extraction: Annotated[StrictBool, Field(description="Whether pending Sources can be extracted into Memory.")]
-    experience_generation: Annotated[
-        StrictBool, Field(description="Whether the configured model can generate reviewed Experience Candidates.")
-    ] = False
-    managed_skill_generation: Annotated[
-        StrictBool, Field(description="Whether the configured model can generate reviewed managed Skill Candidates.")
-    ] = False
-    external_skill_registry: Annotated[
-        StrictBool,
-        Field(description="Whether host-local external Skill discovery and exact resolution are configured."),
-    ] = False
-    handoff_generation: Annotated[
-        StrictBool, Field(description="Whether exact evidence can be generated into an inspectable Handoff Draft.")
+    status: Annotated[
+        Status1,
+        Field(
+            description="Unverified means no execution outcome or control failure has been observed in this window. Observed means at least one success or failure is recorded; neither value is a health verdict."
+        ),
     ]
-    search_modes: list[MemorySearchMode]
-    context_versions: list[PreparedContextSchema]
+    since: Annotated[
+        AwareDatetime,
+        Field(
+            description="UTC start of this Runtime's observation window. Records cover this process and its child Memory workers, reset on Runtime restart, and do not include remote workers or a durable per-Scope failure history."
+        ),
+    ]
+    last_failure: Annotated[
+        ExtractionFailure | None,
+        Field(
+            description="Most recent historical failure. Retained after subsequent success, possibly in another Scope. This is not an unresolved-incident indicator; null does not prove health."
+        ),
+    ] = None
+    last_success_at: Annotated[
+        AwareDatetime | None,
+        Field(
+            description="UTC time of the most recent local successful nonempty synchronous flush or acknowledged Memory worker invocation. This does not prove that a model was called or that any previous failure has recovered."
+        ),
+    ] = None
 
 
 class CandidateFamilyCount(BaseModel):
@@ -3244,6 +3498,12 @@ class FlushMemoryResponse(BaseModel):
     high_watermark: Annotated[StrictInt, Field(ge=0)]
     processed_source_count: Annotated[StrictInt, Field(ge=0)]
     memory: ArtifactReference | None = None
+    held_count: Annotated[
+        StrictInt, Field(description="Number of source windows held by the Memory write gate.", ge=0)
+    ] = 0
+    hold_codes: Annotated[
+        list[StrictStr], Field(description="Structured Memory write gate refusal codes for held windows.")
+    ] = []
 
 
 class FlushTopicMemoryResponse(BaseModel):
@@ -3838,6 +4098,20 @@ class ArtifactCandidatePage(BaseModel):
     next_cursor: Annotated[StrictStr | None, Field(...)]
 
 
+class ExtractionStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    configuration: Annotated[
+        Configuration,
+        Field(
+            description="Whether a local extraction model or custom pipeline is assembled. Configured does not verify credentials or connectivity. Unknown means execution is external and its configuration is not observed."
+        ),
+    ]
+    background: ExtractionBackground
+    observation: ExtractionObservation
+
+
 class HandoffCitation(RootModel[HandoffSourceCitation | HandoffArtifactCitation | HandoffMemoryCitation]):
     root: Annotated[
         HandoffSourceCitation | HandoffArtifactCitation | HandoffMemoryCitation, Field(discriminator="kind")
@@ -4014,6 +4288,40 @@ class ActivateHandoffRequest(BaseModel):
     rollover_reasons: Annotated[list[HandoffRolloverReason], Field(max_length=6)] = []
     evidence: Annotated[list[HandoffCitation], Field(max_length=32, validate_default=True)] = []
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
+
+
+class Capabilities(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    prompts: Annotated[dict[str, PromptCapability], Field(validate_default=True)] = {}
+    artifact_dreaming: Annotated[
+        StrictBool, Field(description="Whether asynchronous Artifact Dream execution is configured.")
+    ] = False
+    source_types: list[StrictStr]
+    artifact_families: list[StrictStr]
+    memory_extraction: Annotated[StrictBool, Field(description="Whether pending Sources can be extracted into Memory.")]
+    extraction: Annotated[
+        ExtractionStatus | None,
+        Field(
+            description="Live Memory extraction diagnostics. Null means diagnostics are not supplied by this runtime. This read does not call a model or prove provider connectivity."
+        ),
+    ] = None
+    experience_generation: Annotated[
+        StrictBool, Field(description="Whether the configured model can generate reviewed Experience Candidates.")
+    ] = False
+    managed_skill_generation: Annotated[
+        StrictBool, Field(description="Whether the configured model can generate reviewed managed Skill Candidates.")
+    ] = False
+    external_skill_registry: Annotated[
+        StrictBool,
+        Field(description="Whether host-local external Skill discovery and exact resolution are configured."),
+    ] = False
+    handoff_generation: Annotated[
+        StrictBool, Field(description="Whether exact evidence can be generated into an inspectable Handoff Draft.")
+    ]
+    search_modes: list[MemorySearchMode]
+    context_versions: list[PreparedContextSchema]
 
 
 class WorkClaim(BaseModel):
@@ -4236,6 +4544,27 @@ class ContinueHandoffRequest(BaseModel):
     selection: HandoffSelection
     prepared: PreparedHandoff | None = None
     revision: ArtifactReference | None = None
+
+
+class PrepareHandoffHintRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    selection: HandoffSelection
+    prepared: Annotated[
+        PreparedHandoff | None,
+        Field(description="Required only for prepared selection; retain this complete value for continuation."),
+    ] = None
+    revision: Annotated[ArtifactReference | None, Field(description="Required only for exact selection.")] = None
+    max_bytes: Annotated[
+        StrictInt,
+        Field(
+            description="Complete rendered UTF-8 text budget including notice, boundaries, and exact references.",
+            ge=1,
+            le=4000,
+        ),
+    ] = 2000
 
 
 class FinalizeHandoffRequest(BaseModel):

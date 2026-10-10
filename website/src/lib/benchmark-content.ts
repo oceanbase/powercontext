@@ -76,6 +76,26 @@ export type BenchmarkContent = {
     };
     source_label: string;
     tabs_label: string;
+    locomo_plus: {
+      tab: string;
+      title: string;
+      count: string;
+      updated: string;
+      table_label: string;
+      score_label: string;
+      spotlight: {
+        title: string;
+        model: string;
+        link_label: string;
+      };
+      rows: Array<{
+        name: string;
+        score: string;
+        evidence: string;
+        protocol: string;
+        source: string;
+      }>;
+    };
     swe: {
       columns: Record<'harness' | 'provider' | 'rank' | 'score' | 'system', string>;
       count: string;
@@ -134,6 +154,26 @@ export type BenchmarkContent = {
     scope_title: string;
     tabs_label: string;
     title: string;
+  };
+  locomo_plus: {
+    title: string;
+    lead: string;
+    results_title: string;
+    provenance_note: string;
+    table_label: string;
+    best_label: string;
+    gain_label: string;
+    points_label: string;
+    columns: Record<'model' | 'baseline' | 'jev' | 'gain', string>;
+    rows: Array<{
+      model: string;
+      baseline: number;
+      jev: number;
+    }>;
+    model_note: string;
+    embedding_label: string;
+    embedding_model: string;
+    embedding_dimensions: string;
   };
   orientation: {
     lead: string;

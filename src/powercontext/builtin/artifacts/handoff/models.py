@@ -31,6 +31,10 @@ from powercontext.sources import Source, SourceRef
 DEFAULT_HANDOFF_MAX_BYTES = 8000
 MAX_HANDOFF_BYTES = 32_768
 MIN_HANDOFF_MAX_BYTES = 512
+# Startup orientation has a smaller budget than a complete Handoff.
+DEFAULT_HINT_MAX_BYTES = 2000
+MAX_HINT_BYTES = 4000
+MIN_HINT_MAX_BYTES = 1
 MAX_HANDOFF_CITATIONS = 32
 MAX_HANDOFF_OMISSIONS = 64
 MAX_HANDOFF_STATE_STATEMENTS = 64
@@ -363,6 +367,23 @@ class PreparedHandoff(_HandoffValue):
     @classmethod
     def require_scope_id(cls, value: str) -> str:
         return _require_text("scope_id", value)
+
+
+class PrepareHandoffHint(_HandoffValue):
+    """Explicitly select one Handoff for optional, bounded historical orientation."""
+
+    selection: HandoffResolutionSelection
+    prepared: PreparedHandoff | None = None
+    revision: ArtifactRef | None = None
+    max_bytes: Annotated[int, Field(ge=MIN_HINT_MAX_BYTES, le=MAX_HINT_BYTES)] = DEFAULT_HINT_MAX_BYTES
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> PrepareHandoffHint:
+        if (self.prepared is not None) != (self.selection == "prepared") or (self.revision is not None) != (
+            self.selection == "exact"
+        ):
+            raise ValueError("hint selection requires exactly its selected Handoff value")  # noqa: TRY003
+        return self
 
 
 class HandoffEvidenceCheck(_HandoffValue):

@@ -15,16 +15,22 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import logging
 import os
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from powercontext.client import TransportError
+from powercontext.http import ArtifactReference
+from tests.e2e.topic_memory_product import common as common_module
 from tests.e2e.topic_memory_product import harness
 from tests.e2e.topic_memory_product.common import (
     ArtifactIdentity,
@@ -54,6 +60,66 @@ def test_r8_e0_runs_the_complete_hermetic_topic_product_chain(tmp_path: Path) ->
         "temporary_runtime_removed": True,
     }
     assert not any(path.name.startswith(".runtime-") for path in (tmp_path / "r8-e0").iterdir())
+
+
+@pytest.mark.parametrize("search_outcomes", ["hit", "error-hit", "empty-hit", "error-empty-hit"])
+def test_product_chain_requires_empty_search_response_for_async_generation_evidence(
+    monkeypatch: pytest.MonkeyPatch, search_outcomes: str
+) -> None:
+    ref = {"family": "topic-memory", "artifact_id": "topic-a", "revision": 1}
+    artifact = ArtifactReference.model_validate(ref)
+    hit = SimpleNamespace(artifact=artifact)
+    responses = {
+        "hit": SimpleNamespace(hits=[hit], mode="hybrid"),
+        "empty": SimpleNamespace(hits=[], mode="hybrid"),
+        "error": TransportError("synthetic transient failure"),
+    }
+    sdk = MagicMock()
+    sdk.__aenter__ = AsyncMock(return_value=sdk)
+    sdk.__aexit__ = AsyncMock(return_value=None)
+    sdk.flush_topic_memory = AsyncMock(return_value=SimpleNamespace(status="accepted"))
+    sdk.search_topic_memory = AsyncMock(side_effect=[responses[outcome] for outcome in search_outcomes.split("-")])
+    sdk.get_topic_memory = AsyncMock(
+        return_value=SimpleNamespace(
+            artifact=artifact, source_refs=[SimpleNamespace(name="content", source_id="source-a")]
+        )
+    )
+    prepared = json.dumps({
+        "trust": "untrusted_history",
+        "items": [{"kind": "topic-memory", "citation": {"artifact_ref": ref}, "content": '{"summary":"compact"}'}],
+    })
+    sdk.prepare_context = AsyncMock(return_value=SimpleNamespace(content=prepared, content_bytes=len(prepared)))
+    mcp = MagicMock()
+    mcp.__aenter__ = AsyncMock(return_value=mcp)
+    mcp.__aexit__ = AsyncMock(return_value=None)
+    mcp.call_tool = AsyncMock(
+        side_effect=[
+            SimpleNamespace(structured_content={"hits": [{"artifact": ref}]}),
+            SimpleNamespace(structured_content={"artifact": ref}),
+        ]
+    )
+    monkeypatch.setattr(common_module, "PowerContextClient", MagicMock(return_value=sdk))
+    monkeypatch.setattr(common_module, "Client", MagicMock(return_value=mcp))
+
+    chain = common_module.exercise_http_mcp_prepared_chain(
+        base_url="http://127.0.0.1:8000",
+        token="synthetic-token",  # noqa: S106 - test-only credential.
+        scope_id="scope-a",
+        query="decision",
+        source_id=None,
+        source_content=None,
+        expected_detail_marker=None,
+        timeline=common_module.AccessTimeline(),
+        generation=None,
+        search_timeout_seconds=5,
+    )
+    if "empty" in search_outcomes:
+        evidence = asyncio.run(chain)
+        assert evidence.returned_before_generation_completed is True
+        assert evidence.exact_ref.as_dict() == ref
+    else:
+        with pytest.raises(ProductChainError, match="flush did not demonstrably return"):
+            asyncio.run(chain)
 
 
 def _completed_mcp_event(
@@ -163,6 +229,37 @@ def test_worker_failure_capture_cannot_be_reported_as_pass() -> None:
 
     with pytest.raises(ProductChainError, match="E1 captured background-worker failures"):
         require_no_worker_failures("E1", failures)
+
+
+def test_worker_failure_capture_records_current_supervisor_event() -> None:
+    record = logging.LogRecord(
+        name="powercontext.builtin.runtime.artifact_processing",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=0,
+        msg="Artifact processing failed",
+        args=(),
+        exc_info=None,
+    )
+    record.event = "artifact_processing.failed"  # type: ignore[attr-defined]
+    record.stage = "worker"  # type: ignore[attr-defined]
+    record.error_code = "TimeoutError"  # type: ignore[attr-defined]
+    record.exception_type = "TimeoutError"  # type: ignore[attr-defined]
+    record.retry_count = 1  # type: ignore[attr-defined]
+
+    common_capture = common_module._WorkerFailureCapture()
+    common_capture.handle(record)
+    harness_capture = harness._WorkerFailureCapture()
+    harness_capture.handle(record)
+
+    expected = {
+        "stage": "worker",
+        "error_code": "TimeoutError",
+        "exception_type": "TimeoutError",
+        "failure_count": 1,
+    }
+    assert common_capture.failures == [expected]
+    assert harness_capture.failures == [expected]
 
 
 def test_e1_codex_generation_and_plugin_subprocesses_exclude_layer_secrets(

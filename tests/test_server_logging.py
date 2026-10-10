@@ -19,6 +19,7 @@ import logging
 import subprocess
 import sys
 
+import pytest
 from fastapi.testclient import TestClient
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -27,7 +28,7 @@ from powercontext.server.logging import JsonFormatter, OperationalContextFilter
 from powercontext.server.settings import McpConfig, ServerLoggingConfig, ServerSettings
 
 
-def _run_configured_logging_probe(log_format: str) -> list[str]:
+def _run_configured_logging_probe(log_format: str, *, processing: bool = False) -> list[str]:
     script = f"""
 import logging
 
@@ -38,6 +39,20 @@ configure_server_logging(ServerLoggingConfig(format={log_format!r}))
 logging.getLogger("uvicorn.error").info("Started server process")
 logging.getLogger("uvicorn.error").error("Server startup failed")
 logging.getLogger("powercontext.server.factory").info("PowerContext Server is ready")
+"""
+    if processing:
+        script += """
+logging.getLogger("powercontext.builtin.runtime.artifact_processing").warning(
+    "Artifact processing blocked; operator remediation required",
+    extra={
+        "event": "artifact_processing.blocked", "stage": "topic_memory",
+        "error_code": "window_attempt_limit", "binding": "topic-memory-source-window",
+        "family": "topic-memory", "scope": "scope-a\\nforged log",
+        "source_after": 0, "source_through": 1, "attempts": 3, "requests": 9, "tokens": 1000,
+        "retry_delay_seconds": 300, "source_body": "private source sentinel",
+        "traceback": "private traceback sentinel",
+    },
+)
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
@@ -71,6 +86,26 @@ def test_configured_json_logging_uses_uvicorn_display_name() -> None:
     ]
 
 
+@pytest.mark.parametrize("log_format", ["console", "json"])
+def test_configured_logging_preserves_processing_diagnostics_without_private_extras(log_format) -> None:
+    lines = _run_configured_logging_probe(log_format, processing=True)
+    assert len(lines) == 4
+    rendered = lines[-1]
+    assert "private source sentinel" not in rendered and "private traceback sentinel" not in rendered
+    if log_format == "json":
+        payload = json.loads(rendered)
+        assert payload["error_code"] == "window_attempt_limit"
+        assert payload["stage"] == "topic_memory" and payload["family"] == "topic-memory"
+        assert payload["scope"] == "scope-a\nforged log"
+        assert (payload["source_after"], payload["source_through"], payload["attempts"]) == (0, 1, 3)
+        assert (payload["requests"], payload["tokens"], payload["retry_delay_seconds"]) == (9, 1000, 300)
+    else:
+        assert 'error_code="window_attempt_limit"' in rendered
+        assert 'stage="topic_memory"' in rendered and 'family="topic-memory"' in rendered
+        assert 'scope="scope-a\\nforged log"' in rendered
+        assert "source_after=0" in rendered and "source_through=1" in rendered and "attempts=3" in rendered
+
+
 def test_json_formatter_emits_stable_operational_fields() -> None:
     record = logging.makeLogRecord({
         "name": "powercontext.server.access",
@@ -83,6 +118,9 @@ def test_json_formatter_emits_stable_operational_fields() -> None:
         "request_id": "request-123",
         "transport": "http",
         "mode": "fts",
+        "code": "insufficient_coverage",
+        "held_count": 1,
+        "hold_codes": ("insufficient_coverage",),
         "ignored": "not serialized",
     })
     OperationalContextFilter().filter(record)
@@ -95,6 +133,9 @@ def test_json_formatter_emits_stable_operational_fields() -> None:
     assert payload["request_id"] == "request-123"
     assert payload["transport"] == "http"
     assert payload["mode"] == "fts"
+    assert payload["code"] == "insufficient_coverage"
+    assert payload["held_count"] == 1
+    assert payload["hold_codes"] == ["insufficient_coverage"]
     assert "ignored" not in payload
 
 

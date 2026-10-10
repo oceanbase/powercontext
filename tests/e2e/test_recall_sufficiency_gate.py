@@ -23,12 +23,16 @@ re-admits, which is exactly the behaviour the gate exists to drive.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from sqlalchemy import select
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceSearchOutcome
@@ -41,6 +45,8 @@ from powercontext.builtin.artifacts.topic_memory import (
 )
 from powercontext.builtin.inference import EmbeddingResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.statistics import StatisticsRepository
+from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE, MEMORY_ENTRY_HEADS_TABLE, RECALL_EFFORT_DAILY_TABLE
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     PrepareContextRequest,
@@ -62,7 +68,9 @@ from powercontext.builtin.runtime.recall_sufficiency import (
     REASON_NO_CONTENT,
     REASON_SUFFICIENT,
     RecallSufficiencyGate,
+    recall_effort_measurement,
 )
+from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
 from powercontext.builtin.scope import ScopeDraft
 
 # A three-term query is required: the round-zero floor only differs from the round-one floor
@@ -131,9 +139,11 @@ class _RecallRoundLog:
 
 
 @asynccontextmanager
-async def _runtime(database: Path, runtime: RuntimeConfig | None = None) -> AsyncIterator[BuiltinRuntime]:
+async def _runtime(
+    database: Path, runtime: RuntimeConfig | None = None, *, in_memory: bool = False
+) -> AsyncIterator[BuiltinRuntime]:
     config = BuiltinConfig(
-        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
+        database=SQLiteConfig() if in_memory else SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
         runtime=runtime if runtime is not None else RuntimeConfig(),
     )
     async with open_builtin_runtime(config, scheduler_path=database.with_suffix(".scheduler.db")) as opened:
@@ -190,6 +200,21 @@ async def _prepare_build(
     application = runtime.context.for_scope(scope_id)
     async with runtime._scope_operation(scope_id) as scope:
         return await application._prepare_build(request, scope)
+
+
+async def _effort_rows(runtime: BuiltinRuntime) -> list[dict[str, Any]]:
+    provider = cast(Any, runtime._provider)
+    async with provider.database.transaction() as connection:
+        return [dict(row) for row in (await connection.execute(select(RECALL_EFFORT_DAILY_TABLE))).mappings()]
+
+
+async def _revision_state(runtime: BuiltinRuntime, scope_id: str) -> tuple[list[Any], ...]:
+    provider = cast(Any, runtime._provider)
+    async with provider.database.transaction() as connection:
+        snapshots = []
+        for table in (ARTIFACTS_TABLE, MEMORY_ENTRY_HEADS_TABLE):
+            snapshots.append((await connection.execute(select(table).where(table.c.scope_id == scope_id))).all())
+        return tuple(snapshots)
 
 
 def test_default_off_matches_a_sufficient_round_zero_byte_for_byte(tmp_path, monkeypatch) -> None:
@@ -370,7 +395,14 @@ def test_topic_embedding_timeout_is_paid_once_per_prepare(tmp_path, monkeypatch)
         ) as runtime:
             scope_id = await _create_scope(runtime, "topic-timeout")
             await _seed_topic_memories(runtime, scope_id, 1)
-            runtime._topic_memory_embedding_model = embedding
+            assert runtime._topic_memory_search is not None
+            runtime._topic_memory_searcher = TopicMemorySearcher(
+                search=runtime._topic_memory_search,
+                get=runtime._topic_memory_get,
+                browse=runtime._topic_memory_browse,
+                embedding_model=embedding,
+                observer=runtime._topic_memory_search_observer,
+            )
             request = _memory_request(assembly=_TOPIC_MEMORY_ONLY)
             for attempt in (1, 2):
                 build, effort = await _prepare_build(runtime, scope_id, request)
@@ -729,6 +761,7 @@ def test_prepare_delivers_final_recall_effort_to_the_optional_sink(tmp_path) -> 
             scope_id = await _create_scope(runtime, "sink")
             await _seed(runtime, scope_id, ["alpha beta gamma " + "evidence " * 500])
             prepared = await runtime.context.for_scope(scope_id).prepare(_memory_request(max_bytes=800))
+            assert await _effort_rows(runtime) == []
 
         assert prepared.status == "ready"
         assert len(observed) == 1
@@ -790,6 +823,7 @@ def test_recall_effort_sink_failure_does_not_fail_prepare(tmp_path, caplog) -> N
             scope_id = await _create_scope(runtime, "sink-failure")
             await _seed(runtime, scope_id, ["alpha beta gamma evidence"])
             prepared = await runtime.context.for_scope(scope_id).prepare(_memory_request())
+            assert await _effort_rows(runtime) == []
 
         assert prepared.status == "ready"
         assert any(record.message == "Recall effort sink failed" for record in caplog.records)
@@ -821,5 +855,204 @@ def test_disabled_gate_does_not_call_recall_effort_sink(tmp_path) -> None:
 
         assert prepared.status == "ready"
         assert calls == 0
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("in_memory", [False, True])
+def test_default_recorder_persists_real_expansions_and_isolates_caller_scopes(tmp_path, in_memory: bool) -> None:
+    async def scenario() -> None:
+        config = RuntimeConfig(
+            recall_gate_enabled=True,
+            recall_gate_min_candidates=2,
+            recall_gate_min_top_score=0.0,
+            recall_gate_min_top_gap=0.0,
+            recall_gate_min_lexical_overlap=0.0,
+        )
+        async with _runtime(tmp_path / "effort.db", config, in_memory=in_memory) as runtime:
+            # The caller's local date is October 10, but the statistics bucket
+            # uses October 9 in UTC, just like existing usage statistics.
+            runtime._clock = lambda: datetime(2026, 10, 10, 1, tzinfo=timezone(timedelta(hours=8)))
+            first = await _create_scope(runtime, "effort-first")
+            second = await _create_scope(runtime, "effort-second")
+            for scope_id in (first, second):
+                await _seed(runtime, scope_id, ["alpha beta gamma evidence", "alpha solo marker"])
+            build, effort = await _prepare_build(runtime, first, _memory_request())
+            assert effort is not None
+            assert effort.rounds == 2
+            assert effort.candidates_by_round == (1, 2)
+            assert await _effort_rows(runtime) == []
+            before = await _revision_state(runtime, first)
+            first_prepared = await runtime.context.for_scope(first).prepare(_memory_request())
+            repeated = await runtime.context.for_scope(first).prepare(_memory_request())
+            other = await runtime.context.for_scope(second).prepare(_memory_request())
+            assert first_prepared == repeated == build.context
+            assert other.status == "ready"
+            assert await _revision_state(runtime, first) == before
+
+            rows = await _effort_rows(runtime)
+            assert len(rows) == 2
+            measurement = recall_effort_measurement(effort).model_dump()
+            for row in rows:
+                multiplier = 2 if row["scope_id"] == first else 1
+                assert row == {
+                    "scope_id": row["scope_id"],
+                    "usage_date": date(2026, 10, 9),
+                    **{
+                        key: value if key in {"policy_id", "assessment"} else value * multiplier
+                        for key, value in measurement.items()
+                    },
+                }
+            assert {row["scope_id"] for row in rows} == {first, second}
+            assert _QUERY not in repr(rows)
+
+    asyncio.run(scenario())
+
+
+def test_default_recorder_is_a_noop_when_gate_is_disabled(tmp_path) -> None:
+    async def scenario() -> None:
+        async with _runtime(tmp_path / "effort-disabled.db") as runtime:
+            scope_id = await _create_scope(runtime, "effort-disabled")
+            await _seed(runtime, scope_id, ["alpha beta gamma evidence"])
+            prepared = await runtime.context.for_scope(scope_id).prepare(_memory_request())
+            assert prepared.status == "ready"
+            assert await _effort_rows(runtime) == []
+
+    asyncio.run(scenario())
+
+
+def test_default_recorder_failure_rolls_back_and_preserves_preparation(tmp_path, monkeypatch, caplog) -> None:
+    original = StatisticsRepository.record_recall_effort
+    attempts = 0
+
+    async def fail_after_write(repository, connection, scope_id, usage_date, measurement) -> None:
+        nonlocal attempts
+        attempts += 1
+        await original(repository, connection, scope_id, usage_date, measurement)
+        raise RuntimeError("private query, citation and SQL parameters must not reach logs")  # noqa: TRY003
+
+    monkeypatch.setattr(StatisticsRepository, "record_recall_effort", fail_after_write)
+
+    async def scenario() -> None:
+        async with _runtime(tmp_path / "effort-failure.db", RuntimeConfig(recall_gate_enabled=True)) as runtime:
+            scope_id = await _create_scope(runtime, "effort-failure")
+            await _seed(runtime, scope_id, ["alpha beta gamma " + "evidence " * 500, "alpha solo marker"])
+            request = _memory_request(max_bytes=800)
+            expected, effort = await _prepare_build(runtime, scope_id, request)
+            assert effort is not None
+            assert expected.context.status == "ready"
+            assert expected.omissions.truncated_items > 0
+            before = await _revision_state(runtime, scope_id)
+            prepared = await runtime.context.for_scope(scope_id).prepare(request)
+            after_build, _ = await _prepare_build(runtime, scope_id, request)
+            assert prepared == expected.context
+            assert after_build.origins == expected.origins
+            assert after_build.omissions == expected.omissions
+            assert await _revision_state(runtime, scope_id) == before
+            assert await _effort_rows(runtime) == []
+
+    asyncio.run(scenario())
+    assert attempts == 1  # Failed accounting is not retried on the request path.
+    failures = [
+        record for record in caplog.records if getattr(record, "event", None) == "context.recall_gate.sink_failed"
+    ]
+    assert len(failures) == 1
+    assert failures[0].error_type == "RuntimeError"
+    assert failures[0].exc_info is None
+    assert "private query" not in caplog.text
+
+
+def test_default_recorder_write_contention_is_bounded_and_does_not_break_later_operations(
+    tmp_path, monkeypatch
+) -> None:
+    original = StatisticsRepository.record_recall_effort
+    database = tmp_path / "effort-lock.db"
+    elapsed = []
+
+    async def contended_write(repository, connection, scope_id, usage_date, measurement) -> None:
+        with sqlite3.connect(database) as writer:
+            writer.execute("BEGIN IMMEDIATE")
+            started = time.monotonic()
+            try:
+                await original(repository, connection, scope_id, usage_date, measurement)
+            finally:
+                elapsed.append(time.monotonic() - started)
+                writer.rollback()
+
+    monkeypatch.setattr(StatisticsRepository, "record_recall_effort", contended_write)
+
+    async def scenario() -> None:
+        async with _runtime(
+            database, RuntimeConfig(recall_gate_enabled=True, model_usage_write_timeout_seconds=0.05)
+        ) as runtime:
+            scope_id = await _create_scope(runtime, "effort-lock")
+            await _seed(runtime, scope_id, ["alpha beta gamma evidence"])
+            prepared = await runtime.context.for_scope(scope_id).prepare(_memory_request())
+            assert prepared.status == "ready"
+            assert await _effort_rows(runtime) == []
+            await _seed(runtime, scope_id, ["later business write still succeeds"])
+        assert len(elapsed) == 1
+        assert elapsed[0] < 1.0  # Accounting cannot consume SQLite's normal 5-second busy timeout.
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("repeated_cancel", [False, True])
+def test_cancelled_preparation_preserves_memory_and_finishes_accounting_once(
+    tmp_path, monkeypatch, repeated_cancel
+) -> None:
+    original = StatisticsRepository.record_recall_effort
+
+    async def scenario() -> None:
+        entered = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        async def delayed_insert(repository, connection, scope_id, usage_date, measurement) -> None:
+            driver = (await connection.get_raw_connection()).driver_connection
+
+            def pause_insert() -> int:
+                loop.call_soon_threadsafe(entered.set)
+                time.sleep(0.15)
+                return 1
+
+            await driver.create_function("pause_effort_insert", 0, pause_insert)
+            await connection.exec_driver_sql(
+                "CREATE TEMP TRIGGER pause_effort_insert BEFORE INSERT ON pc_recall_effort_daily "
+                "BEGIN SELECT pause_effort_insert(); END"
+            )
+            try:
+                await original(repository, connection, scope_id, usage_date, measurement)
+            finally:
+                await connection.exec_driver_sql("DROP TRIGGER IF EXISTS pause_effort_insert")
+
+        async with _runtime(
+            tmp_path / "cancel-effort.db", RuntimeConfig(recall_gate_enabled=True), in_memory=True
+        ) as runtime:
+            scope_id = await _create_scope(runtime, "cancel-effort")
+            await _seed(runtime, scope_id, ["alpha beta gamma preserved evidence"])
+            expected, _ = await _prepare_build(runtime, scope_id, _memory_request())
+            before = await _revision_state(runtime, scope_id)
+            monkeypatch.setattr(StatisticsRepository, "record_recall_effort", delayed_insert)
+            preparing = asyncio.create_task(runtime.context.for_scope(scope_id).prepare(_memory_request()))
+            try:
+                await asyncio.wait_for(entered.wait(), timeout=5)
+                preparing.cancel()
+                if repeated_cancel:
+                    await asyncio.sleep(0)
+                    preparing.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await preparing
+            finally:
+                monkeypatch.setattr(StatisticsRepository, "record_recall_effort", original)
+
+            assert await _revision_state(runtime, scope_id) == before
+            rows = await _effort_rows(runtime)
+            assert len(rows) == 1
+            assert rows[0]["preparations"] == 1
+            assert await runtime.context.for_scope(scope_id).prepare(_memory_request()) == expected.context
+            rows = await _effort_rows(runtime)
+            assert len(rows) == 1
+            assert rows[0]["preparations"] == 2
+            await _seed(runtime, scope_id, ["a later business write still works"])
 
     asyncio.run(scenario())

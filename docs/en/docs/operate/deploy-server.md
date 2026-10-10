@@ -59,7 +59,12 @@ owner first.
 The native definition stores only the absolute file path and non-content file identity metadata. On Windows this
 includes the current user's owner SID, which is revalidated whenever the launcher starts. It does not copy
 credentials or the caller's shell environment. Re-run `service install` after upgrading PowerContext or changing the
-environment file. Remove the registration without deleting Server data or logs with:
+environment file. After an explicit `service stop`, run `service install` from the new environment, passing the same
+`--env-file` when one is configured. This updates the registration even if the old Python executable has been removed,
+while keeping the service stopped and automatic activation suppressed. Run `service start` when it is safe to resume.
+An unverified database migration continues to block registration updates.
+
+Remove the registration without deleting Server data or logs with:
 
 ```bash
 powercontext service uninstall
@@ -164,8 +169,9 @@ orchestrator can probe them. API, MCP, metrics, and `/openapi.json` require auth
 public, but requests made from the interactive reference require authentication.
 
 Personal or demonstration deployments can additionally set `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true` to expose
-`/dashboard/home` on the same port. It requires the static Bearer configuration above; startup fails clearly without a
-token. Browser sign-in uses the Server token, not a model API key. Credentials are stored in an HttpOnly,
+`/dashboard/home` on the same port. With `ACCESS_MODE=enforced`, it requires the static Bearer configuration above;
+startup fails clearly without a token. Local deployments using `ACCESS_MODE=disabled` can open Dashboard without
+sign-in. When authentication is enabled, browser sign-in uses the Server token, not a model API key. Credentials are stored in an HttpOnly,
 SameSite=Strict Cookie restricted to `/dashboard`, for up to eight hours. HTTPS sets Secure. Reverse proxies must
 preserve the external scheme and host for the sign-in same-origin check.
 

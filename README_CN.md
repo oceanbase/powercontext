@@ -16,7 +16,7 @@ PowerContext 让上下文跟随工作，跨越不同的对话。你回来时，�
 
 [网站](https://powercontext.oceanbase.io/zh/) · [完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)
 
-PowerContext 1.1.0 包含交互式配置向导。下面的命令安装这一正式版本，并接入相同版本的 Agent 集成。
+PowerContext 1.2.0 包含交互式配置向导。下面的命令安装这一版本，并接入相同版本的 Agent 集成。
 
 ## 从当前进展继续
 
@@ -24,15 +24,18 @@ PowerContext 1.1.0 包含交互式配置向导。下面的命令安装这一正�
 
 你决定哪些信息以后仍然有用，哪些内容需要随任务交给下一位接手者。PowerContext 把长期信息保存为 Memory，把当前目标和状态组织成 Handoff。你可以把能够复用的做法记录为 Experience 或 Skill。PowerContext 将每项内容限定在对应的工作范围内，并保留它的来源和历史版本。
 
+可选的召回充分性门控会按 Scope 记录每日搜索工作量和字节预算遗漏，供后续策略评估使用。
+记录范围与失败行为见[配置说明](docs/zh/docs/operate/configuration.md)。
+
 ## 安装、配置并接入 Agent
 
 准备 Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和你使用的 Agent CLI。
 需要 Python 3.11+，uv 可以按需安装。支持 macOS 和 Linux；Windows 支持为 `experimental`。
 
-安装 1.1.0，然后在独立目录里打开交互式配置向导：
+安装 1.2.0，然后在独立目录里打开交互式配置向导：
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.1.0"
+uv tool install --force "powercontext[cli,server]==1.2.0"
 mkdir -p powercontext-config
 cd powercontext-config
 powercontext config init --language zh --output .env
@@ -66,7 +69,7 @@ powercontext capabilities
 SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
 
 ```bash
-powercontext setup codex --ref powercontext-v1.1.0
+powercontext setup codex --ref powercontext-v1.2.0
 powercontext doctor codex
 ```
 
@@ -107,6 +110,14 @@ Codex 标为 `official`，其他宿主及 Python Agent 框架标为 `community`�
 
 这些对比的评测方法、完整结果和适用边界请见[官网评测页](https://powercontext.oceanbase.io/zh/benchmarks/)。
 
+### LoCoMo Plus：Jev 接入对比
+
+![GPT-4o-mini、Qwen3.7-plus、GPT-4o 在原生 PowerContext 与 PowerContext + Jev 下的 LoCoMo Plus 得分对比](docs/assets/readme-locomo-plus.svg)
+
+*接入 Jev 检索后候选筛选前后的 LoCoMo Plus 得分。每组模型同时用于 Memory 抽取与回答，向量模型为 qwen3.7-text-embedding（1024 维）。三个模型的得分差分别为 +8.925、+8.577、+4.198 个百分点。*
+
+这六组分数由项目方提供，运行产物尚未公开供复核。可复现说明针对评测工具，不代表这些具体分数已公开验证。
+
 ## 参与构建 PowerContext
 
 ```bash
@@ -116,6 +127,7 @@ make test
 ```
 
 完整开发流程请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+编程能力评测、记忆质量评测、性能压测和 Skill 回归统一放在 [`evaluation/`](evaluation/README.md)，按用途选择对应目录。
 
 ## 进一步了解
 

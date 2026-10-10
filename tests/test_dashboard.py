@@ -240,6 +240,8 @@ def test_memory_search_preserves_scope_citations_and_result_pagination(dashboard
     first = dashboard.get("/dashboard/notes", params={"scope": scope, "q": "Release"})
     assert first.status_code == 200
     assert LABELS["constraint"] in first.text
+    assert f"{hits[0]['score']:.6f}" in first.text
+    assert 'data-memory-channel="fts"' in first.text
     assert LABELS["page_number"].format(page=1) in first.text
     second = dashboard.get(page_link(first.text, LABELS["next_page"]))
     assert second.status_code == 200
@@ -274,6 +276,9 @@ def test_memory_search_preserves_scope_citations_and_result_pagination(dashboard
         assert LABELS["notes_no_match"] in empty.text
         assert LABELS["page_number"].format(page=1) in empty.text
         assert not record_links(empty.text, "/dashboard/notes", "entry")
+        assert LABELS["memory_requested_mode"] in empty.text
+        if target == other:
+            assert f"{LABELS['memory_used_mode']}: {LABELS['unknown_value']}" in empty.text
     single = dashboard.get("/dashboard/notes", params={"scope": scope, "q": "Invoices"})
     assert LABELS["page_number"].format(page=1) in single.text
     assert LABELS["previous_page"] in single.text
@@ -285,6 +290,76 @@ def test_memory_search_preserves_scope_citations_and_result_pagination(dashboard
     assert collect_pages(dashboard, restored.text, "/dashboard/notes", "entry") == {
         item["citation"]["entry_id"] for item in expected
     }
+
+
+def test_memory_search_modes_surface_semantic_hits_and_keep_navigation(tmp_path: Path) -> None:
+    from powercontext.builtin.artifacts.memory import EmbeddingProfile
+    from powercontext.builtin.inference import EmbeddingResult
+
+    class CoffeeEmbedding:
+        profile = EmbeddingProfile(
+            profile_id="dashboard-coffee", model="test", dimension=3, distance="l2", normalization="unit"
+        )
+
+        async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+            return EmbeddingResult(
+                vectors=tuple(
+                    (1.0, 0.0, 0.0) if any(word in text.lower() for word in ("coffee", "caffeine")) else (0.0, 1.0, 0.0)
+                    for text in texts
+                )
+            )
+
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/semantic.db"),
+            dashboard=DashboardConfig(enabled=True),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "scheduler.db",
+        embedding_model=CoffeeEmbedding(),
+    )
+    with TestClient(app) as client:
+        scope = create_scope(client, "Coffee preferences")["scope_id"]
+        for index in range(8):
+            assert (
+                client.post(
+                    "/v1/memory/remember",
+                    json={"scope_id": scope, "kind": "preference", "text": f"Coffee preparation choice {index}."},
+                ).status_code
+                == 200
+            )
+        lexical = client.get("/dashboard/notes", params={"scope": scope, "q": "caffeine", "mode": "fts"})
+        assert not record_links(lexical.text, "/dashboard/notes", "entry")
+        semantic = client.get("/dashboard/notes", params={"scope": scope, "q": "caffeine", "mode": "vector"})
+        assert len(record_links(semantic.text, "/dashboard/notes", "entry")) == 6
+        assert 'data-memory-channel="vector"' in semantic.text
+        assert 'data-memory-channel="fts"' not in semantic.text
+        following = client.get(page_link(semantic.text, LABELS["next_page"]))
+        assert following.url.params["mode"] == "vector"
+        assert len(record_links(following.text, "/dashboard/notes", "entry")) == 2
+        selected_url = next(
+            unescape(url)
+            for url in re.findall(r'href="([^"]+)"', following.text)
+            if "entry=" in unescape(url) and "/dashboard/notes?" in unescape(url)
+        )
+        selected = client.get(selected_url)
+        assert selected.status_code == 200
+        assert selected.url.params["mode"] == "vector"
+        assert 'data-memory-channel="vector"' in selected.text.split('id="memory-accordion"', 1)[1]
+        restored = client.get(page_link(selected.text, LABELS["clear_search"]))
+        assert restored.url.params["mode"] == "vector"
+        assert not restored.url.params.get("entry")
+        assert "memory-search-evidence" not in restored.text
+        automatic = client.get("/dashboard/notes", params={"scope": scope, "q": "coffee", "lang": "en"})
+        assert "Executed mode: Hybrid" in automatic.text
+        assert 'data-memory-channel="fts"' in automatic.text
+        assert 'data-memory-channel="vector"' in automatic.text
+        assert "0.032787" in automatic.text
+        invalid = client.get(
+            "/dashboard/notes", params={"scope": scope, "q": "coffee", "mode": "keyword", "lang": "zh"}
+        )
+        assert LABELS["error_422"] in invalid.text
+        assert 'class="text-secondary memory-search-mode"' not in invalid.text
 
 
 def test_collection_errors_return_to_a_readable_list(dashboard: TestClient) -> None:
@@ -662,7 +737,7 @@ def test_committed_handoff_json_and_its_sources_are_readable(dashboard: TestClie
     )
 
 
-def test_dashboard_is_opt_in_and_requires_the_static_token_profile(tmp_path: Path, monkeypatch) -> None:
+def test_dashboard_is_opt_in_and_enforced_access_requires_the_static_token_profile(tmp_path: Path, monkeypatch) -> None:
     from powercontext.server.authentication import StaticBearerAuthenticationProvider
     from powercontext.server.authz import PrincipalRef
 
@@ -677,8 +752,8 @@ def test_dashboard_is_opt_in_and_requires_the_static_token_profile(tmp_path: Pat
         assert client.post("/dashboard/session", data={"token": "unused"}).status_code == 404
 
     monkeypatch.setenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", "true")
-    with pytest.raises(ValueError, match="DASHBOARD_ENABLED requires"):
-        ServerSettings(database=database)
+    with pytest.raises(ValueError, match="AUTH_TOKEN"):
+        ServerSettings(database=database, access=AccessControlConfig(mode="enforced"))
     token = token_urlsafe(24)
     settings = ServerSettings(
         database=database,

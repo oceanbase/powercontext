@@ -53,7 +53,11 @@ icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "${env:USERNAME
 
 原生定义只记录环境文件的绝对路径和不含内容的文件 identity metadata；在 Windows 上还记录当前用户的 owner SID，
 launcher 每次启动都会重新校验它。不复制 credential 或调用者的 shell environment。
-升级 PowerContext 或修改环境文件后应重新执行 `service install`。以下命令会删除注册，但保留 Server 数据和日志：
+升级 PowerContext 或修改环境文件后应重新执行 `service install`。显式执行 `service stop` 后，可以在新版环境中运行
+`service install`；如果原服务使用环境文件，请继续传入同一个 `--env-file`。即使旧 Python 程序已删除，也可以更新注册，
+服务仍保持停止并禁止自动启动。确认可以恢复服务后，再执行 `service start`。尚未验证完成的数据库迁移仍会阻止更新注册。
+
+以下命令会删除注册，但保留 Server 数据和日志：
 
 ```bash
 powercontext service uninstall
@@ -154,8 +158,9 @@ docker run --rm \
 API、MCP、metrics 和 `/openapi.json` 需要鉴权。`/docs` 页面外壳保持公开，但在交互式参考页中发起的请求仍需鉴权。
 
 个人或演示部署可额外设置 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`，启用同一端口上的
-`/dashboard/home`。它要求上述静态 Bearer 配置；没有 token 时启动会明确失败。
-浏览器登录使用 Server token，不是模型 API key。凭据存入仅限 `/dashboard` 的 HttpOnly、SameSite=Strict
+`/dashboard/home`。`ACCESS_MODE=enforced` 时要求上述静态 Bearer 配置，没有 token 时启动会明确失败；
+使用 `ACCESS_MODE=disabled` 的本地部署可直接打开 Dashboard，无需登录。
+启用认证时，浏览器登录使用 Server token，不是模型 API key。凭据存入仅限 `/dashboard` 的 HttpOnly、SameSite=Strict
 Cookie，最长八小时；HTTPS 下设置 Secure。反向代理应正确传递外部 scheme 和 host，以通过登录同源检查。
 
 静态 token 的所有持有者具有同一个管理员身份。Dashboard 不支持多成员 RBAC，也不提供账号、SSO、邀请和授权管理。

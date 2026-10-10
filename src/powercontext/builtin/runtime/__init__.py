@@ -31,6 +31,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffStatement,
     PreparedHandoff,
     PrepareHandoff,
+    PrepareHandoffHint,
 )
 from powercontext.builtin.artifacts.memory.models import MemoryChange
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
@@ -48,6 +49,7 @@ from powercontext.builtin.review.generation import (
     SkillGenerationOrigin,
 )
 from powercontext.builtin.runtime.application import (
+    ArtifactApplication,
     BuiltinRuntime,
     ExperienceApplication,
     ExternalSkillApplication,
@@ -58,6 +60,7 @@ from powercontext.builtin.runtime.application import (
     ReviewApplication,
     ScheduledExperienceProcessor,
     ScheduledSourceProcessor,
+    ScopedArtifactApplication,
     ScopedExperienceApplication,
     ScopedExternalSkillApplication,
     ScopedHandoffApplication,
@@ -99,6 +102,7 @@ from powercontext.builtin.runtime.config import (
     RuntimeConfig,
 )
 from powercontext.builtin.runtime.decision_model import (
+    DecisionKind,
     DecisionModel,
     DecisionModelOption,
     DecisionModelRequest,
@@ -109,6 +113,15 @@ from powercontext.builtin.runtime.decision_model import (
     StructuredDecisionModel,
 )
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
+from powercontext.builtin.runtime.memory_write_gate import (
+    DecisionMemoryWriteGate,
+    MemoryWriteAssessment,
+    MemoryWriteGate,
+    MemoryWriteGateRequest,
+    MemoryWriteRejectionCode,
+    MemoryWriteVerdict,
+    build_memory_write_gate,
+)
 from powercontext.builtin.runtime.models import (
     ApproveArtifactCandidateRequest,
     CaptureSource,
@@ -121,6 +134,10 @@ from powercontext.builtin.runtime.models import (
     ExperienceIncubationResult,
     ExternalSkillList,
     ExternalSkillScanResult,
+    ExtractionBackground,
+    ExtractionFailure,
+    ExtractionObservation,
+    ExtractionStatus,
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
@@ -202,6 +219,7 @@ from powercontext.builtin.statistics import (
 __all__ = [
     "ActivateHandoff",
     "ApproveArtifactCandidateRequest",
+    "ArtifactApplication",
     "ArtifactInventoryStatistics",
     "ArtifactProcessingBinding",
     "ArtifactProcessingSupervisor",
@@ -223,6 +241,8 @@ __all__ = [
     "ContextAssemblySection",
     "CreateDreamRunRequest",
     "DatabaseConfig",
+    "DecisionKind",
+    "DecisionMemoryWriteGate",
     "DecisionModel",
     "DecisionModelOption",
     "DecisionModelRequest",
@@ -241,6 +261,10 @@ __all__ = [
     "ExternalSkillList",
     "ExternalSkillScanResult",
     "ExternalSkillsConfig",
+    "ExtractionBackground",
+    "ExtractionFailure",
+    "ExtractionObservation",
+    "ExtractionStatus",
     "FamilyCount",
     "GenerateExperienceRequest",
     "GenerateSkillRequest",
@@ -291,6 +315,11 @@ __all__ = [
     "MemoryMutationResult",
     "MemoryRevisionChanges",
     "MemorySearchPage",
+    "MemoryWriteAssessment",
+    "MemoryWriteGate",
+    "MemoryWriteGateRequest",
+    "MemoryWriteRejectionCode",
+    "MemoryWriteVerdict",
     "ModelUsageDay",
     "ModelUsageOperation",
     "ModelUsagePurpose",
@@ -300,6 +329,7 @@ __all__ = [
     "PowerContextProvider",
     "PrepareContextRequest",
     "PrepareHandoff",
+    "PrepareHandoffHint",
     "PreparedContext",
     "PreparedHandoff",
     "ProposeExperienceRequest",
@@ -331,6 +361,7 @@ __all__ = [
     "ScheduledExperienceProcessor",
     "ScheduledSourceProcessor",
     "ScopeStatistics",
+    "ScopedArtifactApplication",
     "ScopedDreamApplication",
     "ScopedExperienceApplication",
     "ScopedExternalSkillApplication",
@@ -361,6 +392,7 @@ __all__ = [
     "TopicMemoryProcessingUnavailableError",
     "UsageStatistics",
     "WorkApplication",
+    "build_memory_write_gate",
     "dependency_readiness_probe",
     "open_builtin_contexts",
     "open_builtin_runtime",

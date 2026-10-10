@@ -26,6 +26,7 @@ those belong to [deployment and operations](../operate/index.md), outside this d
 | Isolate projects and control access | Scope | [Scopes and access](scopes-and-access.md) |
 | Capture raw evidence or references to external material | Source | [Sources and capture](sources.md), [Ingest text files](ingest-text-files-with-opendal.md) |
 | Read revisions and choose a write workflow | Artifact | [Artifacts](artifacts.md) |
+| Find relevant current artifacts and configure Topic fusion | Artifact search | [Search Artifacts](search-artifacts.md), [Fusion algorithms and parameters](search-fusion.md) |
 | Save and recall durable facts, decisions, and constraints | Memory | [Memory and context](memory-and-context.md) |
 | Build a reusable lesson and review it | Experience | [Create and review Experience](create-and-review-experience.md), [Experience lifecycle](experience-and-skill-lifecycle.md) |
 | Manage an exportable instruction set | Skill | [Create and export Skill](create-and-export-skill.md), [Configure Skill targets](configure-agent-skill-targets.md) |

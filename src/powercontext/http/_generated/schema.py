@@ -7,7 +7,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     "info": {
         "title": "PowerContext API",
         "description": "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.",
-        "version": "1.1.0",
+        "version": "1.2.0",
     },
     "paths": {
         "/v1/scopes/{scope_id}/subject-sources": {
@@ -456,6 +456,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "get": {
                 "tags": ["scopes"],
                 "summary": "Get the default Scope binding target",
+                "description": "A missing default binding returns 404 "
+                "scope_not_found. A persisted default "
+                "binding whose target is missing returns "
+                "409 scope_binding_target_missing with "
+                "details.scope_id; repair the binding or "
+                "restore its target explicitly instead of "
+                "automatically provisioning a "
+                "replacement.",
                 "operationId": "get_default_scope",
                 "responses": {
                     "200": {
@@ -463,6 +471,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
@@ -529,7 +538,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "Scope from the repository, "
                 "branch, directory, or prompt, "
                 "and do not change bindings "
-                "while diagnosing availability.",
+                "while diagnosing availability. "
+                "No resolvable binding, or an "
+                "unknown explicit Scope ID, "
+                "returns 404 scope_not_found. A "
+                "persisted durable or default "
+                "binding whose target is missing "
+                "returns 409 "
+                "scope_binding_target_missing "
+                "with details.scope_id. "
+                "Resolution stops at that "
+                "binding without falling back or "
+                "creating a replacement Scope. "
+                "Operator repair is required; "
+                "clients must not treat this "
+                "conflict as an unprovisioned "
+                "identity.",
                 "operationId": "resolve_scope_binding",
                 "requestBody": {
                     "content": {
@@ -543,6 +567,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
@@ -1334,6 +1359,65 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
+        "/v1/handoff/hint": {
+            "post": {
+                "tags": ["handoff"],
+                "summary": "Prepare optional compact continuity hints from a selected Handoff",
+                "description": "Explicitly request untrusted historical "
+                "orientation for a fresh session. Select "
+                "an exact Revision, a complete transferred "
+                "PreparedHandoff, or latest only after "
+                "resolving the intended workstream Scope. "
+                "Hints project existing Handoff fields and "
+                "authorized evidence references without "
+                "transcript summaries or model generation. "
+                "They never replace full Handoff reads, "
+                "evidence checks, current instructions, or "
+                "live validation. The complete rendered "
+                "UTF-8 hint is limited to max_bytes (at "
+                "most 4000); omit it rather than truncate "
+                "when budget or evidence is insufficient. "
+                "Blocked hints include the full recorded "
+                "state only when the complete hint fits. "
+                "Authorization matches Continue: "
+                "exact/latest require artifact.read and "
+                "handoff.evidence.inspect on the selected "
+                "Handoff, covering only its citation "
+                "manifest without general Scope read; "
+                "prepared requires scope.read. General "
+                "evidence APIs retain their independent "
+                "permission checks. Prepared selection "
+                "provides no exact Revision reference; the "
+                "receiver must retain the complete "
+                "transferred PreparedHandoff.",
+                "operationId": "prepare_handoff_hint",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/PrepareHandoffHintRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Bounded orientation "
+                        "text, or empty when "
+                        "no complete "
+                        "supported hint can "
+                        "be delivered.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedContext"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {"resolver": "continue_handoff_access"},
+                "x-powercontext-scope-mode": "current",
+            }
+        },
         "/v1/topic-memory/flush": {
             "post": {
                 "tags": ["topic-memory"],
@@ -1375,6 +1459,72 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "resource": {"type": "scope", "scope-id-from": "scope_id"},
                 },
                 "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/search": {
+            "post": {
+                "tags": ["artifacts"],
+                "summary": "Search one Artifact Family in a Scope",
+                "description": "Search "
+                "registered "
+                "Artifact "
+                "Families "
+                "using "
+                "their "
+                "supported "
+                "retrieval "
+                "controls. "
+                "Results "
+                "contain "
+                "complete "
+                "exact "
+                "Artifact "
+                "revisions. "
+                "Score "
+                "metadata "
+                "is "
+                "returned "
+                "only when "
+                "requested; "
+                "min_score "
+                "compares "
+                "normalized "
+                "retrieval "
+                "scores.",
+                "operationId": "search_artifacts",
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {"name": "family", "in": "path", "required": True, "schema": {"type": "string", "minLength": 1}},
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SearchArtifactsRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Complete matching Artifact revisions in retrieval order.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SearchArtifactsResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
             }
         },
         "/v1/topic-memory/search": {
@@ -5448,6 +5598,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "boolean",
                         "description": "Whether pending Sources can be extracted into Memory.",
                     },
+                    "extraction": {
+                        "$ref": "#/components/schemas/ExtractionStatus",
+                        "description": "Live "
+                        "Memory "
+                        "extraction "
+                        "diagnostics. "
+                        "Null "
+                        "means "
+                        "diagnostics "
+                        "are not "
+                        "supplied "
+                        "by this "
+                        "runtime. "
+                        "This "
+                        "read "
+                        "does "
+                        "not "
+                        "call a "
+                        "model "
+                        "or "
+                        "prove "
+                        "provider "
+                        "connectivity.",
+                        "nullable": True,
+                    },
                     "experience_generation": {
                         "type": "boolean",
                         "description": "Whether the configured model can generate reviewed Experience Candidates.",
@@ -5492,6 +5667,355 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "search_modes",
                     "context_versions",
                 ],
+            },
+            "ExtractionStatus": {
+                "properties": {
+                    "configuration": {
+                        "type": "string",
+                        "enum": ["configured", "unconfigured", "unknown"],
+                        "description": "Whether "
+                        "a "
+                        "local "
+                        "extraction "
+                        "model "
+                        "or "
+                        "custom "
+                        "pipeline "
+                        "is "
+                        "assembled. "
+                        "Configured "
+                        "does "
+                        "not "
+                        "verify "
+                        "credentials "
+                        "or "
+                        "connectivity. "
+                        "Unknown "
+                        "means "
+                        "execution "
+                        "is "
+                        "external "
+                        "and "
+                        "its "
+                        "configuration "
+                        "is "
+                        "not "
+                        "observed.",
+                    },
+                    "background": {"$ref": "#/components/schemas/ExtractionBackground"},
+                    "observation": {"$ref": "#/components/schemas/ExtractionObservation"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["configuration", "background", "observation"],
+            },
+            "ExtractionBackground": {
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "enum": ["local", "external", "none"],
+                        "description": "Placement "
+                        "of "
+                        "the "
+                        "Memory "
+                        "Supervisor. "
+                        "None "
+                        "means "
+                        "no "
+                        "background "
+                        "executor; "
+                        "synchronous "
+                        "flush "
+                        "may "
+                        "still "
+                        "work.",
+                    },
+                    "role": {
+                        "type": "string",
+                        "enum": ["leader", "standby"],
+                        "description": "Current "
+                        "local "
+                        "Supervisor "
+                        "leadership "
+                        "role. "
+                        "Standby "
+                        "is "
+                        "normal; "
+                        "null "
+                        "means "
+                        "no "
+                        "running "
+                        "local "
+                        "Supervisor.",
+                        "nullable": True,
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": ["running", "degraded", "stopped", "unknown"],
+                        "description": "Local "
+                        "Supervisor "
+                        "lifecycle "
+                        "and "
+                        "control "
+                        "state, "
+                        "independent "
+                        "of "
+                        "individual "
+                        "worker "
+                        "outcomes. "
+                        "A "
+                        "running "
+                        "Supervisor "
+                        "may "
+                        "be "
+                        "retrying "
+                        "failed "
+                        "workers. "
+                        "External "
+                        "state "
+                        "is "
+                        "unknown.",
+                    },
+                    "automatic_processing_enabled": {
+                        "type": "boolean",
+                        "description": "Whether "
+                        "this "
+                        "process "
+                        "schedules "
+                        "automatic "
+                        "Memory "
+                        "extraction. "
+                        "False "
+                        "still "
+                        "permits "
+                        "explicit "
+                        "flush "
+                        "and "
+                        "recovery "
+                        "of "
+                        "accepted "
+                        "work. "
+                        "Null "
+                        "means "
+                        "the "
+                        "external "
+                        "worker "
+                        "schedule "
+                        "is "
+                        "unknown.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["location", "state"],
+            },
+            "ExtractionObservation": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["unverified", "observed"],
+                        "description": "Unverified "
+                        "means "
+                        "no "
+                        "execution "
+                        "outcome "
+                        "or "
+                        "control "
+                        "failure "
+                        "has "
+                        "been "
+                        "observed "
+                        "in "
+                        "this "
+                        "window. "
+                        "Observed "
+                        "means "
+                        "at "
+                        "least "
+                        "one "
+                        "success "
+                        "or "
+                        "failure "
+                        "is "
+                        "recorded; "
+                        "neither "
+                        "value "
+                        "is "
+                        "a "
+                        "health "
+                        "verdict.",
+                    },
+                    "since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "UTC "
+                        "start "
+                        "of "
+                        "this "
+                        "Runtime's "
+                        "observation "
+                        "window. "
+                        "Records "
+                        "cover "
+                        "this "
+                        "process "
+                        "and "
+                        "its "
+                        "child "
+                        "Memory "
+                        "workers, "
+                        "reset "
+                        "on "
+                        "Runtime "
+                        "restart, "
+                        "and "
+                        "do "
+                        "not "
+                        "include "
+                        "remote "
+                        "workers "
+                        "or "
+                        "a "
+                        "durable "
+                        "per-Scope "
+                        "failure "
+                        "history.",
+                    },
+                    "last_failure": {
+                        "$ref": "#/components/schemas/ExtractionFailure",
+                        "description": "Most "
+                        "recent "
+                        "historical "
+                        "failure. "
+                        "Retained "
+                        "after "
+                        "subsequent "
+                        "success, "
+                        "possibly "
+                        "in "
+                        "another "
+                        "Scope. "
+                        "This "
+                        "is "
+                        "not "
+                        "an "
+                        "unresolved-incident "
+                        "indicator; "
+                        "null "
+                        "does "
+                        "not "
+                        "prove "
+                        "health.",
+                        "nullable": True,
+                    },
+                    "last_success_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "UTC "
+                        "time "
+                        "of "
+                        "the "
+                        "most "
+                        "recent "
+                        "local "
+                        "successful "
+                        "nonempty "
+                        "synchronous "
+                        "flush "
+                        "or "
+                        "acknowledged "
+                        "Memory "
+                        "worker "
+                        "invocation. "
+                        "This "
+                        "does "
+                        "not "
+                        "prove "
+                        "that "
+                        "a "
+                        "model "
+                        "was "
+                        "called "
+                        "or "
+                        "that "
+                        "any "
+                        "previous "
+                        "failure "
+                        "has "
+                        "recovered.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["status", "since"],
+            },
+            "ExtractionFailure": {
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Sanitized "
+                        "category: "
+                        "model_configuration_error, "
+                        "model_timeout, "
+                        "model_unavailable, "
+                        "invalid_model_output, "
+                        "worker_timeout, "
+                        "worker_crash, "
+                        "invalid_worker_result, "
+                        "missing_durable_acknowledgement, "
+                        "supervisor_failed, "
+                        "lease_renewal_failed, "
+                        "scope_discovery_failed, "
+                        "or "
+                        "processing_failed. "
+                        "Raw "
+                        "exception "
+                        "messages, "
+                        "model "
+                        "inputs, "
+                        "and "
+                        "credentials "
+                        "are "
+                        "never "
+                        "returned.",
+                    },
+                    "stage": {
+                        "type": "string",
+                        "enum": ["inference", "flush", "worker", "supervisor", "lease_renewal", "scope_discovery"],
+                        "description": "Inference "
+                        "for "
+                        "recognized "
+                        "model "
+                        "failures; "
+                        "otherwise "
+                        "the "
+                        "boundary "
+                        "where "
+                        "failure "
+                        "was "
+                        "observed. "
+                        "Flush "
+                        "or "
+                        "worker "
+                        "does "
+                        "not "
+                        "identify "
+                        "the "
+                        "failing "
+                        "internal "
+                        "component.",
+                    },
+                    "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "UTC time when this process observed the failure.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["code", "stage", "occurred_at"],
             },
             "FamilyCount": {
                 "properties": {
@@ -6245,6 +6769,52 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "selection": {"$ref": "#/components/schemas/HandoffSelection"},
                     "prepared": {"$ref": "#/components/schemas/PreparedHandoff", "nullable": True},
                     "revision": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "selection"],
+            },
+            "PrepareHandoffHintRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "selection": {"$ref": "#/components/schemas/HandoffSelection"},
+                    "prepared": {
+                        "$ref": "#/components/schemas/PreparedHandoff",
+                        "description": "Required "
+                        "only "
+                        "for "
+                        "prepared "
+                        "selection; "
+                        "retain "
+                        "this "
+                        "complete "
+                        "value "
+                        "for "
+                        "continuation.",
+                        "nullable": True,
+                    },
+                    "revision": {
+                        "$ref": "#/components/schemas/ArtifactReference",
+                        "description": "Required only for exact selection.",
+                        "nullable": True,
+                    },
+                    "max_bytes": {
+                        "type": "integer",
+                        "maximum": 4000.0,
+                        "minimum": 1.0,
+                        "description": "Complete "
+                        "rendered "
+                        "UTF-8 "
+                        "text "
+                        "budget "
+                        "including "
+                        "notice, "
+                        "boundaries, "
+                        "and "
+                        "exact "
+                        "references.",
+                        "default": 2000,
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -7411,6 +7981,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "high_watermark": {"type": "integer", "minimum": 0.0},
                     "processed_source_count": {"type": "integer", "minimum": 0.0},
                     "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "held_count": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Number of source windows held by the Memory write gate.",
+                        "default": 0,
+                    },
+                    "hold_codes": {
+                        "items": {"type": "string"},
+                        "type": "array",
+                        "description": "Structured Memory write gate refusal codes for held windows.",
+                        "default": [],
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -8517,6 +9099,78 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["artifact", "title", "summary", "snippet", "score", "matched_by"],
+            },
+            "ArtifactSearchFusion": {
+                "properties": {
+                    "method": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+                    "params": {"additionalProperties": True, "type": "object", "default": {}},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["method"],
+                "x-powercontext-artifact-search-validation": "fusion",
+            },
+            "SearchArtifactsRequest": {
+                "properties": {
+                    "query": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "limit": {"type": "integer", "maximum": 200.0, "minimum": 1.0, "default": 10},
+                    "mode": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+                    "filters": {"additionalProperties": True, "type": "object"},
+                    "admission": {"additionalProperties": True, "type": "object"},
+                    "fusion": {"$ref": "#/components/schemas/ArtifactSearchFusion"},
+                    "min_score": {"type": "number", "maximum": 1.0, "minimum": 0.0},
+                    "include_scores": {"type": "boolean", "default": False},
+                    "rerank": {"additionalProperties": True, "type": "object"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["query"],
+                "x-powercontext-artifact-search-validation": "request",
+            },
+            "ArtifactChannelScore": {
+                "properties": {
+                    "raw": {"type": "number"},
+                    "metric": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+                    "higher_is_better": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["raw", "metric", "higher_is_better"],
+                "x-powercontext-artifact-search-validation": "score",
+            },
+            "ArtifactSearchScores": {
+                "properties": {
+                    "retrieval": {"type": "number", "maximum": 1.0, "minimum": 0.0},
+                    "channels": {
+                        "additionalProperties": {"$ref": "#/components/schemas/ArtifactChannelScore"},
+                        "type": "object",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["retrieval", "channels"],
+                "x-powercontext-artifact-search-validation": "score",
+            },
+            "ArtifactSearchItem": {
+                "properties": {
+                    "family": {"type": "string", "minLength": 1},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "content": {"additionalProperties": True, "type": "object"},
+                    "lineage": {"additionalProperties": True, "type": "object"},
+                    "scores": {"$ref": "#/components/schemas/ArtifactSearchScores"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "artifact_id", "revision", "content", "lineage"],
+            },
+            "SearchArtifactsResponse": {
+                "properties": {
+                    "results": {"items": {"$ref": "#/components/schemas/ArtifactSearchItem"}, "type": "array"}
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["results"],
             },
             "SearchTopicMemoryRequest": {
                 "properties": {

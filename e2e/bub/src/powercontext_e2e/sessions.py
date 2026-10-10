@@ -16,8 +16,11 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
+from powercontext.client import UnavailableResponseError
 from powercontext.http import FlushMemoryRequest, GetStatsRequest
 
 from .models import SessionSnapshot
@@ -27,6 +30,7 @@ if TYPE_CHECKING:
     from powercontext.client import PowerContextClient
 
 MAX_FLUSH_ROUNDS = 20
+OWNER_PENDING_DELAYS = (1.0, 2.0, 4.0, 8.0)
 
 
 async def settle_session(client: PowerContextClient, scope_id: str, session: int, *, flush: bool) -> SessionSnapshot:
@@ -38,13 +42,16 @@ async def settle_session(client: PowerContextClient, scope_id: str, session: int
 
     rounds = 0
     while flush and rounds < MAX_FLUSH_ROUNDS:
-        response = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))
+        response = await _while_owner_pending(lambda: client.flush_memory(FlushMemoryRequest(scope_id=scope_id)))
         rounds += 1
         if response.current_cursor >= response.high_watermark or response.current_cursor <= response.previous_cursor:
             break
-    stats = await client.get_stats(
-        GetStatsRequest.model_validate({"selection": {"mode": "exact", "scope_ids": [scope_id]}})
+    stats = await _while_owner_pending(
+        lambda: client.get_stats(
+            GetStatsRequest.model_validate({"selection": {"mode": "exact", "scope_ids": [scope_id]}})
+        )
     )
+    usage = stats.usage.totals
     return SessionSnapshot(
         session=session,
         flush_rounds=rounds,
@@ -53,7 +60,30 @@ async def settle_session(client: PowerContextClient, scope_id: str, session: int
         memory_entries=stats.inventory.memory.entries.total,
         preparations=stats.recall.totals.preparations,
         ready_preparations=stats.recall.totals.ready_preparations,
+        generation_requests=usage.generation.requests,
+        generation_input_tokens=usage.generation.input_tokens,
+        generation_output_tokens=usage.generation.output_tokens,
+        embedding_requests=usage.embedding.requests,
+        embedding_input_tokens=usage.embedding.input_tokens,
+        recalled_tokens=stats.recall.totals.recalled_tokens,
     )
+
+
+async def _while_owner_pending[T](call: Callable[[], Awaitable[T]]) -> T:
+    """Retry while the Server reports Memory whose owner another request has not yet recorded.
+
+    A host plugin's own flush can still be running when the harness settles the Scope; until it records the owner of
+    the Memory it created, the Server answers 503 ``artifact_owner_pending``, which clears once that request finishes.
+    """
+
+    for delay in OWNER_PENDING_DELAYS:
+        try:
+            return await call()
+        except UnavailableResponseError as error:
+            if error.code != "artifact_owner_pending":
+                raise
+        await asyncio.sleep(delay)
+    return await call()
 
 
 class SessionRecorder:

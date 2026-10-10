@@ -35,6 +35,7 @@ from powercontext.builtin.artifacts.search import (
     fts_query_requirements,
 )
 from powercontext.builtin.artifacts.topic_memory import TopicMemorySearchHit
+from powercontext.builtin.statistics import RecallEffortMeasurement
 
 if TYPE_CHECKING:
     from powercontext.builtin.runtime.config import RuntimeConfig
@@ -259,9 +260,10 @@ class RecallBudgetView:
 
 @dataclass(frozen=True)
 class RecallEffort:
-    """In-process trace of the recall loop; never persisted and never added to the HTTP body.
+    """In-process trace of the recall loop; never added to the HTTP body.
 
-    The trace is delivered to the Runtime's optional ``RecallEffortSink`` and to nothing else.
+    The relational Runtime persists only its daily aggregate. A caller-supplied
+    ``RecallEffortSink`` replaces that recorder and receives the trace directly.
     It is **not** attached to ``PreparedContextBuild``: ``_prepare`` returns ``build.context``
     and discards the rest of the build result, so a field there would have no production
     observer.
@@ -340,6 +342,37 @@ def recall_effort(
         dropped_below_min_bytes=0 if omissions is None else omissions.dropped_below_min_bytes,
         dropped_no_fitting_truncation=0 if omissions is None else omissions.dropped_no_fitting_truncation,
     )
+
+
+def recall_effort_measurement(effort: RecallEffort, /) -> RecallEffortMeasurement:
+    """Validate a committed trace and project only its additive, content-free values."""
+
+    actions = (ACTION_ADMISSION, ACTION_POLICY_FLOOR)
+    if effort.expansion_actions != actions[: len(effort.expansion_actions)]:
+        raise ValueError("recall effort expansion actions must follow the bounded policy")  # noqa: TRY003
+    if effort.rounds != 1 + len(effort.expansion_actions):
+        raise ValueError("recall effort rounds must match committed expansion actions")  # noqa: TRY003
+    if len(effort.candidates_by_round) != effort.rounds:
+        raise ValueError("recall effort needs one candidate sample per committed round")  # noqa: TRY003
+    if any(type(count) is not int or count < 0 for count in effort.candidates_by_round):
+        raise ValueError("recall effort candidate counts must be non-negative integers")  # noqa: TRY003
+    return RecallEffortMeasurement.model_validate({
+        "policy_id": effort.policy,
+        "assessment": effort.assessment,
+        "rounds": effort.rounds,
+        "expanded_preparations": int(effort.rounds > 1),
+        "admission_expansions": effort.expansion_actions.count(ACTION_ADMISSION),
+        "policy_floor_expansions": effort.expansion_actions.count(ACTION_POLICY_FLOOR),
+        "candidate_round_samples": len(effort.candidates_by_round),
+        "candidates_assessed": sum(effort.candidates_by_round),
+        "final_candidate_pool": effort.candidates_by_round[-1],
+        "added_embeddings": effort.added_embeddings,
+        "added_generation_calls": effort.added_generation_calls,
+        "truncated_items": effort.truncated_items,
+        "dropped_items": effort.dropped_items,
+        "dropped_below_min_bytes": effort.dropped_below_min_bytes,
+        "dropped_no_fitting_truncation": effort.dropped_no_fitting_truncation,
+    })
 
 
 def candidate_identity(candidate: RecallCandidate, /) -> tuple[str, str, int, str | None, str | None]:
@@ -574,4 +607,5 @@ __all__ = [
     "build_recall_candidates",
     "candidate_identity",
     "recall_effort",
+    "recall_effort_measurement",
 ]

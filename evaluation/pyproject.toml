@@ -28,29 +28,40 @@ dependencies = [
 ]
 
 [project.scripts]
-powercontext-eval = "powercontext_eval.cli:main"
+swebench-pro = "powercontext_eval_swebench_pro.cli:main"
+longmemeval-v2 = "powercontext_eval_longmemeval_v2.cli:main"
+work-continuity = "powercontext_eval_work_continuity.cli:main"
 
 [dependency-groups]
 dev = [
   "httpx>=0.28,<1",
+  "prometheus-client>=0.21,<1",
   "pytest>=9.0.2",
   "ruff>=0.15.7",
   "ty>=0.0.24",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/powercontext_eval"]
+packages = [
+  "coding/swebench_pro/src/powercontext_eval_swebench_pro",
+  "coding/work_continuity/src/powercontext_eval_work_continuity",
+  "memory/longmemeval_v2/src/powercontext_eval_longmemeval_v2",
+]
+
+[tool.hatch.build.targets.sdist]
+include = ["/coding/swebench_pro", "/coding/work_continuity", "/memory/longmemeval_v2", "/README.md", "/pyproject.toml", "/uv.lock"]
+exclude = ["**/.venv", "**/node_modules", "**/dist", "**/__pycache__", "**/.ruff_cache", "**/.pytest_cache", "**/*.tsbuildinfo", "**/test-results", "**/playwright-report"]
 
 [tool.ty.environment]
 python = "./.venv"
 python-version = "3.11"
 
+[tool.ty.src]
+include = ["coding/swebench_pro/src", "coding/work_continuity/src", "memory/longmemeval_v2/src"]
+
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["coding/swebench_pro/tests", "coding/work_continuity/tests", "memory/longmemeval_v2/tests"]
+addopts = ["--import-mode=importlib"]
 markers = [
   "live: tests that require external services",
 ]
-
-[tool.ruff]
-target-version = "py311"
-line-length = 120

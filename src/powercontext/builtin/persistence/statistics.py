@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Relational reads and atomic daily model-usage increments."""
+"""Relational statistics reads and atomic daily usage increments."""
 
 from __future__ import annotations
 
@@ -32,11 +32,17 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     ARTIFACT_HEADS_TABLE,
     MODEL_USAGE_DAILY_TABLE,
+    RECALL_EFFORT_DAILY_TABLE,
     RECALL_TOKEN_DAILY_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
 )
 from powercontext.builtin.sources import validate_scope_id
-from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose, RecallTokenMeasurement
+from powercontext.builtin.statistics import (
+    ModelUsageOperation,
+    ModelUsagePurpose,
+    RecallEffortMeasurement,
+    RecallTokenMeasurement,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,6 +319,39 @@ class StatisticsRepository:
                     "baseline_tokens",
                     "recalled_tokens",
                 )
+            })
+        else:
+            raise InvalidRepositoryArgumentError("dialect", f"unsupported database dialect: {dialect}")
+        await connection.execute(statement)
+
+    async def record_recall_effort(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        usage_date: date,
+        measurement: RecallEffortMeasurement,
+        /,
+    ) -> None:
+        """Atomically add one validated observation to its scope-local UTC daily key."""
+
+        scope = validate_scope_id(scope_id)
+        # Validate even an embedding caller's model_construct/model_copy value
+        # before issuing SQL; inconsistent counts must never be silently repaired.
+        values = RecallEffortMeasurement.model_validate(measurement.model_dump()).model_dump()
+        values.update(scope_id=scope, usage_date=usage_date)
+        keys = ("scope_id", "usage_date", "policy_id", "assessment")
+        counters = tuple(name for name in values if name not in keys)
+        dialect = connection.dialect.name
+        if dialect == "sqlite":
+            statement = sqlite_insert(RECALL_EFFORT_DAILY_TABLE).values(**values)
+            statement = statement.on_conflict_do_update(
+                index_elements=keys,
+                set_={name: RECALL_EFFORT_DAILY_TABLE.c[name] + statement.excluded[name] for name in counters},
+            )
+        elif dialect == "mysql":
+            statement = mysql_insert(RECALL_EFFORT_DAILY_TABLE).values(**values)
+            statement = statement.on_duplicate_key_update(**{
+                name: RECALL_EFFORT_DAILY_TABLE.c[name] + statement.inserted[name] for name in counters
             })
         else:
             raise InvalidRepositoryArgumentError("dialect", f"unsupported database dialect: {dialect}")

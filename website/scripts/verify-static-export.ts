@@ -79,6 +79,32 @@ const missingRequiredRoutes = requiredRoutes.filter((route) => !exportedDocument
 const missingRfcRoutes = [...rfcRoutes].filter((route) => !exportedDocuments.has(route));
 const missingDevelopmentRoutes = [...developmentRoutes].filter((route) => !exportedDocuments.has(route));
 
+// Verify the published markup, not serialized RSC data that may never be visible.
+for (const locale of locales) {
+  const markup = renderedMarkup(exportedDocuments.get(`/${locale}/benchmarks`) ?? '');
+  const positions = ['locomo', 'locomo-plus', 'swe-bench'].map((id) => markup.indexOf(`id="${id}"`));
+  if (positions.some((position) => position < 0) || positions[0] >= positions[1] || positions[1] >= positions[2]) {
+    throw new Error(`LoCoMo Plus must appear between LoCoMo and SWE-bench in ${locale}`);
+  }
+  const plus = markup.slice(positions[1], positions[2]);
+  for (const value of ['40.855%', '60.37%', '65.082%', '49.78%', '68.947%', '69.28%', '+8.925', '+8.577', '+4.198', 'qwen3.7-text-embedding', '1024']) {
+    if (!plus.includes(value)) throw new Error(`LoCoMo Plus is missing ${value} in ${locale}`);
+  }
+  for (const stale of ['55.611%', '61.374%', '9.51', 'v7', 'Top-8']) {
+    if (plus.includes(stale)) throw new Error(`LoCoMo Plus mixes old experiment data ${stale} in ${locale}`);
+  }
+  if (!markup.includes('href="#locomo-plus"')) {
+    throw new Error(`LoCoMo Plus navigation is missing in ${locale}`);
+  }
+  const publicPlus = markup.split('id="locomo-plus-results-panel"')[1]?.split('id="swe-results-panel"')[0];
+  if (!publicPlus || !markup.includes('aria-controls="locomo-plus-results-panel"')) {
+    throw new Error(`LoCoMo Plus public-results tab is missing in ${locale}`);
+  }
+  for (const value of ['T-Mem', '74.81%', 'Mem0', '15.80%', 'Cognitive']) {
+    if (!publicPlus.includes(value)) throw new Error(`LoCoMo Plus public results are missing ${value} in ${locale}`);
+  }
+}
+
 if (missingRequiredRoutes.length > 0 || missingRfcRoutes.length > 0 || missingDevelopmentRoutes.length > 0) {
   const missingRoutes = [...missingRequiredRoutes, ...missingRfcRoutes, ...missingDevelopmentRoutes].sort();
   throw new Error(`Public pages are missing from the static site:\n${missingRoutes.join('\n')}`);

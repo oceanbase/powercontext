@@ -18,6 +18,15 @@ Scope 选择项目上下文边界。其不透明 ID 用于标识数据，不负�
 父子关系用于组织 Scope，显式上下文引用用于描述复用；两者都不授予访问权限。
 精确、子树和全部 Scope 视图改变的是查看范围，不改变调用者权限。
 
+绑定解析返回 `404 scope_not_found` 表示没有可用绑定，或显式传入的 Scope ID 不存在。
+如果持久绑定或默认指针存在，但指向的 Scope 已丢失，服务返回
+`409 scope_binding_target_missing`，并在 `error.details.scope_id` 中保留原目标 ID。
+解析在该绑定处停止，不回退到后续绑定或默认 Scope。客户端的 `Ensure()` 必须传播此冲突，
+由运营者调查数据丢失、恢复原 Scope 或显式修复绑定；不能自动创建新 Scope 并覆盖绑定。
+普通直接查询缺失 Scope 仍返回 404，因为仅凭 ID 无法判断它是否曾经存在。
+启用权限控制时，Subject Source 写入在返回该冲突前，必须先校验调用者对绑定目标的贡献权限；
+无此权限的调用者收到 403，响应不包含目标 ID。
+
 ## 启用访问控制
 
 共享或远程使用时，按[部署认证](../operate/deploy-server.md)设置 `POWERCONTEXT_SERVER_ACCESS_MODE=enforced`。
@@ -33,5 +42,5 @@ Scope 选择项目上下文边界。其不透明 ID 用于标识数据，不负�
 
 ## 团队使用入口
 
-团队通过 API、MCP 或宿主集成使用各自的身份与权限。Dashboard 仅用于静态 token 鉴权的个人和演示部署，
+团队通过 API、MCP 或宿主集成使用各自的身份与权限。Dashboard 仅用于个人和演示部署，可选用静态 token 鉴权，
 不作为 RBAC 团队入口；团队部署保持 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false`。

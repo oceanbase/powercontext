@@ -45,6 +45,12 @@ Python Client 将该字段表示为字符串，请直接使用，不再访问枚
 Topic Memory 也使用上述通用接口：创建和整体替换提交完整的 `title`、`summary` 和 `detail`，内容不经过语义生成。
 它的专用搜索和范围化读取见[使用 Topic Memory](topic-memory.md)。
 
+## 检索相关的当前 head
+
+使用 `POST /v1/scopes/{scope_id}/artifacts/{family}/search` 在一个 Scope 内按相关性检索。
+内置入口支持 Experience、托管 Skill 和 Topic Memory，返回完整内容及精确 Revision；可选评分属于本次搜索响应。
+Family 支持范围、准入、阈值和故障行为见[检索 Artifact](search-artifacts.md)，Topic 的 RRF 控制参数见[融合算法与参数](search-fusion.md)。
+
 ## 按对应工作流修改
 
 - [Memory](memory-and-context.md)：显式写入、修订或退役条目。

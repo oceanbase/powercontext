@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shlex
@@ -26,6 +27,7 @@ from collections.abc import Iterable
 from enum import StrEnum
 from pathlib import Path
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -82,6 +84,7 @@ class ToolSurfaceProbe(StrEnum):
     JSON_PROMPT_HOOK = "json_prompt_hook"
     ZCODE_PROMPT_HOOK = "zcode_prompt_hook"
     DSH_TOOLS = "dsh_tools"
+    DIFY_TOOLS = "dify_tools"
     DSH_COMMANDS = "dsh_commands"
     HERMES_OPERATIONS = "hermes_operations"
     HERMES_COMMANDS = "hermes_commands"
@@ -228,6 +231,8 @@ class IntegrationManifest(BaseModel):
     availability_definitions: dict[IntegrationAvailability, AvailabilityDefinition]
     toolsets: tuple[IntegrationToolset, ...] = ()
     integrations: tuple[IntegrationDeclaration, ...] = Field(min_length=1)
+    directory_exclusions: dict[str, str] = Field(default_factory=dict)
+    documentation_waivers: dict[IntegrationKind, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_declarations(self) -> IntegrationManifest:
@@ -246,6 +251,13 @@ class IntegrationManifest(BaseModel):
             raise ValueError("toolset ids must be unique")
         if len({integration.id for integration in self.integrations}) != len(self.integrations):
             raise ValueError("integration ids must be unique")
+        for directory, rationale in self.directory_exclusions.items():
+            if not re.fullmatch(r"[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?", directory) or not rationale.strip():
+                raise ValueError("directory exclusions need a directory name and a non-empty rationale")
+        if set(self.directory_exclusions) & {integration.id for integration in self.integrations}:
+            raise ValueError("an integration cannot be both declared and excluded")
+        if any(not rationale.strip() for rationale in self.documentation_waivers.values()):
+            raise ValueError("documentation waivers need a non-empty rationale")
         used_toolsets: set[str] = set()
         for integration in self.integrations:
             unknown = set(integration.toolsets) - toolsets.keys()
@@ -329,6 +341,34 @@ DOCUMENTATION_PATHS = {
 def load_integration_manifest(path: Path = MANIFEST_PATH) -> IntegrationManifest:
     with path.open("rb") as handle:
         return IntegrationManifest.model_validate(tomllib.load(handle))
+
+
+def integration_directory_errors(
+    manifest: IntegrationManifest, repository_root: Path = REPOSITORY_ROOT
+) -> tuple[str, ...]:
+    """Check both directions of directory coverage, including localized documentation."""
+    root = repository_root / "integrations"
+    if not root.is_dir():
+        return ("missing integrations/ directory",)
+    present = {path.name for path in root.iterdir() if path.is_dir()}
+    declared = {integration.id for integration in manifest.integrations}
+    excluded = set(manifest.directory_exclusions)
+    errors = [f"integrations/{name}/: present but undeclared" for name in sorted(present - declared - excluded)]
+    errors.extend(f"integrations/{name}/: declared but absent" for name in sorted(declared - present))
+    errors.extend(f"integrations/{name}/: excluded but absent" for name in sorted(excluded - present))
+    for integration in manifest.integrations:
+        if integration.kind in manifest.documentation_waivers:
+            continue
+        for locale in ("en", "zh"):
+            pointer = f"docs/{locale}/docs/integrations/{integration.id}.md"
+            if not (repository_root / pointer).is_file():
+                errors.append(f"{integration.id}: missing {locale} integration documentation: {pointer}")
+            elif (
+                integration.availability is not IntegrationAvailability.UNSUPPORTED
+                and pointer not in integration.evidence.documentation
+            ):
+                errors.append(f"{integration.id}: undocumented {locale} evidence: {pointer}")
+    return tuple(errors)
 
 
 def evidence_path_errors(manifest: IntegrationManifest, repository_root: Path = REPOSITORY_ROOT) -> tuple[str, ...]:
@@ -435,6 +475,8 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
         return _zcode_prompt_hook_ids(root)
     if probe is ToolSurfaceProbe.DSH_TOOLS:
         return _typescript_operation_tools(root / "integrations/dsh/plugins/powercontext/src/tools.ts", "pcTool")
+    if probe is ToolSurfaceProbe.DIFY_TOOLS:
+        return _dify_operation_tools(root)
     if probe is ToolSurfaceProbe.OPENCODE_TOOLS:
         return _typescript_operation_tools(
             root / "integrations/opencode/plugins/powercontext/src/index.ts", "operationTool"
@@ -497,6 +539,32 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
             },
         )
     raise ValueError(f"unimplemented tool surface probe: {probe}")
+
+
+def _dify_operation_tools(root: Path) -> set[str]:
+    plugin = root / "integrations/dify/plugin"
+    provider = yaml.safe_load((plugin / "provider/powercontext.yaml").read_text(encoding="utf-8"))
+    pairs: set[str] = set()
+    for path in provider["tools"]:
+        declaration = yaml.safe_load((plugin / path).read_text(encoding="utf-8"))
+        source = plugin / declaration["extra"]["python"]["source"]
+        operations = {
+            node.value.value
+            for definition in ast.parse(source.read_text(encoding="utf-8")).body
+            if isinstance(definition, ast.ClassDef)
+            for node in definition.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "operation" for target in node.targets)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        }
+        if len(operations) != 1:
+            raise ValueError(f"{path}: expected one operation binding")
+        pair = f"{declaration['identity']['name']}:{operations.pop()}"
+        if pair in pairs:
+            raise ValueError(f"{path}: duplicate Dify tool registration")
+        pairs.add(pair)
+    return pairs
 
 
 def _read(root: Path, relative_path: str) -> str:
@@ -587,23 +655,34 @@ def _prompt_hook_ids(root: Path) -> set[str]:
 
 def _zcode_prompt_hook_ids(root: Path) -> set[str]:
     plugin = root / "integrations/zcode/plugins/powercontext"
-    try:
-        hooks = json.loads((plugin / "hooks/hooks.json").read_text(encoding="utf-8"))
-        registrations = hooks["hooks"]["UserPromptSubmit"]
-        script = (plugin / "hooks/user_prompt_submit.mjs").read_text(encoding="utf-8")
-        registered = any(
-            hook.get("type") == "process"
-            and hook.get("command") == "node"
-            and "${ZCODE_PLUGIN_ROOT}/hooks/user_prompt_submit.mjs" in hook.get("args", [])
-            for matcher in registrations
-            for hook in matcher.get("hooks", [])
-        )
-        complete = registered and all(
-            marker in script for marker in ("/v1/context/prepare", "/v1/sources/content", "hookSpecificOutput")
-        )
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        complete = False
-    return {"zcode:UserPromptSubmit" if complete else "zcode:UserPromptSubmit:incomplete"}
+    definitions = {
+        "UserPromptSubmit": (
+            "user_prompt_submit.mjs",
+            ("/v1/context/prepare", "/v1/sources/content", "hookSpecificOutput"),
+        ),
+        "SessionStart": ("session_start.mjs", ("/v1/context/prepare", "SessionStart", "lifecycle_generic")),
+        "Stop": ("stop.mjs", ("flushBoundary", "Stop", "stop_reentry")),
+    }
+    result = set()
+    for event, (filename, markers) in definitions.items():
+        try:
+            hooks = json.loads((plugin / "hooks/hooks.json").read_text(encoding="utf-8"))
+            script = (plugin / "hooks" / filename).read_text(encoding="utf-8")
+            registered = any(
+                hook.get("type") == "process"
+                and hook.get("command") == "node"
+                and f"${{ZCODE_PLUGIN_ROOT}}/hooks/{filename}" in hook.get("args", [])
+                for matcher in hooks["hooks"][event]
+                for hook in matcher.get("hooks", [])
+            )
+            complete = registered and all(marker in script for marker in markers)
+            if event == "Stop":
+                pending = (plugin / "shared/pending.mjs").read_text(encoding="utf-8")
+                complete = complete and "/v1/memory/flush" in pending and "current_cursor" in pending
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            complete = False
+        result.add(f"zcode:{event}" if complete else f"zcode:{event}:incomplete")
+    return result
 
 
 def _is_complete_hook(integration_id: str, event: str, scripts: set[Path]) -> bool:
@@ -904,6 +983,7 @@ __all__ = [
     "capabilities_from_toolsets",
     "derived_profiles",
     "evidence_path_errors",
+    "integration_directory_errors",
     "load_integration_manifest",
     "release_tag_errors",
     "render_integration_capability_reference",

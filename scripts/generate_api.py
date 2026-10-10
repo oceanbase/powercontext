@@ -145,7 +145,66 @@ def _generate_models(
     evidence_models = _candidate_evidence_models(transport_contract.components.schemas)
     source = _with_nested_model_defaults(f"{result.rstrip()}\n")
     source = _with_code_validation(source, transport_contract.components.schemas)
+    source = _with_artifact_search_validation(source, transport_contract.components.schemas)
     return _with_candidate_evidence_limits(source, evidence_models)
+
+
+def _with_artifact_search_validation(source: str, schemas: dict[str, Schema | Reference]) -> str:
+    """Keep Artifact search's omission, trim, and finite-number semantics in generated models."""
+
+    for name, schema in schemas.items():
+        if not isinstance(schema, Schema):
+            continue
+        kind = (schema.model_extra or {}).get("x-powercontext-artifact-search-validation")
+        if kind is None:
+            continue
+        if kind not in {"request", "fusion", "score"}:
+            raise ContractGenerationError("x-powercontext-artifact-search-validation", kind)
+        if "    field_validator,\n" not in source:
+            source = source.replace("from pydantic import (\n", "from pydantic import (\n    field_validator,\n", 1)
+        header = f"class {name}(BaseModel):"
+        start = source.find(header)
+        if start < 0:
+            raise ContractGenerationError("generated Artifact search model", name)  # noqa: TRY003
+        next_class = source.find("\nclass ", start + len(header))
+        insert_at = next_class if next_class >= 0 else len(source.rstrip())
+        validator = """
+    @field_validator("*", mode="after")
+    @classmethod
+    def _reject_invalid_search_value(cls, value: Any) -> Any:
+        from math import isfinite
+        from pydantic import ValidationError
+        from pydantic_core import InitErrorDetails
+
+        if value is None:
+            raise ValueError("omit the field instead of sending null")  # noqa: TRY003
+        errors: list[InitErrorDetails] = []
+        pending: list[tuple[Any, tuple[str | int, ...]]] = [(value, ())]
+        visited: set[int] = set()
+        while pending:
+            item, path = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                errors.append({"type": "finite_number", "loc": path, "input": item})
+            elif isinstance(item, (dict, list, tuple)) and id(item) not in visited:
+                visited.add(id(item))
+                entries = item.items() if isinstance(item, dict) else enumerate(item)
+                pending.extend((nested, (*path, key)) for key, nested in entries)
+        if errors:
+            raise ValidationError.from_exception_data(cls.__name__, errors)
+        return value
+"""
+        if kind == "request":
+            validator = (
+                """
+    @field_validator("query", mode="before")
+    @classmethod
+    def _trim_search_query(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+"""
+                + validator
+            )
+        source = f"{source[:insert_at].rstrip()}\n{validator.rstrip()}\n\n{source[insert_at:].lstrip()}"
+    return source
 
 
 def _with_code_validation(source: str, schemas: dict[str, Schema | Reference]) -> str:

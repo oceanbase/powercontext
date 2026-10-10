@@ -27,7 +27,9 @@ def run(manifest_path: Path) -> None:
 
     job = json.loads(manifest_path.read_bytes())
     memory = job["memory_bytes"]
-    resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
+    # Darwin rejects RLIMIT_AS; the parent enforces a sampled RSS budget there.
+    if sys.platform != "darwin":
+        resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
     directory = manifest_path.parent
     extractors: dict[tuple[str, bool], PythonExtractor | PolyglotExtractor] = {}
     for number, entry in enumerate(job["files"]):

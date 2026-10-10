@@ -39,6 +39,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACTS_TABLE,
     SOURCES_TABLE,
+    STATISTICS_TABLES,
     identity_string,
 )
 
@@ -284,10 +285,11 @@ def test_profile_creates_tables_for_empty_or_compatible_schema(
             created.append(tables)
 
         monkeypatch.setattr(oceanbase_profile_module, "create_tables", create_selected_tables)
-        async with OceanBaseProfile.attach(cast(AsyncEngine, engine), tables=(SOURCES_TABLE,)):
+        selected = (SOURCES_TABLE, *STATISTICS_TABLES)
+        async with OceanBaseProfile.attach(cast(AsyncEngine, engine), tables=selected):
             pass
 
-        assert created == [(SOURCES_TABLE,)]
+        assert created == [selected]
 
     asyncio.run(scenario())
 

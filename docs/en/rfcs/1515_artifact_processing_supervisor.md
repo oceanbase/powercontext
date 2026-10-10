@@ -494,7 +494,38 @@ the key moves to the delayed queue. When due and its type has capacity, it retur
 
 Backoff remains in memory. Restart or leadership change may retry an accepted failed invocation immediately, then
 rebuild the backoff sequence; it never skips the failed business position. Permanent errors may continue consuming
-invocation resources and must be found through observability; the first version does not discard them automatically.
+invocation resources unless the domain can identify a durable rejection before dispatch; input is never discarded
+automatically.
+
+A binding may register a metadata-only `work_block` probe for all dispatch paths. Its domain owns the rejection's
+identity, stage, code and operational counters; the Supervisor does not interpret Family-specific budget tables or
+error-code lists. A blocked key remains unacknowledged and waits for a five-minute metadata recheck, new explicit
+request, or automatic admission. Unchanged cached checks neither spawn Workers nor add failures or repeated error
+logs. The bounded waiting cache cannot make an evicted key eligible: every dispatch still runs the probe. Terminal
+cache eviction schedules bounded durable-intent rediscovery without applying the transient overflow gate to healthy
+Scopes. Log deduplication is local to the current term and bounded cache, rather than a persisted exactly-once promise.
+
+Workers retain their own domain guards. A durable rejection reached after admission is returned as sanitized typed
+failure metadata carrying the same block, so the Supervisor can enter waiting without treating it as another execution
+failure. Other errors preserve ordinary backoff. Metadata-probe failures are isolated to the affected key and back off;
+they do not revoke the shared Supervisor term. No Source selection, token estimation or model work moves to the parent.
+Admission checks share a bounded time allowance per Family per cycle, so a page of slow probes yields to other Families.
+The shared allowance decides whether another check starts; it does not shorten a check already in flight. Each probe
+owns a full bounded I/O timeout, independent of earlier Scopes. A cycle may finish its last probe after the shared
+allowance expires; probe work is bounded by the shared allowance plus one probe timeout. This yields to other Families
+without charging an unrelated Scope a failure. A failed terminal recheck retains its blocked interval, block identity
+and failure history. Its first or changed probe error emits
+`artifact_processing.block_recheck_failed` as a warning; repeated identical errors stay quiet until a successful check.
+The attempted request generation is remembered even when the check fails, so ordinary wakes cannot repeatedly bypass
+the interval, while a newer explicit request can still recheck promptly. A probe's own timeout, distinct from shared
+allowance expiry, remains a genuine probe error.
+
+Memory owns a persisted per-Scope window reduction for generation timeouts. A failed extraction can
+halve the next window without advancing its Source cursor or acknowledging the invocation; the
+reduction survives Worker replacement and is cleared when the observed backlog is consumed.
+The cursor CAS and current fence guard this update. It is an input-size hint, not a successful
+processing checkpoint or a Supervisor failed-job state. Single-position failures retain the same
+retry policy. Supervisor deadlines and backoff remain unchanged.
 
 ## 8. Leadership terms, backends, and process roles
 

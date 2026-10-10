@@ -50,9 +50,9 @@ header:
     - '**/*.lock'
     - '**/*-lock.yaml'
     - '**/*.lockb'
-    - 'benchmark/locomo/dataset/**'
-    - 'benchmark/locomo/results/**'
-    - 'benchmark/locomo_plus/results/**'
+    - 'evaluation/memory/locomo/dataset/**'
+    - 'evaluation/memory/locomo/results/**'
+    - 'evaluation/memory/locomo_plus/results/**'
     - 'tox.ini'
     - 'Makefile'
     - 'zensical.toml'
@@ -69,9 +69,13 @@ header:
     - '**/*.jsonl'
     # license-eye cannot determine the comment style of patch files.
     - '**/*.patch'
+    # PEM has no comment style; this is a test-only self-signed certificate and key.
+    - 'tests/fixtures/loopback_test_ca.pem'
     # license-eye cannot determine the comment style of Mermaid diagrams.
     - '**/*.mermaid'
     # license-eye cannot determine the comment style of uv requirements files.
     - 'e2e/bub/source-overrides.txt'
+    - 'integrations/dify/plugin/requirements.txt'
+    - 'integrations/dify/plugin/.difyignore'
 
   comment: on-failure

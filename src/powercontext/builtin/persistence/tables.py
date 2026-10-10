@@ -431,6 +431,15 @@ PROFILE_POLICIES_TABLE = Table(
     CheckConstraint("version > 0", name="ck_pc_profile_policies_version_positive"),
 )
 
+MEMORY_SOURCE_WINDOWS_TABLE = Table(
+    "pc_memory_source_windows",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_through", BigInteger, nullable=False),
+    Column("window_limit", BigInteger, nullable=False),
+    CheckConstraint("source_through > 0 AND window_limit > 0", name="ck_pc_memory_source_window_positive"),
+)
+
 SOURCE_CURSORS_TABLE = Table(
     "pc_source_cursors",
     SHARED_METADATA,
@@ -895,6 +904,44 @@ RECALL_TOKEN_DAILY_TABLE = Table(
     CheckConstraint("recalled_tokens >= 0", name="ck_pc_recall_token_daily_recalled_nonnegative"),
 )
 
+RECALL_EFFORT_DAILY_TABLE = Table(
+    "pc_recall_effort_daily",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("usage_date", Date, primary_key=True),
+    Column("policy_id", identity_string(128), primary_key=True),
+    Column("assessment", identity_string(64), primary_key=True),
+    *(
+        Column(
+            name,
+            BigInteger,
+            CheckConstraint(f"{name} >= 0", name=f"ck_recall_effort_{name}_nonnegative"),
+            nullable=False,
+        )
+        for name in (
+            "preparations",
+            "rounds",
+            "expanded_preparations",
+            "admission_expansions",
+            "policy_floor_expansions",
+            "candidate_round_samples",
+            "candidates_assessed",
+            "final_candidate_pool",
+            "added_embeddings",
+            "added_generation_calls",
+            "truncated_items",
+            "dropped_items",
+            "dropped_below_min_bytes",
+            "dropped_no_fitting_truncation",
+        )
+    ),
+    CheckConstraint(
+        "dropped_items = dropped_below_min_bytes + dropped_no_fitting_truncation",
+        name="ck_pc_recall_effort_daily_drop_total",
+    ),
+)
+
+
 SHARED_TABLES = (
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
@@ -907,6 +954,7 @@ SHARED_TABLES = (
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     PROFILE_POLICIES_TABLE,
     SOURCE_CURSORS_TABLE,
+    MEMORY_SOURCE_WINDOWS_TABLE,
     ARTIFACT_PROCESSING_LEASES_TABLE,
     ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     TOPIC_MEMORY_WORK_BUDGETS_TABLE,
@@ -1059,7 +1107,7 @@ ARTIFACT_TAGS_TABLE = Table(
     Index("ix_pc_artifact_tags_key", "scope_id", "tag_key_hash", "family", "target_type", "artifact_id", "target_id"),
 )
 
-STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
+STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE, RECALL_EFFORT_DAILY_TABLE)
 
 DREAM_RUNS_TABLE = Table(
     "pc_dream_runs",

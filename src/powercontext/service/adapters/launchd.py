@@ -231,6 +231,19 @@ class LaunchdUserAdapter:
         if registration.definition is not None:
             _clear_retry_files(registration.definition)
 
+    def suspend(self, marker: Path) -> None:
+        # The persistent disabled override survives logout/reboot. bootout in
+        # stop() then removes the existing KeepAlive job as well.
+        self.disable()
+
+    def resume(self) -> None:
+        self.enable()
+
+    def update_suspended(self) -> None:
+        # A suspended LaunchAgent was booted out; its next bootstrap reads the
+        # replaced plist. The persistent disable override remains in force.
+        return None
+
     def remove(self) -> None:
         self.artifact_path.unlink(missing_ok=True)
 

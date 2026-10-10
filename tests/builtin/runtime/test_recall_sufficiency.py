@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import pytest
 
@@ -64,6 +64,7 @@ from powercontext.builtin.runtime.recall_sufficiency import (
     build_recall_candidates,
     candidate_identity,
     recall_effort,
+    recall_effort_measurement,
 )
 
 MEMORY_REF = ArtifactRef(family="memory", artifact_id="memory", revision=3)
@@ -671,6 +672,77 @@ def test_effort_cost_counts_default_to_zero_rather_than_an_inference() -> None:
     assert effort.added_embeddings == 0
     assert effort.added_generation_calls == 0
     assert effort.admission_by_family == ()
+
+
+def test_effort_projects_exact_additive_measurement_without_family_evidence() -> None:
+    effort = recall_effort(
+        policy=RecallSufficiencyPolicy(),
+        assessment=REASON_AT_MAX_ROUNDS,
+        expansion_actions=("admission", "policy-floor"),
+        candidates_by_round=(3, 6, 9),
+        admission_by_family=(AdmissionCounts(family="memory", scope_id="private-scope", retrieved=12, admitted=9),),
+        added_embeddings=2,
+        added_generation_calls=4,
+        omissions=PreparedContextOmissions(
+            truncated_items=2, dropped_items=5, dropped_below_min_bytes=2, dropped_no_fitting_truncation=3
+        ),
+    )
+    assert recall_effort_measurement(effort).model_dump() == {
+        "policy_id": POLICY_ID,
+        "assessment": REASON_AT_MAX_ROUNDS,
+        "preparations": 1,
+        "rounds": 3,
+        "expanded_preparations": 1,
+        "admission_expansions": 1,
+        "policy_floor_expansions": 1,
+        "candidate_round_samples": 3,
+        "candidates_assessed": 18,
+        "final_candidate_pool": 9,
+        "added_embeddings": 2,
+        "added_generation_calls": 4,
+        "truncated_items": 2,
+        "dropped_items": 5,
+        "dropped_below_min_bytes": 2,
+        "dropped_no_fitting_truncation": 3,
+    }
+
+
+def test_effort_without_expansion_keeps_zero_costs_and_a_zero_candidate_sample() -> None:
+    effort = recall_effort(policy=RecallSufficiencyPolicy(), assessment=REASON_NO_CONTENT, candidates_by_round=(0,))
+    measurement = recall_effort_measurement(effort)
+    assert measurement.preparations == measurement.rounds == measurement.candidate_round_samples == 1
+    assert (
+        measurement.expanded_preparations
+        == measurement.admission_expansions
+        == measurement.policy_floor_expansions
+        == 0
+    )
+    assert measurement.candidates_assessed == measurement.final_candidate_pool == 0
+    assert measurement.added_embeddings == measurement.added_generation_calls == 0
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"rounds": 2},
+        {"candidates_by_round": ()},
+        {"candidates_by_round": (-1,)},
+        {"candidates_by_round": (True,)},
+        {"expansion_actions": ("unknown",)},
+        {"rounds": 2, "expansion_actions": ("policy-floor",), "candidates_by_round": (1, 2)},
+        {"added_embeddings": -1},
+        {"added_generation_calls": -1},
+        {"truncated_items": -1},
+        {"dropped_items": 1},
+        {"dropped_items": 0, "dropped_below_min_bytes": -1, "dropped_no_fitting_truncation": 1},
+        {"policy": "x" * 129},
+        {"assessment": "query text must not be telemetry"},
+    ],
+)
+def test_effort_measurement_rejects_invalid_accounting_before_persistence(changes) -> None:
+    effort = recall_effort(policy=RecallSufficiencyPolicy(), assessment=REASON_SUFFICIENT, candidates_by_round=(1,))
+    with pytest.raises(ValueError):
+        recall_effort_measurement(replace(effort, **changes))
 
 
 def test_budget_view_is_bound_only_when_the_probe_observed_fitting_pressure() -> None:

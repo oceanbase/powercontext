@@ -27,7 +27,7 @@ from powercontext.cli.inference_notice import write_inference_capability_notice
 from powercontext.server import cli as _server_role_dependency
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.service.controller import ServiceController
-from powercontext.service.model import ServiceError, ServiceStatus
+from powercontext.service.model import ManagerState, ServiceError, ServiceStatus
 
 del _server_role_dependency
 
@@ -36,7 +36,7 @@ HELP_OPTION_NAMES = ("-h", "--help")
 app = typer.Typer(
     name="service",
     context_settings={"help_option_names": HELP_OPTION_NAMES},
-    help="Install and inspect the current user's persistent PowerContext Server.",
+    help="Manage the current user's persistent PowerContext Server.",
     no_args_is_help=True,
 )
 
@@ -60,7 +60,7 @@ def install(
         ),
     ] = None,
 ) -> None:
-    """Install the personal Server service and optionally start it at user login."""
+    """Install or update the personal Server service, preserving an explicit stop."""
 
     if start_on_login is None:
         start_on_login = (
@@ -88,11 +88,19 @@ def install(
         else:
             exit_code = 1
         raise typer.Exit(code=exit_code) from error
-    message = (
-        "PowerContext personal service installed with login auto-start."
-        if start_on_login
-        else "PowerContext personal service installed without login auto-start."
-    )
+    if status.manager in {ManagerState.INACTIVE, ManagerState.FAILED}:
+        message = (
+            "PowerContext personal service registration updated "
+            f"{'with login auto-start configured' if start_on_login else 'without login auto-start'}. "
+            "The service remains stopped with automatic activation suppressed. "
+            "Run `powercontext service start` when ready."
+        )
+    else:
+        message = (
+            "PowerContext personal service installed with login auto-start."
+            if start_on_login
+            else "PowerContext personal service installed without login auto-start."
+        )
     typer.echo(message)
     _write_environment_guidance(expanded_env_file)
     write_inference_capability_notice(
@@ -119,6 +127,46 @@ def status(
     _write_status(service_status, json_output=json_output)
     if not service_status.ok:
         raise typer.Exit(code=1)
+
+
+@app.command()
+def start() -> None:
+    """Start the owned registered Server and check business readiness."""
+
+    _run_lifecycle("start")
+
+
+@app.command()
+def stop() -> None:
+    """Stop the owned Server and suppress automatic activation, retaining configuration."""
+
+    _run_lifecycle("stop")
+
+
+@app.command()
+def restart() -> None:
+    """Stop then start the registered Server; run required migrations separately."""
+
+    _run_lifecycle("restart")
+
+
+def _run_lifecycle(operation: str) -> None:
+    controller = _controller()
+    try:
+        service_status = getattr(controller, operation)()
+    except (OSError, ServiceError) as error:
+        typer.echo(f"PowerContext personal service {operation} failed: {error}", err=True)
+        for note in getattr(error, "__notes__", ()):
+            typer.echo(note, err=True)
+        if isinstance(error, ServiceError) and error.status is not None:
+            _write_status(error.status, json_output=False)
+        raise typer.Exit(code=error.exit_code if isinstance(error, ServiceError) else 1) from error
+    except KeyboardInterrupt as error:
+        for note in getattr(error, "__notes__", ()):
+            typer.echo(note, err=True)
+        raise
+    typer.echo(f"PowerContext personal service {operation} completed.")
+    _write_status(service_status, json_output=False)
 
 
 @app.command()

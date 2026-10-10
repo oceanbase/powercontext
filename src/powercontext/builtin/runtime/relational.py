@@ -22,9 +22,9 @@ import logging
 import secrets
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator
@@ -36,7 +36,9 @@ from referencing.exceptions import Unresolvable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext._logging import log_safely
 from powercontext.artifacts import Artifact, ArtifactRef, MemoryCitation
+from powercontext.artifacts.search import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
     Experience,
@@ -66,7 +68,9 @@ from powercontext.builtin.artifacts.memory import (
     MemoryQueryEmbedding,
     MemoryReranker,
     MemoryService,
+    MemoryWriteGate,
     MemoryWritePlan,
+    MemoryWriteVerdict,
 )
 from powercontext.builtin.artifacts.profile import Profile
 from powercontext.builtin.artifacts.profile.management import ProfileManagementWriter
@@ -101,6 +105,7 @@ from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryS
 from powercontext.builtin.artifacts.topic_memory import (
     TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
     PublishedTopicMemory,
+    TopicArtifactSearchRequest,
     TopicMemory,
     TopicMemoryBrowseCursor,
     TopicMemoryCurrentItem,
@@ -112,7 +117,13 @@ from powercontext.builtin.dream.generation import DreamGenerator
 from powercontext.builtin.dream.models import DreamBudget, DreamOperation
 from powercontext.builtin.dream.service import CandidateAttester, DreamAuthorizer, DreamService
 from powercontext.builtin.evidence.resolver import AuthorizationContext, EvidenceAuthorizer, EvidenceResolver
-from powercontext.builtin.inference import EmbeddingModel, InferenceUsage, InvalidInferenceOutputError, TokenEstimator
+from powercontext.builtin.inference import (
+    EmbeddingModel,
+    InferenceTimeoutError,
+    InferenceUsage,
+    InvalidInferenceOutputError,
+    TokenEstimator,
+)
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTargetRepository
 from powercontext.builtin.persistence.artifact_governance import (
     ArtifactGovernance,
@@ -123,7 +134,7 @@ from powercontext.builtin.persistence.artifact_readers import TopicMemoryArtifac
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
-from powercontext.builtin.persistence.cursors import SourceCursorRepository
+from powercontext.builtin.persistence.cursors import SourceCursorRepository, StoredSourceCursor
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
@@ -143,6 +154,7 @@ from powercontext.builtin.persistence.handoff import (
 )
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
+from powercontext.builtin.persistence.memory_windows import MemorySourceWindowRepository
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.records import RelationalRecordService
@@ -234,6 +246,7 @@ from powercontext.sources import (
     SourceDefinitionManifest,
     SourceDefinitionRegistry,
     SourceObservation,
+    SourceProjectionKey,
     SourceRef,
     TextEvidence,
 )
@@ -301,6 +314,7 @@ class _ScopedServices:
     memory_reranker: MemoryReranker | None
     memory_rerank_candidate_limit: int
     decision_model: DecisionModel | None
+    memory_write_gate: MemoryWriteGate | None
     memory_capacity_budget: MemoryCapacityBudget
     memory_compaction: MemoryCompactionPolicy
     memory_max_history_revisions: int
@@ -313,6 +327,7 @@ class _ScopedServices:
     prompts: PromptService
     generation_receipts: HandoffGenerationReceipts
     model_usage: _ModelUsageRecorder
+    statistics_write_timeout_seconds: float
 
     def generation_sources(self) -> GenerationSourceAccess:
         return GenerationSourceAccess(self.repositories.sources)
@@ -367,6 +382,7 @@ class _ScopedServices:
                 connection=connection,
             ),
             id_factory=self.id_factory,
+            write_gate=self.memory_write_gate,
         )
 
     def evidence(self, authorize: EvidenceAuthorizer | None = None) -> EvidenceResolver:
@@ -482,6 +498,7 @@ class _ScopedServices:
             artifacts=self.repositories.artifacts,
             token_estimator=None if self.token_estimator is None else self.token_estimator.profile,
             model_usage=self.model_usage,
+            write_timeout_seconds=self.statistics_write_timeout_seconds,
         )
 
     def recall_tokens(self) -> RelationalRecallTokenEstimator | None:
@@ -501,6 +518,15 @@ class _ScopedServices:
             memory_service=memory_service,
             estimator=self.token_estimator,
         )
+
+
+@dataclass(slots=True)
+class _ScopeState:
+    """Keep every evictable composition and lock under one scope lifecycle."""
+
+    context: PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers] | None = None
+    scope_locks: dict[Literal["source", "activation", "experience"], asyncio.Lock] = field(default_factory=dict)
+    skill_publication_locks: dict[tuple[str, str], asyncio.Lock] = field(default_factory=dict)
 
 
 class RelationalContexts:
@@ -523,6 +549,7 @@ class RelationalContexts:
         token_estimator: TokenEstimator | None = None,
         memory_reranker: MemoryReranker | None = None,
         decision_model: DecisionModel | None = None,
+        memory_write_gate: MemoryWriteGate | None = None,
         memory_rerank_candidate_limit: int = 30,
         memory_capacity_budget: MemoryCapacityBudget | None = None,
         memory_compaction: MemoryCompactionPolicy | None = None,
@@ -584,6 +611,7 @@ class RelationalContexts:
             write_timeout_seconds=model_usage_write_timeout_seconds,
             flush_timeout_seconds=model_usage_flush_timeout_seconds,
         )
+        self._statistics_write_timeout_seconds = model_usage_write_timeout_seconds
         self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
         self.prompt_registry = prompt_registry or PromptRegistry(
             builtin_prompt_definitions(),
@@ -687,6 +715,7 @@ class RelationalContexts:
         self._token_estimator = token_estimator
         self._memory_reranker = memory_reranker
         self._decision_model = decision_model
+        self._memory_write_gate = memory_write_gate
         self._memory_rerank_candidate_limit = memory_rerank_candidate_limit
         self._memory_capacity_budget = (
             MemoryCapacityBudget() if memory_capacity_budget is None else memory_capacity_budget
@@ -696,14 +725,7 @@ class RelationalContexts:
         self._handoff_artifact_id = handoff_artifact_id
         self._memory_artifact_id = memory_artifact_id
         self._tracing = tracing
-        self._contexts: dict[
-            str,
-            PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers],
-        ] = {}
-        self._source_locks: dict[str, asyncio.Lock] = {}
-        self._activation_locks: dict[str, asyncio.Lock] = {}
-        self._experience_locks: dict[str, asyncio.Lock] = {}
-        self._skill_publication_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
+        self._scope_states: dict[str, _ScopeState] = {}
 
     @property
     def token_estimator(self) -> TokenEstimator:
@@ -714,13 +736,24 @@ class RelationalContexts:
         return self._token_estimator
 
     def evict(self, scope_id: str, /) -> None:
-        """Discard inactive scope-local compositions and serialization locks."""
+        """Discard cached compositions and serialization locks for an inactive scope.
+
+        The scope state includes every publication lock keyed by
+        (target_id, artifact_id). Other scopes retain their state and locks.
+        Previously returned contexts and services may still hold references;
+        callers must only evict after the scope's operations have drained.
+        Evicting an uncached scope is a no-op.
+        """
 
         scope = validate_scope_id(scope_id)
-        self._contexts.pop(scope, None)
-        self._source_locks.pop(scope, None)
-        self._activation_locks.pop(scope, None)
-        self._experience_locks.pop(scope, None)
+        self._scope_states.pop(scope, None)
+
+    def _state_for(self, scope: str) -> _ScopeState:
+        state = self._scope_states.get(scope)
+        if state is None:
+            state = _ScopeState()
+            self._scope_states[scope] = state
+        return state
 
     def review(self, scope_id: str, /) -> ReviewService:
         """Return Candidate and reviewed Artifact operations bound to one scope."""
@@ -976,6 +1009,8 @@ class RelationalContexts:
         embedding_profile: EmbeddingProfile | None = None,
         admission: AdmissionFloor | None = None,
         query_embedding: MemoryQueryEmbedding | None = None,
+        artifact_request: TopicArtifactSearchRequest | None = None,
+        execution_context: ArtifactSearchExecutionContext | None = None,
     ) -> TopicMemorySearchResult:
         """Search current active Topic projections in this deployment."""
 
@@ -983,7 +1018,29 @@ class RelationalContexts:
             query_vector = query_embedding.query_vector
             embedding_profile = query_embedding.embedding_profile
         scope = validate_scope_id(scope_id)
-        async with self.database.transaction() as connection:
+        access = None if execution_context is None else execution_context.access
+        if execution_context is not None and access is None and not execution_context.trusted_local:
+            from powercontext.server.authz import AccessDeniedError
+
+            raise AccessDeniedError
+        audit = nullcontext() if access is None else access.defer_decision_audit()
+        async with audit, self.database.transaction(consistent_snapshot=True) as connection:
+            if execution_context is not None and access is not None:
+                # Establish the data snapshot before a remote PDP can suspend.
+                # Local providers then read their policy through this same connection.
+                await connection.execute(
+                    select(ARTIFACT_HEADS_TABLE.c.revision)
+                    .where(
+                        ARTIFACT_HEADS_TABLE.c.scope_id == scope, ARTIFACT_HEADS_TABLE.c.family == TopicMemory.family
+                    )
+                    .limit(1)
+                )
+                await access.require_scope_read(
+                    execution_context.principal,
+                    scope,
+                    connection=connection,
+                    context=execution_context.audit,
+                )
             return await self.repositories.topic_memories.search(
                 connection,
                 scope,
@@ -993,6 +1050,7 @@ class RelationalContexts:
                 query_vector=query_vector,
                 embedding_profile=embedding_profile,
                 admission=admission,
+                **({} if artifact_request is None else {"artifact_request": artifact_request}),
             )
 
     async def search_skills(
@@ -1248,6 +1306,7 @@ class RelationalContexts:
         """Return safe package publication operations serialized for one target binding."""
 
         scope = validate_scope_id(scope_id)
+        state = self._state_for(scope)
         return ManagedSkillPublicationService(
             database=self.database,
             scope_id=scope,
@@ -1255,7 +1314,7 @@ class RelationalContexts:
             governance=self.repositories.governance,
             packages=self.repositories.skill_packages,
             publications=self.repositories.skill_publications,
-            lock=self._skill_publication_locks.setdefault((scope, target_id, artifact_id), asyncio.Lock()),
+            lock=state.skill_publication_locks.setdefault((target_id, artifact_id), asyncio.Lock()),
         )
 
     def remote_skill_distribution(self) -> RemoteSkillDistributionService:
@@ -1358,7 +1417,7 @@ class RelationalContexts:
         services = self._services_for(scope_id)
         return await _RelationalTriggers(
             services=services,
-            lock=self._activation_locks.setdefault(services.scope_id, asyncio.Lock()),
+            lock=self._state_for(services.scope_id).scope_locks.setdefault("activation", asyncio.Lock()),
             tracing=self._tracing,
         ).flush(limit=limit, processing=processing, authorize_snapshot=authorize_snapshot, on_commit=on_commit)
 
@@ -1378,7 +1437,7 @@ class RelationalContexts:
             raise RuntimeError("Experience incubation pipeline is not configured")  # noqa: TRY003
         return await _RelationalExperienceIncubator(
             services=services,
-            lock=self._experience_locks.setdefault(services.scope_id, asyncio.Lock()),
+            lock=self._state_for(services.scope_id).scope_locks.setdefault("experience", asyncio.Lock()),
         ).flush(limit=limit, processing=processing, on_commit=on_commit)
 
     async def get(
@@ -1386,16 +1445,18 @@ class RelationalContexts:
         scope_id: str,
         /,
     ) -> PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers]:
+        """Return the first cached composition until its scope is evicted."""
+
         scope = validate_scope_id(scope_id)
-        existing = self._contexts.get(scope)
-        if existing is not None:
-            return existing
+        state = self._state_for(scope)
+        if state.context is not None:
+            return state.context
 
         services = self._services_for(scope)
         sources_backend, source_catalog = services.sources()
         triggers: BuiltinTriggers = _RelationalTriggers(
             services=services,
-            lock=self._activation_locks.setdefault(scope, asyncio.Lock()),
+            lock=state.scope_locks.setdefault("activation", asyncio.Lock()),
             tracing=self._tracing,
         )
         context: PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers] = PowerContext(
@@ -1412,7 +1473,9 @@ class RelationalContexts:
             ),
             triggers=triggers,
         )
-        return self._contexts.setdefault(scope, context)
+        if state.context is None:
+            state.context = context
+        return state.context
 
     def _services_for(self, scope_id: str) -> _ScopedServices:
         scope = validate_scope_id(scope_id)
@@ -1431,18 +1494,20 @@ class RelationalContexts:
             memory_reranker=self._memory_reranker,
             memory_rerank_candidate_limit=self._memory_rerank_candidate_limit,
             decision_model=self._decision_model,
+            memory_write_gate=self._memory_write_gate,
             memory_capacity_budget=self._memory_capacity_budget,
             memory_compaction=self._memory_compaction,
             memory_max_history_revisions=self._memory_max_history_revisions,
             id_factory=self._id_factory,
             handoff_artifact_id=self._handoff_artifact_id,
             memory_artifact_id=self._memory_artifact_id,
-            source_lock=self._source_locks.setdefault(scope, asyncio.Lock()),
+            source_lock=self._state_for(scope).scope_locks.setdefault("source", asyncio.Lock()),
             prompts=self.prompts,
             generation_receipts=self._generation_receipts,
             token_estimator=self._token_estimator,
             source_registry=self.source_registry,
             model_usage=self._model_usage,
+            statistics_write_timeout_seconds=self._statistics_write_timeout_seconds,
         )
 
 
@@ -1466,6 +1531,17 @@ class _RelationalMemorySourceResolver:
 
     def as_ref(self, source: Source, /) -> SourceRef:
         return self._catalog.as_ref(source)
+
+    def project(self, source: Source, key: SourceProjectionKey, /) -> object:
+        return self._catalog.project(source, key)
+
+    async def get_ref(self, ref: SourceRef, /) -> Source:
+        try:
+            async with self._database.connection(self._connection) as connection:
+                (stored,) = await self._access.require_for_generation(connection, self._scope_id, (ref,))
+        except RepositoryNotFoundError:
+            raise SourceNotFoundError(ref) from None
+        return stored.value
 
     async def get(self, source: Source, /) -> Source:
         try:
@@ -1572,13 +1648,16 @@ class _RelationalArtifactResolver:
 
     async def get(self, artifact: Artifact[object], /) -> Artifact[object]:
         try:
-            async with self._database.connection(self._bound_connection) as connection:
-                return cast(
-                    Artifact[object],
-                    await self._repository.get(connection, self._scope_id, artifact.as_ref()),
-                )
-        except RepositoryNotFoundError:
+            return await self.get_ref(artifact.as_ref())
+        except ArtifactNotFoundError:
             raise ArtifactNotFoundError(artifact) from None
+
+    async def get_ref(self, ref: ArtifactRef, /) -> Artifact[object]:
+        try:
+            async with self._database.connection(self._bound_connection) as connection:
+                return cast(Artifact[object], await self._repository.get(connection, self._scope_id, ref))
+        except RepositoryNotFoundError:
+            raise ArtifactNotFoundError(ref) from None
 
 
 class _RelationalTriggers:
@@ -1682,7 +1761,12 @@ class _RelationalTriggers:
                     connection,
                     self._services.scope_id,
                 )
+                # Validate the caller's limit before applying a persisted reduction.
                 signal = SourceHighWatermark(sequence=high_watermark, limit=limit)
+                windows = MemorySourceWindowRepository()
+                signal = signal.model_copy(
+                    update={"limit": await windows.limit(connection, self._services.scope_id, state.sequence, limit)}
+                )
                 transition = self._trigger.activate(signal, state)
                 sources = () if not transition.actions else await self._sources(connection, transition.actions[0])
                 if not transition.actions and processing is not None:
@@ -1697,9 +1781,15 @@ class _RelationalTriggers:
                 )
 
             action = transition.actions[0]
-            prepared = (
-                None if not sources else await self._prepare_memory(sources, authorize_snapshot=authorize_snapshot)
-            )
+            try:
+                prepared = (
+                    None if not sources else await self._prepare_memory(sources, authorize_snapshot=authorize_snapshot)
+                )
+            except InferenceTimeoutError as error:
+                if error.operation == "generate" and action.through - action.after > 1:
+                    await self._reduce_memory_window(action, high_watermark, state_row, processing)
+                raise
+            held = _is_held_write(prepared)
             commit = None if prepared is None else prepared.commit
             with self._stage(
                 _MEMORY_COMMIT_STAGE,
@@ -1722,6 +1812,7 @@ class _RelationalTriggers:
                         transition.state,
                         expected_generation=None if state_row is None else state_row.generation,
                     )
+                    await windows.clear_consumed(connection, self._services.scope_id, action.through)
                     if on_commit is not None and prepared is not None:
                         before = prepared.result if prepared.commit is None else prepared.commit.base
                         await on_commit(connection, before, updated)
@@ -1733,7 +1824,48 @@ class _RelationalTriggers:
                 current_cursor=action.through,
                 source_count=len(sources),
                 memory_ref=None if updated is None else updated.as_ref(),
+                held_count=1 if held else 0,
+                hold_codes=_hold_codes(prepared),
             )
+
+    async def _reduce_memory_window(
+        self,
+        action: ProcessSourceWindow,
+        high_watermark: int,
+        state_row: StoredSourceCursor | None,
+        processing: ScopeInvocation | None,
+    ) -> None:
+        reduced_limit = max(1, (action.through - action.after) // 2)
+        async with self._services.database.transaction() as connection:
+            if processing is not None:
+                await processing.guard(connection)
+            # Preserve the position, but invalidate stale publishers before
+            # changing the window used by a new Worker or SDK flush.
+            await self._services.repositories.cursors.save(
+                connection,
+                self._services.scope_id,
+                SOURCE_WINDOW_TRIGGER_NAME,
+                SourceCursor(sequence=action.after),
+                expected_generation=None if state_row is None else state_row.generation,
+            )
+            await MemorySourceWindowRepository().reduce(
+                connection,
+                self._services.scope_id,
+                source_through=high_watermark,
+                window_limit=reduced_limit,
+            )
+        log_safely(
+            logger,
+            logging.WARNING,
+            "Memory extraction timed out; reduced the next Source window",
+            extra={
+                "event": "memory.window_reduced",
+                "scope_id": self._services.scope_id,
+                "source_after": action.after,
+                "source_through": action.through,
+                "window_limit": reduced_limit,
+            },
+        )
 
     async def _sources(
         self,
@@ -1995,6 +2127,26 @@ def _validate_schema_value(name: str, schema: Mapping[str, Any], value: object) 
         _json_schema_validator(name, schema).validate(value)
     except (JsonSchemaValidationError, Unresolvable) as error:
         raise InvalidSourceObservationError("schema", f"value does not match {name!r}") from error
+
+
+def _is_held_write(plan: MemoryWritePlan | None) -> bool:
+    """Report whether the gate refused this prepared write."""
+
+    if plan is None:
+        return False
+    decision = plan.decision
+    return decision is not None and decision.verdict is MemoryWriteVerdict.HOLD
+
+
+def _hold_codes(plan: MemoryWritePlan | None) -> tuple[str, ...]:
+    """Expose the structured refusal code of a held write to the window caller."""
+
+    if not _is_held_write(plan) or plan is None:
+        return ()
+    decision = plan.decision
+    if decision is None or decision.code is None:
+        return ()
+    return (decision.code.value,)
 
 
 def _scoped_id_factory(memory_artifact_id: str, delegate: IdFactory | None) -> IdFactory:

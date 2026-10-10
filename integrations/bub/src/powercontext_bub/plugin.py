@@ -30,7 +30,7 @@ import httpx
 from bub import Settings, config, ensure_config, hookimpl
 from bub.hooks.interception import LlmCallRequest, LlmCallResult, ToolCall, ToolCallResult
 from bub.turn import TurnState
-from pydantic import Field, HttpUrl, field_validator
+from pydantic import Field, HttpUrl, SecretStr, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from powercontext.client import InvalidResponseError, PowerContextClient, ServerResponseError, TransportError
@@ -66,10 +66,12 @@ class PowerContextSettings(ClientTransportSettings, Settings):
         env_ignore_empty=True,
         extra="ignore",
         frozen=True,
+        hide_input_in_errors=True,
     )
 
     transport_host: ClassVar[str] = "bub"
     base_url: HttpUrl = HttpUrl("http://127.0.0.1:8000")
+    api_token: SecretStr | None = Field(default=None, repr=False)
     scope_id: str | None = Field(default=None, min_length=1)
     timeout: float = Field(default=10, gt=0)
     max_bytes: int = Field(default=8000, ge=512, le=32768)
@@ -95,19 +97,21 @@ def open_client(
     base_url: str,
     *,
     timeout: float,
+    api_token: SecretStr | None = None,
     trust_transport_security: bool = False,
     allow_insecure_http: bool = False,
 ) -> AbstractAsyncContextManager[PowerContextClient]:
     """Open a client, vouching for the transport only when the operator opted in."""
 
+    token = None if api_token is None else api_token.get_secret_value()
     if trust_transport_security:
-        return _vouched_client(base_url, timeout, allow_insecure_http=allow_insecure_http)
-    return PowerContextClient(base_url, timeout=timeout, allow_insecure_http=allow_insecure_http)
+        return _vouched_client(base_url, timeout, token=token, allow_insecure_http=allow_insecure_http)
+    return PowerContextClient(base_url, token=token, timeout=timeout, allow_insecure_http=allow_insecure_http)
 
 
 @asynccontextmanager
 async def _vouched_client(
-    base_url: str, timeout_seconds: float, *, allow_insecure_http: bool
+    base_url: str, timeout_seconds: float, *, token: str | None, allow_insecure_http: bool
 ) -> AsyncIterator[PowerContextClient]:
     # The operator vouched for the network (e.g. a private Compose bridge), and the
     # client only honours that vouch for a caller-supplied transport.
@@ -115,6 +119,7 @@ async def _vouched_client(
         httpx.AsyncClient(timeout=timeout_seconds) as transport,
         PowerContextClient(
             base_url,
+            token=token,
             http_client=transport,
             trust_transport_security=True,
             allow_insecure_http=allow_insecure_http,
@@ -145,6 +150,7 @@ class PowerContextPlugin:
                 "explicit_scope_id": self.settings.scope_id,
                 "binding_keys": binding_keys,
                 "timeout": self.settings.timeout,
+                "api_token": self.settings.api_token,
                 "trust_transport_security": self.settings.trust_transport_security,
                 "allow_insecure_http": self.allow_insecure_http,
                 "max_bytes": self.settings.max_bytes,
@@ -240,6 +246,7 @@ class PowerContextPlugin:
         return open_client(
             self.base_url,
             timeout=self.settings.timeout,
+            api_token=self.settings.api_token,
             trust_transport_security=self.settings.trust_transport_security,
             allow_insecure_http=self.allow_insecure_http,
         )

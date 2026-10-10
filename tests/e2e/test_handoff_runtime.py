@@ -25,6 +25,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffEvidenceUnavailableError,
     HandoffScopeMismatchError,
     PrepareHandoff,
+    PrepareHandoffHint,
 )
 from powercontext.builtin.artifacts.memory import MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
@@ -248,6 +249,38 @@ def test_handoff_activation_rejects_a_lineage_only_boundary_source() -> None:
                         objective="Do not regenerate from management provenance.",
                     )
                 )
+
+    asyncio.run(scenario())
+
+
+def test_handoff_hint_omits_a_lineage_only_source_without_changing_continue_errors() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Hint evidence", summary="Eligibility boundary", idempotency_key="hint-eligibility")
+            )
+            created = await runtime.records.for_scope(scope.scope_id).create_artifact(
+                "memory", ArtifactWrite(content={"entries": [{"kind": "fact", "text": "Direct input."}]})
+            )
+            prepared = PreparedHandoff(
+                scope_id=scope.scope_id,
+                base=None,
+                content=HandoffDraft(
+                    objective="Continue historical work.",
+                    state=(
+                        HandoffStatement(
+                            text="Recorded state.", citations=(HandoffSourceCitation(source_ref=created.sources[0]),)
+                        ),
+                    ),
+                    disposition="continuable",
+                ).as_content(),
+            )
+            handoffs = runtime.handoff.for_scope(scope.scope_id)
+            hint = await handoffs.hint(PrepareHandoffHint(selection="prepared", prepared=prepared))
+            assert hint.status == "empty" and hint.content is None and hint.content_bytes == 0
+            with pytest.raises(SourceNotEligibleError):
+                await handoffs.continue_from(prepared)
 
     asyncio.run(scenario())
 

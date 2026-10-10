@@ -20,7 +20,16 @@ import unicodedata
 from collections import Counter
 from collections.abc import Sequence
 
-from powercontext.builtin.artifacts.search import AdmissionFloor, admits_fts_text, analyze_text, analyze_text_with_spans
+from powercontext.artifacts.fusion import FusionCandidate, FusionChannel, RrfParameters, fuse_rrf
+from powercontext.artifacts.search import ChannelScore
+from powercontext.builtin.artifacts.search import (
+    AdmissionFloor,
+    InvalidSearchScore,
+    admits_fts_text,
+    analyze_text,
+    analyze_text_with_spans,
+    lexical_search_score,
+)
 from powercontext.builtin.artifacts.topic_memory.models import (
     TopicMemoryChannelHit,
     TopicMemoryFusionOutcome,
@@ -29,21 +38,12 @@ from powercontext.builtin.artifacts.topic_memory.models import (
     TopicMemorySearchHit,
     TopicMemoryUsedSearchMode,
 )
+from powercontext.builtin.artifacts.topic_memory.search import TOPIC_MODE_CHANNELS, validate_topic_weights
 
-_RRF_CONSTANT = 60
 _MIN_SEMANTIC_SIMILARITY = 0.3
 _SNIPPET_MAX_CHARACTERS = 480
-_CHANNEL_ORDER: tuple[TopicMemoryMatchedBy, ...] = (
-    "topic_fts",
-    "topic_vector",
-    "detail_fts",
-    "detail_vector",
-)
-_MODE_CHANNELS: dict[TopicMemoryUsedSearchMode, tuple[TopicMemoryMatchedBy, ...]] = {
-    "fts": ("topic_fts", "detail_fts"),
-    "vector": ("topic_vector", "detail_vector"),
-    "hybrid": _CHANNEL_ORDER,
-}
+_CHANNEL_ORDER = TOPIC_MODE_CHANNELS["hybrid"]
+_MODE_CHANNELS = TOPIC_MODE_CHANNELS
 
 
 def fuse_topic_memory_rankings(
@@ -71,18 +71,14 @@ def _fuse_topic_memory_rankings(
     *,
     mode: TopicMemoryUsedSearchMode = "hybrid",
     admission: AdmissionFloor | None = None,
+    fusion: RrfParameters | None = None,
+    min_score: float | None = None,
+    include_scores: bool = False,
 ) -> TopicMemoryFusionOutcome:
-    """Return fused hits plus internal admission accounting.
+    """Admit per channel, fuse exact identities, and retain rich Topic evidence."""
 
-    The returned outcome also reports how many channel hits the resolved mode actually
-    retrieved and how many survived admission, measured around the two admit helpers so the
-    numbers cannot drift from the admission rule itself.
-    """
-
-    candidates: dict[tuple[str, int], TopicMemoryChannelHit] = {}
-    snippets: dict[tuple[str, int], str] = {}
-    scores: dict[tuple[str, int], float] = {}
-    matched: dict[tuple[str, int], set[TopicMemoryMatchedBy]] = {}
+    params = fusion if fusion is not None else RrfParameters()
+    validate_topic_weights(mode, params)
     rankings: tuple[tuple[TopicMemoryMatchedBy, tuple[TopicMemoryChannelHit, ...]], ...] = (
         ("topic_fts", _admit_fts(query, channels.topic_fts, admission)),
         ("topic_vector", _admit_vector(channels.topic_vector, admission)),
@@ -105,42 +101,58 @@ def _fuse_topic_memory_rankings(
         for (channel, raw_hits), (_same_channel, admitted_hits) in zip(channel_inputs, rankings, strict=True)
         if channel in enabled_channels
     )
-    max_score = len(enabled_channels) / (_RRF_CONSTANT + 1)
+    candidates: dict[tuple[str, int], TopicMemoryChannelHit] = {}
+    snippets: dict[tuple[str, int], str] = {}
+    evidence: dict[tuple[str, int], dict[str, TopicMemoryChannelHit]] = {}
+    fusion_channels: list[FusionChannel[tuple[str, int]]] = []
     for channel, ranking in rankings:
         if channel not in enabled_channels:
             continue
         seen: set[tuple[str, int]] = set()
+        ranked_candidates = []
         for rank, candidate in enumerate(ranking, start=1):
             identity = (candidate.artifact_ref.artifact_id, candidate.artifact_ref.revision)
             if identity in seen:
                 continue
             seen.add(identity)
+            ranked_candidates.append(FusionCandidate(identity, rank))
             candidates.setdefault(identity, candidate)
             if candidate.chunk_text is not None:
                 snippets.setdefault(identity, _snippet(query, candidate.chunk_text, lexical=channel == "detail_fts"))
-            scores[identity] = scores.get(identity, 0.0) + 1.0 / (_RRF_CONSTANT + rank)
-            matched.setdefault(identity, set()).add(channel)
-
-    ordered = sorted(
-        candidates,
-        key=lambda identity: (-scores[identity], identity[0].encode(), -identity[1]),
-    )[:limit]
+            evidence.setdefault(identity, {})[channel] = candidate
+        fusion_channels.append(FusionChannel(channel, params.weights.get(channel, 1.0), tuple(ranked_candidates)))
+    fused = fuse_rrf(fusion_channels, params, tie_break=lambda identity: (identity[0].encode(), -identity[1]))
+    selected = tuple(hit for hit in fused if min_score is None or hit.score >= min_score)[:limit]
     return TopicMemoryFusionOutcome(
         hits=tuple(
             TopicMemorySearchHit(
-                artifact_ref=candidates[identity].artifact_ref,
-                title=candidates[identity].title,
-                summary=candidates[identity].summary,
-                snippet=snippets.get(identity),
-                score=min(100.0, scores[identity] / max_score * 100.0),
-                matched_by=tuple(channel for channel in _CHANNEL_ORDER if channel in matched[identity]),
+                artifact_ref=candidates[hit.key].artifact_ref,
+                title=candidates[hit.key].title,
+                summary=candidates[hit.key].summary,
+                snippet=snippets.get(hit.key),
+                score=min(100.0, hit.score * 100.0),
+                matched_by=tuple(channel for channel in _CHANNEL_ORDER if channel in evidence[hit.key]),
+                retrieval_score=hit.score,
+                channel_scores=_channel_scores(evidence[hit.key]) if include_scores else None,
             )
-            for identity in ordered
+            for hit in selected
         ),
         retrieved=retrieved,
         admitted=admitted,
         rejected=rejected,
     )
+
+
+def _channel_scores(evidence: dict[str, TopicMemoryChannelHit]) -> dict[str, ChannelScore]:
+    result = {}
+    for name, hit in evidence.items():
+        if name.endswith("_vector"):
+            if hit.distance is None:
+                raise InvalidSearchScore("admitted vector hit has no raw distance")  # noqa: TRY003
+            result[name] = ChannelScore(hit.distance, "l2_distance", False)
+        else:
+            _, result[name] = lexical_search_score(hit.raw_score, hit.metric)
+    return result
 
 
 def _retrieved_count(

@@ -133,6 +133,20 @@ class ContinuationEvaluationSpec(CatalogModel):
     recall_step: str = Field(min_length=1)
 
 
+class TaskOutcomeComparisonSpec(CatalogModel):
+    """Compare PowerContext off and on for a task that one agent session completes and its own verifier grades.
+
+    The Harbor task's reward decides each arm. The harness checks that the ON arm captured Sources and asked
+    PowerContext for context during that session.
+    """
+
+    comparison: Literal["task-outcome"]
+
+
+# The workloads that compare PowerContext off and on; only the paired command runs them.
+PAIRED_EVALUATIONS = (ContinuationEvaluationSpec, TaskOutcomeComparisonSpec)
+
+
 class E2ETask(CatalogModel):
     schema_: Literal["powercontext.e2e-task/v1"] = Field(alias="schema")
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
@@ -140,7 +154,11 @@ class E2ETask(CatalogModel):
     provenance: Provenance | None = None
     dataset: HarborDatasetSpec
     execution: BubExecutionSpec
-    evaluation: MemoryEvaluationSpec | OutcomeEvaluationSpec | ContinuationEvaluationSpec
+    evaluation: MemoryEvaluationSpec | OutcomeEvaluationSpec | ContinuationEvaluationSpec | TaskOutcomeComparisonSpec
+
+
+def is_paired(task: E2ETask) -> bool:
+    return isinstance(task.evaluation, PAIRED_EVALUATIONS)
 
 
 class TaskSelectionError(ValueError):

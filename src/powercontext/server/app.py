@@ -49,6 +49,11 @@ from typing_extensions import override
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
+from powercontext.artifacts.search import (
+    ArtifactSearchExecutionContext,
+    ArtifactSearchFamilyNotFound,
+    ArtifactSearchUnsupported,
+)
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.handoff import (
     HandoffCitation,
@@ -57,6 +62,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffScopeMismatchError,
     InvalidHandoffGenerationError,
     InvalidHandoffReferenceError,
+    PrepareHandoffHint,
 )
 from powercontext.builtin.artifacts.memory.errors import (
     CapabilityNotSupportedError,
@@ -66,6 +72,7 @@ from powercontext.builtin.artifacts.memory.errors import (
     MemoryCapacityExceededError,
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
+    MemoryWriteRejectedError,
 )
 from powercontext.builtin.artifacts.memory.models import MemoryCapacity as RuntimeMemoryCapacity
 from powercontext.builtin.artifacts.prompt import GeneratePromptDemonstrations, PromptError
@@ -301,9 +308,11 @@ from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
 from powercontext.builtin.runtime.application import BuiltinRuntime, PromptApplication
+from powercontext.builtin.runtime.skill_search import search_skill_library
 from powercontext.builtin.scope import (
     ScopeApplication,
     ScopeBindingNotFoundError,
+    ScopeBindingTargetMissingError,
     ScopeDraft,
     ScopeIdempotencyConflictError,
     ScopeMutation,
@@ -489,6 +498,7 @@ from powercontext.http import (
     PrepareContextRequest,
     PreparedContext,
     PreparedWorkHandoff,
+    PrepareHandoffHintRequest,
     PrepareHandoffRequest,
     ProfilePolicyResponse,
     PromptConfiguration,
@@ -538,6 +548,7 @@ from powercontext.http import (
     ScopePage,
     ScopeQueryField,
     ScopeSelection,
+    SearchArtifactsRequest,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SearchTopicMemoryRequest,
@@ -713,6 +724,7 @@ from powercontext.http._generated.operations import (
     OPENAPI_VERSION,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
+    PREPARE_HANDOFF_HINT,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
     PROPOSE_SKILL_PACKAGE,
@@ -742,6 +754,7 @@ from powercontext.http._generated.operations import (
     REVOKE_ACCESS_BINDING,
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
+    SEARCH_ARTIFACTS,
     SEARCH_MEMORY,
     SEARCH_TOPIC_MEMORY,
     SET_DEFAULT_SCOPE,
@@ -1119,6 +1132,8 @@ class _ScopedHandoffApplication(Protocol):
 
     async def commit(self, prepared: PreparedHandoff, /) -> Handoff: ...
 
+    async def hint(self, request: PrepareHandoffHint, /) -> RuntimePreparedContext: ...
+
     async def continue_from(
         self,
         handoff: PreparedHandoff | ArtifactRef,
@@ -1183,7 +1198,13 @@ class _MemoryApplication(Protocol):
 
 
 class _ScopedTopicMemoryApplication(Protocol):
-    async def search(self, request: RuntimeSearchTopicMemoryRequest, /) -> TopicMemorySearchResult: ...
+    async def search(
+        self,
+        request: RuntimeSearchTopicMemoryRequest,
+        /,
+        *,
+        execution_context: ArtifactSearchExecutionContext | None = None,
+    ) -> TopicMemorySearchResult: ...
 
     async def get(self, request: RuntimeGetTopicMemoryRequest, /) -> PublishedTopicMemory: ...
 
@@ -1412,6 +1433,7 @@ def create_app(
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
     _add_route(app, FLUSH_TOPIC_MEMORY, flush_topic_memory)
     _add_route(app, SEARCH_TOPIC_MEMORY, search_topic_memory)
+    _add_route(app, SEARCH_ARTIFACTS, search_artifacts)
     _add_route(app, GET_TOPIC_MEMORY, get_topic_memory)
     _add_route(app, REGISTER_SOURCE_DEFINITION, register_source_definition)
     _add_route(app, GET_CONNECTOR_CHECKPOINT, get_connector_checkpoint)
@@ -1431,6 +1453,7 @@ def create_app(
     _add_route(app, FINALIZE_HANDOFF, finalize_handoff)
     _add_route(app, COMMIT_HANDOFF, commit_handoff)
     _add_route(app, CONTINUE_HANDOFF, continue_handoff)
+    _add_route(app, PREPARE_HANDOFF_HINT, prepare_handoff_hint)
     _add_route(app, LIST_MEMORY_ENTRIES, list_memory_entries)
     _add_route(app, GET_MEMORY_CAPACITY, get_memory_capacity)
     _add_route(app, GET_MEMORY_ENTRY, get_memory_entry)
@@ -2440,11 +2463,46 @@ async def flush_topic_memory(
 async def search_topic_memory(
     request: SearchTopicMemoryRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> SearchTopicMemoryResponse:
+    access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+    execution_context = ArtifactSearchExecutionContext(
+        principal=_require_principal() if access is not None else None,
+        access=access,
+        audit=_access_audit_context(SEARCH_TOPIC_MEMORY.operation_id),
+        trusted_local=access is None and http_request.app.state.access_mode == "disabled",
+    )
     result = await application.topic_memory.for_scope(request.scope_id).search(
-        mapping.topic_memory_search_request(request)
+        mapping.topic_memory_search_request(request),
+        **({} if access is None else {"execution_context": execution_context}),
     )
     return mapping.topic_memory_search_response(result)
+
+
+async def search_artifacts(
+    scope_id: _ScopePathId,
+    family: Annotated[str, Path(min_length=1)],
+    request: SearchArtifactsRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> Response:
+    artifacts = getattr(application, "artifacts", None)
+    if artifacts is None:
+        raise ArtifactSearchUnsupported(family, field="family")
+    access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+    execution_context = ArtifactSearchExecutionContext(
+        principal=_require_principal() if access is not None else None,
+        access=access,
+        audit=_access_audit_context(SEARCH_ARTIFACTS.operation_id),
+        trusted_local=access is None and http_request.app.state.access_mode == "disabled",
+    )
+    outcome = await artifacts.for_scope(scope_id).search(
+        family,
+        request.model_dump(mode="json", exclude_unset=True),
+        execution_context=execution_context,
+    )
+    result = mapping.artifact_search_response(outcome, include_scores=request.include_scores)
+    return JSONResponse(content=result.model_dump(mode="json", exclude_unset=True))
 
 
 async def get_topic_memory(
@@ -3093,6 +3151,23 @@ async def continue_handoff(
     return mapping.handoff_resolution_response(result)
 
 
+async def prepare_handoff_hint(
+    request: PrepareHandoffHintRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> PreparedContext:
+    try:
+        action = PrepareHandoffHint(
+            selection=request.selection.value,
+            prepared=None if request.prepared is None else mapping.runtime_prepared_handoff(request.prepared),
+            revision=None if request.revision is None else mapping.runtime_artifact_reference(request.revision),
+            max_bytes=request.max_bytes,
+        )
+    except ValueError as error:
+        raise InvalidRuntimeRequestError("handoff-hint") from error
+    result = await application.handoff.for_scope(request.scope_id).hint(action)
+    return mapping.prepared_context_response(result)
+
+
 async def get_memory_capacity(
     request: GetMemoryCapacityRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -3313,29 +3388,12 @@ async def list_managed_skills(
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ListManagedSkillsResponse:
     scoped = application.skill.for_scope(request.scope_id)
-    values: list[tuple[Skill, ArtifactGovernance]] = []
-    query = "" if request.query is None else request.query.strip()
-    if query:
-        for hit in await scoped.search(query, request.limit):
-            skill = await scoped.get(RuntimeGetSkillRequest(artifact=hit.artifact_ref))
-            values.append((skill, await scoped.governance(skill.artifact_id)))
-    else:
-        values.extend(await scoped.list(include_deprecated=request.include_deprecated, limit=request.limit))
-    if query and request.include_deprecated:
-        seen = {skill.artifact_id for skill, _governance in values}
-        for skill, governance in await scoped.list(include_deprecated=True, limit=request.limit):
-            search_text = "\n".join((
-                skill.content.name,
-                skill.content.description,
-                skill.content.instructions,
-                *skill.content.metadata.values(),
-            ))
-            if (
-                governance.lifecycle_state is ArtifactLifecycleState.DEPRECATED
-                and skill.artifact_id not in seen
-                and query.casefold() in search_text.casefold()
-            ):
-                values.append((skill, governance))
+    values = await search_skill_library(
+        scoped,
+        "" if request.query is None else request.query,
+        request.limit,
+        include_deprecated=request.include_deprecated,
+    )
     return ListManagedSkillsResponse(
         skills=[mapping.managed_skill_library_entry(skill, governance) for skill, governance in values[: request.limit]]
     )
@@ -4332,6 +4390,7 @@ def _add_route(
 # Collection permission allows identity discovery, but content remains unavailable
 # until every committed identity has its immutable owner relation.
 _COLLECTION_CONTENT_OPERATIONS = frozenset({
+    "search_artifacts",
     "search_memory",
     "list_memory_entries",
     "get_memory_capacity",
@@ -5172,6 +5231,15 @@ def _set_error_headers(response: Response, error: Exception) -> None:
 
 
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+    if isinstance(error, ArtifactSearchFamilyNotFound):
+        return status.HTTP_404_NOT_FOUND, "artifact_family_not_found", "The Artifact Family was not found.", None
+    if isinstance(error, ArtifactSearchUnsupported):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "artifact_search_not_supported",
+            "The Artifact search capability is unavailable.",
+            None if error.field is None else {"field": error.field},
+        )
     if isinstance(error, CodeError):
         return error.status, error.code, "The code query could not be completed.", None
     access_error = _map_access_error(error)
@@ -5399,6 +5467,13 @@ def _map_scope_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | 
             "The publication key identifies a different source Artifact.",
             None,
         )
+    if isinstance(error, ScopeBindingTargetMissingError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "scope_binding_target_missing",
+            "The persisted Scope binding references a missing Scope. Operator repair is required.",
+            {"scope_id": error.scope_id},
+        )
     if isinstance(error, (ScopeNotFoundError, ScopeBindingNotFoundError)):
         return status.HTTP_404_NOT_FOUND, "scope_not_found", "The requested Scope was not found.", None
     if isinstance(error, ScopeVersionConflictError):
@@ -5481,26 +5556,12 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
     source_ingestion = _map_source_ingestion_error(error)
     if source_ingestion is not None:
         return source_ingestion
-    if isinstance(error, ArtifactNotFoundError):
-        return status.HTTP_404_NOT_FOUND, "artifact_not_found", "The requested Artifact was not found.", None
-    if isinstance(error, MemoryEntryNotFoundError):
-        return status.HTTP_404_NOT_FOUND, "memory_not_found", "The requested Memory value was not found.", None
-    memory_conflict = _map_memory_conflict_error(error)
-    if memory_conflict is not None:
-        return memory_conflict
-    if isinstance(error, CapabilityNotSupportedError):
-        return (
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "capability_not_supported",
-            "The requested capability is unavailable.",
-            {"capability": error.capability},
-        )
+    memory_error = _map_memory_error(error)
+    if memory_error is not None:
+        return memory_error
     if isinstance(
         error,
         (
-            InvalidMemoryCandidateError,
-            InvalidMemoryCitationError,
-            InvalidMemoryEvidenceError,
             HandoffScopeMismatchError,
             InvalidHandoffReferenceError,
             InvalidRuntimeRequestError,
@@ -5517,6 +5578,45 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
     if isinstance(error, InferenceUnavailableError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Model inference is unavailable.", None
     return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
+
+
+def _map_memory_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, ArtifactNotFoundError):
+        return status.HTTP_404_NOT_FOUND, "artifact_not_found", "The requested Artifact was not found.", None
+    if isinstance(error, MemoryEntryNotFoundError):
+        return status.HTTP_404_NOT_FOUND, "memory_not_found", "The requested Memory value was not found.", None
+    memory_conflict = _map_memory_conflict_error(error)
+    if memory_conflict is not None:
+        return memory_conflict
+    if isinstance(error, MemoryWriteRejectedError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "memory_write_rejected",
+            "The Memory write was rejected by the configured gate.",
+            {"code": error.code, "reason": error.reason},
+        )
+    if isinstance(error, CapabilityNotSupportedError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "capability_not_supported",
+            "The requested capability is unavailable.",
+            {"capability": error.capability},
+        )
+    if isinstance(
+        error,
+        (
+            InvalidMemoryCandidateError,
+            InvalidMemoryCitationError,
+            InvalidMemoryEvidenceError,
+        ),
+    ):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "invalid_request",
+            "The request is invalid.",
+            _invalid_request_details(error),
+        )
+    return None
 
 
 def _map_memory_conflict_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:

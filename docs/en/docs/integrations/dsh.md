@@ -10,7 +10,7 @@ description: Install the PowerContext DeepSeek Harness plugin and control its lo
 
 ## Install matching Server and plugin versions
 
-Install DeepSeek Harness and make sure its Web profile is available. The real-host acceptance suite pins DSH
+Install DeepSeek Harness Web or Desktop. The real-host acceptance suite pins DSH
 0.1.2-rc.1. Choose one PowerContext installation path and keep the Server and plugin together.
 
 For this guided-setup build:
@@ -36,7 +36,51 @@ commands. A local source must contain the checked-in built `lib/index.js`.
 `setup dsh --source oceanbase/powercontext --ref master` reuses a valid cached checkout without fetching:
 repeating that command does not update a moving branch. A broken checkout is replaced.
 
-`setup dsh` calls `dsh plugin --profile web add`; it does not start the Server. Restart DSH after installation.
+`powercontext setup dsh` asks for `web` or `desktop` in an interactive terminal. Without a terminal, or with
+`--json`, an omitted profile defaults to `web`. Explicit selection never prompts:
+
+```bash
+powercontext setup dsh --profile web
+powercontext setup dsh --profile desktop
+powercontext doctor dsh --profile desktop
+```
+
+Web installs under `$DSH_HOME/profiles/web`; Desktop installs under `$DSH_HOME/profiles/desktop`
+(`DSH_HOME` defaults to `~/.dsh`). Setup calls `dsh plugin --profile <profile> add`, which installs the package
+and enables its bundle in that profile's `package.json`. The bundle supplies its own patch. Setup preserves
+both profiles' user `cordis.patch.yml` files and does not enable the plugin in the other profile.
+
+Desktop requires its **Desktop-installed command**, not npm/pnpm dsh. Open Desktop once to initialize its
+profile, use **Manage dsh Command…** to install the command, open a new terminal, then fully quit Desktop
+before setup. Closing the window may only hide it. Setup searches PATH for the Desktop carrier even when
+an npm shim comes first. If it is not registered on PATH, pass its installed launcher explicitly:
+
+```powershell
+powercontext setup dsh --profile desktop --dsh-command "D:\Apps\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd"
+```
+
+On macOS the launcher is `DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`.
+`--dsh-command` also works with `doctor dsh`. Packaged Windows/macOS Desktop layouts are supported;
+unpackaged development launchers are not. Desktop inspection uses the application's Electron runtime and
+configuration APIs without booting plugins. Registration success does not establish running-host readiness:
+reopen Desktop and run `/pc doctor`. Setup does not start the Server or quit Desktop for you.
+
+Saved `hosts.dsh` connection settings and `$DSH_HOME/powercontext/credentials.json` are shared between Web
+and Desktop. Use the same Server for both; changing the shared URL affects either profile that has no native
+override. Credentials remain bound to their saved Server URL. Install into each profile separately if you use both.
+
+Existing UI and model patches can remain in place. Setup checks the composed PowerContext connection settings;
+see [remote connection configuration](../operate/connect-remote-server.md) for conflicts and dynamic configuration limits.
+The check includes children of `group: true` groups and groups named `@deepseek-ai/cordis-plugin-group` or `cordis:group`;
+multiple PowerContext entries are rejected before installation and during the installed-configuration check.
+Native `@deepseek-ai/cordis-plugin-include` and `cordis:include` trees are checked with the selected host's
+YAML/JSON parser and include patches. Relative paths start at the profile directory; nested includes resolve
+from their containing file's directory. Unrelated UI/model expressions remain unevaluated during setup.
+Enabled include files must already exist. Cycles, unsupported file types or URLs, dynamic paths or patch structure,
+and unverifiable group children fail before connection settings or credentials are saved.
+
+An unset, empty, or whitespace-only `DSH_HOME` selects `~/.dsh`. A nonblank path keeps its leading and trailing
+spaces. These rules apply to configuration inspection, stored credentials, and plugin dependency lookup.
 
 ## Start the Server and the host
 
@@ -74,6 +118,10 @@ Run `/pc doctor` inside the affected DSH session. Its report identifies configur
 liveness, readiness, capabilities, declared routes, the current Scope, and a read-only prepare operation independently.
 A Scope failure leaves health results available. The endpoint summary shows only its origin, configuration source
 and whether a path prefix exists; credentials, prefix text, query strings and fragments are not printed.
+
+Doctor reports the active host's native MCP catalog separately. The documented DSH installation is HTTP-only, so
+`native_mcp_unconfigured` does not fail an otherwise healthy HTTP plugin. If other native MCP tools are visible
+but `mcp__powercontext__*` is absent, Doctor reports `native_mcp_powercontext_missing` with a recovery action.
 
 Each failed check identifies the operation, a stable code, HTTP status/request ID when available, and a recovery
 action. Protocol errors also include `protocol_issue`, identifying the violated JSON, status or PreparedContext field rule.
@@ -208,10 +256,19 @@ Inside DeepSeek Harness:
 | `unavailable` | Connection failure, timeout, cancellation, or HTTP 503. Native diagnostics use `server_unavailable`. |
 | `unscoped` | The resolver completed without a Scope. |
 | `invalid_response` | The client detected an invalid Server response. |
+| `precondition_failed` | The Server rejected a write because a tag or revision precondition no longer matches the current state. Re-read the current reference, then retry with the fresh value. A 412 that carries a published business code reports that code instead. |
+| `precondition_required` | The Server requires the current ETag in `If-Match` for this mutation. Read the resource, then retry with its ETag. |
+| `invalid_cursor` | The Server rejected a pagination cursor that is malformed or does not match this request. Restart the listing from the beginning. This is the 400 half of the cursor pair whose expired half is `cursor_expired`. |
+| `cursor_expired` | The Server rejected a pagination cursor. Restart the listing from the beginning. |
+| `handoff_report_too_large` | The result exceeds the response limit; the Server's only 413 is the Handoff Report size limit. Narrow the selection and retry. |
+| `capacity_exceeded` | The Server reached a capacity limit. Retry after a short delay. |
 
-Existing conflict and validation codes, such as `revision_conflict` and `invalid_request`, retain their meaning. Failure
-results preserve available HTTP status and request ID, but use fixed messages instead of Server-provided text. Unknown
-error codes are omitted from `error_code` and diagnostics; their presence alone does not imply a version mismatch.
+Existing conflict and validation codes, such as `revision_conflict` and `invalid_request`, retain their meaning. A domain
+status keeps its own result code and recovery action: only transport failures and HTTP 5xx use the `unavailable` wording,
+so a recoverable rejection is never reported as an outage. A response body that carries `error.details` preserves that
+object on the tool result. Failure results preserve available HTTP status and request ID, but use fixed messages instead
+of Server-provided text. Unknown error codes are omitted from `error_code` and diagnostics; their presence alone does not
+imply a version mismatch.
 
 ## Diagnose automatic recall and capture
 
