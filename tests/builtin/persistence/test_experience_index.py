@@ -169,7 +169,7 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
             assert scored_hit.retrieval_score == -raw.raw / (1 - raw.raw)
             async with contexts.database.transaction() as connection:
                 excluded = await contexts.experience_index.search(
-                    connection, "project", "hamsterlegacy", 8, min_score=1, require_scores=True
+                    connection, scope_id, "hamsterlegacy", 8, min_score=1, require_scores=True
                 )
             assert excluded.hits == ()
             assert excluded.admission is not None
