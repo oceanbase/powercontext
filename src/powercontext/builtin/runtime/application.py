@@ -172,6 +172,7 @@ from powercontext.builtin.runtime._scope_cache import (
 from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
 from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
+from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
 from powercontext.builtin.runtime.models import (
     ApproveArtifactCandidateRequest,
     CaptureSource,
@@ -181,6 +182,7 @@ from powercontext.builtin.runtime.models import (
     ExperienceIncubationResult,
     ExternalSkillList,
     ExternalSkillScanResult,
+    ExtractionStatus,
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
@@ -2649,7 +2651,14 @@ class ScopedMemoryApplication:
             window_limit = self._runtime.source_window_limit if limit is None else limit
             async with self._runtime._locked(self.scope_id):
                 with self._runtime._stage("memory.flush", attributes={}) as span:
-                    result = await context.triggers.flush(limit=window_limit)
+                    try:
+                        result = await context.triggers.flush(limit=window_limit)
+                    except Exception as error:
+                        if self._runtime._extraction_diagnostics is not None:
+                            self._runtime._extraction_diagnostics.failed(error)
+                        raise
+                    if result.processed and self._runtime._extraction_diagnostics is not None:
+                        self._runtime._extraction_diagnostics.succeeded()
                     if span is not None:
                         span.set_attributes({"powercontext.memory.flush.source_count": result.source_count})
                         span.set_outcome("success" if result.processed else "noop")
@@ -2935,6 +2944,7 @@ class BuiltinRuntime:
         provider: PowerContextProvider[BuiltinSources, BuiltinArtifacts, BuiltinTriggers],
         capabilities: RuntimeCapabilities,
         primary_database: AsyncDatabase | None = None,
+        extraction_diagnostics: ExtractionDiagnostics | None = None,
         code_service: CodeService | None = None,
         source_window_limit: int = 100,
         context_assembly_max_entries: int = 8,
@@ -2997,6 +3007,7 @@ class BuiltinRuntime:
         self._provider = provider
         self._primary_database = primary_database
         self._capabilities = capabilities
+        self._extraction_diagnostics = extraction_diagnostics
         self._review_service = review_service
         self.profiles = profiles
         self.subject_sources = subject_sources
@@ -3112,6 +3123,13 @@ class BuiltinRuntime:
     async def capabilities(self) -> RuntimeCapabilities:
         async with self._operation():
             return self._capabilities
+
+    def extraction_status(self) -> ExtractionStatus | None:
+        """Read local observations without querying storage or calling a model."""
+
+        if self._extraction_diagnostics is None:
+            return None
+        return self._extraction_diagnostics.snapshot(self.artifact_processing_supervisor)
 
     async def readiness(self) -> RuntimeReadiness:
         """Check whether the Runtime and its assembled dependencies can accept work."""

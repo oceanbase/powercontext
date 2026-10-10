@@ -336,6 +336,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
         "source_types",
         "artifact_families",
         "memory_extraction",
+        "extraction",
         "experience_generation",
         "managed_skill_generation",
         "external_skill_registry",

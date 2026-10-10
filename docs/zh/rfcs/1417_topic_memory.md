@@ -641,7 +641,18 @@ retry_states[(binding_name, scope_id)] = {
 采用带抖动的指数退避：约 30 秒、1 分钟、2 分钟，直至约 30 分钟上限。Supervisor 可继续检查失败键，但 Topic
 Worker 的持久额度限制整窗重算次数。尝试计数在 Source 投影前提交，provider 额度在调用前提交。第三次尝试可用剩余
 provider 额度完成工作，但不能再开始第四次。请求或 token 额度耗尽记录 `window_provider_budget_exceeded`，尝试次数
-耗尽报告 `window_attempt_limit`。Selector 在 materialize Source 或启动 Worker 前检查终止状态。
+耗尽报告 `window_attempt_limit`。派发前由 Topic 领域的 metadata probe 检查当前 Cursor、target/Source head 和额度
+记录；尝试次数已耗尽但 failure code 仍为空的旧记录也能识别。检查不选择或 materialize Source、不估算 token，
+也不构造模型。Worker 内 Selector 和调用前预留继续保留检查，防止准入后状态发生变化；已开始的第三次尝试仍可完成。
+
+持久拒绝进入终止等待，不按普通失败退避反复启动 Worker，不消耗 provider 额度、不增加失败计数，也不确认调用完成
+或推进进度。Supervisor 在五分钟后、新的显式 flush 或自动准入时重新检查 metadata；额度或 Cursor 经明确修复后
+可直接恢复处理，无需重启。暂时错误继续采用原有退避。首次发现终止或诊断发生变化时输出 `artifact_processing.blocked`，
+包含 stage、error code、Family、binding、Scope、已尝试的 Window 范围和尝试/请求/token 计数；缓存内状态未变化的
+检查保持安静。日志去重缓存有界且仅在当前 Supervisor 任期内有效，重启或缓存淘汰后可能再次报告该状态。
+淘汰的终止键仍由领域准入检查保护，并通过有界的持久调用发现重新检查；终止缓存压力不暂停其他 Scope 的准入。
+metadata 重新检查出错时保留已知终止状态、等待间隔和日志去重信息；Supervisor 共享准入时间额度耗尽时让出控制，
+不将正在检查的 Scope 记成新的失败。
 
 终止的 frontier 保留 Source、Cursor、Pending 以及同 Scope 尾部；不会视为 NOOP、成功或跳过证据的授权。其他 Scope
 仍可处理。剩余额度内重试成功后仍按原合同发布，并继续处理尾部。不提供自动额度重置、retry/reset API 或 quarantine
@@ -658,8 +669,9 @@ failure code，不保存 prompt、Source 原文或模型输出。可结合 Curso
 Cursor 与 Head conflict 使用固定的短 retry deadline，而不是立即重新派发；冲突目标在延后期间释放当前页，使冻结
 尾页继续推进且不会形成热循环。
 
-日志至少包含 binding、scope、Window 范围、stage、error code、异常类型、失败次数、重试延迟、Supervisor
-generation、worker ID 和 traceback；不得记录 Source 原文、Prompt、模型完整输出或密钥。
+Console 和 JSON 运维日志保留 binding、Family、Scope、Window 范围、stage、error code 及适用的额度/重试计数。
+实际 Worker 错误保留子进程的 stage、异常类型和 Worker 身份。内部 Worker 失败诊断保留脱敏的栈位置；运维 formatter
+不序列化任意 extra 或 traceback 内容。不得记录 Source 原文、Prompt、模型完整输出或密钥。
 
 ## HTTP、MCP 与 Prepared Context
 

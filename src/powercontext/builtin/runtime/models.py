@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
@@ -100,6 +101,42 @@ class CommitConnectorCheckpoint(BaseModel):
     binding: ConnectorBinding
     expected: JsonValue | None
     checkpoint: JsonValue | None
+
+
+class ExtractionBackground(BaseModel):
+    """Placement, leadership, and lifecycle of the Memory Supervisor."""
+
+    location: Literal["local", "external", "none"]
+    role: Literal["leader", "standby"] | None = None
+    state: Literal["running", "degraded", "stopped", "unknown"]
+    automatic_processing_enabled: bool | None = None
+
+
+class ExtractionFailure(BaseModel):
+    """A historical failure observation, not an unresolved incident."""
+
+    model_config = ConfigDict(frozen=True)
+
+    code: str
+    stage: Literal["inference", "flush", "worker", "supervisor", "lease_renewal", "scope_discovery"]
+    occurred_at: datetime
+
+
+class ExtractionObservation(BaseModel):
+    """Independent success and failure evidence within this Runtime's lifetime."""
+
+    status: Literal["unverified", "observed"]
+    since: datetime
+    last_success_at: datetime | None = None
+    last_failure: ExtractionFailure | None = None
+
+
+class ExtractionStatus(BaseModel):
+    """Read-only facts about Memory extraction, without an overall health verdict."""
+
+    configuration: Literal["configured", "unconfigured", "unknown"]
+    background: ExtractionBackground
+    observation: ExtractionObservation
 
 
 class RuntimeCapabilities(BaseModel):

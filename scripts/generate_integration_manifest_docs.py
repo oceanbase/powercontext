@@ -23,6 +23,7 @@ from pathlib import Path
 from integration_manifest import (
     DOCUMENTATION_PATHS,
     evidence_path_errors,
+    integration_directory_errors,
     load_integration_manifest,
     release_tag_errors,
     render_integration_capability_reference,
@@ -32,7 +33,12 @@ from integration_manifest import (
 
 def _expected_documents() -> dict[Path, str]:
     manifest = load_integration_manifest()
-    errors = (*evidence_path_errors(manifest), *release_tag_errors(manifest), *tool_surface_errors(manifest))
+    errors = (
+        *integration_directory_errors(manifest),
+        *evidence_path_errors(manifest),
+        *release_tag_errors(manifest),
+        *tool_surface_errors(manifest),
+    )
     if errors:
         raise ValueError("\n".join(errors))
     return {

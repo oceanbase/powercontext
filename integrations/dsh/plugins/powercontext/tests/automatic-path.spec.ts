@@ -98,6 +98,25 @@ afterEach(() => {
 })
 
 describe('registered automatic path', () => {
+  it('reports missing binding targets with repair guidance and stops automatic Scope work', async () => {
+    const h = await fixture(() => response({
+      error: { code: 'scope_binding_target_missing', message: PRIVATE, details: { scope_id: PRIVATE } },
+    }, 409))
+    const result = await h.run({ cwd: '/workspace' })
+    expect(result).toEqual({ kind: 'enter', messages: [userMessage] })
+    expect(h.requests.map(request => request.path)).toEqual([SCOPE])
+    const diagnostics = h.diagnostics()
+    expect(diagnostics).toEqual([expect.objectContaining({
+      event: 'scope_resolve', outcome: 'invalid_response', http_status: 409,
+      error_code: 'scope_binding_target_missing',
+    })])
+    expect(diagnostics[0].recovery).toContain('An operator must investigate the data loss')
+    expect(diagnostics[0].recovery).toContain('restore the original Scope or explicitly repair the binding')
+    expect(diagnostics[0].recovery).toContain('Do not automatically create a replacement Scope')
+    expect(diagnostics[0].recovery).not.toContain('retry')
+    expect(JSON.stringify(diagnostics)).not.toContain(PRIVATE)
+  })
+
   it.each([
     [404, undefined, 'version_mismatch', undefined],
     [404, 'scope_not_found', 'invalid_response', 'scope_not_found'],

@@ -481,6 +481,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "get": {
                 "tags": ["scopes"],
                 "summary": "Get the default Scope binding target",
+                "description": "A missing default binding returns 404 "
+                "scope_not_found. A persisted default "
+                "binding whose target is missing returns "
+                "409 scope_binding_target_missing with "
+                "details.scope_id; repair the binding or "
+                "restore its target explicitly instead of "
+                "automatically provisioning a "
+                "replacement.",
                 "operationId": "get_default_scope",
                 "responses": {
                     "200": {
@@ -488,6 +496,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
@@ -555,7 +564,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "Scope from the repository, "
                 "branch, directory, or prompt, "
                 "and do not change bindings "
-                "while diagnosing availability.",
+                "while diagnosing availability. "
+                "No resolvable binding, or an "
+                "unknown explicit Scope ID, "
+                "returns 404 scope_not_found. A "
+                "persisted durable or default "
+                "binding whose target is missing "
+                "returns 409 "
+                "scope_binding_target_missing "
+                "with details.scope_id. "
+                "Resolution stops at that "
+                "binding without falling back or "
+                "creating a replacement Scope. "
+                "Operator repair is required; "
+                "clients must not treat this "
+                "conflict as an unprovisioned "
+                "identity.",
                 "operationId": "resolve_scope_binding",
                 "requestBody": {
                     "content": {
@@ -569,6 +593,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
@@ -5691,6 +5716,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "boolean",
                         "description": "Whether pending Sources can be extracted into Memory.",
                     },
+                    "extraction": {
+                        "$ref": "#/components/schemas/ExtractionStatus",
+                        "description": "Live "
+                        "Memory "
+                        "extraction "
+                        "diagnostics. "
+                        "Null "
+                        "means "
+                        "diagnostics "
+                        "are not "
+                        "supplied "
+                        "by this "
+                        "runtime. "
+                        "This "
+                        "read "
+                        "does "
+                        "not "
+                        "call a "
+                        "model "
+                        "or "
+                        "prove "
+                        "provider "
+                        "connectivity.",
+                        "nullable": True,
+                    },
                     "experience_generation": {
                         "type": "boolean",
                         "description": "Whether the configured model can generate reviewed Experience Candidates.",
@@ -5735,6 +5785,355 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "search_modes",
                     "context_versions",
                 ],
+            },
+            "ExtractionStatus": {
+                "properties": {
+                    "configuration": {
+                        "type": "string",
+                        "enum": ["configured", "unconfigured", "unknown"],
+                        "description": "Whether "
+                        "a "
+                        "local "
+                        "extraction "
+                        "model "
+                        "or "
+                        "custom "
+                        "pipeline "
+                        "is "
+                        "assembled. "
+                        "Configured "
+                        "does "
+                        "not "
+                        "verify "
+                        "credentials "
+                        "or "
+                        "connectivity. "
+                        "Unknown "
+                        "means "
+                        "execution "
+                        "is "
+                        "external "
+                        "and "
+                        "its "
+                        "configuration "
+                        "is "
+                        "not "
+                        "observed.",
+                    },
+                    "background": {"$ref": "#/components/schemas/ExtractionBackground"},
+                    "observation": {"$ref": "#/components/schemas/ExtractionObservation"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["configuration", "background", "observation"],
+            },
+            "ExtractionBackground": {
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "enum": ["local", "external", "none"],
+                        "description": "Placement "
+                        "of "
+                        "the "
+                        "Memory "
+                        "Supervisor. "
+                        "None "
+                        "means "
+                        "no "
+                        "background "
+                        "executor; "
+                        "synchronous "
+                        "flush "
+                        "may "
+                        "still "
+                        "work.",
+                    },
+                    "role": {
+                        "type": "string",
+                        "enum": ["leader", "standby"],
+                        "description": "Current "
+                        "local "
+                        "Supervisor "
+                        "leadership "
+                        "role. "
+                        "Standby "
+                        "is "
+                        "normal; "
+                        "null "
+                        "means "
+                        "no "
+                        "running "
+                        "local "
+                        "Supervisor.",
+                        "nullable": True,
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": ["running", "degraded", "stopped", "unknown"],
+                        "description": "Local "
+                        "Supervisor "
+                        "lifecycle "
+                        "and "
+                        "control "
+                        "state, "
+                        "independent "
+                        "of "
+                        "individual "
+                        "worker "
+                        "outcomes. "
+                        "A "
+                        "running "
+                        "Supervisor "
+                        "may "
+                        "be "
+                        "retrying "
+                        "failed "
+                        "workers. "
+                        "External "
+                        "state "
+                        "is "
+                        "unknown.",
+                    },
+                    "automatic_processing_enabled": {
+                        "type": "boolean",
+                        "description": "Whether "
+                        "this "
+                        "process "
+                        "schedules "
+                        "automatic "
+                        "Memory "
+                        "extraction. "
+                        "False "
+                        "still "
+                        "permits "
+                        "explicit "
+                        "flush "
+                        "and "
+                        "recovery "
+                        "of "
+                        "accepted "
+                        "work. "
+                        "Null "
+                        "means "
+                        "the "
+                        "external "
+                        "worker "
+                        "schedule "
+                        "is "
+                        "unknown.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["location", "state"],
+            },
+            "ExtractionObservation": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["unverified", "observed"],
+                        "description": "Unverified "
+                        "means "
+                        "no "
+                        "execution "
+                        "outcome "
+                        "or "
+                        "control "
+                        "failure "
+                        "has "
+                        "been "
+                        "observed "
+                        "in "
+                        "this "
+                        "window. "
+                        "Observed "
+                        "means "
+                        "at "
+                        "least "
+                        "one "
+                        "success "
+                        "or "
+                        "failure "
+                        "is "
+                        "recorded; "
+                        "neither "
+                        "value "
+                        "is "
+                        "a "
+                        "health "
+                        "verdict.",
+                    },
+                    "since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "UTC "
+                        "start "
+                        "of "
+                        "this "
+                        "Runtime's "
+                        "observation "
+                        "window. "
+                        "Records "
+                        "cover "
+                        "this "
+                        "process "
+                        "and "
+                        "its "
+                        "child "
+                        "Memory "
+                        "workers, "
+                        "reset "
+                        "on "
+                        "Runtime "
+                        "restart, "
+                        "and "
+                        "do "
+                        "not "
+                        "include "
+                        "remote "
+                        "workers "
+                        "or "
+                        "a "
+                        "durable "
+                        "per-Scope "
+                        "failure "
+                        "history.",
+                    },
+                    "last_failure": {
+                        "$ref": "#/components/schemas/ExtractionFailure",
+                        "description": "Most "
+                        "recent "
+                        "historical "
+                        "failure. "
+                        "Retained "
+                        "after "
+                        "subsequent "
+                        "success, "
+                        "possibly "
+                        "in "
+                        "another "
+                        "Scope. "
+                        "This "
+                        "is "
+                        "not "
+                        "an "
+                        "unresolved-incident "
+                        "indicator; "
+                        "null "
+                        "does "
+                        "not "
+                        "prove "
+                        "health.",
+                        "nullable": True,
+                    },
+                    "last_success_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "UTC "
+                        "time "
+                        "of "
+                        "the "
+                        "most "
+                        "recent "
+                        "local "
+                        "successful "
+                        "nonempty "
+                        "synchronous "
+                        "flush "
+                        "or "
+                        "acknowledged "
+                        "Memory "
+                        "worker "
+                        "invocation. "
+                        "This "
+                        "does "
+                        "not "
+                        "prove "
+                        "that "
+                        "a "
+                        "model "
+                        "was "
+                        "called "
+                        "or "
+                        "that "
+                        "any "
+                        "previous "
+                        "failure "
+                        "has "
+                        "recovered.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["status", "since"],
+            },
+            "ExtractionFailure": {
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Sanitized "
+                        "category: "
+                        "model_configuration_error, "
+                        "model_timeout, "
+                        "model_unavailable, "
+                        "invalid_model_output, "
+                        "worker_timeout, "
+                        "worker_crash, "
+                        "invalid_worker_result, "
+                        "missing_durable_acknowledgement, "
+                        "supervisor_failed, "
+                        "lease_renewal_failed, "
+                        "scope_discovery_failed, "
+                        "or "
+                        "processing_failed. "
+                        "Raw "
+                        "exception "
+                        "messages, "
+                        "model "
+                        "inputs, "
+                        "and "
+                        "credentials "
+                        "are "
+                        "never "
+                        "returned.",
+                    },
+                    "stage": {
+                        "type": "string",
+                        "enum": ["inference", "flush", "worker", "supervisor", "lease_renewal", "scope_discovery"],
+                        "description": "Inference "
+                        "for "
+                        "recognized "
+                        "model "
+                        "failures; "
+                        "otherwise "
+                        "the "
+                        "boundary "
+                        "where "
+                        "failure "
+                        "was "
+                        "observed. "
+                        "Flush "
+                        "or "
+                        "worker "
+                        "does "
+                        "not "
+                        "identify "
+                        "the "
+                        "failing "
+                        "internal "
+                        "component.",
+                    },
+                    "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "UTC time when this process observed the failure.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["code", "stage", "occurred_at"],
             },
             "FamilyCount": {
                 "properties": {

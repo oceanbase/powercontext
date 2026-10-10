@@ -220,6 +220,25 @@ SQLite 使用 `all`。Dream 的模型标识在首次执行时固定，关闭自�
 ready/retry 队列、未确认 Scope 数、发现与调用耗时，以及完成、失败、超时次数。未确认数反映最近一次发现结果；计数器随
 Supervisor 实例重建而重置。
 
+`GET /v1/capabilities` 的 `extraction` 对象分别返回配置、后台执行状态和本地观察记录。
+读取快照不查询数据库、不调用模型，也不生成整个管道的健康结论。
+
+- `configuration` 在本地已装配提取模型、自定义管道或已注册本地 Memory worker 时为 `configured`，
+  均不可用时为 `unconfigured`。注册不验证凭证或连通性；外部执行返回 `unknown`。
+- `background.location` 为 `local`、`external` 或 `none`。本地 Supervisor 的 `role`（`leader` 或 `standby`）
+  与 `state`（`running`、`degraded` 或 `stopped`）独立，standby 属于正常状态。Worker 崩溃时，Supervisor
+  仍可能正常运行并安排重试。`automatic_processing_enabled=false` 仍允许显式处理请求。
+  外部执行的运行状态和调度配置未知；没有运行中的本地 Supervisor 时，role 为 null。
+- `observation.since` 标记本次 Runtime 本地观察窗口的起点，包含其 Memory 子进程。
+  `status=unverified` 表示尚未观察到执行结果或控制故障，`observed` 表示已有记录。
+  `last_success_at` 记录成功的非空 flush 或已确认的 Worker 调用；`last_failure` 记录安全的
+  `code`、`stage` 和 `occurred_at`，例如 `inference` 阶段的 `model_timeout` 或 `worker` 阶段的 `worker_crash`。
+  通用错误保留观察到故障的边界（`flush` 或 `worker`），不推断为模型故障。
+
+成功与失败记录独立：Scope B 成功不会清除 Scope A 的失败，也不证明 A 已恢复。
+历史失败同样不表示故障仍未解决。观察记录在 Runtime 重启后清空，不证明模型连通性或远端 Worker 健康。
+通过结构化日志定位具体 Scope 的失败与重试，通过现有指标观察队列和处理进度；本地 ready 数不代表全局 Source 积压量。
+
 远程和多用户部署必须使用 `enforced`。此模式下，HTTP、MCP 和 metrics 共用同一个 Server PEP。`/v1/access/me` 返回
 `server`/`scope`/`artifact` Resource Kind、Provider 的 batch/list/relationship 能力与 Family profile。Managed Skill 的
 导出和安装不再引入单独的 Access action：接收者先获得逻辑 Skill identity 上的 `artifact.read`，再自行决定是否以及如何
