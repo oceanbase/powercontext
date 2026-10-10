@@ -106,6 +106,7 @@ _TREATMENT_FAILURE_SUMMARIES = {
         "Codex CLI version did not match the pinned experiment."
     ),
     "PowerContext SQLite evidence is malformed": "PowerContext SQLite treatment evidence was malformed.",
+    "PowerContext MCP metrics evidence is malformed": "PowerContext MCP metrics evidence was malformed.",
 }
 _LOGGER = logging.getLogger(__name__)
 

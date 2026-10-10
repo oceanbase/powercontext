@@ -27,7 +27,7 @@ import pytest
 
 from powercontext_eval_swebench_pro.adapter import DatasetSchemaError, SweBenchProInstance
 from powercontext_eval_swebench_pro.codex import CodexCapacityError, CodexInfrastructureError
-from powercontext_eval_swebench_pro.errors import CommandFailed, GitSourceError
+from powercontext_eval_swebench_pro.errors import CommandError, CommandFailed, CommandTimedOut, GitSourceError
 from powercontext_eval_swebench_pro.evaluator import OfficialResultError
 from powercontext_eval_swebench_pro.gold import GoldCheckFailed
 from powercontext_eval_swebench_pro.models import Arm
@@ -1026,6 +1026,37 @@ def test_known_failures_have_fixed_safe_mapping(
     failed = store.get(task.task_id)
     assert failed.failure_category is category
     assert failed.failure_summary == summary
+
+
+@pytest.mark.parametrize("error_type", [CommandFailed, CommandTimedOut])
+def test_mcp_metrics_read_failures_remain_retryable(tmp_path: Path, error_type: type[CommandError]) -> None:
+    config = _config(tmp_path)
+    store = _store(config)
+    task = _create(store)
+    result = CommandResult(argv=("docker", "exec"), cwd=str(tmp_path), returncode=1, stdout="", stderr="secret")
+
+    def runner(config: Any, *, on_phase: Any) -> MinimalRunResult:
+        on_phase(RunPhase.RUNNING_ON)
+        raise error_type("metrics read failed", result)
+
+    assert EvaluationWorker(config, store, runner=runner, clock=lambda: NOW).run_once() is True
+    failed = store.get(task.task_id)
+    assert failed.retry_disposition is RetryDisposition.RETRY
+    assert "secret" not in (failed.failure_summary or "")
+
+
+def test_malformed_mcp_metrics_have_a_terminal_safe_summary(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    store = _store(config)
+    task = _create(store)
+
+    def runner(config: Any, *, on_phase: Any) -> MinimalRunResult:
+        raise InvalidTreatment("PowerContext MCP metrics evidence is malformed")
+
+    assert EvaluationWorker(config, store, runner=runner, clock=lambda: NOW).run_once() is True
+    failed = store.get(task.task_id)
+    assert failed.retry_disposition is RetryDisposition.TERMINAL
+    assert failed.failure_summary == "PowerContext MCP metrics evidence was malformed."
 
 
 @pytest.mark.parametrize(

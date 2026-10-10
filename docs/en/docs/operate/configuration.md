@@ -161,6 +161,19 @@ with the query vectors already produced. The round-one and round-two similarity 
 startup fails. Enabling the gate can add search rounds and latency, so evaluate retrieval results and latency on your own
 data.
 
+When the gate produces a `RecallEffort`, the relational Runtime adds one observation to `pc_recall_effort_daily`, keyed by
+`(scope_id, usage_date, policy_id, assessment)`. Dates use UTC. The additive counters describe committed search rounds,
+expansion actions, candidate-pool sizes, search-reported additional inference calls, and final byte-budget truncations and
+drops. The two drop subclasses sum to `dropped_items`; invalid counts are rejected before persistence. The table contains
+only its key dimensions and counters, without entry identities, queries, prompts, citations, or content bodies. It is an
+internal aggregate and is not included in the statistics overview or HTTP/MCP responses.
+
+Recall-effort recording makes one write attempt within `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS`.
+A failed write logs a safe diagnostic and preserves the prepared context. Request cancellation waits for the owned
+transaction's native cleanup before propagating, preserving a shared in-memory SQLite database. A caller-supplied
+`recall_effort_sink` replaces the relational recorder; a disabled gate invokes neither. Existing SQLite and OceanBase
+databases gain the missing relation through the normal additive table-creation path.
+
 Model usage accounting is best-effort and never gates a model call. Each Runtime owns one bounded recorder that accepts a
 record without any I/O and writes it in an independent short transaction, so a statistics outage, a full queue, or a lock
 that outlives the record's own budget drops that record with a diagnostic instead of failing the operation that produced it.

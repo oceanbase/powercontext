@@ -7,6 +7,14 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Validation suite to run
+        type: choice
+        default: all
+        options:
+          - all
+          - recall-effort
 
 permissions:
   contents: read
@@ -21,6 +29,7 @@ concurrency:
 
 jobs:
   validate:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -47,6 +56,112 @@ jobs:
           make harness-sync
           make harness-check
           make harness-compose-check
+
+  recall-effort:
+    name: Recall effort (OceanBase)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
+      POWERCONTEXT_TEST_OCEANBASE_URL: >-
+        mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/powercontext_test?charset=utf8mb4
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python and project dependencies
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Start the isolated OceanBase test instance
+        run: |
+          docker run --detach --name recall-effort-oceanbase \
+            --publish 127.0.0.1:2881:2881 \
+            --ulimit nofile=65536:65536 \
+            --env MODE=slim \
+            --env OB_DATABASE=powercontext_test \
+            --env OB_TENANT_PASSWORD=powercontext-e2e \
+            "$OCEANBASE_IMAGE"
+          for attempt in $(seq 1 120); do
+            if docker exec recall-effort-oceanbase \
+              obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e \
+              -Dpowercontext_test -e 'SELECT 1' >/dev/null 2>&1; then
+              docker exec recall-effort-oceanbase \
+                obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e \
+                -Dpowercontext_test \
+                -e "SELECT VERSION(); SHOW VARIABLES LIKE 'ob_compatibility_mode';"
+              exit 0
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' recall-effort-oceanbase)" != true ]; then
+              echo 'OceanBase exited before becoming ready.' >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          echo 'OceanBase did not become ready within 10 minutes.' >&2
+          exit 1
+
+      - name: Check code and types on Linux
+        run: |
+          uv lock --check
+          uv run --locked prek run -a
+
+      - name: Run the real OceanBase contract without skips
+        run: |
+          mkdir -p .powercontext/recall-effort-ci
+          uv run --locked pytest \
+            tests/builtin/persistence/test_oceanbase_profile.py::test_live_oceanbase_profile_smoke \
+            'tests/builtin/persistence/test_recall_effort_statistics.py::test_recall_effort_schema_upgrade_and_atomic_daily_scope_accounting[oceanbase]' \
+            tests/builtin/persistence/test_oceanbase_profile.py::test_live_oceanbase_profile_rejects_old_schema_collation \
+            --junitxml=.powercontext/recall-effort-ci/oceanbase.xml -q -rs
+          uv run --locked python - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          suites = ElementTree.parse(Path(".powercontext/recall-effort-ci/oceanbase.xml")).getroot()
+          cases = list(suites.iter("testcase"))
+          if len(cases) != 3 or any(case.find("skipped") is not None for case in cases):
+              raise SystemExit("All three live OceanBase contracts must execute; skipped tests are not acceptance.")
+          PY
+
+      - name: Run recall, statistics and prepared-context regressions
+        run: |
+          uv run --locked pytest \
+            tests/builtin/runtime/test_recall_sufficiency.py \
+            tests/e2e/test_recall_sufficiency_gate.py \
+            tests/builtin/runtime/test_statistics.py \
+            tests/builtin/runtime/test_model_usage_recorder.py \
+            tests/builtin/runtime/test_prepared_context.py \
+            tests/e2e/test_context_text_assembly.py \
+            tests/builtin/persistence/test_recall_effort_statistics.py \
+            tests/builtin/persistence/test_mysql_schema.py \
+            tests/builtin/persistence/test_sqlite_profile.py \
+            tests/builtin/persistence/test_database_snapshots.py \
+            --junitxml=.powercontext/recall-effort-ci/regressions.xml -q -rs
+
+      - name: Collect the database log
+        if: always()
+        run: |
+          mkdir -p .powercontext/recall-effort-ci
+          docker logs recall-effort-oceanbase > .powercontext/recall-effort-ci/oceanbase.log 2>&1 || true
+
+      - name: Save validation reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: recall-effort-validation-${{ github.sha }}
+          path: .powercontext/recall-effort-ci/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Stop and remove the test instance
+        if: always()
+        run: docker rm --force recall-effort-oceanbase || true
 
   acceptance:
     needs: validate

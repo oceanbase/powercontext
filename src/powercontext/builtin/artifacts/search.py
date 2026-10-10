@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared deterministic lexical analysis for built-in Artifact projections."""
+"""Shared deterministic lexical and vector admission for built-in Artifact projections."""
 
 from __future__ import annotations
 
@@ -107,10 +107,8 @@ class AdmissionFloor:
     module and ``0.3`` mirrored by ``memory/fusion.py`` and ``topic_memory/fusion.py`` — so
     that a ``floor=None`` / ``admission=None`` call reproduces today's behaviour bit for bit.
 
-    This type plays the ``RecallAdmissionPolicy`` role described by RFC 1560: it is the value
-    threaded into each searchable family's search to override its floor. Passing ``None``
-    (the historical default) is therefore equivalent to the RFC's ``RecallAdmissionPolicy()``
-    with both overrides unset, which is exactly what round 0 does.
+    RFC 1560 threads this value into each searchable family's search to override its floor.
+    Round zero passes ``None`` to keep the historical defaults.
     """
 
     lexical_coverage: float = _FTS_MIN_QUERY_COVERAGE
@@ -180,6 +178,12 @@ def lexical_search_score(raw: object, metric: object, /) -> tuple[float, Channel
         metric=metric,
         higher_is_better=metric == "oceanbase_match",
     )
+
+
+def unit_l2_cosine_similarity(distance: float) -> float:
+    """Convert L2 distance between unit vectors to cosine similarity."""
+
+    return max(-1.0, min(1.0, 1.0 - distance**2 / 2.0))
 
 
 @dataclass(frozen=True)
@@ -370,4 +374,5 @@ __all__ = [
     "fts_match_query",
     "fts_query_requirements",
     "lexical_search_score",
+    "unit_l2_cosine_similarity",
 ]

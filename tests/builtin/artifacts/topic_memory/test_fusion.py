@@ -50,6 +50,20 @@ def test_fts_snippet_centers_its_window_on_analyzer_match(match_offset: int) -> 
     assert len(result[0].snippet) <= 480
 
 
+def test_topic_vector_relevance_survives_fusion_with_fts() -> None:
+    fts = TopicMemoryChannelHit(
+        artifact_ref=ArtifactRef(family="topic-memory", artifact_id="topic-1", revision=1),
+        title="alpha beta",
+        summary="alpha beta",
+        channel="topic_fts",
+    )
+    vector = fts.model_copy(update={"channel": "topic_vector", "distance": 1.0})
+    hit = fuse_topic_memory_rankings(
+        "alpha beta", TopicMemorySearchChannels(topic_fts=(fts,), topic_vector=(vector,)), 1
+    )[0]
+    assert hit.relevance == pytest.approx(0.5)
+
+
 def test_vector_snippet_uses_a_stable_chunk_local_window() -> None:
     detail = f"{'prefix ' * 150}stable-center{' suffix' * 150}"
     hit = TopicMemoryChannelHit(

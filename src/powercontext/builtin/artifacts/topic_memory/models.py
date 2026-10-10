@@ -215,6 +215,7 @@ class TopicMemorySearchHit(BaseModel):
     matched_by: tuple[TopicMemoryMatchedBy, ...]
     retrieval_score: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False, exclude=True)
     channel_scores: dict[str, ChannelScore] | None = Field(default=None, exclude=True)
+    relevance: float | None = Field(default=None, ge=-1.0, le=1.0, allow_inf_nan=False, exclude=True)
 
 
 @dataclass(frozen=True)

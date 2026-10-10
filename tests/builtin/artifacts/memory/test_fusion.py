@@ -62,6 +62,15 @@ def test_single_channel_uses_public_rrf_score_and_identity_order() -> None:
     assert tuple(hit.entry_id for hit in hits) == ("zulu", "alpha")
     assert tuple(hit.score for hit in hits) == pytest.approx((1 / 61, 1 / 62))
     assert all(hit.matched_by == ("fts",) for hit in hits)
+    assert all(hit.relevance is None for hit in hits)
+
+
+def test_vector_relevance_survives_fusion_with_fts_first() -> None:
+    fts = channel_hit("alpha", text="alpha beta")
+    vector = channel_hit("alpha", text="alpha beta", distance=1.0)
+    hit = fuse_rankings(fts=(fts,), vector=(vector,), limit=1)[0]
+    assert hit.relevance == pytest.approx(0.5)
+    assert hit.score == pytest.approx(2 / 61)
 
 
 def test_duplicate_channel_rows_contribute_only_the_first_rank() -> None:

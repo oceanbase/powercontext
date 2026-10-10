@@ -24,7 +24,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
@@ -250,6 +250,7 @@ from powercontext.builtin.runtime.recall_sufficiency import (
     MEMORY_FAMILY,
     REASON_AT_MAX_ROUNDS,
     REASON_EXPANSION_FAILED,
+    REASON_WEAK_TOP_ONE,
     TOPIC_MEMORY_FAMILY,
     RecallEffort,
     RecallExpander,
@@ -862,19 +863,27 @@ class ScopedContextApplication:
 
     async def _prepare(self, request: PrepareContextRequest, scope: ScopeDescriptor, /) -> PreparedContext:
         build, effort = await self._prepare_build(request, scope)
-        if effort is not None and self._runtime._recall_effort_sink is not None:
+        if effort is not None:
             try:
-                await self._runtime._recall_effort_sink(effort)
+                # An explicit sink replaces the relational recorder. Both receive
+                # the same final trace, and one preparation is never recorded twice.
+                if self._runtime._recall_effort_sink is not None:
+                    await self._runtime._recall_effort_sink(effort)
+                elif self._runtime._statistics_service is not None:
+                    await self._runtime._statistics(self.scope_id).record_recall_effort(
+                        effort,
+                        self._runtime._clock().astimezone(UTC).date(),
+                    )
             except Exception as error:
                 log_safely(
                     logger,
                     logging.ERROR,
                     "Recall effort sink failed",
-                    exc_info=error,
                     extra={
                         "event": "context.recall_gate.sink_failed",
                         "outcome": "failure",
                         "unit": "context",
+                        "error_type": type(error).__name__,
                     },
                 )
         if self._runtime._recall_token_estimator is not None:
@@ -908,7 +917,7 @@ class ScopedContextApplication:
         The controlled expansion loop lives here. It runs at most ``policy.max_rounds`` extra
         searches, each of which only lowers the admission floor for the families the caller
         already selected — never a new family, a larger ``limit``, or a different ``mode``.
-        Every gate or expansion error degrades to the round-zero candidate set.
+        Every gate or expansion error preserves the last committed candidate set.
 
         Returns ``(build, effort)``. The RFC 1560 trace is **not** a field of the build:
         ``_prepare`` returns ``build.context`` and discards the rest, so a field there would
@@ -1083,11 +1092,13 @@ class ScopedContextApplication:
         """Run the bounded expansion loop and return the winning candidates plus the trace.
 
         Candidates accumulate across rounds; only new identities are ever added, so an earlier
-        round's candidate is never removed. Any error returns the round-zero candidates unchanged
+        round's candidate is never removed. Any error returns the last committed candidates unchanged
         and records ``expansion-failed`` — the gate can never turn a successful prepare into a
         failure. For a consistent signal basis, ``candidates_by_round`` counts the *un-truncated*
         accumulated pool (no family is clamped while the gate is consulting it); the Builder
-        ceilings are applied once, on the returned candidates only.
+        ceilings are applied once, on the returned candidates only. Committed candidates keep the
+        latest round's fused order inside those ceilings, so evidence surfaced by a later round is
+        deliverable instead of trailing the round-zero prefix.
         """
 
         gate = RecallSufficiencyGate()
@@ -1107,6 +1118,7 @@ class ScopedContextApplication:
             memory_hits=_flatten_memory_hits(memory_candidates),
             topic_memory_hits=topic_memory_hits,
             experience_hits=_flatten_experience_hits(experience_candidates),
+            memory_scope_ids=tuple(group.scope_id for group in memory_candidates for _hit in group.hits),
         )
         round_zero_count = len(candidates)
         candidates_by_round = [round_zero_count]
@@ -1114,6 +1126,10 @@ class ScopedContextApplication:
         added_embeddings = 0
         added_generation_calls = 0
         admission_by_family = list(round_zero.admissions)
+        last_signals = None
+        committed_memory = memory_candidates
+        committed_experience = experience_candidates
+        committed_topic = topic_memory_hits
         try:
             budget = builder.probe_budget(
                 request=request,
@@ -1131,6 +1147,7 @@ class ScopedContextApplication:
                 budget=budget,
                 families_expected=families_expected,
             )
+            last_signals = assessment.signals
             while not assessment.sufficient and families_recoverable > 0 and len(expansions) < policy.max_rounds:
                 plan = expander.plan(len(expansions) + 1, policy)
                 issued = await self._recall_round(
@@ -1142,6 +1159,7 @@ class ScopedContextApplication:
                     reuse=reuse,
                     topic_reuse=topic_reuse,
                 )
+                memory_ranks: dict[Any, int] = {}
                 for group in issued.memory:
                     _ensure_memory_head_stable(
                         group.scope_id, group.memory_ref, memory_ref_by_scope.get(group.scope_id)
@@ -1149,62 +1167,76 @@ class ScopedContextApplication:
                     bucket = memory_hits_by_scope.setdefault(group.scope_id, [])
                     for hit in group.hits:
                         identity = _memory_identity(group.scope_id, hit)
+                        memory_ranks[identity] = len(memory_ranks)
                         if identity in seen_memory:
                             continue
                         seen_memory.add(identity)
                         bucket.append(hit)
+                experience_ranks: dict[Any, int] = {}
                 for group in issued.experience:
                     bucket = experience_hits_by_scope.setdefault(group.scope_id, [])
                     for hit in group.hits:
                         identity = _experience_identity(group.scope_id, hit)
+                        experience_ranks[identity] = len(experience_ranks)
                         if identity in seen_experience:
                             continue
                         seen_experience.add(identity)
                         bucket.append(hit)
+                topic_ranks = {_topic_identity(hit): index for index, hit in enumerate(issued.topic_memory.hits)}
                 for hit in issued.topic_memory.hits:
                     identity = _topic_identity(hit)
                     if identity in seen_topic:
                         continue
                     seen_topic.add(identity)
                     accumulated_topic.append(hit)
-                expansions.append(plan.action)
-                added_embeddings += issued.embedding_calls
-                added_generation_calls += issued.generation_calls
-                admission_by_family = list(issued.admissions)
-                families_recoverable = _families_with_recoverable_candidates(families, issued.admissions)
                 candidates = build_recall_candidates(
                     memory_hits=_flatten_scope_memory(memory_hits_by_scope, scope_ids),
                     topic_memory_hits=tuple(accumulated_topic),
                     experience_hits=_flatten_scope_experience(experience_hits_by_scope, scope_ids),
+                    memory_scope_ids=tuple(
+                        scope_id for scope_id in scope_ids for _hit in memory_hits_by_scope.get(scope_id, ())
+                    ),
                 )
-                candidates_by_round.append(len(candidates))
+                staged_memory = _limit_expanded_memory_candidates(
+                    [
+                        PreparedMemoryCandidates(
+                            scope_id=scope_id,
+                            memory_ref=memory_ref_by_scope.get(scope_id),
+                            hits=_latest_round_order(
+                                memory_hits_by_scope.get(scope_id, ()),
+                                memory_ranks,
+                                lambda hit, s=scope_id: _memory_identity(s, hit),
+                            ),
+                        )
+                        for scope_id in scope_ids
+                    ],
+                    memory_candidates,
+                    builder.memory_candidate_limit,
+                )
+                staged_topic = _latest_round_order(accumulated_topic, topic_ranks, _topic_identity)[
+                    : builder.topic_memory_candidate_limit
+                ]
+                staged_experience = _limit_expanded_experience_candidates(
+                    [
+                        PreparedExperienceCandidates(
+                            scope_id=scope_id,
+                            hits=_latest_round_order(
+                                experience_hits_by_scope.get(scope_id, ()),
+                                experience_ranks,
+                                lambda hit, s=scope_id: _experience_identity(s, hit),
+                            ),
+                        )
+                        for scope_id in scope_ids
+                    ],
+                    experience_candidates,
+                    builder.experience_candidate_limit,
+                )
                 budget = builder.probe_budget(
                     request=request,
                     current_scope_id=self.scope_id,
-                    memory_candidates=_limit_expanded_memory_candidates(
-                        [
-                            PreparedMemoryCandidates(
-                                scope_id=scope_id,
-                                memory_ref=memory_ref_by_scope.get(scope_id),
-                                hits=tuple(memory_hits_by_scope.get(scope_id, ())),
-                            )
-                            for scope_id in scope_ids
-                        ],
-                        memory_candidates,
-                        builder.memory_candidate_limit,
-                    ),
-                    topic_memory_hits=tuple(accumulated_topic[: builder.topic_memory_candidate_limit]),
-                    experience_candidates=_limit_expanded_experience_candidates(
-                        [
-                            PreparedExperienceCandidates(
-                                scope_id=scope_id,
-                                hits=tuple(experience_hits_by_scope.get(scope_id, ())),
-                            )
-                            for scope_id in scope_ids
-                        ],
-                        experience_candidates,
-                        builder.experience_candidate_limit,
-                    ),
+                    memory_candidates=staged_memory,
+                    topic_memory_hits=staged_topic,
+                    experience_candidates=staged_experience,
                     profile_candidates=profile_candidates,
                 )
                 assessment = gate.assess(
@@ -1215,13 +1247,29 @@ class ScopedContextApplication:
                     budget=budget,
                     families_expected=families_expected,
                 )
-            if not assessment.sufficient and families_recoverable > 0 and len(expansions) >= policy.max_rounds:
+                committed_memory = staged_memory
+                committed_experience = staged_experience
+                committed_topic = staged_topic
+                expansions.append(plan.action)
+                added_embeddings += issued.embedding_calls
+                added_generation_calls += issued.generation_calls
+                admission_by_family = list(issued.admissions)
+                families_recoverable = _families_with_recoverable_candidates(families, issued.admissions)
+                candidates_by_round.append(len(candidates))
+                last_signals = assessment.signals
+            if (
+                not assessment.sufficient
+                and assessment.reason != REASON_WEAK_TOP_ONE
+                and families_recoverable > 0
+                and len(expansions) >= policy.max_rounds
+            ):
                 assessment = replace(assessment, reason=REASON_AT_MAX_ROUNDS)
+            reason = assessment.reason
         except Exception as error:
             log_safely(
                 logger,
                 logging.ERROR,
-                "Recall sufficiency expansion failed; keeping the round-zero candidates",
+                "Recall sufficiency expansion failed; keeping the last committed candidates",
                 exc_info=error,
                 extra={
                     "event": "context.recall_gate.expansion_failed",
@@ -1229,54 +1277,20 @@ class ScopedContextApplication:
                     "unit": "context",
                 },
             )
-            return (
-                memory_candidates,
-                experience_candidates,
-                topic_memory_hits,
-                recall_effort(
-                    policy=policy,
-                    assessment=REASON_EXPANSION_FAILED,
-                    expansion_actions=expansions,
-                    candidates_by_round=candidates_by_round,
-                    admission_by_family=admission_by_family,
-                    added_embeddings=added_embeddings,
-                    added_generation_calls=added_generation_calls,
-                ),
-            )
-        capped_topic = tuple(accumulated_topic[: builder.topic_memory_candidate_limit])
+            reason = REASON_EXPANSION_FAILED
         return (
-            _limit_expanded_memory_candidates(
-                [
-                    PreparedMemoryCandidates(
-                        scope_id=scope_id,
-                        memory_ref=memory_ref_by_scope.get(scope_id),
-                        hits=tuple(memory_hits_by_scope.get(scope_id, ())),
-                    )
-                    for scope_id in scope_ids
-                ],
-                memory_candidates,
-                builder.memory_candidate_limit,
-            ),
-            _limit_expanded_experience_candidates(
-                [
-                    PreparedExperienceCandidates(
-                        scope_id=scope_id,
-                        hits=tuple(experience_hits_by_scope.get(scope_id, ())),
-                    )
-                    for scope_id in scope_ids
-                ],
-                experience_candidates,
-                builder.experience_candidate_limit,
-            ),
-            capped_topic,
+            committed_memory,
+            committed_experience,
+            committed_topic,
             recall_effort(
                 policy=policy,
-                assessment=assessment.reason,
+                assessment=reason,
                 expansion_actions=expansions,
                 candidates_by_round=candidates_by_round,
                 admission_by_family=admission_by_family,
                 added_embeddings=added_embeddings,
                 added_generation_calls=added_generation_calls,
+                signals=last_signals,
             ),
         )
 
@@ -1653,6 +1667,22 @@ def _experience_identity(scope_id: str, hit: ExperienceSearchHit) -> tuple[str, 
 
 def _topic_identity(hit: TopicMemorySearchHit) -> tuple[str, int]:
     return (hit.artifact_ref.artifact_id, hit.artifact_ref.revision)
+
+
+_HitT = TypeVar("_HitT")
+
+
+def _latest_round_order(
+    hits: Sequence[_HitT],
+    ranks: Mapping[Any, int],
+    identity: Callable[[_HitT], Any],
+) -> tuple[_HitT, ...]:
+    """Order hits by the latest round's fused ranking, keeping the accumulated order for
+    identities the latest round did not re-admit. A fused hit that only entered the window
+    under a lowered floor must rank inside the delivery cap, not behind the round-zero prefix."""
+    if not ranks:
+        return tuple(hits)
+    return tuple(sorted(hits, key=lambda hit: ranks.get(identity(hit), len(ranks))))
 
 
 def _admission_keyword(admission: AdmissionFloor | None) -> dict[str, Any]:

@@ -35,6 +35,7 @@ work-continuity = "powercontext_eval_work_continuity.cli:main"
 [dependency-groups]
 dev = [
   "httpx>=0.28,<1",
+  "prometheus-client>=0.21,<1",
   "pytest>=9.0.2",
   "ruff>=0.15.7",
   "ty>=0.0.24",

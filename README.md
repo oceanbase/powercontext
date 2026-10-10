@@ -25,6 +25,9 @@ You see the context the work needs now: confirmed decisions, constraints, progre
 
 You decide what will matter later and what needs to move with the task. PowerContext stores durable information as Memory and organizes the current objective and state into a Handoff. You can record reusable approaches as Experience or Skill. PowerContext keeps every item within the scope of the work and preserves its sources and earlier revisions.
 
+The optional recall-sufficiency gate records scope-local daily search effort and budget omissions for later policy
+evaluation. See the [configuration reference](docs/en/docs/operate/configuration.md) for its recording and failure behavior.
+
 ## Install, configure, and connect your Agent
 
 You need Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), and your Agent's CLI.

@@ -29,9 +29,10 @@ from harbor.models.agent.context import AgentContext
 from harbor.models.task.task import Task as HarborTask
 from harbor.models.trial.result import StepResult, TimingInfo
 from harbor.models.verifier.result import VerifierResult
-from powercontext.client import UnauthorizedResponseError
+from powercontext.client import UnauthorizedResponseError, UnavailableResponseError
 
 from powercontext_e2e import paired as paired_module
+from powercontext_e2e import sessions as sessions_module
 from powercontext_e2e.catalog import TaskOutcomeComparisonSpec, load_tasks
 from powercontext_e2e.models import (
     HarborTrialObservation,
@@ -578,15 +579,24 @@ def test_paired_report_gives_the_runs_behind_a_mean_only_some_runs_reported() ->
 
 
 class _FlushingClient:
-    def __init__(self, cursors: list[tuple[int, int, int]], *, failing_flushes: frozenset[int] = frozenset()) -> None:
+    def __init__(
+        self,
+        cursors: list[tuple[int, int, int]],
+        *,
+        failing_flushes: frozenset[int] = frozenset(),
+        unavailable_flushes: dict[int, str] | None = None,
+    ) -> None:
         self._cursors = iter(cursors)
         self._failing_flushes = failing_flushes
+        self._unavailable_flushes = unavailable_flushes or {}
         self.flushes = 0
 
     async def flush_memory(self, request):
         self.flushes += 1
         if self.flushes in self._failing_flushes:
             raise TimeoutError("flush timed out")  # noqa: TRY003
+        if code := self._unavailable_flushes.get(self.flushes):
+            raise UnavailableResponseError(status_code=503, request_id=None, code=code)
         previous, current, high = next(self._cursors)
         return SimpleNamespace(previous_cursor=previous, current_cursor=current, high_watermark=high)
 
@@ -660,6 +670,48 @@ def test_recorder_records_a_failed_settle_instead_of_raising() -> None:
     assert recorder.failures == ["Settling the Scope after session 0 failed: TimeoutError: flush timed out"]
     assert [snapshot.session for snapshot in recorder.snapshots] == [1]
     assert any("not observed" in reason for reason in treatment_failures(recorder.snapshots, recall_session=1))
+
+
+def test_settling_waits_while_a_plugin_flush_records_memory_owners(monkeypatch) -> None:
+    # A host plugin's own flush can still be running when the harness settles; until it records who owns the Memory it
+    # created, the Server answers 503 artifact_owner_pending, which is not an integration failure.
+    monkeypatch.setattr(sessions_module, "OWNER_PENDING_DELAYS", (0.0, 0.0))
+    pending = "artifact_owner_pending"
+    recorder = SessionRecorder(
+        _FlushingClient([(0, 1, 1)], unavailable_flushes={1: pending, 2: pending}), "scope-1", final_session=1
+    )
+
+    asyncio.run(recorder(None))
+    asyncio.run(recorder(None))
+
+    assert recorder.failures == []
+    assert [(snapshot.session, snapshot.flush_rounds) for snapshot in recorder.snapshots] == [(0, 1), (1, 0)]
+
+
+@pytest.mark.parametrize(
+    ("unavailable_flushes", "code"),
+    [
+        ({1: "inference_timeout"}, "inference_timeout"),
+        (
+            {1: "artifact_owner_pending", 2: "artifact_owner_pending", 3: "artifact_owner_pending"},
+            "artifact_owner_pending",
+        ),
+    ],
+)
+def test_settling_still_reports_an_unavailable_server(
+    monkeypatch, unavailable_flushes: dict[int, str], code: str
+) -> None:
+    monkeypatch.setattr(sessions_module, "OWNER_PENDING_DELAYS", (0.0, 0.0))
+    recorder = SessionRecorder(
+        _FlushingClient([(0, 1, 1)], unavailable_flushes=unavailable_flushes), "scope-1", final_session=1
+    )
+
+    asyncio.run(recorder(None))
+
+    assert recorder.failures == [
+        "Settling the Scope after session 0 failed: "
+        f"UnavailableResponseError: PowerContext Server returned HTTP 503 ({code})"
+    ]
 
 
 class _AnonymousClient:

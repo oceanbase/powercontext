@@ -24,7 +24,7 @@
 - **扩展不可能破坏 Builder 不变量。** 跨轮合并后的候选会沿用它已经用于截断第 0 轮的那两个分配器，重新选择到各类别
   既有的候选上限之内，因此跨轮并集永远不会超过 `build_scopes_result()` 所强制的那道上限
   （`prepared_context.py:164-169`）。
-- **不扩展的运行与今天逐字节相同。** 无扩展路径完全未变，这就是回归保证。
+- **不扩展的运行保持准备内容逐字节相同。** 无扩展路径完全未变，这就是回归保证。
 - **交付体积永不越过 `max_bytes`。** 扩展可以使用第 0 轮候选集未用满的预算，因此 `content_bytes` 可以在这个上限
   之内**变大**，但永远不能越过它。
 
@@ -108,16 +108,30 @@ Stage C  报告召回代价与省略情况                  （进程内）
 | 信号 | 从哪来 | 检测什么 |
 | --- | --- | --- |
 | 各类别、各通道的取回数与准入数 | 新增的准入计数器 | 某个类别的准入下限把取回的内容几乎全部丢弃了。 |
-| 准入候选数与该类别 Builder 上限之比 | 第 0 轮命中与 `prepared_context.py:103-105` | 该类别还有空间让后续轮次贡献；已饱和的类别没有。 |
-| Top-1 分数及其与准入候选均分的差距 | 仅限带分数的类别：Memory（`MemoryHit.score`）与 Topic Memory（`TopicMemorySearchHit.score`） | 一条看似可用的命中被噪声包围，或根本没有明显胜出者。 |
+| 准入候选数与该类别 Builder 上限之比 | 第 0 轮命中与 `prepared_context.py:103-105` | 该类别还有余量让后续轮次贡献；已饱和的类别不能增长，但重新准入的命中仍可能改变其成员构成。 |
+| 顶部向量 cosine 相关度及类别内差距 | Memory（`MemoryHit.relevance`）与 Topic Memory（`TopicMemorySearchHit.relevance`），由单位向量 L2 距离换算；融合 `score` 仍是名次值 | 每个 Scope 各自的融合第一条是否有可用语义证据。差距只计算达到第 0 轮语义准入下限的候选，且只在顶部相关度低于 0.70 强匹配阈值时参与判断。 |
 | 头部候选在 analyzer 词元空间中的词项覆盖度 | `analyze_text` / `fts_query_requirements`（`search.py:78`） | 命中只是靠停用词或某一个共现 token 匹配上的。 |
 | 至少返回一条准入候选的参与类别数量 | 第 0 轮结果 | 选了三个类别，只有一个有结果。 |
 | 类别内的不同证据身份数 | 类别专属身份（见下表） | 多条候选其实是同一份证据。 |
-| 第 0 轮的拟合是否被预算卡住 | 预算探测结果 | 偏薄输出是由 `max_bytes` 造成的，而不是召回。 |
+| 当前轮次的拟合是否被预算卡住 | 对按类别上限截断的候选进行预算探测 | 偏薄输出是由 `max_bytes` 造成的，而不是召回。 |
 
-**Experience 没有分数。** `ExperienceSearchHit` 只有 `artifact_ref` 与 `content`
-（`artifacts/experience/search.py:26-30`），因此基于分数的信号只对带分数的类别适用。Experience 只贡献它的准入计数、
+**Experience 没有向量相关度。** `ExperienceSearchHit` 只有 `artifact_ref` 与 `content`
+（`artifacts/experience/search.py:26-30`），因此相关度阈值跳过 Experience，以及某类别下融合第一条只有 FTS 证据的 Scope。Experience 只贡献它的准入计数、
 它相对自身上限的候选数，以及它的"有结果"位。
+
+cosine 相关度由共享的单位向量 L2 helper 按 `clamp(1 - d² / 2, -1, 1)` 换算。只有当某 Scope 自己的融合第一条命中
+具有向量证据时，该类别的该 Scope 才贡献分数；下位向量命中不能把 FTS-only 的第一条变成弱分数。Memory 按 Scope
+分别搜索，每个 Scope 的融合排序独立判定，因此判定结论与 Scope 的 prepare 顺序无关。`top_relevance` 是这些合格
+类别中已知 cosine 的最大值。差距要求同类别至少有两个 scored 候选达到基础语义准入下限（`0.3`）；不足两个时，
+该类别的差距未知。
+强匹配（顶部相关度 `>= 0.70`）跳过差距检查，但仍应用配置的最低顶部相关度。候选捕获 JSON 保留
+`assessments.candidates[].score` 的归一化融合名次值供外部工具链使用；该值不参与闸门的相关度阈值判断。
+
+当前 policy 标识为 `powercontext.recall-gate.v2`。v1 的 `top_score`、`mean_score` 与 `top_gap` 基于类别内归一化
+融合名次分；v2 的这些信号改为基于向量 cosine 相关度。历史捕获中
+`policy_id: powercontext.recall-gate.v1` 仍按名次分口径解释，不得重新标为 v2。
+继承的默认值 `min_top_score=0.35` 与 `min_top_gap=0.02` 针对旧名次分标定，在 cosine 尺度上是
+**暂定值，尚未重新标定**；沿用默认值不代表已证明它们适合 cosine 相关度。
 
 **证据身份是类别专属的。** 一次 Memory 搜索返回的多个 `MemoryHit` 共享同一个 `memory_ref` Artifact revision，因为一个
 Memory Revision 装有多个条目；真正独立的证据单位是条目，由 `entry_id` 与 `entry_version_id` 标识
@@ -143,6 +157,15 @@ Memory Revision 装有多个条目；真正独立的证据单位是条目，由 
 | 1 | 在配置的扩展下限范围内，降低施加于各可搜索类别搜索**已经取回**的候选上的准入下限：词项证据要求（`search.py:104`）与余弦基线（`memory/fusion.py:29`、`topic_memory/fusion.py:33`）。 | 第 0 轮判定不充分。 |
 | 2 | 把准入降到 policy 下限，接受当前最好的证据。 | 第 1 轮已提交且第 1 轮判定不充分。 |
 
+`weak-top-1` 记录的是分数信号不足的判定，不是终止结论。分数信号读取的是融合后的候选窗口，而各类别的检索在闸门
+看到命中之前就按上限截断了窗口：一条仅有向量证据的强命中可能位于窗口之外，直到更低的词项下限为同一身份补进
+第二个通道、RRF 把它带进窗口。因此弱顶部在类别报告有可恢复候选时仍会扩展——与候选数、类别覆盖、词项不足适用
+同一规则——扩展只在判定为 `sufficient`、可恢复池耗尽或轮次用尽时停止。轮次用尽后，若最后一次已提交评估仍是
+`weak-top-1`，该原因保留，不改写为 `at-max-rounds`。窗口内的基线规则不变：低于第 0 轮下限的分数无法伪造 gap，
+强顶部（`>= 0.70`）仍豁免 gap 检查。每轮扩展提交前，都会对按类别上限截断后的候选集重新做预算探测。
+已提交的候选集在各类别上限内按最新一轮的融合序排列，因此在降低下限后才进入窗口的命中会被交付，
+而不是排在第 0 轮前缀之后被截掉。
+
 第 2 轮没有更多可选动作。特别地，**提高 `memory_rerank_candidate_limit` 不是扩展动作**：`MemoryService` 用这个界
 来决定后端请求的规模，而不只是对已有候选池做重排（`coarse_limit` 见 `service.py:452`，随后
 `candidate_limit=max(coarse_limit * 4, 32)` 见 `service.py:457`）。把它从 30 提到 100 会把后端候选池从 120 扩到 400，
@@ -159,13 +182,17 @@ Memory Revision 装有多个条目；真正独立的证据单位是条目，由 
 也不分配输出预算。静默搜索一个未选择的类别会违反该契约，因此类别成员不属于扩展范围。调用方完全省略
 `assembly` 时，Runtime 沿用现有的默认类别选择，同样不扩展。
 
-**对于第 0 轮已经填满自身上限的类别，扩展是空操作。** 因为合并后的集合以第 0 轮为前缀（见**轮次之间**），一个在
-第 0 轮就把候选上限填满的类别无法再接纳后续轮次的候选。闸门的"准入数 vs 上限"信号会报出这一点，trace 会把该轮记成
-"什么都没改变的一轮"。这种情形下的约束在下游——是预算，而不是召回——预算探测会给出结论。
+**已饱和的类别无法增长，但其成员仍可能变化。** 类别总量保持在上限：已提交集合在上限内按最新一轮的融合序排列
+（见**轮次之间**），所以在降低下限后才进入窗口的命中会顶掉排名更低的同 Scope 候选，而不是排在已满的第 0 轮前缀
+之后。闸门的"准入数 vs 上限"信号仍会报出各类别是否还有余量，当约束在下游——是预算而不是召回——时，预算探测仍会给出
+结论。
 
 ## 可以观测到什么
 
 沿用 RFC 0080 `rerank` trace 的先例，闸门结果留在进程内，**不**进入 HTTP v1 响应。
+`RecallEffort` trace 携带 `signals`：最后一次已提交评估的聚合闸门信号——候选数、有打分类别时的顶部向量相关度、
+词项覆盖度——计算时尚未应用 Builder 类别上限和字节拟合。若闸门在首次评估完成之前失败，`assessment` 为
+`expansion-failed`，`rounds` 为 1，候选数来自第 0 轮，`signals` 为 null。
 
 `RecallEffort` 由扩展循环产出，而循环位于 `ScopedContextApplication._prepare`（`application.py:727`），不在 Builder 内。
 因此它**不**挂在 `PreparedContextBuild` 上：`_prepare` 返回的是 `build.context`（`application.py:812`），构建结果的其余
@@ -194,21 +221,22 @@ class AdmissionCounts:
 
 @dataclass(frozen=True)
 class RecallEffort:
-    policy: str                       # 带版本的 policy id，如 "powercontext.recall-gate.v1"
+    policy: str                       # 带版本的 policy id，如 "powercontext.recall-gate.v2"
     assessment: str                   # 最终闸门原因，如 "sufficient" | "thin-candidates" | "weak-top-1"
-    rounds: int                       # 实际执行的搜索轮次：1 + len(expansion_actions)，即 1..3
+    rounds: int                       # 已提交轮次：第 0 轮 + len(expansion_actions)，即 1..3
     expansion_actions: tuple[str, ...]  # 仅已提交的轮次；最多 ("admission", "policy-floor")
-    candidates_by_round: tuple[int, ...]  # 每一轮交给 Builder 的候选数；len == rounds
-    admission_by_family: tuple[AdmissionCounts, ...]  # 在最后执行的轮次中测量
-    added_embeddings: int             # 扩展轮次额外付出的 query embedding 次数
-    added_generation_calls: int       # 扩展轮次额外付出的 RFC 0080 rerank 调用次数
+    candidates_by_round: tuple[int, ...]  # 应用 Builder 上限前的累计候选数；len == rounds
+    admission_by_family: tuple[AdmissionCounts, ...]  # 在最后已提交的轮次中测量
+    added_embeddings: int             # 已提交扩展轮次由搜索报告的 query embedding 次数
+    added_generation_calls: int       # 已提交扩展轮次由搜索报告的额外 rerank 调用次数
     truncated_items: int              # 已交付但被截断；当前未计数
     dropped_items: int                # 两条拟合路径上整条省略的总数；当前未计数
     dropped_below_min_bytes: int      # dropped_items 的子集：低于 _MIN_TRUNCATED_CONTENT_BYTES / _BODY_BYTES
     dropped_no_fitting_truncation: int  # dropped_items 的子集：没有任何渲染能放下
 ```
 
-`rounds` 统计的是**实际执行的搜索轮次**：跑了第 0 轮加两轮扩展的 prepare 报 `rounds: 3`，只扩展一次报 `rounds: 2`。
+`rounds` 统计的是**已提交的搜索轮次**：第 0 轮加两轮已提交扩展报 `rounds: 3`，只提交一次扩展报 `rounds: 2`。
+失败的扩展不增加轮次，也不改变已提交信号；失败轮次实际付出的代价不计入仅统计已提交轮次的代价计数器。
 `dropped_items` 等于 `dropped_below_min_bytes + dropped_no_fitting_truncation`，因此读者可以区分"预算放不下这条"
 与"这条太短，无法截断进剩余空间"。若把两者合成一个标注为"整条输给预算"的计数器，就会误报第二种原因，所以两种原因
 分别报告，`_fit_entry` 的两条 `None` 路径（`prepared_context.py:462-463`、`:465-485`）与 assembly 路径
@@ -223,7 +251,7 @@ class RecallEffort:
 
 ## 示例
 
-Codex Hook 用默认预算请求上下文，第一轮只返回一条很弱的 Memory 命中。
+调用方用默认预算请求上下文；第一轮只返回一条 cosine 相关度 0.5、词项完全覆盖的 Memory 命中。
 
 ```http
 POST /v1/context/prepare
@@ -236,9 +264,9 @@ Content-Type: application/json
 }
 ```
 
-第 0 轮从 64 条后端候选池中返回三条 Memory 候选，其中一条分数可用；准入从 64 条里只放进三条，远低于 Memory 的
-上限 16，因此该类别还有增长空间。预算探测发现仍有未用字节、且没有整条丢弃，所以这是**召回**偏薄而不是**预算**偏薄。
-闸门判定为 `weak-top-1`，扩展一次（降低准入下限），第 1 轮又放进四条候选——它们本就在第 0 轮搜索已取回的候选池里，
+第 0 轮从 64 条后端候选池中准入一条 Memory 候选，低于默认最低候选数 2 和 Memory 上限 16，因此该类别还有增长空间。
+预算探测发现仍有未用字节、且没有整条丢弃，所以这是**召回**偏薄而不是**预算**偏薄。
+闸门判定为 `thin-candidates`，扩展一次（降低准入下限），第 1 轮又放进四条候选——它们本就在第 0 轮搜索已取回的候选池里，
 只是被当时的下限丢弃了。随后选择与渲染完全按现有逻辑进行，仍在同样的 8000 字节内。
 
 如果第 1 轮没有贡献任何新候选，prepare 会交付第 0 轮的结果——也就是今天的行为——`RecallEffort` 会报
@@ -310,24 +338,25 @@ Builder 的上限本身（`application.py:742-743`、`:761`），与上文一致
 
 ## 新增组件
 
-1. **`RecallSufficiencyPolicy`** —— 冻结的、带版本的值对象，持有阈值、最大轮数、每轮扩展的准入下限，以及预算探测的
-   提示规模上限。由 Runtime 配置构造；功能关闭时默认值保持当前行为。
-2. **`RecallAdmissionPolicy`** —— 传给每个可搜索类别搜索、用于覆盖其下限的值：可选的 `required_matches`
-   （默认取 `fts_query_requirements` 推导值，`search.py:78`）与可选的 `min_semantic_similarity`
-   （默认 `0.3`，`memory/fusion.py:29`、`topic_memory/fusion.py:33`）。传 `RecallAdmissionPolicy()`——两个覆盖都为
-   `None`——精确复现今天的行为，第 0 轮就是这么做的。
+1. **`RecallSufficiencyPolicy`** —— 冻结的、带版本的值对象，持有阈值、最大轮数和每轮扩展的准入下限。
+   由 Runtime 配置构造；功能关闭时默认值保持当前行为。
+2. **`AdmissionFloor`** —— 传给每个可搜索类别搜索的共享值，用于覆盖词项覆盖率、最低匹配词项数与最低 cosine。
+   第 0 轮传 `admission=None`，保留历史默认值：词项覆盖率 `0.25`、最低匹配词项数 `2`（受 query 长度约束）、
+   cosine `0.3`。
 3. **`AdmissionCounts`** —— `(family, scope_id, retrieved, admitted)`，每个可搜索类别、每个 Scope、每一轮一个。
 4. **`RecallSufficiencyGate`** —— 纯函数。输入是该轮各类别的视图、query、policy 与一个预算视图：
-   `assess(*, query, families, budget, policy) -> GateAssessment`。无 I/O、无模型调用、除候选自身已携带的信息外不访问
+   `assess(candidates, query, policy, *, scope_has_content, budget, families_expected) -> GateAssessment`。
+   无 I/O、无模型调用、除候选自身已携带的信息外不访问
    时钟。返回 `sufficient`，以及原因与产生该判断的信号取值。
 5. **`RecallBudgetView`** —— `max_bytes` 连同一次**预算探测**得到的计数：用 Builder 已有的纯拟合代码在该轮候选集上
    跑一遍，丢弃渲染结果，只保留 `delivered_items`、`truncated_items`、`dropped_items` 与 `unused_bytes`。闸门需要它
    来区分"预算造成的偏薄"与"召回造成的偏薄"；没有它，下面 512 字节的边界条件无法判定。
-6. **`RecallExpander`** —— 纯函数 `(round, policy) -> SearchPlan`，`SearchPlan` 只携带下一轮的两项准入覆盖。它不涉及
+6. **`RecallExpander`** —— 纯函数 `(round, policy) -> SearchPlan`，`SearchPlan` 只携带下一轮的 `action` 与 `admission`。它不涉及
    类别，因此不可能违反 assembly 契约，也绝不设置 `limit`、`mode` 或 rerank 候选界。
 7. **`RecallEffort`** —— 上文描述的 trace 值，交付给 Runtime 的可选 sink。
 
-以上都位于 `src/powercontext/builtin/runtime/` 下。闸门、扩展器与预算探测复用纯逻辑，可以直接测试，不需要数据库。
+policy、闸门、扩展器、预算视图与 effort 位于 `src/powercontext/builtin/runtime/` 下；共享的下限与准入计数位于
+`builtin/artifacts/search.py`。闸门、扩展器与预算探测复用纯逻辑，可以直接测试，不需要数据库。
 
 ## 所需内部传递机制
 
@@ -335,10 +364,10 @@ Builder 的上限本身（`application.py:742-743`、`:761`），与上文一致
 
 **Memory。** `MemoryService.search` 本来就已经把边界两侧的东西都物化了——后端的 `channels`，以及随后的
 `admitted_fts` 与 `admitted_vector`（`service.py:463-465`）。它新增一个可选关键字参数
-`admission: RecallAdmissionPolicy | None = None`，用于替换推导出的词项匹配数与 `0.3` 余弦基线，并报出
+`admission: AdmissionFloor | None = None`，用于替换推导出的词项匹配数与 `0.3` 余弦基线，并报出
 `retrieved = len(channels.fts) + len(channels.vector)` 与
 `admitted = len(admitted_fts) + len(admitted_vector)`。计数通过 `MemorySearchResult`（`memory/models.py:165-169`）上的
-仅进程内字段暴露。HTTP 契约不受影响，因为响应是由 `search_response`（`server/mapping.py:788`）从
+仅进程内字段暴露。Memory 搜索响应不受影响，因为它由 `search_response`（`server/mapping.py:788`）从
 `MemorySearchPage`（`runtime/models.py:183-189`，构造于 `application.py:1738` 与 `:1761`）构建的，而它显式枚举自己的
 字段；这些计数器必须留在 `MemorySearchPage` 之外、也不进入 `openapi/powercontext.yaml`，因此不需要执行
 `make api-generate`。
@@ -354,8 +383,8 @@ Builder 的上限本身（`application.py:742-743`、`:761`），与上文一致
 **Topic Memory。** `_topic_memory_hits`（`application.py:890`）同样返回裸元组；它需要改为返回一个同时携带命中与其
 `AdmissionCounts` 的结果值，计数在 `_admit_fts` 与 `_admit_vector`（`topic_memory/fusion.py:102-117`）两侧测量。
 
-**第 0 轮行为不变。** 第 0 轮传 `RecallAdmissionPolicy()`，忽略下限覆盖；唯一区别是它现在会观测并返回计数。功能
-关闭时，计数器根本不会被采集。
+**第 0 轮行为不变。** 第 0 轮传 `admission=None`，使用历史默认下限。搜索结果始终携带准入计数，无论 Runtime
+闸门是否启用；关闭的闸门不进行评估或扩展。
 
 ## 循环放在哪里
 
@@ -371,12 +400,14 @@ Builder 只接收一份候选集，所以必须说清它来自哪些轮次，而
 
 **合并规则。** 在每个类别、每个 Scope 分组内，合并后的集合是：第 0 轮的候选，之后按轮次顺序追加后续各轮贡献的、
 此前不存在的身份，并按该类别的证据身份去重（见**闸门看什么**）。身份冲突时保留较早轮次的那一条。以 `memory` 为例：
-`merged = round0_hits + (第 1 轮的新身份，按融合顺序) + (第 2 轮的新身份，按融合顺序)`。
+`merged = round0_hits + (第 1 轮的新身份，按融合顺序) + (第 2 轮的新身份，按融合顺序)`。这个累积序就是闸门打分的
+顺序——它让按 Scope 的首条规则在各轮之间保持稳定——而交给 Builder 的已提交集合按**最新一轮**的融合序排列（见下面的
+**重新选择规则**）。
 
-**重新选择规则。** 合并后的集合随后通过**已经用于截断第 0 轮**的那两个分配器——`_limit_memory_candidates`
-（`application.py:747`）与 `_limit_experience_candidates`（`application.py:748-751`），它们把类别上限按 scope 分组做
-round-robin 分配——Topic Memory 则保留它自己的单 Scope 上限检查。因为第 0 轮是合并序列的前缀，截断只可能移除后续轮次
-新增的候选；第 0 轮产生的候选永远不会被扩展挤掉。
+**重新选择规则。** 已提交的集合随后通过与截断第 0 轮同类的分配器——`_limit_expanded_memory_candidates` 与
+`_limit_expanded_experience_candidates`，它们保留每个 Scope 分组的第 0 轮配额、并把类别剩余上限按分组做 round-robin
+分配——Topic Memory 则保留它自己的单 Scope 上限检查。在每个 Scope 分组内，已提交顺序是该轮次的融合序，其后是该轮
+未重新准入的身份按累积序排列：在降低下限后才进入融合窗口的候选因此落在上限之内，而不是排在第 0 轮前缀之后被截掉。
 
 由此得到两个必须成立的性质，而不是偶然的副作用：
 
@@ -385,9 +416,9 @@ round-robin 分配——Topic Memory 则保留它自己的单 Scope 上限检查
   扩展触发。这正是把合并定义在同一批分配器上、而不是定义成无界并集的原因：两轮各自合法、各含 16 条 Memory 命中的
   结果可能只差一条候选，而它们去重后的 17 条并集会让 `build_scopes_result()` 抛出
   `PreparedContextInvariantError("memory-candidate-limit")`。
-- **已饱和的类别不可能增长。** 如果第 0 轮已经填满某类别的上限，合并集合会被截断回第 0 轮的候选，该类别的后续轮次不会
-  改变任何东西。扩展只能给那些第 0 轮准入数低于自身上限的类别增加候选——这正是闸门在做决定之前读取的信号，也是"空
-  操作扩展"属于正常且会被报告的结果的原因。
+- **已饱和的类别不可能增长。** 类别总量保持在上限之内，因此 `prepared_context.py:164-169` 的检查不可能被扩展触发。
+  但它的成员仍可能变化：已提交集合在每个 Scope 保留的配额内按最新一轮融合序排列，所以重新准入的候选会顶掉排名更低
+  的同 Scope 候选，而不是被追加到已满的前缀之后。
 
 因此，某一轮返回的候选**少于**上一轮是正常且预期的，不构成降级触发条件。
 
@@ -465,16 +496,16 @@ Experience 与 Topic Memory 的搜索不做 rerank。因此上表的生成调用
 扩展是**按轮次**提交的，且一轮是全有或全无：
 
 - 第 0 轮无条件提交。如果第 0 轮失败，prepare 与今天一样失败。
-- 轮次 `r >= 1` 先把该轮所有参与类别、所有 Scope 的结果收集到一个**暂存**集合。只有当其中每一次搜索都成功时，暂存
-  集合才会合并进已提交集合。
-- 如果该轮中任何一次搜索抛错，整个暂存集合被丢弃，已提交集合回退到上一次提交的状态。`RecallEffort.rounds` 统计实际
-  执行的轮次，`expansion_actions` 只记录已提交的轮次。
+- 轮次 `r >= 1` 先把该轮所有参与类别、所有 Scope 的结果收集到一个**暂存**集合。只有当其中每一次搜索、预算探测和
+  闸门评估都成功后，才提交该轮。
+- 如果该轮中任何一次搜索、预算探测或评估抛错，整个暂存集合被丢弃，返回的候选与信号保持上一次已提交的状态。
+  `RecallEffort.rounds` 与 `expansion_actions` 都只记录已提交的轮次。
 
 没有这道边界，"fail-open"就不成立：扩展按类别和 Scope 执行，后面的搜索可能在前面几次搜索已经把候选贡献进来之后才
-失败，而把这个错误吞掉就会返回一个**部分扩展**的结果，而不是今天的第 0 轮结果。有了这道边界，一个失败的轮次得到的
+失败，而把这个错误吞掉就会返回一个**部分扩展**的结果。有了这道边界，一个失败的轮次得到的
 正是上一次已提交的结果。
 
-闸门本身是失败即不扩展的：如果 `assess` 抛错，或配置缺失，则不执行扩展，prepare 带着第 0 轮继续。闸门永远不会把一次
+首次 `assess` 抛错时，prepare 带着第 0 轮继续；后续评估失败时保留此前已提交的扩展。配置缺失时跳过闸门。闸门永远不会把一次
 成功的 prepare 变成失败，也不会改变 `status`。因为闸门在选择之前运行，一次失败最多多花一次搜索，永远不会丢掉已有
 结果。
 
@@ -490,8 +521,8 @@ Experience 与 Topic Memory 的搜索不做 rerank。因此上表的生成调用
   revision。
 - **只选 Profile 的请求。** `profile` 是 section 类别（`runtime/models.py:195`），但通过 `profiles.latest` 读取
   （`application.py:752-759`），既不搜索也不经过准入下限，因此它不是扩展目标，只选 profile 的请求永不扩展。
-- **已饱和的类别。** 如果某类别第 0 轮的准入数已经等于其 Builder 上限，扩展无法再给它增加候选；该轮被记录为
-  "什么都没改变"，而不是被重试。
+- **已饱和的类别。** 如果某类别第 0 轮的准入数已经等于其 Builder 上限，扩展无法再让它增长；但当降低后的下限重新
+  准入一条排名更高的命中时，后续轮次仍可能改变它的成员构成，否则该轮被记录为"什么都没改变"。
 - **指定了 `assembly` 的请求。** 扩展不得引入未选择的类别。若调用方只选择了 Memory，则"补 Experience"不是一个
   合法动作，无论第 0 轮多薄。
 - **没有向量部署的 Scope。** hybrid 不可用，`mode` 本来就是 `fts`，余弦基线也不适用；此时只有词项证据要求可以放宽，
@@ -512,7 +543,7 @@ Experience 与 Topic Memory 的搜索不做 rerank。因此上表的生成调用
 
 ## 测试
 
-闸门、扩展器与预算探测作为纯函数测试，覆盖：无分数类别（Experience）的信号计算、准入数为零的类别，以及已经处于上限的
+闸门、扩展器与预算探测作为纯函数测试，覆盖：无向量相关度类别（Experience）的信号计算、准入数为零的类别，以及已经处于上限的
 类别。
 
 Runtime 层测试在固定候选集与固定预算下断言：
@@ -523,8 +554,8 @@ Runtime 层测试在固定候选集与固定预算下断言：
 - **合并集合永不破坏 Builder 不变量**：两轮各含 16 条 Memory 命中、只差一条候选时，必须成功构建，而不是抛出
   `PreparedContextInvariantError("memory-candidate-limit")`；任何轮次都不得超出类别上限；
 - 一轮没有贡献新身份 → 沿用先前的候选集，且 `candidates_by_round` 持平；
-- 第 0 轮已饱和的类别不再接收后续轮次的候选；
-- 第 0 轮产生的候选永远不会被扩展挤掉；
+- 第 0 轮已饱和的类别不能增长，但重新准入的命中仍可能在上限内顶掉排名更低的同 Scope 候选；
+- 已提交集合在每个 Scope 保留的配额内按最新一轮融合序排列，第 0 轮的候选只会被排名更高的重新准入命中顶掉；
 - 一轮中任何一次搜索失败都会丢弃该轮整个暂存集合，并返回上一次已提交的结果；
 - 空 Scope 永不扩展；只选 profile 的请求永不扩展；显式选定的类别集合永不被扩大；
 - 准入计数被报出，且未配置 sink 时不产生任何副作用。
@@ -546,8 +577,9 @@ OceanBase 上各跑一遍，报告任务成功率、注入字节数、`truncated
   它们可能挤掉默认下限本可交付的证据。这是该特性默认关闭、且必须先标定而不能直接打开的主要原因。
 - **扩展后的输出可能更大。** 在 `max_bytes` 之内，一次成功的扩展可以比第 0 轮交付更多字节，这正是它的意图，但也
   意味着字节数不再是某个 query 的稳定属性。
-- **对已饱和类别与被预算卡住的查询，扩展是无效的。** 候选上限封顶了任何轮次能增加的量，而预算探测会在预算是约束时
-  停止扩展。该特性只针对一种失败模式——候选偏薄而预算未满——不应被当成通用的召回修复方案来宣传。
+- **扩展无法增大已饱和类别，也帮不了被预算卡住的查询。** 候选上限封顶了任何轮次能交付的量（上限内的成员仍可能
+  变化），而预算探测会在预算是约束时停止扩展。该特性只针对一种失败模式——候选偏薄而预算未满——不应被当成通用的
+  召回修复方案来宣传。
 - **新增可调参数面。** 决定"是否充分"的阈值，现在又加上了决定"放宽到哪"的一组阈值。两者都容易设错，也很难用经验
   证据证明。以带版本 policy 的形式发布可以缓解但不能消除这一点。
 - **可能掩盖检索缺陷。** 如果第一轮偏薄的原因是索引或 embedding 有问题，用同样机制再跑一轮往往同样偏薄，

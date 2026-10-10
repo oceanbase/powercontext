@@ -238,7 +238,7 @@ class _ModelUsageRecorder:
                 raise TimeoutError
             allowance = attempt_timeout if first_attempt else remaining
             try:
-                async with self._database._model_usage_transaction(min(remaining, allowance)) as connection:
+                async with self._database.statistics_transaction(min(remaining, allowance)) as connection:
                     # Lock the Scope row on MySQL so delete cannot race the
                     # increment. SQLite ignores FOR UPDATE; its real snapshot
                     # makes a competing delete fail the write upgrade instead.

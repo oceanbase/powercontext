@@ -29,19 +29,21 @@ from typing import TYPE_CHECKING
 from powercontext.builtin.artifacts.experience import ExperienceSearchHit, experience_search_text
 from powercontext.builtin.artifacts.memory import MemoryHit
 from powercontext.builtin.artifacts.search import (
+    DEFAULT_ADMISSION_FLOOR,
     AdmissionCounts,
     AdmissionFloor,
     analyze_text,
     fts_query_requirements,
 )
 from powercontext.builtin.artifacts.topic_memory import TopicMemorySearchHit
+from powercontext.builtin.statistics import RecallEffortMeasurement
 
 if TYPE_CHECKING:
     from powercontext.builtin.runtime.config import RuntimeConfig
     from powercontext.builtin.runtime.prepared_context import PreparedContextOmissions
 
 # ── Policy identifier and reason vocabulary ────────────────────────────────────────────────
-POLICY_ID = "powercontext.recall-gate.v1"
+POLICY_ID = "powercontext.recall-gate.v2"
 
 REASON_SUFFICIENT = "sufficient"
 REASON_NO_CONTENT = "no-content"
@@ -71,16 +73,20 @@ BUDGET_FLOOR_BYTES = 512
 _RRF_CONSTANT = 60
 # Topic Memory relevance is already normalized against its reachable upper bound.
 _TOPIC_SCORE_SCALE = 100.0
+_STRONG_TOP_RELEVANCE = 0.7
 
 
 @dataclass(frozen=True)
 class RecallCandidate:
     """One family-local retrieval result, projected for model-free assessment.
 
-    ``score`` is a family-local relevance normalized into ``[0.0, 1.0]`` for the families that
-    expose a real score. Families that expose only presence/counts (Experience) carry ``0.0``
-    and never take part in the score signals — inventing a confidence for them would make the
-    gate less honest, not more.
+    ``score`` retains the family-local normalized RRF rank value for external gate-capture JSON
+    consumers of ``assessments.candidates[].score``. ``relevance`` is the cosine similarity of the best admitted vector
+    channel, when one exists. Only relevance enters the gate's score thresholds.
+
+    ``scope_id`` identifies the Scope an independent fusion run belongs to. Memory searches
+    once per participating Scope, so each Scope's hits form their own fused ranking; the
+    gate's "first fused hit" rule is applied per Scope, never across Scope boundaries.
     """
 
     family: str
@@ -90,19 +96,19 @@ class RecallCandidate:
     entry_version_id: str | None
     score: float
     text: str
+    relevance: float | None = None
+    scope_id: str | None = None
 
 
 @dataclass(frozen=True)
 class RecallSignals:
     """Cheap, model-free signals derived from the accumulated candidate set.
 
-    Score caveat (a known limitation, not a polished story): Memory's fused score is a
-    reciprocal-rank score, so its discrimination is compressed by rank. The normalized Memory
-    score saturates near ``1.0`` for a single strong channel hit, which is why the real
-    load-bearing signals in v1 are ``candidate_count``, family coverage and ``lexical_overlap``;
-    the score signal is driven mainly by Topic Memory. ``lexical_overlap`` is the query-term
-    recall of the single best candidate (its overlap is the maximum over candidates), not the
-    share of candidates sharing at least one term.
+    ``top_score``, ``mean_score`` and ``top_gap`` measure vector cosine relevance, regardless
+    of the families' different fused-score scales. ``lexical_overlap`` is the query-term
+    recall of the single best candidate (its overlap is the maximum over candidates).
+    A family contributes to these score signals only for Scopes whose own first fused hit
+    has vector evidence. The gap uses candidates above the round-zero semantic floor.
 
     ``distinct_source_count`` counts family-specific evidence identities via
     :func:`candidate_identity` — a Memory entry (``memory_ref`` + ``entry_id`` +
@@ -123,6 +129,7 @@ class RecallSignals:
     lexical_overlap: float
     families_expected: int = 0
     scored_families: int = 0
+    gap_families: int = 0
 
 
 @dataclass(frozen=True)
@@ -259,9 +266,10 @@ class RecallBudgetView:
 
 @dataclass(frozen=True)
 class RecallEffort:
-    """In-process trace of the recall loop; never persisted and never added to the HTTP body.
+    """In-process trace of the recall loop; never added to the HTTP body.
 
-    The trace is delivered to the Runtime's optional ``RecallEffortSink`` and to nothing else.
+    The relational Runtime persists only its daily aggregate. A caller-supplied
+    ``RecallEffortSink`` replaces that recorder and receives the trace directly.
     It is **not** attached to ``PreparedContextBuild``: ``_prepare`` returns ``build.context``
     and discards the rest of the build result, so a field there would have no production
     observer.
@@ -270,8 +278,9 @@ class RecallEffort:
     admission totals. There is no query text, no entry id and no per-entry attribution, so the
     value cannot leak evidence through a trace.
 
-    ``rounds`` counts the search passes actually executed, so it is ``1 + len(expansion_actions)``
-    (1..3): round 0 always runs and each *committed* expansion adds one. ``candidates_by_round``
+    ``rounds`` counts assessed, committed search passes, so it is ``1 + len(expansion_actions)``
+    (1..3): round 0 always runs and each committed expansion adds one. A failed pass that did
+    not finish assessment does not add a round. ``candidates_by_round``
     holds the accumulated candidate-pool size the gate saw after each committed round, so
     ``len(candidates_by_round) == rounds``; it measures the **un-truncated** accumulated pool
     the gate assessed, not the subset the Builder finally selected (the Builder is called once,
@@ -304,6 +313,7 @@ class RecallEffort:
     dropped_items: int = 0
     dropped_below_min_bytes: int = 0
     dropped_no_fitting_truncation: int = 0
+    signals: RecallSignals | None = None
 
 
 def recall_effort(
@@ -316,6 +326,7 @@ def recall_effort(
     added_embeddings: int = 0,
     added_generation_calls: int = 0,
     omissions: PreparedContextOmissions | None = None,
+    signals: RecallSignals | None = None,
 ) -> RecallEffort:
     """Assemble one :class:`RecallEffort`, folding a build's omission counts into it.
 
@@ -339,7 +350,39 @@ def recall_effort(
         dropped_items=0 if omissions is None else omissions.dropped_items,
         dropped_below_min_bytes=0 if omissions is None else omissions.dropped_below_min_bytes,
         dropped_no_fitting_truncation=0 if omissions is None else omissions.dropped_no_fitting_truncation,
+        signals=signals,
     )
+
+
+def recall_effort_measurement(effort: RecallEffort, /) -> RecallEffortMeasurement:
+    """Validate a committed trace and project only its additive, content-free values."""
+
+    actions = (ACTION_ADMISSION, ACTION_POLICY_FLOOR)
+    if effort.expansion_actions != actions[: len(effort.expansion_actions)]:
+        raise ValueError("recall effort expansion actions must follow the bounded policy")  # noqa: TRY003
+    if effort.rounds != 1 + len(effort.expansion_actions):
+        raise ValueError("recall effort rounds must match committed expansion actions")  # noqa: TRY003
+    if len(effort.candidates_by_round) != effort.rounds:
+        raise ValueError("recall effort needs one candidate sample per committed round")  # noqa: TRY003
+    if any(type(count) is not int or count < 0 for count in effort.candidates_by_round):
+        raise ValueError("recall effort candidate counts must be non-negative integers")  # noqa: TRY003
+    return RecallEffortMeasurement.model_validate({
+        "policy_id": effort.policy,
+        "assessment": effort.assessment,
+        "rounds": effort.rounds,
+        "expanded_preparations": int(effort.rounds > 1),
+        "admission_expansions": effort.expansion_actions.count(ACTION_ADMISSION),
+        "policy_floor_expansions": effort.expansion_actions.count(ACTION_POLICY_FLOOR),
+        "candidate_round_samples": len(effort.candidates_by_round),
+        "candidates_assessed": sum(effort.candidates_by_round),
+        "final_candidate_pool": effort.candidates_by_round[-1],
+        "added_embeddings": effort.added_embeddings,
+        "added_generation_calls": effort.added_generation_calls,
+        "truncated_items": effort.truncated_items,
+        "dropped_items": effort.dropped_items,
+        "dropped_below_min_bytes": effort.dropped_below_min_bytes,
+        "dropped_no_fitting_truncation": effort.dropped_no_fitting_truncation,
+    })
 
 
 def candidate_identity(candidate: RecallCandidate, /) -> tuple[str, str, int, str | None, str | None]:
@@ -359,11 +402,17 @@ def build_recall_candidates(
     memory_hits: Sequence[MemoryHit],
     topic_memory_hits: Sequence[TopicMemorySearchHit],
     experience_hits: Sequence[ExperienceSearchHit],
+    memory_scope_ids: Sequence[str | None] | None = None,
 ) -> tuple[RecallCandidate, ...]:
-    """Project the participating families' hits into a flat, ordered candidate tuple."""
+    """Project the participating families' hits into a flat, ordered candidate tuple.
+
+    ``memory_scope_ids``, when given, must parallel ``memory_hits`` and records which Scope's
+    independent fusion run produced each hit; the gate scores each Scope's fused ranking
+    separately. Omitting it treats all Memory hits as one fusion run.
+    """
 
     candidates: list[RecallCandidate] = []
-    for hit in memory_hits:
+    for index, hit in enumerate(memory_hits):
         candidates.append(
             RecallCandidate(
                 family=MEMORY_FAMILY,
@@ -373,6 +422,8 @@ def build_recall_candidates(
                 entry_version_id=hit.entry_version_id,
                 score=_normalize_memory_score(hit),
                 text=hit.text,
+                relevance=hit.relevance,
+                scope_id=None if memory_scope_ids is None else memory_scope_ids[index],
             )
         )
     for topic_hit in topic_memory_hits:
@@ -385,6 +436,7 @@ def build_recall_candidates(
                 entry_version_id=None,
                 score=_normalize_topic_score(topic_hit),
                 text="\n".join(part for part in (topic_hit.title, topic_hit.summary, topic_hit.snippet) if part),
+                relevance=topic_hit.relevance,
             )
         )
     for experience_hit in experience_hits:
@@ -413,7 +465,7 @@ def _normalize_memory_score(hit: MemoryHit) -> float:
 
 
 def _normalize_topic_score(hit: TopicMemorySearchHit) -> float:
-    """Normalize Topic Memory relevance into ``[0.0, 1.0]``."""
+    """Normalize a Topic Memory fused rank score into ``[0.0, 1.0]`` for captures."""
 
     return max(0.0, min(1.0, hit.score / _TOPIC_SCORE_SCALE))
 
@@ -435,8 +487,8 @@ class RecallSufficiencyGate:
         """Assess one candidate set. No I/O, no clock, no model; deterministic in its inputs.
 
         ``budget`` carries the result of the round's budget probe, or ``None`` when no probe
-        was run. The gate does not perform the probe itself; the Runtime does it once, on
-        round 0, and reuses the view for every round.
+        was run. The gate does not perform the probe itself; the Runtime probes each round's
+        capped candidate set before committing its assessment.
         """
 
         signals = _build_signals(candidates, query, families_expected)
@@ -450,8 +502,10 @@ class RecallSufficiencyGate:
             return GateAssessment(sufficient=False, reason=REASON_THIN_CANDIDATES, signals=signals)
         if families_expected > 1 and signals.family_count < families_expected:
             return GateAssessment(sufficient=False, reason=REASON_THIN_FAMILIES, signals=signals)
-        if signals.scored_families > 0 and (
-            signals.top_score < policy.min_top_score or signals.top_gap < policy.min_top_gap
+        if (signals.scored_families > 0 and signals.top_score < policy.min_top_score) or (
+            signals.gap_families > 0
+            and signals.top_score < _STRONG_TOP_RELEVANCE
+            and signals.top_gap < policy.min_top_gap
         ):
             return GateAssessment(sufficient=False, reason=REASON_WEAK_TOP_ONE, signals=signals)
         if signals.lexical_overlap < policy.min_lexical_overlap:
@@ -481,7 +535,7 @@ def _build_signals(
     families_with_candidates = len({candidate.family for candidate in candidates})
     distinct_source_count = len({candidate_identity(candidate) for candidate in candidates})
     lexical_overlap = _lexical_overlap(candidates, query)
-    top_score, mean_score, top_gap, scored_families = _score_signals(candidates)
+    top_score, mean_score, top_gap, scored_families, gap_families = _score_signals(candidates)
     return RecallSignals(
         candidate_count=candidate_count,
         family_count=families_with_candidates,
@@ -492,6 +546,7 @@ def _build_signals(
         lexical_overlap=lexical_overlap,
         families_expected=families_expected,
         scored_families=scored_families,
+        gap_families=gap_families,
     )
 
 
@@ -514,33 +569,47 @@ def _lexical_overlap(candidates: Sequence[RecallCandidate], query: str) -> float
     return best
 
 
-def _score_signals(candidates: Sequence[RecallCandidate]) -> tuple[float, float, float, int]:
-    """Aggregate score signals over the families that expose a real relevance score.
+def _score_signals(candidates: Sequence[RecallCandidate]) -> tuple[float, float, float, int, int]:
+    """Aggregate cosine relevance over families with admitted vector hits.
 
-    Returns ``(top_score, mean_score, top_gap, scored_families)``. ``top_score`` is the maximum
-    family top and ``top_gap`` the maximum family-local ``top - mean``. ``mean_score`` is the mean
-    of all scored candidates pooled across scored families — a different basis from the
-    family-local ``top_gap`` — and is reported **for observation only; it never takes part in the
-    verdict**. When no family exposes a score the caller must skip the score signal entirely
-    (``scored_families == 0``), so the aggregate values here stay ``0.0`` rather than fabricated.
+    Each Scope runs an independent fusion, so the "first fused hit" rule is applied per
+    Scope: a Scope's hits contribute score signals only when that Scope's first family hit
+    has vector evidence. This keeps the verdict invariant to the order Scopes are prepared
+    in. The gap uses only candidates above the round-zero semantic admission floor, so
+    lowering that floor cannot manufacture a larger gap. ``mean_score`` pools all known
+    vector scores for observation only. A family with fewer than two baseline scores cannot
+    produce a gap.
     """
 
-    top_score = 0.0
+    top_score = -1.0
     top_gap = 0.0
     scored_families = 0
+    gap_families = 0
     all_scores: list[float] = []
     for family in _SCORING_FAMILIES:
-        family_scores = [candidate.score for candidate in candidates if candidate.family == family]
+        scope_groups: dict[str | None, list[RecallCandidate]] = {}
+        for candidate in candidates:
+            if candidate.family == family:
+                scope_groups.setdefault(candidate.scope_id, []).append(candidate)
+        family_scores = [
+            candidate.relevance
+            for group in scope_groups.values()
+            if group[0].relevance is not None
+            for candidate in group
+            if candidate.relevance is not None
+        ]
         if not family_scores:
             continue
         scored_families += 1
         family_top = max(family_scores)
-        family_mean = sum(family_scores) / len(family_scores)
         top_score = max(top_score, family_top)
-        top_gap = max(top_gap, family_top - family_mean)
+        baseline_scores = [score for score in family_scores if score >= DEFAULT_ADMISSION_FLOOR.min_semantic_similarity]
+        if len(baseline_scores) > 1:
+            gap_families += 1
+            top_gap = max(top_gap, max(baseline_scores) - sum(baseline_scores) / len(baseline_scores))
         all_scores.extend(family_scores)
     mean_score = sum(all_scores) / len(all_scores) if all_scores else 0.0
-    return top_score, mean_score, top_gap, scored_families
+    return (top_score if all_scores else 0.0), mean_score, top_gap, scored_families, gap_families
 
 
 __all__ = [
@@ -574,4 +643,5 @@ __all__ = [
     "build_recall_candidates",
     "candidate_identity",
     "recall_effort",
+    "recall_effort_measurement",
 ]

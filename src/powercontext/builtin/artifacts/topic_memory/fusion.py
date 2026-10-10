@@ -29,6 +29,7 @@ from powercontext.builtin.artifacts.search import (
     analyze_text,
     analyze_text_with_spans,
     lexical_search_score,
+    unit_l2_cosine_similarity,
 )
 from powercontext.builtin.artifacts.topic_memory.models import (
     TopicMemoryChannelHit,
@@ -134,6 +135,7 @@ def _fuse_topic_memory_rankings(
                 matched_by=tuple(channel for channel in _CHANNEL_ORDER if channel in evidence[hit.key]),
                 retrieval_score=hit.score,
                 channel_scores=_channel_scores(evidence[hit.key]) if include_scores else None,
+                relevance=_relevance(evidence[hit.key]),
             )
             for hit in selected
         ),
@@ -153,6 +155,17 @@ def _channel_scores(evidence: dict[str, TopicMemoryChannelHit]) -> dict[str, Cha
         else:
             _, result[name] = lexical_search_score(hit.raw_score, hit.metric)
     return result
+
+
+def _relevance(evidence: dict[str, TopicMemoryChannelHit]) -> float | None:
+    """Return the best cosine similarity among the admitted vector channels, if any."""
+
+    similarities = [
+        unit_l2_cosine_similarity(hit.distance)
+        for name, hit in evidence.items()
+        if name.endswith("_vector") and hit.distance is not None
+    ]
+    return max(similarities, default=None)
 
 
 def _retrieved_count(
@@ -216,7 +229,7 @@ def admits_topic_memory_vector_distance(
     """
 
     baseline = _MIN_SEMANTIC_SIMILARITY if floor is None else floor.min_semantic_similarity
-    return max(-1.0, min(1.0, 1.0 - distance**2 / 2.0)) >= baseline
+    return unit_l2_cosine_similarity(distance) >= baseline
 
 
 def _snippet(query: str, value: str, *, lexical: bool) -> str:

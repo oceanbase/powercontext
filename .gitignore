@@ -191,6 +191,7 @@ venv.bak/
 # Generated outputs
 site/
 e2e/bub/results/
+e2e/bub/memorycode-tasks/
 
 # mypy
 .mypy_cache/

@@ -365,6 +365,7 @@ def test_treatment_evidence_preserves_database_identity_and_reads_legacy_records
         (Arm.ON, {"plugin_checkout_sha": "b" * 40}),
         (Arm.ON, {"server_ready": False}),
         (Arm.ON, {"prompt_sources": 0}),
+        (Arm.ON, {"mcp_requests": 0}),
         (Arm.ON, {"scope_id": "scp_other"}),
         (Arm.ON, {"scope_key": "eval:other:on"}),
         # Evidence for a Scope the arm did not register, such as the bare key, is rejected.
@@ -425,6 +426,7 @@ class TranscriptDocker:
         container_tokensflow_version: bytes | None = None,
         database_kind: str = "sqlite",
         database_fingerprint: str = "d" * 64,
+        mcp_evidence: str | None = None,
     ) -> None:
         self.commands: list[tuple[str, ...]] = []
         self.fail_at = fail_at
@@ -438,6 +440,7 @@ class TranscriptDocker:
         self.container_networks: dict[str, set[str]] = {}
         self.database_kind = database_kind
         self.database_fingerprint = database_fingerprint
+        self.mcp_evidence = mcp_evidence
 
     @staticmethod
     def _output(payload: bytes, kwargs: dict[str, object], *, returncode: int = 0) -> CommandResult:
@@ -463,6 +466,12 @@ class TranscriptDocker:
             version = self.container_tokensflow_version if argv[0] == "docker" else self.host_tokensflow_version
             return self._output(version, kwargs)
         script = " ".join(argv)
+        if "http://127.0.0.1:8000/metrics" in script:
+            return command_result(
+                self.mcp_evidence
+                if self.mcp_evidence is not None
+                else json.dumps({"mcp_requests": 0 if argv[2].endswith("-off") else 2})
+            )
         if "tokensflow-stop-initial-probe" in script:
             return command_result("123\n")
         if "tokensflow-stop-term" in script:
@@ -1194,6 +1203,8 @@ def test_each_arm_receives_its_database_without_exposing_credentials(tmp_path: P
                 "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL": "openai:fixture-model",
                 "POWERCONTEXT_SERVER_DATABASE_KIND": "sqlite",
                 "POWERCONTEXT_SERVER_DATABASE_URL": "sqlite+aiosqlite:////wrong-database.db",
+                "POWERCONTEXT_SERVER_METRICS_ENABLED": "false",
+                "POWERCONTEXT_SERVER_METRICS": '{"enabled":false}',
             },
         )
         config.codex_binary.write_text("binary")
@@ -1289,6 +1300,71 @@ def test_sut_rejects_mismatched_or_incomplete_database_evidence(
 
     assert not (paths.result_root / "powercontext/treatment.json").exists()
     assert any(command[:3] == ("docker", "rm", "-f") for command in docker.commands)
+
+
+@pytest.mark.parametrize(("arm", "count"), [(Arm.ON, 2), (Arm.OFF, 0)])
+def test_sut_records_mcp_metrics_without_access_log_paths(tmp_path: Path, arm: Arm, count: int) -> None:
+    paths = make_paths(tmp_path)
+    config = replace(sut_config(tmp_path), proxy=None, tokensflow_enabled=False)
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+    docker = TranscriptDocker(mcp_evidence=json.dumps({"mcp_requests": count}))
+
+    outcome = DockerSut(docker).run_arm(config, arm, paths, b"prompt", ArtifactStore(paths.result_root))
+
+    assert outcome.evidence.mcp_requests == count
+    persisted = TreatmentEvidence.from_json((paths.result_root / "powercontext/treatment.json").read_text())
+    assert persisted.mcp_requests == count
+
+
+@pytest.mark.parametrize(
+    ("arm", "payload"),
+    [
+        (Arm.ON, '{"mcp_requests": 0}'),
+        (Arm.OFF, '{"mcp_requests": 1}'),
+        (Arm.ON, ""),
+        (Arm.ON, "{}"),
+        (Arm.ON, '{"error": "malformed_metrics"}'),
+        (Arm.ON, '{"mcp_requests": true}'),
+        (Arm.ON, '{"mcp_requests": -1}'),
+        (Arm.ON, '{"mcp_requests": 1.5}'),
+    ],
+)
+def test_sut_rejects_invalid_mcp_evidence(tmp_path: Path, arm: Arm, payload: str) -> None:
+    paths = make_paths(tmp_path)
+    config = replace(sut_config(tmp_path), proxy=None, tokensflow_enabled=False)
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+    docker = TranscriptDocker(mcp_evidence=payload)
+
+    with pytest.raises(InvalidTreatment):
+        DockerSut(docker).run_arm(config, arm, paths, b"prompt", ArtifactStore(paths.result_root))
+
+    assert not (paths.result_root / "powercontext/treatment.json").exists()
+    assert any(command[:3] == ("docker", "rm", "-f") for command in docker.commands)
+
+
+@pytest.mark.parametrize("error_type", [CommandFailed, CommandTimedOut])
+def test_sut_fails_when_mcp_metrics_cannot_be_read(tmp_path: Path, error_type: type[CommandError]) -> None:
+    paths = make_paths(tmp_path)
+    config = replace(sut_config(tmp_path), proxy=None, tokensflow_enabled=False)
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+    error = error_type("metrics read failed", command_result("", returncode=70))
+
+    class UnavailableMetricsDocker(TranscriptDocker):
+        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
+            if powercontext_sut._MCP_EVIDENCE_SCRIPT in argv:
+                raise error
+            return super().run(argv, **kwargs)
+
+    docker = UnavailableMetricsDocker()
+
+    with pytest.raises(error_type) as captured:
+        DockerSut(docker).run_arm(config, Arm.OFF, paths, b"prompt", ArtifactStore(paths.result_root))
+
+    assert captured.value is error
+    assert not (paths.result_root / "powercontext/treatment.json").exists()
 
 
 def _is_tokensflow(command: tuple[str, ...], action: str) -> bool:

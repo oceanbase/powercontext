@@ -202,14 +202,14 @@ class AsyncDatabase:
                 self._state_changed.notify_all()
 
     @asynccontextmanager
-    async def _model_usage_transaction(self, timeout_seconds: float) -> AsyncIterator[AsyncConnection]:
-        """Own a best-effort usage transaction, never join a caller's transaction.
+    async def statistics_transaction(self, timeout_seconds: float) -> AsyncIterator[AsyncConnection]:
+        """Own a bounded statistics transaction, never join a caller's transaction.
 
-        Only the recorder's separate consumer task calls this method. SQLite SQL
-        is interrupted natively, not by cancelling SQLAlchemy (which invalidates
-        its connection and destroys a StaticPool's in-memory database). A step
-        that expires before the body commits raises ``ModelUsageAttemptExpired``
-        so the recorder can repeat the attempt inside the same record budget.
+        Call only outside a business transaction. SQLite SQL is interrupted
+        natively, not by cancelling SQLAlchemy (which invalidates its connection
+        and destroys a StaticPool's in-memory database). A step that expires
+        before the body commits raises ``ModelUsageAttemptExpired``; only the
+        model-usage consumer retries that rollback-safe outcome.
         """
 
         deadline = asyncio.get_running_loop().time() + timeout_seconds

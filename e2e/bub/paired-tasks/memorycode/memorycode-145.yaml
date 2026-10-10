@@ -1,0 +1,31 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+schema: powercontext.e2e-task/v1
+id: memorycode-145
+categories:
+  - paired
+  - memorycode
+  - memorycode-sessions-5
+dataset:
+  path: e2e/bub/memorycode-tasks
+  task_id: memorycode-145
+  checksum: ba38c28a34d9db9471ece25e084c3becb06252d19211c46db44b68d837720e97
+execution:
+  type: bub
+  model: true
+  max_steps: 30
+  max_tokens: 16384
+evaluation:
+  recall_step: recall

@@ -396,7 +396,12 @@ async def open_builtin_runtime(
     handoff_verification_keys: tuple[bytes, ...] = (),
     recall_effort_sink: RecallEffortSink | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
-    """Open the selected database, inference adapters, and built-in runtime."""
+    """Open the selected database, inference adapters, and built-in runtime.
+
+    Recall efforts use the scoped relational statistics recorder by default.
+    An explicit ``recall_effort_sink`` replaces that recorder rather than adding
+    a second observation. A disabled gate invokes neither recorder nor sink.
+    """
 
     async with AsyncExitStack() as resources:
         configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY

@@ -24,6 +24,9 @@ PowerContext 1.2.0 包含交互式配置向导。下面的命令安装这一版�
 
 你决定哪些信息以后仍然有用，哪些内容需要随任务交给下一位接手者。PowerContext 把长期信息保存为 Memory，把当前目标和状态组织成 Handoff。你可以把能够复用的做法记录为 Experience 或 Skill。PowerContext 将每项内容限定在对应的工作范围内，并保留它的来源和历史版本。
 
+可选的召回充分性门控会按 Scope 记录每日搜索工作量和字节预算遗漏，供后续策略评估使用。
+记录范围与失败行为见[配置说明](docs/zh/docs/operate/configuration.md)。
+
 ## 安装、配置并接入 Agent
 
 准备 Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和你使用的 Agent CLI。

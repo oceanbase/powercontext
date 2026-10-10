@@ -29,8 +29,8 @@ Three properties make the proposal safe to evaluate:
 - **Expansion cannot break the Builder invariant.** Merged candidates are re-selected down to each family's existing
   candidate ceiling using the allocators that already clamp round 0, so a cross-round union can never exceed the
   ceiling `build_scopes_result()` enforces (`prepared_context.py:164-169`).
-- **A run that does not expand is byte-identical to today.** The no-expansion path is unchanged, which is the
-  regression guarantee.
+- **A run that does not expand keeps its prepared content byte-identical.** The no-expansion path is unchanged, which
+  is the regression guarantee.
 - **Delivered size never exceeds `max_bytes`.** Expansion may use budget the round-0 candidate set left unused, so
   `content_bytes` can *increase* within the ceiling; it can never cross it.
 
@@ -124,16 +124,34 @@ or comes from the counters this RFC adds; none requires a model call.
 | Signal | Computable from | What it detects |
 | --- | --- | --- |
 | Retrieved vs. admitted per family and channel | The new admission counters | A family's admission floor discarded nearly everything it retrieved. |
-| Admitted candidates vs. that family's Builder ceiling | Round-zero hits and `prepared_context.py:103-105` | The family has room for a later round to contribute; a saturated family does not. |
-| Top-1 score and the gap to the mean over admitted candidates | Score-bearing families only: Memory (`MemoryHit.score`) and Topic Memory (`TopicMemorySearchHit.score`) | One plausible hit surrounded by noise, or no clear winner. |
+| Admitted candidates vs. that family's Builder ceiling | Round-zero hits and `prepared_context.py:103-105` | The family has room for a later round to contribute; a saturated family cannot grow, though a re-admitted hit may still change its membership. |
+| Top vector cosine relevance and the family-local gap | Memory (`MemoryHit.relevance`) and Topic Memory (`TopicMemorySearchHit.relevance`), derived from unit-vector L2 distance; fused `score` remains a rank value | Whether each Scope's own first fused hit has usable semantic evidence. The gap uses only candidates above the round-zero semantic floor and is checked only when the top relevance is below the 0.70 strong-match threshold. |
 | Lexical coverage of the top candidates in the analyzer's token space | `analyze_text` / `fts_query_requirements` (`search.py:78`) | Hits matched on stopwords or on one shared token only. |
 | Number of participating families that returned at least one admitted candidate | Round-zero results | An assembly that selected three families and got results from one. |
 | Distinct evidence identities within a family | Family-specific identity (see below) | Many candidates that are really the same evidence. |
-| Whether round zero's fit was budget-bound | The budget probe | Thin output caused by `max_bytes`, not by recall. |
+| Whether the current round's fit was budget-bound | The budget probe over capped candidates | Thin output caused by `max_bytes`, not by recall. |
 
-**Experience carries no score.** `ExperienceSearchHit` has exactly `artifact_ref` and `content`
-(`artifacts/experience/search.py:26-30`), so the score-based signals apply only to the score-bearing families.
+**Experience carries no vector relevance.** `ExperienceSearchHit` has exactly `artifact_ref` and `content`
+(`artifacts/experience/search.py:26-30`), so relevance thresholds skip Experience and any Scope whose family's first
+fused hit is FTS-only.
 Experience contributes its admission counters, its candidate count against its ceiling, and its family-coverage bit.
+
+Cosine relevance is computed as `clamp(1 - d² / 2, -1, 1)` by the shared unit-vector L2 helper. A family contributes
+scores only for Scopes whose own first fused hit has vector evidence; lower-ranked vector hits cannot turn an
+FTS-only first hit into a weak score. Because Memory searches once per Scope, each Scope's fused ranking is judged
+independently, so the verdict is invariant to the order Scopes are prepared in. `top_relevance` is the maximum known
+cosine across those qualifying families. A gap requires at least two
+scored candidates in the same family at or above the base semantic floor (`0.3`); fewer candidates leave that family's
+gap unknown. Strong top relevance (`>= 0.70`) bypasses the gap check, while the configured minimum top score still
+applies. Candidate-capture JSON retains the normalized fused rank at `assessments.candidates[].score` for external
+tooling; that value does not enter the gate's relevance thresholds.
+
+The policy identifier is `powercontext.recall-gate.v2`. Version 1 used family-local normalized fused rank scores for
+`top_score`, `mean_score` and `top_gap`; version 2 uses vector cosine relevance for those signals. Historical captures
+with `policy_id: powercontext.recall-gate.v1` retain the rank-based interpretation and must not be relabelled as v2.
+The inherited defaults `min_top_score=0.35` and `min_top_gap=0.02` were calibrated against the old rank scores. They are
+**provisional values on the cosine scale and have not been recalibrated**; carrying the defaults forward does not
+establish their suitability for cosine relevance.
 
 **Evidence identity is family-specific.** A single Memory search returns many `MemoryHit` values that all share one
 `memory_ref` Artifact revision, because one Memory Revision holds many entries; the independent unit of evidence is the
@@ -161,6 +179,18 @@ section is `profile` is never expanded at all.
 | 1 | Lower the admission floor applied to what each participating searchable family's search already returned, within the configured expansion floor: the lexical-evidence requirement (`search.py:104`) and the cosine baseline (`memory/fusion.py:29`, `topic_memory/fusion.py:33`). | Round 0 assessed insufficient. |
 | 2 | Lower admission to the policy floor and accept the best available evidence. | Round 1 committed and round 1 assessed insufficient. |
 
+`weak-top-1` records an insufficient score signal; it is not a terminal verdict. The signals are read off the fused
+candidate window, and each family's search caps that window before the gate sees hits: a strong vector-only hit can
+sit outside it until a lower lexical floor admits a second channel for the same identity and RRF moves it into
+view. A weak top therefore still expands while a family reports recoverable candidates — the same rule that covers
+candidate-count, family-coverage and lexical insufficiency — and expansion stops only on `sufficient`, an exhausted
+recovery pool, or the spent round budget. When the last committed assessment is still `weak-top-1` once the rounds
+are spent, the reason is kept instead of being rewritten to `at-max-rounds`. Within the window the baseline rules
+are unchanged: scores below the round-zero floor cannot manufacture a gap, and a strong top (`>= 0.70`) still
+exempts the gap check. A new budget probe assesses each expansion's capped candidate set before it is committed.
+The committed set keeps the latest round's fused order inside each family's cap, so a hit that only entered the
+window under a lowered floor is deliverable rather than trailing the round-zero prefix.
+
 No further action is available in round 2. In particular, **raising `memory_rerank_candidate_limit` is not an
 expansion action**: `MemoryService` uses that bound to size the backend request, not only to rerank an existing pool
 (`coarse_limit` at `service.py:452`, then `candidate_limit=max(coarse_limit * 4, 32)` at `service.py:457`), so raising
@@ -181,15 +211,19 @@ that a family the caller did not select is not searched and is not given output 
 unselected family would violate that contract, so family membership is out of scope for expansion. If a caller omits
 `assembly` entirely, the Runtime's existing default family selection applies unchanged and is also not expanded.
 
-**Expansion is a no-op for a family whose round 0 already saturated its ceiling.** Because a merged set keeps round 0
-as its prefix (see *Between rounds*), a family that already filled its candidate ceiling in round 0 cannot receive
-later-round candidates. The gate's "admitted vs. ceiling" signal reports this, and the trace records the round as one
-that changed nothing. The constraint in that case is downstream — budget, not recall — and the budget probe says so.
+**A saturated family cannot grow, but its membership can still change.** The family's total stays at its ceiling:
+the committed set keeps the latest round's fused order inside the cap (see *Between rounds*), so a hit that only
+enters the window under a lowered floor displaces a lower-ranked same-scope candidate instead of trailing a full
+round-zero prefix. The gate's "admitted vs. ceiling" signal still reports when no family has headroom, and the
+budget probe still reports when the binding constraint is downstream — budget, not recall.
 
 ## What you can observe
 
-Following the precedent of the RFC 0080 `rerank` trace, the gate result stays in the process and is **not** added to the
-HTTP v1 response.
+Following the precedent of the RFC 0080 `rerank` trace, the gate result stays in the process and is **not** added to
+the HTTP v1 response. The `RecallEffort` trace carries `signals`: the aggregate gate signals of the last committed
+assessment — candidate count, top vector relevance when a scored family exists, and lexical overlap — measured before
+Builder ceilings and byte fitting. If the gate fails before its first assessment, `assessment` is `expansion-failed`,
+`rounds` is 1, the count is from round zero, and `signals` is null.
 
 `RecallEffort` is produced by the expansion loop, which lives in `ScopedContextApplication._prepare`
 (`application.py:727`), not by the Builder. It is therefore **not** attached to `PreparedContextBuild`: `_prepare`
@@ -219,22 +253,23 @@ class AdmissionCounts:
 
 @dataclass(frozen=True)
 class RecallEffort:
-    policy: str                       # versioned policy id, e.g. "powercontext.recall-gate.v1"
+    policy: str                       # versioned policy id, e.g. "powercontext.recall-gate.v2"
     assessment: str                   # final gate reason, e.g. "sufficient" | "thin-candidates" | "weak-top-1"
-    rounds: int                       # search passes actually executed: 1 + len(expansion_actions), so 1..3
+    rounds: int                       # committed passes: round zero + len(expansion_actions), so 1..3
     expansion_actions: tuple[str, ...]  # committed rounds only; at most ("admission", "policy-floor")
-    candidates_by_round: tuple[int, ...]  # candidates offered to the Builder per round; len == rounds
-    admission_by_family: tuple[AdmissionCounts, ...]  # measured in the last executed round
-    added_embeddings: int             # query embeddings paid by expansion rounds
-    added_generation_calls: int       # extra RFC 0080 rerank calls paid by expansion rounds
+    candidates_by_round: tuple[int, ...]  # accumulated pool before Builder ceilings; len == rounds
+    admission_by_family: tuple[AdmissionCounts, ...]  # measured in the last committed round
+    added_embeddings: int             # search-reported query embeddings in committed expansion rounds
+    added_generation_calls: int       # search-reported extra rerank calls in committed expansion rounds
     truncated_items: int              # delivered but cut; not counted today
     dropped_items: int                # whole-item omissions across both fitting paths; not counted today
     dropped_below_min_bytes: int      # subset of dropped_items: below _MIN_TRUNCATED_CONTENT_BYTES / _BODY_BYTES
     dropped_no_fitting_truncation: int  # subset of dropped_items: no rendering fit at all
 ```
 
-`rounds` counts **search passes executed**, so a prepare that ran round 0 and two expansion rounds reports
-`rounds: 3`, and one expansion round reports `rounds: 2`. `dropped_items` equals
+`rounds` counts **committed search passes**: round zero and two committed expansions report `rounds: 3`, and one
+committed expansion reports `rounds: 2`. A failed expansion does not add a round or change the committed signals;
+work paid by that failed round is not included in the committed-only cost counters. `dropped_items` equals
 `dropped_below_min_bytes + dropped_no_fitting_truncation`, so a reader can tell "the budget could not fit this item"
 apart from "this item was too short to truncate into the remaining space". A single counter labelled "lost to the
 budget" would misreport the second cause, so both are reported and `_fit_entry`'s two `None` paths
@@ -252,7 +287,8 @@ with no query text, no entry identity and no per-entry attribution.
 
 ## Example
 
-A Codex hook asks for context with the default budget; the first round returns one weak Memory hit.
+A caller asks for context with the default budget; the first round returns one Memory hit with cosine relevance 0.5
+and full lexical overlap.
 
 ```http
 POST /v1/context/prepare
@@ -265,10 +301,10 @@ Content-Type: application/json
 }
 ```
 
-Round 0 returns three Memory candidates from a backend pool of 64, one with a usable score; admission admits three of
-64, which is far below the Memory ceiling of 16, so the family has room to grow. The budget probe finds unused bytes
-and no whole-item drops, so the output is recall-thin rather than budget-thin. The gate assesses `weak-top-1`, expands
-once (admission floor lowered), and round 1 admits four more candidates that the round-0 floor had discarded from the
+Round 0 admits one Memory candidate from a backend pool of 64, below the default minimum of two and the Memory ceiling
+of 16, so the family has room to grow. The budget probe finds unused bytes
+and no whole-item drops, so the output is recall-thin rather than budget-thin. The gate assesses `thin-candidates`,
+expands once (admission floor lowered), and round 1 admits four more candidates that the round-0 floor had discarded from the
 pool the search had already retrieved. Selection and rendering then proceed exactly as today, inside the same 8000
 bytes.
 
@@ -349,28 +385,28 @@ those three entry points, described next.
 ## New components
 
 1. **`RecallSufficiencyPolicy`** — a frozen, versioned value object holding the thresholds, the maximum round count,
-   the per-round admission floors, and the prompt-shape limits for the budget probe. Constructed from Runtime
+   the per-round admission floors. Constructed from Runtime
    configuration; defaults preserve today's behaviour when the feature is disabled.
-2. **`RecallAdmissionPolicy`** — the value threaded into each searchable family's search to override its floor:
-   an optional `required_matches` (default: the value `fts_query_requirements` derives, `search.py:78`) and an
-   optional `min_semantic_similarity` (default: `0.3`, `memory/fusion.py:29`, `topic_memory/fusion.py:33`). Passing
-   `RecallAdmissionPolicy()` — both overrides `None` — reproduces today's behaviour exactly, which is what round 0
-   does.
+2. **`AdmissionFloor`** — the shared value threaded into each searchable family's search to override its lexical
+   coverage, minimum matched terms and minimum cosine similarity. Round zero passes `admission=None` to retain the
+   historical defaults: lexical coverage `0.25`, minimum matched terms `2` (bounded by query length), and cosine `0.3`.
 3. **`AdmissionCounts`** — `(family, scope_id, retrieved, admitted)`, one per searchable family per scope per round.
 4. **`RecallSufficiencyGate`** — a pure function. It takes the round's per-family views, the query, the policy, and a
    budget view:
-   `assess(*, query, families, budget, policy) -> GateAssessment`. No I/O, no model call, and no clock access beyond
+   `assess(candidates, query, policy, *, scope_has_content, budget, families_expected) -> GateAssessment`.
+   No I/O, no model call, and no clock access beyond
    what the candidates already carry. It returns `sufficient` plus a reason and the signal values that produced it.
 5. **`RecallBudgetView`** — `max_bytes` together with the counters from a **budget probe**: one pass of the Builder's
    existing pure fitting code over the round's candidate set, discarding the rendered output and keeping
    `delivered_items`, `truncated_items`, `dropped_items` and `unused_bytes`. The gate needs this to distinguish
    budget-limited thinness from recall-limited thinness; without it the 512-byte edge case below is undecidable.
-6. **`RecallExpander`** — a pure function `(round, policy) -> SearchPlan`, where `SearchPlan` carries only the two
-   admission overrides for the next round. It never names a family, so it cannot violate the assembly contract, and it
+6. **`RecallExpander`** — a pure function `(round, policy) -> SearchPlan`, where `SearchPlan` carries only
+   `action` and `admission` for the next round. It never names a family, so it cannot violate the assembly contract, and it
    never sets `limit`, `mode`, or a rerank candidate bound.
 7. **`RecallEffort`** — the trace value described above, delivered to the Runtime's optional sink.
 
-All of these live under `src/powercontext/builtin/runtime/`. The gate, the expander and the budget probe reuse pure code
+The policy, gate, expander, budget view and effort live under `src/powercontext/builtin/runtime/`; the shared floor and
+admission counts live in `builtin/artifacts/search.py`. The gate, the expander and the budget probe reuse pure code
 and are tested directly without a database.
 
 ## Required internal plumbing
@@ -378,11 +414,11 @@ and are tested directly without a database.
 The counts and the floor override have to reach the three admission sites. None of this is an HTTP change.
 
 **Memory.** `MemoryService.search` already materializes both sides of the boundary — `channels` from the backend, then
-`admitted_fts` and `admitted_vector` (`service.py:463-465`). It gains an optional `admission: RecallAdmissionPolicy |
+`admitted_fts` and `admitted_vector` (`service.py:463-465`). It gains an optional `admission: AdmissionFloor |
 None = None` keyword that replaces the derived required-match count and the `0.3` cosine baseline, and it reports
 `retrieved = len(channels.fts) + len(channels.vector)` together with `admitted = len(admitted_fts) +
 len(admitted_vector)`. The counts are exposed on an in-process-only field of `MemorySearchResult`
-(`memory/models.py:165-169`). The HTTP contract is untouched because the response is built from `MemorySearchPage`
+(`memory/models.py:165-169`). The Memory search response is untouched because it is built from `MemorySearchPage`
 (`runtime/models.py:183-189`, constructed at `application.py:1738` and `:1761`) by `search_response`
 (`server/mapping.py:788`), which enumerates its fields explicitly; the counters must stay off `MemorySearchPage` and out
 of `openapi/powercontext.yaml`, so `make api-generate` is not required.
@@ -401,9 +437,8 @@ because `ContextAssemblySection.family` admits only `memory`, `experience`, `pro
 carrying the hits plus their `AdmissionCounts`, measured around `_admit_fts` and `_admit_vector`
 (`topic_memory/fusion.py:102-117`).
 
-**Round 0 behaviour is unchanged.** Round 0 passes `RecallAdmissionPolicy()` and ignores the floor override; the only
-difference is that it now observes and returns the counts. With the feature disabled, the counters are not even
-collected.
+**Round 0 behaviour is unchanged.** Round zero passes `admission=None` and uses the historical floors. Search results
+carry admission counts regardless of whether the Runtime gate is enabled; the disabled gate does not assess or expand.
 
 ## Where the loop goes
 
@@ -423,13 +458,16 @@ breaking the invariant the Builder enforces.
 later round contributes that are not already present, in round order, deduplicated by the family's evidence identity
 (*What the gate looks at*). On an identity collision the earlier round's occurrence is retained. Concretely, for
 `memory`: `merged = round0_hits + (new identities from round 1, in fusion order) + (new identities from round 2, in
-fusion order)`.
+fusion order)`. This accumulated order is what the gate scores — it keeps the per-Scope first-hit rule stable across
+rounds — while the committed set the Builder receives is ordered by the latest round's fused ranking (*Reselection
+rule* below).
 
-**Reselection rule.** The merged set is then passed through the allocators that already clamp round 0 —
-`_limit_memory_candidates` (`application.py:747`) and `_limit_experience_candidates` (`application.py:748-751`), which
-round-robin the family's ceiling across scope groups — while Topic Memory keeps its single-scope ceiling check. Because
-round 0 is a prefix of the merged sequence, a truncation can only ever remove candidates a later round added; a
-candidate that round 0 produced is never displaced by expansion.
+**Reselection rule.** The committed set is passed through the same kind of allocators that clamp round 0 —
+`_limit_expanded_memory_candidates` and `_limit_expanded_experience_candidates`, which preserve each scope group's
+round-zero quota and round-robin the family's remaining ceiling — while Topic Memory keeps its single-scope ceiling
+check. Within a scope group the committed order is the latest round's fused order, followed by the identities that
+round did not re-admit in their accumulated order: a candidate that only enters the fused window under a lowered
+floor lands inside the cap rather than behind the round-zero prefix.
 
 Two consequences follow, and both are required properties rather than incidental effects:
 
@@ -439,10 +477,10 @@ Two consequences follow, and both are required properties rather than incidental
   allocators instead of as an unbounded union: two individually valid rounds of 16 Memory hits can differ by one
   candidate, and their deduplicated union of 17 would otherwise raise
   `PreparedContextInvariantError("memory-candidate-limit")`.
-- **A saturated family cannot grow.** If round 0 already filled a family's ceiling, the merged set truncates back to
-  round 0's candidates and that family's later rounds change nothing. Expansion can only add candidates to a family
-  whose round-0 admission count is below that family's ceiling — the signal the gate reads before deciding, and the
-  reason a no-op expansion is a normal, reported outcome.
+- **A saturated family cannot grow.** The family total stays at its ceiling, so the checks at
+  `prepared_context.py:164-169` cannot be triggered by expansion. Its membership can still change, though: the
+  committed set keeps the latest round's fused order inside each scope's preserved quota, so a re-admitted candidate
+  displaces a lower-ranked same-scope candidate rather than being appended behind a full prefix.
 
 Consequently, a round returning *fewer* candidates than its predecessor is ordinary and expected rather than a
 degradation trigger.
@@ -534,18 +572,19 @@ Expansion is committed **per round**, and a round is all-or-nothing:
 
 - Round 0 is committed unconditionally. If round 0 fails, prepare fails exactly as it does today.
 - A round `r >= 1` first collects every participating family's results for every scope into a **staged** set. The stage
-  is committed into the merged set only if every search in it succeeded.
-- If any search in the round raises, the entire stage is discarded and the merged set reverts to the last committed
-  state. `RecallEffort.rounds` counts the passes actually executed, and `expansion_actions` records only committed
+  is committed only after every search, the budget probe and the gate assessment succeed.
+- If any search, budget probe or assessment in the round raises, the entire stage is discarded and the returned
+  candidates and signals remain at the last committed state. `RecallEffort.rounds` and `expansion_actions` record only committed
   rounds.
 
 Without that boundary, "fail open" would not hold: expansion runs per family and per scope, so a later search can fail
 after earlier searches have already contributed candidates, and swallowing that error would return a partially expanded
-result instead of today's round-0 result. With the boundary, a failed round yields exactly the previous committed
+result. With the boundary, a failed round yields exactly the previous committed
 result.
 
-The gate itself fails closed: if `assess` raises, or if configuration is absent, no expansion happens and prepare
-proceeds with round 0. The gate never turns a successful prepare into a failure, and never changes `status`. Because
+If the initial `assess` raises, prepare proceeds with round zero; a later assessment failure preserves earlier
+committed expansions. Absent configuration skips the gate. The gate never turns a successful prepare into a failure,
+and never changes `status`. Because
 the gate runs before selection, a failure costs at most an extra search, never a lost result.
 
 ## Edge cases
@@ -563,8 +602,9 @@ the gate runs before selection, a failure costs at most an extra search, never a
 - **Profile-only request.** `profile` is a section family (`runtime/models.py:195`) but is read via `profiles.latest`
   (`application.py:752-759`) with no search and no admission floor, so it is never an expansion target and a
   profile-only request is never expanded.
-- **A saturated family.** If a family's round-0 admission already equals its Builder ceiling, expansion cannot add
-  candidates to it; the round is recorded as one that changed nothing rather than being retried.
+- **A saturated family.** If a family's round-0 admission already equals its Builder ceiling, expansion cannot grow
+  it; a later round can still change its membership when the lowered floor re-admits a higher-ranked hit, and is
+  otherwise recorded as a round that changed nothing.
 - **A caller-selected family set.** `assembly.sections` decides which families participate, so a family the caller did
   not select is never searched, is given no output budget, and is never a legal expansion target however thin round 0
   was. If the caller selected Memory only, "add Experience" is not on the table.
@@ -590,7 +630,7 @@ The feature is off by default and enabled by Runtime configuration.
 ## Testing
 
 Gate, expander and budget probe are tested as pure functions, including the signal computations for a family with no
-score (Experience), a family whose admission admitted nothing, and a family already at its ceiling.
+vector relevance (Experience), a family whose admission admitted nothing, and a family already at its ceiling.
 
 Runtime-level tests assert, for a fixed candidate set and a fixed budget:
 
@@ -602,8 +642,10 @@ Runtime-level tests assert, for a fixed candidate set and a fixed budget:
   build successfully rather than raise `PreparedContextInvariantError("memory-candidate-limit")`, and no round can
   exceed a family's ceiling;
 - a round contributes no new identity → the earlier set stands and `candidates_by_round` is flat;
-- a family saturated in round 0 receives no later-round candidate;
-- no candidate produced by round 0 is ever displaced by expansion;
+- a family saturated in round 0 cannot grow, though a re-admitted hit may still displace a lower-ranked same-scope
+  candidate inside the ceiling;
+- the committed set keeps the latest round's fused order inside each scope's preserved quota, so a round-zero
+  candidate can be displaced only by a higher-ranked re-admitted hit;
 - a failure in any search of a round discards that round's entire stage and returns the previous committed result;
 - an empty Scope never expands; a profile-only request never expands; an explicitly selected family set is never
   widened;
@@ -630,9 +672,10 @@ added latency. The feature is not enabled by default until that comparison shows
   calibrated, not merely switched on.
 - **Expanded output can be larger.** Within `max_bytes`, a successful expansion can deliver more bytes than round 0
   would have, which is the intent but also means byte count is no longer a stable property of a query.
-- **Expansion is inert for saturated families and for budget-bound queries.** The candidate ceiling caps what any
-  round can add, and the budget probe stops expansion when the budget is the constraint. The feature addresses exactly
-  one failure mode — thin candidates against a non-binding budget — and should not be sold as a general recall fix.
+- **Expansion cannot grow saturated families and does not help budget-bound queries.** The candidate ceiling caps
+  what any round can deliver (membership may still change inside it), and the budget probe stops expansion when the
+  budget is the constraint. The feature addresses exactly one failure mode — thin candidates against a non-binding
+  budget — and should not be sold as a general recall fix.
 - **A new tunable surface.** Thresholds that decide "sufficient" are now joined by a second set that decides "relaxed
   enough". Both are easy to set wrong and hard to justify empirically. Shipping them as a versioned policy mitigates
   but does not remove this.
