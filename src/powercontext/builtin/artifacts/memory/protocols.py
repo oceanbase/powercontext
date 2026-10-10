@@ -19,7 +19,7 @@ from __future__ import annotations
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -38,6 +38,18 @@ from powercontext.builtin.artifacts.memory.models import (
 from powercontext.builtin.inference import EmbeddingModel, EmbeddingVector
 from powercontext.builtin.tags import TagFilter
 from powercontext.sources import Source
+
+if TYPE_CHECKING:
+    from powercontext.builtin.decision_observations import DecisionObservation
+
+
+class MemoryWriteObservationSink(Protocol):
+    """Accept a bounded decision sidecar without owning the Memory write."""
+
+    async def record(self, observation: DecisionObservation, /) -> None:
+        """Store one decision observation after the gate has made its judgement."""
+
+        ...
 
 
 class MemoryCandidateRequest(BaseModel):
@@ -110,6 +122,11 @@ class MemoryWriteGateRequest:
     candidates: tuple[str, ...]
     evidence: tuple[str, ...]
     expected_revision: int | None = None
+    scope_id: str = "unscoped"
+    operation_id: str | None = None
+    subject_refs: tuple[str, ...] = ()
+    evidence_refs: tuple[str, ...] = ()
+    observation_sink: MemoryWriteObservationSink | None = None
 
 
 class MemoryWriteGate(Protocol):

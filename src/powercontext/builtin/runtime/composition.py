@@ -349,6 +349,8 @@ def _configured_memory_write_gate(
         enabled=True,
         hold_on=runtime.memory_write_gate_hold_on,
         threshold=runtime.memory_write_gate_threshold,
+        mode=runtime.memory_write_gate_mode,
+        privacy_boundary=runtime.memory_write_gate_privacy_boundary,
     )
     if gate is None:
         log_safely(
@@ -971,6 +973,7 @@ async def open_builtin_contexts(
                 memory_reranker=memory_reranker,
                 decision_model=decision_model,
                 memory_write_gate=memory_write_gate,
+                decision_observation_retention_days=config.runtime.decision_observation_retention_days,
                 memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
                 memory_capacity_budget=MemoryCapacityBudget(
                     max_active_entries=config.runtime.memory_max_active_entries,
@@ -1048,6 +1051,7 @@ async def open_builtin_contexts(
             memory_reranker=memory_reranker,
             decision_model=decision_model,
             memory_write_gate=memory_write_gate,
+            decision_observation_retention_days=config.runtime.decision_observation_retention_days,
             memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
             memory_capacity_budget=MemoryCapacityBudget(
                 max_active_entries=config.runtime.memory_max_active_entries,

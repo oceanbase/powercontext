@@ -136,6 +136,7 @@ from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository, StoredSourceCursor
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.decision_observations import DecisionObservationRepository
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
@@ -183,6 +184,7 @@ from powercontext.builtin.review.models import ArtifactCandidate
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime._model_usage import _ModelUsageRecorder
 from powercontext.builtin.runtime.decision_model import DecisionModel
+from powercontext.builtin.runtime.decision_observation_ledger import RelationalDecisionObservationSink
 from powercontext.builtin.runtime.models import (
     CommitConnectorCheckpoint,
     ConnectorCheckpointState,
@@ -288,6 +290,7 @@ class _Repositories:
     skill_packages: SkillPackageRepository
     agent_skill_targets: RemoteAgentSkillTargetRepository
     skill_publications: SkillPublicationRepository
+    decision_observations: DecisionObservationRepository
     statistics: StatisticsRepository
     recurrence: RecurrenceRepository
     processing_pending: ArtifactProcessingPendingRepository
@@ -315,6 +318,7 @@ class _ScopedServices:
     memory_rerank_candidate_limit: int
     decision_model: DecisionModel | None
     memory_write_gate: MemoryWriteGate | None
+    decision_observation_retention_days: int | None
     memory_capacity_budget: MemoryCapacityBudget
     memory_compaction: MemoryCompactionPolicy
     memory_max_history_revisions: int
@@ -354,6 +358,7 @@ class _ScopedServices:
     ) -> MemoryService:
         return MemoryService(
             prompt_context=ScopedPrompts(self.prompts, self.scope_id),
+            scope_id=self.scope_id,
             backend=RelationalMemoryBackend(
                 database=self.database,
                 scope_id=self.scope_id,
@@ -383,6 +388,11 @@ class _ScopedServices:
             ),
             id_factory=self.id_factory,
             write_gate=self.memory_write_gate,
+            write_gate_observation_sink=RelationalDecisionObservationSink(
+                self.database,
+                self.repositories.decision_observations,
+                retention_days=self.decision_observation_retention_days,
+            ),
         )
 
     def evidence(self, authorize: EvidenceAuthorizer | None = None) -> EvidenceResolver:
@@ -550,6 +560,7 @@ class RelationalContexts:
         memory_reranker: MemoryReranker | None = None,
         decision_model: DecisionModel | None = None,
         memory_write_gate: MemoryWriteGate | None = None,
+        decision_observation_retention_days: int | None = None,
         memory_rerank_candidate_limit: int = 30,
         memory_capacity_budget: MemoryCapacityBudget | None = None,
         memory_compaction: MemoryCompactionPolicy | None = None,
@@ -597,6 +608,7 @@ class RelationalContexts:
             skill_packages=SkillPackageRepository(),
             agent_skill_targets=RemoteAgentSkillTargetRepository(),
             skill_publications=SkillPublicationRepository(),
+            decision_observations=DecisionObservationRepository(),
             statistics=StatisticsRepository(),
             recurrence=RecurrenceRepository(),
             processing_pending=ArtifactProcessingPendingRepository(),
@@ -716,6 +728,7 @@ class RelationalContexts:
         self._memory_reranker = memory_reranker
         self._decision_model = decision_model
         self._memory_write_gate = memory_write_gate
+        self._decision_observation_retention_days = decision_observation_retention_days
         self._memory_rerank_candidate_limit = memory_rerank_candidate_limit
         self._memory_capacity_budget = (
             MemoryCapacityBudget() if memory_capacity_budget is None else memory_capacity_budget
@@ -1495,6 +1508,7 @@ class RelationalContexts:
             memory_rerank_candidate_limit=self._memory_rerank_candidate_limit,
             decision_model=self._decision_model,
             memory_write_gate=self._memory_write_gate,
+            decision_observation_retention_days=self._decision_observation_retention_days,
             memory_capacity_budget=self._memory_capacity_budget,
             memory_compaction=self._memory_compaction,
             memory_max_history_revisions=self._memory_max_history_revisions,

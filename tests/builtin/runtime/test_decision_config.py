@@ -14,17 +14,38 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from pydantic import AnyHttpUrl, SecretStr, ValidationError
 
 from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.builtin.runtime.config import InferenceConfig
+from powercontext.builtin.runtime.decision_policy import DecisionPrivacyBoundary
 
 
 def test_decision_assistance_is_disabled_by_default() -> None:
     assert RuntimeConfig().decision_assistance_enabled is False
+
+
+def test_memory_write_gate_defaults_to_no_external_call() -> None:
+    assert RuntimeConfig().memory_write_gate_privacy_boundary is DecisionPrivacyBoundary.NO_EXTERNAL_CALL
+
+
+def test_decision_observation_retention_is_disabled_until_explicitly_configured() -> None:
+    assert RuntimeConfig().decision_observation_retention_days is None
+    assert RuntimeConfig(decision_observation_retention_days=30).decision_observation_retention_days == 30
+
+
+@pytest.mark.parametrize("retention_days", [0, -1])
+def test_decision_observation_retention_rejects_nonpositive_values(retention_days: int) -> None:
+    with pytest.raises(ValidationError):
+        RuntimeConfig(decision_observation_retention_days=retention_days)
+
+
+def test_memory_write_gate_rejects_hosted_redaction_without_a_sanitizer() -> None:
+    with pytest.raises(ValidationError, match="hosted_redacted"):
+        RuntimeConfig(memory_write_gate_privacy_boundary=cast(DecisionPrivacyBoundary, "hosted_redacted"))
 
 
 def test_decision_inference_defaults_are_unset() -> None:

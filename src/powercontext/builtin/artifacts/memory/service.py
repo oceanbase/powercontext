@@ -93,6 +93,7 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemoryWriteAssessment,
     MemoryWriteGate,
     MemoryWriteGateRequest,
+    MemoryWriteObservationSink,
     MemoryWritePlan,
     MemoryWriteRejectionCode,
     MemoryWriteVerdict,
@@ -259,7 +260,9 @@ class MemoryService:
         artifact_resolver: _ArtifactResolver | None = None,
         id_factory: IdFactory | None = None,
         prompt_context: ScopedPrompts | None = None,
+        scope_id: str = "unscoped",
         write_gate: MemoryWriteGate | None = None,
+        write_gate_observation_sink: MemoryWriteObservationSink | None = None,
         capacity_budget: MemoryCapacityBudget | None = None,
         compaction: MemoryCompactionPolicy | None = None,
         max_history_revisions: int = 100,
@@ -268,6 +271,8 @@ class MemoryService:
         self._prompt_context = prompt_context
         self._candidate_pipeline = candidate_pipeline
         self._write_gate = write_gate
+        self._write_gate_observation_sink = write_gate_observation_sink
+        self._scope_id = scope_id
         self._embedding_model = embedding_model
         if rerank_candidate_limit < 1:
             raise _InvalidMemoryOperationError("search-limit")
@@ -1384,6 +1389,11 @@ class MemoryService:
                     candidates=tuple(candidate.text for candidate in candidates),
                     evidence=projection.entries,
                     expected_revision=None if base is None else base.revision,
+                    scope_id=self._scope_id,
+                    operation_id=_gate_operation_id(base),
+                    subject_refs=_gate_subject_refs(candidates),
+                    evidence_refs=tuple(_gate_evidence_ref(entry) for entry in projection.entries),
+                    observation_sink=self._write_gate_observation_sink,
                 )
             )
         except Exception:
@@ -1837,6 +1847,25 @@ def _incomplete_gate_evidence(identity: str) -> _GateEvidenceEntry:
 
 def _candidate_gate_identity(candidate_index: int, identity: str) -> str:
     return f"candidate:{candidate_index} {identity}"
+
+
+def _gate_operation_id(base: Memory | None) -> str:
+    if base is None:
+        return "memory-write:new"
+    return f"memory-write:{base.artifact_id}@{base.revision + 1}"
+
+
+def _gate_subject_refs(candidates: tuple[MemoryEntryInput, ...]) -> tuple[str, ...]:
+    return tuple(
+        f"candidate:{index}"
+        if candidate.entry is None
+        else f"entry:{candidate.entry.entry_id}@{candidate.entry.entry_version_id}"
+        for index, candidate in enumerate(candidates, start=1)
+    )
+
+
+def _gate_evidence_ref(value: str) -> str:
+    return value.partition("\n")[0]
 
 
 def _source_gate_content(source: Source, resolver: _SourceResolver | None) -> str | None:

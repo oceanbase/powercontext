@@ -22,6 +22,7 @@ from powercontext.builtin.persistence.agent_skill_targets import (
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.decision_observations import DecisionObservationRepository
 from powercontext.builtin.persistence.errors import (
     ArtifactProcessingLeadershipLostError,
     ArtifactProcessingWaveIncompleteError,
@@ -78,6 +79,7 @@ __all__ = (
     "CompositeTopicMemoryIndex",
     "ConnectorCheckpointRepository",
     "DatabaseClosedError",
+    "DecisionObservationRepository",
     "ExternalSkillRepository",
     "GenerationConflictError",
     "IdentityMismatchError",
