@@ -85,7 +85,11 @@ from powercontext.builtin.artifacts.prompt.service import (
     current_prompt,
     prompt_operation,
 )
-from powercontext.builtin.artifacts.search import AdmissionFloor
+from powercontext.builtin.artifacts.search import (
+    DEFAULT_RECALL_CHANNEL_WEIGHTS,
+    AdmissionFloor,
+    RecallChannelWeights,
+)
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProvider,
     ExternalSkillRegistryUnavailableError,
@@ -318,6 +322,7 @@ class _ScopedServices:
     memory_capacity_budget: MemoryCapacityBudget
     memory_compaction: MemoryCompactionPolicy
     memory_max_history_revisions: int
+    recall_channel_weights: RecallChannelWeights
     id_factory: IdFactory
     handoff_artifact_id: str
     memory_artifact_id: str
@@ -368,6 +373,7 @@ class _ScopedServices:
             capacity_budget=self.memory_capacity_budget,
             compaction=self.memory_compaction,
             max_history_revisions=self.memory_max_history_revisions,
+            recall_channel_weights=self.recall_channel_weights,
             source_resolver=_RelationalMemorySourceResolver(
                 database=self.database,
                 scope_id=self.scope_id,
@@ -554,6 +560,7 @@ class RelationalContexts:
         memory_capacity_budget: MemoryCapacityBudget | None = None,
         memory_compaction: MemoryCompactionPolicy | None = None,
         memory_max_history_revisions: int = 100,
+        recall_channel_weights: RecallChannelWeights = DEFAULT_RECALL_CHANNEL_WEIGHTS,
         id_factory: IdFactory | None = None,
         handoff_artifact_id: str = "handoff",
         memory_artifact_id: str = "memory",
@@ -580,7 +587,11 @@ class RelationalContexts:
             (Handoff, Memory, Experience, Skill, Profile, Prompt, TopicMemory),
             sources=source_repository,
         )
-        topic_memory_repository = TopicMemoryRepository(artifacts=artifact_repository, index=self.topic_memory_index)
+        topic_memory_repository = TopicMemoryRepository(
+            artifacts=artifact_repository,
+            index=self.topic_memory_index,
+            recall_channel_weights=recall_channel_weights,
+        )
         self.repositories = _Repositories(
             sources=source_repository,
             artifacts=artifact_repository,
@@ -722,6 +733,7 @@ class RelationalContexts:
         )
         self._memory_compaction = MemoryCompactionPolicy() if memory_compaction is None else memory_compaction
         self._memory_max_history_revisions = memory_max_history_revisions
+        self._recall_channel_weights = recall_channel_weights
         self._handoff_artifact_id = handoff_artifact_id
         self._memory_artifact_id = memory_artifact_id
         self._tracing = tracing
@@ -1498,6 +1510,7 @@ class RelationalContexts:
             memory_capacity_budget=self._memory_capacity_budget,
             memory_compaction=self._memory_compaction,
             memory_max_history_revisions=self._memory_max_history_revisions,
+            recall_channel_weights=self._recall_channel_weights,
             id_factory=self._id_factory,
             handoff_artifact_id=self._handoff_artifact_id,
             memory_artifact_id=self._memory_artifact_id,

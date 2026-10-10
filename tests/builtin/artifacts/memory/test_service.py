@@ -18,6 +18,7 @@ import asyncio
 from contextlib import suppress
 from typing import cast
 
+import pytest
 from sqlalchemy import event, text
 
 from powercontext.builtin.artifacts.memory import (
@@ -25,6 +26,7 @@ from powercontext.builtin.artifacts.memory import (
     Memory,
     MemoryBackend,
     MemoryCapabilities,
+    MemoryChannelHit,
     MemoryCommit,
     MemoryContent,
     MemoryEntryInput,
@@ -37,6 +39,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryService,
 )
 from powercontext.builtin.artifacts.memory.canonical import entry_content_hash, memory_content_hash
+from powercontext.builtin.artifacts.search import RecallChannelWeights
 from powercontext.builtin.inference import EmbeddingResult, InferenceUsage
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -79,8 +82,9 @@ class _QueryRecordingEmbedding:
 
 
 class _QuerySearchBackend:
-    def __init__(self, memory: Memory) -> None:
+    def __init__(self, memory: Memory, channels: MemorySearchChannels | None = None) -> None:
         self._memory = memory
+        self._channels = MemorySearchChannels() if channels is None else channels
         self.query_vector: tuple[float, ...] | None = None
 
     async def capabilities(self) -> MemoryCapabilities:
@@ -97,7 +101,7 @@ class _QuerySearchBackend:
 
     async def search(self, request, /) -> MemorySearchChannels:
         self.query_vector = request.query_vector
-        return MemorySearchChannels()
+        return self._channels
 
 
 def test_memory_vector_search_uses_query_embedding_path() -> None:
@@ -117,6 +121,45 @@ def test_memory_vector_search_uses_query_embedding_path() -> None:
         assert embedding.document_texts == []
         assert embedding.query_texts == ["project"]
         assert backend.query_vector == (1.0, 0.0, 0.0)
+
+    asyncio.run(scenario())
+
+
+def test_memory_search_applies_channel_weights_only_in_hybrid_mode() -> None:
+    memory = Memory(
+        artifact_id="memory",
+        revision=1,
+        content=MemoryContent(manifest=MemoryManifest(entries=())),
+    )
+    lexical = MemoryChannelHit(
+        memory_ref=memory.as_ref(),
+        entry_id="lexical",
+        entry_version_id="lexical-v1",
+        text="project lexical evidence",
+    )
+    semantic = MemoryChannelHit(
+        memory_ref=memory.as_ref(),
+        entry_id="semantic",
+        entry_version_id="semantic-v1",
+        text="project semantic evidence",
+        distance=0.1,
+    )
+
+    async def scenario() -> None:
+        backend = _QuerySearchBackend(memory, MemorySearchChannels(fts=(lexical,), vector=(semantic,)))
+        service = MemoryService(
+            backend=cast(MemoryBackend, backend),
+            embedding_model=_QueryRecordingEmbedding(),
+            recall_channel_weights=RecallChannelWeights(fts=0.0, vector=1.0),
+        )
+
+        fts = await service.search("project", memories=(memory,), mode="fts")
+        hybrid = await service.search("project", memories=(memory,), mode="hybrid")
+
+        assert tuple(hit.entry_id for hit in fts.hits) == ("lexical",)
+        assert fts.hits[0].score == pytest.approx(1 / 61)
+        assert tuple(hit.entry_id for hit in hybrid.hits) == ("semantic",)
+        assert hybrid.hits[0].score == pytest.approx(2 / 61)
 
     asyncio.run(scenario())
 

@@ -3820,6 +3820,7 @@ export interface components {
         SearchMemoryHit: {
             citation: components["schemas"]["MemoryCitation"];
             text: string;
+            /** @description Raw RRF score. Hybrid mode applies the deployment's normalized relative FTS/vector weights. */
             score: number;
             matched_by: components["schemas"]["MemoryMatchedBy"][];
         };
@@ -3828,6 +3829,7 @@ export interface components {
             title: string;
             summary: string;
             snippet: string | null;
+            /** @description Weighted RRF relevance normalized to the 0..100 range. */
             score: number;
             matched_by: components["schemas"]["TopicMemoryMatchedBy"][];
         };

@@ -680,11 +680,13 @@ MVP 定义四种 mode：
 低于阈值的候选不会为了填满 `limit` 而恢复。准入后的候选分别保持 backend 内部排序，再使用 reciprocal rank fusion：
 
 ```text
-rrf_score(candidate) = Σ 1 / (60 + rank_in_channel)
+hybrid_rrf_score(candidate) = Σ channel_weight / (60 + rank_in_channel)
 ```
 
-`rank_in_channel` 从 1 开始；单独的 `fts` 或 `vector` mode 也用单通道公式生成公开 score。被某通道拒绝或未被该通道
-召回的候选只贡献另一通道分数，`matched_by` 也只包含实际准入的通道。OceanBase adapter 可以使用 4.6+ 的原生
+`rank_in_channel` 从 1 开始。部署的 FTS/vector 权重为非负相对比例：PowerContext 会将其归一化到平均值
+为 1，默认均为 `1.0`，并要求至少一个为正数。权重只影响 `hybrid`；单独的 `fts` 或 `vector` mode 仍以
+`1 / (60 + rank)` 生成公开 score。零权重通道不产生候选，也不出现在 `matched_by` 中。被某通道拒绝或未被该通道召回的
+候选只贡献另一通道分数。OceanBase adapter 可以使用 4.6+ 的原生
 `HYBRID_SEARCH` 优化，但对外必须保持
 同样的 active-head 过滤、RRF 参数和稳定 tie-break；4.3.5 baseline 使用应用层 RRF。SQLite 使用 FTS5 与 Vec1 结果执行
 相同的应用层 RRF。相同 RRF score 按 `memory_artifact_id`、UTF-8 `entry_id`、`entry_version_id` 升序打破平局。

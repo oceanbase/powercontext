@@ -126,7 +126,13 @@ def _experience_candidate(text: str, *, artifact_id: str = "experience") -> Reca
     )
 
 
-def _memory_hit(*, score: float, matched_by: tuple[MemoryMatchedBy, ...], text: str = "alpha beta") -> MemoryHit:
+def _memory_hit(
+    *,
+    score: float,
+    matched_by: tuple[MemoryMatchedBy, ...],
+    text: str = "alpha beta",
+    score_upper_bound: float | None = None,
+) -> MemoryHit:
     return MemoryHit(
         memory_ref=MEMORY_REF,
         entry_id="entry",
@@ -134,6 +140,7 @@ def _memory_hit(*, score: float, matched_by: tuple[MemoryMatchedBy, ...], text: 
         text=text,
         score=score,
         matched_by=matched_by,
+        score_upper_bound=score_upper_bound,
     )
 
 
@@ -691,6 +698,22 @@ def test_memory_two_channel_hit_normalizes_against_its_wider_upper_bound() -> No
         experience_hits=(),
     )
     assert candidates[0].score == pytest.approx(0.5)
+
+
+def test_memory_weighted_hit_normalizes_against_the_fusion_upper_bound() -> None:
+    candidates = build_recall_candidates(
+        memory_hits=(
+            _memory_hit(
+                score=1.5 / 61,
+                matched_by=("fts",),
+                score_upper_bound=1.5 / 61,
+            ),
+        ),
+        topic_memory_hits=(),
+        experience_hits=(),
+    )
+
+    assert candidates[0].score == pytest.approx(1.0)
 
 
 def test_memory_vector_relevance_reaches_gate_without_changing_rank_score() -> None:

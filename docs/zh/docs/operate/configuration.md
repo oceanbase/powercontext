@@ -91,6 +91,8 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND1_MIN_SEMANTIC_SIMILARITY` | `0.15` | 第一轮追加搜索使用的语义相似度准入下限；启用时不得高于首轮的 `0.3` |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND2_MIN_SEMANTIC_SIMILARITY` | `0.10` | 第二轮追加搜索使用的语义相似度准入下限；启用时不得高于第一轮的值 |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | 已启用 `MEMORY_RERANK_ENABLED` 时是否仍允许追加搜索；默认在 rerank 之后不再追加 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | hybrid Memory 和 Topic Memory RRF 中 FTS 的相对贡献；`0` 会从 hybrid 结果中排除仅命中 FTS 的候选 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | hybrid Memory 和 Topic Memory RRF 中 vector 的相对贡献；`0` 会从 hybrid 结果中排除仅命中 vector 的候选 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | 未设置 | Memory 自动准入间隔；`SCHEDULE_SECONDS` 保留为兼容别名 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 自动准入间隔；未设置时不接纳新的自动调用 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 每个 Topic Memory Window 的 Source 数量上限，硬上限为 100；一次 Scope 调用可完成多个 Window |
@@ -148,6 +150,14 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_DECISION_MAX_REQUESTS` | generation request limit | 单次决策操作的模型请求次数上限，包含模型输出校验重试；不包含 provider SDK 的 HTTP 重试 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 自动准入间隔；未设置时保留已接受工作，停止新的自动准入 |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 自动生成本机项目 target | 覆盖默认值的 host identity 和显式 Agent Skill targets JSON object |
+
+召回通道权重表示相对比例，只在 hybrid 候选通过各通道准入下限后生效。同比例缩放两个值不会改变结果。将其中一个设为
+`0` 会从 hybrid 融合中排除该通道，但提高权重不能恢复融合前已被拒绝的候选。零权重不会关闭该通道的检索和准入工作：
+vector 查询仍可能生成 embedding，检索与准入计数也仍包含零权重通道。如果 Topic Artifact 搜索请求显式提供自己的 `fusion`
+参数，它会完整取代部署级召回权重；只有请求未指定 `fusion` 时，部署级权重才生效。归一化后，每个非零通道权重必须不低于 IEEE 754 binary64
+最小正规数（`2.2250738585072014e-308`），更小的值会在启动时被拒绝。只有显式配置 `0` 才表示关闭该通道的融合贡献。调整权重时应同时评估
+recall gate 轮次、语义准入下限和历史 Topic 候选选择，不要将这些配置孤立调整。特别是，提高 FTS 权重可能使 Topic 的归一化分数跨过
+`POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_RRF_THRESHOLD`（默认为 `70`），从而改变传给规划器的历史 Topic 集合。
 
 召回充分性门控默认关闭。启用后，Runtime 在 `prepare_context` 阶段评估首轮候选的数量、来源家族覆盖、最优候选分数和词法
 覆盖；判定为不足时最多追加两轮搜索，并在每轮放宽候选准入的语义相似度下限。门控判断本身不调用模型，追加轮次沿用同一请求的

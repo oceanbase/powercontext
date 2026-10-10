@@ -33,6 +33,7 @@ from pydantic import (
 )
 
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
+from powercontext.builtin.artifacts.search import RecallChannelWeights
 from powercontext.builtin.artifacts.skill import AgentSkillTarget, CodexSkillRoot
 from powercontext.builtin.artifacts.topic_memory import MAX_TOPIC_MEMORY_SEARCH_LIMIT
 from powercontext.builtin.artifacts.topic_memory.generation import (
@@ -170,6 +171,8 @@ class RuntimeConfig(BaseModel):
     recall_gate_round1_min_semantic_similarity: float = Field(default=0.15, ge=0.0, le=1.0)
     recall_gate_round2_min_semantic_similarity: float = Field(default=0.10, ge=0.0, le=1.0)
     recall_gate_allow_with_rerank: bool = False
+    recall_fts_weight: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
+    recall_vector_weight: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
     profile_schedule_enabled: bool = False
     profile_cron: str = "0 2 * * *"
     profile_timezone: str = "Asia/Shanghai"
@@ -198,6 +201,24 @@ class RuntimeConfig(BaseModel):
         if self.recall_gate_round2_min_semantic_similarity > self.recall_gate_round1_min_semantic_similarity:
             raise ValueError(_RECALL_GATE_ROUND2_ORDER_ERROR)
         return self
+
+    @field_validator("recall_fts_weight", "recall_vector_weight", mode="before")
+    @classmethod
+    def reject_boolean_recall_weight(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("recall channel weights must be numbers")  # noqa: TRY003, TRY004 - Pydantic validation
+        return value
+
+    @model_validator(mode="after")
+    def validate_recall_channel_weights(self) -> RuntimeConfig:
+        RecallChannelWeights(fts=self.recall_fts_weight, vector=self.recall_vector_weight)
+        return self
+
+    @property
+    def recall_channel_weights(self) -> RecallChannelWeights:
+        """Return the deployment's normalized FTS/vector recall ratio."""
+
+        return RecallChannelWeights(fts=self.recall_fts_weight, vector=self.recall_vector_weight)
 
     schedule_seconds: float | None = Field(default=None, gt=0)
     memory_schedule_seconds: float | None = Field(default=None, gt=0)

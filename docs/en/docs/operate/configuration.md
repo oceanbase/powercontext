@@ -95,6 +95,8 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND1_MIN_SEMANTIC_SIMILARITY` | `0.15` | Semantic-similarity admission floor for the first expansion round; must not exceed the round-zero `0.3` |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND2_MIN_SEMANTIC_SIMILARITY` | `0.10` | Semantic-similarity admission floor for the second expansion round; must not exceed the first round's value |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | Whether expansion may still run when `MEMORY_RERANK_ENABLED` is set; by default reranking ends the expansion |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | Relative FTS contribution in hybrid Memory and Topic Memory RRF; `0` excludes FTS-only matches from hybrid results |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | Relative vector contribution in hybrid Memory and Topic Memory RRF; `0` excludes vector-only matches from hybrid results |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | unset | Memory automatic admission interval; `SCHEDULE_SECONDS` remains a compatibility alias |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Topic Memory automatic admission interval; unset disables new automatic admission |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources per Topic Memory Window, capped at 100; one Scope invocation can finish several Windows |
@@ -152,6 +154,20 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_INFERENCE_DECISION_MAX_REQUESTS` | generation request limit | Maximum model requests for one decision operation, including model-output validation retries; excludes provider SDK HTTP retries |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | unset | Experience automatic admission interval; unset preserves accepted work and stops new automatic admission |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | automatic local project targets | JSON override containing the host identity and explicit Agent Skill targets |
+
+The recall channel weights are a ratio and apply only after hybrid candidates pass their channel admission floors.
+Scaling both values equally has no effect. Setting one value to `0` excludes that channel from hybrid fusion, but a
+higher weight cannot restore a candidate rejected before fusion. A zero weight does not disable that channel's
+retrieval or admission work: vector embeddings may still be generated, and retrieval/admission counts still include
+the zero-weight channel. A Topic Artifact search request that supplies its own `fusion` parameters replaces the
+deployment recall weights entirely. The deployment weights apply only when the request does not specify `fusion`
+parameters. After normalization, each non-zero channel weight must be at least the smallest normal IEEE 754 binary64
+value (`2.2250738585072014e-308`); smaller values are rejected at startup. Only an explicit `0` disables a channel's
+fusion contribution. Evaluate weight changes together with recall-gate rounds, semantic admission floors, and
+historical Topic candidate selection instead of treating the knobs independently. In particular, weighting FTS more
+heavily can move a Topic's normalized score across
+`POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_RRF_THRESHOLD` (default `70`) and change which historical Topics
+are sent to the planner.
 
 The recall-sufficiency gate is disabled by default. When enabled, the Runtime assesses the first recall's candidate
 count, family coverage, top-candidate score, and lexical coverage during `prepare_context`; when it judges the result

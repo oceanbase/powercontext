@@ -9061,7 +9061,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "citation": {"$ref": "#/components/schemas/MemoryCitation"},
                     "text": {"type": "string"},
-                    "score": {"type": "number", "maximum": 1.0, "minimum": 0.0},
+                    "score": {
+                        "type": "number",
+                        "maximum": 1.0,
+                        "minimum": 0.0,
+                        "description": "Raw RRF "
+                        "score. "
+                        "Hybrid "
+                        "mode "
+                        "applies "
+                        "the "
+                        "deployment's "
+                        "normalized "
+                        "relative "
+                        "FTS/vector "
+                        "weights.",
+                    },
                     "matched_by": {"items": {"$ref": "#/components/schemas/MemoryMatchedBy"}, "type": "array"},
                 },
                 "additionalProperties": False,
@@ -9074,7 +9089,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "title": {"type": "string", "maxLength": 512, "minLength": 1},
                     "summary": {"type": "string", "maxLength": 8000, "minLength": 1},
                     "snippet": {"type": "string", "nullable": True},
-                    "score": {"type": "number", "minimum": 0.0},
+                    "score": {
+                        "type": "number",
+                        "maximum": 100.0,
+                        "minimum": 0.0,
+                        "description": "Weighted RRF relevance normalized to the 0..100 range.",
+                    },
                     "matched_by": {
                         "items": {"$ref": "#/components/schemas/TopicMemoryMatchedBy"},
                         "type": "array",

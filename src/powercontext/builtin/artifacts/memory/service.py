@@ -99,7 +99,14 @@ from powercontext.builtin.artifacts.memory.protocols import (
 )
 from powercontext.builtin.artifacts.memory.reranking import MemoryReranker
 from powercontext.builtin.artifacts.prompt.service import ScopedPrompts, current_prompt, prompt_operation
-from powercontext.builtin.artifacts.search import AdmissionCounts, AdmissionFloor, analyze_fts_query, analyze_text
+from powercontext.builtin.artifacts.search import (
+    DEFAULT_RECALL_CHANNEL_WEIGHTS,
+    AdmissionCounts,
+    AdmissionFloor,
+    RecallChannelWeights,
+    analyze_fts_query,
+    analyze_text,
+)
 from powercontext.builtin.inference import (
     EmbeddingModel,
     EmbeddingVector,
@@ -263,6 +270,7 @@ class MemoryService:
         capacity_budget: MemoryCapacityBudget | None = None,
         compaction: MemoryCompactionPolicy | None = None,
         max_history_revisions: int = 100,
+        recall_channel_weights: RecallChannelWeights = DEFAULT_RECALL_CHANNEL_WEIGHTS,
     ) -> None:
         self._backend = backend
         self._prompt_context = prompt_context
@@ -281,6 +289,7 @@ class MemoryService:
         if max_history_revisions < 1:
             raise _InvalidMemoryOperationError("history-limit")
         self._max_history_revisions = max_history_revisions
+        self._recall_channel_weights = recall_channel_weights
         # One entry, describing the projections of the most recently written Memory
         # revision. Revisions are immutable, so a hit is always valid for that exact
         # reference; a rebuilt or externally advanced Memory simply misses.
@@ -763,6 +772,7 @@ class MemoryService:
             fts=admitted_fts if selected_mode in {"fts", "hybrid"} else (),
             vector=admitted_vector if selected_mode in {"vector", "hybrid"} else (),
             limit=coarse_limit,
+            channel_weights=self._recall_channel_weights if selected_mode == "hybrid" else None,
         )
         return await self._reranked_search_result(
             mode=selected_mode,

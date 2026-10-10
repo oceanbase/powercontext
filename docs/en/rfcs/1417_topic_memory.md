@@ -432,7 +432,12 @@ windows. Changing the Chunk policy requires rebuilding the corresponding retriev
 Each retrieval channel first collapses by Topic. When multiple Detail chunks from one Topic match, only the best
 position is retained for the snippet. The two or four channels enabled for the current deployment are fused by RRF
 rather than by comparing raw full-text scores with raw vector distances. A Topic occupies at most one final result
-position, and `matched_by` records which channels matched it. The per-channel candidate limit applies only after this
+position, and `matched_by` records every admitted channel that matched the selected Topic. A zero-weight channel makes
+no ranking contribution and cannot select a Topic by itself, but its evidence remains in `matched_by` when another
+positive-weight channel selects the same Topic. Hybrid mode applies the deployment's normalized relative FTS/vector
+weights to both Topic and Detail channels of the corresponding kind. FTS-only and vector-only modes remain unweighted.
+The weighted theoretical maximum for the enabled channels is the denominator that keeps the public score normalized
+to `0..100`. The per-channel candidate limit applies only after this
 Topic collapse, so one Topic with many matching chunks cannot hide another Topic. FTS snippets center a bounded window
 on an Analyzer v1 query match; a vector-only detail hit uses a stable window from its matched chunk.
 The first-release search limit and historical candidate configuration are both bounded to 20. Search queries are

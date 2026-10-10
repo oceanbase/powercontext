@@ -2544,7 +2544,8 @@
           "score": {
             "type": "number",
             "minimum": 0,
-            "maximum": 1
+            "maximum": 1,
+            "description": "Raw RRF score. Hybrid mode applies the deployment's normalized relative FTS/vector weights."
           },
           "matched_by": {
             "type": "array",

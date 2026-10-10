@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.artifacts.fusion import RrfParameters
 from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryChannelHit,
     TopicMemoryMatchedBy,
@@ -197,6 +198,85 @@ def test_rrf_scores_are_normalized_against_the_enabled_first_place_channels() ->
     assert single[0].score == pytest.approx(25.0)
     assert fts_only[0].score == pytest.approx(100.0)
     assert all_channels[0].score == pytest.approx(100.0)
+
+
+@pytest.mark.parametrize(
+    ("fts_weight", "vector_weight", "expected_order"),
+    [
+        (3.0, 1.0, ("lexical", "semantic")),
+        (1.0, 3.0, ("semantic", "lexical")),
+    ],
+)
+def test_hybrid_weights_prefer_the_higher_weight_channel_without_saturating_scores(
+    fts_weight: float,
+    vector_weight: float,
+    expected_order: tuple[str, str],
+) -> None:
+    lexical = TopicMemoryChannelHit(
+        artifact_ref=ArtifactRef(family="topic-memory", artifact_id="lexical", revision=1),
+        title="Lexical topic",
+        summary="needle",
+        channel="topic_fts",
+    )
+    semantic = TopicMemoryChannelHit(
+        artifact_ref=ArtifactRef(family="topic-memory", artifact_id="semantic", revision=1),
+        title="Semantic topic",
+        summary="needle",
+        channel="topic_vector",
+        distance=0.1,
+    )
+
+    result = _fuse_topic_memory_rankings(
+        "needle",
+        TopicMemorySearchChannels(topic_fts=(lexical,), topic_vector=(semantic,)),
+        2,
+        fusion=RrfParameters(
+            weights={
+                "topic_fts": fts_weight,
+                "detail_fts": fts_weight,
+                "topic_vector": vector_weight,
+                "detail_vector": vector_weight,
+            }
+        ),
+    ).hits
+
+    assert tuple(hit.artifact_ref.artifact_id for hit in result) == expected_order
+    assert result[0].score == pytest.approx(37.5)
+    assert result[1].score == pytest.approx(12.5)
+    assert all(0.0 < hit.score < 100.0 for hit in result)
+
+
+def test_zero_weight_drops_topic_matches_from_only_that_channel() -> None:
+    lexical = TopicMemoryChannelHit(
+        artifact_ref=ArtifactRef(family="topic-memory", artifact_id="lexical", revision=1),
+        title="Lexical topic",
+        summary="needle",
+        channel="topic_fts",
+    )
+    semantic = TopicMemoryChannelHit(
+        artifact_ref=ArtifactRef(family="topic-memory", artifact_id="semantic", revision=1),
+        title="Semantic topic",
+        summary="needle",
+        channel="topic_vector",
+        distance=0.1,
+    )
+
+    result = _fuse_topic_memory_rankings(
+        "needle",
+        TopicMemorySearchChannels(topic_fts=(lexical,), topic_vector=(semantic,)),
+        2,
+        fusion=RrfParameters(
+            weights={
+                "topic_fts": 0.0,
+                "detail_fts": 0.0,
+                "topic_vector": 1.0,
+                "detail_vector": 1.0,
+            }
+        ),
+    ).hits
+
+    assert tuple(hit.artifact_ref.artifact_id for hit in result) == ("semantic",)
+    assert result[0].matched_by == ("topic_vector",)
 
 
 def test_fusion_outcome_counts_retrieved_and_admitted_over_enabled_channels() -> None:

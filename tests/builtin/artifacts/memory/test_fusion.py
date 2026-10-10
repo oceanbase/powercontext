@@ -23,7 +23,7 @@ from powercontext.builtin.artifacts.memory.fusion import (
     admit_vector_candidates,
     fuse_rankings,
 )
-from powercontext.builtin.artifacts.search import AdmissionFloor
+from powercontext.builtin.artifacts.search import AdmissionFloor, RecallChannelWeights
 
 
 def channel_hit(
@@ -80,6 +80,49 @@ def test_duplicate_channel_rows_contribute_only_the_first_rank() -> None:
 
     assert len(hits) == 1
     assert hits[0].score == pytest.approx(1 / 61)
+
+
+@pytest.mark.parametrize(
+    ("fts_weight", "vector_weight", "expected_order"),
+    [
+        (3.0, 1.0, ("lexical", "semantic")),
+        (1.0, 3.0, ("semantic", "lexical")),
+    ],
+)
+def test_hybrid_weights_prefer_the_higher_weight_channel(
+    fts_weight: float,
+    vector_weight: float,
+    expected_order: tuple[str, str],
+) -> None:
+    lexical = channel_hit("lexical")
+    semantic = channel_hit("semantic")
+
+    hits = fuse_rankings(
+        fts=(lexical, semantic),
+        vector=(semantic, lexical),
+        limit=2,
+        channel_weights=RecallChannelWeights(fts=fts_weight, vector=vector_weight),
+    )
+
+    assert tuple(hit.entry_id for hit in hits) == expected_order
+    assert hits[0].score_upper_bound == pytest.approx(2 / 61)
+
+
+def test_zero_weight_excludes_only_that_channel_and_its_matches() -> None:
+    lexical_only = channel_hit("lexical-only")
+    semantic_only = channel_hit("semantic-only")
+
+    hits = fuse_rankings(
+        fts=(lexical_only,),
+        vector=(semantic_only,),
+        limit=2,
+        channel_weights=RecallChannelWeights(fts=0.0, vector=1.0),
+    )
+
+    assert tuple(hit.entry_id for hit in hits) == ("semantic-only",)
+    assert hits[0].matched_by == ("vector",)
+    assert hits[0].score == pytest.approx(2 / 61)
+    assert hits[0].score_upper_bound == pytest.approx(2 / 61)
 
 
 def test_limit_must_be_positive() -> None:

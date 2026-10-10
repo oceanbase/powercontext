@@ -775,12 +775,14 @@ Candidates below either threshold are not restored merely to fill `limit`. The a
 backend's internal order within each channel, and then use reciprocal rank fusion:
 
 ```text
-rrf_score(candidate) = Σ 1 / (60 + rank_in_channel)
+hybrid_rrf_score(candidate) = Σ channel_weight / (60 + rank_in_channel)
 ```
 
-`rank_in_channel` starts at 1. Single-channel `fts` and `vector` modes use the same one-channel formula to produce their
-public score. A candidate rejected by or absent from one channel receives a contribution only from the other, and
-`matched_by` contains only admitting channels. The OceanBase adapter
+`rank_in_channel` starts at 1. The deployment's non-negative FTS/vector weights are relative: PowerContext normalizes
+them to a mean of one, defaults both to `1.0`, and requires at least one to be positive. They apply only to `hybrid`;
+single-channel `fts` and `vector` modes keep the unweighted `1 / (60 + rank)` public score. A zero-weight channel does
+not contribute candidates or appear in `matched_by`. A candidate rejected by or absent from one channel receives a
+contribution only from the other. The OceanBase adapter
 may use native `HYBRID_SEARCH` in version 4.6+ as an optimization, but it must preserve the same active-head filtering,
 RRF parameters, and stable tie-breaks externally. The 4.3.5 baseline performs RRF in the application. SQLite performs
 the same application-level RRF over FTS5 and Vec1 results. Equal RRF scores are broken by ascending

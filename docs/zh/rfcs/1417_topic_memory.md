@@ -383,7 +383,10 @@ Chunk 策略变化需要重建对应检索投影。
 
 每个检索通道先按 Topic collapse，同一 Topic 的多个 detail 命中只保留最佳位置用于 snippet。当前部署启用的
 两个或四个通道通过 RRF 排名融合，不比较全文分数和向量距离的原始数值。最终一个 Topic 最多占一个结果位置，并保留
-`matched_by` 说明命中通道。每个通道都先按 Topic 折叠，再应用候选上限，因此单个 Topic 的大量命中 chunk 不会
+`matched_by` 说明被选中 Topic 通过准入的所有命中通道。零权重通道不贡献排名分数，也无法单独选中 Topic；但当同一 Topic
+被其他正权重通道选中时，该通道的证据仍保留在 `matched_by` 中。`hybrid` mode 对对应类型的 Topic 和 Detail 通道同时应用部署级
+归一化 FTS/vector 相对权重，单独的 FTS 和 vector mode 仍不加权。开启通道的加权理论最大值作为归一化分母，使公开 score 保持在
+`0..100`。每个通道都先按 Topic 折叠，再应用候选上限，因此单个 Topic 的大量命中 chunk 不会
 遮蔽其他 Topic。全文 snippet 以 Analyzer v1 查询命中为中心截取有界窗口；只有向量命中时，则稳定截取其命中 chunk
 内部的窗口。
 首版搜索 limit 与历史候选配置统一限制为 20。查询最多 8,192 个字符、64 个不同的 Analyzer term；构造后端

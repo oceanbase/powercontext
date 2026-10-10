@@ -205,7 +205,11 @@ class MemoryChannelHit(BaseModel):
 
 
 class MemoryHit(BaseModel):
-    """A fused retrieval result anchored to exact Memory content."""
+    """A fused retrieval result anchored to exact Memory content.
+
+    ``score_upper_bound`` is in-process fusion metadata used by the recall gate. It is
+    excluded from serialization and is not part of the public Memory hit contract.
+    """
 
     memory_ref: ArtifactRef
     entry_id: str
@@ -213,6 +217,7 @@ class MemoryHit(BaseModel):
     text: str
     score: float
     matched_by: tuple[MemoryMatchedBy, ...]
+    score_upper_bound: float | None = Field(default=None, gt=0.0, allow_inf_nan=False, exclude=True)
     relevance: float | None = Field(default=None, ge=-1.0, le=1.0, allow_inf_nan=False, exclude=True)
 
 

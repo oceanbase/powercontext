@@ -3807,7 +3807,14 @@ class SearchMemoryHit(BaseModel):
     )
     citation: MemoryCitation
     text: StrictStr
-    score: Annotated[StrictFloat, Field(ge=0.0, le=1.0)]
+    score: Annotated[
+        StrictFloat,
+        Field(
+            description="Raw RRF score. Hybrid mode applies the deployment's normalized relative FTS/vector weights.",
+            ge=0.0,
+            le=1.0,
+        ),
+    ]
     matched_by: list[MemoryMatchedBy]
 
 
@@ -3819,7 +3826,9 @@ class SearchTopicMemoryHit(BaseModel):
     title: Annotated[StrictStr, Field(max_length=512, min_length=1)]
     summary: Annotated[StrictStr, Field(max_length=8000, min_length=1)]
     snippet: Annotated[StrictStr | None, Field(...)]
-    score: Annotated[StrictFloat, Field(ge=0.0)]
+    score: Annotated[
+        StrictFloat, Field(description="Weighted RRF relevance normalized to the 0..100 range.", ge=0.0, le=100.0)
+    ]
     matched_by: Annotated[list[TopicMemoryMatchedBy], Field(min_length=1)]
 
 

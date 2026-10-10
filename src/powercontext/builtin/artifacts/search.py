@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 import unicodedata
 from dataclasses import dataclass
 from itertools import pairwise
@@ -30,6 +31,9 @@ _FTS_MIN_QUERY_COVERAGE = 0.25
 _FTS_MIN_MATCHED_TERMS = 2
 _FTS_SHORT_QUERY_MAX_TERMS = 2
 _MIN_SEMANTIC_SIMILARITY = 0.3
+# Reject subnormal normalized weights. This conservative boundary leaves
+# headroom for RRF division and prevents more extreme ratios from underflowing.
+_MIN_NORMALIZED_RECALL_CHANNEL_WEIGHT = sys.float_info.min
 
 # Query-only normalization: persisted Analyzer v1 projections remain unchanged. Negations
 # are deliberately absent; domain constraints such as "without a backup" remain evidence.
@@ -184,6 +188,49 @@ def unit_l2_cosine_similarity(distance: float) -> float:
     """Convert L2 distance between unit vectors to cosine similarity."""
 
     return max(-1.0, min(1.0, 1.0 - distance**2 / 2.0))
+
+
+@dataclass(frozen=True)
+class RecallChannelWeights:
+    """Normalized relative weights for lexical and semantic recall channels.
+
+    Inputs express a ratio. The stored weights have a mean of one, so scaling both
+    configured values by the same factor cannot change a public RRF score.
+    """
+
+    fts: float = 1.0
+    vector: float = 1.0
+
+    def __post_init__(self) -> None:
+        if isinstance(self.fts, bool) or isinstance(self.vector, bool):
+            raise TypeError("recall channel weights must be numbers")  # noqa: TRY003
+        if not math.isfinite(self.fts) or not math.isfinite(self.vector):
+            raise ValueError("recall channel weights must be finite")  # noqa: TRY003
+        if self.fts < 0.0 or self.vector < 0.0:
+            raise ValueError("recall channel weights must be non-negative")  # noqa: TRY003
+        total = self.fts + self.vector
+        if not math.isfinite(total):
+            raise ValueError("recall channel weight total must be finite")  # noqa: TRY003
+        if total <= 0.0:
+            raise ValueError("at least one recall channel weight must be positive")  # noqa: TRY003
+        # Divide each input before scaling so a finite, positive subnormal total
+        # cannot overflow through an intermediate ``2.0 / total`` value.
+        normalized_fts = 2.0 * (self.fts / total)
+        normalized_vector = 2.0 * (self.vector / total)
+        if not math.isfinite(normalized_fts) or not math.isfinite(normalized_vector):
+            raise ValueError("normalized recall channel weights must be finite")  # noqa: TRY003
+        if (self.fts > 0.0 and normalized_fts < _MIN_NORMALIZED_RECALL_CHANNEL_WEIGHT) or (
+            self.vector > 0.0 and normalized_vector < _MIN_NORMALIZED_RECALL_CHANNEL_WEIGHT
+        ):
+            raise ValueError(  # noqa: TRY003
+                "normalized non-zero recall channel weights must be at least "
+                "the smallest normal IEEE 754 binary64 value"
+            )
+        object.__setattr__(self, "fts", normalized_fts)
+        object.__setattr__(self, "vector", normalized_vector)
+
+
+DEFAULT_RECALL_CHANNEL_WEIGHTS = RecallChannelWeights()
 
 
 @dataclass(frozen=True)
