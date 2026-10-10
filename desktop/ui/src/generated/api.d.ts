@@ -2430,6 +2430,8 @@ export interface components {
             artifact_families: string[];
             /** @description Whether pending Sources can be extracted into Memory. */
             memory_extraction: boolean;
+            /** @description Live Memory extraction diagnostics. Null means diagnostics are not supplied by this runtime. This read does not call a model or prove provider connectivity. */
+            extraction?: components["schemas"]["ExtractionStatus"];
             /**
              * @description Whether the configured model can generate reviewed Experience Candidates.
              * @default false
@@ -2449,6 +2451,67 @@ export interface components {
             handoff_generation: boolean;
             search_modes: components["schemas"]["MemorySearchMode"][];
             context_versions: components["schemas"]["PreparedContextSchema"][];
+        };
+        ExtractionStatus: {
+            /**
+             * @description Whether a local extraction model or custom pipeline is assembled. Configured does not verify credentials or connectivity. Unknown means execution is external and its configuration is not observed.
+             * @enum {string}
+             */
+            configuration: "configured" | "unconfigured" | "unknown";
+            background: components["schemas"]["ExtractionBackground"];
+            observation: components["schemas"]["ExtractionObservation"];
+        };
+        ExtractionBackground: {
+            /**
+             * @description Placement of the Memory Supervisor. None means no background executor; synchronous flush may still work.
+             * @enum {string}
+             */
+            location: "local" | "external" | "none";
+            /**
+             * @description Current local Supervisor leadership role. Standby is normal; null means no running local Supervisor.
+             * @enum {string|null}
+             */
+            role?: "leader" | "standby" | null;
+            /**
+             * @description Local Supervisor lifecycle and control state, independent of individual worker outcomes. A running Supervisor may be retrying failed workers. External state is unknown.
+             * @enum {string}
+             */
+            state: "running" | "degraded" | "stopped" | "unknown";
+            /** @description Whether this process schedules automatic Memory extraction. False still permits explicit flush and recovery of accepted work. Null means the external worker schedule is unknown. */
+            automatic_processing_enabled?: boolean | null;
+        };
+        ExtractionObservation: {
+            /**
+             * @description Unverified means no execution outcome or control failure has been observed in this window. Observed means at least one success or failure is recorded; neither value is a health verdict.
+             * @enum {string}
+             */
+            status: "unverified" | "observed";
+            /**
+             * Format: date-time
+             * @description UTC start of this Runtime's observation window. Records cover this process and its child Memory workers, reset on Runtime restart, and do not include remote workers or a durable per-Scope failure history.
+             */
+            since: string;
+            /** @description Most recent historical failure. Retained after subsequent success, possibly in another Scope. This is not an unresolved-incident indicator; null does not prove health. */
+            last_failure?: components["schemas"]["ExtractionFailure"];
+            /**
+             * Format: date-time
+             * @description UTC time of the most recent local successful nonempty synchronous flush or acknowledged Memory worker invocation. This does not prove that a model was called or that any previous failure has recovered.
+             */
+            last_success_at?: string | null;
+        };
+        ExtractionFailure: {
+            /** @description Sanitized category: model_configuration_error, model_timeout, model_unavailable, invalid_model_output, worker_timeout, worker_crash, invalid_worker_result, missing_durable_acknowledgement, supervisor_failed, lease_renewal_failed, scope_discovery_failed, or processing_failed. Raw exception messages, model inputs, and credentials are never returned. */
+            code: string;
+            /**
+             * @description Inference for recognized model failures; otherwise the boundary where failure was observed. Flush or worker does not identify the failing internal component.
+             * @enum {string}
+             */
+            stage: "inference" | "flush" | "worker" | "supervisor" | "lease_renewal" | "scope_discovery";
+            /**
+             * Format: date-time
+             * @description UTC time when this process observed the failure.
+             */
+            occurred_at: string;
         };
         FamilyCount: {
             family: string;

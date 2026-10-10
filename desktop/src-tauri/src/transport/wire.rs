@@ -155,6 +155,9 @@ pub struct Capabilities {
     pub r#memory_extraction: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
+    pub r#extraction: Option<ExtractionStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
     pub r#experience_generation: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
@@ -165,6 +168,48 @@ pub struct Capabilities {
     pub r#handoff_generation: bool,
     pub r#search_modes: Vec<MemorySearchMode>,
     pub r#context_versions: Vec<PreparedContextSchema>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExtractionBackground {
+    pub r#location: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#role: Option<String>,
+    pub r#state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#automatic_processing_enabled: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExtractionFailure {
+    pub r#code: String,
+    pub r#stage: String,
+    pub r#occurred_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExtractionObservation {
+    pub r#status: String,
+    pub r#since: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#last_failure: Option<ExtractionFailure>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#last_success_at: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExtractionStatus {
+    pub r#configuration: String,
+    pub r#background: ExtractionBackground,
+    pub r#observation: ExtractionObservation,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
@@ -412,6 +457,10 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <ArtifactFamilyAccessCapability as ts_rs::TS>::decl(config),
         <ArtifactReference as ts_rs::TS>::decl(config),
         <Capabilities as ts_rs::TS>::decl(config),
+        <ExtractionBackground as ts_rs::TS>::decl(config),
+        <ExtractionFailure as ts_rs::TS>::decl(config),
+        <ExtractionObservation as ts_rs::TS>::decl(config),
+        <ExtractionStatus as ts_rs::TS>::decl(config),
         <GetMemoryEntryRequest as ts_rs::TS>::decl(config),
         <HealthResponse as ts_rs::TS>::decl(config),
         <MemoryCitation as ts_rs::TS>::decl(config),
