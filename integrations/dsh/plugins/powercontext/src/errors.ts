@@ -117,6 +117,8 @@ export class ServerResponseError extends ClientError {
   readonly path: string
   readonly code: unknown
   readonly serverMessage: string | undefined
+  /** The machine-readable `error.details` object, when the response body carried one. */
+  readonly serverDetails: Record<string, unknown> | undefined
 
   constructor(options: {
     statusCode: number
@@ -124,6 +126,7 @@ export class ServerResponseError extends ClientError {
     requestId?: string
     code?: unknown
     message?: string
+    details?: Record<string, unknown>
   }) {
     const suffix = typeof options.code === 'string' ? ` (${options.code})` : ''
     super(`PowerContext Server returned HTTP ${options.statusCode}${suffix}`, options.requestId)
@@ -131,6 +134,7 @@ export class ServerResponseError extends ClientError {
     this.path = options.path ?? ''
     this.code = options.code
     this.serverMessage = options.message
+    this.serverDetails = options.details
   }
 }
 

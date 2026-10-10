@@ -270,11 +270,19 @@ class DreamService:
             if record is None:
                 return False
             intent = await self.processing.guard(connection)
-            if (
+            yield_to_sources = (
                 intent.consecutive_dream_attempts >= 4
                 and intent.dirty_generation > intent.clean_generation
                 and work.artifact_family not in {"skill", "handoff", "prompt"}
-            ):
+            )
+            if yield_to_sources and work.artifact_family == "topic-memory":
+                from powercontext.builtin.runtime.topic_memory_scope import topic_memory_processing_block
+
+                # Fairness only yields to runnable Source work, not a terminal window.
+                yield_to_sources = (
+                    await topic_memory_processing_block(connection, work.scope_id, work.binding_name) is None
+                )
+            if yield_to_sources:
                 # The Source pass acknowledges this invocation. Keep the queued
                 # Dream runnable even if that pass consumes all ordinary input.
                 if intent.requested_generation == work.claimed_request_generation:

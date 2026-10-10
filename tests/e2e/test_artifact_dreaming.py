@@ -46,6 +46,7 @@ from powercontext.builtin.artifacts.profile.models import (
 )
 from powercontext.builtin.artifacts.skill import SkillContent, SkillDraft
 from powercontext.builtin.artifacts.topic_memory import (
+    TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
     TopicMemoryContent,
     TopicMemoryDraft,
     prepare_topic_memory_projection,
@@ -607,9 +608,9 @@ def test_memory_dream_revises_only_selected_entry_after_review(
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("retire_evidence", [False, True])
+@pytest.mark.parametrize("retire_evidence, exhausted_window", [(False, False), (True, False), (False, True)])
 def test_topic_memory_dream_publishes_complete_revision_after_review(
-    database: DatabaseConfig, retire_evidence: bool
+    database: DatabaseConfig, retire_evidence: bool, exhausted_window: bool
 ) -> None:
     class TopicDreamGenerator:
         config_id = "topic-dream-test"
@@ -659,6 +660,46 @@ def test_topic_memory_dream_publishes_complete_revision_after_review(
                     TopicMemoryDraft(content=original, sources=(source.source_ref,)),
                     prepare_topic_memory_projection(original),
                 )
+            if exhausted_window:
+                from sqlalchemy import insert, select, update
+
+                from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
+                from powercontext.builtin.persistence.tables import (
+                    ARTIFACT_PROCESSING_INTENTS_TABLE,
+                    SOURCE_JOURNAL_HEADS_TABLE,
+                    TOPIC_MEMORY_WORK_BUDGETS_TABLE,
+                )
+                from powercontext.builtin.persistence.topic_memory_budget import MAX_TOPIC_MEMORY_WORK_ATTEMPTS
+
+                async with runtime._provider.database.transaction() as connection:
+                    await ArtifactProcessingIntentRepository().mark_dirty(
+                        connection, scope_id, TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+                    )
+                    await connection.execute(
+                        insert(TOPIC_MEMORY_WORK_BUDGETS_TABLE).values(
+                            scope_id=scope_id,
+                            binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                            source_after=0,
+                            source_through=await connection.scalar(
+                                select(SOURCE_JOURNAL_HEADS_TABLE.c.position).where(
+                                    SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id
+                                )
+                            ),
+                            attempt_id="exhausted-window",
+                            attempts=MAX_TOPIC_MEMORY_WORK_ATTEMPTS,
+                            requests=0,
+                            tokens=0,
+                            failure_code="provider_error",
+                        )
+                    )
+                    await connection.execute(
+                        update(ARTIFACT_PROCESSING_INTENTS_TABLE)
+                        .where(
+                            ARTIFACT_PROCESSING_INTENTS_TABLE.c.scope_id == scope_id,
+                            ARTIFACT_PROCESSING_INTENTS_TABLE.c.binding_name == TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                        )
+                        .values(consecutive_dream_attempts=4)
+                    )
             run = await runtime.dream.for_scope(scope_id).create(
                 CreateDreamRunRequest(
                     operation="revise_topic_memory",
@@ -672,6 +713,17 @@ def test_topic_memory_dream_publishes_complete_revision_after_review(
             await process_pending(runtime)
             completed = await runtime.dream.for_scope(scope_id).get(GetDreamRunRequest(run_id=run.run_id))
             assert completed.outcome == "proposed" and completed.candidate is not None
+            if exhausted_window:
+                from powercontext.builtin.runtime.topic_memory_scope import topic_memory_processing_block
+
+                async with runtime._provider.database.transaction() as connection:
+                    # Finishing Dream does not reopen the exhausted automatic window.
+                    assert (
+                        await topic_memory_processing_block(
+                            connection, scope_id, TOPIC_MEMORY_SOURCE_WINDOW_BINDING, dream_enabled=True
+                        )
+                        is not None
+                    )
             async with runtime._provider.database.transaction() as connection:
                 before = await runtime._provider.repositories.artifacts.latest(
                     connection, scope_id, "topic-memory", "topic-dream-target"

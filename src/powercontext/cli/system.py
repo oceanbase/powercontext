@@ -1707,7 +1707,9 @@ def run_codex_diagnostics() -> dict[str, Diagnostic]:
     tools = native_server.get("tools")
     tool_names = set(tools) if isinstance(tools, dict) else set()
     missing = sorted(_CODEX_REQUIRED_MCP_TOOLS - tool_names)
-    if native_authorization is None and not credential_helper:
+    if native_authorization is None and (
+        not credential_helper or (authorization_diagnostic.checks or {}).get("setup_managed") == "url_mismatch"
+    ):
         failure_hint = (
             "; check Server availability and, for an authenticated Server, set "
             "POWERCONTEXT_CODEX_AUTHORIZATION while rerunning `powercontext setup codex`"
@@ -1894,6 +1896,21 @@ def _resolve_codex_native_authorization(
                 checks=checks,
             ),
             desktop_authorization,
+        )
+
+    if authorization.status == "url_mismatch":
+        return (
+            Diagnostic(
+                status=DiagnosticStatus.OK,
+                detail=(
+                    "stored credential state is url_mismatch; the credential for the previous endpoint is preserved "
+                    "and will not be forwarded; the native probe will verify an unauthenticated connection. "
+                    "If the selected Server requires authentication, supply POWERCONTEXT_CODEX_AUTHORIZATION or "
+                    "POWERCONTEXT_CLIENT_API_TOKEN while rerunning `powercontext setup codex`"
+                ),
+                checks=checks,
+            ),
+            None,
         )
 
     authorization_ok = authorization.status == "not_configured"

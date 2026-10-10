@@ -84,7 +84,7 @@ def main() -> None:
         help="Continue through case failures or stop the Harbor trial at the first failed step.",
     )
 
-    paired_parser = subparsers.add_parser("paired", help="Compare PowerContext off and on for continuation workloads.")
+    paired_parser = subparsers.add_parser("paired", help="Compare PowerContext off and on for paired workloads.")
     paired_parser.add_argument("--manifest", type=Path, default=Path("e2e/bub/paired-tasks"))
     paired_parser.add_argument(
         "--id",

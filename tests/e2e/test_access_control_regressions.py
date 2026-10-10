@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -77,6 +78,50 @@ async def _scope(client):
     )
     assert result.status_code == 201, result.text
     return result.json()["scope_id"]
+
+
+@pytest.mark.parametrize("backend", ["builtin", "casbin"])
+@pytest.mark.parametrize("target_contributor", [False, True])
+def test_missing_subject_target_preserves_authorization(tmp_path, backend, target_contributor):
+    async def scenario():
+        async with _server(tmp_path, backend) as (_, client, _):
+            origin = await _scope(client)
+            path = f"/v1/scopes/{origin}/subject-sources"
+            payload = {"subject_key": "private-subject", "content": "Subject evidence"}
+            created = await client.post(path, json=payload)
+            assert created.status_code == 201, created.text
+            target = created.json()["subject_scope_id"]
+            await _grant(client, origin, "writer", "scope.contributor")
+            if target_contributor:
+                await _grant(client, target, "writer", "scope.contributor")
+            headers = {"Authorization": "Bearer writer"}
+            healthy = await client.post(path, headers=headers, json=payload)
+            assert healthy.status_code == (201 if target_contributor else 403), healthy.text
+            if not target_contributor:
+                assert target not in healthy.text
+            sources_before = await client.get(f"/v1/scopes/{origin}/sources")
+            assert sources_before.status_code == 200, sources_before.text
+
+            # Simulate out-of-band loss while preserving bindings and access grants.
+            with sqlite3.connect(tmp_path / "regressions.db") as connection:
+                connection.execute("DELETE FROM pc_scopes WHERE scope_id = ?", (target,))
+
+            missing = await client.post(path, headers=headers, json=payload)
+            if target_contributor:
+                assert missing.status_code == 409, missing.text
+                assert missing.json()["error"]["code"] == "scope_binding_target_missing"
+                assert missing.json()["error"]["details"]["scope_id"] == target
+            else:
+                assert missing.status_code == 403, missing.text
+                assert missing.json()["error"]["code"] == healthy.json()["error"]["code"]
+                assert target not in missing.text
+            sources_after = await client.get(f"/v1/scopes/{origin}/sources")
+            assert sources_after.status_code == 200, sources_after.text
+            assert {item["source_id"] for item in sources_after.json()["items"]} == {
+                item["source_id"] for item in sources_before.json()["items"]
+            }
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("backend", ["builtin", "casbin"])

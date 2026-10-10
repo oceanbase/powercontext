@@ -68,6 +68,12 @@ class NativeServiceAdapter(Protocol):
 
     def disable(self) -> None: ...
 
+    def suspend(self, marker: Path) -> None: ...
+
+    def resume(self) -> None: ...
+
+    def update_suspended(self) -> None: ...
+
     def remove(self) -> None: ...
 
     def manager_state(self) -> ManagerState: ...
@@ -119,6 +125,15 @@ class UnsupportedAdapter:
         raise ServiceError(self._detail)
 
     def disable(self) -> None:
+        raise ServiceError(self._detail)
+
+    def suspend(self, marker: Path) -> None:
+        raise ServiceError(self._detail)
+
+    def resume(self) -> None:
+        raise ServiceError(self._detail)
+
+    def update_suspended(self) -> None:
         raise ServiceError(self._detail)
 
     def remove(self) -> None:

@@ -49,7 +49,10 @@ e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
 .PHONY: evaluation-unit-test
 evaluation-unit-test: ## Run the evaluation project's unit tests, the work-continuity benchmark included.
 	@uv sync --project evaluation --frozen
-	@uv run --project evaluation pytest -c evaluation/pyproject.toml evaluation/tests/unit -m "not live" -q
+	@uv run --project evaluation pytest -c evaluation/pyproject.toml \
+		evaluation/coding/swebench_pro/tests/unit \
+		evaluation/coding/work_continuity/tests/unit \
+		evaluation/memory/longmemeval_v2/tests -m "not live" -q
 
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.
@@ -103,7 +106,7 @@ harness-acceptance: ## Evaluate workloads by ID or category against an existing 
 		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results}" $(ARGS)
 
 .PHONY: harness-paired
-harness-paired: ## Compare PowerContext off and on for continuation workloads against an existing Server.
+harness-paired: ## Compare PowerContext off and on for paired workloads against an existing Server.
 	@uv run --project e2e/bub powercontext-e2e paired \
 		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results/paired}" $(ARGS)
 

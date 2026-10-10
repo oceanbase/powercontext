@@ -126,6 +126,7 @@ from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingSupervisors,
     SpawnArtifactProcessingWorkerLauncher,
 )
+from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.decision_model import (
     DECISION_INSTRUCTIONS,
@@ -137,6 +138,8 @@ from powercontext.builtin.runtime.decision_model import (
     FailOpenDecisionModel,
     LLMDecisionModel,
 )
+from powercontext.builtin.runtime.experience_search import ExperienceArtifactSearcher
+from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
 from powercontext.builtin.runtime.memory_write_gate import build_memory_write_gate
 from powercontext.builtin.runtime.models import DreamOperationCapability, MemorySearchMode, RuntimeCapabilities
@@ -156,15 +159,19 @@ from powercontext.builtin.runtime.readiness import (
 )
 from powercontext.builtin.runtime.recall_sufficiency import RecallSufficiencyPolicy
 from powercontext.builtin.runtime.relational import RelationalContexts
+from powercontext.builtin.runtime.skill_search import SkillArtifactSearcher
 from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryWorkerSpec,
     run_topic_memory_worker,
     validate_topic_memory_provider_settings,
 )
+from powercontext.builtin.runtime.topic_memory_scope import topic_memory_processing_block
+from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
 from powercontext.builtin.sources import (
     BUILTIN_SOURCE_REGISTRY,
     TEXT_EVIDENCE_PROJECTION_KEY,
 )
+from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
 from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
 
@@ -582,6 +589,22 @@ async def open_builtin_runtime(
                 if spec.family in registered_families or (spec.family is None and registered_families)
             )
         topic_memory_processing_available = _topic_memory_processing_available(config, processing_bindings)
+        artifact_search = ArtifactSearchService(known_families=contexts.repositories.artifacts.families)
+        artifact_search.register(
+            ExperienceArtifactSearcher(contexts.database, contexts.repositories.artifacts, contexts.experience_index)
+        )
+        artifact_search.register(
+            SkillArtifactSearcher(contexts.database, contexts.repositories.artifacts, contexts.experience_index)
+        )
+        topic_memory_searcher = TopicMemorySearcher(
+            search=contexts.search_topic_memories,
+            get=contexts.get_topic_memory,
+            browse=contexts.browse_topic_memories,
+            embedding_model=configured_embedding,
+            observer=topic_memory_search_observer,
+            capabilities=contexts.topic_memory_index.capabilities,
+        )
+        artifact_search.register(topic_memory_searcher, embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL)
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
                 code_service=await resources.enter_async_context(open_code_service(config.code, config.database)),
@@ -605,6 +628,18 @@ async def open_builtin_runtime(
                     prompts=dict(contexts.prompt_registry.capabilities),
                 ),
                 source_window_limit=config.runtime.source_window_limit,
+                extraction_diagnostics=ExtractionDiagnostics(
+                    pipeline_configured=(
+                        contexts.memory_extraction
+                        or (
+                            config.runtime.artifact_processing_role != "api"
+                            and any(binding.artifact_family == "memory" for binding in processing_bindings)
+                        )
+                    ),
+                    external_worker=(
+                        config.runtime.artifact_processing_role == "api" and "memory" in processing_capabilities(config)
+                    ),
+                ),
                 context_assembly_max_entries=config.runtime.context_assembly_max_entries,
                 recall_sufficiency_policy=RecallSufficiencyPolicy.from_runtime_config(config.runtime),
                 scope_cache_size=config.runtime.scope_cache_size,
@@ -628,6 +663,7 @@ async def open_builtin_runtime(
                 ),
                 generation_concurrency=config.runtime.generation_concurrency,
                 experience_recall=contexts.search_experience_outcome,
+                artifact_search=artifact_search,
                 skill_recall=contexts.search_skills,
                 skill_lister=contexts.list_skills,
                 skill_origin_reader=contexts.get_skill_origins,
@@ -639,6 +675,7 @@ async def open_builtin_runtime(
                 skill_usage_recorder=contexts.record_skill_usage,
                 experience_incubator=contexts.incubate_experience if contexts.experience_incubation else None,
                 topic_memory_search=contexts.search_topic_memories,
+                topic_memory_searcher=topic_memory_searcher,
                 topic_memory_get=contexts.get_topic_memory,
                 topic_memory_browse=contexts.browse_topic_memories,
                 topic_memory_flush=contexts.request_topic_memory_flush,
@@ -800,6 +837,9 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                 if family in {"skill", "handoff", "prompt"}
                 else SourceProcessingPendingProvider(contexts.database, binding, family),
                 automatic_scope_filter=enabled_profile_scopes if family == "profile" else None,
+                work_block=partial(topic_memory_processing_block, dream_enabled=config.runtime.dream_enabled)
+                if family == "topic-memory"
+                else None,
             )
         )
     _validate_processing_registrations(configured)

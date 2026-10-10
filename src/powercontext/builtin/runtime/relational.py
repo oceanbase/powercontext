@@ -22,9 +22,9 @@ import logging
 import secrets
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator
@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import Artifact, ArtifactRef, MemoryCitation
+from powercontext.artifacts.search import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
     Experience,
@@ -106,6 +107,7 @@ from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryS
 from powercontext.builtin.artifacts.topic_memory import (
     TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
     PublishedTopicMemory,
+    TopicArtifactSearchRequest,
     TopicMemory,
     TopicMemoryBrowseCursor,
     TopicMemoryContent,
@@ -525,6 +527,15 @@ class _ScopedServices:
         )
 
 
+@dataclass(slots=True)
+class _ScopeState:
+    """Keep every evictable composition and lock under one scope lifecycle."""
+
+    context: PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers] | None = None
+    scope_locks: dict[Literal["source", "activation", "experience"], asyncio.Lock] = field(default_factory=dict)
+    skill_publication_locks: dict[tuple[str, str], asyncio.Lock] = field(default_factory=dict)
+
+
 class RelationalContexts:
     """Compose typed, scope-bound contexts without owning the database lifecycle."""
 
@@ -727,14 +738,7 @@ class RelationalContexts:
         self._handoff_artifact_id = handoff_artifact_id
         self._memory_artifact_id = memory_artifact_id
         self._tracing = tracing
-        self._contexts: dict[
-            str,
-            PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers],
-        ] = {}
-        self._source_locks: dict[str, asyncio.Lock] = {}
-        self._activation_locks: dict[str, asyncio.Lock] = {}
-        self._experience_locks: dict[str, asyncio.Lock] = {}
-        self._skill_publication_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
+        self._scope_states: dict[str, _ScopeState] = {}
 
     @property
     def token_estimator(self) -> TokenEstimator:
@@ -745,16 +749,24 @@ class RelationalContexts:
         return self._token_estimator
 
     def evict(self, scope_id: str, /) -> None:
-        """Discard inactive scope-local compositions and serialization locks."""
+        """Discard cached compositions and serialization locks for an inactive scope.
+
+        The scope state includes every publication lock keyed by
+        (target_id, artifact_id). Other scopes retain their state and locks.
+        Previously returned contexts and services may still hold references;
+        callers must only evict after the scope's operations have drained.
+        Evicting an uncached scope is a no-op.
+        """
 
         scope = validate_scope_id(scope_id)
-        self._contexts.pop(scope, None)
-        self._source_locks.pop(scope, None)
-        self._activation_locks.pop(scope, None)
-        self._experience_locks.pop(scope, None)
-        for key in tuple(self._skill_publication_locks):
-            if key[0] == scope:
-                self._skill_publication_locks.pop(key, None)
+        self._scope_states.pop(scope, None)
+
+    def _state_for(self, scope: str) -> _ScopeState:
+        state = self._scope_states.get(scope)
+        if state is None:
+            state = _ScopeState()
+            self._scope_states[scope] = state
+        return state
 
     def review(self, scope_id: str, /) -> ReviewService:
         """Return Candidate and reviewed Artifact operations bound to one scope."""
@@ -1026,6 +1038,8 @@ class RelationalContexts:
         embedding_profile: EmbeddingProfile | None = None,
         admission: AdmissionFloor | None = None,
         query_embedding: MemoryQueryEmbedding | None = None,
+        artifact_request: TopicArtifactSearchRequest | None = None,
+        execution_context: ArtifactSearchExecutionContext | None = None,
     ) -> TopicMemorySearchResult:
         """Search current active Topic projections in this deployment."""
 
@@ -1033,7 +1047,29 @@ class RelationalContexts:
             query_vector = query_embedding.query_vector
             embedding_profile = query_embedding.embedding_profile
         scope = validate_scope_id(scope_id)
-        async with self.database.transaction() as connection:
+        access = None if execution_context is None else execution_context.access
+        if execution_context is not None and access is None and not execution_context.trusted_local:
+            from powercontext.server.authz import AccessDeniedError
+
+            raise AccessDeniedError
+        audit = nullcontext() if access is None else access.defer_decision_audit()
+        async with audit, self.database.transaction(consistent_snapshot=True) as connection:
+            if execution_context is not None and access is not None:
+                # Establish the data snapshot before a remote PDP can suspend.
+                # Local providers then read their policy through this same connection.
+                await connection.execute(
+                    select(ARTIFACT_HEADS_TABLE.c.revision)
+                    .where(
+                        ARTIFACT_HEADS_TABLE.c.scope_id == scope, ARTIFACT_HEADS_TABLE.c.family == TopicMemory.family
+                    )
+                    .limit(1)
+                )
+                await access.require_scope_read(
+                    execution_context.principal,
+                    scope,
+                    connection=connection,
+                    context=execution_context.audit,
+                )
             return await self.repositories.topic_memories.search(
                 connection,
                 scope,
@@ -1043,6 +1079,7 @@ class RelationalContexts:
                 query_vector=query_vector,
                 embedding_profile=embedding_profile,
                 admission=admission,
+                **({} if artifact_request is None else {"artifact_request": artifact_request}),
             )
 
     async def search_skills(
@@ -1298,6 +1335,7 @@ class RelationalContexts:
         """Return safe package publication operations serialized for one target binding."""
 
         scope = validate_scope_id(scope_id)
+        state = self._state_for(scope)
         return ManagedSkillPublicationService(
             database=self.database,
             scope_id=scope,
@@ -1305,7 +1343,7 @@ class RelationalContexts:
             governance=self.repositories.governance,
             packages=self.repositories.skill_packages,
             publications=self.repositories.skill_publications,
-            lock=self._skill_publication_locks.setdefault((scope, target_id, artifact_id), asyncio.Lock()),
+            lock=state.skill_publication_locks.setdefault((target_id, artifact_id), asyncio.Lock()),
         )
 
     def remote_skill_distribution(self) -> RemoteSkillDistributionService:
@@ -1408,7 +1446,7 @@ class RelationalContexts:
         services = self._services_for(scope_id)
         return await _RelationalTriggers(
             services=services,
-            lock=self._activation_locks.setdefault(services.scope_id, asyncio.Lock()),
+            lock=self._state_for(services.scope_id).scope_locks.setdefault("activation", asyncio.Lock()),
             tracing=self._tracing,
         ).flush(limit=limit, processing=processing, authorize_snapshot=authorize_snapshot, on_commit=on_commit)
 
@@ -1428,7 +1466,7 @@ class RelationalContexts:
             raise RuntimeError("Experience incubation pipeline is not configured")  # noqa: TRY003
         return await _RelationalExperienceIncubator(
             services=services,
-            lock=self._experience_locks.setdefault(services.scope_id, asyncio.Lock()),
+            lock=self._state_for(services.scope_id).scope_locks.setdefault("experience", asyncio.Lock()),
         ).flush(limit=limit, processing=processing, on_commit=on_commit)
 
     async def get(
@@ -1436,16 +1474,18 @@ class RelationalContexts:
         scope_id: str,
         /,
     ) -> PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers]:
+        """Return the first cached composition until its scope is evicted."""
+
         scope = validate_scope_id(scope_id)
-        existing = self._contexts.get(scope)
-        if existing is not None:
-            return existing
+        state = self._state_for(scope)
+        if state.context is not None:
+            return state.context
 
         services = self._services_for(scope)
         sources_backend, source_catalog = services.sources()
         triggers: BuiltinTriggers = _RelationalTriggers(
             services=services,
-            lock=self._activation_locks.setdefault(scope, asyncio.Lock()),
+            lock=state.scope_locks.setdefault("activation", asyncio.Lock()),
             tracing=self._tracing,
         )
         context: PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers] = PowerContext(
@@ -1462,7 +1502,9 @@ class RelationalContexts:
             ),
             triggers=triggers,
         )
-        return self._contexts.setdefault(scope, context)
+        if state.context is None:
+            state.context = context
+        return state.context
 
     def _services_for(self, scope_id: str) -> _ScopedServices:
         scope = validate_scope_id(scope_id)
@@ -1488,7 +1530,7 @@ class RelationalContexts:
             id_factory=self._id_factory,
             handoff_artifact_id=self._handoff_artifact_id,
             memory_artifact_id=self._memory_artifact_id,
-            source_lock=self._source_locks.setdefault(scope, asyncio.Lock()),
+            source_lock=self._state_for(scope).scope_locks.setdefault("source", asyncio.Lock()),
             prompts=self.prompts,
             generation_receipts=self._generation_receipts,
             token_estimator=self._token_estimator,

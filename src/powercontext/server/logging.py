@@ -27,6 +27,25 @@ from typing_extensions import override
 
 from powercontext.server.settings import ServerLoggingConfig
 
+_PROCESSING_FIELDS = (
+    "stage",
+    "binding",
+    "family",
+    "scope",
+    "worker_id",
+    "request_generation",
+    "supervisor_group",
+    "supervisor_generation",
+    "trigger",
+    "exception_type",
+    "retry_count",
+    "retry_delay_seconds",
+    "source_after",
+    "source_through",
+    "attempts",
+    "requests",
+    "tokens",
+)
 _OPERATIONAL_FIELDS = (
     "event",
     "operation",
@@ -44,6 +63,7 @@ _OPERATIONAL_FIELDS = (
     "hold_codes",
     "trace_id",
     "span_id",
+    *_PROCESSING_FIELDS,
 )
 
 
@@ -92,6 +112,16 @@ class _HumanContextFilter(OperationalContextFilter):
         record.trace_context = (
             "" if trace_id is None else f" trace_id={trace_id}" + ("" if span_id is None else f" span_id={span_id}")
         )
+        event = getattr(record, "event", None)
+        record.processing_context = (
+            "".join(
+                f" {field}={json.dumps(value, ensure_ascii=False)}"
+                for field in ("event", "error_code", *_PROCESSING_FIELDS)
+                if (value := getattr(record, field, None)) is not None
+            )
+            if isinstance(event, str) and event.startswith("artifact_processing.")
+            else ""
+        )
         return True
 
 
@@ -120,7 +150,10 @@ def configure_server_logging(config: ServerLoggingConfig) -> None:
         formatter = {"()": JsonFormatter}
     else:
         formatter = {
-            "format": "%(asctime)s %(levelname)s %(name)s %(message)s%(request_context)s%(trace_context)s",
+            "format": (
+                "%(asctime)s %(levelname)s %(name)s %(message)s"
+                "%(processing_context)s%(request_context)s%(trace_context)s"
+            ),
             "datefmt": "%Y-%m-%dT%H:%M:%S%z",
         }
 

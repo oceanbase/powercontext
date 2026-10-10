@@ -17,21 +17,23 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
-from weakref import WeakKeyDictionary
+from typing import Any, Literal, cast
+from weakref import WeakKeyDictionary, WeakSet
 
+import aiosqlite
 import sqlite_vec
-from aiosqlite import Connection
+from aiosqlite import Connection, Cursor
+from aiosqlite.context import Result
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import Table, event
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import AdaptedConnection, ExceptionContext, make_url
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
 
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.dream_schema import assert_dream_schema_ready
@@ -125,7 +127,11 @@ def _configure_sqlite(
     load_vector_extension: bool,
 ) -> None:
     @event.listens_for(engine.sync_engine, "connect")
-    def set_pragmas(dbapi_connection: DBAPIConnection, _connection_record: object) -> None:
+    def set_pragmas(dbapi_connection: DBAPIConnection, connection_record: ConnectionPoolEntry) -> None:
+        driver = cast(Connection, cast(AdaptedConnection, dbapi_connection).driver_connection)
+        connection_record.info["_powercontext_sqlite_cursors"] = _track_sqlite_cursors(driver)
+        if aiosqlite.__version__ == "0.22.1":
+            connection_record.info["_powercontext_sqlite_stop"] = _make_sqlite_stop_idempotent(driver)
         if load_vector_extension:
             dbapi_connection.run_async(_load_sqlite_vec)
         cursor = dbapi_connection.cursor()
@@ -134,6 +140,60 @@ def _configure_sqlite(
             cursor.execute(f"PRAGMA foreign_keys = {'ON' if config.foreign_keys else 'OFF'}")
         finally:
             cursor.close()
+
+    @event.listens_for(engine.sync_engine, "handle_error")
+    def interrupt_cancelled_statement(context: ExceptionContext) -> None:
+        connection = context.connection
+        if (
+            isinstance(context.original_exception, asyncio.CancelledError)
+            and connection is not None
+            and not connection.closed
+            and not connection.invalidated
+        ):
+            driver = cast(Connection, connection.connection.driver_connection)
+            if driver._running and driver._connection is not None:
+                # Cancelling an await does not stop SQLite's native statement or disconnect its worker.
+                driver._connection.interrupt()
+                # SQLite rolls the entire native transaction back when an INSERT,
+                # UPDATE or DELETE is interrupted, so writes that already reported
+                # success are gone while SQLAlchemy still trusts the transaction.
+                # Record it here; the transaction must not commit later work on top
+                # of that rollback.
+                connection.info["_powercontext_sqlite_interrupted"] = True
+                context.is_disconnect = False
+
+
+def _track_sqlite_cursors(connection: Connection) -> WeakSet[Cursor]:
+    original_cursor = connection.cursor
+    cursors: WeakSet[Cursor] = WeakSet()
+
+    async def open_cursor() -> Cursor:
+        result = await original_cursor()
+        cursors.add(result)
+        return result
+
+    def cursor() -> Result[Cursor]:
+        return Result(open_cursor())
+
+    connection.cursor = cursor
+    return cursors
+
+
+def _make_sqlite_stop_idempotent(connection: Connection) -> Callable[[], asyncio.Future[Any] | None]:
+    original_stop = connection.stop
+    requested = False
+    stopped: asyncio.Future[Any] | None = None
+
+    def stop_once() -> asyncio.Future[Any] | None:
+        nonlocal requested, stopped
+        # aiosqlite 0.22.1 can enqueue a second stop after its worker has exited.
+        if not requested:
+            stopped = original_stop()
+            requested = True
+        return asyncio.shield(stopped) if stopped is not None else None
+
+    setattr(connection, "stop", stop_once)  # noqa: B010 - patch one connection; the shared aiosqlite class stays untouched
+    return stop_once
 
 
 async def _load_sqlite_vec(connection: Connection) -> None:

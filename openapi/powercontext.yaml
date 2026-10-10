@@ -513,6 +513,10 @@ paths:
     get:
       tags: [scopes]
       summary: Get the default Scope binding target
+      description: >-
+        A missing default binding returns 404 scope_not_found. A persisted default binding whose target is missing
+        returns 409 scope_binding_target_missing with details.scope_id; repair the binding or restore its target
+        explicitly instead of automatically provisioning a replacement.
       operationId: get_default_scope
       x-powercontext-access: {action: server.observe, resource: {type: server}}
       responses:
@@ -524,6 +528,8 @@ paths:
                 $ref: "#/components/schemas/ScopeDescriptor"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -593,6 +599,10 @@ paths:
         Inspect the Server-owned Scope selection for the current host identity before an operation that needs a binding.
         Reuse the returned Scope. Do not guess a Scope from the repository, branch, directory, or prompt, and do not
         change bindings while diagnosing availability.
+        No resolvable binding, or an unknown explicit Scope ID, returns 404 scope_not_found. A persisted durable or
+        default binding whose target is missing returns 409 scope_binding_target_missing with details.scope_id.
+        Resolution stops at that binding without falling back or creating a replacement Scope. Operator repair
+        is required; clients must not treat this conflict as an unprovisioned identity.
       operationId: resolve_scope_binding
       x-powercontext-access: {action: server.observe, resource: {type: server}}
       requestBody:
@@ -610,6 +620,8 @@ paths:
                 $ref: "#/components/schemas/ScopeDescriptor"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1398,6 +1410,49 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifacts/{family}/search:
+    post:
+      tags: [artifacts]
+      summary: Search one Artifact Family in a Scope
+      description: >-
+        Search registered Artifact Families using their supported retrieval controls. Results contain complete exact
+        Artifact revisions. Score metadata is returned only when requested; min_score compares normalized retrieval scores.
+      operationId: search_artifacts
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+        - name: family
+          in: path
+          required: true
+          schema: {type: string, minLength: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchArtifactsRequest"
+      responses:
+        "200":
+          description: Complete matching Artifact revisions in retrieval order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchArtifactsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -5938,6 +5993,12 @@ components:
         memory_extraction:
           type: boolean
           description: Whether pending Sources can be extracted into Memory.
+        extraction:
+          $ref: "#/components/schemas/ExtractionStatus"
+          nullable: true
+          description: >-
+            Live Memory extraction diagnostics. Null means diagnostics are not supplied by this runtime.
+            This read does not call a model or prove provider connectivity.
         experience_generation:
           type: boolean
           default: false
@@ -5961,6 +6022,101 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PreparedContextSchema"
+    ExtractionStatus:
+      type: object
+      additionalProperties: false
+      required: [configuration, background, observation]
+      properties:
+        configuration:
+          type: string
+          enum: [configured, unconfigured, unknown]
+          description: >-
+            Whether a local extraction model or custom pipeline is assembled. Configured does not verify
+            credentials or connectivity. Unknown means execution is external and its configuration is not observed.
+        background:
+          $ref: "#/components/schemas/ExtractionBackground"
+        observation:
+          $ref: "#/components/schemas/ExtractionObservation"
+    ExtractionBackground:
+      type: object
+      additionalProperties: false
+      required: [location, state]
+      properties:
+        location:
+          type: string
+          enum: [local, external, none]
+          description: >-
+            Placement of the Memory Supervisor. None means no background executor; synchronous flush may still work.
+        role:
+          type: string
+          enum: [leader, standby]
+          nullable: true
+          description: >-
+            Current local Supervisor leadership role. Standby is normal; null means no running local Supervisor.
+        state:
+          type: string
+          enum: [running, degraded, stopped, unknown]
+          description: >-
+            Local Supervisor lifecycle and control state, independent of individual worker outcomes.
+            A running Supervisor may be retrying failed workers. External state is unknown.
+        automatic_processing_enabled:
+          type: boolean
+          nullable: true
+          description: >-
+            Whether this process schedules automatic Memory extraction. False still permits explicit flush
+            and recovery of accepted work. Null means the external worker schedule is unknown.
+    ExtractionObservation:
+      type: object
+      additionalProperties: false
+      required: [status, since]
+      properties:
+        status:
+          type: string
+          enum: [unverified, observed]
+          description: >-
+            Unverified means no execution outcome or control failure has been observed in this window.
+            Observed means at least one success or failure is recorded; neither value is a health verdict.
+        since:
+          type: string
+          format: date-time
+          description: >-
+            UTC start of this Runtime's observation window. Records cover this process and its child Memory workers,
+            reset on Runtime restart, and do not include remote workers or a durable per-Scope failure history.
+        last_failure:
+          $ref: "#/components/schemas/ExtractionFailure"
+          nullable: true
+          description: >-
+            Most recent historical failure. Retained after subsequent success, possibly in another Scope.
+            This is not an unresolved-incident indicator; null does not prove health.
+        last_success_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            UTC time of the most recent local successful nonempty synchronous flush or acknowledged Memory worker
+            invocation. This does not prove that a model was called or that any previous failure has recovered.
+    ExtractionFailure:
+      type: object
+      additionalProperties: false
+      required: [code, stage, occurred_at]
+      properties:
+        code:
+          type: string
+          description: >-
+            Sanitized category: model_configuration_error, model_timeout, model_unavailable, invalid_model_output,
+            worker_timeout, worker_crash, invalid_worker_result, missing_durable_acknowledgement,
+            supervisor_failed, lease_renewal_failed, scope_discovery_failed, or processing_failed.
+            Raw exception messages, model inputs, and credentials are never returned.
+        stage:
+          type: string
+          enum: [inference, flush, worker, supervisor, lease_renewal, scope_discovery]
+          description: >-
+            Inference for recognized model failures; otherwise the boundary where failure was observed.
+            Flush or worker does not identify the failing internal component.
+        occurred_at:
+          type: string
+          format: date-time
+          description: UTC time when this process observed the failure.
     FamilyCount:
       type: object
       additionalProperties: false
@@ -9622,6 +9778,71 @@ components:
           uniqueItems: true
           items:
             $ref: "#/components/schemas/TopicMemoryMatchedBy"
+    ArtifactSearchFusion:
+      type: object
+      additionalProperties: false
+      x-powercontext-artifact-search-validation: fusion
+      required: [method]
+      properties:
+        method: {type: string, minLength: 1, pattern: '.*\S.*'}
+        params: {type: object, additionalProperties: true, default: {}}
+    SearchArtifactsRequest:
+      type: object
+      additionalProperties: false
+      x-powercontext-artifact-search-validation: request
+      required: [query]
+      properties:
+        query: {type: string, minLength: 1, maxLength: 8192, pattern: '.*\S.*'}
+        limit: {type: integer, minimum: 1, maximum: 200, default: 10}
+        mode: {type: string, minLength: 1, pattern: '.*\S.*'}
+        filters: {type: object, additionalProperties: true}
+        admission: {type: object, additionalProperties: true}
+        fusion:
+          $ref: "#/components/schemas/ArtifactSearchFusion"
+        min_score: {type: number, minimum: 0, maximum: 1}
+        include_scores: {type: boolean, default: false}
+        rerank: {type: object, additionalProperties: true}
+    ArtifactChannelScore:
+      type: object
+      additionalProperties: false
+      x-powercontext-artifact-search-validation: score
+      required: [raw, metric, higher_is_better]
+      properties:
+        raw: {type: number}
+        metric: {type: string, minLength: 1, pattern: '.*\S.*'}
+        higher_is_better: {type: boolean}
+    ArtifactSearchScores:
+      type: object
+      additionalProperties: false
+      x-powercontext-artifact-search-validation: score
+      required: [retrieval, channels]
+      properties:
+        retrieval: {type: number, minimum: 0, maximum: 1}
+        channels:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ArtifactChannelScore"
+    ArtifactSearchItem:
+      type: object
+      additionalProperties: false
+      required: [family, artifact_id, revision, content, lineage]
+      properties:
+        family: {type: string, minLength: 1}
+        artifact_id: {type: string, minLength: 1, maxLength: 128}
+        revision: {type: integer, minimum: 1}
+        content: {type: object, additionalProperties: true}
+        lineage: {type: object, additionalProperties: true}
+        scores:
+          $ref: "#/components/schemas/ArtifactSearchScores"
+    SearchArtifactsResponse:
+      type: object
+      additionalProperties: false
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactSearchItem"
     SearchTopicMemoryRequest:
       type: object
       additionalProperties: false

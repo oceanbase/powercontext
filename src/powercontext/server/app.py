@@ -49,6 +49,11 @@ from typing_extensions import override
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
+from powercontext.artifacts.search import (
+    ArtifactSearchExecutionContext,
+    ArtifactSearchFamilyNotFound,
+    ArtifactSearchUnsupported,
+)
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.handoff import (
     HandoffCitation,
@@ -304,9 +309,11 @@ from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
 from powercontext.builtin.runtime.application import BuiltinRuntime, PromptApplication
+from powercontext.builtin.runtime.skill_search import search_skill_library
 from powercontext.builtin.scope import (
     ScopeApplication,
     ScopeBindingNotFoundError,
+    ScopeBindingTargetMissingError,
     ScopeDraft,
     ScopeIdempotencyConflictError,
     ScopeMutation,
@@ -543,6 +550,7 @@ from powercontext.http import (
     ScopePage,
     ScopeQueryField,
     ScopeSelection,
+    SearchArtifactsRequest,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SearchTopicMemoryRequest,
@@ -749,6 +757,7 @@ from powercontext.http._generated.operations import (
     REVOKE_ACCESS_BINDING,
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
+    SEARCH_ARTIFACTS,
     SEARCH_MEMORY,
     SEARCH_TOPIC_MEMORY,
     SET_DEFAULT_SCOPE,
@@ -1199,7 +1208,13 @@ class _MemoryApplication(Protocol):
 
 
 class _ScopedTopicMemoryApplication(Protocol):
-    async def search(self, request: RuntimeSearchTopicMemoryRequest, /) -> TopicMemorySearchResult: ...
+    async def search(
+        self,
+        request: RuntimeSearchTopicMemoryRequest,
+        /,
+        *,
+        execution_context: ArtifactSearchExecutionContext | None = None,
+    ) -> TopicMemorySearchResult: ...
 
     async def get(self, request: RuntimeGetTopicMemoryRequest, /) -> PublishedTopicMemory: ...
 
@@ -1431,6 +1446,7 @@ def create_app(
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
     _add_route(app, FLUSH_TOPIC_MEMORY, flush_topic_memory)
     _add_route(app, SEARCH_TOPIC_MEMORY, search_topic_memory)
+    _add_route(app, SEARCH_ARTIFACTS, search_artifacts)
     _add_route(app, GET_TOPIC_MEMORY, get_topic_memory)
     _add_route(app, REGISTER_SOURCE_DEFINITION, register_source_definition)
     _add_route(app, GET_CONNECTOR_CHECKPOINT, get_connector_checkpoint)
@@ -2461,11 +2477,46 @@ async def flush_topic_memory(
 async def search_topic_memory(
     request: SearchTopicMemoryRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> SearchTopicMemoryResponse:
+    access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+    execution_context = ArtifactSearchExecutionContext(
+        principal=_require_principal() if access is not None else None,
+        access=access,
+        audit=_access_audit_context(SEARCH_TOPIC_MEMORY.operation_id),
+        trusted_local=access is None and http_request.app.state.access_mode == "disabled",
+    )
     result = await application.topic_memory.for_scope(request.scope_id).search(
-        mapping.topic_memory_search_request(request)
+        mapping.topic_memory_search_request(request),
+        **({} if access is None else {"execution_context": execution_context}),
     )
     return mapping.topic_memory_search_response(result)
+
+
+async def search_artifacts(
+    scope_id: _ScopePathId,
+    family: Annotated[str, Path(min_length=1)],
+    request: SearchArtifactsRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> Response:
+    artifacts = getattr(application, "artifacts", None)
+    if artifacts is None:
+        raise ArtifactSearchUnsupported(family, field="family")
+    access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+    execution_context = ArtifactSearchExecutionContext(
+        principal=_require_principal() if access is not None else None,
+        access=access,
+        audit=_access_audit_context(SEARCH_ARTIFACTS.operation_id),
+        trusted_local=access is None and http_request.app.state.access_mode == "disabled",
+    )
+    outcome = await artifacts.for_scope(scope_id).search(
+        family,
+        request.model_dump(mode="json", exclude_unset=True),
+        execution_context=execution_context,
+    )
+    result = mapping.artifact_search_response(outcome, include_scores=request.include_scores)
+    return JSONResponse(content=result.model_dump(mode="json", exclude_unset=True))
 
 
 async def get_topic_memory(
@@ -3353,29 +3404,12 @@ async def list_managed_skills(
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ListManagedSkillsResponse:
     scoped = application.skill.for_scope(request.scope_id)
-    values: list[tuple[Skill, ArtifactGovernance]] = []
-    query = "" if request.query is None else request.query.strip()
-    if query:
-        for hit in await scoped.search(query, request.limit):
-            skill = await scoped.get(RuntimeGetSkillRequest(artifact=hit.artifact_ref))
-            values.append((skill, await scoped.governance(skill.artifact_id)))
-    else:
-        values.extend(await scoped.list(include_deprecated=request.include_deprecated, limit=request.limit))
-    if query and request.include_deprecated:
-        seen = {skill.artifact_id for skill, _governance in values}
-        for skill, governance in await scoped.list(include_deprecated=True, limit=request.limit):
-            search_text = "\n".join((
-                skill.content.name,
-                skill.content.description,
-                skill.content.instructions,
-                *skill.content.metadata.values(),
-            ))
-            if (
-                governance.lifecycle_state is ArtifactLifecycleState.DEPRECATED
-                and skill.artifact_id not in seen
-                and query.casefold() in search_text.casefold()
-            ):
-                values.append((skill, governance))
+    values = await search_skill_library(
+        scoped,
+        "" if request.query is None else request.query,
+        request.limit,
+        include_deprecated=request.include_deprecated,
+    )
     return ListManagedSkillsResponse(
         skills=[mapping.managed_skill_library_entry(skill, governance) for skill, governance in values[: request.limit]]
     )
@@ -4436,6 +4470,7 @@ def _add_route(
 # Collection permission allows identity discovery, but content remains unavailable
 # until every committed identity has its immutable owner relation.
 _COLLECTION_CONTENT_OPERATIONS = frozenset({
+    "search_artifacts",
     "search_memory",
     "list_memory_entries",
     "get_memory_capacity",
@@ -5278,6 +5313,15 @@ def _set_error_headers(response: Response, error: Exception) -> None:
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     if isinstance(error, DreamError) and error.code == "client_upgrade_required":
         return 426, error.code, "Upgrade to a client supporting Dream contract 2.", {"required_dream_contract": 2}
+    if isinstance(error, ArtifactSearchFamilyNotFound):
+        return status.HTTP_404_NOT_FOUND, "artifact_family_not_found", "The Artifact Family was not found.", None
+    if isinstance(error, ArtifactSearchUnsupported):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "artifact_search_not_supported",
+            "The Artifact search capability is unavailable.",
+            None if error.field is None else {"field": error.field},
+        )
     if isinstance(error, CodeError):
         return error.status, error.code, "The code query could not be completed.", None
     access_error = _map_access_error(error)
@@ -5505,6 +5549,13 @@ def _map_scope_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | 
             "artifact_publication_conflict",
             "The publication key identifies a different source Artifact.",
             None,
+        )
+    if isinstance(error, ScopeBindingTargetMissingError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "scope_binding_target_missing",
+            "The persisted Scope binding references a missing Scope. Operator repair is required.",
+            {"scope_id": error.scope_id},
         )
     if isinstance(error, (ScopeNotFoundError, ScopeBindingNotFoundError)):
         return status.HTTP_404_NOT_FOUND, "scope_not_found", "The requested Scope was not found.", None

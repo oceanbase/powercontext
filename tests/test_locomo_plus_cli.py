@@ -17,14 +17,17 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.models.function import FunctionModel
 
-from benchmark.locomo.dataset import LoCoMoConversation, LoCoMoSession, LoCoMoTurn
-from benchmark.locomo_plus import cli
-from benchmark.locomo_plus.dataset import DEFAULT_SMOKE_PATH, SMOKE_CASE_IDS, LoCoMoPlusCase, LoCoMoPlusDataset
+from evaluation.memory.locomo.dataset import LoCoMoConversation, LoCoMoSession, LoCoMoTurn
+from evaluation.memory.locomo_plus import cli, runner
+from evaluation.memory.locomo_plus.dataset import DEFAULT_SMOKE_PATH, SMOKE_CASE_IDS, LoCoMoPlusCase, LoCoMoPlusDataset
 
 
 @pytest.fixture
@@ -105,7 +108,7 @@ def test_inspection_and_planning_need_no_credentials_or_models(
         assert output["plan"]
 
 
-@pytest.mark.parametrize("flag", ["--limit", "--top-k", "--max-tokens", "--max-history-sessions"])
+@pytest.mark.parametrize("flag", ["--limit", "--top-k", "--max-tokens", "--max-history-sessions", "--concurrency"])
 def test_nonpositive_resource_bounds_are_rejected(flag: str) -> None:
     with pytest.raises(SystemExit, match="2"):
         cli.main(["run", "--dry-run", flag, "0"])
@@ -138,8 +141,25 @@ def test_full_profile_passes_explicit_case_and_history_bounds(
             "1",
             "--judge-model",
             "openai:test-judge",
+            "--memory-extraction-model",
+            "openai:test-extractor",
+            "--memory-extraction-timeout-seconds",
+            "120",
             "--arm",
-            "query-only",
+            "memory-source",
+            "--reuse-ingestion-directory",
+            str(tmp_path / "donor"),
+            "--memory-rerank",
+            "--rerank-model",
+            "openai:test-reranker",
+            "--rerank-candidate-limit",
+            "40",
+            "--top-k",
+            "8",
+            "--database",
+            "oceanbase",
+            "--concurrency",
+            "3",
             "--output-directory",
             str(tmp_path),
             "--run-id",
@@ -151,7 +171,16 @@ def test_full_profile_passes_explicit_case_and_history_bounds(
     assert received["limit"] == 1
     assert received["max_history_sessions"] == 1
     assert received["judge_model"] == "openai:test-judge"
-    assert received["arm"] == "query-only"
+    assert received["memory_extraction_model"] == "openai:test-extractor"
+    assert received["memory_extraction_timeout_seconds"] == 120.0
+    assert received["arm"] == "memory-source"
+    assert received["reuse_ingestion_directory"] == tmp_path / "donor"
+    assert received["memory_rerank"] is True
+    assert received["rerank_model"] == "openai:test-reranker"
+    assert received["rerank_candidate_limit"] == 40
+    assert received["top_k"] == 8
+    assert received["database"] == "oceanbase"
+    assert received["concurrency"] == 3
     assert '"planned_cases": 1' in capsys.readouterr().out
 
 
@@ -226,3 +255,111 @@ def test_bundled_ten_case_plan_is_offline_and_preserves_complete_histories(
 def test_bundled_input_rejects_requests_outside_its_fixed_scope(options: list[str]) -> None:
     with pytest.raises(SystemExit, match="2"):
         cli.main(["run", "--dataset-file", str(DEFAULT_SMOKE_PATH), "--dry-run", *options])
+
+
+def test_run_loads_oceanbase_identity_from_dotenv_without_recording_credentials(  # noqa: C901
+    dataset: LoCoMoPlusDataset,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The query-only arm verifies dotenv and resume identity without connecting to a database."""
+    for name in tuple(os.environ):
+        if name.startswith(("POWERCONTEXT_SERVER_", "OPENAI_")):
+            monkeypatch.delenv(name)
+    values = {
+        "POWERCONTEXT_SERVER_DATABASE_KIND": "oceanbase",
+        "POWERCONTEXT_SERVER_DATABASE_URL": (
+            "mysql+aoceanbase://tenant:initial-password@database.invalid:2881/evaluation?charset=utf8mb4"
+        ),
+        "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL": "test-answer",
+    }
+    # load_dotenv mutates the environment; register each variable so teardown restores it.
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    env_file = tmp_path / "evaluation.env"
+
+    def save_env() -> None:
+        env_file.write_text("\n".join(f"{name}={value}" for name, value in values.items()) + "\n")
+
+    save_env()
+    monkeypatch.setattr(cli, "_load_dataset", lambda _: dataset)
+
+    async def open_model(name, settings, resources):
+        async def respond(messages, info):
+            output = (
+                "A quiet place would help."
+                if name == "test-answer"
+                else '{"label":"correct","reason":"Uses the cue.","prediction_support":"quiet place",'
+                '"historical_support":"quiet place"}'
+            )
+            if name != "test-answer":
+                payload = json.loads(
+                    next(
+                        part.content
+                        for message in reversed(messages)
+                        if isinstance(message, ModelRequest)
+                        for part in message.parts
+                        if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+                    )
+                )
+                if "response" in payload:
+                    output = json.dumps({"claims": [payload["response"]]})
+            return ModelResponse(parts=[TextPart(output)])
+
+        return FunctionModel(respond, model_name=name)
+
+    def unexpected_database(*args, **kwargs):
+        pytest.fail("the query-only arm must not open a database")
+
+    monkeypatch.setattr(runner, "open_model", open_model)
+    monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_database)
+    output_directory = tmp_path / "results"
+    arguments = [
+        "run",
+        "--env-file",
+        str(env_file),
+        "--run-id",
+        "dotenv-oceanbase",
+        "--output-directory",
+        str(output_directory),
+        "--judge-model",
+        "test-judge",
+        "--arm",
+        "query-only",
+        "--limit",
+        "1",
+    ]
+    assert cli.main(arguments) == 0
+    manifest_path = output_directory / "run.json"
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["configuration"]["database_kind"] == "oceanbase"
+    assert manifest["configuration"]["database_fingerprint"]
+    assert manifest["configuration"]["persistence"] == "configured database; isolated run scopes"
+    assert not (output_directory / "state.sqlite3").exists()
+
+    async def unexpected_model(*args, **kwargs):
+        pytest.fail("a completed run must resume without additional model calls")
+
+    monkeypatch.setattr(runner, "open_model", unexpected_model)
+    values["POWERCONTEXT_SERVER_DATABASE_URL"] = (
+        "mysql+aoceanbase://tenant:rotated-password@database.invalid:2881/evaluation?charset=utf8mb4"
+    )
+    save_env()
+    assert cli.main(arguments) == 0
+    assert json.loads(manifest_path.read_text()) == manifest
+
+    saved_output = capsys.readouterr().out + "\n".join(
+        path.read_text() for path in output_directory.rglob("*") if path.is_file()
+    )
+    for private_value in ("initial-password", "rotated-password", "database.invalid", "mysql+aoceanbase://"):
+        assert private_value not in saved_output
+
+    values["POWERCONTEXT_SERVER_DATABASE_URL"] = (
+        "mysql+aoceanbase://tenant:rotated-password@database.invalid:2881/other_evaluation?charset=utf8mb4"
+    )
+    save_env()
+    with pytest.raises(SystemExit, match="2"):
+        cli.main(arguments)
+    assert "run identity changed" in capsys.readouterr().err
+    assert json.loads(manifest_path.read_text()) == manifest

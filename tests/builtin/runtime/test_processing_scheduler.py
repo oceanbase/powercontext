@@ -32,6 +32,7 @@ from powercontext.builtin.persistence.tables import SHARED_TABLES
 from powercontext.builtin.runtime import artifact_processing as processing
 from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingBinding, ArtifactProcessingSupervisor
 from powercontext.builtin.runtime.processing_contracts import (
+    ArtifactProcessingBlock,
     ArtifactProcessingWorkerCompletion,
     ArtifactProcessingWorkerOutcome,
 )
@@ -627,5 +628,228 @@ def test_overflow_flush_cannot_advance_retry_and_cached_failures_cannot_extend_g
                 assert attempts["overflow"][1] - attempts["overflow"][0] >= 0.78
                 assert supervisor.max_resident <= 1 + 4 + 1
                 assert (await _intent(profile.database, "memory-binding", "healthy-tail")).handled_generation == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("admission", ["requested", "automatic"])
+def test_terminal_cache_overflow_does_not_launch_blocked_workers_or_starve_healthy_tail(tmp_path, caplog, admission):
+    caplog.set_level(logging.CRITICAL, logger=processing.__name__)
+
+    async def scenario():
+        async with _profile(tmp_path, "terminal-overflow") as profile:
+            intents = ArtifactProcessingIntentRepository()
+            async with profile.database.transaction() as connection:
+                for number in range(1005):
+                    scope = f"blocked-{number:04}"
+                    await intents.mark_dirty(connection, scope, "topic-binding")
+                    if admission == "requested":
+                        await intents.request(connection, scope, "topic-binding")
+                await intents.mark_dirty(connection, "healthy-tail", "topic-binding")
+                if admission == "requested":
+                    await intents.request(connection, "healthy-tail", "topic-binding")
+
+            async def check(_connection, scope, _binding):
+                return None if scope == "healthy-tail" else ArtifactProcessingBlock("frontier", "domain", "terminal")
+
+            launcher = _Launcher(profile.database)
+            async with _CycleSupervisor(
+                database=profile.database,
+                bindings=(
+                    ArtifactProcessingBinding(
+                        "topic-binding",
+                        "topic-memory",
+                        launcher,
+                        work_block=check,
+                        automatic_processing_interval=timedelta(hours=1) if admission == "automatic" else None,
+                    ),
+                ),
+                lease_mode="single-process",
+                blocked_check_seconds=60,
+            ) as supervisor:
+                await _wait(lambda: supervisor.family_status["topic-memory"]["completed"] == 1, timeout_seconds=20)
+                assert [a.scope_id for a in launcher.assignments] == ["healthy-tail"]
+                assert supervisor.family_status["topic-memory"]["failed"] == 0
+                assert supervisor.max_resident <= 1000 + 100 + 1
+                assert (await _intent(profile.database, "topic-binding", "blocked-0000")).handled_generation == 0
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("error_type", [OSError, TimeoutError])
+def test_work_admission_error_isolates_one_scope_and_preserves_transient_backoff(tmp_path, caplog, error_type):
+    caplog.set_level(logging.ERROR, logger=processing.__name__)
+
+    async def scenario():
+        async with _profile(tmp_path, "admission-error") as profile:
+            await _request(profile.database, "topic-binding", "bad")
+            await _request(profile.database, "topic-binding", "healthy")
+
+            async def check(_connection, scope, _binding):
+                if scope == "bad":
+                    raise error_type
+                return None
+
+            launcher = _Launcher(profile.database)
+            async with ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(ArtifactProcessingBinding("topic-binding", "topic-memory", launcher, work_block=check),),
+                lease_mode="single-process",
+                retry_base_seconds=1,
+                retry_jitter=lambda: 1,
+            ) as supervisor:
+                await _wait(lambda: supervisor.family_status["topic-memory"]["completed"] == 1)
+                await _request(profile.database, "topic-binding", "bad", dirty=False)
+                supervisor.wake("topic-binding")
+                await asyncio.sleep(0.1)
+                assert [a.scope_id for a in launcher.assignments] == ["healthy"]
+                assert supervisor.status is processing.ArtifactProcessingSupervisorStatus.LEADER
+                records = [r for r in caplog.records if getattr(r, "stage", None) == "work_admission"]
+                assert len(records) == 1 and records[0].scope == "bad"
+                assert (await _intent(profile.database, "topic-binding", "bad")).handled_generation == 0
+
+    asyncio.run(scenario())
+
+
+def test_slow_admission_page_does_not_monopolize_other_families(tmp_path, caplog):
+    caplog.set_level(logging.CRITICAL, logger=processing.__name__)
+
+    async def scenario():
+        async with _profile(tmp_path, "slow-admission") as profile:
+            for number in range(3):
+                await _request(profile.database, "topic-binding", f"slow-{number}")
+            await _request(profile.database, "memory-binding", "healthy")
+            checked = []
+            checks_before_work = []
+
+            async def unavailable(_connection, scope, _binding):
+                checked.append(scope)
+                await asyncio.Event().wait()
+
+            async def healthy_work(_assignment):
+                checks_before_work.append(tuple(checked))
+
+            topic = _Launcher(profile.database)
+            memory = _Launcher(profile.database, on_work=healthy_work)
+            async with ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(
+                    ArtifactProcessingBinding("topic-binding", "topic-memory", topic, work_block=unavailable),
+                    ArtifactProcessingBinding("memory-binding", "memory", memory),
+                ),
+                lease_mode="single-process",
+            ) as supervisor:
+                await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1, timeout_seconds=10)
+                # A timing-out page must yield its admission budget before
+                # visiting every slow Scope, allowing the peer Family to work.
+                assert len(checks_before_work) == 1 and len(checks_before_work[0]) < 3
+                assert not topic.assignments
+                assert (await _intent(profile.database, "memory-binding", "healthy")).handled_generation == 1
+                assert supervisor.status is processing.ArtifactProcessingSupervisorStatus.LEADER
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", ["io", "timeout", "deadline"])
+def test_blocked_recheck_errors_preserve_spacing_diagnostics_and_explicit_wakes(tmp_path, monkeypatch, caplog, failure):
+    caplog.set_level(logging.WARNING, logger=processing.__name__)
+    monkeypatch.setattr(processing, "_DISCOVERY_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(processing, "_ADMISSION_PROBE_TIMEOUT_SECONDS", 0.3)
+
+    async def scenario():
+        async with _profile(tmp_path, "blocked-recheck") as profile:
+            await _request(profile.database, "topic-binding", "blocked")
+            checks = 0
+            block = ArtifactProcessingBlock("0", "topic_memory", "window_attempt_limit")
+
+            async def check(_connection, _scope, _binding):
+                nonlocal checks
+                checks += 1
+                if checks in (2, 3):
+                    if failure == "deadline":
+                        await asyncio.Event().wait()
+                    error_type = OSError if failure == "io" else TimeoutError
+                    raise error_type("private-probe-sentinel")
+                return block
+
+            launcher = _Launcher(profile.database)
+            async with ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(ArtifactProcessingBinding("topic-binding", "topic-memory", launcher, work_block=check),),
+                lease_mode="single-process",
+                blocked_check_seconds=60,
+                retry_base_seconds=0.01,
+                retry_cap_seconds=0.01,
+                retry_jitter=lambda: 1,
+            ) as supervisor:
+                await _wait(
+                    lambda: any(getattr(r, "event", None) == "artifact_processing.blocked" for r in caplog.records)
+                )
+                for expected_checks in (2, 3):
+                    await _request(profile.database, "topic-binding", "blocked", dirty=False)
+                    supervisor.wake("topic-binding")
+                    await _wait(lambda expected=expected_checks: checks >= expected)
+                    # An unsuccessful recheck must retain the terminal interval,
+                    # even across wakes that do not represent a newer request.
+                    await asyncio.sleep(0.5)
+                    supervisor.wake("topic-binding")
+                    await asyncio.sleep(0.05)
+                    assert checks == expected_checks
+                await _request(profile.database, "topic-binding", "blocked", dirty=False)
+                supervisor.wake("topic-binding")
+                await _wait(lambda: checks == 4)
+                await asyncio.sleep(0.05)
+                assert not launcher.assignments
+                assert supervisor.family_status["topic-memory"]["failed"] == 0
+                intent = await _intent(profile.database, "topic-binding", "blocked")
+                assert intent.requested_generation == 4 and intent.handled_generation == 0
+                blocked_logs = [r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.blocked"]
+                assert len(blocked_logs) == 1
+                assert not [r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.failed"]
+                recheck_logs = [
+                    r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.block_recheck_failed"
+                ]
+                assert len(recheck_logs) == 1
+                assert "private-probe-sentinel" not in caplog.text
+
+    asyncio.run(scenario())
+
+
+def test_admission_quantum_exhaustion_does_not_charge_a_healthy_scope(tmp_path, monkeypatch, caplog):
+    caplog.set_level(logging.WARNING, logger=processing.__name__)
+    monkeypatch.setattr(processing, "_DISCOVERY_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(processing, "_ADMISSION_PROBE_TIMEOUT_SECONDS", 0.3)
+
+    async def scenario():
+        async with _profile(tmp_path, "admission-quantum") as profile:
+            await _request(profile.database, "topic-binding", "prefix")
+            await _request(profile.database, "topic-binding", "healthy")
+            await _request(profile.database, "memory-binding", "peer")
+
+            async def check(_connection, scope, _binding):
+                await asyncio.sleep(0.22 if scope == "prefix" else 0.18)
+                return (
+                    ArtifactProcessingBlock("0", "topic_memory", "window_attempt_limit") if scope == "prefix" else None
+                )
+
+            topic = _Launcher(profile.database)
+            memory = _Launcher(profile.database)
+            async with ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(
+                    ArtifactProcessingBinding("topic-binding", "topic-memory", topic, work_block=check),
+                    ArtifactProcessingBinding("memory-binding", "memory", memory),
+                ),
+                lease_mode="single-process",
+                retry_base_seconds=60,
+                retry_jitter=lambda: 1,
+            ) as supervisor:
+                await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1)
+                await _wait(lambda: supervisor.family_status["topic-memory"]["completed"] == 1)
+                assert [a.scope_id for a in topic.assignments] == ["healthy"]
+                assert supervisor.family_status["topic-memory"]["failed"] == 0
+                assert (await _intent(profile.database, "topic-binding", "healthy")).handled_generation == 1
+                assert (await _intent(profile.database, "topic-binding", "prefix")).handled_generation == 0
+                assert not [r for r in caplog.records if getattr(r, "stage", None) == "work_admission"]
 
     asyncio.run(scenario())

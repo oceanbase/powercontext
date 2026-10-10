@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from copy import copy
+from functools import partial
 from typing import cast
 from weakref import WeakKeyDictionary
 
@@ -35,6 +36,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerOutcome,
 )
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
+from powercontext.builtin.runtime.topic_memory_scope import topic_memory_processing_block
 
 _controllers: WeakKeyDictionary[BuiltinRuntime, Controller] = WeakKeyDictionary()
 
@@ -90,6 +92,9 @@ async def open_dream_runtime(config, **kwargs):
             launcher=controller,
             max_workers=4,
             worker_timeout_seconds=180,
+            work_block=partial(topic_memory_processing_block, dream_enabled=config.runtime.dream_enabled)
+            if spec.family == "topic-memory"
+            else None,
         )
         for spec in {item.binding: item for item in DREAM_OPERATIONS if item.binding is not None}.values()
     )

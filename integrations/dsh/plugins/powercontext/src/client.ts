@@ -110,15 +110,26 @@ export async function readLimitedBody(response: Response, maxBytes = MAX_RESPONS
   return concatBytes(chunks, total)
 }
 
-function decodeError(bytes: Uint8Array): { code?: string; message?: string } {
+function decodeError(bytes: Uint8Array): { code?: string; message?: string; details?: Record<string, unknown> } {
   try {
     const parsed = JSON.parse(Buffer.from(bytes).toString('utf8')) as {
-      error?: { code?: string; message?: string }
+      error?: { code?: string; message?: string; details?: unknown }
     }
-    return { code: parsed.error?.code, message: parsed.error?.message }
+    const details = parsed.error?.details
+    return {
+      code: parsed.error?.code,
+      message: parsed.error?.message,
+      // A details payload is machine-readable evidence the caller needs to act on the
+      // error (a capacity dimension, a rejected source), so it must survive decoding.
+      ...(isPlainObject(details) ? { details } : {}),
+    }
   } catch {
     return {}
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function queryString(payload: JsonObject | undefined): string {
@@ -331,6 +342,7 @@ export class PowerContextClient {
       requestId,
       code: decoded.code,
       message: decoded.message,
+      details: decoded.details,
     })
   }
 }

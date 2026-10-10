@@ -3,14 +3,14 @@ name: Skill guidance validation
 on:
   pull_request:
     paths:
-      - evaluation/skill-up/**
+      - evaluation/skills/skill-up/**
       - openapi/powercontext.yaml
       - integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/**
       - .github/workflows/skill-guidance.yml
   push:
     branches: [master]
     paths:
-      - evaluation/skill-up/**
+      - evaluation/skills/skill-up/**
       - openapi/powercontext.yaml
       - integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/**
       - .github/workflows/skill-guidance.yml
@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install validation dependencies
-        run: python -m pip install -r evaluation/skill-up/requirements-dev.txt
+        run: python -m pip install -r evaluation/skills/skill-up/requirements-dev.txt
       - name: Install checksum-pinned skill-up
         shell: bash
         run: |
@@ -43,7 +43,7 @@ jobs:
           tar -xzf skill-up.tar.gz
           echo "$RUNNER_TEMP/skill-up" >> "$GITHUB_PATH"
       - name: Verify pin, fixtures, reports and native schema
-        working-directory: evaluation/skill-up
+        working-directory: evaluation/skills/skill-up
         run: |
           python sync_skill.py --check
           python validate_suite.py

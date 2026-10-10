@@ -14,6 +14,16 @@
 
 schema_version = 1
 
+# Every integrations/*/ directory must be declared below or explicitly excluded.
+[directory_exclusions]
+agent-plugin = "Portable Agent Plugin client package, not a qualified host or framework adapter; host support is tracked by the individual host declarations. See integrations/agent-plugin/README.md."
+minimax = "Host package awaiting one-command setup and native qualification under #1840; not yet included in the supported host catalog. See integrations/minimax/README.md."
+opendal = "Independently deployed evaluation Connector worker, not a complete standard Source integration or host adapter. See integrations/opendal/README.md."
+
+# These kinds have a different documentation contract; declared evidence is still checked.
+[documentation_waivers]
+evaluation_harness = "Evaluation harnesses document operation in their packaged README and the shared evaluation guide rather than per-host integration pages."
+
 [availability_definitions.released]
 en = "Available from a tagged PowerContext release."
 zh = "可从带有 PowerContext tag 的发布版本获得。"

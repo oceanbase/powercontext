@@ -231,6 +231,8 @@ class IntegrationManifest(BaseModel):
     availability_definitions: dict[IntegrationAvailability, AvailabilityDefinition]
     toolsets: tuple[IntegrationToolset, ...] = ()
     integrations: tuple[IntegrationDeclaration, ...] = Field(min_length=1)
+    directory_exclusions: dict[str, str] = Field(default_factory=dict)
+    documentation_waivers: dict[IntegrationKind, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_declarations(self) -> IntegrationManifest:
@@ -249,6 +251,13 @@ class IntegrationManifest(BaseModel):
             raise ValueError("toolset ids must be unique")
         if len({integration.id for integration in self.integrations}) != len(self.integrations):
             raise ValueError("integration ids must be unique")
+        for directory, rationale in self.directory_exclusions.items():
+            if not re.fullmatch(r"[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?", directory) or not rationale.strip():
+                raise ValueError("directory exclusions need a directory name and a non-empty rationale")
+        if set(self.directory_exclusions) & {integration.id for integration in self.integrations}:
+            raise ValueError("an integration cannot be both declared and excluded")
+        if any(not rationale.strip() for rationale in self.documentation_waivers.values()):
+            raise ValueError("documentation waivers need a non-empty rationale")
         used_toolsets: set[str] = set()
         for integration in self.integrations:
             unknown = set(integration.toolsets) - toolsets.keys()
@@ -332,6 +341,34 @@ DOCUMENTATION_PATHS = {
 def load_integration_manifest(path: Path = MANIFEST_PATH) -> IntegrationManifest:
     with path.open("rb") as handle:
         return IntegrationManifest.model_validate(tomllib.load(handle))
+
+
+def integration_directory_errors(
+    manifest: IntegrationManifest, repository_root: Path = REPOSITORY_ROOT
+) -> tuple[str, ...]:
+    """Check both directions of directory coverage, including localized documentation."""
+    root = repository_root / "integrations"
+    if not root.is_dir():
+        return ("missing integrations/ directory",)
+    present = {path.name for path in root.iterdir() if path.is_dir()}
+    declared = {integration.id for integration in manifest.integrations}
+    excluded = set(manifest.directory_exclusions)
+    errors = [f"integrations/{name}/: present but undeclared" for name in sorted(present - declared - excluded)]
+    errors.extend(f"integrations/{name}/: declared but absent" for name in sorted(declared - present))
+    errors.extend(f"integrations/{name}/: excluded but absent" for name in sorted(excluded - present))
+    for integration in manifest.integrations:
+        if integration.kind in manifest.documentation_waivers:
+            continue
+        for locale in ("en", "zh"):
+            pointer = f"docs/{locale}/docs/integrations/{integration.id}.md"
+            if not (repository_root / pointer).is_file():
+                errors.append(f"{integration.id}: missing {locale} integration documentation: {pointer}")
+            elif (
+                integration.availability is not IntegrationAvailability.UNSUPPORTED
+                and pointer not in integration.evidence.documentation
+            ):
+                errors.append(f"{integration.id}: undocumented {locale} evidence: {pointer}")
+    return tuple(errors)
 
 
 def evidence_path_errors(manifest: IntegrationManifest, repository_root: Path = REPOSITORY_ROOT) -> tuple[str, ...]:
@@ -946,6 +983,7 @@ __all__ = [
     "capabilities_from_toolsets",
     "derived_profiles",
     "evidence_path_errors",
+    "integration_directory_errors",
     "load_integration_manifest",
     "release_tag_errors",
     "render_integration_capability_reference",

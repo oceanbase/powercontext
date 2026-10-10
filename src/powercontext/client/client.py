@@ -20,7 +20,7 @@ import asyncio
 from collections.abc import Mapping
 from types import TracebackType
 from typing import Any, Self, TypeVar, cast
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
@@ -177,6 +177,8 @@ from powercontext.http import (
     ScopedStats,
     ScopePage,
     ScopeQueryField,
+    SearchArtifactsRequest,
+    SearchArtifactsResponse,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SearchTopicMemoryRequest,
@@ -306,6 +308,7 @@ from powercontext.http._generated.operations import (
     REVOKE_ACCESS_BINDING,
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
+    SEARCH_ARTIFACTS,
     SEARCH_MEMORY,
     SEARCH_TOPIC_MEMORY,
     SET_DEFAULT_SCOPE,
@@ -316,7 +319,7 @@ from powercontext.http._generated.operations import (
     UPDATE_SKILL_LIFECYCLE,
     Operation,
 )
-from powercontext.transport import is_plaintext_non_loopback
+from powercontext.transport import is_loopback_host, is_plaintext_non_loopback
 
 REQUEST_ID_HEADER = "X-PowerContext-Request-ID"
 _RequestT = TypeVar("_RequestT")
@@ -359,7 +362,11 @@ class PowerContextClient:
             self._headers["Authorization"] = f"Bearer {token}"
         self._owned_http_client: httpx.AsyncClient | None = None
         if http_client is None:
-            self._owned_http_client = httpx.AsyncClient(timeout=timeout)
+            # Loopback traffic must not leave the machine through environment or OS-level proxy
+            # discovery. An explicit transport bypasses proxies while still honoring HTTPX's
+            # SSL_CERT_FILE/SSL_CERT_DIR handling; remote targets keep normal proxy behavior.
+            transport = httpx.AsyncHTTPTransport() if is_loopback_host(urlsplit(self._base_url).hostname) else None
+            self._owned_http_client = httpx.AsyncClient(timeout=timeout, transport=transport)
             self._http_client = self._owned_http_client
         else:
             self._http_client = http_client
@@ -918,6 +925,13 @@ class PowerContextClient:
         """Search current Topic Memory heads with Server-owned retrieval mode."""
 
         return await self._request(SEARCH_TOPIC_MEMORY, request)
+
+    async def search_artifacts(
+        self, scope_id: str, family: str, request: SearchArtifactsRequest
+    ) -> SearchArtifactsResponse:
+        """Search a registered Artifact Family and retain complete exact revisions."""
+
+        return await self._request(SEARCH_ARTIFACTS, request, path_parameters={"scope_id": scope_id, "family": family})
 
     async def get_topic_memory(self, request: GetTopicMemoryRequest) -> TopicMemoryArtifact:
         """Read one exact immutable Topic Memory revision."""
