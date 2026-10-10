@@ -65,14 +65,19 @@ Profile review is described in [Scope profiles](../workflows/use-profiles.md).
 
 ## Check after startup
 
-In the Server terminal:
+On the Server machine, install or update the personal service with the protected configuration file:
 
 ```bash
 powercontext config validate --env-file .env
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-In another terminal, load only the client file:
+Re-run installation after editing the file; the service checks its identity on every start. If you explicitly stopped
+the service, run `powercontext service start` when ready. For temporary foreground use or unsupported platforms,
+follow [foreground startup](configure-server-environment.md#optional-foreground-startup).
+
+In the client terminal, load the connection settings:
 
 ```bash
 set -a
@@ -84,7 +89,7 @@ powercontext capabilities
 
 Check both database/Runtime readiness and configured model dependencies. `degraded` does not prove model extraction works.
 If search offers only `auto, fts` rather than `vector, hybrid`, check the Embedding connection, Profile, and dimension.
-Do not load the Server's model credentials into the Agent terminal; the client file contains its connection settings.
+When Agents run on another machine, provide their connection settings without copying the Server's model credentials.
 
 ## Enable a Profile policy for the Scope
 

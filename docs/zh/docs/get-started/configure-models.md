@@ -61,14 +61,18 @@ Profile 审核行为见[Scope 画像](../workflows/use-profiles.md)。
 
 ## 启动后检查
 
-在 Server 终端执行：
+在 Server 所在机器，使用受保护的配置文件安装或更新个人服务：
 
 ```bash
 powercontext config validate --env-file .env
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-另一个终端只加载客户端文件：
+修改文件后需要重新安装；服务每次启动都会校验文件身份。如果此前显式停止了服务，准备恢复时执行
+`powercontext service start`。临时使用或不支持个人服务的平台，按[前台启动](configure-server-environment.md#可选的前台启动)操作。
+
+在客户端终端加载连接配置：
 
 ```bash
 set -a
@@ -80,7 +84,7 @@ powercontext capabilities
 
 Readiness 的数据库/Runtime 状态与已配置模型依赖都需要检查。`degraded` 不代表模型提取正常；
 只有 `auto, fts` 检索而没有 `vector, hybrid` 时，检查 Embedding 连接、Profile 和维度。
-不要在 Agent 终端加载包含模型凭据的 Server `.env`；客户端文件已经包含所需连接设置。
+Agent 在另一台机器运行时，只提供其连接设置，不要复制 Server 的模型凭据。
 
 ## 为 Scope 启用 Profile 策略
 

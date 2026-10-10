@@ -47,23 +47,27 @@ These files can contain credentials; do not commit them.
 If seekdb is still installing, the wizard waits with an activity indicator. Complete any reported dependency recovery
 before starting the Server. Saving files or installing dependencies does not start the Server.
 
-## 2. Start the Server
+## 2. Install and verify the personal service
 
 In this terminal, run:
 
 ```bash
 powercontext config validate --env-file .env
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-Keep the terminal running. Open the Dashboard URL printed by the wizard, using the port saved as
+For supported personal macOS and Linux installations, this is the recommended startup path. Installation starts the
+Server under the native per-user service manager; it keeps running after the terminal closes and resumes when you
+log in after a reboot. Linux requires an available `systemd --user` manager. If a foreground Server is already running,
+stop it with `Ctrl-C` before installing the service. See [personal-service requirements](../operate/deploy-server.md#run-a-persistent-personal-server).
+
+Open the Dashboard URL printed by the wizard, using the port saved as
 `POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. With authentication disabled, the page opens directly. Otherwise, sign in
 with the **Server token**, not a model API key.
-An empty Dashboard is expected before you capture data. For operation after closing the terminal, stop the foreground
-Server and install a [persistent personal service](../operate/deploy-server.md#run-a-persistent-personal-server)
-with `powercontext service install --env-file .env` to reuse the same configuration.
+An empty Dashboard is expected before you capture data.
 
-Open another terminal, load the client settings, and check the running service:
+In the same terminal, load the client connection settings and check the running service:
 
 ```bash
 cd ~/powercontext-demo
@@ -89,6 +93,18 @@ POWERCONTEXT_CODEX_SCOPE_ID=replace-with-returned-scope-id
 The planned `codex-xxxxxxxx` value is a title, not an ID. For Claude Code, put the ID returned by its creation request
 in `POWERCONTEXT_CLAUDE_SCOPE_ID`. Agents can have separate Scopes or explicitly share an existing one.
 Changing directories does not create isolation. Use the same Scope in the Dashboard and Agent during this check.
+
+After editing `.env`, update the service registration on the Server machine:
+
+```bash
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
+powercontext service status
+```
+
+The service checks the environment file's identity on every start. Re-run installation after any file change,
+including client-only Scope settings, and after upgrading PowerContext. If you explicitly stopped the service,
+installation preserves that stop; run `powercontext service start` when ready to resume.
 
 Reload the client settings and install the matching plugin:
 
@@ -138,6 +154,19 @@ or decide that no update is needed, so not every message creates a new memory.
 In basic-memory mode, explicitly ask the Agent to save Aurora's uv decision in PowerContext, then search for it in a
 new session and verify its citation. That test does not cover automatic extraction. Profile, Experience, and Skill have
 additional triggers or review requirements; see [Capability behavior](configure-models.md#full-capabilities-do-not-generate-every-artifact-from-every-message).
+
+## Optional: run in the foreground
+
+For development, debugging, temporary use, or platforms without a supported personal-service manager:
+
+```bash
+powercontext server run --env-file .env
+```
+
+Keep this terminal open and use a second terminal for client and Agent commands. Press `Ctrl-C` to stop;
+after a reboot, you must start it manually. If the personal service is running, stop it with
+`powercontext service stop` before using the same address in the foreground. To return to service-managed operation,
+stop the foreground process and run `powercontext service start`.
 
 ## Continue
 

@@ -48,14 +48,21 @@ Choose **Basic memory** to save and retrieve memories explicitly without additio
 
 The wizard writes one `.env` environment file and `.env.next-steps.md`.
 If seekdb needs installing, it asks once and installs the dependency in the background. Follow the printed
-connection details and start Server in this terminal:
+connection details and install the personal background service on the Server machine:
 
 ```bash
-powercontext server run --env-file .env
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-Keep Server running. In another terminal, return to `powercontext-config`, load only the client settings,
-and check the connection:
+On supported macOS and Linux installations, the native per-user service manager keeps Server running after the
+terminal closes and restores it after you reboot and log in. Linux requires an available `systemd --user` manager.
+For development, debugging, temporary use, or unsupported platforms, use
+`powercontext server run --env-file .env` in a terminal that stays open, and run the following client commands
+in a second terminal.
+
+In the same terminal, load the client connection settings and check the service:
 
 ```bash
 set -a
@@ -66,7 +73,10 @@ powercontext capabilities
 ```
 
 Continue with `.env.next-steps.md` to create and bind the selected Scopes, install the matching plugins, and launch
-a new Agent session. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
+a new Agent session. After writing Scope IDs or other changes to `.env`, re-run
+`powercontext service install --env-file .env` so the service accepts the updated file on its next start.
+Re-run it after upgrading PowerContext as well.
+The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks.
 For example, the matching Codex installation is:
 

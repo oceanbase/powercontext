@@ -82,9 +82,11 @@ Dashboard、HTTP API 和 MCP 共用一个 Server 监听端口，没有独立的 
 也可以通过相同步骤恢复 `8000`。向导将端口保存为 `POWERCONTEXT_SERVER_HTTP_PORT`；
 已有 Agent 的连接地址需要更新时，请重新配置 Agent 连接。
 
-通过 `powercontext server run --env-file .env` 启动服务。如果 Server 已在运行，请先停止，再使用该文件重新启动；
-保存文件不会自动重载或重启进程。选择 `18000` 后，Dashboard 入口为 `http://127.0.0.1:18000/`，
-MCP 地址为 `http://127.0.0.1:18000/mcp`。CLI 参数和进程环境变量仍优先于文件中的配置。
+使用个人服务时，保存后重新执行 `powercontext service install --env-file .env`，再检查 `powercontext service status`。
+这会更新文件身份，并在需要时重启运行中的服务；显式停止的服务会保持停止，直到执行 `powercontext service start`。
+只保存文件不会重载或重启进程。前台实例需先停止，再使用同一份文件重新启动。
+选择 `18000` 后，Dashboard 入口为 `http://127.0.0.1:18000/`，MCP 地址为 `http://127.0.0.1:18000/mcp`。
+前台运行时，CLI 参数和进程环境变量仍优先于文件中的配置。
 
 远程访问时，公开 HTTPS URL 与内部监听端口相互独立。使用 SSH 转发时，分别选择 Server 端口和客户端转发端口，
 然后执行向导生成的隧道命令。
@@ -119,14 +121,19 @@ powercontext config validate --env-file .env
 
 ## 3. 使用同一份配置启动
 
+受支持的个人 macOS 和 Linux 安装推荐显式安装后台服务：
+
 ```bash
-powercontext server run
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-`server run` 会发现当前目录的 `.env`。使用 `--env-file <path>` 可选择其他文件，使用 `--no-env-file` 可禁用文件加载。
-配置优先级依次为 CLI 参数、进程环境变量、所选文件和默认值。命令会显示实际加载文件的绝对路径，但不会输出凭据。
+原生当前用户服务管理器会在关闭终端后继续运行 Server，并在重启后登录时恢复。
+Linux 需要可用的 `systemd --user` 管理器。服务按记录的绝对路径读取受保护的文件，不会自动发现 `.env` 或复制调用者的
+shell 环境。升级 PowerContext 或修改这份文件（包括 Scope 绑定）后，请重新安装，使服务下次启动时接受更新后的文件。
+平台和网络限制见[个人服务要求](../operate/deploy-server.md#运行持久个人-server)。
 
-保持 Server 运行，在另一个终端回到配置目录，加载向导生成的客户端配置后再检查：
+在当前终端加载向导生成的客户端连接配置后再检查：
 
 ```bash
 set -a
@@ -138,5 +145,20 @@ powercontext capabilities
 
 这会为检查命令提供客户端地址，以及启用认证时的 Server Token。本地免认证配置不需要 token。
 接下来按 `.env.next-steps.md` 创建 Scope、安装插件，并按[快速开始](quickstart.md)验收真实记忆。
+
+### 可选的前台启动
+
+开发、调试、临时使用或不支持个人服务的平台，可执行：
+
+```bash
+powercontext server run --env-file .env
+```
+
+保持该终端打开，在另一个终端执行客户端命令。按 `Ctrl-C` 停止；机器重启后需要手动启动。
+安装个人服务前先停止已有前台实例。如果个人服务已占用该地址，先执行 `powercontext service stop` 再启动前台实例；
+恢复后台运行时，先停止前台进程，再执行 `powercontext service start`。
+
+`server run` 会发现当前目录的 `.env`。使用 `--env-file <path>` 可选择其他文件，使用 `--no-env-file` 可禁用文件加载。
+配置优先级依次为 CLI 参数、进程环境变量、所选文件和默认值。命令会显示实际加载文件的绝对路径，但不会输出凭据。
 
 全部变量、默认值和优先级规则见[配置](../operate/configuration.md)。

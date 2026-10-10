@@ -11,13 +11,13 @@ or authentication configuration.
 
 Windows support is `experimental`.
 
-`powercontext server run` is a foreground process. On a personal macOS, Linux, or Windows workstation, PowerContext can register
-that same Server runner with the native current-user service manager. Managed deployments should continue to use a
-container platform or an administrator-owned service manager.
+For supported personal macOS and Linux installations, the recommended lifecycle uses the native current-user service
+manager. `powercontext server run` remains available for development, debugging, temporary use, and unsupported
+platforms. Managed deployments use a container platform or an administrator-owned service manager.
 
 ## Run a persistent personal Server
 
-Install and start the optional current-user service:
+Install and start the current-user service explicitly. For defaults without an environment file:
 
 ```bash
 powercontext service install
@@ -25,6 +25,16 @@ powercontext service status
 ```
 
 Linux uses `systemd --user` and writes logs to the user journal. macOS uses a per-user LaunchAgent, and Windows uses a current-user Task Scheduler task; both write stdout and stderr below the PowerContext user data directory. `service status` reports the exact log selector or path.
+
+On macOS and Linux, the service keeps running after the terminal closes and resumes when you log in after a reboot.
+This is a per-user service, not a system service that starts before login. Linux requires an available user service manager; installation
+does not enable linger. If your platform or session does not support personal services, use the foreground command
+or an operator-managed deployment.
+
+Stop an existing foreground Server with `Ctrl-C` before installing. If the endpoint is already live, installation
+can register the service without starting a manager-owned Server; a live endpoint alone does not confirm the handover.
+Use `service status` to verify both an active owned manager and Server liveness. Check business readiness separately
+with `powercontext ready` and configured capabilities with `powercontext capabilities`, using the client connection settings.
 
 Personal services support loopback addresses only. Even with authentication enabled, setting
 `POWERCONTEXT_SERVER_HTTP_HOST` to a non-loopback address makes `service install` reject the installation. To allow
@@ -35,7 +45,7 @@ On Windows, the command asks whether to enable startup at the current user's nex
 `--start-on-login` nor `--no-start-on-login` is supplied; pressing Enter keeps login auto-start disabled. Use either
 option for a non-interactive choice.
 
-For an explicit Server configuration, protect the environment file before installing:
+For a wizard-generated `.env` or another explicit Server configuration, always pass the protected file:
 
 ```bash
 chmod 600 /path/to/powercontext.env
@@ -58,8 +68,11 @@ owner first.
 
 The native definition stores only the absolute file path and non-content file identity metadata. On Windows this
 includes the current user's owner SID, which is revalidated whenever the launcher starts. It does not copy
-credentials or the caller's shell environment. Re-run `service install` after upgrading PowerContext or changing the
-environment file. After an explicit `service stop`, run `service install` from the new environment, passing the same
+credentials or the caller's shell environment, and does not discover `.env` in the current directory. Put custom
+storage paths, model settings, and credentials in this file. Re-run `service install --env-file /path/to/powercontext.env`
+after upgrading PowerContext or changing the environment file. This includes writing client-only Scope IDs to a shared
+file: the next service start rejects a changed file until its registration is updated. After an explicit `service stop`,
+run `service install` from the new environment, passing the same
 `--env-file` when one is configured. This updates the registration even if the old Python executable has been removed,
 while keeping the service stopped and automatic activation suppressed. Run `service start` when it is safe to resume.
 An unverified database migration continues to block registration updates.

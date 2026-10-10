@@ -10,11 +10,13 @@ description: 使用持久化数据、健康检查、鉴权和安全网络边界�
 
 Windows 支持为 `experimental`。
 
-`powercontext server run` 是前台进程。在个人 macOS、Linux 或 Windows 工作站上，PowerContext 可以把同一个 Server runner 注册到原生当前用户服务管理器。托管部署仍应使用容器平台或管理员拥有的服务管理器。
+受支持的个人 macOS 和 Linux 安装推荐由原生当前用户服务管理器管理生命周期。
+`powercontext server run` 保留用于开发、调试、临时使用和不支持个人服务的平台。
+托管部署使用容器平台或管理员拥有的服务管理器。
 
 ## 运行持久个人 Server
 
-安装并启动可选的当前用户服务：
+显式安装并启动当前用户服务。没有环境文件、使用默认配置时：
 
 ```bash
 powercontext service install
@@ -25,6 +27,13 @@ Linux 使用 `systemd --user`，日志进入 user journal；macOS 使用当前�
 
 `service status` 会返回精确的日志 selector 或路径。
 
+macOS 和 Linux 上，关闭终端后服务会继续运行，机器重启后会在登录时恢复。这是当前用户服务，不是登录前就启动的系统服务。
+Linux 需要可用的用户服务管理器；安装不会启用 linger。平台或会话不支持个人服务时，使用前台命令或托管部署。
+
+安装前先按 `Ctrl-C` 停止已有前台 Server。如果目标地址已经存活，安装可能只注册服务而不启动管理器拥有的实例；
+地址可用本身不代表已完成接管。通过 `service status` 确认管理器拥有的服务 active 且 Server 存活，
+再加载客户端连接设置，使用 `powercontext ready` 检查业务就绪，使用 `powercontext capabilities` 检查已配置能力。
+
 个人服务仅支持 loopback 地址；即使已启用鉴权，把 `POWERCONTEXT_SERVER_HTTP_HOST` 配置为非 loopback 地址也会导致
 `service install` 拒绝安装。需要从其他机器访问时，请使用容器或管理员拥有的服务管理器，或者由同机反向代理转发到
 loopback Server。
@@ -32,7 +41,7 @@ loopback Server。
 在 Windows 上，如果没有提供 `--start-on-login` 或 `--no-start-on-login`，命令会询问是否在当前用户下次登录时
 自动启动；直接按 Enter 的默认选择是不启用。需要非交互选择时，请提供其中一个选项。
 
-使用显式 Server 配置时，先保护并验证环境文件：
+使用向导生成的 `.env` 或其他显式 Server 配置时，必须传入受保护的文件：
 
 ```bash
 chmod 600 /path/to/powercontext.env
@@ -52,8 +61,11 @@ icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "${env:USERNAME
 该 `icacls` 命令只调整 ACL，不会更改文件 owner；如果 owner 不是当前用户，需要先修正 owner。
 
 原生定义只记录环境文件的绝对路径和不含内容的文件 identity metadata；在 Windows 上还记录当前用户的 owner SID，
-launcher 每次启动都会重新校验它。不复制 credential 或调用者的 shell environment。
-升级 PowerContext 或修改环境文件后应重新执行 `service install`。显式执行 `service stop` 后，可以在新版环境中运行
+launcher 每次启动都会重新校验它。不复制 credential 或调用者的 shell environment，也不自动发现当前目录的 `.env`。
+自定义存储路径、模型设置和凭据应保存在这个文件中。
+升级 PowerContext 或修改环境文件后应重新执行 `service install --env-file /path/to/powercontext.env`。
+这包括写入共享文件中的客户端 Scope ID；未更新注册时，下次服务启动会拒绝已修改的文件。
+显式执行 `service stop` 后，可以在新版环境中运行
 `service install`；如果原服务使用环境文件，请继续传入同一个 `--env-file`。即使旧 Python 程序已删除，也可以更新注册，
 服务仍保持停止并禁止自动启动。确认可以恢复服务后，再执行 `service start`。尚未验证完成的数据库迁移仍会阻止更新注册。
 

@@ -45,21 +45,25 @@ powercontext config init --language zh --output .env
 若 seekdb 仍在安装，向导会在当前界面显示活动进度并等待；安装失败时先按提示完成依赖安装。
 保存配置或装好依赖，都不代表 Server 已经启动。
 
-## 2. 启动 Server
+## 2. 安装并验证个人后台服务
 
 在当前终端执行：
 
 ```bash
 powercontext config validate --env-file .env
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-保持终端运行。在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的
-`POWERCONTEXT_SERVER_HTTP_PORT` 为准。未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。
-首次没有数据是正常现象。需要关闭终端后继续运行时，先停止前台 Server，再通过
-`powercontext service install --env-file .env` 安装[个人后台服务](../operate/deploy-server.md#运行持久个人-server)，复用同一份配置。
+受支持的个人 macOS 和 Linux 安装推荐采用此方式。首次安装会通过原生当前用户服务管理器启动 Server，
+关闭终端后仍会运行，并在重启后登录时恢复。Linux 需要可用的 `systemd --user` 管理器。
+如果前台 Server 已在运行，先按 `Ctrl-C` 停止，再安装服务。具体要求见[个人后台服务](../operate/deploy-server.md#运行持久个人-server)。
 
-另开终端，加载客户端连接配置并检查服务：
+在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的
+`POWERCONTEXT_SERVER_HTTP_PORT` 为准。未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。
+首次没有数据是正常现象。
+
+在当前终端加载客户端连接配置并检查服务：
 
 ```bash
 cd ~/powercontext-demo
@@ -85,6 +89,17 @@ POWERCONTEXT_CODEX_SCOPE_ID=替换为返回的scope_id
 `codex-xxxxxxxx` 是向导规划的标题，不是 ID。配置 Claude Code 时，将其创建请求返回的 ID 写入
 `POWERCONTEXT_CLAUDE_SCOPE_ID`。不同 Agent 可以各自隔离，也可以显式绑定同一已有 Scope。
 切换目录本身不会创建隔离。验收期间，Dashboard 和 Agent 必须使用相同的 Scope。
+
+修改 `.env` 后，在 Server 所在机器更新服务注册：
+
+```bash
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
+powercontext service status
+```
+
+服务每次启动都会校验环境文件身份。任何文件修改，包括只涉及客户端的 Scope 设置，以及升级 PowerContext 后，
+都需要重新执行安装。如果此前显式停止了服务，安装会保留停止状态；准备恢复时执行 `powercontext service start`。
 
 重新加载客户端文件并安装匹配的插件：
 
@@ -130,6 +145,18 @@ codex
 基础记忆模式可改为显式要求 Agent“把 Aurora 使用 uv 的决定保存到 PowerContext”，再在新会话搜索并核对 citation；
 该测试不覆盖自动提取。完整能力中的 Profile、Experience 和 Skill 还有各自的触发或审核条件，
 见[模型与能力配置](configure-models.md#完整能力不等于每条对话都会生成所有制品)。
+
+## 可选：在前台运行
+
+开发、调试、临时使用或没有受支持的个人服务管理器时，可执行：
+
+```bash
+powercontext server run --env-file .env
+```
+
+保持该终端打开，在第二个终端执行客户端和 Agent 命令。按 `Ctrl-C` 停止；机器重启后需要手动启动。
+如果个人服务正在运行，先执行 `powercontext service stop`，再使用同一地址启动前台实例。
+恢复后台运行时，先停止前台进程，再执行 `powercontext service start`。
 
 ## 继续使用
 

@@ -29,9 +29,9 @@ home:
       - title: Follow the configuration wizard
         description: Choose your storage, access scenario, memory capabilities, Dashboard, and Agents. It writes configuration files and tailored next steps.
         command: powercontext config init
-      - title: Start the Server
-        description: Run from the directory containing your generated .env. Open the Dashboard URL and use the token shown by the wizard, if enabled.
-        command: powercontext server run --env-file .env
+      - title: Install the personal service
+        description: On supported macOS and Linux installations, use the generated .env to install the background Server, then run powercontext service status. The service resumes when you log in after a reboot.
+        command: powercontext service install --env-file .env
       - title: Connect your Agent and verify memory
         description: Follow .env.next-steps.md to create or select a Scope and connect your Agent. Verify that a real conversation becomes a Source, then check memory processing if enabled.
   continuity:
