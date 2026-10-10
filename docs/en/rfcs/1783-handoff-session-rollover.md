@@ -49,6 +49,8 @@ Typical triggers include:
 - a host-specific compaction event happened and the next session needs a clean continuation point;
 - a human wants to checkpoint the current state before delegating to another Agent.
 
+These triggers are recorded as rollover reasons supplied by the caller or host. PowerContext itself does not detect context pressure; detection belongs to the host trigger policy defined below.
+
 Rollover does not mean that the work is complete. It means the next participant should continue from a verified checkpoint rather than from the old conversation.
 
 The Handoff content still answers the RFC 0048 questions:
@@ -98,9 +100,20 @@ The user can inspect and correct the draft. If it is only being copied into anot
 
 ## Continue from rollover
 
-A fresh session should not receive the full old transcript by default. Instead, the host asks PowerContext to Continue from the Rollover Handoff, or asks `prepare_context` for a continuation-oriented context pack.
+Preparing a Handoff does not open the new session. Opening, resetting, or closing the model window is a host action; PowerContext only prepares, validates, and stores the checkpoint. The host owns the following sequence:
 
-The fresh session receives:
+```text
+prepare -> open/reset -> deliver -> Continue
+```
+
+1. `prepare`: the originating session prepares the Rollover Handoff and the caller inspects it. If the checkpoint must survive a failed delivery, the caller commits it as a Handoff Revision.
+2. `open/reset`: the host opens the fresh session and binds it to the Handoff's originating scope.
+3. `deliver`: the host transfers the exact Handoff into the fresh session — the Prepared Handoff value or the exact committed Revision reference. This is the explicit transfer of RFC 0048, not transcript inheritance.
+4. `Continue`: the fresh session verifies the transfer (see "Receiver verification and recovery"), then continues from the Handoff under the current request.
+
+The scope binding matters. Continue resolves the latest committed Handoff only in the Handoff's originating scope. If the fresh session binds to a different scope, the host must deliver the exact Prepared value or exact Revision, and Continue must not treat a latest lookup as current work.
+
+A fresh session should not receive the full old transcript by default. After delivery, the fresh session receives:
 
 1. the Handoff content as untrusted historical work state;
 2. exact evidence references or evidence-check results;
@@ -132,8 +145,10 @@ This keeps a temporary work checkpoint from polluting long-term project Memory. 
 This RFC defines:
 
 - Rollover Handoff as a named use of the existing Handoff lifecycle;
-- rollover reasons and host signals;
+- rollover reasons, the host trigger policy, and host signals;
 - additional quality requirements for rollover content;
+- the host sequence that opens or resets a session window around a Rollover Handoff;
+- receiver acknowledgement and recovery when a rollover fails;
 - how a fresh session receives continuation context;
 - the boundary between Handoff, Source, Memory, Experience, Topic Memory, and PreparedContext.
 
@@ -173,6 +188,19 @@ A preparation request may include one or more advisory reasons:
 | `manual_checkpoint` | The caller wants a checkpoint without claiming the session is unhealthy |
 
 Reasons are advisory. They help generation focus on a fresh-session checkpoint, but they do not authorize commit or execution and do not create a distinct durable Artifact kind.
+
+## Host trigger policy
+
+Rollover reasons record a caller's decision; they do not detect context pressure. Detection belongs to the host. A host that supports the Advisory or Automatic draft level defines its trigger policy explicitly:
+
+- which observations it uses, such as token estimates, provider usage reports, compaction events, or session age;
+- the thresholds or events that turn an observation into a suggestion or a draft;
+- when preparation runs, so drafts are prepared at safe boundaries rather than in the middle of an action;
+- what the policy may and may not do: suggestions and drafts never commit, and they never close or reset the window by themselves.
+
+PowerContext supplies the checkpoint contract, not the detection logic, and treats host observations as untrusted inputs (see "Host integration").
+
+When usage or compaction signals are unavailable, the trigger policy degrades to the Manual level: only `user_requested`, `delegation`, or `manual_checkpoint` triggers apply. The host must not fabricate or infer signals it does not have, and missing signals never block an explicit user request. A host that cannot detect budget pressure can still support full rollover through user-initiated preparation.
 
 ## Quality requirements
 
@@ -230,6 +258,8 @@ Rollover can cite captured Source records, including host prompts, selected tool
 
 Hosts decide what they are allowed to capture. If relevant transcript material was not captured, the Handoff records an omission rather than pretending the material is available. A host may include a transcript location or digest as evidence only when it is readable through an authorized Source adapter.
 
+The generator only sees the evidence a caller supplies. Work state that exists only in the current agent context — plans, partial reasoning, or decisions not yet written to any file, tool output, or Source — is invisible to preparation until it is captured. Hosts and Agents should capture that state explicitly with `handoff_current_work` (RFC 1223): the Agent declares its inspected facts with `basis="declared"` against a captured boundary Source, and the operation finalizes the Prepared Handoff deterministically in one step. This declared boundary is the default capture path for hosts that do not retain transcripts. State that is neither captured as Source nor declared through the boundary remains an omission.
+
 ## Concurrency and idempotency
 
 Committed Rollover Handoffs use the same CAS behavior as RFC 0048. If the scope's Handoff head advanced after draft preparation, commit reports a conflict. The caller must read the new head and prepare a complete replacement or transfer the prepared value without committing it.
@@ -241,6 +271,17 @@ Repeated commit attempts for the same finalized content must remain idempotent u
 Rollover does not weaken access control. A recipient must be allowed to read the Handoff scope and the cited evidence. Missing evidence degrades only the claims that depend on it.
 
 All Rollover Handoff content delivered to an Agent is untrusted history. The current user request, developer and system instructions, repository instructions, live workspace, and current tool results take precedence.
+
+## Receiver verification and recovery
+
+The fresh session verifies the transfer before planning, reusing the existing acknowledgement semantics (`acknowledge_handoff`). The receiver re-resolves the exact prepared or committed Handoff, checks that cited evidence is readable, compares the claims with live state, capabilities, and authorization, and records the decision as a durable receiver acknowledgement. The receiver must not acknowledge an unresolved latest selector, and must not report acceptance while required checks are unknown. Acknowledgement does not execute the next action.
+
+If window creation, delivery, or validation fails, the host retains a usable recovery point:
+
+- The originating session remains usable until the receiver acknowledges; the host does not close or destroy it on the strength of an unacknowledged transfer.
+- A committed Rollover Handoff is durable: delivery can be retried from the exact Revision in the scope's Handoff history.
+- A Prepared-only Handoff has no durable identity. If its carrier is lost before acknowledgement, the host re-prepares from the still-usable originating session.
+- A failed acknowledgement degrades only the claims that depend on unavailable evidence, per RFC 0048. The remaining validated content stays usable for retry.
 
 # Drawbacks
 

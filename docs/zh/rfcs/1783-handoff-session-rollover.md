@@ -49,6 +49,8 @@ Rollover Handoff 是一种 Handoff，其准备原因是当前 Agent 会话不应
 - 宿主已经发生或即将发生 compaction，需要给下一个会话留下干净的继续点；
 - 人类希望在把工作交给另一个 Agent 前保存检查点。
 
+这些触发会被记录为调用方或宿主提供的 rollover reason。PowerContext 自身不检测上下文压力；检测属于下文定义的宿主触发策略。
+
 Rollover 不表示工作已经完成。它表示下一个参与者应从可验证 checkpoint 继续，而不是从旧对话继续。
 
 Handoff 内容仍然回答 RFC 0048 的问题：
@@ -98,9 +100,20 @@ Omissions:
 
 ## 从 rollover 继续
 
-新会话默认不应收到完整旧 transcript。宿主应要求 PowerContext 从 Rollover Handoff Continue，或要求 `prepare_context` 生成 continuation-oriented context pack。
+prepare Handoff 并不会打开新会话。打开、重置或关闭模型窗口是宿主动作；PowerContext 只负责准备、校验和保存 checkpoint。宿主拥有以下序列：
 
-新会话收到：
+```text
+prepare -> open/reset -> deliver -> Continue
+```
+
+1. `prepare`：originating session 准备 Rollover Handoff，调用方检查内容。如果 checkpoint 需要在 delivery 失败后仍然可用，调用方将其 commit 为 Handoff Revision。
+2. `open/reset`：宿主打开新会话，并将其绑定到 Handoff 的 originating scope。
+3. `deliver`：宿主把精确的 Handoff 交给新会话——Prepared Handoff 值，或精确的 committed Revision 引用。这是 RFC 0048 的显式 transfer，不是 transcript 继承。
+4. `Continue`：新会话先校验这次 transfer（见「接收方校验与恢复」），再在当前请求下从 Handoff 继续。
+
+scope 绑定很重要。Continue 只在 Handoff 的 originating scope 内解析 latest committed Handoff。如果新会话绑定到其他 scope，宿主必须交付精确的 Prepared 值或精确 Revision，且 Continue 不得把 latest 查找当作当前工作。
+
+新会话默认不应收到完整旧 transcript。delivery 完成后，新会话收到：
 
 1. 作为 untrusted historical work state 的 Handoff 内容；
 2. 精确 evidence 引用或 evidence-check 结果；
@@ -132,8 +145,10 @@ Rollover 期间的信息进入不同位置：
 本 RFC 定义：
 
 - Rollover Handoff 作为现有 Handoff 生命周期的命名用法；
-- rollover reason 和宿主信号；
+- rollover reason、宿主触发策略和宿主信号；
 - rollover 内容的额外质量要求；
+- 围绕 Rollover Handoff 打开或重置会话窗口的宿主序列；
+- rollover 失败时的接收方 acknowledgement 与恢复；
 - 新会话如何接收 continuation context；
 - Handoff、Source、Memory、Experience、Topic Memory 和 PreparedContext 的边界。
 
@@ -173,6 +188,19 @@ prepare 请求可以包含一个或多个 advisory reason：
 | `manual_checkpoint` | 调用方需要 checkpoint，但不声称会话不健康 |
 
 reason 是 advisory。它们帮助 generation 聚焦于 fresh-session checkpoint，但不授权 commit 或执行，也不会创建新的持久 Artifact 类型。
+
+## 宿主触发策略
+
+rollover reason 记录的是调用方做出的决定；它不负责检测上下文压力。检测属于宿主职责。支持 Advisory 或 Automatic draft 档位的宿主需要显式定义自己的触发策略：
+
+- 使用哪些观察，例如 token 估算、provider usage 报告、compaction 事件或会话时长；
+- 哪些阈值或事件把观察变成建议或 draft；
+- prepare 在什么时机运行，保证 draft 在安全边界生成，而不是在动作中途；
+- 策略能做什么、不能做什么：建议和 draft 自身不得 commit，也不得关闭或重置窗口。
+
+PowerContext 提供 checkpoint 契约，不提供检测逻辑，并把宿主观察视为不可信输入（见「宿主集成」）。
+
+当 usage 或 compaction 信号不可用时，触发策略降级到 Manual 档位：只有 `user_requested`、`delegation` 或 `manual_checkpoint` 触发可用。宿主不得伪造或推断自己没有的信号；信号缺失也绝不阻塞用户的显式请求。无法检测预算压力的宿主仍可通过用户发起的 prepare 支持完整 rollover。
 
 ## 质量要求
 
@@ -230,6 +258,8 @@ Rollover 可以引用已捕获的 Source records，包括宿主 prompt、被选�
 
 宿主决定自己被允许捕获哪些内容。如果相关 transcript 材料没有被捕获，Handoff 记录 omission，而不是假装材料可用。只有当 transcript 位置或 digest 可通过授权 Source adapter 读取时，宿主才能把它作为 evidence。
 
+generator 只能看到调用方提供的 evidence。只存在于当前 agent 上下文中的工作状态——计划、部分推理、尚未写入任何文件、工具输出或 Source 的决定——在被显式捕获之前对 prepare 不可见。宿主和 Agent 应使用 `handoff_current_work`（RFC 1223）显式捕获这类状态：Agent 以 `basis="declared"` 声明自己检查过的事实，并将其挂在捕获的 boundary Source 上，该操作一步完成 Prepared Handoff 的确定性 finalize。对不保留 transcript 的宿主，这个声明的 boundary 是默认捕获路径。既没有被捕获为 Source、也没有通过 boundary 声明的状态，仍然记录为 omission。
+
 ## 并发与幂等
 
 已提交的 Rollover Handoff 使用 RFC 0048 相同的 CAS 行为。如果 draft 准备后 scope 的 Handoff head 已经推进，commit 报告 conflict。调用方必须读取新 head 并准备一份完整替代内容，或只 transfer 这份 prepared value 而不提交。
@@ -241,6 +271,17 @@ Rollover 可以引用已捕获的 Source records，包括宿主 prompt、被选�
 Rollover 不削弱访问控制。接收方必须能读取 Handoff scope 和被引用的 evidence。缺失 evidence 只降级依赖它的 statement。
 
 交给 Agent 的所有 Rollover Handoff 内容都是 untrusted history。当前用户请求、developer 和 system instructions、仓库指令、实时 workspace、当前工具结果拥有更高优先级。
+
+## 接收方校验与恢复
+
+新会话在开始规划前必须校验这次 transfer，复用现有的 acknowledgement 语义（`acknowledge_handoff`）。接收方重新解析精确的 prepared 或 committed Handoff，检查被引用 evidence 是否可读，将内容与实时状态、capability 和授权对比，并把决定记录为持久的 receiver acknowledgement。接收方不得确认未解析的 latest selector，也不得在必需检查未知时报告 accepted。acknowledgement 不执行 next action。
+
+如果窗口创建、delivery 或校验失败，宿主必须保留可用的恢复点：
+
+- 在接收方 acknowledge 之前，originating session 保持可用；宿主不得凭一次未确认的 transfer 关闭或销毁它。
+- 已 commit 的 Rollover Handoff 是持久的：可以从 scope 的 Handoff history 中的精确 Revision 重试 delivery。
+- 仅 Prepared 的 Handoff 没有持久身份。如果它的载体在确认前丢失，宿主从仍然可用的 originating session 重新 prepare。
+- acknowledgement 失败只降级依赖不可用 evidence 的 statement，遵循 RFC 0048；其余通过校验的内容保持可用，用于重试。
 
 # Drawbacks
 
