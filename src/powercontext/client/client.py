@@ -127,7 +127,6 @@ from powercontext.http import (
     ListScopesRequest,
     ListSourcesRequest,
     MemoryCapacity,
-    MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
@@ -199,6 +198,8 @@ from powercontext.http import (
     UpdateSkillLifecycleRequest,
     WorkSourceReceipt,
 )
+from powercontext.http._generated import models as atomic_models
+from powercontext.http._generated import operations as atomic_operations
 from powercontext.http._generated.models import (
     ArtifactTagPage,
     ArtifactTagSet,
@@ -907,8 +908,47 @@ class PowerContextClient:
 
         return await self._request(FLUSH_TOPIC_MEMORY, request)
 
+    async def get_atomic_memory_state(self, scope_id: str, artifact_id: str) -> atomic_models.AtomicMemoryStateResponse:
+        """Read current state independently of an immutable content revision."""
+        return await self._request(
+            atomic_operations.GET_ATOMIC_MEMORY_STATE,
+            path_parameters={"scope_id": scope_id, "artifact_id": artifact_id},
+        )
+
+    async def list_atomic_memories(
+        self, request: atomic_models.ListAtomicMemoryRequest
+    ) -> atomic_models.ListAtomicMemoryResponse:
+        return await self._request(atomic_operations.LIST_ATOMIC_MEMORIES, request)
+
+    async def search_atomic_memory(
+        self, request: atomic_models.SearchAtomicMemoryRequest
+    ) -> atomic_models.SearchAtomicMemoryResponse:
+        return await self._request(atomic_operations.SEARCH_ATOMIC_MEMORY, request)
+
+    async def merge_atomic_memories(
+        self, request: atomic_models.MergeAtomicMemoryRequest
+    ) -> atomic_models.AtomicMemoryMutationResponse:
+        """Merge exact inputs; a transport failure requires inspecting current state."""
+        return await self._request(atomic_operations.MERGE_ATOMIC_MEMORIES, request)
+
+    async def change_atomic_memory_lifecycle(
+        self, request: atomic_models.AtomicMemoryLifecycleRequest
+    ) -> atomic_models.AtomicMemoryMutationResponse:
+        return await self._request(atomic_operations.CHANGE_ATOMIC_MEMORY_LIFECYCLE, request)
+
+    async def preview_atomic_memory_restoration(
+        self, request: atomic_models.AtomicMemoryRestorationPreviewRequest
+    ) -> atomic_models.AtomicMemoryRestorationPreview:
+        return await self._request(atomic_operations.PREVIEW_ATOMIC_MEMORY_RESTORATION, request)
+
+    async def restore_atomic_memory(
+        self, request: atomic_models.AtomicMemoryRestorationRequest
+    ) -> atomic_models.AtomicMemoryRestorationResponse:
+        """Restore the current graph once, without blindly replaying an unknown commit."""
+        return await self._request(atomic_operations.RESTORE_ATOMIC_MEMORY, request)
+
     async def remember_memory(self, request: RememberMemoryRequest) -> MemoryMutationResponse:
-        """Save one explicit Memory entry without creating a Source."""
+        """Create one Atomic Memory; non-null legacy collection revision preconditions are unsupported."""
 
         return await self._request(REMEMBER_MEMORY, request)
 
@@ -974,22 +1014,22 @@ class PowerContextClient:
         return await self._request(PREPARE_HANDOFF_HINT, request)
 
     async def get_memory_capacity(self, request: GetMemoryCapacityRequest) -> MemoryCapacity:
-        """Read capacity of the current Memory head."""
+        """Legacy collection capacity is unsupported; the Server returns an explicit error."""
 
         return await self._request(GET_MEMORY_CAPACITY, request)
 
     async def list_memory_entries(self, request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
-        """List active entries, optionally including inactive entries for audit."""
+        """List current Atomic Memory records with explicit lifecycle states and pagination."""
 
         return await self._request(LIST_MEMORY_ENTRIES, request)
 
-    async def get_memory_entry(self, request: GetMemoryEntryRequest) -> MemoryEntry:
-        """Read one exact Memory entry version."""
-
-        return await self._request(GET_MEMORY_ENTRY, request)
+    async def get_memory_entry(self, request: GetMemoryEntryRequest) -> atomic_models.AtomicMemoryRecord:
+        """Read the current Atomic Memory mapped from a legacy collection and entry target."""
+        response = await self._request(GET_MEMORY_ENTRY, request)
+        return response.root
 
     async def revise_memory_entry(self, request: ReviseMemoryEntryRequest) -> MemoryMutationResponse:
-        """Revise one exact active Memory entry."""
+        """Legacy citation writes are unsupported; use Atomic content Replace with If-Match."""
 
         return await self._request(REVISE_MEMORY_ENTRY, request)
 

@@ -42,9 +42,7 @@ from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSett
 
 
 def _memory_content() -> dict[str, object]:
-    return {
-        "entries": [{"kind": "preference", "text": "用户偏好使用中文回答"}],
-    }
+    return {"schema": "powercontext.atomic-memory.v1", "kind": "preference", "text": "用户偏好使用中文回答"}
 
 
 def _handoff_content(source_id: str, objective: str = "Transfer the API test result.") -> dict[str, object]:
@@ -142,7 +140,7 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
 
             created = await client.create_artifact(
                 scope_id,
-                CreateArtifactRequest.model_validate({"family": "memory", "content": _memory_content()}),
+                CreateArtifactRequest.model_validate({"family": "atomic-memory", "content": _memory_content()}),
             )
             assert created.revision == 1
             assert len(created.sources) == 1
@@ -157,18 +155,18 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
             assert system_source.content == _memory_content()
             assert "internal" not in system_source.model_dump()
 
-            head_path = f"/v1/scopes/{encoded_scope}/artifacts/memory/{quote(created.artifact_id, safe='')}"
+            head_path = f"/v1/scopes/{encoded_scope}/artifacts/atomic-memory/{quote(created.artifact_id, safe='')}"
             raw_head = await transport.get(head_path)
             assert raw_head.status_code == 200
             etag = raw_head.headers["ETag"]
-            loaded = await client.get_artifact(scope_id, "memory", created.artifact_id)
+            loaded = await client.get_artifact(scope_id, "atomic-memory", created.artifact_id)
             assert loaded is not None
             assert loaded.sources == created.sources
-            assert len(loaded.content["manifest"]["entries"]) == 1
-            assert loaded.content["changes"][0]["op"] == "add"
+            assert loaded.content["kind"] == "preference"
+            assert loaded.content["text"] == "用户偏好使用中文回答"
             not_modified = await client.get_artifact(
                 scope_id,
-                "memory",
+                "atomic-memory",
                 created.artifact_id,
                 if_none_match=etag,
             )
@@ -182,17 +180,17 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
             stale_match = await transport.get(head_path, headers={"If-None-Match": '"revision:999"'})
             assert stale_match.status_code == 200
 
-            listed = await client.list_artifacts(scope_id, "memory", ListArtifactsRequest())
+            listed = await client.list_artifacts(scope_id, "atomic-memory", ListArtifactsRequest())
             assert [item.artifact_id for item in listed.items] == [created.artifact_id]
             assert "content" not in listed.items[0].model_dump()
             assert listed.items[0].sources == created.sources
 
             replaced = await client.replace_artifact(
                 scope_id,
-                "memory",
+                "atomic-memory",
                 created.artifact_id,
                 ReplaceArtifactRequest.model_validate({
-                    "content": {"entries": [{"kind": "working_note", "text": "继续验证基础 API"}]}
+                    "content": {"kind": "working_note", "text": "继续验证基础 API"}
                 }),
                 expected_etag=etag,
             )
@@ -204,18 +202,22 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 replaced.sources[0].source_type,
                 replaced.sources[0].source_id,
             )
-            assert replacement_source.content == {"entries": [{"kind": "working_note", "text": "继续验证基础 API"}]}
-            exact_first = await client.get_artifact_revision(scope_id, "memory", created.artifact_id, 1)
+            assert replacement_source.content == {
+                "schema": "powercontext.atomic-memory.v1",
+                "kind": "working_note",
+                "text": "继续验证基础 API",
+            }
+            exact_first = await client.get_artifact_revision(scope_id, "atomic-memory", created.artifact_id, 1)
             assert exact_first.revision == 1
             assert exact_first.sources == created.sources
 
             with pytest.raises(ServerResponseError) as stale:
                 await client.replace_artifact(
                     scope_id,
-                    "memory",
+                    "atomic-memory",
                     created.artifact_id,
                     ReplaceArtifactRequest.model_validate({
-                        "content": {"entries": [{"kind": "working_note", "text": "不能覆盖并发更新"}]}
+                        "content": {"kind": "working_note", "text": "不能覆盖并发更新"}
                     }),
                     expected_etag=etag,
                 )

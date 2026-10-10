@@ -115,6 +115,7 @@ tools:
 - tools/pc_search.yaml
 - tools/pc_memory_list.yaml
 - tools/pc_memory_get.yaml
+- tools/pc_memory_state.yaml
 - tools/pc_remember.yaml
 - tools/pc_memory_revise.yaml
 - tools/pc_memory_retire.yaml

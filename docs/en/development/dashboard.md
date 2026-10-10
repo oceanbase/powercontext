@@ -157,7 +157,7 @@ Use this section to locate the implementation. The code and API specification de
 | Page capability | API | Boundary to preserve |
 | --- | --- | --- |
 | Scope selection | `GET /v1/scopes`, `GET /v1/scopes/default`, `GET /v1/scopes/{scope_id}` | Treat defaults, explicit selection, hierarchy and readable scopes separately |
-| Memory collection and text | `POST /v1/memory/entries/list`, `POST /v1/memory/search`, `POST /v1/memory/entries/get` | Preserve the selected search mode and hit evidence; return up to 50 matches and read text through a complete memory citation |
+| Memory collection and text | `POST /v1/atomic-memory/list`, `POST /v1/memory/search`, exact Atomic Memory revision and state reads | Preserve Atomic Memory identities, lifecycle filters, the selected search mode and hit evidence; return up to 50 matches. The search compatibility route resolves `auto` and maps `fts` to Atomic Memory `text` |
 | Handoff collection and text | `GET /v1/scopes/{scope_id}/artifacts/handoff` and exact revision reads | Retain cursors; list order does not imply chronological order |
 | Experience collection and text | `GET /v1/scopes/{scope_id}/artifacts/experience`, `POST /v1/experience/get` | Provide paged browsing; there is currently no public HTTP search endpoint |
 | Skill collection and text | `POST /v1/skill/library`, `POST /v1/skill/get` | Library queries return up to 200 entries; suggest a narrower query at the limit and preserve source identities |

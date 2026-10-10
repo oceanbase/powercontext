@@ -29,7 +29,6 @@ from powercontext.builtin.runtime import (
     BuiltinConfig,
     CaptureSource,
     ProposeExperienceRequest,
-    SearchMemoryRequest,
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft
@@ -88,7 +87,8 @@ def test_http_code_prepare_preserves_approved_experience_when_memory_is_empty(tm
                 ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
             )
             assert approved.result_artifact is not None
-            memory = await runtime.memory.for_scope(scope.scope_id).search(SearchMemoryRequest(query="budget"))
+            assert runtime.atomic_memory is not None
+            memory = await runtime.atomic_memory.for_scope(scope.scope_id).search("budget")
             assert memory.hits == ()
 
         code = CodeConfig(

@@ -194,7 +194,6 @@ ARTIFACTS_TABLE = Table(
     Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, primary_key=True),
     Column("content", _canonical_payload_type(), nullable=False),
-    Column("memory_citations", _canonical_payload_type(), nullable=True),
 )
 
 ARTIFACT_HEADS_TABLE = Table(
@@ -207,6 +206,7 @@ ARTIFACT_HEADS_TABLE = Table(
     Column("searchable_text", _entry_text_type()),
     Column("lifecycle_state", identity_string(16), nullable=False, server_default="active"),
     Column("replacement_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
+    Column("merged_into_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
     Column("governance_generation", BigInteger, nullable=False, server_default="0"),
     ForeignKeyConstraint(
         ("scope_id", "family", "artifact_id", "revision"),
@@ -230,6 +230,11 @@ ARTIFACT_HEADS_TABLE = Table(
     CheckConstraint(
         "replacement_artifact_id IS NULL OR lifecycle_state = 'deprecated'",
         name="ck_pc_artifact_heads_replacement_deprecated",
+    ),
+    CheckConstraint(
+        "merged_into_id IS NULL OR (lifecycle_state = 'deprecated' AND merged_into_id <> artifact_id "
+        "AND replacement_artifact_id IS NULL)",
+        name="ck_pc_artifact_heads_merge_target",
     ),
 )
 
@@ -271,6 +276,7 @@ ARTIFACT_LINEAGE_ARTIFACTS_TABLE = Table(
     Column("upstream_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
     Column("upstream_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), nullable=False),
     Column("upstream_revision", Integer, nullable=False),
+    Column("is_merge_input", Boolean, nullable=False, server_default="0"),
     ForeignKeyConstraint(
         ("scope_id", "family", "artifact_id", "revision"),
         (
@@ -340,7 +346,6 @@ ARTIFACT_CANDIDATE_VERSIONS_TABLE = Table(
     Column("proposal", _canonical_payload_type(), nullable=False),
     Column("source_refs", _canonical_payload_type(), nullable=False),
     Column("artifact_refs", _canonical_payload_type(), nullable=False),
-    Column("memory_citations", _canonical_payload_type(), nullable=True),
     Column("target_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH)),
     Column("target_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
     Column("target_revision", Integer),
@@ -979,6 +984,8 @@ MAX_MEMORY_ENTRY_KIND_LENGTH = 128
 MAX_MEMORY_HASH_LENGTH = 64
 
 
+# Retained, unused legacy entry history. It no longer references public
+# Artifact rows: migrated collections live only in the Memory archive.
 MEMORY_ENTRY_VERSIONS_TABLE = Table(
     "pc_memory_entry_versions",
     SHARED_METADATA,
@@ -1009,16 +1016,6 @@ MEMORY_ENTRY_VERSIONS_TABLE = Table(
         "entry_version_id",
         name="uq_pc_memory_entry_versions_identity",
     ),
-    ForeignKeyConstraint(
-        ("scope_id", "family", "memory_artifact_id", "created_in_revision"),
-        (
-            "pc_artifacts.scope_id",
-            "pc_artifacts.family",
-            "pc_artifacts.artifact_id",
-            "pc_artifacts.revision",
-        ),
-        ondelete="RESTRICT",
-    ),
     CheckConstraint("version > 0", name="ck_pc_memory_entry_versions_version_positive"),
     CheckConstraint(
         "created_in_revision > 0",
@@ -1037,16 +1034,6 @@ MEMORY_ENTRY_HEADS_TABLE = Table(
     Column("entry_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
     Column("entry_content_hash", identity_string(MAX_MEMORY_HASH_LENGTH), nullable=False),
     Column("searchable_text", _entry_text_type(), nullable=False),
-    ForeignKeyConstraint(
-        ("scope_id", "family", "memory_artifact_id", "head_revision"),
-        (
-            "pc_artifacts.scope_id",
-            "pc_artifacts.family",
-            "pc_artifacts.artifact_id",
-            "pc_artifacts.revision",
-        ),
-        ondelete="RESTRICT",
-    ),
     ForeignKeyConstraint(
         ("scope_id", "memory_artifact_id", "entry_id", "entry_version_id"),
         (

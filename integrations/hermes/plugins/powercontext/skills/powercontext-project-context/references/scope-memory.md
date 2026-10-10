@@ -5,10 +5,13 @@
 - Use `powercontext_search_memory` for an explicit search or when relevant history is missing from current context.
 - Use powercontext_remember only when the user explicitly asks for durable
   memory.
-- Use the exact citation returned by search or list for reads, revisions, and
-  retirement.
+- Search and list return Atomic records. Use the actual `artifact` and `state_version` in a `reference` object for
+  reads and forgetting. Revisions take that object in `citation` and use the actual content ETag.
+- MemoryCitation objects (`memory_ref`, `entry_id`, `entry_version_id`) are unsupported; use the exact Atomic
+  reference `{family: "atomic-memory", artifact_id, revision}` returned by search or list.
 - Use powercontext_revise_memory_entry for a correction and
-  powercontext_retire_memory when an entry is no longer valid.
-- Treat inactive entries and change history as audit data.
+  powercontext_retire_memory for reversible forgetting when the user requests removal from active use.
+- Treat forgotten, merged, and retired records as historical data. Collection change history is unsupported.
+- After a conflict, inspect the current record before retrying; never silently refresh a captured write version.
 
 Automatic hooks attempt bounded context and Source capture; neither substitutes for an explicit Memory save.

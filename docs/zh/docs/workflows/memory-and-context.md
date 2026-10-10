@@ -5,15 +5,17 @@ description: 保存项目决策、检索相关历史并纠正过时 Memory。
 
 # 保存与召回 Memory
 
-Memory 保存持久的决策、约束和事实。PreparedContext 为单次请求筛选相关历史，属于临时结果，不会再创建一条 Memory。
+Memory 保存持久的决策、约束和事实。每条新记忆使用独立的 `atomic-memory` Artifact；完整接口、四态与旧 API 兼容见
+[使用 Atomic Memory](atomic-memory.md)。PreparedContext 为单次请求筛选相关历史，属于临时结果，不会再创建一条 Memory。
 
 ## 保存、召回与纠正
 
 1. 完成 [Quick Start](../get-started/quickstart.md)，让不同会话解析到相同 Scope。
 2. 显式请 Agent 保存信息。直接调用 `remember_memory` 不需要模型。
 3. 使用 `search_memory` 搜索，或在宿主提供对应工具时用 `list_memory_entries` 和 `get_memory_entry` 检查条目。
-   引用结果时保留返回的 citation。
-4. 使用当前 citation 修订错误信息，或退役不应继续召回的信息。退役会将条目移出活跃召回范围，同时保留历史。
+   引用结果时保留返回的精确 ArtifactRef；精确历史按 Atomic Memory revision 读取。
+4. 使用通用 Artifact Replace 修订正文，或通过 Atomic lifecycle 将记忆设为 forgotten；正文和历史保留，
+   可使用恢复接口重新在役。修订正文需要当前正文 ETag，遗忘需要精确引用和 state_version。
 
 各宿主工具名称不同，见[接入 Agent](../integrations/index.md)。完整请求结构和并发要求见 [HTTP API](../develop/http-api.md)。
 

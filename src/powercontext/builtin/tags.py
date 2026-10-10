@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import unicodedata
 from hashlib import sha256
-from typing import Annotated, Literal, get_args
+from typing import Literal, get_args
 
 import rfc8785
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -31,7 +31,7 @@ from powercontext.builtin.records import ArtifactReadFamily, BaseAccessError, In
 
 TaggableArtifactFamily = ArtifactReadFamily
 TagMatch = Literal["all", "any"]
-TagTargetType = Literal["artifact", "memory_entry"]
+TagTargetType = Literal["artifact"]
 
 
 class _TagModel(BaseModel):
@@ -46,16 +46,7 @@ class ArtifactTagTarget(_TagModel):
     artifact_id: str = Field(min_length=1, max_length=128)
 
 
-class MemoryEntryTagTarget(_TagModel):
-    """A logical entry in the current Memory manifest, including inactive entries."""
-
-    type: Literal["memory_entry"] = "memory_entry"
-    family: Literal["memory"] = "memory"
-    artifact_id: str = Field(min_length=1, max_length=128)
-    entry_id: str = Field(min_length=1, max_length=128)
-
-
-TagTarget = Annotated[ArtifactTagTarget | MemoryEntryTagTarget, Field(discriminator="type")]
+TagTarget = ArtifactTagTarget
 
 
 def normalize_tags(tags: tuple[str, ...], *, maximum: int = 32, allow_empty: bool = True) -> dict[str, str]:
@@ -127,7 +118,7 @@ class TagQuery(TagFilter):
     """A bounded exact query within one authorized Scope."""
 
     families: tuple[TaggableArtifactFamily, ...] = get_args(TaggableArtifactFamily)
-    target_types: tuple[TagTargetType, ...] = ("artifact", "memory_entry")
+    target_types: tuple[TagTargetType, ...] = ("artifact",)
     include_inactive: bool = False
     limit: int = Field(default=50, ge=1, le=100)
     cursor: str | None = None
@@ -140,18 +131,10 @@ class TagQuery(TagFilter):
         return value
 
 
-class TaggedMemoryCitation(_TagModel):
-    """The exact Memory citation accompanying a logical entry match."""
-
-    memory_ref: ArtifactRef
-    entry_id: str
-    entry_version_id: str
-
-
 class TaggedTarget(ArtifactTagSet):
     """A tag match pinned to the authoritative current content revision."""
 
-    reference: ArtifactRef | TaggedMemoryCitation
+    reference: ArtifactRef
 
 
 class TagQueryPage(_TagModel):

@@ -20,7 +20,8 @@ import asyncio
 import math
 from itertools import islice
 
-from powercontext.builtin.artifacts.memory import MemoryHit, MemoryRerankDecision
+from powercontext.builtin.artifacts.memory import MemoryRerankDecision
+from powercontext.builtin.artifacts.memory.reranking import MemoryRerankText
 from powercontext.builtin.inference import InferenceUnavailableError, InferenceUsage, InvalidInferenceOutputError
 from powercontext.builtin.runtime.decision_model import (
     DecisionModel,
@@ -51,6 +52,7 @@ class DecisionMemoryReranker:
     """
 
     policy_id = "powercontext.memory.rerank.decision.v2"
+    supports_atomic_memory = True
     fill_policy_id = "powercontext.memory.rerank.decision.fill-to-limit.v1"
 
     def __init__(
@@ -84,7 +86,7 @@ class DecisionMemoryReranker:
     async def rerank(
         self,
         query: str,
-        candidates: tuple[MemoryHit, ...],
+        candidates: tuple[MemoryRerankText, ...],
         limit: int,
         /,
     ) -> MemoryRerankDecision:
@@ -133,7 +135,7 @@ class DecisionMemoryReranker:
             used_fallback=used_fallback,
         )
 
-    async def _evaluate(self, query: str, candidate: MemoryHit) -> DecisionResult:
+    async def _evaluate(self, query: str, candidate: MemoryRerankText) -> DecisionResult:
         async with asyncio.timeout(self._request_timeout_seconds):
             decision = await self._decision_model.evaluate(
                 DecisionRequest(

@@ -19,7 +19,6 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from powercontext.builtin.artifacts.handoff import HandoffService
-from powercontext.builtin.artifacts.memory import MemoryService
 from powercontext.builtin.sources import (
     ContentCapture,
     ContentSource,
@@ -52,5 +51,3 @@ class BuiltinArtifacts(BaseModel):
 
     handoff: HandoffService
     handoff_artifact_id: str
-    memory: MemoryService
-    memory_artifact_id: str

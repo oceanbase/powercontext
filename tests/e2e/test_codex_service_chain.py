@@ -31,7 +31,6 @@ import uvicorn
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from pydantic import SecretStr
-from pydantic_ai.models.test import TestModel
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError
@@ -39,13 +38,14 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
 from powercontext.client import PowerContextClient
 from powercontext.http import (
+    AtomicMemoryLifecycleRequest,
     ListMemoryEntriesRequest,
     PrepareContextRequest,
-    RetireMemoryEntryRequest,
     SearchMemoryRequest,
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
+from tests.e2e.atomic_memory_models import independent_atomic_memory_model
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CODEX_PLUGIN = PROJECT_ROOT / "integrations" / "codex" / "plugins" / "powercontext"
@@ -108,7 +108,7 @@ def test_execution_constraints_preserve_fts_facts_through_codex_hook(tmp_path, r
                 for index, query in enumerate((question, question + suffix)):
                     found = client.post("/v1/memory/search", json={"scope_id": scope_id, "query": query, "mode": "fts"})
                     found.raise_for_status()
-                    assert {hit["text"] for hit in found.json()["hits"]} == facts
+                    assert {hit["memory"]["text"] for hit in found.json()["hits"]} == facts
                     prepared = client.post(
                         "/v1/context/prepare", json={"scope_id": scope_id, "query": query, "max_bytes": 8000}
                     )
@@ -172,12 +172,14 @@ def test_codex_hook_injects_fts_memory_while_optional_embedding_is_stalled(
         plugin = _copy_plugin(tmp_path, base_url)
         scope_id = _create_scope(base_url, authorization=AUTHORIZATION)
         text = "For ORCHID the release codename is ORCHID-728 and the required validation command is pytest -q."
+        # Configured vector writes require a matching embedding. Seed while
+        # available, then stall only the optional retrieval provider.
+        embedding.available = True
         with httpx.Client(base_url=base_url, headers={"Authorization": AUTHORIZATION}) as http:
             http.post(
                 "/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": text}
             ).raise_for_status()
             if with_topic:
-                embedding.available = True
                 http.post(
                     f"/v1/scopes/{scope_id}/artifacts",
                     json={
@@ -185,7 +187,7 @@ def test_codex_hook_injects_fts_memory_while_optional_embedding_is_stalled(
                         "content": {"title": "ORCHID release TOPIC-1665", "summary": text, "detail": text},
                     },
                 ).raise_for_status()
-                embedding.available = False
+        embedding.available = False
         embedding.stalled = True
         environment = {key: value for key, value in os.environ.items() if not key.startswith("POWERCONTEXT_")}
         environment.update(
@@ -210,6 +212,7 @@ def test_codex_hook_injects_fts_memory_while_optional_embedding_is_stalled(
             timeout=10,
         )
         output = json.loads(recalled.stdout)
+        assert "hookSpecificOutput" in output, (recalled.stdout, recalled.stderr)
         assert "ORCHID-728" in output["hookSpecificOutput"]["additionalContext"]
         assert "pytest -q" in output["hookSpecificOutput"]["additionalContext"]
         if with_topic:
@@ -227,20 +230,9 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
     monkeypatch: pytest.MonkeyPatch,
     authentication_enabled: bool,
 ) -> None:
-    model_output = """
-    {
-      "candidates": [{
-        "intent": "add",
-        "kind": "decision",
-        "text": "Use PowerContext as the composition root.",
-        "evidence_ids": ["source:0"],
-        "reason": "captured by the Codex hook"
-      }]
-    }
-    """
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda _: TestModel(custom_output_text=model_output),
+        lambda _: independent_atomic_memory_model("Use PowerContext as the composition root."),
     )
     app = create_server_app(
         settings=ServerSettings(
@@ -307,7 +299,7 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
         context = json.loads(recalled.stdout)["hookSpecificOutput"]["additionalContext"]
         envelope = json.loads(context.splitlines()[-2])
         assert envelope["items"][0]["content"] == "Use PowerContext as the composition root."
-        assert envelope["items"][0]["citation"]["memory_ref"]["family"] == "memory"
+        assert envelope["items"][0]["citation"]["artifact_ref"]["family"] == "atomic-memory"
         assert AUTH_TOKEN not in recalled.stderr
 
         async def verify_transport_surfaces() -> None:
@@ -328,14 +320,18 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
                     ListMemoryEntriesRequest(scope_id=scope_id),
                 )
                 assert found.hits
-                assert {hit.text for hit in found.hits} == {"Use PowerContext as the composition root."}
+                assert {hit.memory.text for hit in found.hits} == {"Use PowerContext as the composition root."}
                 assert prepared.content is not None
                 prepared_envelope = json.loads(prepared.content.splitlines()[-2])
                 assert "Use PowerContext as the composition root." in {
                     item["content"] for item in prepared_envelope["items"]
                 }
                 assert entries.entries
-                assert entries.entries[0].source_refs[0].name == "content"
+                selected = entries.entries[0].artifact
+                exact = await sdk.get_artifact_revision(
+                    scope_id, selected.family, selected.artifact_id, selected.revision
+                )
+                assert exact.sources[0].source_type == "content"
 
                 transport = StreamableHttpTransport(
                     f"{base_url}/mcp",
@@ -352,20 +348,24 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
                 structured = result.structured_content or {}
                 hits = structured.get("hits")
                 assert isinstance(hits, list)
-                assert hits[0]["text"] == "Use PowerContext as the composition root."
+                assert hits[0]["memory"]["text"] == "Use PowerContext as the composition root."
 
                 retired_entry_ids: set[str] = set()
                 current = entries
                 while current.entries:
-                    retired = await sdk.retire_memory_entry(
-                        RetireMemoryEntryRequest(
-                            scope_id=scope_id,
-                            citation=current.entries[0].citation,
-                            reason="superseded",
-                        ),
+                    record = current.entries[0]
+                    retired = await sdk.change_atomic_memory_lifecycle(
+                        AtomicMemoryLifecycleRequest.model_validate({
+                            "scope_id": scope_id,
+                            "target": {
+                                "artifact": record.artifact.model_dump(mode="json"),
+                                "state_version": record.state_version,
+                            },
+                            "state": "forgotten",
+                        })
                     )
-                    assert retired.entry is not None
-                    retired_entry_ids.add(retired.entry.citation.entry_id)
+                    assert len(retired.records) == 1
+                    retired_entry_ids.add(retired.records[0].artifact.artifact_id)
                     current = await sdk.list_memory_entries(
                         ListMemoryEntriesRequest(scope_id=scope_id),
                     )
@@ -373,8 +373,8 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
                     ListMemoryEntriesRequest(scope_id=scope_id, include_inactive=True),
                 )
                 assert current.entries == []
-                assert {entry.citation.entry_id for entry in audited.entries} == retired_entry_ids
-                assert all(entry.state == "inactive" for entry in audited.entries)
+                assert {entry.artifact.artifact_id for entry in audited.entries} == retired_entry_ids
+                assert all(entry.state == "forgotten" for entry in audited.entries)
 
         asyncio.run(verify_transport_surfaces())
 

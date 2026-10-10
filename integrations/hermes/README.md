@@ -160,7 +160,13 @@ profiles, users, repositories, or directories.
   that cannot be committed raises, so `compression.checkpoint_required` keeps the
   uncompressed transcript instead of discarding it behind a failed capture.
 - `on_memory_write()` mirrors built-in Hermes memory additions as explicit
-  entries and retires the mapped PowerContext entry for replacements/removals.
+  Atomic records. Replacements revise the same identity with the actual content ETag; removals perform reversible
+  forgetting with the captured Artifact reference and `state_version`. Its local map retains real versioned
+  snapshots, so a later conflict is reported instead of silently refreshing the write basis.
+  Existing maps containing only legacy entry IDs are read-only. To resume mirroring an old item, inspect its migrated
+  Atomic record and explicitly replace that item's value in `$HERMES_HOME/powercontext-memory-map.json` with the
+  actual `{ "artifact": ..., "state_version": ... }` snapshot. Keep the existing item key and verify its text and Scope;
+  the adapter cannot infer an Atomic identity from an entry ID.
 - Automatic writes stay off outside a primary agent context: an `agent_context` of
   `cron`, `flush` or `subagent`, or a `cron`/`subagent` session platform, disables
   turn capture and memory mirroring so scheduled runs and delegated children do
@@ -223,8 +229,8 @@ Hermes exposes that invocation context.
 /pc changes [SINCE_REVISION]
 /pc stats [today|7d|30d]
 /pc remember KIND TEXT [REASON]
-/pc revise CITATION_JSON KIND TEXT [REASON]
-/pc retire CITATION_JSON [REASON]
+/pc revise REFERENCE_JSON KIND TEXT
+/pc retire REFERENCE_JSON
 /pc flush
 /pc handoff {contract|current|acknowledge|outcome|activate|prepare|finalize|commit|continue} PAYLOAD_JSON
 /pc experience {propose|generate|get} PAYLOAD_JSON
@@ -237,66 +243,54 @@ Hermes exposes that invocation context.
 
 ### Read, revise, or retire a memory entry
 
-`/pc get` and `/pc retire` do not accept a search keyword or a bare
-`entry_id`. They require the complete `citation` object returned by
-`/pc search`, including the current Memory revision and the entry version.
-Copy only the `hits[].citation` value from the search response, not the whole
-hit object.
-
-For example, first write a memory entry and then search for it:
+Atomic search returns `hits[].memory` records. Copy the actual `artifact` and `state_version` values; do not invent
+entry IDs or a collection revision. `score` is the fused RRF rank score, not confidence or similarity.
+Response `matched_by` channels are `text` and `vector`; search request modes remain `auto`, `fts`, `vector`, or `hybrid`.
 
 ```text
 /pc remember preference "Prefers uv for Python project management"
 /pc search uv
 ```
 
-The relevant part of the `/pc search uv` response includes both the returned
-text and the citation needed by the exact-entry commands. The identifiers and
-revision below are illustrative; always copy them from the current response:
+The response has this shape (the identifiers are illustrative; use the actual returned values):
 
 ```json
 {
-  "memory": {
-    "family": "memory",
-    "artifact_id": "memory",
-    "revision": 2
-  },
   "mode": "fts",
-  "hits": [
-    {
-      "citation": {
-        "memory_ref": {
-          "family": "memory",
-          "artifact_id": "memory",
-          "revision": 2
-        },
-        "entry_id": "mem_ent_8f9653d66a664398aa18bc5c88e0283d",
-        "entry_version_id": "mem_ver_b12a8e6434254cae8a747792905006ed"
-      },
-      "text": "Prefers uv for Python project management (venv, dependency resolution, lockfile) over pip/Poetry/pip-tools."
-    }
-  ]
+  "hits": [{
+    "memory": {
+      "artifact": {"family": "atomic-memory", "artifact_id": "am_example", "revision": 1},
+      "kind": "preference",
+      "text": "Prefers uv for Python project management",
+      "state": "active",
+      "state_version": 0,
+      "merged_into_id": null
+    },
+    "score": 0.01639344262295082,
+    "matched_by": ["text"]
+  }]
 }
 ```
 
-Copy the `hits[0].citation` object from the actual response and use it as
-follows:
+Use the captured reference for exact reads and conditional changes:
 
 ```text
-/pc get {"memory_ref":{"family":"memory","artifact_id":"memory","revision":2},"entry_id":"mem_ent_8f9653d66a664398aa18bc5c88e0283d","entry_version_id":"mem_ver_b12a8e6434254cae8a747792905006ed"}
-/pc retire {"memory_ref":{"family":"memory","artifact_id":"memory","revision":2},"entry_id":"mem_ent_8f9653d66a664398aa18bc5c88e0283d","entry_version_id":"mem_ver_b12a8e6434254cae8a747792905006ed"} "no longer needed"
+/pc get {"artifact":{"family":"atomic-memory","artifact_id":"am_example","revision":1},"state_version":0}
+/pc revise {"artifact":{"family":"atomic-memory","artifact_id":"am_example","revision":1},"state_version":0} preference "Prefers uv for Python projects"
+/pc retire {"artifact":{"family":"atomic-memory","artifact_id":"am_example","revision":1},"state_version":0}
 ```
 
-To revise instead of retiring, use the same citation with:
+Run each mutation with the current returned reference; these example commands are alternatives. Revision reads the
+current content ETag and submits `If-Match`. Public manual content edits compare content revision only; they do not
+compare lifecycle state versions. Active and forgotten records can be edited; merged and retired records cannot.
+`retire` is the retained host command name for reversible forgetting, checked against both the actual Artifact
+reference and its captured `state_version`. Refresh and inspect after a conflict before retrying.
 
-```text
-/pc revise {"memory_ref":{"family":"memory","artifact_id":"memory","revision":2},"entry_id":"mem_ent_8f9653d66a664398aa18bc5c88e0283d","entry_version_id":"mem_ver_b12a8e6434254cae8a747792905006ed"} preference "Prefers uv for Python project management" "updated preference"
-```
-
-`retire` is a logical retirement; it removes the entry from active memory but
-keeps its history. Because every memory mutation advances the artifact
-revision, do not reuse this citation after `revise` or another write. Search
-again and use the newest citation before the next `get`, `revise`, or `retire`.
+Get also accepts a plain exact Atomic ArtifactRef
+(`{"family":"atomic-memory","artifact_id":...,"revision":...}`). `MemoryCitation` objects with `memory_ref`,
+`entry_id`, and `entry_version_id` are rejected locally for reads, revisions, and retirement. `/pc changes` explicitly
+reports unsupported collection history; use precise Artifact revision reads. The `powercontext_get_memory` and `powercontext_retire_memory` tools take a `reference` object, while
+`powercontext_revise_memory_entry` takes that object in `citation`.
 
 Trace enable/disable changes the current Hermes process only. Configure
 `evaluation_trace` or `POWERCONTEXT_HERMES_EVALUATION_TRACE` when tracing should
@@ -313,6 +307,7 @@ hermes powercontext status
 hermes powercontext search "Python project management"
 hermes powercontext remember preference "The user prefers uv"
 hermes powercontext flush
+hermes powercontext get '{"artifact":{"family":"atomic-memory","artifact_id":"am_example","revision":1},"state_version":0}'
 hermes powercontext call get_stats '{"period":"7d"}'
 ```
 

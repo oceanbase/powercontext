@@ -28,7 +28,7 @@ from typing import Any, cast
 import httpx
 from pydantic_ai.settings import ModelSettings
 
-from powercontext.builtin.artifacts.memory import MemoryHit, MemoryRerankDecision
+from powercontext.builtin.artifacts.memory import MemoryRerankDecision
 from powercontext.builtin.inference import InferenceUnavailableError
 from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
 from powercontext.builtin.runtime import DecisionModel, DecisionRequest, DecisionResult
@@ -43,7 +43,7 @@ from powercontext.builtin.runtime.decision_model import (
 from .jev import JevConfig, JevDecisionModel
 from .jev_diagnostics import CURRENT_JEV_TRACE, JevTransportTrace
 from .jev_transport import JevClientPool
-from .memory_reranking import DecisionMemoryReranker
+from .memory_reranking import DecisionMemoryReranker, MemoryRerankText
 from .models import open_model
 
 CURRENT_DECISION_CASE: ContextVar[str | None] = ContextVar("locomo_plus_decision_case", default=None)
@@ -131,6 +131,8 @@ class AuditedDecisionModel:
 class AuditedDecisionReranker:
     """Expose the exact coarse pool and decisions used by the public Runtime search."""
 
+    supports_atomic_memory = True
+
     def __init__(
         self,
         model: AuditedDecisionModel,
@@ -170,10 +172,10 @@ class AuditedDecisionReranker:
         self.model.sequence = 0
         self.trace = {"selected_ranks": [], "latency_ms": 0.0}
 
-    async def rerank(self, query: str, candidates: tuple[MemoryHit, ...], limit: int, /) -> MemoryRerankDecision:
+    async def rerank(self, query: str, candidates: tuple[MemoryRerankText, ...], limit: int, /) -> MemoryRerankDecision:
         started = perf_counter()
         first_sequence = self.model.sequence
-        self.trace["candidates"] = [hit.model_dump(mode="json") for hit in candidates]
+        self.trace["candidates"] = [{"text": candidate.text} for candidate in candidates]
         self.trace["query"] = query
         self.trace["policy_id"] = self.policy_id
         self.trace["fill_to_limit"] = self.fill_to_limit
@@ -219,12 +221,14 @@ class AuditedDecisionReranker:
 class ConcurrentDecisionReranker:
     """Isolate audit state for each concurrent Runtime search, including failed searches."""
 
+    supports_atomic_memory = True
+
     def __init__(self, template: AuditedDecisionReranker, directory: Path) -> None:
         self.template = template
         self.directory = directory
         self.policy_id = template.policy_id
 
-    async def rerank(self, query: str, candidates: tuple[MemoryHit, ...], limit: int, /) -> MemoryRerankDecision:
+    async def rerank(self, query: str, candidates: tuple[MemoryRerankText, ...], limit: int, /) -> MemoryRerankDecision:
         case_id = CURRENT_DECISION_CASE.get()
         if case_id is None:
             raise ValueError("an audited benchmark search requires a case identity")  # noqa: TRY003

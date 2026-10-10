@@ -100,7 +100,7 @@ class _ControlledDecisions(_Decisions):
 def _candidates(count: int) -> tuple[MemoryHit, ...]:
     return tuple(
         MemoryHit(
-            memory_ref=ArtifactRef(family="memory", artifact_id="memory", revision=2),
+            memory_ref=ArtifactRef(family="atomic-memory", artifact_id="memory", revision=2),
             entry_id=f"entry-{rank}",
             entry_version_id=f"entry-{rank}-v2",
             text=f"Candidate {rank}",

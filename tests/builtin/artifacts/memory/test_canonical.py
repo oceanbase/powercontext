@@ -18,13 +18,11 @@ import math
 
 import pytest
 
-from powercontext.builtin.artifacts.memory import MemoryChange, MemoryContent, MemoryManifest, MemoryManifestEntry
 from powercontext.builtin.artifacts.memory.canonical import (
     canonical_json,
     embedding_content_hash,
     entry_content_bytes,
     entry_content_hash,
-    memory_content_hash,
     normalize_embedding,
     normalize_kind,
     normalize_query,
@@ -79,40 +77,6 @@ def test_entry_hash_covers_kind_text_and_both_evidence_sets() -> None:
         source_refs=({"name": "source-a"},),
         artifact_refs=({"artifact_id": "artifact-a", "revision": 1},),
     ).startswith(b'{"artifact_refs"')
-
-
-def test_memory_hash_covers_complete_manifest_and_change_summary() -> None:
-    entry = MemoryManifestEntry(
-        entry_id="entry-a",
-        entry_version_id="version-a1",
-        entry_content_hash="a" * 64,
-        state="active",
-    )
-    initial = MemoryContent(
-        manifest=MemoryManifest(entries=(entry,)),
-        changes=(
-            MemoryChange(
-                op="add",
-                entry_id="entry-a",
-                from_entry_version_id=None,
-                to_entry_version_id="version-a1",
-            ),
-        ),
-    )
-    restored = MemoryContent(
-        manifest=MemoryManifest(entries=(entry,)),
-        changes=(
-            MemoryChange(
-                op="reactivate",
-                entry_id="entry-a",
-                from_entry_version_id=None,
-                to_entry_version_id="version-a1",
-            ),
-        ),
-    )
-
-    assert memory_content_hash(initial) != memory_content_hash(restored)
-    assert len(memory_content_hash(initial)) == 64
 
 
 def test_limits_are_measured_after_normalization() -> None:

@@ -77,6 +77,7 @@ _GOVERNANCE_COLUMNS = {
     ),
     "replacement_artifact_id": ("VARCHAR(128) NULL", "VARCHAR(128) NULL"),
     "governance_generation": ("BIGINT NOT NULL DEFAULT 0", "BIGINT NOT NULL DEFAULT 0"),
+    "merged_into_id": ("VARCHAR(128) NULL", "VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL"),
 }
 
 
@@ -92,6 +93,8 @@ class ExperienceIndex(Protocol):
         experience: Experience,
         /,
     ) -> None: ...
+
+    async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str, /) -> None: ...
 
     async def search(
         self,
@@ -158,6 +161,9 @@ class NoExperienceIndex:
     ) -> ExperienceSearchOutcome:
         return ExperienceSearchOutcome()
 
+    async def remove(self, _connection: AsyncConnection, _scope_id: str, _artifact_id: str, /) -> None:
+        pass
+
     async def replace_skill(
         self,
         _connection: AsyncConnection,
@@ -184,7 +190,7 @@ class NoExperienceIndex:
 
 
 async def ensure_artifact_head_searchable_text(connection: AsyncConnection, /) -> None:
-    """Upgrade a pre-Experience Artifact head table with its rebuildable search projection."""
+    """Upgrade existing shared heads and lineage with their current persisted columns."""
 
     dialect = connection.dialect.name
     if dialect == "sqlite":
@@ -210,6 +216,17 @@ async def ensure_artifact_head_searchable_text(connection: AsyncConnection, /) -
         if int(exists or 0) == 0:
             definition = definitions[0 if dialect == "sqlite" else 1]
             await connection.exec_driver_sql(f"ALTER TABLE pc_artifact_heads ADD COLUMN {column} {definition}")
+    lineage_column_sql = text(
+        "SELECT COUNT(*) FROM pragma_table_info('pc_artifact_lineage_artifacts') WHERE name = 'is_merge_input'"
+        if dialect == "sqlite"
+        else "SELECT COUNT(*) FROM information_schema.columns "
+        "WHERE table_schema = DATABASE() AND table_name = 'pc_artifact_lineage_artifacts' "
+        "AND column_name = 'is_merge_input'"
+    )
+    if int(await connection.scalar(lineage_column_sql) or 0) == 0:
+        await connection.exec_driver_sql(
+            "ALTER TABLE pc_artifact_lineage_artifacts ADD COLUMN is_merge_input BOOLEAN NOT NULL DEFAULT 0"
+        )
 
 
 async def rebuild_experience_projections(connection: AsyncConnection, /) -> None:
@@ -297,6 +314,20 @@ async def replace_experience_projection(
         artifact_id=experience.artifact_id,
         revision=experience.revision,
         searchable_text=experience_searchable_text(experience.content),
+    )
+
+
+async def remove_experience_projection(connection: AsyncConnection, scope_id: str, artifact_id: str, /) -> None:
+    """Remove current searchable content without changing exact Artifact history."""
+
+    await connection.execute(
+        update(ARTIFACT_HEADS_TABLE)
+        .where(
+            ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+            ARTIFACT_HEADS_TABLE.c.family == Experience.family,
+            ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
+        )
+        .values(searchable_text=None)
     )
 
 
@@ -497,6 +528,7 @@ __all__ = [
     "experience_search_hits",
     "rebuild_experience_projections",
     "rebuild_skill_projections",
+    "remove_experience_projection",
     "replace_experience_projection",
     "replace_skill_projection",
     "skill_search_hits",

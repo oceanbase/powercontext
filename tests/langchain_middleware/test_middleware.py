@@ -35,10 +35,20 @@ from powercontext_langchain import PowerContextMiddleware, PowerContextScope
 from powercontext_langchain.client import shared_http_client
 from pydantic import BaseModel, Field
 
-from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+    AtomicMemoryGenerationPipeline,
+)
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
+    AtomicMemoryReconciliationContent,
+    AtomicMemoryReconciliationInput,
+    AtomicMemoryReconciliationOutput,
+)
+from powercontext.builtin.inference import GenerationResult, character_token_estimator
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
-from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient
 from powercontext.http import (
     ApproveArtifactCandidateRequest,
@@ -61,12 +71,31 @@ EXPERIENCE_MARKER = "coralblueprint"
 STRUCTURED_ORDER = "migrate-first"
 
 
-class _ContentCandidatePipeline:
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        return tuple(
-            MemoryEntryInput(kind="agent-turn", text=source.content, sources=(source,))
-            for source in request.sources
-            if isinstance(source, ContentSource)
+class _ContentExtractor:
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        candidates = []
+        for evidence in request.evidence:
+            payload = evidence.content
+            text = payload.get("content", payload.get("text")) if isinstance(payload, dict) else payload
+            if isinstance(text, str):
+                candidates.append(
+                    AtomicMemoryCandidate(kind="working_note", text=text, evidence_ids=(evidence.evidence_id,))
+                )
+        return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=tuple(candidates)))
+
+
+class _IndependentMemoryReconciler:
+    async def generate(
+        self, request: AtomicMemoryReconciliationInput, /
+    ) -> GenerationResult[AtomicMemoryReconciliationOutput]:
+        return GenerationResult(
+            output=AtomicMemoryReconciliationOutput(
+                action="create",
+                compared_ids=tuple(item.item_id for item in request.related),
+                content=AtomicMemoryReconciliationContent(kind=request.proposal.kind, text=request.proposal.text),
+                evidence_ids=request.proposal.evidence_ids,
+                reason="Keep the captured turn with its exact Source evidence.",
+            )
         )
 
 
@@ -120,7 +149,11 @@ def _server_app(tmp_path: Path) -> FastAPI:
             runtime=RuntimeConfig(artifact_processing_families=()),
             mcp=McpConfig(enabled=False),
         ),
-        candidate_pipeline=_ContentCandidatePipeline(),
+        candidate_pipeline=AtomicMemoryGenerationPipeline(
+            extractor=_ContentExtractor(),
+            reconciler=_IndependentMemoryReconciler(),
+            estimator=character_token_estimator(),
+        ),
     )
 
 
@@ -281,12 +314,16 @@ def test_middleware_captures_completed_turn_when_enabled(tmp_path: Path) -> None
         flushed = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))
         entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
 
-        assert flushed.memory is not None
+        assert flushed.memory is None
+        assert flushed.processed_source_count == 1
         assert len(entries.entries) == 1
         captured = entries.entries[0]
         assert captured.text == f"User:\n{user_text}\n\nAssistant:\n{FINAL_ANSWER}"
-        assert len(captured.source_refs) == 1
-        assert captured.source_refs[0].source_id.startswith("langchain-agent-turn-")
+        record = await client.get_artifact_revision(
+            scope_id, captured.artifact.family, captured.artifact.artifact_id, captured.artifact.revision
+        )
+        assert len(record.sources) == 1
+        assert record.sources[0].source_id.startswith("langchain-agent-turn-")
         assert UNTRUSTED_LABEL not in captured.text
 
     _run(app, scenario)
@@ -315,7 +352,8 @@ def test_middleware_captures_tool_strategy_structured_response(tmp_path: Path) -
         entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
 
         assert result["structured_response"] == _DeploymentPlan(order=STRUCTURED_ORDER)
-        assert flushed.memory is not None
+        assert flushed.memory is None
+        assert flushed.processed_source_count == 1
         assert len(entries.entries) == 1
         assert entries.entries[0].text == (f'User:\n{user_text}\n\nAssistant:\n{{"order":"{STRUCTURED_ORDER}"}}')
 

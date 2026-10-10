@@ -63,16 +63,16 @@ parameters:
     en_US: evidence
     zh_Hans: 精确交接证据
   human_description:
-    en_US: Complete source/artifact/memory citations using their declared kind and
-      exact fields. Supply one JSON-encoded text value. Strings include JSON quotes;
-      null is the text null. Omit unused optional inputs and preserve every field.
+    en_US: Complete source/artifact citations using their declared kind and exact
+      fields. Supply one JSON-encoded text value. Strings include JSON quotes; null
+      is the text null. Omit unused optional inputs and preserve every field.
     zh_Hans: 精确交接证据；填写一次 JSON 序列化后的文本；字符串须带 JSON 双引号，空值填 null；可选参数不用时省略，保留所有字段。
-  llm_description: 'Complete source/artifact/memory citations using their declared
-    kind and exact fields. Pass one JSON-encoded value as text, never a native object/array/null.
+  llm_description: 'Complete source/artifact citations using their declared kind and
+    exact fields. Pass one JSON-encoded value as text, never a native object/array/null.
     Encode strings with JSON quotes; use the text null for null; omit optional inputs
     when unused. Decode exactly once and preserve every field. Decoded JSON Schema:
     {"type":"array","maxItems":32,"items":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind","source_ref"],"properties":{"kind":{"type":"string","enum":["source"]},"source_ref":{"type":"object","additionalProperties":false,"required":["name","source_id"],"properties":{"name":{"type":"string","description":"Stable
-    Source type."},"source_id":{"type":"string"}}}}},{"type":"object","additionalProperties":false,"required":["kind","artifact_ref"],"properties":{"kind":{"type":"string","enum":["artifact"]},"artifact_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}}}},{"type":"object","additionalProperties":false,"required":["kind","memory_citation"],"properties":{"kind":{"type":"string","enum":["memory"]},"memory_citation":{"type":"object","additionalProperties":false,"required":["memory_ref","entry_id","entry_version_id"],"properties":{"memory_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}},"entry_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"entry_version_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"}}}}}],"discriminator":{"propertyName":"kind","mapping":{"source":"#/components/schemas/HandoffSourceCitation","artifact":"#/components/schemas/HandoffArtifactCitation","memory":"#/components/schemas/HandoffMemoryCitation"}}},"default":[]}'
+    Source type."},"source_id":{"type":"string"}}}}},{"type":"object","additionalProperties":false,"required":["kind","artifact_ref"],"properties":{"kind":{"type":"string","enum":["artifact"]},"artifact_ref":{"type":"object","additionalProperties":false,"required":["family","artifact_id","revision"],"properties":{"family":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"artifact_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\x21-\\x7E]+$"},"revision":{"type":"integer","minimum":1}}}}}],"discriminator":{"propertyName":"kind","mapping":{"source":"#/components/schemas/HandoffSourceCitation","artifact":"#/components/schemas/HandoffArtifactCitation"}}},"default":[]}'
   default: '[]'
 output_schema:
   type: object
@@ -331,61 +331,11 @@ output_schema:
                                 revision:
                                   type: integer
                                   minimum: 1
-                        - type: object
-                          additionalProperties: false
-                          required:
-                          - kind
-                          - memory_citation
-                          properties:
-                            kind:
-                              type: string
-                              enum:
-                              - memory
-                            memory_citation:
-                              type: object
-                              additionalProperties: false
-                              required:
-                              - memory_ref
-                              - entry_id
-                              - entry_version_id
-                              properties:
-                                memory_ref:
-                                  type: object
-                                  additionalProperties: false
-                                  required:
-                                  - family
-                                  - artifact_id
-                                  - revision
-                                  properties:
-                                    family:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    artifact_id:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    revision:
-                                      type: integer
-                                      minimum: 1
-                                entry_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
-                                entry_version_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
                         discriminator:
                           propertyName: kind
                           mapping:
                             source: '#/components/schemas/HandoffSourceCitation'
                             artifact: '#/components/schemas/HandoffArtifactCitation'
-                            memory: '#/components/schemas/HandoffMemoryCitation'
               disposition:
                 type: string
                 enum: *id002
@@ -461,61 +411,11 @@ output_schema:
                                 revision:
                                   type: integer
                                   minimum: 1
-                        - type: object
-                          additionalProperties: false
-                          required:
-                          - kind
-                          - memory_citation
-                          properties:
-                            kind:
-                              type: string
-                              enum:
-                              - memory
-                            memory_citation:
-                              type: object
-                              additionalProperties: false
-                              required:
-                              - memory_ref
-                              - entry_id
-                              - entry_version_id
-                              properties:
-                                memory_ref:
-                                  type: object
-                                  additionalProperties: false
-                                  required:
-                                  - family
-                                  - artifact_id
-                                  - revision
-                                  properties:
-                                    family:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    artifact_id:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    revision:
-                                      type: integer
-                                      minimum: 1
-                                entry_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
-                                entry_version_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
                         discriminator:
                           propertyName: kind
                           mapping:
                             source: '#/components/schemas/HandoffSourceCitation'
                             artifact: '#/components/schemas/HandoffArtifactCitation'
-                            memory: '#/components/schemas/HandoffMemoryCitation'
                 - type: 'null'
               omissions:
                 type: array
@@ -588,61 +488,11 @@ output_schema:
                                 revision:
                                   type: integer
                                   minimum: 1
-                        - type: object
-                          additionalProperties: false
-                          required:
-                          - kind
-                          - memory_citation
-                          properties:
-                            kind:
-                              type: string
-                              enum:
-                              - memory
-                            memory_citation:
-                              type: object
-                              additionalProperties: false
-                              required:
-                              - memory_ref
-                              - entry_id
-                              - entry_version_id
-                              properties:
-                                memory_ref:
-                                  type: object
-                                  additionalProperties: false
-                                  required:
-                                  - family
-                                  - artifact_id
-                                  - revision
-                                  properties:
-                                    family:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    artifact_id:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 128
-                                      pattern: ^[\x21-\x7E]+$
-                                    revision:
-                                      type: integer
-                                      minimum: 1
-                                entry_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
-                                entry_version_id:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 128
-                                  pattern: ^[\x21-\x7E]+$
                         discriminator:
                           propertyName: kind
                           mapping:
                             source: '#/components/schemas/HandoffSourceCitation'
                             artifact: '#/components/schemas/HandoffArtifactCitation'
-                            memory: '#/components/schemas/HandoffMemoryCitation'
                       - type: 'null'
           - type: 'null'
       description: Complete successful HTTP response; empty object on error or unknown

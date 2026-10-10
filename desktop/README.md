@@ -59,9 +59,9 @@ Profiles persist under the app data directory; credentials never appear in profi
 
 After explicitly activating a qualified connection and choosing a Scope, use Home's note form or **My memories → Add note**. The target connection and exact Scope are shown before submission. Enter inserts a newline; only the save button submits. The input is plain text, limited conservatively to 8192 raw UTF-8 bytes without truncation. The Server owns normalization and the returned text is authoritative.
 
-Search uses FTS in the selected Scope and returns at most 10 matches. This is not a full directory or history, and ten matches do not establish a total count. **Read exact version** sends the complete returned citation; it never substitutes the latest version. Copy buttons explicitly copy either the full plain text or citation JSON.
+Search uses FTS in the selected Scope and returns at most 10 matches. This is not a full directory or history, and ten matches do not establish a total count. **Read exact version** reads the returned Atomic Memory reference (`{family: "atomic-memory", artifact_id, revision}`) at that exact revision; it never substitutes the latest version. Copy buttons explicitly copy either the full plain text or the reference JSON.
 
-A successful save without an entry is reported as an operation success without inventing a citation. A timeout or interrupted dispatched write is **unknown**, not a safe invitation to retry: inspect the original Server/Scope before deciding whether to submit again. Identical text alone cannot identify that operation. Desktop does not automatically replay writes or keep an offline queue. Switching context hides old results while retaining minimal original-operation metadata for this session. See [validation guide](VALIDATION.md) for tested behavior and qualification gaps.
+A successful save that returns no memory record is reported as an operation success without inventing a reference. A timeout or interrupted dispatched write is **unknown**, not a safe invitation to retry: inspect the original Server/Scope before deciding whether to submit again. Identical text alone cannot identify that operation. Desktop does not automatically replay writes or keep an offline queue. Switching context hides old results while retaining minimal original-operation metadata for this session. See [validation guide](VALIDATION.md) for tested behavior and qualification gaps.
 
 ## Contracts and resources
 
@@ -104,7 +104,7 @@ Version verification has a 15-second deadline, service status 20 seconds, and in
 
 ## Remote installed-package acceptance
 
-Windows GitHub Actions builds an unsigned installer, installs into a temporary Chinese path, and uses a matching Microsoft-signed WebDriver to operate the actual installed WebView2 page. An independent SQLite Server with synthetic data supports explicit connection activation, exact Scope selection, multiline Chinese note save, FTS search, exact reading, and paste-back verification of copied text and citation. The fixture Server and its temporary workspace are cleaned up afterward.
+Windows GitHub Actions builds an unsigned installer, installs into a temporary Chinese path, and uses a matching Microsoft-signed WebDriver to operate the actual installed WebView2 page. An independent SQLite Server with synthetic data supports explicit connection activation, exact Scope selection, multiline Chinese note save, FTS search, exact reading, and paste-back verification of copied text and reference. The fixture Server and its temporary workspace are cleaned up afterward.
 
 Reports, a screenshot and driver logs accompany the installer in the `desktop-windows-internal-unsigned` artifact. Failed or pending steps are not acceptance passes. The UI script permits only GitHub Windows runners and does not operate your local desktop. Hosted runners do not establish clean standard-user Windows 11, actual IME, screen-reader or Agent-host qualification.
 
@@ -116,4 +116,4 @@ The CI-only lifecycle scenario forcibly ends its own installed Desktop process a
 
 Installed boundary checks exercise an 8192-byte Unicode note, reject over-budget input, display zero and capped-ten search results, and verify cancel/confirm behavior when disconnecting with an unsaved draft. Each result requires its matching remote report.
 
-After upgrading from the earlier preview, select `sqlite-6e237568-v1` and recheck your connection. The previous `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` selection is not silently upgraded to a different contract. See [current qualification](VALIDATION.md).
+After upgrading from an earlier preview, select `sqlite-atomic-f702c041-v1` and recheck your connection. A previous `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` / `sqlite-6e237568-v1` / `sqlite-legacy-58f7f4f6-v1` selection is not silently upgraded to a different contract. See [current qualification](VALIDATION.md).

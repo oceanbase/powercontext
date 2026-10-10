@@ -132,7 +132,7 @@ describe.each(['tool', 'command'] as const)('registered %s failure boundary', en
       ? Response.json({ scope_id: 'scope-workspace' })
       : domainResponse(404, 'memory_not_found'))
     const result = entry === 'tool'
-      ? await h.tool('pc_memory_get', { citation: {} })
+      ? await h.tool('pc_memory_get', { artifact: { family: 'atomic-memory', artifact_id: 'atomic-1', revision: 1 } })
       : JSON.parse((await h.command('search API')).text)
     expect(result).toMatchObject({
       ok: false, code: 'not_found', error_code: 'memory_not_found', status: 404, request_id: 'request-1',

@@ -72,7 +72,6 @@ from powercontext.http import (
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
-    MemoryMatchedBy,
     MemorySearchMode,
     PrepareContextRequest,
     ProposeExperienceRequest,
@@ -818,7 +817,7 @@ async def _run_configured_journey(
                     reason="Seed one exact semantic-retrieval fact for configured E2E validation.",
                 )
             )
-            _require(remembered.entry is not None, "remember_memory did not persist a Memory entry")
+            _require(len(remembered.records) == 1, "remember_memory did not persist an Atomic Memory Artifact")
             vector = await client.search_memory(
                 SearchMemoryRequest(
                     scope_id=memory_scope,
@@ -837,7 +836,7 @@ async def _run_configured_journey(
             )
             _require(vector.mode is not None and vector.mode.value == "vector", "vector request used another mode")
             _require(bool(vector.hits), "configured embedding/vector database returned no semantic hit")
-            _require(MemoryMatchedBy.VECTOR in vector.hits[0].matched_by, "top semantic hit was not vector-matched")
+            _require("vector" in vector.hits[0].matched_by, "top semantic hit was not vector-matched")
             _require(hybrid.mode is not None and hybrid.mode.value == "hybrid", "hybrid request used another mode")
             _require(bool(hybrid.hits), "configured hybrid database returned no hit")
             recorder.write_json("api/capabilities.json", capabilities.model_dump(mode="json"))
@@ -1642,7 +1641,7 @@ async def _verify_configured_restart(
         )
         _require(bool(vector.hits), "Server restart lost the real vector projection")
         _require(
-            MemoryMatchedBy.VECTOR in vector.hits[0].matched_by,
+            "vector" in vector.hits[0].matched_by,
             "Server restart returned a non-vector result for vector-only retrieval",
         )
         _require(prepared.status.value == "ready", "Server restart lost approved Experience recall")

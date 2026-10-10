@@ -25,6 +25,7 @@ from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH, MAX_ARTIFACT_ID_LENG
 from powercontext.sources.models import SourceRef
 
 ContentT = TypeVar("ContentT", covariant=True)
+_LEGACY_MEMORY_FAMILY = "memory"
 
 
 class ArtifactRef(BaseModel):
@@ -38,6 +39,9 @@ class ArtifactRef(BaseModel):
     @classmethod
     def validate_identity(cls, value: str, info) -> str:
         _validate_reference_part(info.field_name, value)
+        if info.field_name == "family" and value == _LEGACY_MEMORY_FAMILY:
+            # Legacy collections were archived; their entries are cited as Atomic Memory revisions.
+            raise InvalidArtifactReferenceError("family", "legacy Memory collections cannot be referenced")
         maximum = MAX_ARTIFACT_FAMILY_LENGTH if info.field_name == "family" else MAX_ARTIFACT_ID_LENGTH
         if len(value) > maximum:
             raise InvalidArtifactReferenceError(info.field_name, f"must not exceed {maximum} characters")
@@ -53,14 +57,6 @@ class _ArtifactValue(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class MemoryCitation(BaseModel):
-    """An exact entry version anchored in its owning Memory Revision."""
-
-    memory_ref: ArtifactRef
-    entry_id: str
-    entry_version_id: str
 
 
 class ArtifactAddress(BaseModel):
@@ -86,7 +82,6 @@ class ArtifactLineage(BaseModel):
 
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
-    memory_citations: tuple[MemoryCitation, ...] = ()
     publication_source: ArtifactAddress | None = None
     publication_digest: str | None = None
 
@@ -105,13 +100,10 @@ class ArtifactDraft(BaseModel, Generic[ContentT]):
     content: ContentT
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
-    memory_citations: tuple[MemoryCitation, ...] = ()
 
     @model_validator(mode="after")
     def validate_family(self):
         _validate_reference_part("family", self.family)
-        if self.memory_citations and self.family != "experience":
-            raise ValueError("only Experience accepts direct Memory citations")  # noqa: TRY003
         return self
 
 
@@ -124,12 +116,6 @@ class Artifact(BaseModel, Generic[ContentT]):
     revision: StrictInt = Field(ge=1)
     content: ContentT
     lineage: ArtifactLineage = Field(default_factory=ArtifactLineage)
-
-    @model_validator(mode="after")
-    def validate_entry_lineage(self):
-        if self.lineage.memory_citations and self.family != "experience":
-            raise ValueError("only Experience accepts direct Memory citations")  # noqa: TRY003
-        return self
 
     @field_validator("artifact_id")
     @classmethod

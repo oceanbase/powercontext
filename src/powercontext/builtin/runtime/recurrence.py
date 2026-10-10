@@ -30,7 +30,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.artifacts import ArtifactRef, MemoryCitation
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.experience.incubation import TASK_OUTCOME_SOURCE_KIND
 from powercontext.builtin.artifacts.experience.models import ExperienceContent
@@ -57,7 +57,6 @@ from powercontext.builtin.artifacts.handoff import Handoff
 from powercontext.builtin.artifacts.handoff.models import (
     HandoffArtifactCitation,
     HandoffContent,
-    HandoffMemoryCitation,
     HandoffSourceCitation,
 )
 from powercontext.builtin.evidence.models import EvidenceResolutionError
@@ -496,14 +495,9 @@ class RelationalRecurrenceLedger:
         return artifact.content if isinstance(artifact.content, ExperienceContent) else None
 
     async def _item_evidence_available(self, connection: AsyncConnection, item: Any, /) -> bool:
-        sources, artifacts, memory_citations = _citation_refs(getattr(item, "evidence", ()))
+        sources, artifacts = _citation_refs(getattr(item, "evidence", ()))
         try:
-            await self.evidence.validate(
-                connection,
-                sources=sources,
-                artifacts=artifacts,
-                memory_citations=memory_citations,
-            )
+            await self.evidence.validate(connection, sources=sources, artifacts=artifacts)
         except EvidenceResolutionError:
             return False
         return True
@@ -563,20 +557,15 @@ def _content_of(contents: _Contents, ref: ArtifactRef, /) -> ExperienceContent |
     return None
 
 
-def _citation_refs(
-    citations: tuple[Any, ...], /
-) -> tuple[tuple[SourceRef, ...], tuple[ArtifactRef, ...], tuple[MemoryCitation, ...]]:
+def _citation_refs(citations: tuple[Any, ...], /) -> tuple[tuple[SourceRef, ...], tuple[ArtifactRef, ...]]:
     sources: list[SourceRef] = []
     artifacts: list[ArtifactRef] = []
-    memory_citations: list[MemoryCitation] = []
     for citation in citations:
         if isinstance(citation, HandoffSourceCitation):
             sources.append(citation.source_ref)
         elif isinstance(citation, HandoffArtifactCitation):
             artifacts.append(citation.artifact_ref)
-        elif isinstance(citation, HandoffMemoryCitation):
-            memory_citations.append(citation.memory_citation)
-    return tuple(sources), tuple(artifacts), tuple(memory_citations)
+    return tuple(sources), tuple(artifacts)
 
 
 def _revision_reason(streak: int, ref: ArtifactRef, cue_key: str, /) -> str:

@@ -39,6 +39,8 @@ WRITE_OPERATIONS = {
     "commit_handoff",
     "generate_experience",
     "generate_skill",
+    "replace_artifact",
+    "change_atomic_memory_lifecycle",
 }
 MESSAGES = {
     "invalid_configuration": "Check the Server URL, token, Scope/binding choice, and configured limits.",
@@ -154,15 +156,30 @@ class Client:
     def __init__(self, connection: Connection):
         self.connection = connection
 
-    def call(self, operation: str, payload: dict | None = None, *, scope_id: str | None = None):
+    def call(
+        self,
+        operation: str,
+        payload: dict | None = None,
+        *,
+        scope_id: str | None = None,
+        headers: dict[str, str] | None = None,
+        include_etag: bool = False,
+    ):
         definition = CONTRACT["operations"][operation]
         path = definition["path"]
-        if operation == "get_scope":
-            if not scope_id:
-                raise PluginError("invalid_configuration")
-            path = path.replace("{scope_id}", quote(scope_id, safe=""))
+        request = dict(payload or {})
+        for parameter in definition["parameters"]:
+            if parameter["in"] != "path":
+                continue
+            name = parameter["name"]
+            value = request.pop(name, scope_id if name == "scope_id" else None)
+            validate(parameter["schema"], value)
+            path = path.replace("{" + name + "}", quote(str(value), safe=""))
+        for parameter in definition["parameters"]:
+            if parameter["in"] == "header" and headers is not None and parameter["name"] in headers:
+                validate(parameter["schema"], headers[parameter["name"]])
         if definition["request"] is not None:
-            validate(definition["request"], payload)
+            validate(definition["request"], request)
         timeout = (
             self.connection.generation_timeout_seconds
             if operation in GENERATION_OPERATIONS
@@ -179,13 +196,17 @@ class Client:
                 headers={
                     "Authorization": "Bearer " + self.connection.api_token.get_secret_value(),
                     "Accept": "application/json",
+                    **(headers or {}),
                 },
             ) as transport:
                 with transport.stream(
-                    definition["method"], self.connection.server_url + path, json=payload
+                    definition["method"],
+                    self.connection.server_url + path,
+                    json=request if definition["request"] is not None else None,
                 ) as response:
                     status = response.status_code
                     raw_id = response.headers.get("x-powercontext-request-id")
+                    etag = response.headers.get("ETag")
                     if raw_id and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", raw_id):
                         request_id = raw_id
                     chunks = []
@@ -209,6 +230,7 @@ class Client:
                     403: "forbidden",
                     404: "not_found",
                     409: "conflict",
+                    412: "conflict",
                     422: "invalid_request",
                     503: "server_unavailable",
                 }.get(status, "invalid_response")
@@ -228,6 +250,8 @@ class Client:
                     unconfirmed=unconfirmed and (not valid_error or status >= 500),
                 )
             validate(definition["responses"][str(status)], data, code="invalid_response")
+            if include_etag and etag is not None:
+                data = {**data, "etag": etag}
             if operation == "prepare_context":
                 content = data["content"]
                 if (
@@ -265,6 +289,50 @@ class Client:
         if self.connection.scope_id is not None and scope_id != self.connection.scope_id:
             raise PluginError("invalid_response")
         return scope_id
+
+    def call_memory(self, operation: str, request: dict):
+        """Translate maintained Memory tool names at their identity and CAS boundary."""
+        scope_id = request["scope_id"]
+        if operation == "list_memory_entries":
+            return self.call(
+                "list_atomic_memories",
+                {
+                    "scope_id": scope_id,
+                    "states": request["states"]
+                    if "states" in request
+                    else (["active", "forgotten", "merged", "retired"] if request["include_inactive"] else ["active"]),
+                    "limit": request["limit"],
+                    "cursor": request.get("cursor"),
+                },
+            )
+        if operation not in {"get_memory_entry", "revise_memory_entry", "retire_memory_entry"}:
+            return self.call(operation, request)
+        artifact = request["artifact"]
+        identity = {"scope_id": scope_id, "family": artifact["family"], "artifact_id": artifact["artifact_id"]}
+        if operation == "get_memory_entry":
+            head = self.call("get_artifact", identity, include_etag=True)
+            if head["revision"] == artifact["revision"]:
+                return head
+            return self.call("get_artifact_revision", {**identity, "revision": artifact["revision"]})
+        if operation == "revise_memory_entry":
+            if request["if_match"] != f'"revision:{artifact["revision"]}"':
+                raise PluginError("invalid_request")
+            return self.call(
+                "replace_artifact",
+                {
+                    **identity,
+                    "content": {"kind": request["kind"], "text": request["text"]},
+                },
+                headers={"If-Match": request["if_match"]},
+            )
+        return self.call(
+            "change_atomic_memory_lifecycle",
+            {
+                "scope_id": scope_id,
+                "target": {"artifact": artifact, "state_version": request["state_version"]},
+                "state": "forgotten",
+            },
+        )
 
     def validate_credentials(self):
         scope_id = self.resolve_scope()

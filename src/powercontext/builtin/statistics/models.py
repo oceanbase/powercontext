@@ -108,7 +108,7 @@ class CandidateInventoryStatistics(BaseModel):
 
 
 class MemoryEntryInventoryStatistics(BaseModel):
-    """Current logical Memory entries grouped by state and kind."""
+    """Atomic Memory heads grouped by kind; inactive covers forgotten, merged and retired."""
 
     total: int = Field(ge=0)
     active: int = Field(ge=0)

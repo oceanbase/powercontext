@@ -4,6 +4,8 @@
 
 Local validation date: 2026-10-07. Server baseline: PowerContext master `1db8f3b1ed69f98da0a280b75e51c66cfa31e0a9`; public HTTP contract version 1.2.0. The plugin's generated contract hashes canonical UTF-8/LF OpenAPI text so Windows Git line endings do not change it.
 
+The results and package checksum below describe the 19-tool baseline validated on that date. They do not establish acceptance for the current 20-tool Atomic Memory surface, including `pc_memory_state`, current content ETags, Artifact replacement and guarded forgetting.
+
 | Component | Tested version / environment |
 | --- | --- |
 | Plugin identity | `knqiufan/powercontext` 0.0.1, experimental local build |
@@ -71,14 +73,14 @@ The compatibility scenarios require Node 22.19+, Go satisfying the daemon's `go.
 
 Record Dify, plugin-daemon, SDK, CLI, Python, Server SHA, package checksum and model/backend versions. Record each scenario as passed, failed or not run with trace/log evidence.
 
-- [ ] Install the package in a clean Dify workspace; inspect icon, provider and all 19 tool declarations.
+- [ ] Install the package in a clean Dify workspace; inspect icon, provider and all 20 tool declarations.
 - [ ] Save/switch provider credentials, restart the daemon/application and invoke tools again.
 - [ ] Exercise actual plugin dispatch with JSON-text objects/arrays/nullable values, including exact references, draft/prepared Handoff, quoted nullable strings and nested metadata. Verify native JSON and named outputs in workflow nodes, with one Code-node serialization before reusing structured outputs as tool inputs.
 - [ ] Verify valid model-visible string schemas and retained decoded-schema descriptions through the installed default daemon. Exercise Agent-produced JSON text, optional omission/null and array defaults; confirm malformed inputs cannot write.
 - [ ] Verify HTTPS certificate validation and private-network HTTP configuration from the daemon.
 - [ ] Test read/write permissions with restricted principals and nested citations/Artifacts/Handoffs/candidates across Scope boundaries.
 - [ ] Overlap actual daemon requests using different credentials and Scopes; inspect credentials, Scope, outer deadlines and write outcomes.
-- [ ] Exercise all 19 operations with supported real generation providers, complete readback and failure/unknown branches.
+- [ ] Exercise all 20 tools with supported real generation providers, complete readback and failure/unknown branches. For Atomic Memory, verify exact current/historical content, the current `etag`, state/version readback, guarded revision/forgetting, and local rejection of legacy Memory citations.
 - [ ] Verify trusted application write controls; a model's self-reported consent must not authorize writing.
 - [ ] Agree publisher, namespace, contact and maintenance ownership, including coexistence/upgrade with `oceanbase/powermem`.
 - [ ] Submit the reviewed source/package to `langgenius/dify-plugins`; record repository acceptance and Marketplace availability separately.

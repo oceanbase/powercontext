@@ -17,15 +17,25 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import signal
 from contextlib import AsyncExitStack, nullcontext
 from pathlib import Path
+from sqlite3 import SQLITE_CANTOPEN
 from typing import Annotated, Any, Literal
 
 import typer
 from pydantic import ValidationError
+from sqlalchemy.exc import OperationalError
 
+from powercontext.builtin.persistence.migrations.atomic_memory_references import CandidateDecision, load_decisions
+from powercontext.builtin.persistence.migrations.atomic_memory_v1 import (
+    apply_atomic_memory_migration,
+    plan_atomic_memory_migration,
+    verify_atomic_memory_migration,
+)
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
+from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 from powercontext.builtin.persistence.processing_migration import (
     apply_processing_migration,
     plan_processing_migration,
@@ -33,7 +43,9 @@ from powercontext.builtin.persistence.processing_migration import (
 )
 from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.runtime.composition import open_builtin_runtime
+from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
+from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_projection
+from powercontext.builtin.runtime.composition import _embedding_models, open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
 from powercontext.cli.env_file import environment_context
@@ -161,6 +173,143 @@ async def _processing_maintenance(
             verification = await verify_processing_migration(connection, config_manifest=manifest)
         typer.echo(verification.model_dump_json())
         return verification.ready
+
+
+@app.command("atomic-memory-migrate")
+def atomic_memory_migrate(
+    action: Annotated[
+        Literal["plan", "apply", "verify"], typer.Option(help="Offline domain migration action.")
+    ] = "plan",
+    env_file: Annotated[Path | None, typer.Option(help="Load the deployment's settings.")] = None,
+    maintenance_confirmed: Annotated[
+        bool, typer.Option(help="Confirm every old API, host and Worker is stopped and input writes are paused.")
+    ] = False,
+    decisions: Annotated[
+        Path | None,
+        typer.Option(help="JSON decisions replacing Candidate evidence that cited only whole Memory collections."),
+    ] = None,
+) -> None:
+    """Archive Memory v1, convert its history and references to Atomic Memory, and remove it from public tables."""
+
+    if action == "apply" and not maintenance_confirmed:
+        raise typer.BadParameter("apply requires --maintenance-confirmed after stopping every old writer")  # noqa: TRY003
+    try:
+        loaded = {} if decisions is None else load_decisions(json.loads(decisions.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        raise typer.BadParameter(f"invalid decision file: {error}") from error  # noqa: TRY003
+    with server_settings_context(env_file=env_file) as settings:
+        try:
+            ready = asyncio.run(
+                _atomic_memory_maintenance(
+                    settings, action, maintenance_confirmed=maintenance_confirmed, decisions=loaded
+                )
+            )
+        except OperationalError as error:
+            sqlite_code = getattr(error.orig, "sqlite_errorcode", None)
+            if (
+                action == "apply"
+                or not isinstance(settings.database, SQLiteConfig)
+                or not isinstance(sqlite_code, int)
+                or sqlite_code & 0xFF != SQLITE_CANTOPEN
+            ):
+                raise
+            raise typer.BadParameter("plan and verify require a readable existing SQLite database") from error  # noqa: TRY003
+    if not ready:
+        raise typer.Exit(code=1)
+
+
+@app.command("atomic-memory-rebuild-projection")
+def atomic_memory_rebuild_projection(
+    env_file: Annotated[Path | None, typer.Option(help="Load the deployment's settings.")] = None,
+    maintenance_confirmed: Annotated[
+        bool, typer.Option(help="Confirm every API, host and Worker is stopped and input writes are paused.")
+    ] = False,
+    batch_size: Annotated[int, typer.Option(min=1, max=1000, help="Identities read per maintenance batch.")] = 100,
+) -> None:
+    """Rebuild active Atomic Memory search rows from existing authority."""
+
+    if not maintenance_confirmed:
+        raise typer.BadParameter("projection rebuild requires --maintenance-confirmed after stopping every writer")  # noqa: TRY003
+    with server_settings_context(env_file=env_file) as settings:
+        ready = asyncio.run(
+            _atomic_memory_maintenance(
+                settings, "rebuild-projection", maintenance_confirmed=maintenance_confirmed, batch_size=batch_size
+            )
+        )
+    if not ready:
+        raise typer.Exit(code=1)
+
+
+async def _atomic_memory_maintenance(
+    settings: ServerSettings,
+    action: Literal["plan", "apply", "verify", "rebuild-projection"],
+    *,
+    maintenance_confirmed: bool,
+    batch_size: int = 100,
+    decisions: dict[tuple[str, str, int], CandidateDecision] | None = None,
+) -> bool:
+    from powercontext.builtin.artifacts.memory import EmbeddingProfile
+
+    inference = settings.inference
+    embedding_profile = None
+    if inference.embedding_model is not None:
+        if inference.embedding_profile_id is None or inference.embedding_dimension is None:
+            raise typer.BadParameter("embedding deployment requires an explicit profile and dimension")  # noqa: TRY003
+        embedding_profile = EmbeddingProfile(
+            profile_id=inference.embedding_profile_id,
+            model=inference.embedding_model,
+            dimension=inference.embedding_dimension,
+            distance="l2",
+            normalization=inference.embedding_normalization,
+        )
+    database = settings.database
+    read_only = action in {"plan", "verify"}
+    if isinstance(database, SQLiteConfig):
+        if database.is_in_memory:
+            raise typer.BadParameter("offline migration requires a persistent database")  # noqa: TRY003
+        opened = (
+            SQLiteProfile.open_readonly(database, load_vector_extension=embedding_profile is not None)
+            if read_only
+            else SQLiteProfile.open(database, tables=(), load_vector_extension=embedding_profile is not None)
+        )
+        index = SQLiteAtomicMemoryIndex(embedding_profile)
+    elif isinstance(database, OceanBaseConfig):
+        opened = OceanBaseProfile.open(database, tables=())
+        index = OceanBaseAtomicMemoryIndex(embedding_profile)
+    elif isinstance(database, SeekDBConfig):
+        opened = SeekDBProfile.open(database, tables=())
+        index = OceanBaseAtomicMemoryIndex(embedding_profile)
+    else:
+        raise typer.BadParameter("unsupported migration database")  # noqa: TRY003
+    async with AsyncExitStack() as resources:
+        profile = await resources.enter_async_context(opened)
+        if action in {"apply", "rebuild-projection"}:
+            embedding_model, _readiness = await _embedding_models(inference, resources, None)
+            if action == "rebuild-projection":
+                report = await rebuild_atomic_memory_projection(
+                    profile.database,
+                    index,
+                    maintenance_confirmed=maintenance_confirmed,
+                    embedding_model=embedding_model,
+                    batch_size=batch_size,
+                )
+            else:
+                report = await apply_atomic_memory_migration(
+                    profile.database,
+                    index,
+                    maintenance_confirmed=maintenance_confirmed,
+                    embedding_model=embedding_model,
+                    decisions=decisions,
+                )
+        else:
+            async with profile.database.transaction() as connection:
+                report = (
+                    await plan_atomic_memory_migration(connection, index=index, decisions=decisions)
+                    if action == "plan"
+                    else await verify_atomic_memory_migration(connection, index=index)
+                )
+        typer.echo(report.model_dump_json())
+        return report.ready if action != "plan" else not report.errors
 
 
 @app.command()

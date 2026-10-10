@@ -19,11 +19,22 @@ from functools import partial
 
 import pytest
 
-from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+    AtomicMemoryGenerationPipeline,
+)
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
+    AtomicMemoryReconciliationContent,
+    AtomicMemoryReconciliationInput,
+    AtomicMemoryReconciliationOutput,
+)
+from powercontext.builtin.inference import GenerationResult, character_token_estimator
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import SHARED_TABLES
-from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, RuntimeConfig, SearchMemoryRequest
+from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, RuntimeConfig
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     SpawnArtifactProcessingWorkerLauncher,
@@ -34,16 +45,40 @@ from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 
 
-class _MemoryPipeline:
-    async def extract(self, request):
-        return tuple(
-            MemoryEntryInput(kind="fact", text=source.content, sources=(source,)) for source in request.sources
+class _SourceExtractor:
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        candidates = []
+        for evidence in request.evidence:
+            assert isinstance(evidence.content, dict)
+            text = evidence.content["content"]
+            assert isinstance(text, str)
+            candidates.append(AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,)))
+        return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=tuple(candidates)))
+
+
+class _CreatingReconciler:
+    async def generate(
+        self, request: AtomicMemoryReconciliationInput, /
+    ) -> GenerationResult[AtomicMemoryReconciliationOutput]:
+        return GenerationResult(
+            output=AtomicMemoryReconciliationOutput(
+                action="create",
+                compared_ids=tuple(item.item_id for item in request.related),
+                content=AtomicMemoryReconciliationContent(kind=request.proposal.kind, text=request.proposal.text),
+                evidence_ids=request.proposal.evidence_ids,
+                reason="Keep the captured decision.",
+            )
         )
 
 
 def _memory_worker(config, assignment):
     async def run():
-        async with open_builtin_contexts(config, candidate_pipeline=_MemoryPipeline()) as contexts:
+        async with open_builtin_contexts(
+            config,
+            candidate_pipeline=AtomicMemoryGenerationPipeline(
+                extractor=_SourceExtractor(), reconciler=_CreatingReconciler(), estimator=character_token_estimator()
+            ),
+        ) as contexts:
             return await process_family_invocation(contexts, assignment, config=config)
 
     return asyncio.run(run())
@@ -93,8 +128,8 @@ def test_custom_memory_worker_reports_configuration_and_persisted_success(tmp_pa
                     if observed.observation.last_success_at is not None:
                         break
                     await asyncio.sleep(0.01)
-            memory = await runtime.memory.for_scope(scope.scope_id).search(SearchMemoryRequest(query="deployment"))
-            assert memory.memory_ref is not None and memory.memory_ref.revision == 1
+            assert runtime.atomic_memory is not None
+            memory = await runtime.atomic_memory.for_scope(scope.scope_id).search("deployment", mode="text")
             assert [hit.text for hit in memory.hits] == [text]
             async with (
                 SQLiteProfile.open(database, tables=SHARED_TABLES) as profile,

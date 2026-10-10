@@ -35,6 +35,7 @@ from powercontext.builtin.persistence.experience_index import (
     experience_search_hits,
     rebuild_experience_projections,
     rebuild_skill_projections,
+    remove_experience_projection,
     replace_experience_projection,
     replace_skill_projection,
     skill_search_hits,
@@ -168,6 +169,13 @@ class SQLiteExperienceFTSIndex:
         ).mappings()
         return experience_search_hits(
             rows, query, limit, scope_id, admission=admission, min_score=min_score, require_scores=require_scores
+        )
+
+    async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str, /) -> None:
+        await remove_experience_projection(connection, scope_id, artifact_id)
+        await connection.execute(
+            _DELETE_FTS_SQL,
+            {"scope_id": scope_id, "family": Experience.family, "artifact_id": artifact_id},
         )
 
     async def replace_skill(

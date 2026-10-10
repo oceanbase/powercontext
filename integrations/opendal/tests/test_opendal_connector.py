@@ -21,10 +21,18 @@ import httpx
 import opendalfs
 import pytest
 from fastapi import FastAPI
-from powercontext.builtin.artifacts.memory import (
-    MemoryCandidateRequest,
-    MemoryEntryInput,
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+    AtomicMemoryGenerationPipeline,
 )
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
+    AtomicMemoryReconciliationContent,
+    AtomicMemoryReconciliationInput,
+    AtomicMemoryReconciliationOutput,
+)
+from powercontext.builtin.inference import GenerationResult, character_token_estimator
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.client import (
     PowerContextClient,
@@ -32,11 +40,11 @@ from powercontext.client import (
     ServerResponseError,
 )
 from powercontext.http import (
+    ArtifactRevision,
     CommitConnectorCheckpointRequest,
     CreateScopeRequest,
     FlushMemoryRequest,
     ListMemoryEntriesRequest,
-    ListMemoryEntriesResponse,
     RegisterSourceDefinitionRequest,
     SubmitSourceObservationRequest,
 )
@@ -52,13 +60,11 @@ from powercontext.http import (
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.sources import (
-    TEXT_EVIDENCE_PROJECTION_KEY,
     ConnectorBinding,
     ConnectorRunResult,
     ConnectorRunStatus,
     ConnectorSubmissionStatus,
     SourceDefinitionRegistry,
-    SourceObservation,
     TextEvidence,
     manifest_for_definition,
     project_source_for_transport,
@@ -92,15 +98,35 @@ class MemoryFileSystem:
         return self.files[path]
 
 
-class TextEvidenceCandidatePipeline:
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        entries: list[MemoryEntryInput] = []
-        for source in request.sources:
-            if not isinstance(source, SourceObservation):
-                continue
-            evidence = TextEvidence.model_validate(source.projection(TEXT_EVIDENCE_PROJECTION_KEY))
-            entries.append(MemoryEntryInput(kind="document", text=evidence.content, sources=(source,)))
-        return tuple(entries)
+class TextEvidenceExtractor:
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        return GenerationResult(
+            output=AtomicMemoryExtractionOutput(
+                candidates=tuple(
+                    AtomicMemoryCandidate(
+                        kind="decision",
+                        text=TextEvidence.model_validate(evidence.content).content,
+                        evidence_ids=(evidence.evidence_id,),
+                    )
+                    for evidence in request.evidence
+                )
+            )
+        )
+
+
+class IndependentMemoryReconciler:
+    async def generate(
+        self, request: AtomicMemoryReconciliationInput, /
+    ) -> GenerationResult[AtomicMemoryReconciliationOutput]:
+        return GenerationResult(
+            output=AtomicMemoryReconciliationOutput(
+                action="create",
+                compared_ids=tuple(item.item_id for item in request.related),
+                content=AtomicMemoryReconciliationContent(kind=request.proposal.kind, text=request.proposal.text),
+                evidence_ids=request.proposal.evidence_ids,
+                reason="Preserve each independent file snapshot with its exact Source evidence.",
+            )
+        )
 
 
 def _binding(scope_id: str = "project-a") -> ConnectorBinding:
@@ -118,7 +144,13 @@ def _app(database: Path, *, memory: bool = False) -> FastAPI:
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
             mcp=McpConfig(enabled=False),
         ),
-        candidate_pipeline=TextEvidenceCandidatePipeline() if memory else None,
+        candidate_pipeline=AtomicMemoryGenerationPipeline(
+            extractor=TextEvidenceExtractor(),
+            reconciler=IndependentMemoryReconciler(),
+            estimator=character_token_estimator(),
+        )
+        if memory
+        else None,
     )
 
 
@@ -127,7 +159,7 @@ async def _run(
     connector: OpenDALTextFileConnector,
     *,
     flush_memory: bool = False,
-) -> tuple[ConnectorRunResult, ListMemoryEntriesResponse | None]:
+) -> tuple[ConnectorRunResult, list[ArtifactRevision] | None]:
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
@@ -151,7 +183,19 @@ async def _run(
         memory = None
         if flush_memory:
             await client.flush_memory(FlushMemoryRequest(scope_id=scope.scope_id))
-            memory = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope.scope_id))
+            listed = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope.scope_id))
+            memory = [
+                await client.get_artifact_revision(
+                    scope.scope_id,
+                    entry.artifact.family,
+                    entry.artifact.artifact_id,
+                    entry.artifact.revision,
+                )
+                for entry in listed.entries
+            ]
+            assert [(item.kind, item.text, item.state) for item in listed.entries] == [
+                (item.content["kind"], item.content["text"], "active") for item in memory
+            ]
         return result, memory
 
 
@@ -246,8 +290,14 @@ def test_remote_opendal_worker_completes_the_source_to_memory_loop(tmp_path: Pat
 
         assert result.status is ConnectorRunStatus.COMPLETE
         assert memory is not None
-        assert [entry.text for entry in memory.entries] == ["Use exact snapshot references."]
-        assert memory.entries[0].source_refs[0].name == "text-file-snapshot"
+        assert [item.content["text"] for item in memory] == ["Use exact snapshot references."]
+        assert memory[0].family == "atomic-memory"
+        assert memory[0].revision == 1
+        assert memory[0].content["schema"] == "powercontext.atomic-memory.v1"
+        accepted_ref = result.items[0].source_ref
+        assert accepted_ref is not None
+        assert [item.model_dump() for item in memory[0].sources] == [accepted_ref.model_dump()]
+        assert accepted_ref.source_type == "text-file-snapshot"
 
     asyncio.run(scenario())
 

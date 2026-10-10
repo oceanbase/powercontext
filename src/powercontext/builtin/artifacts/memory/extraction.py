@@ -123,7 +123,7 @@ class LLMMemoryCandidatePipeline:
         )
 
     async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        """Generate and map candidates that still require MemoryService validation."""
+        """Generate and map candidates that still require Atomic Memory validation."""
 
         extraction_input, evidence = _extraction_input(request, self._evidence_projector)
         result = await self._generator.generate(extraction_input)

@@ -127,10 +127,7 @@ async fn setup() -> Fixture {
                         if status != 200 {
                             (status, serde_json::json!({"detail":"must not leak"}))
                         } else {
-                            (
-                                200,
-                                serde_json::json!({"memory":{"family":"memory","artifact_id":"mem-a","revision":1},"entry":null}),
-                            )
+                            (200, serde_json::json!({"changed":false,"records":[]}))
                         }
                     }
                     path if path.starts_with("/v1/scopes/") => (
@@ -210,7 +207,7 @@ async fn dispatched_write_keeps_its_original_target_and_rejects_duplicate_clicks
     assert_eq!(outcome.record.context.connection_id, fixture.a);
     assert_eq!(outcome.record.context.scope_id, "scope-a");
     assert!(outcome.result.is_none());
-    assert!(outcome.record.citation.is_none());
+    assert!(outcome.record.artifact.is_none());
     let requests = fixture.requests.lock().unwrap();
     assert_eq!(
         requests.as_slice(),
@@ -239,7 +236,7 @@ async fn dispatched_server_failure_is_unknown_and_is_never_replayed() {
     );
 }
 #[tokio::test]
-async fn nullable_entry_success_does_not_invent_a_citation() {
+async fn success_without_records_does_not_invent_a_reference() {
     let fixture = setup().await;
     fixture.release.notify_one();
     let result = fixture
@@ -248,8 +245,8 @@ async fn nullable_entry_success_does_not_invent_a_citation() {
         .await
         .unwrap();
     assert_eq!(result.record.status, WriteStatus::Succeeded);
-    assert!(result.record.citation.is_none());
-    assert!(result.result.unwrap().entry.is_none());
+    assert!(result.record.artifact.is_none());
+    assert!(result.result.unwrap().records.is_empty());
 }
 
 #[tokio::test]

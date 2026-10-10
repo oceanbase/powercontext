@@ -262,7 +262,9 @@ describe('plugin HTTP call-through without a model', () => {
     expect(found.kind).toBe('json')
     const hits = found.value.hits
     expect(Array.isArray(hits)).toBe(true)
-    expect(hits.some((hit) => hit.text === TEXT)).toBe(true)
+    expect(hits.some((hit) => hit.memory.text === TEXT)).toBe(true)
+    expect(hits.find((hit) => hit.memory.text === TEXT).memory.artifact)
+      .toEqual(remembered.value.records[0].artifact)
 
     const prepared = await client.request('prepare_context', {
       scope_id: scopeId,

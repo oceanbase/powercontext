@@ -31,13 +31,13 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from httpx import Client as HttpClient
 from pydantic import SecretStr
-from pydantic_ai.models.test import TestModel
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
 from powercontext.cli.workbuddy import install_workbuddy_plugin
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
+from tests.e2e.atomic_memory_models import independent_atomic_memory_model
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WORKBUDDY_PLUGIN = PROJECT_ROOT / "integrations" / "workbuddy" / "plugins" / "powercontext"
@@ -53,20 +53,9 @@ def test_workbuddy_hook_and_mcp_share_one_service_configuration(
     monkeypatch: pytest.MonkeyPatch,
     authentication_enabled: bool,
 ) -> None:
-    model_output = """
-    {
-      "candidates": [{
-        "intent": "add",
-        "kind": "decision",
-        "text": "Use the WorkBuddy service chain for project context.",
-        "evidence_ids": ["source:0"],
-        "reason": "captured by the WorkBuddy hook"
-      }]
-    }
-    """
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda _: TestModel(custom_output_text=model_output),
+        lambda _: independent_atomic_memory_model("Use the WorkBuddy service chain for project context."),
     )
     app = create_server_app(
         settings=ServerSettings(
@@ -140,7 +129,7 @@ def test_workbuddy_hook_and_mcp_share_one_service_configuration(
             structured = result.structured_content or {}
             hits = structured.get("hits")
             assert isinstance(hits, list)
-            assert hits[0]["text"] == "Use the WorkBuddy service chain for project context."
+            assert hits[0]["memory"]["text"] == "Use the WorkBuddy service chain for project context."
 
         asyncio.run(verify_mcp())
     finally:

@@ -48,12 +48,19 @@ class ArtifactGovernance(BaseModel):
     artifact: ArtifactRef
     lifecycle_state: ArtifactLifecycleState
     replacement_artifact_id: str | None = None
+    merged_into_id: str | None = None
     governance_generation: int = Field(ge=0)
 
     @model_validator(mode="after")
     def validate_replacement(self) -> ArtifactGovernance:
         if self.replacement_artifact_id is not None and self.lifecycle_state is not ArtifactLifecycleState.DEPRECATED:
             raise ValueError("only a deprecated Artifact may name a replacement")  # noqa: TRY003
+        if self.merged_into_id is not None and (
+            self.lifecycle_state is not ArtifactLifecycleState.DEPRECATED
+            or self.replacement_artifact_id is not None
+            or self.merged_into_id == self.artifact.artifact_id
+        ):
+            raise ValueError("a frozen input requires a distinct merge result and no ordinary replacement")  # noqa: TRY003
         return self
 
 
@@ -67,23 +74,80 @@ class ArtifactGovernanceRepository:
         family: str,
         artifact_id: str,
         /,
+        *,
+        for_update: bool = False,
     ) -> ArtifactGovernance:
-        row = (
-            (
-                await connection.execute(
-                    select(ARTIFACT_HEADS_TABLE).where(
-                        ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                        ARTIFACT_HEADS_TABLE.c.family == family,
-                        ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
-                    )
-                )
-            )
-            .mappings()
-            .one_or_none()
+        statement = select(ARTIFACT_HEADS_TABLE).where(
+            ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+            ARTIFACT_HEADS_TABLE.c.family == family,
+            ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
         )
+        if for_update:
+            statement = statement.with_for_update()
+        row = (await connection.execute(statement)).mappings().one_or_none()
         if row is None:
             raise RepositoryNotFoundError("artifact-head", (scope_id, family, artifact_id))
         return _governance(row)
+
+    async def require_summary(
+        self, connection: AsyncConnection, scope_id: str, family: str, artifact_id: str, expected: ArtifactGovernance
+    ) -> ArtifactGovernance:
+        current = await self.get(connection, scope_id, family, artifact_id, for_update=True)
+        if (
+            current.lifecycle_state != expected.lifecycle_state
+            or current.merged_into_id != expected.merged_into_id
+            or current.replacement_artifact_id != expected.replacement_artifact_id
+            or current.governance_generation != expected.governance_generation
+        ):
+            raise StoredPayloadConflictError("artifact-governance", (scope_id, family, artifact_id))
+        return current
+
+    async def transition_merge(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+        expected: ArtifactGovernance,
+        lifecycle_state: ArtifactLifecycleState,
+        merged_into_id: str | None = None,
+        replacement_artifact_id: str | None = None,
+    ) -> ArtifactGovernance:
+        """Apply a service-validated group transition while retaining unchanged state generations."""
+
+        _validate_transition(expected.lifecycle_state, lifecycle_state)
+        current = await self.require_summary(connection, scope_id, family, artifact_id, expected)
+        if (
+            expected.lifecycle_state == lifecycle_state
+            and expected.merged_into_id == merged_into_id
+            and expected.replacement_artifact_id == replacement_artifact_id
+        ):
+            return current
+        requested = ArtifactGovernance(
+            artifact=current.artifact,
+            lifecycle_state=lifecycle_state,
+            merged_into_id=merged_into_id,
+            replacement_artifact_id=replacement_artifact_id,
+            governance_generation=expected.governance_generation + 1,
+        )
+        result = await connection.execute(
+            update(ARTIFACT_HEADS_TABLE)
+            .where(
+                ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                ARTIFACT_HEADS_TABLE.c.family == family,
+                ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
+                ARTIFACT_HEADS_TABLE.c.governance_generation == expected.governance_generation,
+            )
+            .values(
+                lifecycle_state=lifecycle_state.value,
+                merged_into_id=merged_into_id,
+                replacement_artifact_id=replacement_artifact_id,
+                governance_generation=requested.governance_generation,
+            )
+        )
+        if result.rowcount != 1:
+            raise StoredPayloadConflictError("artifact-governance", (scope_id, family, artifact_id))
+        return requested
 
     async def transition(
         self,
@@ -97,6 +161,20 @@ class ArtifactGovernanceRepository:
         /,
     ) -> ArtifactGovernance:
         current = await self.get(connection, scope_id, family, artifact_id)
+        if current.merged_into_id is not None:
+            raise InvalidArtifactLifecycleError("frozen merge inputs require whole-group restoration")  # noqa: TRY003
+        if lifecycle_state is ArtifactLifecycleState.RETIRED:
+            frozen_input = await connection.scalar(
+                select(ARTIFACT_HEADS_TABLE.c.artifact_id)
+                .where(
+                    ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                    ARTIFACT_HEADS_TABLE.c.family == family,
+                    ARTIFACT_HEADS_TABLE.c.merged_into_id == artifact_id,
+                )
+                .limit(1)
+            )
+            if frozen_input is not None:
+                raise InvalidArtifactLifecycleError("an effective merge result cannot strand frozen inputs")  # noqa: TRY003
         _validate_transition(current.lifecycle_state, lifecycle_state)
         if replacement_artifact_id is not None:
             if replacement_artifact_id == artifact_id:
@@ -154,6 +232,7 @@ def _governance(row) -> ArtifactGovernance:
         replacement_artifact_id=(
             None if row["replacement_artifact_id"] is None else str(row["replacement_artifact_id"])
         ),
+        merged_into_id=None if row["merged_into_id"] is None else str(row["merged_into_id"]),
         governance_generation=int(row["governance_generation"]),
     )
 

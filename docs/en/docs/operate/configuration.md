@@ -21,6 +21,44 @@ secret-bearing deployment artifact.
 group or other permissions. The service records its identity and refuses to launch if the file is replaced or its
 ownership, permissions, or contents change; run `service install` again after an intentional update.
 
+## Atomic Memory
+
+See [Use Atomic Memory](../workflows/atomic-memory.md) for creation, search, lifecycle and restoration examples,
+and [offline migration](atomic-memory-migration.md) for existing databases.
+
+Restoration previews require an explicit shared signing key. Every process that generates or validates tokens must
+use the same secret and key ID:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_SIGNING_SECRET` | unset | Secret of at least 32 characters; without it, previews and token validation return `422 invalid_preview`, while direct restoration remains available |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_SIGNING_KEY_ID` | `atomic-memory-v1` | Current key ID, 1–128 characters; deployment configuration loads only this one key |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_TTL_SECONDS` | `300` | Preview lifetime, 1–3600 seconds |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RESTORE_RETRY_BUDGET` | `3` | Re-read and preparation retries after `atomic_memory_changed` during restoration without a token, 0–10; the default permits the initial attempt plus 3 retries |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MODE` | `auto` | Related-memory recall during Source processing: `auto`, `fts`, `vector` or `hybrid`; auto selects fts without a profile and hybrid with one |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | Maximum exact L2 distance for complete related-vector enumeration, nonnegative; does not apply to ordinary searches with a limit |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | Explicitly permit full-text enumeration when the related query vector is unavailable, profiles mismatch or vector projections are incomplete; ordinary search error handling is unchanged |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | Maximum related objects per comparison call, positive integer; it is not a total candidate limit |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `24000` | Estimated tokens per extraction/comparison input, including instructions and complete input, positive integer |
+
+An unset secret never generates a random process key. Changing the secret or key ID invalidates old tokens; preview
+again. A restoration with a token returns `preview_stale` on changes instead of reinterpreting the intent. The retry
+budget does not replay a write whose commit outcome is unknown after a connection failure.
+
+Source processing generates candidates, then enumerates related active memories satisfying permission, tag and
+retrieval eligibility. Fts enumerates all qualifying matches; vector enumerates all results within its threshold;
+hybrid combines both. Neither comparison batch size nor token budget truncates the total candidates. Oversized
+comparison input reduces the batch until every candidate is processed. A single object or complete extraction input
+that exceeds the budget fails the window without partial publication or cursor advancement. Fallback changes recall
+evidence and requires an explicit choice; by default errors retain the window for diagnosis and retry.
+
+Atomic Memory has no legacy collection capacity budget or compact operation. `MEMORY_MAX_ACTIVE_ENTRIES`,
+`MEMORY_MAX_MANIFEST_ENTRIES`, `MEMORY_MAX_MANIFEST_BYTES` and `MEMORY_COMPACTION_*` settings remain parseable but do not
+limit new memories or enable compaction. The legacy MemoryWriteGate collection contract is unsupported by the Atomic
+Runtime; enabling `MEMORY_WRITE_GATE_ENABLED` or injecting an old gate is rejected explicitly.
+The existing limit of 32 tags per Artifact still applies. If merged input tags exceed it, the whole merge fails;
+Source processing also retains the window without partial publication or cursor advancement.
+
 ## User data
 
 `POWERCONTEXT_HOME` overrides the directory used by the installed Server:
@@ -77,14 +115,14 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | Apply listwise reranking after coarse Memory retrieval |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | Coarse candidate pool supplied to the reranker |
 | `POWERCONTEXT_SERVER_RUNTIME_DECISION_ASSISTANCE_ENABLED` | `false` | Enable decision-model assistance; requires a decision or generation model |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WRITE_GATE_ENABLED` | `false` | Enable the decision-model gate for pending Memory writes; without a decision backend, writes pass through |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WRITE_GATE_ENABLED` | `false` | Legacy collection WriteGate; unsupported by Atomic Runtime, which rejects enabling it |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WRITE_GATE_HOLD_ON` | `yes` | Decision outcome that means evidence is insufficient: `yes` or `no` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WRITE_GATE_THRESHOLD` | unset | Optional confidence threshold from `0` to `1`; a hold-direction verdict below it is flagged instead of held |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_ACTIVE_ENTRIES` | `5000` | Maximum active entries per Memory; must not exceed the manifest-entry limit |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_MANIFEST_ENTRIES` | `10000` | Maximum entries in a Memory manifest, including inactive entries |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_MANIFEST_BYTES` | `4194304` | Maximum bytes of complete canonical Memory manifest content |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_COMPACTION_ENABLED` | `false` | Permit explicit in-process tombstone compaction; does not schedule or trigger compaction |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_COMPACTION_MIN_TOMBSTONE_REVISIONS` | `10` | Minimum completed Revision advances before a tombstone can be compacted |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_ACTIVE_ENTRIES` | `5000` | Legacy collection setting; does not limit Atomic Memory, but parsing still validates it against the manifest limit |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_MANIFEST_ENTRIES` | `10000` | Legacy collection setting; Atomic Memory has no collection manifest |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_MANIFEST_BYTES` | `4194304` | Legacy collection setting; does not limit total Atomic Memory content |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_COMPACTION_ENABLED` | `false` | Legacy collection setting; Atomic Runtime has no compact operation |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_COMPACTION_MIN_TOMBSTONE_REVISIONS` | `10` | Legacy collection setting; Atomic Runtime has no compact operation |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_HISTORY_REVISIONS` | `100` | Maximum Memory history Revisions read by the Runtime |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ENABLED` | `false` | Enable the optional recall-sufficiency gate; disabling it keeps recall identical to a deployment without the feature |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MAX_ROUNDS` | `2` | Most expansion rounds after the first recall; `0` to `2`, where `0` assesses without expanding |

@@ -27,15 +27,16 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from powercontext.builtin.artifacts.experience import ExperienceSearchHit, experience_search_text
-from powercontext.builtin.artifacts.memory import MemoryHit
 from powercontext.builtin.artifacts.search import (
     DEFAULT_ADMISSION_FLOOR,
     AdmissionCounts,
     AdmissionFloor,
     analyze_text,
     fts_query_requirements,
+    unit_l2_cosine_similarity,
 )
 from powercontext.builtin.artifacts.topic_memory import TopicMemorySearchHit
+from powercontext.builtin.runtime.atomic_memory import AtomicMemorySearchHit
 from powercontext.builtin.statistics import RecallEffortMeasurement
 
 if TYPE_CHECKING:
@@ -68,7 +69,7 @@ _SCORING_FAMILIES: tuple[str, ...] = (MEMORY_FAMILY, TOPIC_MEMORY_FAMILY)
 # budget property rather than a recall property.
 BUDGET_FLOOR_BYTES = 512
 
-# Mirrors ``memory/fusion.py``: the reciprocal-rank constant used to derive the analytic upper
+# Mirrors ``persistence/atomic_memory_index.py``: the reciprocal-rank constant used to derive the analytic upper
 # bound of a Memory RRF score.
 _RRF_CONSTANT = 60
 # Topic Memory relevance is already normalized against its reachable upper bound.
@@ -111,8 +112,7 @@ class RecallSignals:
     has vector evidence. The gap uses candidates above the round-zero semantic floor.
 
     ``distinct_source_count`` counts family-specific evidence identities via
-    :func:`candidate_identity` — a Memory entry (``memory_ref`` + ``entry_id`` +
-    ``entry_version_id``) or another family's Artifact revision. It is recorded for observation
+    :func:`candidate_identity` — an Atomic Memory Artifact revision or another family's Artifact revision. It is recorded for observation
     only; no branch of the v1 verdict reads it.
 
     ``families_expected`` is the number of caller-selected families where round zero retrieved
@@ -146,7 +146,7 @@ class SearchPlan:
     """Describes the next round.
 
     It never names a family and never sets ``limit``, ``mode`` or a rerank candidate bound.
-    The last point is deliberate and load-bearing: ``MemoryService`` uses
+    The last point is deliberate and load-bearing: Atomic Memory search uses
     ``memory_rerank_candidate_limit`` to *size the backend request*
     (``coarse_limit`` → ``candidate_limit = max(coarse_limit * 4, 32)``), so raising it from
     30 to 100 would grow the backend pool from 120 to 400 candidates and break the same-pool
@@ -399,7 +399,7 @@ def candidate_identity(candidate: RecallCandidate, /) -> tuple[str, str, int, st
 
 def build_recall_candidates(
     *,
-    memory_hits: Sequence[MemoryHit],
+    memory_hits: Sequence[AtomicMemorySearchHit],
     topic_memory_hits: Sequence[TopicMemorySearchHit],
     experience_hits: Sequence[ExperienceSearchHit],
     memory_scope_ids: Sequence[str | None] | None = None,
@@ -416,13 +416,13 @@ def build_recall_candidates(
         candidates.append(
             RecallCandidate(
                 family=MEMORY_FAMILY,
-                artifact_id=hit.memory_ref.artifact_id,
-                revision=hit.memory_ref.revision,
-                entry_id=hit.entry_id,
-                entry_version_id=hit.entry_version_id,
+                artifact_id=hit.hit.artifact_ref.artifact_id,
+                revision=hit.hit.artifact_ref.revision,
+                entry_id=None,
+                entry_version_id=None,
                 score=_normalize_memory_score(hit),
-                text=hit.text,
-                relevance=hit.relevance,
+                text=hit.hit.text,
+                relevance=None if hit.hit.distance is None else unit_l2_cosine_similarity(hit.hit.distance),
                 scope_id=None if memory_scope_ids is None else memory_scope_ids[index],
             )
         )
@@ -454,14 +454,14 @@ def build_recall_candidates(
     return tuple(candidates)
 
 
-def _normalize_memory_score(hit: MemoryHit) -> float:
-    """Normalize an RRF score against its analytic per-channel-count upper bound."""
+def _normalize_memory_score(hit: AtomicMemorySearchHit) -> float:
+    """Normalize fused RRF ranking against its per-channel upper bound, not a probability."""
 
     channels = max(1, len(hit.matched_by))
     upper_bound = channels / (_RRF_CONSTANT + 1)
     if upper_bound <= 0.0:
         return 0.0
-    return max(0.0, min(1.0, hit.score / upper_bound))
+    return max(0.0, min(1.0, hit.hit.score / upper_bound))
 
 
 def _normalize_topic_score(hit: TopicMemorySearchHit) -> float:

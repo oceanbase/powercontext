@@ -22,5 +22,5 @@ commands with caller session or scope context, so the companion fails closed
 in gateway sessions to prevent cross-session memory access. Use the provider's
 Hermes tools for gateway sessions until Hermes exposes that context.
 
-The [provider README](../powercontext/README.md) contains the citation format
+The [provider README](../powercontext/README.md) contains the Atomic reference format
 and examples for memory entry operations such as `/pc get` and `/pc retire`.

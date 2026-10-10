@@ -5,7 +5,7 @@ description: 读取当前与历史版本，并按 Artifact 家族选择修改方
 
 # 管理 Artifact
 
-Artifact 保存有版本的结果。Memory、Topic Memory、Experience、Skill、Handoff、Profile 和 Prompt 各自有不同的写入规则；
+Artifact 保存有版本的结果。Atomic Memory、Topic Memory、Experience、Skill、Handoff、Profile 和 Prompt 各自有不同的写入规则；
 共用 REST 外层结构不意味着可以互换这些工作流。
 
 ## 创建和替换
@@ -17,8 +17,8 @@ Artifact 保存有版本的结果。Memory、Topic Memory、Experience、Skill�
 | Create | `POST /v1/scopes/{scope_id}/artifacts` | 按请求体中的 `family` 和 `content` 创建 Artifact 及 Revision 1。除 Handoff 外由服务端生成 `artifact_id`。 |
 | Replace | `PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}` | 完整替换指定 Artifact，生成下一条 Revision。必须使用当前 head 的 `If-Match`。 |
 
-请求体是按 `family` 判别的联合类型，不能把一个家族的内容提交给另一个家族。Memory 的 Replace 使用
-`entries` 命令；其他家族提交完整内容。Handoff 是 Scope 内的单例：已存在时 Create 返回 `409`，应改用
+请求体是按 `family` 判别的联合类型，不能把一个家族的内容提交给另一个家族。Atomic Memory 提交完整
+`kind`、`text` 正文；旧 `family=memory` 集合 Create/Replace 返回 `422 legacy_memory_operation_unsupported`。Handoff 是 Scope 内的单例：已存在时 Create 返回 `409`，应改用
 Replace。缺少 `If-Match` 返回 `428`，ETag 过期返回 `412`；接口不支持自动合并。
 
 ## 查看当前内容和历史
@@ -53,12 +53,12 @@ Family 支持范围、准入、阈值和故障行为见[检索 Artifact](search-
 
 ## 按对应工作流修改
 
-- [Memory](memory-and-context.md)：显式写入、修订或退役条目。
+- [Atomic Memory](atomic-memory.md)：创建、修订、遗忘、合并与恢复独立记忆。
 - [Topic Memory](topic-memory.md)：直接提交完整主题内容，或按精确 Revision 读取主题。
 - [Experience 与 Skill](experience-and-skill-lifecycle.md)：发布或导出前检查并批准 Candidate。
 - [Handoff](handoff-with-codex.md)：检查并提交当前工作边界。
 - [Prompt](manage-prompts.md)：在一个 Scope 内自定义操作提示词。
-- [标签](manage-artifact-tags.md)：组织逻辑 Artifact 和单独的 Memory 条目，不重写内容。
+- [标签](manage-artifact-tags.md)：组织逻辑 Artifact；旧 Memory entry target 可映射到迁移后的 Artifact。
 
 直接通过 REST 替换内容时，先读取当前 `ETag`，再通过 `If-Match` 发送。
 缺少前置条件返回 `428`，head 已过期返回 `412`。重新读取并协调内容后再重试。

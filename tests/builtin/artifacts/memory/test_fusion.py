@@ -34,7 +34,7 @@ def channel_hit(
     distance: float | None = None,
 ) -> MemoryChannelHit:
     return MemoryChannelHit(
-        memory_ref=ArtifactRef(family="memory", artifact_id=memory_id, revision=2),
+        memory_ref=ArtifactRef(family="atomic-memory", artifact_id=memory_id, revision=2),
         entry_id=entry_id,
         entry_version_id=f"version-{entry_id}",
         text=entry_id if text is None else text,

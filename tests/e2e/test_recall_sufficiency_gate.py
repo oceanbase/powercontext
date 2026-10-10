@@ -36,23 +36,24 @@ from typing import Any, cast
 import pytest
 from sqlalchemy import select
 
-from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConflictError
 from powercontext.builtin.artifacts.experience import ExperienceSearchOutcome
-from powercontext.builtin.artifacts.memory import EmbeddingProfile, MemoryEntryInput
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.search import AdmissionCounts
 from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryContent,
     TopicMemoryDraft,
     prepare_topic_memory_projection,
 )
-from powercontext.builtin.inference import EmbeddingResult
+from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError
+from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.statistics import StatisticsRepository
-from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE, MEMORY_ENTRY_HEADS_TABLE, RECALL_EFFORT_DAILY_TABLE
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE, RECALL_EFFORT_DAILY_TABLE
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     PrepareContextRequest,
-    RememberMemoryRequest,
     RuntimeConfig,
     open_builtin_runtime,
 )
@@ -123,6 +124,8 @@ class _RecallRoundLog:
                 reuse=reuse,
                 topic_reuse=topic_reuse,
             )
+            log.calls[-1]["memory_recoverable"] = result.memory_recoverable
+            log.calls[-1]["memory_texts"] = tuple(hit.text for group in result.memory for hit in group.hits)
             if log.force_recoverable_family is None:
                 return result
             return _RecallRoundOutcome(
@@ -162,14 +165,13 @@ async def _runtime(
         yield opened
 
 
-def _entry(text: str) -> MemoryEntryInput:
-    return MemoryEntryInput(kind="fact", text=text)
+def _entry(text: str) -> AtomicMemoryContent:
+    return AtomicMemoryContent(kind="fact", text=text)
 
 
 async def _seed(runtime: BuiltinRuntime, scope_id: str, texts: list[str]) -> None:
-    await runtime.memory.for_scope(scope_id).remember(
-        RememberMemoryRequest(entries=tuple(_entry(text) for text in texts))
-    )
+    assert runtime.atomic_memory is not None
+    await runtime.atomic_memory.for_scope(scope_id).create(tuple(_entry(text) for text in texts))
 
 
 async def _seed_topic_memories(runtime: BuiltinRuntime, scope_id: str, count: int) -> None:
@@ -229,7 +231,7 @@ async def _revision_state(runtime: BuiltinRuntime, scope_id: str) -> tuple[list[
     provider = cast(Any, runtime._provider)
     async with provider.database.transaction() as connection:
         snapshots = []
-        for table in (ARTIFACTS_TABLE, MEMORY_ENTRY_HEADS_TABLE):
+        for table in (ARTIFACTS_TABLE, ARTIFACT_HEADS_TABLE):
             snapshots.append((await connection.execute(select(table).where(table.c.scope_id == scope_id))).all())
         return tuple(snapshots)
 
@@ -281,7 +283,8 @@ def test_sqlite_vector_prepare_reports_cosine_and_expands_past_a_weak_top(tmp_pa
 
         async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
             similarities = tuple(
-                1.0 if text == _QUERY else 0.2 if text == "unrelated vector evidence" else 0.31 for text in texts
+                1.0 if text == _QUERY else 0.2 if text.removeprefix("fact\n") == "unrelated vector evidence" else 0.31
+                for text in texts
             )
             return EmbeddingResult(
                 vectors=tuple((similarity, math.sqrt(1.0 - similarity**2)) for similarity in similarities)
@@ -306,12 +309,15 @@ def test_sqlite_vector_prepare_reports_cosine_and_expands_past_a_weak_top(tmp_pa
         assert effort is not None
         assert effort.assessment == "weak-top-1"
         assert effort.rounds == 2
+        assert effort.candidates_by_round == (1, 2)
         assert effort.signals is not None
         assert effort.signals.top_score == pytest.approx(0.31, abs=0.005)
         assert len(log.calls) == 2
         assert "unrelated vector evidence" in (build.context.content or "")
-        memory_admission = next(count for count in effort.admission_by_family if count.family == MEMORY_FAMILY)
-        assert memory_admission.retrieved == memory_admission.admitted
+        # Atomic filters before LIMIT and reports an existence probe rather than
+        # fabricating legacy pre-admission counts.
+        assert effort.admission_by_family == ()
+        assert [call["memory_recoverable"] for call in log.calls] == [True, False]
 
     asyncio.run(scenario())
 
@@ -323,7 +329,7 @@ def test_bounded_expansion_surfaces_a_strong_hit_hidden_by_the_fusion_limit(tmp_
     embedding_profile = EmbeddingProfile(
         profile_id="recall-gate-hidden", model="deterministic", dimension=2, distance="l2", normalization="unit"
     )
-    weak_texts = tuple(f"alpha beta gamma weak {index:02d}" for index in range(16))
+    weak_texts = tuple(f"beta gamma weak {index:02d}" for index in range(16))
     strong_text = "alpha window hidden"
     cosines = {_QUERY: 1.0, strong_text: 0.90}
     cosines.update({text: 0.31 + index * 0.001 for index, text in enumerate(weak_texts)})
@@ -333,7 +339,10 @@ def test_bounded_expansion_surfaces_a_strong_hit_hidden_by_the_fusion_limit(tmp_
 
         async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
             return EmbeddingResult(
-                vectors=tuple((cosine := cosines.get(text, 0.0), math.sqrt(1.0 - cosine * cosine)) for text in texts)
+                vectors=tuple(
+                    (cosine := cosines.get(text.removeprefix("fact\n"), 0.0), math.sqrt(1.0 - cosine * cosine))
+                    for text in texts
+                )
             )
 
     log = _RecallRoundLog()
@@ -359,10 +368,22 @@ def test_bounded_expansion_surfaces_a_strong_hit_hidden_by_the_fusion_limit(tmp_
             embedding_model=DeterministicEmbedding(),
         ) as runtime:
             scope_id = await _create_scope(runtime, "hidden-hit")
+            # Each channel is capped at sixteen. The weakest vector row and the
+            # strong vector-only row tie for the last fused slot; stable IDs put
+            # the FTS-only weak row first. Under the lower lexical floor, the
+            # strong row's rare alpha term ranks first and gives it both channels.
+            records = cast(RelationalRecordService, runtime._records())
+            original_id_factory = records._id_factory
+            ids = iter(f"hidden-memory-{index:02d}" for index in range(17))
+            monkeypatch.setattr(
+                records,
+                "_id_factory",
+                lambda kind: next(ids) if kind == "atomic-memory" else original_id_factory(kind),
+            )
             await _seed(runtime, scope_id, [*weak_texts, strong_text])
             _, effort = await _prepare_build(runtime, scope_id, _memory_request())
 
-        # Round 0: the sixteen dual-channel weak hits fill the fusion window and truncate
+        # Round 0: fifteen dual-channel and one FTS-only weak hit fill the window and truncate
         # the vector-only 0.90 hit, so the gate sees a weak top. Round 1's lower lexical
         # floor admits the strong hit's FTS row; the dual-channel hit then enters the
         # window, the top score reflects it, and the committed candidates keep the latest
@@ -374,7 +395,10 @@ def test_bounded_expansion_surfaces_a_strong_hit_hidden_by_the_fusion_limit(tmp_
         assert effort.signals is not None
         assert effort.signals.top_score == pytest.approx(0.90, abs=0.005)
         assert len(log.calls) == 2
+        assert strong_text not in log.calls[0]["memory_texts"]
+        assert strong_text in log.calls[1]["memory_texts"]
         assert any(strong_text in hit.text for group in delivered for hit in group.hits)
+        assert [call["memory_recoverable"] for call in log.calls] == [True, False]
 
     asyncio.run(scenario())
 
@@ -389,10 +413,12 @@ def test_expansion_fts_only_hit_preserves_round_zero_scored_family(tmp_path, mon
 
         async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
             vectors = {_QUERY: (1.0, 0.0), "alpha beta gamma evidence": (0.5, math.sqrt(0.75))}
-            return EmbeddingResult(vectors=tuple(vectors.get(text, (0.0, 1.0)) for text in texts))
+            return EmbeddingResult(
+                vectors=tuple(vectors.get(text.removeprefix("fact\n"), (0.0, 1.0)) for text in texts)
+            )
 
     original = ScopedContextApplication._recall_round
-    expansion_first_relevance = []
+    expansion_first_distance = []
 
     async def fts_first_expansion(*args: Any, **kwargs: Any) -> _RecallRoundOutcome:
         result = await original(*args, **kwargs)
@@ -401,7 +427,7 @@ def test_expansion_fts_only_hit_preserves_round_zero_scored_family(tmp_path, mon
         # Put the new FTS-only hit first in the returned round. Accumulation must still append it
         # after round zero's vector-backed first hit rather than replace the family's first hit.
         memory = tuple(replace(group, hits=tuple(reversed(group.hits))) for group in result.memory)
-        expansion_first_relevance.extend(group.hits[0].relevance for group in memory if group.hits)
+        expansion_first_distance.extend(group.hits[0].hit.distance for group in memory if group.hits)
         return replace(result, memory=memory)
 
     monkeypatch.setattr(ScopedContextApplication, "_recall_round", fts_first_expansion)
@@ -429,7 +455,7 @@ def test_expansion_fts_only_hit_preserves_round_zero_scored_family(tmp_path, mon
         assert before_effort.candidates_by_round == (1,)
         assert before_effort.signals is not None
         assert before_effort.signals.top_score == pytest.approx(0.5, abs=0.005)
-        assert expansion_first_relevance == [None]
+        assert expansion_first_distance == [None]
         assert after_effort is not None
         assert after_effort.rounds == 2
         assert after_effort.candidates_by_round == (1, 2)
@@ -441,7 +467,7 @@ def test_expansion_fts_only_hit_preserves_round_zero_scored_family(tmp_path, mon
     asyncio.run(scenario())
 
 
-def test_scoped_first_hit_rule_applies_per_scope_through_the_runtime(tmp_path) -> None:
+def test_scoped_first_hit_rule_applies_per_scope_through_the_runtime(tmp_path, monkeypatch) -> None:
     embedding_profile = EmbeddingProfile(
         profile_id="recall-gate-scopes", model="deterministic", dimension=2, distance="l2", normalization="unit"
     )
@@ -451,7 +477,12 @@ def test_scoped_first_hit_rule_applies_per_scope_through_the_runtime(tmp_path) -
 
         async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
             vectors = {_QUERY: (1.0, 0.0), "alpha beta gamma vector evidence": (0.31, math.sqrt(1 - 0.31**2))}
-            return EmbeddingResult(vectors=tuple(vectors.get(text, (0.0, 1.0)) for text in texts))
+            return EmbeddingResult(
+                vectors=tuple(vectors.get(text.removeprefix("fact\n"), (0.0, 1.0)) for text in texts)
+            )
+
+    log = _RecallRoundLog()
+    log.install(monkeypatch)
 
     async def scenario() -> None:
         database = tmp_path / "scoped-first-hit.db"
@@ -473,10 +504,11 @@ def test_scoped_first_hit_rule_applies_per_scope_through_the_runtime(tmp_path) -
 
         assert effort is not None
         assert effort.assessment == "weak-top-1"
-        # The primary Scope's zero-cosine rows keep the vector channel recoverable, so the
-        # bounded expansion spends both rounds; the last committed weak-top-1 reason is kept.
-        assert effort.rounds == 3
-        assert effort.candidates_by_round == (2, 3, 3)
+        # All three identities have been delivered. Zero-cosine rows remain below
+        # the policy floor, so the exact probe stops after one expansion.
+        assert effort.rounds == 2
+        assert effort.candidates_by_round == (2, 3)
+        assert [call["memory_recoverable"] for call in log.calls] == [True, False]
         assert effort.signals is not None
         assert effort.signals.scored_families == 1
         assert effort.signals.top_score == pytest.approx(0.31, abs=0.005)
@@ -549,6 +581,46 @@ def test_fully_admitted_memory_does_not_expand_when_no_candidate_can_be_recovere
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("excluded", ["forgotten", "other-scope", "limit"])
+def test_atomic_recovery_probe_respects_scope_state_and_candidate_limit(tmp_path, monkeypatch, excluded) -> None:
+    log = _RecallRoundLog()
+    log.install(monkeypatch)
+
+    async def scenario() -> None:
+        async with _runtime(
+            tmp_path / "qualified-recovery.db",
+            RuntimeConfig(recall_gate_enabled=True, recall_gate_min_candidates=100),
+        ) as runtime:
+            scope = await _create_scope(runtime, "qualified-recovery")
+            if excluded == "limit":
+                await _seed(runtime, scope, [f"alpha beta gamma evidence {index}" for index in range(24)])
+            elif excluded == "other-scope":
+                other = await _create_scope(runtime, "foreign-recovery")
+                await _seed(runtime, other, ["alpha evidence"])
+            else:
+                await _seed(runtime, scope, ["alpha evidence"])
+                assert runtime.atomic_memory is not None
+                memories = runtime.atomic_memory.for_scope(scope)
+                record = (await memories.list()).items[0]
+                await memories.forget(
+                    record.ref.artifact_id,
+                    expected_revision=record.ref.revision,
+                    expected_state_version=record.state.state_version,
+                )
+            build, effort = await _prepare_build(runtime, scope, _memory_request())
+            assert effort.rounds == 1 and effort.expansion_actions == ()
+            assert len(log.calls) == 1
+            if excluded == "limit":
+                assert effort.candidates_by_round == (16,)
+                assert build.context.status == "ready"
+            else:
+                assert effort.assessment == REASON_NO_CONTENT
+                assert effort.candidates_by_round == (0,)
+                assert build.context.status == "empty"
+
+    asyncio.run(scenario())
+
+
 def test_recoverability_is_refreshed_after_an_expansion_round(tmp_path, monkeypatch) -> None:
     log = _RecallRoundLog()
     log.install(monkeypatch)
@@ -600,6 +672,73 @@ def test_two_expansion_rounds_stop_at_max_rounds(tmp_path, monkeypatch) -> None:
         assert effort.assessment == REASON_AT_MAX_ROUNDS
         assert effort.expansion_actions == ("admission", "policy-floor")
         assert len(log.calls) == 3
+
+    asyncio.run(scenario())
+
+
+def test_atomic_vector_search_uses_the_provider_query_input(tmp_path) -> None:
+    class QueryEmbedding:
+        profile = EmbeddingProfile(profile_id="query-input", model="query-input", dimension=2)
+        queries = 0
+
+        async def embed(self, texts):
+            return EmbeddingResult(vectors=tuple((1.0, 0.0) for _ in texts))
+
+        async def embed_query(self, texts):
+            self.queries += 1
+            return EmbeddingResult(vectors=tuple((-1.0, 0.0) for _ in texts))
+
+    async def scenario() -> None:
+        embedding = QueryEmbedding()
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'query-input.db'}")),
+            embedding_model=embedding,
+        ) as runtime:
+            scope = await _create_scope(runtime, "query-input")
+            await _seed(runtime, scope, ["alpha beta gamma evidence"])
+            assert runtime.atomic_memory is not None
+            result = await runtime.atomic_memory.for_scope(scope).search("unrelated query", mode="vector")
+            assert result.mode == "vector" and result.hits == ()
+            assert result.embedding_calls == 1 and embedding.queries == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "stalled"])
+def test_atomic_optional_query_embedding_is_attempted_once_per_prepare(tmp_path, monkeypatch, failure) -> None:
+    class OptionalEmbedding:
+        profile = EmbeddingProfile(profile_id="optional", model="optional", dimension=2)
+        queries = 0
+
+        async def embed(self, texts):
+            return EmbeddingResult(vectors=tuple((1.0, 0.0) for _ in texts))
+
+        async def embed_query(self, texts):
+            self.queries += 1
+            if failure == "stalled":
+                await asyncio.sleep(20)
+            raise InferenceUnavailableError("embed")
+
+    log = _RecallRoundLog()
+    log.force_recoverable_family = MEMORY_FAMILY
+    log.install(monkeypatch)
+
+    async def scenario() -> None:
+        embedding = OptionalEmbedding()
+        async with open_builtin_runtime(
+            BuiltinConfig(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'optional.db'}"),
+                runtime=RuntimeConfig(recall_gate_enabled=True, recall_gate_min_candidates=100),
+            ),
+            embedding_model=embedding,
+        ) as runtime:
+            scope = await _create_scope(runtime, "optional")
+            await _seed(runtime, scope, ["alpha beta gamma evidence", "alpha evidence"])
+            async with asyncio.timeout(2):
+                build, effort = await _prepare_build(runtime, scope, _memory_request())
+            assert effort.rounds == 3 and len(log.calls) == 3
+            assert build.context.content is not None and "alpha evidence" in build.context.content
+            assert embedding.queries == 1
 
     asyncio.run(scenario())
 
@@ -766,15 +905,7 @@ def test_memory_head_change_during_expansion_fails_open_to_round_zero(tmp_path, 
                     reuse=reuse,
                     topic_reuse=topic_reuse,
                 )
-            return _RecallRoundOutcome(
-                memory=(
-                    PreparedMemoryCandidates(
-                        scope_id=scope_ids[0],
-                        memory_ref=ArtifactRef(family="memory", artifact_id="memory", revision=999),
-                        hits=(),
-                    ),
-                )
-            )
+            raise AtomicMemoryConflictError("Memory changed while expanding retrieval")  # noqa: TRY003
 
         monkeypatch.setattr(ScopedContextApplication, "_recall_round", changed_head)
         async with _runtime(

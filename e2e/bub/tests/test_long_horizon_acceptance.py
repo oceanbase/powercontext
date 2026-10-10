@@ -21,10 +21,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from powercontext.http import ArtifactReference
+
 from powercontext_e2e.artifacts import write_artifacts
 from powercontext_e2e.catalog import E2ETask, MemoryEvaluationSpec, load_tasks
 from powercontext_e2e.evaluation import MemoryEvaluator
 from powercontext_e2e.models import (
+    AtomicMemorySnapshot,
     CaptureRecord,
     HarborTrialObservation,
     MemoryEntrySnapshot,
@@ -51,6 +54,35 @@ def test_memory_acceptance_does_not_require_the_harbor_task_to_pass() -> None:
     assert report.accepted
     assert report.cases[0].scores["harbor_reward_reward"].value == 1 / 3
     assert report.cases[0].labels["task_outcome"].value == "not_passed"
+
+
+def test_atomic_replay_retains_groundedness_and_exact_artifact_lineage(tmp_path: Path) -> None:
+    task = _terminal_bench_task()
+    observation = _observation(task, prepared_context="Grounded task evidence.")
+    legacy = observation.memory_after.entries[0]
+    assert isinstance(legacy, MemoryEntrySnapshot)
+    exact = AtomicMemorySnapshot(
+        artifact=ArtifactReference(family="atomic-memory", artifact_id="memory-a", revision=2),
+        kind=legacy.kind,
+        text=legacy.text,
+        state="active",
+        state_version=4,
+        merged_into_id=None,
+        sources=legacy.source_refs,
+        artifacts=(ArtifactReference(family="atomic-memory", artifact_id="merge-input", revision=1),),
+    )
+    observation = observation.model_copy(update={"memory_after": MemorySnapshot(entries=(exact,))})
+    settings = HarnessSettings()
+    live_report = MemoryEvaluator.evaluate(observation, experiment="atomic-lineage")
+
+    write_artifacts(observation, live_report, tmp_path / "live", settings=settings)
+    replay_path = tmp_path / "live/replay.json"
+    replay = json.loads(replay_path.read_text(encoding="utf-8"))
+
+    assert live_report.accepted
+    assert live_report.cases[0].scores["groundedness"].value == 1
+    assert replay["memory_after"]["entries"][0] == exact.model_dump(mode="json")
+    assert rescore_replay(replay_path, tmp_path / "offline", settings)
 
 
 def test_memory_acceptance_rejects_forbidden_recall_context() -> None:

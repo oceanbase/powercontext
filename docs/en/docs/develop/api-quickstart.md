@@ -111,7 +111,7 @@ source_exchange = post(
 source_ref = source_exchange["source"]
 
 # Explicit long-term writes require application or user authorization.
-post(
+saved = post(
     "/v1/memory/remember",
     {
         "scope_id": SCOPE_ID,
@@ -120,6 +120,10 @@ post(
         "reason": "Confirmed billing policy",
     },
 )
+
+# Preserve the real independent Artifact identities from the successful write.
+memories = saved["records"]
+print(json.dumps(memories, ensure_ascii=False, indent=2))
 
 # Prepare bounded historical context for one model request.
 question = "How should the assistant handle a refund request for an expired order?"

@@ -19,7 +19,7 @@ from __future__ import annotations
 from hashlib import sha256
 from typing import Annotated, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import TASK_OUTCOME_SOURCE_KIND
@@ -304,6 +304,8 @@ class HandoffReceipt(_WorkValue):
         Field(max_length=MAX_HANDOFF_RECEIPT_EVIDENCE),
     ] = ()
     message: str | None = None
+    # Unavailable evidence that cited a legacy Memory collection: shown as history, never resolved.
+    historical_data: dict[str, JsonValue] | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def validate_target_and_evidence(self) -> HandoffReceipt:
@@ -315,7 +317,7 @@ class HandoffReceipt(_WorkValue):
             raise ValueError("Handoff receipt must preserve its exact resolved target")  # noqa: TRY003
         if self.evidence_status == "available" and self.unavailable_evidence:
             raise ValueError("available Handoff receipt cannot contain unavailable evidence")  # noqa: TRY003
-        if self.evidence_status == "unavailable" and not self.unavailable_evidence:
+        if self.evidence_status == "unavailable" and not self.unavailable_evidence and self.historical_data is None:
             raise ValueError("unavailable Handoff receipt must identify unavailable evidence")  # noqa: TRY003
         if self.status == "accepted" and self.evidence_status == "unavailable":
             raise ValueError("a Handoff with unavailable evidence cannot be accepted")  # noqa: TRY003

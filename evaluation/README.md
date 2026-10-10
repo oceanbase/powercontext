@@ -8,7 +8,7 @@ Python environment and build configuration.
 | --- | --- | --- |
 | [`coding/`](coding/README.md) | Coding-task completion and continuation quality | [SWE-bench Pro](coding/swebench_pro/README.md), [Work continuity](coding/work_continuity/README.md) |
 | [`memory/`](memory/README.md) | Memory retrieval and answer quality | [LoCoMo](memory/locomo/README.md), [LoCoMo-Plus](memory/locomo_plus/README.md), [LongMemEval-V2](memory/longmemeval_v2/README.md) |
-| [`performance/`](performance/README.md) | Capacity, storage growth, latency, and compaction cost | [Memory capacity](performance/memory_capacity/README.md) |
+| [`performance/`](performance/README.md) | Load, latency, storage growth, and capacity limits | None yet |
 | [`skills/`](skills/README.md) | Agent instruction routing and authorization regressions | [Claude Code skill-up](skills/skill-up/README.md) |
 
 ```text
@@ -38,14 +38,13 @@ evaluation/
 │       ├── scripts/
 │       └── tests/
 ├── performance/
-│   └── memory_capacity/
 └── skills/
     └── skill-up/
 ```
 
 ## Run a suite
 
-Run these commands from the repository root. LoCoMo, LoCoMo-Plus, and performance modules use the root project's
+Run these commands from the repository root. LoCoMo and LoCoMo-Plus modules use the root project's
 Python dependencies. SWE-bench Pro, Work continuity, and LongMemEval-V2 share this directory's locked environment and
 expose independent `swebench-pro`, `work-continuity`, and `longmemeval-v2` commands. Skill-up has its own validation
 dependencies and pinned CLI.
@@ -62,9 +61,6 @@ uv run python -m evaluation.memory.locomo --help
 uv run python -m evaluation.memory.locomo_plus run \
   --dataset-file evaluation/memory/locomo_plus/dataset/locomo_plus_smoke10.json \
   --dry-run
-
-# Capacity and performance: inspect options before choosing a backend and scale.
-uv run python -m evaluation.performance.memory_capacity --help
 
 # Skill regression: validate the pinned Skill and controlled fixtures locally.
 uv run python evaluation/skills/skill-up/sync_skill.py --check

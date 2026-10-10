@@ -1,7 +1,8 @@
 # 使用 Builtin Memory layer
 
-Builtin Memory family 将可复用 entry 保存为不可变 Artifact revision。`builtin` extra 包含完整 runtime 和两种受支持的
-database integration。远程应用应采用[远程访问文档](remote-access-implementation.md)说明的 Server API。
+Builtin Memory 把每条可长期保留的事实、偏好或决策保存为一个独立的 `atomic-memory` Artifact。每条记忆都有自己的
+identity、revision、状态、tag 和访问关系。`builtin` extra 包含完整 runtime 和两种受支持的 database integration。
+远程应用应采用[远程访问文档](remote-access-implementation.md)说明的 Server API。
 
 ## 选择 database
 
@@ -15,13 +16,9 @@ SQLite 是默认选择。`open_builtin_runtime()` 持有所选 database profile�
 `BuiltinRuntime` interface：
 
 ```python
-from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import (
-    BuiltinConfig,
-    RememberMemoryRequest,
-    open_builtin_runtime,
-)
+from powercontext.builtin.runtime import BuiltinConfig, open_builtin_runtime
 
 
 async def save_note() -> None:
@@ -29,129 +26,62 @@ async def save_note() -> None:
         database=SQLiteConfig(url="sqlite+aiosqlite:///powercontext.db")
     )
     async with open_builtin_runtime(config) as runtime:
-        result = await runtime.memory.for_scope("project-alpha").remember(
-            RememberMemoryRequest(
-                entries=(
-                    MemoryEntryInput(
-                        kind="decision",
-                        text="Use one composition root for the process.",
-                    ),
-                )
-            )
+        assert runtime.atomic_memory is not None
+        result = await runtime.atomic_memory.for_scope("project-alpha").create(
+            (AtomicMemoryContent(kind="decision", text="Use one composition root for the process."),)
         )
-        assert result.memory_ref.revision == 1
+        assert result.primary.ref.revision == 1
 ```
 
-scope ID 在数据库中选择相互隔离的 Source journal、Memory lifecycle 和 Trigger cursor。
+scope ID 在数据库中选择相互隔离的 Source journal、记忆集合和 Trigger cursor。
 
-## 写入和演进 entry
+## 写入、提取和变更记忆
 
-`ScopedMemoryApplication.remember()` 接受显式的 `MemoryEntryInput`。基于 Source 的 extraction 使用另一条路径：
-先 capture Source，再通过已经配置 candidate pipeline 的 Runtime flush 待处理 Source window。
+`ScopedAtomicMemoryApplication.create()` 以全有或全无的方式批量写入显式记忆，每个输入对应返回一条记录。基于 Source
+的提取走另一条路径：先 capture Source，再调用 `flush()`，由已配置的提取 pipeline 处理待处理的 Source window。
+`cursor()` 返回已处理到的 Source 位置。
 
-result 包含新的不可变 Memory reference 和发生变化的 entry。后续 mutation 直接使用它的 citation：
+每条记忆独立变更。`forget()` 让一条记忆失效，`merge()` 用一条新记忆替换多条旧记忆。`forget()` 要求传入预期的内容
+revision 和状态版本，`merge()` 要求传入调用方读到的精确记录，调用方持有的数据过期时操作会失败，不会覆盖并发修改。
+`restore()` 使用 `preview_restoration()` 返回的 token 执行恢复：
 
 ```python
-from powercontext.builtin.runtime import ReviseMemoryEntryRequest
-
-memory = runtime.memory.for_scope("project-alpha")
-entries = await memory.list()
-current = entries.entries[0]
-revised = await memory.revise(
-    ReviseMemoryEntryRequest(
-        citation=current.citation,
-        kind=current.entry.kind,
-        text="Use PowerContext as the only composition root.",
-        reason="Clarify ownership.",
-    )
+memory = runtime.atomic_memory.for_scope("project-alpha")
+current = (await memory.list()).items[0]
+await memory.forget(
+    current.ref.artifact_id,
+    expected_revision=current.ref.revision,
+    expected_state_version=current.state.state_version,
 )
 ```
 
-`retire()` 将 entry 标记为 inactive，但不删除不可变 content。`changes()` 返回紧凑的 revision change。
-expected revision 和 citation 保留 optimistic concurrency，调用方无需重新构造 reference。
+`list()` 按状态分页列出记忆，`get()` 读取一条记忆，也可以指定精确 revision。
 
-## 容量与墓碑压缩
+## 检索
 
-`await runtime.memory.for_scope(scope_id).capacity()` 返回当前版本的活跃条目数、清单条目总数、精确的规范化内容
-字节数、可压缩墓碑数、预算和超限维度。直接调用 `await service.capacity(memory)` 则测量传入的精确版本。
-远程调用使用 `POST /v1/memory/capacity`，请求体为 `{"scope_id": "project-alpha"}`；Python 客户端提供
-`PowerContextClient.get_memory_capacity(GetMemoryCapacityRequest(scope_id="project-alpha"))`。
-Scope 尚无 Memory 时返回 404，查询不会创建 Memory。
-MCP 通过 `get_memory_capacity` 暴露相同的查询，并标记为只读、幂等。
-墓碑资格检查除了读取目标版本，还可能加载配置的保留窗口内的完整清单（默认 10 个版本）；读取与解码开销随这些
-清单的总大小增长。这不是固定开销的计数器，适合显式检查容量，不适合频繁轮询。
+SQLite 和 OceanBase 都会初始化全文索引，因此不配置 embedding model 也能检索：
 
-`RuntimeConfig` 提供以下部署级默认值：
+```python
+result = await runtime.atomic_memory.for_scope("project-alpha").search("composition root", mode="text")
+```
 
-| 配置项 | 默认值 |
+每个 hit 都标明参与排序的精确记忆 revision。`mode="auto"` 会选择当前可用的最强模式，并可在 query embedding
+暂时不可用时回退到文本检索。显式请求 `vector` 或 `hybrid` 时，如果 profile 没有提供相应能力，操作会失败。
+
+## 旧 Memory HTTP 操作
+
+Server 保留五个旧入口，每个都转换为 Atomic Memory 操作：
+
+| 操作 | 行为 |
 | --- | --- |
-| `memory_max_active_entries` | 5,000 |
-| `memory_max_manifest_entries` | 10,000 |
-| `memory_max_manifest_bytes` | 4,194,304 |
-| `memory_compaction_enabled` | `False` |
-| `memory_compaction_min_tombstone_revisions` | 10 |
-| `memory_max_history_revisions` | 100 |
+| `POST /v1/memory/remember` | 创建一条记忆；带 `expected_revision` 的请求会被拒绝。 |
+| `POST /v1/memory/search` | 检索有效记忆；`fts` 映射为文本检索。 |
+| `POST /v1/memory/entries/list` | 列出记忆；`include_inactive` 会加入已遗忘、已合并和已退役的记忆。 |
+| `POST /v1/memory/entries/get` | 按旧 `target` 的集合 ID 和 entry ID 读取迁移后的记忆。 |
+| `POST /v1/memory/flush` | 处理下一个 Source window。 |
 
-容量默认值约束每个版本的增长，不保证追加延迟，也不限制数据库总大小；保留的历史清单仍会持续累积。
-部署时应结合对应后端的代表性测量调整预算。
-
-活跃条目上限不得大于清单条目上限。显式写入、提取和通用 Artifact 管理共用预算。只有某维度既超过上限、又比
-基础版本更大时才拒绝写入；错误维度按字节数、清单条目数、活跃条目数的固定顺序选择。HTTP 返回
-`409 memory_capacity_exceeded`，详情包含 `dimension`、`limit` 和 `observed`，拒绝后不持久化内容。
-`manifest_bytes` 计入完整规范化版本内容，包括变更记录及其原因。
-
-超限时仍可执行 `forget()` 和 `organize()`；`reactivate()` 仅检查活跃条目数增长。压缩从当前清单移除达到保留
-年龄且未绑定标签的非活跃条目。构造 Runtime 时设置 `RuntimeConfig(memory_compaction_enabled=True)`，允许显式
-提交进程内压缩。该开关不会调度或自动触发压缩；调用 Scope 的 Runtime 入口预览，再用预览版本提交，避免处理
-已发生变化的 head：
-
-```python
-scoped = runtime.memory.for_scope(scope_id)
-preview = await scoped.compact(dry_run=True, limit=100)
-result = await scoped.compact(limit=100, expected_revision=preview.memory.revision)
-```
-
-直接使用 service 的调用方可通过 `MemoryCompactionPolicy(enabled=True)` 构造 `MemoryService`，再以精确的
-Memory 版本调用 `service.compact(memory, ...)`。当前没有 HTTP、MCP 或 CLI 压缩操作。
-
-压缩关闭时仍可预览，预览不写入版本。年龄按已推进的版本数计算：默认保留 10 个版本时，在版本 2 停用的条目
-从版本 12 起可压缩。重新激活并再次停用会重置保留窗口。资格检查只读取这一近期窗口。无变化的维护操作不会
-推进版本；如果所有墓碑都过新，可显式配置 `memory_compaction_min_tombstone_revisions=0`，或使用
-`MemoryCompactionPolicy(enabled=True, min_tombstone_revisions=0)`，先预览再立即压缩。零年龄只跳过保留窗口，
-活跃条目和带标签墓碑仍受保护。除非需要立即恢复容量，否则建议保留默认窗口，因为压缩后无法重新激活条目。
-标签会保护非活跃条目；压缩期间新增标签会使整个事务回滚并抛出
-`CapabilityNotSupportedError("compaction-tag-conflict")`，调用方可重新预览。
-
-压缩保留所有条目正文、历史版本和精确引用。被移除的条目无法重新激活，也不会出现在当前清单中。
-每次移除都记录新增的 `compact` 变更类型；启用前应更新穷举变更类型的消费者。压缩仅提供进程内接口。
-`reclaimed_bytes` 是完整规范化内容的有符号字节差；审计记录或较长原因可能抵消小规模清单缩减，因此该值可能
-为负。后续版本不再携带本次压缩的变更记录。
-
-`MemoryService.revisions(memory, since_revision=0, through_revision=None)` 读取区间
-`(since_revision, through_revision]`，默认以当前 head 为上界。请求区间超过 `memory_max_history_revisions` 时，
-在展开前抛出 `CapabilityNotSupportedError("history-window")`，不会静默截断结果。例如，历史超过 100 个版本时，
-仍可用 `through_revision=1` 读取首个版本，用 `since_revision=100, through_revision=200` 读取后续 100 个版本。
-在接近 4 MiB 字节预算时，默认 100 个版本已可能包含约 400 MiB 规范内容，尚未计入对象开销。这是读取展开次数
-上限，不是内存硬上限；调低预算或执行补救操作后，版本也可能超过字节预算。只有调用方能承担完整快照开销时
-才应提高历史读取上限。这一上限不为 `entries()` 或 `changes()` 提供分页。
-
-## 检索、展开与引用
-
-SQLite 和 OceanBase 都会初始化全文索引，因此不配置 embedding model 也可以检索：
-
-```python
-from powercontext.builtin.runtime import SearchMemoryRequest
-
-result = await runtime.memory.for_scope("project-alpha").search(
-    SearchMemoryRequest(query="composition root", mode="fts")
-)
-```
-
-每个 hit 都包含参与排序的精确 Memory revision、entry identity 和 entry version。Runtime 的 list 和 exact-read
-operation 返回相同的 citation 字段。
-
-`mode="auto"` 会选择当前可用的最强模式，并可在 query embedding 暂时不可用时回退到 FTS。显式请求 `vector`
-或 `hybrid` 时，如果 profile 没有提供相应能力，操作会失败。
+集合 revision、citation、capacity、changes、revise、retire、entry tag 以及 `memory` 访问目标在 Atomic Memory 中
+没有对应语义，会在执行任何操作前返回 `422 legacy_memory_operation_unsupported`。
 
 ## 启用 SQLite 向量检索
 
@@ -169,12 +99,9 @@ async with open_builtin_runtime(
     ...
 ```
 
-SQLite profile 会组合 FTS5 和 sqlite-vec strategy，并通过 Memory capabilities 报告 `fts`、`vector` 和 `hybrid`。持久化
-projection 与 query vector 必须使用同一个 `EmbeddingProfile`，包括 model name、dimension、distance 和
-normalization。更换 profile 后，应先重建 projection，再恢复 vector search。
-
-调用 `MemoryService.rebuild_projections()` 可以从权威 Memory revision 重建派生检索数据。revision 和 entry 表
-始终是事实来源。
+SQLite profile 会组合 FTS5 和 sqlite-vec strategy，并报告 `text`、`vector` 和 `hybrid` 检索模式。持久化 projection
+与 query vector 必须使用同一个 `EmbeddingProfile`，包括 model name、dimension、distance 和 normalization。
+更换 profile 后，应先重建派生检索索引，再恢复 vector search。Artifact revision 和状态始终是事实来源。
 
 ## 使用 OceanBase 持久化
 
@@ -196,7 +123,7 @@ async with open_builtin_runtime(
     BuiltinConfig(database=config),
     embedding_model=embedding_model,
 ) as runtime:
-    memory = runtime.memory.for_scope("project-alpha")
+    memory = runtime.atomic_memory.for_scope("project-alpha")
 ```
 
 OceanBase profile 与 SQLite 使用相同的 index 组合方式。全文 strategy 始终可用；提供 embedding model 后，会增加
@@ -209,7 +136,7 @@ OceanBase profile 与 SQLite 使用相同的 index 组合方式。全文 strateg
 
 - 所选 profile 能够成功打开并完成初始化；
 - 每个 tenant 或 project 映射到预期的 scope ID；
-- 定时 extraction 已经配置 candidate pipeline；
+- 定时 extraction 已经配置提取 pipeline；
 - SQLite vector search 配置了匹配的 embedding model；
 - OceanBase vector search 配置了匹配的 embedding model；
 - capability response 与实际初始化的 index 一致；

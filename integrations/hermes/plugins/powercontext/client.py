@@ -21,9 +21,10 @@ from collections.abc import Callable
 from http.client import HTTPResponse
 from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from .helpers import normalize_memory_reference, reject_legacy_citation
 from .powercontext_client_config import normalize_server_url, resolve_allow_insecure_http
 
 if TYPE_CHECKING:
@@ -59,9 +60,6 @@ _OPERATION_SPECS: dict[str, tuple[str, str]] = {
     "search_memory": ("POST", "/v1/memory/search"),
     "list_memory_entries": ("POST", "/v1/memory/entries/list"),
     "get_memory_entry": ("POST", "/v1/memory/entries/get"),
-    "revise_memory_entry": ("POST", "/v1/memory/entries/revise"),
-    "retire_memory_entry": ("POST", "/v1/memory/entries/retire"),
-    "list_memory_changes": ("POST", "/v1/memory/changes"),
     "propose_experience": ("POST", "/v1/experience/propose"),
     "generate_experience": ("POST", "/v1/experience/generate"),
     "get_experience": ("POST", "/v1/experience/get"),
@@ -169,34 +167,45 @@ class PowerContextClient:
         payload: dict[str, Any] | None = None,
         *,
         method: str = "POST",
+        headers: dict[str, str] | None = None,
+        response_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         body = None
         if method != "GET":
             body = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers = {
+        request_headers = {
             "Accept": "application/json",
             "User-Agent": "powercontext-hermes/0.1",
         }
         if method != "GET":
-            headers["Content-Type"] = "application/json"
+            request_headers["Content-Type"] = "application/json"
         if self.authorization:
-            headers["Authorization"] = self.authorization
+            request_headers["Authorization"] = self.authorization
+        request_headers.update(headers or {})
         url = f"{self.base_url}{path}"
         if method == "GET" and payload:
             query = urlencode({key: value for key, value in payload.items() if value is not None})
             if query:
                 url = f"{url}?{query}"
-        request = Request(url, data=body, headers=headers, method=method)  # noqa: S310
+        request = Request(url, data=body, headers=request_headers, method=method)  # noqa: S310
 
         try:
             if self._transport is not None:
                 response = self._transport(request, self.timeout)
                 status = int(getattr(response, "status", 200))
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
+                if response_headers is not None:
+                    etag = getattr(response, "headers", {}).get("ETag")
+                    if etag:
+                        response_headers["ETag"] = str(etag)
             else:
                 with self._opener.open(request, timeout=self.timeout) as response:
                     status = int(getattr(response, "status", 200))
                     raw = response.read(MAX_RESPONSE_BYTES + 1)
+                    if response_headers is not None:
+                        etag = response.headers.get("ETag")
+                        if etag:
+                            response_headers["ETag"] = str(etag)
         except HTTPError as error:
             try:
                 error_body = error.read(MAX_RESPONSE_BYTES + 1)
@@ -228,6 +237,27 @@ class PowerContextClient:
     def request_operation(self, operation: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """Call a public PowerContext operation by its stable identifier."""
 
+        request = payload or {}
+        if operation == "revise_memory_entry":
+            if request.get("reason"):
+                raise ValueError("Atomic content revision does not accept the legacy reason field")  # noqa: TRY003
+            return self.revise_memory_entry(
+                request["scope_id"], request["citation"], kind=request["kind"], text=request["text"]
+            )
+        if operation == "get_memory_entry" and "target" not in request:
+            return self.get_memory_entry(request["scope_id"], request["citation"])
+        if operation == "retire_memory_entry":
+            return self.retire_memory_entry(request["scope_id"], request["citation"])
+        if operation == "remember_memory":
+            return self.remember_memory(
+                request["scope_id"],
+                kind=request["kind"],
+                text=request["text"],
+                reason=request.get("reason"),
+                expected_revision=request.get("expected_revision"),
+            )
+        if operation == "list_memory_changes":
+            raise ValueError("Atomic Memory has per-Artifact revisions; collection change history is unsupported")  # noqa: TRY003
         try:
             method, path = _OPERATION_SPECS[operation]
         except KeyError as error:
@@ -301,11 +331,75 @@ class PowerContextClient:
         if reason:
             payload["reason"] = reason
         if expected_revision is not None:
-            payload["expected_revision"] = expected_revision
+            raise ValueError("Atomic Memory creation does not accept a collection expected_revision")  # noqa: TRY003
         return self._request("/v1/memory/remember", payload)
 
+    @staticmethod
+    def _memory_reference(citation: dict[str, Any]) -> dict[str, Any]:
+        reject_legacy_citation(citation)
+        normalized = normalize_memory_reference(citation)
+        if normalized is None:
+            raise ValueError("Invalid exact Memory reference")  # noqa: TRY003
+        return normalized
+
+    @staticmethod
+    def _memory_path(scope_id: str, ref: dict[str, Any]) -> str:
+        return f"/v1/scopes/{quote(scope_id, safe='')}/artifacts/atomic-memory/{quote(ref['artifact_id'], safe='')}"
+
     def get_memory_entry(self, scope_id: str, citation: dict[str, Any]) -> dict[str, Any]:
-        return self._request("/v1/memory/entries/get", {"scope_id": scope_id, "citation": citation})
+        reference = self._memory_reference(citation)
+        ref = reference.get("artifact", reference)
+        result = self._request(f"{self._memory_path(scope_id, ref)}/revisions/{ref['revision']}", method="GET")
+        if normalize_memory_reference(result) != ref or not isinstance(result.get("content"), dict):
+            raise PowerContextInvalidResponseError("PowerContext returned a different Artifact revision")  # noqa: TRY003
+        return result
+
+    def get_memory_state(self, scope_id: str, citation: dict[str, Any]) -> dict[str, Any]:
+        reference = self._memory_reference(citation)
+        ref = reference.get("artifact", reference)
+        path = f"{self._memory_path(scope_id, ref)}/state"
+        result = self._request(path, method="GET")
+        current = normalize_memory_reference(result)
+        if current is None or "artifact" not in current:
+            raise PowerContextInvalidResponseError("PowerContext returned invalid Atomic Memory state")  # noqa: TRY003
+        if current["artifact"] != ref:
+            raise PowerContextHTTPError(
+                409, path=path, message="Memory content revision changed; refresh before retrying"
+            )
+        return current
+
+    def revise_memory_entry(
+        self,
+        scope_id: str,
+        citation: dict[str, Any],
+        *,
+        kind: str,
+        text: str,
+    ) -> dict[str, Any]:
+        reference = self._memory_reference(citation)
+        ref = reference.get("artifact", reference)
+        path = self._memory_path(scope_id, ref)
+        response_headers: dict[str, str] = {}
+        current = self._request(path, method="GET", response_headers=response_headers)
+        if normalize_memory_reference(current) != ref:
+            raise PowerContextHTTPError(
+                409, path=path, message="Memory content revision changed; refresh before retrying"
+            )
+        etag = response_headers.get("ETag")
+        if not etag:
+            raise PowerContextInvalidResponseError("PowerContext omitted the required content ETag")  # noqa: TRY003
+        result = self._request(
+            path, {"content": {"kind": kind, "text": text}}, method="PUT", headers={"If-Match": etag}
+        )
+        updated = normalize_memory_reference(result)
+        if (
+            updated is None
+            or updated.get("artifact_id") != ref["artifact_id"]
+            or updated.get("family") != ref["family"]
+            or updated.get("revision", 0) < ref["revision"]
+        ):
+            raise PowerContextInvalidResponseError("PowerContext returned an invalid revised Artifact")  # noqa: TRY003
+        return result
 
     def retire_memory_entry(
         self,
@@ -314,10 +408,15 @@ class PowerContextClient:
         *,
         reason: str | None = None,
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"scope_id": scope_id, "citation": citation}
+        """Compatibility tool name: forgetting is reversible, unlike terminal retirement."""
         if reason:
-            payload["reason"] = reason
-        return self._request("/v1/memory/entries/retire", payload)
+            raise ValueError("Atomic lifecycle operations do not accept the legacy reason field")  # noqa: TRY003
+        reference = self._memory_reference(citation)
+        if "artifact" not in reference:
+            reference = self.get_memory_state(scope_id, reference)
+        return self._request(
+            "/v1/atomic-memory/lifecycle", {"scope_id": scope_id, "target": reference, "state": "forgotten"}
+        )
 
     def capture_content(
         self,

@@ -30,21 +30,30 @@ import httpx
 import pytest
 import uvicorn
 
-from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+)
+from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.sources import ContentSource
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
+from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 
 HOOK = Path(__file__).resolve().parents[2] / "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs"
 
 
 class DeterministicSourcePipeline:
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        return tuple(
-            MemoryEntryInput(kind="fact", text=source.content, sources=(source,), reason="captured")
-            for source in request.sources
-            if isinstance(source, ContentSource)
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        return GenerationResult(
+            output=AtomicMemoryExtractionOutput(
+                candidates=tuple(
+                    AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,))
+                    for evidence in request.evidence
+                    if (text := memory_source_text(evidence)) is not None
+                )
+            )
         )
 
 
@@ -86,7 +95,7 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'zcode.db'}"), mcp=McpConfig(enabled=False)
         ),
-        candidate_pipeline=DeterministicSourcePipeline(),
+        candidate_pipeline=atomic_memory_pipeline(DeterministicSourcePipeline()),
     )
     with socket.socket() as socket_probe:
         socket_probe.bind(("127.0.0.1", 0))
@@ -225,14 +234,21 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
             )
             assert status.returncode == 0, status.stdout + status.stderr
             result = json.loads(status.stdout)
-            assert result["observation"]["stages"]["flush"]["state"] == "cursor_reached"
+            assert result["observation"]["stages"]["flush"]["state"] == "cursor_reached", result
             assert result["pending"]["scopes"] == []
             entries = client.post("/v1/memory/entries/list", json={"scope_id": scope_id})
             entries.raise_for_status()
-            assert entries.json()["memory"] is not None
+            assert entries.json()["entries"]
+            assert all(entry["artifact"]["family"] == "atomic-memory" for entry in entries.json()["entries"])
             generated = next(entry for entry in entries.json()["entries"] if "teal-731" in entry["text"])
             captured = client.get(f"/v1/scopes/{scope_id}/sources").json()["items"]
-            assert generated["source_refs"] == [{"name": "content", "source_id": captured[0]["source_id"]}]
+            reference = generated["artifact"]
+            revision = client.get(
+                f"/v1/scopes/{scope_id}/artifacts/{reference['family']}/{reference['artifact_id']}"
+                f"/revisions/{reference['revision']}"
+            )
+            revision.raise_for_status()
+            assert revision.json()["sources"] == [{"source_type": "content", "source_id": captured[0]["source_id"]}]
 
             second = _invoke_hook(
                 node=node,

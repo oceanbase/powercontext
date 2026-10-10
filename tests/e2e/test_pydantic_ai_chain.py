@@ -27,29 +27,34 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ModelResponse, SystemPromptPart, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 
-from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+)
+from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
-from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient
 from powercontext.http import CaptureContentSourceRequest, CreateScopeRequest, ResolveScopeBindingRequest
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
+from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 
 
 class ToolResultCandidatePipeline:
-    """Activate only completed tool results so the chain proves that capture path."""
-
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
-        return tuple(
-            MemoryEntryInput(
-                kind="agent-trajectory",
-                text=source.content,
-                sources=(source,),
-                reason="captured Pydantic AI tool result",
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        return GenerationResult(
+            output=AtomicMemoryExtractionOutput(
+                candidates=tuple(
+                    AtomicMemoryCandidate(kind="working_note", text=text, evidence_ids=(evidence.evidence_id,))
+                    for evidence in request.evidence
+                    if (text := memory_source_text(evidence)) is not None
+                    if isinstance(evidence.source_metadata, dict)
+                    and isinstance(evidence.source_metadata.get("metadata"), dict)
+                    and evidence.source_metadata["metadata"].get("event") == "tool_result"
+                )
             )
-            for source in request.sources
-            if isinstance(source, ContentSource) and source.metadata.get("event") == "tool_result"
         )
 
 
@@ -63,7 +68,7 @@ def test_pydantic_ai_capture_checkpoint_recall_and_search_chain(
             inference=InferenceConfig(),
             mcp=McpConfig(enabled=False),
         ),
-        candidate_pipeline=ToolResultCandidatePipeline(),
+        candidate_pipeline=atomic_memory_pipeline(ToolResultCandidatePipeline()),
     )
     recalled_contexts: list[str] = []
     search_results: list[dict[str, Any]] = []
@@ -157,10 +162,10 @@ def test_pydantic_ai_capture_checkpoint_recall_and_search_chain(
     assert asyncio.run(scenario()) == "capture, checkpoint, recall, and search completed"
     assert recalled_contexts
     assert len(search_results) == 1
-    assert search_results[0]["mode"] == "fts"
+    assert search_results[0]["mode"] == "text"
     assert search_results[0]["hits"]
-    assert "checkpoint-evidence" in search_results[0]["hits"][0]["text"]
-    assert search_results[0]["hits"][0]["citation"]["memory_ref"]["revision"] >= 1
+    assert "checkpoint-evidence" in search_results[0]["hits"][0]["memory"]["text"]
+    assert search_results[0]["hits"][0]["memory"]["artifact"]["revision"] >= 1
 
 
 def test_pydantic_ai_final_flush_catches_up_across_more_than_ten_source_windows(
@@ -175,7 +180,7 @@ def test_pydantic_ai_final_flush_catches_up_across_more_than_ten_source_windows(
             runtime=RuntimeConfig(source_window_limit=1),
             mcp=McpConfig(enabled=False),
         ),
-        candidate_pipeline=ToolResultCandidatePipeline(),
+        candidate_pipeline=atomic_memory_pipeline(ToolResultCandidatePipeline()),
     )
     recalled_contexts: list[str] = []
 

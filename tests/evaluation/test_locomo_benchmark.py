@@ -15,6 +15,7 @@
 """Focused tests for the deterministic LoCoMo benchmark boundary."""
 
 import json
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,8 @@ from evaluation.memory.locomo.runner import (
     prepare_run,
     scope_id,
 )
+from powercontext.builtin.artifacts.atomic_memory.extraction import atomic_memory_extraction_instructions
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, MemoryExtractionProfile, RuntimeConfig
 from powercontext.server.settings import ServerSettings
@@ -191,14 +194,23 @@ def test_run_manifest_is_stable_and_excludes_database_credentials(tmp_path: Path
     assert first == second
     assert first["run_id"] == "smoke-test"
     assert first["configuration"]["memory_extraction_profile"] == "conversation"
-    assert first["configuration"]["memory_extraction_instructions"] == "powercontext.memory.extract.conversation.v1"
+    assert (
+        first["configuration"]["memory_extraction_instructions_sha256"]
+        == sha256(
+            atomic_memory_extraction_instructions(MemoryExtractionProfile.CONVERSATION).encode("utf-8")
+        ).hexdigest()
+    )
+    assert (
+        first["configuration"]["memory_reconciliation_instructions_sha256"]
+        == sha256(ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS.encode("utf-8")).hexdigest()
+    )
     assert first["candidate_k"] == 30
     assert first["answer_k"] == 30
     assert first["rerank_mode"] == "none"
     assert first["answer_source_content"] is False
     assert "answer_inference_aware" not in first
     assert "answer_unknown_fallback_inference" not in first
-    assert first["schema"] == "powercontext.benchmark.locomo.run.v5"
+    assert first["schema"] == "powercontext.benchmark.locomo.run.v8"
     assert first["generation_temperature"] == 0.0
     assert first["judge_profile"] == "strict"
     assert "secret" not in json.dumps(first)
@@ -234,7 +246,7 @@ def test_run_manifest_records_inference_aware_answer_policy(tmp_path: Path) -> N
         operation_retries=3,
     )
 
-    assert manifest["schema"] == "powercontext.benchmark.locomo.run.v6"
+    assert manifest["schema"] == "powercontext.benchmark.locomo.run.v8"
     assert manifest["answer_inference_aware"] is True
     assert manifest["answer_instructions"] == "powercontext.benchmark.locomo.answer.source.inference.v1"
     with pytest.raises(ValueError, match="requires Source expansion"):
@@ -280,7 +292,7 @@ def test_run_manifest_records_unknown_fallback_inference_policy(tmp_path: Path) 
         operation_retries=3,
     )
 
-    assert manifest["schema"] == "powercontext.benchmark.locomo.run.v7"
+    assert manifest["schema"] == "powercontext.benchmark.locomo.run.v8"
     assert manifest["answer_unknown_fallback_inference"] is True
     assert manifest["answer_instructions"] == "powercontext.benchmark.locomo.answer.source.unknown_fallback.v1"
     assert manifest["answer_fallback_trigger"] == "normalized-answer-equals-unknown"

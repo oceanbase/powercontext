@@ -18,7 +18,16 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryExtractionInput,
+    AtomicMemoryExtractionOutput,
+    AtomicMemoryGenerationPipeline,
+)
+from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
+    AtomicMemoryReconciliationInput,
+    AtomicMemoryReconciliationOutput,
+)
+from powercontext.builtin.inference import GenerationResult, character_token_estimator
 from powercontext.builtin.inference.errors import (
     InferenceConfigurationError,
     InferenceTimeoutError,
@@ -31,14 +40,21 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
 
-class _RecoveringPipeline:
+class _RecoveringExtractor:
     def __init__(self, failure: Exception) -> None:
         self.failure: Exception | None = failure
 
-    async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
+    async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
         if self.failure is not None:
             raise self.failure
-        return ()
+        return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=()))
+
+
+class _UnusedReconciler:
+    async def generate(
+        self, request: AtomicMemoryReconciliationInput, /
+    ) -> GenerationResult[AtomicMemoryReconciliationOutput]:
+        raise AssertionError
 
 
 def test_capabilities_reports_unconfigured_extraction_without_claiming_health(tmp_path) -> None:
@@ -85,14 +101,16 @@ def test_capabilities_reports_unconfigured_extraction_without_claiming_health(tm
     ],
 )
 def test_capabilities_keeps_independent_scope_outcomes_until_restart(tmp_path, failure, category, stage) -> None:
-    pipeline = _RecoveringPipeline(failure)
+    extractor = _RecoveringExtractor(failure)
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'diagnostics.db'}"),
             runtime=RuntimeConfig(artifact_processing_families=()),
             mcp=McpConfig(enabled=False),
         ),
-        candidate_pipeline=pipeline,
+        candidate_pipeline=AtomicMemoryGenerationPipeline(
+            extractor=extractor, reconciler=_UnusedReconciler(), estimator=character_token_estimator()
+        ),
     )
     with TestClient(app, raise_server_exceptions=False) as client:
         initial = client.get("/v1/capabilities").json()["extraction"]
@@ -118,7 +136,7 @@ def test_capabilities_keeps_independent_scope_outcomes_until_restart(tmp_path, f
         assert failed["last_success_at"] is None
         assert "secret-provider" not in response.text
 
-        pipeline.failure = None
+        extractor.failure = None
         other_scope = client.post(
             "/v1/scopes",
             json={"title": "Healthy Scope", "summary": "Independent extraction", "idempotency_key": "healthy"},

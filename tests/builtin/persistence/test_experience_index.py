@@ -36,7 +36,7 @@ from powercontext.builtin.persistence.experience_index import (
     skill_search_hits,
 )
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, BUILTIN_TABLES
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.sources import ContentCapture
@@ -91,7 +91,15 @@ def test_sqlite_startup_upgrades_legacy_artifact_heads_without_searchable_text(t
                 contexts.database.transaction() as connection,
             ):
                 columns = tuple((await connection.exec_driver_sql("PRAGMA table_info('pc_artifact_heads')")).mappings())
-                assert tuple(column["name"] for column in columns).count("searchable_text") == 1
+                names = tuple(column["name"] for column in columns)
+                for name in (
+                    "searchable_text",
+                    "lifecycle_state",
+                    "replacement_artifact_id",
+                    "governance_generation",
+                    "merged_into_id",
+                ):
+                    assert names.count(name) == 1
 
     asyncio.run(scenario())
 
@@ -110,7 +118,50 @@ def test_oceanbase_startup_upgrades_legacy_artifact_heads_with_mediumtext() -> N
         "ALTER TABLE pc_artifact_heads ADD COLUMN lifecycle_state VARCHAR(16) NOT NULL DEFAULT 'active'",
         "ALTER TABLE pc_artifact_heads ADD COLUMN replacement_artifact_id VARCHAR(128) NULL",
         "ALTER TABLE pc_artifact_heads ADD COLUMN governance_generation BIGINT NOT NULL DEFAULT 0",
+        "ALTER TABLE pc_artifact_heads ADD COLUMN merged_into_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL",
+        "ALTER TABLE pc_artifact_lineage_artifacts ADD COLUMN is_merge_input BOOLEAN NOT NULL DEFAULT 0",
     ]
+
+
+def test_explicit_shared_schema_upgrade_preserves_existing_heads_and_lineage(tmp_path) -> None:
+    database = tmp_path / "released-shared.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE pc_artifact_heads (scope_id TEXT, family TEXT, artifact_id TEXT, revision INTEGER, searchable_text TEXT, lifecycle_state TEXT, replacement_artifact_id TEXT, governance_generation INTEGER)"
+        )
+        connection.execute(
+            "INSERT INTO pc_artifact_heads VALUES ('project', 'experience', 'old', 4, 'evidence', 'deprecated', 'replacement', 7)"
+        )
+        connection.execute(
+            "CREATE TABLE pc_artifact_lineage_artifacts (scope_id TEXT, family TEXT, artifact_id TEXT, revision INTEGER, ordinal INTEGER, upstream_family TEXT, upstream_artifact_id TEXT, upstream_revision INTEGER)"
+        )
+        connection.execute(
+            "INSERT INTO pc_artifact_lineage_artifacts VALUES ('project', 'experience', 'old', 1, 0, 'experience', 'evidence', 2)"
+        )
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"), tables=()) as profile:
+            for _ in range(2):
+                async with profile.database.transaction() as connection:
+                    await ensure_artifact_head_searchable_text(connection)
+                    head = (await connection.execute(text("SELECT * FROM pc_artifact_heads"))).mappings().one()
+                    assert (
+                        head["revision"],
+                        head["lifecycle_state"],
+                        head["governance_generation"],
+                        head["replacement_artifact_id"],
+                        head["merged_into_id"],
+                    ) == (4, "deprecated", 7, "replacement", None)
+                    lineage = (
+                        (await connection.execute(text("SELECT * FROM pc_artifact_lineage_artifacts"))).mappings().one()
+                    )
+                    assert (
+                        lineage["upstream_artifact_id"],
+                        lineage["upstream_revision"],
+                        lineage["is_merge_input"],
+                    ) == ("evidence", 2, False)
+
+    asyncio.run(scenario())
 
 
 def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds() -> None:

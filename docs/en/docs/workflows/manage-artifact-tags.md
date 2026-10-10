@@ -5,19 +5,16 @@ description: Label logical Artifacts and Memory entries, then find them with exa
 
 # Organize with tags
 
-Custom tags organize all built-in Artifact families within one Scope: Memory, Topic Memory, Experience, Skill, Handoff,
-Profile, and Prompt. A Memory Artifact and each
-logical entry inside it have independent tag sets. Tags follow these identities across content revisions; they do not
-change content, lineage, embeddings, or Context Versions.
+Each Atomic Memory is an independent Artifact with its own tags. Tags follow the logical identity without changing
+content revisions, lineage, or embeddings. Other built-in Artifact families also support Scope-local tags.
 
-The corresponding `family` values are `memory`, `topic-memory`, `experience`, `skill`, `handoff`, `profile`, and `prompt`.
-The Profile `artifact_id` is `profile`; a Prompt's `artifact_id` is its prompt key, such as `memory.extract`.
+Current `family` values are `atomic-memory`, `topic-memory`, `experience`, `skill`, `handoff`, `profile`, and `prompt`.
+The Profile ID is `profile`; a Prompt ID is its prompt key, such as `atomic_memory.extract`.
 Tags require a persisted Artifact. An unsaved built-in default Prompt has no independent tag set; save a Prompt
 Artifact before assigning tags.
 
 With access control enabled, tags follow their target's read and write permissions. A viewer of a shared target can read
-its tags but cannot edit them or run a Scope-wide tag query. Queries require `scope.read`. Tags on entire Memory and
-Topic Memory Artifacts require `scope.read` to read and `scope.admin` to edit. Prompt tags use the Prompt's read permission;
+its tags but cannot edit them or run a Scope-wide tag query. Queries require `scope.read`. Tags on Topic Memory Artifacts require `scope.read` to read and `scope.admin` to edit. Prompt tags use the Prompt's read permission;
 editing requires current `scope.admin` permission, even if an Artifact owner binding remains after Scope access is revoked.
 Profile, Experience, Skill, Handoff, and individual Memory entries use their target's `artifact.read` / `artifact.write`
 permissions. Insufficient permission returns **403**, and revoking a share also revokes tag access.
@@ -71,17 +68,19 @@ async def main():
 asyncio.run(main())
 ```
 
-The output contains the two saved labels and a matching target. For an entry, use `get_memory_entry_tags` and
-`replace_memory_entry_tags` with `(scope_id, artifact_id, entry_id)`. Read the entry ID from the current Memory manifest
-or a Memory citation, not from `entry_version_id`. A Scope can hold multiple Memory Artifacts; the existing scoped
-Memory list and search operations address the runtime's designated Memory.
+The output contains the saved labels and a matching target. Atomic Memory uses the same `get_artifact_tags` and
+`replace_artifact_tags` operations with `family="atomic-memory"` and the returned `artifact_id`.
+
+Legacy entry tag routes still accept `(scope_id, artifact_id, entry_id)` and resolve the migrated Atomic identity in
+the API adapter. Entries already absent from the old current manifest cannot use this logical lookup; retained old
+citations support exact historical reads. New memories have no legacy entry ID. See [Atomic Memory](atomic-memory.md).
 
 ## HTTP and retrieval filters
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET / PUT | `/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags` | Read or replace an Artifact's labels |
-| GET / PUT | `/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags` | Read or replace a logical entry's labels |
+| GET / PUT | `/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags` | Compatibility read or replacement of a migrated legacy entry's labels |
 | POST | `/v1/scopes/{scope_id}/artifact-tags/query` | Find tagged targets across families |
 
 PUT accepts `{"tags":["customer-a","release"]}` and requires the ETag returned by GET in `If-Match`. Missing `If-Match`
@@ -92,21 +91,21 @@ Artifact listing accepts repeated `tag` parameters and optional `tag_match=all|a
 `/v1/scopes/{scope_id}/artifacts/skill?tag=release&tag=customer-a&tag_match=all`.
 Supplying `tag_match` without `tag` is invalid.
 
-Memory entry listing and search accept this optional request field:
+Atomic Memory list/search requests accept these tag fields:
 
 ```json
-{"tag_filter":{"tags":["customer-a","release"],"match":"all"}}
+{"tags":["customer-a","release"],"tag_match":"all"}
 ```
 
-Search filters entry tags, not the parent Memory Artifact's tags, and still returns only active entries. Full-text and
-vector candidates are filtered in the database before candidate limits, fusion, and reranking. Tagged vector queries
-use exact distance ordering over the eligible set on SQLite and OceanBase; this can cost more than an unfiltered
-approximate search. A backend without tag-filter support rejects the request instead of silently post-filtering.
+Compatibility routes such as `/v1/memory/search` retain the old `tag_filter` request shape. Both filter each independent
+memory's tags. Authorization and tag eligibility are applied before candidate limits and reranking; search returns
+active memories only. Atomic vector search currently uses exact distance ordering on SQLite and OceanBase, with work
+proportional to eligible vector count and dimension.
 
-Tag queries return exact current Artifact references or Memory citations, ordered by family, target type, Artifact ID,
-and target ID. Omit `families` to query all seven families, or select families explicitly, for example
-`{"tags":["release"],"families":["topic-memory","profile","prompt","handoff"]}`. Every family supports tag reads, replacement,
-filtered listing, and cross-family queries. Tags survive content revisions and Server restarts.
+Tag queries return exact current Artifact references, ordered by family, target type, Artifact ID, and target ID.
+Omit `families` for currently supported families or use, for example,
+`{"tags":["release"],"families":["atomic-memory","skill"]}`. Legacy Memory collections are not a current memory discovery
+surface. Tags survive content revisions and Server restarts.
 
 Pass `next_cursor` unchanged with the same filters, Scope, and caller. Cursors expire after one hour;
 invalid or mismatched cursors return **400**, expired cursors **410**. Each page is internally consistent, but pagination
@@ -121,8 +120,7 @@ does not freeze a snapshot across requests.
   code points.
 - Tags are Scope-local discovery metadata, not permissions or trusted instructions. They are not added to model prompts,
   Skill package frontmatter, or publication/import payloads. Published copies start without the source target's tags.
-- Inactive entries remain taggable while present in the current authoritative manifest. Rebuilding active search
-  projections does not remove their labels.
+- Inactive memories retain their authoritative tags. Rebuilding active search projections does not delete them.
 
 All assignments live in `pc_artifact_tags`, with a foreign key to the owning Artifact head. The table retains the full
 normalized key and indexes a 32-byte SHA-256 key fingerprint. This preserves the parent column lengths required by

@@ -96,6 +96,8 @@ def canonical_processing_manifest(config: BuiltinConfig) -> dict[str, Any]:
         "mode": runtime.artifact_processing_supervisor_mode,
         "capabilities": list(processing_capabilities(config)),
         "bindings": {
+            # Internal legacy alias preserves cursor and accepted request generations.
+            # The memory binding's processor now publishes the atomic-memory Family.
             SOURCE_WINDOW_TRIGGER_NAME: "memory",
             TOPIC_MEMORY_SOURCE_WINDOW_BINDING: "topic-memory",
             EXPERIENCE_INCUBATION_CURSOR_NAME: "experience",

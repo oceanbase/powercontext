@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from powercontext.artifacts import ArtifactRef, MemoryCitation
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.evidence.models import EvidenceManifest, EvidenceResolutionError, unique_references
 from powercontext.builtin.evidence.resolver import evidence_id
 from powercontext.sources import SourceRef
@@ -27,7 +27,6 @@ from powercontext.sources import SourceRef
 class SelectedEvidence(BaseModel):
     sources: tuple[SourceRef, ...]
     artifacts: tuple[ArtifactRef, ...]
-    memory_citations: tuple[MemoryCitation, ...]
 
 
 def select_evidence(
@@ -43,9 +42,8 @@ def select_evidence(
         if node is None or node.role in {"unresolved", "lineage_only"} or (skill and node.kind == "memory"):
             raise EvidenceResolutionError("invalid_generation_output")
     chosen = set(used)
-    origins = (*manifest.artifacts, *manifest.memory_citations)
-    # A model that cites a root must retain the exact selected entry/Artifact path.
-    for origin in origins:
+    # A model that cites a root must retain the exact selected Artifact path.
+    for origin in manifest.artifacts:
         origin_id = evidence_id(origin)
         if _reachable(origin_id, manifest) & chosen:
             chosen.add(origin_id)
@@ -58,12 +56,7 @@ def select_evidence(
     artifacts = tuple(
         node.artifact
         for key, node in nodes.items()
-        if key in chosen and node.kind == "experience" and node.artifact is not None
-    )
-    citations = (
-        ()
-        if skill
-        else tuple(citation for key, node in nodes.items() if key in chosen for citation in node.memory_citations)
+        if key in chosen and node.kind in {"experience", "memory"} and node.artifact is not None
     )
     if target is not None:
         artifacts = unique_references((*artifacts, target))
@@ -72,9 +65,9 @@ def select_evidence(
         raise EvidenceResolutionError("needs_evidence")
     if skill and not artifacts:
         raise EvidenceResolutionError("invalid_generation_output")
-    if len(sources) + len(artifacts) + len(citations) > 32:
+    if len(sources) + len(artifacts) > 32:
         raise EvidenceResolutionError("evidence_limit_exceeded")
-    return SelectedEvidence(sources=sources, artifacts=artifacts, memory_citations=citations)
+    return SelectedEvidence(sources=sources, artifacts=artifacts)
 
 
 def _reachable(start: str, manifest: EvidenceManifest) -> set[str]:

@@ -29,16 +29,14 @@ from powercontext.builtin.artifacts.handoff.models import (
     HandoffDraft,
     HandoffGenerationEvidence,
     HandoffGenerationRequest,
-    HandoffMemoryEvidence,
     HandoffOmission,
     HandoffSourceEvidence,
     HandoffStatement,
 )
-from powercontext.builtin.artifacts.memory import MemoryEntryVersion
 from powercontext.builtin.inference import GenerationResult, InvalidInferenceOutputError, StructuredGenerator
 from powercontext.sources import Source
 
-HandoffGenerationEvidenceType: TypeAlias = Literal["source", "artifact", "memory"]
+HandoffGenerationEvidenceType: TypeAlias = Literal["source", "artifact"]
 
 _JSON_VALUE = TypeAdapter(JsonValue)
 
@@ -89,8 +87,6 @@ class HandoffEvidenceProjector(Protocol):
 
     def project_artifact(self, artifact: Artifact[object], /) -> JsonValue: ...
 
-    def project_memory_entry(self, entry: MemoryEntryVersion, /) -> JsonValue: ...
-
 
 class DefaultHandoffEvidenceProjector:
     """Expose stable public evidence fields unless a caller opts in to more."""
@@ -107,15 +103,7 @@ class DefaultHandoffEvidenceProjector:
             "artifact_id": artifact.artifact_id,
             "revision": artifact.revision,
             "family": artifact.family,
-            "content": artifact.content,
-        })
-
-    def project_memory_entry(self, entry: MemoryEntryVersion, /) -> JsonValue:
-        return _validated_json({
-            "entry_id": entry.entry_id,
-            "entry_version_id": entry.entry_version_id,
-            "kind": entry.kind,
-            "text": entry.text,
+            "content": artifact.model_dump(mode="json")["content"],
         })
 
 
@@ -194,8 +182,6 @@ def _project_evidence(
         return _validated_json(projector.project_source(evidence.source))
     if isinstance(evidence, HandoffArtifactEvidence):
         return _validated_json(projector.project_artifact(evidence.artifact))
-    if isinstance(evidence, HandoffMemoryEvidence):
-        return _validated_json(projector.project_memory_entry(evidence.entry))
     raise TypeError(f"unsupported Handoff evidence: {type(evidence).__name__}")  # noqa: TRY003
 
 

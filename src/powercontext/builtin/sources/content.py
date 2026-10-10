@@ -18,8 +18,9 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, JsonValue, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH
 from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, AdapterSourceDefinition, TextEvidence
 from powercontext.sources.models import Source, SourceMaterialization
@@ -59,12 +60,35 @@ class ContentSourceTarget(BaseModel):
         return value
 
 
+class ArtifactRestorationWrite(BaseModel):
+    """Exact content source and committed result of one restoration write."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    before_ref: ArtifactRef
+    content_from_ref: ArtifactRef
+    after_ref: ArtifactRef
+    lifecycle_state: Literal["active", "retired"]
+
+
+class ArtifactRestorationOutcome(BaseModel):
+    """One successful restoration group retained with its primary revision."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation: Literal["restore", "undo_merge"]
+    target: ArtifactRef
+    writes: tuple[ArtifactRestorationWrite, ...]
+    undo_merge_results: tuple[ArtifactRef, ...]
+
+
 class ContentSourceInternal(BaseModel):
     """Server-owned Source purpose data never exposed by the base REST API."""
 
     role: Literal["lineage_only"]
-    operation: Literal["artifact_create", "artifact_replace"]
+    operation: Literal["artifact_create", "artifact_replace", "artifact_restore", "artifact_undo_merge"]
     target: ContentSourceTarget
+    restoration_outcome: ArtifactRestorationOutcome | None = None
 
 
 class ContentSource(Source):

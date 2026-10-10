@@ -153,12 +153,17 @@ def sdk_http(tmp_path: Path) -> Iterator[tuple[SdkDriver, httpx.Client, str, str
                         process.wait(timeout=10)
 
 
-def test_all_19_sdk_tools_preserve_memory_handoff_and_candidate_readback(sdk_http) -> None:
+def test_all_sdk_tools_preserve_atomic_memory_handoff_and_candidate_readback(sdk_http) -> None:
     sdk, http, a, b = sdk_http
     remembered = sdk.call("pc_remember", a, {"kind": "decision", "text": "中文固定范围验收: use scoped HTTP."})
-    citation = remembered["entry"]["citation"]
-    assert sdk.call("pc_memory_get", a, {"citation": json.dumps(citation)})["text"].startswith("中文")
-    assert sdk.call("pc_memory_list", a, {})["entries"]
+    record = remembered["records"][0]
+    artifact = record["artifact"]
+    current = sdk.call("pc_memory_get", a, {"artifact": json.dumps(artifact)})
+    assert current["content"]["text"].startswith("中文")
+    assert current["etag"] == f'"revision:{artifact["revision"]}"'
+    assert sdk.call("pc_memory_list", a, {})["items"][0]["artifact"] == artifact
+    state = sdk.call("pc_memory_state", a, {"artifact_id": artifact["artifact_id"]})
+    assert state["artifact"] == artifact and state["state_version"] == record["state_version"]
     assert sdk.call("pc_search", a, {"query": "中文固定范围验收", "mode": "fts"})["hits"]
     context = sdk.call("pc_prepare_context", a, {"query": "中文固定范围验收"})
     assert context["status"] == "ready"
@@ -168,12 +173,29 @@ def test_all_19_sdk_tools_preserve_memory_handoff_and_candidate_readback(sdk_htt
         "pc_memory_revise",
         a,
         {
-            "citation": json.dumps(citation),
+            "artifact": json.dumps(artifact),
+            "if_match": current["etag"],
             "kind": "constraint",
             "text": "中文固定范围验收: Scope credentials stay fixed.",
         },
     )
-    assert sdk.call("pc_memory_get", a, {"citation": json.dumps(revised["entry"]["citation"])})["kind"] == "constraint"
+    revised_artifact = {key: revised[key] for key in ("family", "artifact_id", "revision")}
+    assert sdk.call("pc_memory_get", a, {"artifact": json.dumps(revised_artifact)})["content"]["kind"] == "constraint"
+    historical = sdk.call("pc_memory_get", a, {"artifact": json.dumps(artifact)})
+    assert historical["content"] == current["content"] and "etag" not in historical
+    conflict = sdk.batch([
+        sdk.job(
+            "pc_memory_revise",
+            a,
+            {
+                "artifact": json.dumps(artifact),
+                "if_match": current["etag"],
+                "kind": "decision",
+                "text": "Stale write.",
+            },
+        )
+    ])[0]
+    assert conflict["status"] == "error" and conflict["error"]["code"] == "conflict"
 
     captured = sdk.call(
         "pc_capture_source",
@@ -261,9 +283,21 @@ def test_all_19_sdk_tools_preserve_memory_handoff_and_candidate_readback(sdk_htt
     skill = sdk.call("pc_skill_get", a, {"artifact": json.dumps(skill_ref)})
     assert skill["artifact"] == skill_ref
 
-    retirement = sdk.call("pc_memory_retire", a, {"citation": json.dumps(revised["entry"]["citation"])})
-    retired = sdk.call("pc_memory_get", a, {"citation": json.dumps(retirement["entry"]["citation"])})
-    assert retired["state"] == "inactive"
+    state = sdk.call("pc_memory_state", a, {"artifact_id": artifact["artifact_id"]})
+    retirement = sdk.call(
+        "pc_memory_retire",
+        a,
+        {
+            "artifact": json.dumps(revised_artifact),
+            "state_version": state["state_version"],
+        },
+    )
+    forgotten = retirement["records"][0]
+    assert forgotten["state"] == "forgotten" and forgotten["state_version"] > state["state_version"]
+    assert sdk.call("pc_memory_list", a, {})["items"] == []
+    assert sdk.call("pc_memory_list", a, {"include_inactive": True})["items"][0]["state"] == "forgotten"
+    assert sdk.call("pc_memory_get", a, {"artifact": json.dumps(revised_artifact)})["content"]["kind"] == "constraint"
+    assert sdk.call("pc_search", a, {"query": "中文固定范围验收", "mode": "fts"})["hits"] == []
     assert sdk.call("pc_search", b, {"query": "中文固定范围验收", "mode": "fts"})["hits"] == []
     catalog = json.loads((DIFY / "plugin/powercontext_dify/contract.json").read_text(encoding="utf-8"))["tools"]
     assert sdk.called == set(catalog)

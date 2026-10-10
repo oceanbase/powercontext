@@ -342,7 +342,7 @@ def test_scope_http_flow_rejects_incomplete_memory_publication(tmp_path) -> None
         memory = client.post(
             "/v1/memory/remember",
             json={"scope_id": source_scope_id, "kind": "decision", "text": "Publish the accepted decision."},
-        ).json()["memory"]
+        ).json()["records"][0]["artifact"]
         request = {
             "source": {"scope_id": source_scope_id, "artifact": memory},
             "target_scope_id": target_scope_id,
@@ -358,7 +358,7 @@ def test_scope_http_flow_rejects_incomplete_memory_publication(tmp_path) -> None
         assert rejected.json()["error"] == {
             "code": "artifact_publication_unsupported",
             "message": "The Artifact family cannot be published as complete target state.",
-            "details": {"family": "memory"},
+            "details": {"family": "atomic-memory"},
         }
 
 

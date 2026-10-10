@@ -49,7 +49,7 @@ OpenClaw 构建 prompt 前，插件会以默认 8000-byte 预算调用一次 `PO
 `powercontext_memory_revise` 和 `powercontext_memory_retire`。写工具需要模型显式调用，由 OpenClaw 控制
 side-effecting 工具的执行。
 
-显式 search 和 get 会直接调用 `/v1/memory/search` 与 `/v1/memory/entries/get`，不会调用
+显式 search 调用 `/v1/memory/search`，get 读取精确的 Atomic Memory Artifact revision，不会调用
 `/v1/context/prepare`。search 将查询限制为 8192 个字符，并把请求的结果上限约束在 1–50（默认 10）；
 每次 get 最多返回 120 行、12,000 个字符。
 

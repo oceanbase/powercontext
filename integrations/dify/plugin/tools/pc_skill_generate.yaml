@@ -159,34 +159,6 @@ output_schema:
           $ref: '#/definitions/Result/properties/candidate'
           type: object
           properties:
-            memory_citations:
-              $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/memory_citations'
-              type: array
-              items:
-                $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/memory_citations/items'
-                type: object
-                properties:
-                  memory_ref:
-                    $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/memory_citations/items/properties/memory_ref'
-                    type: object
-                    properties:
-                      family:
-                        $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/memory_citations/items/properties/memory_ref/properties/family'
-                        type: string
-                      artifact_id:
-                        $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/memory_citations/items/properties/memory_ref/properties/artifact_id'
-                        type: string
-                      revision:
-                        $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/memory_citations/items/properties/memory_ref/properties/revision'
-                        type: number
-                  entry_id:
-                    $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/memory_citations/items/properties/entry_id'
-                    type: string
-                  entry_version_id:
-                    $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/memory_citations/items/properties/entry_version_id'
-                    type: string
-              description: Exact Memory entry provenance; non-empty only for Experience.
-                Counted toward the combined evidence bound.
             permissions:
               $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/permissions'
               type: object
@@ -326,51 +298,6 @@ output_schema:
             - result_artifact
             - decision_reason
             properties:
-              memory_citations:
-                type: array
-                maxItems: 32
-                default: []
-                description: Exact Memory entry provenance; non-empty only for Experience.
-                  Counted toward the combined evidence bound.
-                items:
-                  type: object
-                  additionalProperties: false
-                  required:
-                  - memory_ref
-                  - entry_id
-                  - entry_version_id
-                  properties:
-                    memory_ref:
-                      type: object
-                      additionalProperties: false
-                      required:
-                      - family
-                      - artifact_id
-                      - revision
-                      properties:
-                        family:
-                          type: string
-                          minLength: 1
-                          maxLength: 128
-                          pattern: ^[\x21-\x7E]+$
-                        artifact_id:
-                          type: string
-                          minLength: 1
-                          maxLength: 128
-                          pattern: ^[\x21-\x7E]+$
-                        revision:
-                          type: integer
-                          minimum: 1
-                    entry_id:
-                      type: string
-                      minLength: 1
-                      maxLength: 128
-                      pattern: ^[\x21-\x7E]+$
-                    entry_version_id:
-                      type: string
-                      minLength: 1
-                      maxLength: 128
-                      pattern: ^[\x21-\x7E]+$
               permissions:
                 anyOf:
                 - type: object
