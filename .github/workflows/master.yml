@@ -484,3 +484,36 @@ jobs:
 
       - name: Check website
         run: make docs-test
+
+  helm:
+    name: Helm deployment contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+      - name: Install Helm
+        run: |
+          curl --fail --silent --show-error --location https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz -o /tmp/helm.tar.gz
+          curl --fail --silent --show-error --location https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz.sha256sum -o /tmp/helm.sha256
+          EXPECTED=$(cut -d ' ' -f 1 /tmp/helm.sha256)
+          echo "$EXPECTED  /tmp/helm.tar.gz" | sha256sum --check
+          tar -xzf /tmp/helm.tar.gz -C /tmp
+          sudo install /tmp/linux-amd64/helm /usr/local/bin/helm
+      - name: Lint chart
+        run: >-
+          helm lint deploy/helm/powercontext --strict
+          --set image.repository=example/powercontext
+          --set image.tag=ci
+          --set existingSecret=credentials
+      - name: Lint acceptance profile
+        run: >-
+          helm lint deploy/helm/powercontext --strict
+          --values deploy/helm/powercontext/values-acceptance.yaml
+          --set image.repository=example/powercontext
+          --set image.tag=ci
+          --set existingSecret=credentials
+      - name: Test deployment configuration and acceptance safeguards
+        run: uv run --locked pytest tests/test_helm_chart.py tests/test_helm_acceptance.py -q

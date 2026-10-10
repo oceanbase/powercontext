@@ -6,6 +6,7 @@ repos:
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml
+        exclude: ^deploy/helm/powercontext/templates/
       - id: check-json
         exclude: ^.devcontainer/devcontainer.json
       - id: pretty-format-json

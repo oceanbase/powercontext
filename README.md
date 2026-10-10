@@ -19,6 +19,8 @@ PowerContext keeps context with the work across conversations. When you return, 
 PowerContext 1.2.0 includes the guided setup. The commands below install this version and connect
 the matching Agent integration.
 
+For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
+
 ## Pick up where the work left off
 
 You see the context the work needs now: confirmed decisions, constraints, progress, evidence, and next steps. You can continue from there or hand the work to another person or agent without rereading the full history.
