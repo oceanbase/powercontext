@@ -671,7 +671,7 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
         "powercontext.memory.commit.memory_changed": True,
         "powercontext.memory.commit.entry_version_count": 1,
         "powercontext.operation.outcome": "failure",
-        "error.type": "IntegrityError",
+        "error.type": "_InvalidMemoryCommitError",
     }
     exported = _exported_span_data(failed_spans)
     assert source_content not in exported

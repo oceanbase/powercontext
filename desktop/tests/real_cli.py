@@ -16,6 +16,7 @@
 
 # Fixed local test programs; this harness never runs a renderer-supplied command.
 # ruff: noqa: S603
+import compileall
 import hashlib
 import json
 import os
@@ -35,6 +36,10 @@ def main():
         package = fixture / "package"
         with zipfile.ZipFile(wheel) as archive:
             archive.extractall(package)
+        # Prepare the isolated wheel like an installed package before native command deadlines start.
+        # Otherwise the first version probe pays for compiling every eagerly loaded CLI provider.
+        if not compileall.compile_dir(package, quiet=1):
+            raise RuntimeError("Isolated wheel bytecode preparation failed")  # noqa: TRY003 - fixture setup failure
         (metadata,) = package.glob("*.dist-info/METADATA")
         version = next(
             line.removeprefix("Version: ")
@@ -84,7 +89,7 @@ def main():
             "version": version,
             "wheelSha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
             "launcherSha256": digest,
-            "environment": "Isolated home and system-only PATH; wheel extracted on explicit test PYTHONPATH",
+            "environment": "Isolated home and system-only PATH; wheel extracted and byte-compiled on explicit test PYTHONPATH",
             "result": json.loads(result.stdout),
         }
         (artifacts / "real-cli.json").write_text(

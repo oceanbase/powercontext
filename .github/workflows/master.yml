@@ -38,6 +38,49 @@ jobs:
       - name: Check OpenAPI contract
         run: make contract-test
 
+  oceanbase-memory-integrity:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    services:
+      oceanbase:
+        image: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
+        env:
+          MODE: slim
+          OB_DATABASE: powercontext_memory_ci
+          OB_TENANT_PASSWORD: powercontext-e2e
+        ports:
+          - 2881:2881
+        options: >-
+          --ulimit nofile=65536:65536
+          --health-cmd="obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e -Dpowercontext_memory_ci -e 'SELECT 1' >/dev/null 2>&1"
+          --health-interval=5s --health-timeout=5s --health-retries=120 --health-start-period=30s
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Verify Memory integrity and compaction on OceanBase
+        env:
+          POWERCONTEXT_TEST_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/powercontext_memory_ci?charset=utf8mb4
+        run: |
+          uv run --locked --no-sync python -m pytest -q -rA \
+            --junitxml=.artifacts/oceanbase-memory-integrity.xml \
+            tests/e2e/test_memory_search_concurrency.py::test_oceanbase_memory_version_identity_race_is_database_enforced \
+            tests/e2e/test_memory_vector_round_trip.py::test_oceanbase_memory_append_reuses_a_hydrated_dense_embedding \
+            'tests/builtin/artifacts/memory/test_capacity.py::test_zero_age_compaction_recovers_full_memory_and_preserves_tags[oceanbase]'
+          python - <<'PY'
+          from xml.etree import ElementTree
+          cases = list(ElementTree.parse('.artifacts/oceanbase-memory-integrity.xml').iter('testcase'))
+          if len(cases) != 3 or any(case.find('skipped') is not None for case in cases):
+              raise SystemExit('All three OceanBase regressions must execute without skips')
+          PY
+
   tests:
     timeout-minutes: 40
     runs-on: ubuntu-latest
