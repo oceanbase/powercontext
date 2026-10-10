@@ -1669,7 +1669,7 @@ export interface paths {
         get: operations["get_artifact"];
         /**
          * Replace the current Artifact head
-         * @description Commit a complete next revision when If-Match identifies the current head. Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation. Topic Memory replacement also requires scope.admin and preserves independently versioned tags. Complete title, summary, and detail text replaces the head without semantic generation.
+         * @description Commit a complete next revision when If-Match identifies the current head. Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation. Topic Memory replacement also requires scope.admin and preserves independently versioned tags. Complete title, summary, and detail text replaces the head without semantic generation. Profile replacement uses the same conditional write. To roll back Profile, Prompt, Experience, Skill, Handoff, or Topic Memory, set restored_from_revision and reason. The server checks that the submitted canonical content matches that revision and differs from the current head, then commits a new revision. Memory replacement cannot restore a whole historical manifest.
          */
         put: operations["replace_artifact"];
         post?: never;
@@ -2064,6 +2064,10 @@ export interface components {
         };
         ReplaceProfileArtifactRequest: {
             content: components["schemas"]["ProfileWriteContent"];
+            /** @description Historical Profile revision restored by this replacement. Must match content.restored_from_revision when both are set. */
+            restored_from_revision?: number | null;
+            /** @description Required when restored_from_revision or content.restored_from_revision is set. */
+            reason?: string | null;
         };
         ActivateHandoffRequest: {
             scope_id: string;
@@ -2093,6 +2097,11 @@ export interface components {
             published_at?: string | null;
             /** @description Family-provided number of direct Source inputs when available. */
             source_count?: number | null;
+            /** Format: date-time */
+            created_at?: string | null;
+            created_by?: components["schemas"]["AccessPrincipal"] | null;
+            restored_from_revision?: number | null;
+            reason?: string | null;
         };
         ArtifactCreated: {
             scope_id: string;
@@ -2123,6 +2132,17 @@ export interface components {
             /** @default [] */
             memory_citations: components["schemas"]["MemoryCitation"][];
             content_digest: string;
+            /**
+             * Format: date-time
+             * @description When this revision was committed. Absent for revisions stored before this field existed.
+             */
+            created_at?: string | null;
+            /** @description Principal that committed a rollback. Ordinary revisions omit it. */
+            created_by?: components["schemas"]["AccessPrincipal"] | null;
+            /** @description Historical revision restored by this rollback. */
+            restored_from_revision?: number | null;
+            /** @description Reason recorded for a rollback. */
+            reason?: string | null;
         };
         ArtifactReference: {
             family: string;
@@ -3882,6 +3902,8 @@ export interface components {
         };
         ReplaceTopicMemoryArtifactRequest: {
             content: components["schemas"]["TopicMemoryWriteContent"];
+            restored_from_revision?: number | null;
+            reason?: string | null;
         };
         CreatePromptArtifactRequest: {
             /**
@@ -4023,6 +4045,8 @@ export interface components {
         ReplaceArtifactRequest: components["schemas"]["ReplaceTopicMemoryArtifactRequest"] | components["schemas"]["ReplaceMemoryArtifactRequest"] | components["schemas"]["ReplaceExperienceArtifactRequest"] | components["schemas"]["ReplaceSkillArtifactRequest"] | components["schemas"]["ReplaceHandoffArtifactRequest"] | components["schemas"]["ReplacePromptArtifactRequest"] | components["schemas"]["ReplaceProfileArtifactRequest"];
         ReplacePromptArtifactRequest: {
             content: components["schemas"]["PromptContent"];
+            restored_from_revision?: number | null;
+            reason?: string | null;
         };
         ListArtifactRevisionsRequest: {
             /** @default 50 */
@@ -4123,12 +4147,18 @@ export interface components {
         };
         ReplaceExperienceArtifactRequest: {
             content: components["schemas"]["ExperienceProposal"];
+            restored_from_revision?: number | null;
+            reason?: string | null;
         };
         ReplaceSkillArtifactRequest: {
             content: components["schemas"]["SkillProposal"];
+            restored_from_revision?: number | null;
+            reason?: string | null;
         };
         ReplaceHandoffArtifactRequest: {
             content: components["schemas"]["HandoffContent"];
+            restored_from_revision?: number | null;
+            reason?: string | null;
         };
         SourceRecord: {
             /** @description Server-owned identity attestation when this Source contains an enforced-mode Handoff Receipt. */
@@ -7421,7 +7451,7 @@ export interface operations {
             };
             path: {
                 scope_id: string;
-                family: "memory" | "experience" | "skill" | "handoff" | "prompt" | "topic-memory";
+                family: "memory" | "experience" | "skill" | "handoff" | "prompt" | "topic-memory" | "profile";
                 artifact_id: string;
             };
             cookie?: never;
