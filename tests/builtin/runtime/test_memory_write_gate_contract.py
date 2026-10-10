@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 
@@ -26,7 +27,12 @@ from powercontext.builtin.runtime.decision_model import (
     DecisionResult,
     FailOpenDecisionModel,
 )
-from powercontext.builtin.runtime.decision_policy import DecisionCoverage, DecisionVerdict
+from powercontext.builtin.runtime.decision_policy import (
+    DecisionCoverage,
+    DecisionPolicyMode,
+    DecisionPrivacyBoundary,
+    DecisionVerdict,
+)
 from powercontext.builtin.runtime.memory_write_gate import (
     DecisionMemoryWriteGate,
     MemoryWriteGateRequest,
@@ -35,6 +41,7 @@ from powercontext.builtin.runtime.memory_write_gate import (
     _assess_memory_write_decision,
     _candidate_subject,
     build_memory_write_gate,
+    memory_write_policy,
 )
 
 # A known-answer pair used to orient the hold direction. A durable preference should pass an
@@ -204,6 +211,41 @@ def test_an_oversized_candidate_batch_is_held_before_backend_assessment() -> Non
     asyncio.run(scenario())
 
 
+def test_shadow_mode_passes_an_oversized_candidate_batch_without_calling_the_backend() -> None:
+    async def scenario() -> None:
+        backend = _RecordingDecisionModel(_verdict(DecisionOutcome.YES))
+        gate = DecisionMemoryWriteGate(
+            backend,
+            policy=memory_write_policy(mode=DecisionPolicyMode.SHADOW),
+        )
+
+        assessment = await gate.assess(
+            _request(candidates=("x" * 4000, "UNASSESSED_TAIL"), evidence=("source:task:1",))
+        )
+
+        assert assessment.verdict is MemoryWriteVerdict.ACCEPT
+        assert assessment.used_fallback is False
+        assert backend.requests == []
+
+    asyncio.run(scenario())
+
+
+def test_advisory_mode_flags_an_insufficient_write_without_holding_it() -> None:
+    async def scenario() -> None:
+        gate = DecisionMemoryWriteGate(
+            _StaticDecisionModel(_verdict(DecisionOutcome.YES, rationale="evidence is insufficient")),
+            policy=memory_write_policy(mode=DecisionPolicyMode.ADVISORY),
+        )
+
+        assessment = await gate.assess(_request(evidence=("source:task:1",)))
+
+        assert assessment.verdict is MemoryWriteVerdict.FLAG
+        assert assessment.reason == "evidence is insufficient"
+        assert assessment.code is None
+
+    asyncio.run(scenario())
+
+
 def test_a_low_confidence_hold_is_written_but_flagged() -> None:
     async def scenario() -> None:
         gate = DecisionMemoryWriteGate(
@@ -285,6 +327,28 @@ def test_memory_write_decision_policy_uses_configured_hold_direction() -> None:
     assert no_holds.verdict is DecisionVerdict.ALLOW
 
 
+def test_gate_emits_policy_observation_without_raw_subject_or_evidence(caplog: pytest.LogCaptureFixture) -> None:
+    async def scenario() -> None:
+        gate = DecisionMemoryWriteGate(
+            _StaticDecisionModel(_verdict(DecisionOutcome.YES)),
+            policy=memory_write_policy(mode=DecisionPolicyMode.SHADOW),
+        )
+
+        assessment = await gate.assess(_request(candidates=("secret claim",), evidence=("secret evidence",)))
+
+        assert assessment.verdict is MemoryWriteVerdict.ACCEPT
+
+    caplog.set_level(logging.INFO, logger="powercontext.builtin.runtime.decision_policy")
+    asyncio.run(scenario())
+
+    record = next(record for record in caplog.records if getattr(record, "event", None) == "decision.observation")
+    assert record.__dict__["policy_id"] == "memory.write.evidence_sufficiency.v1"
+    assert record.__dict__["mode"] == "shadow"
+    assert record.__dict__["coverage"] == "adjudicated"
+    assert "secret claim" not in str(record.__dict__)
+    assert "secret evidence" not in str(record.__dict__)
+
+
 def test_the_hold_direction_cannot_be_abstain() -> None:
     with pytest.raises(ValueError, match="hold direction"):
         DecisionMemoryWriteGate(_StaticDecisionModel(_verdict(DecisionOutcome.NO)), hold_on=DecisionOutcome.ABSTAIN)
@@ -341,10 +405,51 @@ def test_the_gate_is_built_from_configuration() -> None:
         enabled=True,
         hold_on="no",
         threshold=0.4,
+        mode=DecisionPolicyMode.SHADOW,
+        privacy_boundary=DecisionPrivacyBoundary.LOCAL_ONLY,
     )
 
     assert isinstance(gate, DecisionMemoryWriteGate)
     assert gate.policy_id == "powercontext.decision.static.v1"
+    assert gate.mode is DecisionPolicyMode.SHADOW
+
+
+def test_disabled_mode_does_not_construct_a_memory_write_gate() -> None:
+    gate = build_memory_write_gate(
+        _StaticDecisionModel(_verdict(DecisionOutcome.YES)),
+        enabled=True,
+        mode=DecisionPolicyMode.DISABLED,
+        privacy_boundary=DecisionPrivacyBoundary.LOCAL_ONLY,
+    )
+
+    assert gate is None
+
+
+def test_no_external_call_boundary_skips_the_backend_and_emits_an_unadjudicated_observation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def scenario() -> None:
+        backend = _RecordingDecisionModel(_verdict(DecisionOutcome.YES))
+        gate = build_memory_write_gate(
+            backend,
+            enabled=True,
+            privacy_boundary=DecisionPrivacyBoundary.NO_EXTERNAL_CALL,
+        )
+
+        assert isinstance(gate, DecisionMemoryWriteGate)
+        assessment = await gate.assess(_request(evidence=("source:task:1",)))
+
+        assert assessment.verdict is MemoryWriteVerdict.ACCEPT
+        assert assessment.used_fallback is True
+        assert backend.requests == []
+
+    caplog.set_level(logging.INFO, logger="powercontext.builtin.runtime.decision_policy")
+    asyncio.run(scenario())
+
+    record = next(record for record in caplog.records if getattr(record, "event", None) == "decision.observation")
+    assert record.__dict__["coverage"] == "unadjudicated"
+    assert record.__dict__["verdict"] == "unknown"
+    assert record.__dict__["fallback_reason"] == "privacy_boundary"
 
 
 def _request(

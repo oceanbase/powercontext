@@ -16,14 +16,18 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from enum import StrEnum
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from powercontext._logging import log_safely
 from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.runtime.decision_model import DecisionOutcome, DecisionResult
+
+logger = logging.getLogger(__name__)
 
 
 class DecisionPolicyMode(StrEnum):
@@ -200,6 +204,72 @@ def assess_decision_result(
     )
 
 
+def unadjudicated_decision_assessment(
+    policy: DecisionPolicy,
+    /,
+    *,
+    reason: str,
+    used_fallback: bool = True,
+) -> DecisionAssessment:
+    """Record a no-call policy outcome without claiming the content was judged."""
+
+    return DecisionAssessment(
+        policy_id=policy.policy_id,
+        policy_version=policy.version,
+        mode=policy.mode,
+        coverage=DecisionCoverage.UNADJUDICATED,
+        verdict=DecisionVerdict.UNKNOWN,
+        source=DecisionAssessmentSource.NONE,
+        reason=reason,
+        used_fallback=used_fallback,
+        usage=InferenceUsage(requests=0),
+    )
+
+
+def assess_local_rule(
+    policy: DecisionPolicy,
+    /,
+    *,
+    verdict: DecisionVerdict,
+    reason: str,
+) -> DecisionAssessment:
+    """Record a deterministic policy rule that substantively judged the content."""
+
+    return DecisionAssessment(
+        policy_id=policy.policy_id,
+        policy_version=policy.version,
+        mode=policy.mode,
+        coverage=DecisionCoverage.ADJUDICATED,
+        verdict=verdict,
+        source=DecisionAssessmentSource.LOCAL_RULE,
+        reason=reason,
+        usage=InferenceUsage(requests=0),
+    )
+
+
+def emit_decision_observation(observation: DecisionObservation, /) -> None:
+    """Log bounded policy outcome fields without turning logs into a content ledger."""
+
+    log_safely(
+        logger,
+        logging.INFO,
+        "Decision policy evaluated",
+        extra={
+            "event": "decision.observation",
+            "consumer": observation.consumer,
+            "policy_id": observation.policy_id,
+            "policy_version": observation.policy_version,
+            "mode": observation.mode.value,
+            "coverage": observation.assessment.coverage.value,
+            "verdict": observation.assessment.verdict.value,
+            "final_action": observation.final_action,
+            "fallback_reason": observation.fallback_reason,
+            "candidate_count": observation.metadata.get("candidate_count", 0),
+            "evidence_count": observation.metadata.get("evidence_count", 0),
+        },
+    )
+
+
 def _normalized_outcome_mapping(
     policy: DecisionPolicy,
     override: Mapping[DecisionOutcome | str, DecisionVerdict | str] | None,
@@ -232,4 +302,7 @@ __all__ = [
     "DecisionPrivacyBoundary",
     "DecisionVerdict",
     "assess_decision_result",
+    "assess_local_rule",
+    "emit_decision_observation",
+    "unadjudicated_decision_assessment",
 ]

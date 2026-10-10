@@ -110,6 +110,10 @@ class MemoryWriteGateRequest:
     candidates: tuple[str, ...]
     evidence: tuple[str, ...]
     expected_revision: int | None = None
+    scope_id: str = "unscoped"
+    operation_id: str | None = None
+    subject_refs: tuple[str, ...] = ()
+    evidence_refs: tuple[str, ...] = ()
 
 
 class MemoryWriteGate(Protocol):

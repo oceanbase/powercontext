@@ -349,6 +349,8 @@ def _configured_memory_write_gate(
         enabled=True,
         hold_on=runtime.memory_write_gate_hold_on,
         threshold=runtime.memory_write_gate_threshold,
+        mode=runtime.memory_write_gate_mode,
+        privacy_boundary=runtime.memory_write_gate_privacy_boundary,
     )
     if gate is None:
         log_safely(

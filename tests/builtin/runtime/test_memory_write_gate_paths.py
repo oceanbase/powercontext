@@ -52,6 +52,7 @@ from powercontext.builtin.runtime.decision_model import (
     DecisionResult,
     FailOpenDecisionModel,
 )
+from powercontext.builtin.runtime.decision_policy import DecisionPrivacyBoundary
 from powercontext.builtin.runtime.memory_write_gate import DecisionMemoryWriteGate
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import ContentCapture, ContentSource
@@ -244,7 +245,14 @@ def test_a_flagged_write_preserves_an_existing_candidate_reason(tmp_path: Path) 
 
 def test_config_enables_the_gate_over_the_decision_backend(tmp_path: Path) -> None:
     async def scenario() -> None:
-        config = _config(tmp_path, RuntimeConfig(memory_write_gate_enabled=True), database="enabled.db")
+        config = _config(
+            tmp_path,
+            RuntimeConfig(
+                memory_write_gate_enabled=True,
+                memory_write_gate_privacy_boundary=DecisionPrivacyBoundary.LOCAL_ONLY,
+            ),
+            database="enabled.db",
+        )
         async with open_builtin_runtime(config, decision_model=_InsufficientDecisionModel()) as runtime:
             scope_id = await _create_scope(runtime, "gate-config-enabled")
             with pytest.raises(MemoryWriteRejectedError) as error:
@@ -521,6 +529,32 @@ def test_gate_preserves_each_candidate_citation_mapping(tmp_path: Path) -> None:
             assert "Alpha uses MySQL." in evidence
             assert "candidate:2 source:content:beta" in evidence
             assert "Beta uses PostgreSQL." in evidence
+
+    asyncio.run(scenario())
+
+
+def test_gate_request_carries_scope_operation_and_content_free_references(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        gate = _ScriptedGate(_assessment(MemoryWriteVerdict.ACCEPT))
+        async with open_builtin_contexts(_config(tmp_path), memory_write_gate=gate) as contexts:
+            context = await contexts.get("project")
+            source, _ = await context.sources.capture(
+                ContentCapture(source_id="requirements", content="The deployment requires MySQL 8.")
+            )
+
+            await context.artifacts.memory.plan_remember(
+                memory=None,
+                sources=(source,),
+                entries=(MemoryEntryInput(kind="fact", text="Use MySQL 8.", sources=(source,)),),
+                mode="append",
+            )
+
+            request = gate.requests[-1]
+            assert request.scope_id == "project"
+            assert request.operation_id == "memory-write:new"
+            assert request.subject_refs == ("candidate:1",)
+            assert request.evidence_refs == ("candidate:1 source:content:requirements",)
+            assert "MySQL 8" not in "\n".join(request.evidence_refs)
 
     asyncio.run(scenario())
 

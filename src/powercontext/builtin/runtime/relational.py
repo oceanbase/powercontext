@@ -353,6 +353,7 @@ class _ScopedServices:
     ) -> MemoryService:
         return MemoryService(
             prompt_context=ScopedPrompts(self.prompts, self.scope_id),
+            scope_id=self.scope_id,
             backend=RelationalMemoryBackend(
                 database=self.database,
                 scope_id=self.scope_id,
