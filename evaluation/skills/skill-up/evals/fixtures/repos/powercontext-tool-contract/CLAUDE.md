@@ -17,7 +17,7 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 ## mcp__powercontext__activate_handoff
 
 - Required: `boundary_source: SourceReference`, `objective: string`, `scope_id: string`.
-- Optional: `evidence: array<HandoffCitation> = []`, `max_bytes: integer = 8000`.
+- Optional: `evidence: array<HandoffCitation> = []`, `max_bytes: integer = 8000`, `rollover_reasons: array<"user_requested" | "host_context_budget" | "host_compaction" | "context_quality" | "delegation" | "manual_checkpoint"> = []`.
 
 ## mcp__powercontext__approve_artifact_candidate
 

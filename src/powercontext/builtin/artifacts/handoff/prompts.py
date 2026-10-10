@@ -14,7 +14,7 @@
 
 """Versioned instructions owned by the Handoff Artifact Family."""
 
-HANDOFF_GENERATION_INSTRUCTIONS_VERSION = "powercontext.handoff.generate.v1"
+HANDOFF_GENERATION_INSTRUCTIONS_VERSION = "powercontext.handoff.generate.v2"
 
 HANDOFF_GENERATION_INSTRUCTIONS = f"""
 You generate a concise Handoff for the next participant from bounded evidence.
@@ -26,6 +26,8 @@ Rules:
 - Use only facts present in the supplied evidence.
 - Every state statement and next action must cite one or more supplied evidence IDs.
 - Describe the current work state needed to continue the caller-owned objective.
+- When rollover_reasons is non-empty, draft a fresh-session checkpoint: do not depend on the old transcript,
+  avoid "continue above" wording, and make the next participant's first safe action explicit.
 - Keep observed state separate from the proposed next action.
 - Use disposition "continuable" when work can proceed, "blocked" when progress requires an external change,
   and "complete" when the objective has been achieved.

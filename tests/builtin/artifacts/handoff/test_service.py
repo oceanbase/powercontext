@@ -71,8 +71,10 @@ class _EvidenceResolver:
 class _GenerationPipeline:
     def __init__(self, draft: object) -> None:
         self.draft = draft
+        self.requests = []
 
     async def generate(self, request, /):
+        self.requests.append(request)
         return self.draft
 
 
@@ -278,6 +280,7 @@ def test_prepare_generates_a_draft_from_exact_bounded_evidence() -> None:
         service, _, _ = _service(pipeline)
         action = PrepareHandoff(
             objective=generated.objective,
+            rollover_reasons=("user_requested", "context_quality"),
             evidence=(_citation(),),
             max_bytes=4096,
         )
@@ -285,6 +288,7 @@ def test_prepare_generates_a_draft_from_exact_bounded_evidence() -> None:
         draft = await service.prepare(action)
 
         assert draft == generated
+        assert pipeline.requests[0].rollover_reasons == ("user_requested", "context_quality")
         assert await service.latest() is None
 
     asyncio.run(scenario())

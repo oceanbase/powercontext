@@ -31,6 +31,7 @@ from powercontext.builtin.artifacts.handoff.models import (
     HandoffGenerationRequest,
     HandoffMemoryEvidence,
     HandoffOmission,
+    HandoffRolloverReason,
     HandoffSourceEvidence,
     HandoffStatement,
 )
@@ -55,6 +56,7 @@ class HandoffGenerationInput(BaseModel):
     """Caller-owned objective, bounded evidence, and output budget."""
 
     objective: str
+    rollover_reasons: tuple[HandoffRolloverReason, ...] = ()
     evidence: tuple[HandoffGenerationEvidenceInput, ...]
     max_bytes: int
 
@@ -179,6 +181,7 @@ def _generation_input(
     return (
         HandoffGenerationInput(
             objective=request.objective,
+            rollover_reasons=request.rollover_reasons,
             evidence=tuple(values),
             max_bytes=request.max_bytes,
         ),

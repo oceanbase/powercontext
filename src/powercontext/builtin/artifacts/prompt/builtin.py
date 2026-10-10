@@ -173,6 +173,7 @@ Preserve applicability, failure handling, and validation status. Return proposal
             invariant_instructions=_COMMON_INVARIANTS
             + """
 Generate a Handoff for the supplied objective. Every state and next-action statement must cite supplied evidence IDs.
+Treat rollover_reasons as advisory preparation context only; do not claim they are committed Handoff content.
 Separate observed state from proposed next actions. Use continuable, blocked, or complete accurately.
 Omit next_action when complete. Record uncertainty as omissions and stay within max_bytes.
 Do not change the objective or claim the draft is committed.

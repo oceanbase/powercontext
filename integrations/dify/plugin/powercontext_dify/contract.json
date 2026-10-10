@@ -296,9 +296,11 @@
     ],
     "activate_handoff": [
       "boundary_source",
+      "rollover_reasons",
       "evidence"
     ],
     "prepare_handoff": [
+      "rollover_reasons",
       "evidence"
     ],
     "finalize_handoff": [
@@ -360,6 +362,15 @@
             "minLength": 1,
             "maxLength": 8192,
             "pattern": ".*\\S.*"
+          },
+          "rollover_reasons": {
+            "type": "array",
+            "maxItems": 6,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/HandoffRolloverReason"
+            },
+            "default": []
           },
           "evidence": {
             "type": "array",
@@ -1748,6 +1759,17 @@
           "resolved"
         ]
       },
+      "HandoffRolloverReason": {
+        "type": "string",
+        "enum": [
+          "user_requested",
+          "host_context_budget",
+          "host_compaction",
+          "context_quality",
+          "delegation",
+          "manual_checkpoint"
+        ]
+      },
       "HandoffSchema": {
         "type": "string",
         "enum": [
@@ -2082,6 +2104,15 @@
             "minLength": 1,
             "maxLength": 8192,
             "pattern": ".*\\S.*"
+          },
+          "rollover_reasons": {
+            "type": "array",
+            "maxItems": 6,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/HandoffRolloverReason"
+            },
+            "default": []
           },
           "evidence": {
             "type": "array",

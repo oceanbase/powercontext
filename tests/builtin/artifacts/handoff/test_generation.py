@@ -79,6 +79,7 @@ def test_llm_pipeline_maps_only_bounded_evidence_and_preserves_objective() -> No
         draft = await pipeline.generate(
             HandoffGenerationRequest(
                 objective="Complete parser error handling.",
+                rollover_reasons=("host_context_budget", "context_quality"),
                 evidence=(evidence,),
                 max_bytes=4096,
             )
@@ -90,8 +91,10 @@ def test_llm_pipeline_maps_only_bounded_evidence_and_preserves_objective() -> No
         assert draft.next_action.citations == (evidence.citation,)
         assert generator.input is not None
         assert generator.input.objective == draft.objective
+        assert generator.input.rollover_reasons == ("host_context_budget", "context_quality")
         assert generator.input.max_bytes == 4096
         assert generator.input.evidence[0].evidence_id == "source:0"
+        assert "rollover_reasons" not in draft.as_content().model_dump(mode="json")
 
     asyncio.run(scenario())
 
