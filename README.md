@@ -47,20 +47,16 @@ Generation and Embedding API credentials. An Agent subscription does not provide
 Choose **Basic memory** to save and retrieve memories explicitly without additional model APIs.
 
 The wizard writes one `.env` environment file and `.env.next-steps.md`.
-If seekdb needs installing, it asks once and installs the dependency in the background. Follow the printed
-connection details and install the personal background service on the Server machine:
+If seekdb needs installing, it asks once and installs the dependency in the background. Once dependencies are ready,
+install the personal service for supported local macOS and Linux use:
 
 ```bash
-powercontext config validate --env-file .env
 powercontext service install --env-file .env
 powercontext service status
 ```
 
-On supported macOS and Linux installations, the native per-user service manager keeps Server running after the
-terminal closes and restores it after you reboot and log in. Linux requires an available `systemd --user` manager.
-For development, debugging, temporary use, or unsupported platforms, use
-`powercontext server run --env-file .env` in a terminal that stays open, and run the following client commands
-in a second terminal.
+Server keeps running after the terminal closes and resumes when you log in after a reboot.
+See [personal-service requirements](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#run-a-persistent-personal-server).
 
 In the same terminal, load the client connection settings and check the service:
 
@@ -73,9 +69,8 @@ powercontext capabilities
 ```
 
 Continue with `.env.next-steps.md` to create and bind the selected Scopes, install the matching plugins, and launch
-a new Agent session. After writing Scope IDs or other changes to `.env`, re-run
-`powercontext service install --env-file .env` so the service accepts the updated file on its next start.
-Re-run it after upgrading PowerContext as well.
+a new Agent session. Re-run `powercontext service install --env-file .env` after editing `.env`, including Scope IDs,
+or upgrading PowerContext.
 The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks.
 For example, the matching Codex installation is:
@@ -87,6 +82,9 @@ powercontext doctor codex
 
 `doctor` verifies integration setup. To verify automatic memory, check that a real prompt becomes a Source,
 produces a Topic, evolves after a related prompt, and can be recalled in a new session using the same Scope.
+
+For development, debugging, temporary use, or unsupported platforms, use `powercontext server run --env-file .env`.
+Keep that terminal open and run client and Agent commands in another terminal.
 
 For a Server on another machine, use HTTPS or follow the
 [remote connection guide](docs/en/docs/operate/connect-remote-server.md). Setup recognizes remote HTTP URLs from

@@ -40,23 +40,19 @@ powercontext config init --language en --output .env
 Generation と Embedding の API 接続を設定してください。Agent のサブスクリプションとは別の認証情報が必要です。
 Basic memory は追加のモデル API なしで明示的な保存・検索を利用できます。
 
-Server を実行するマシンで、生成された設定を使って個人用バックグラウンドサービスをインストールします：
+対応する macOS と Linux でのローカル利用では、生成された設定を使って個人用サービスをインストールします：
 
 ```bash
-powercontext config validate --env-file .env
 powercontext service install --env-file .env
 powercontext service status
 ```
 
-対応する macOS と Linux では、ユーザー単位のサービス管理機構がターミナルを閉じた後も Server を実行し、
-再起動後のログイン時に復帰させます。Linux では `systemd --user` が必要です。
-開発、デバッグ、一時的な利用、サービス非対応の環境では `powercontext server run --env-file .env` を実行し、
-ターミナルを開いたままにし、以降のクライアントコマンドは別のターミナルで実行してください。
+Server はターミナルを閉じた後も実行され、再起動後のログイン時に復帰します。
+要件は[個人用サービス](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#run-a-persistent-personal-server)を参照してください。
 
 続いて同じターミナルで、`.env.next-steps.md` に従ってクライアント環境の読み込み、Scope の作成・紐付け、
-同じバージョンの Agent プラグインのインストールを行います。Scope ID などを `.env` に書き込んだ後は、
-`powercontext service install --env-file .env` を再実行して、次回起動時に更新したファイルを受け入れられるようにします。
-PowerContext のアップグレード後も再実行してください。例：
+同じバージョンの Agent プラグインのインストールを行います。Scope ID の保存などで `.env` を編集した後や、
+PowerContext のアップグレード後は `powercontext service install --env-file .env` を再実行してください。例：
 
 ```bash
 powercontext setup codex --ref powercontext-v1.2.0
@@ -67,6 +63,9 @@ PowerContext ツールと Agent 連携には、常に同じ Git ref を使用し
 [Quick Start](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) で Dashboard、SSH、HTTPS、
 Source から Topic 生成・更新、新しいセッションでの検索まで確認できます。
 Python 3.11+ が必要です。macOS と Linux をサポートし、Windows のサポートは `experimental` です。
+
+開発、デバッグ、一時的な利用、サービス非対応の環境では `powercontext server run --env-file .env` を実行します。
+ターミナルを開いたままにし、クライアントと Agent のコマンドは別のターミナルで実行してください。
 
 Codex は `official`、他のホストと Python Agent フレームワークは `community`、Bub は評価専用の `evaluation` です。
 これらは PowerContext 連携のメンテナンス主体と用途を示すタグです。対応機能と利用可能なバージョンは

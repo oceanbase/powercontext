@@ -90,10 +90,8 @@ For an existing file, choose **Edit selected modules**, then **Dashboard and acc
 choose **Review and save**, and confirm. You can also restore `8000` this way. The wizard saves
 `POWERCONTEXT_SERVER_HTTP_PORT`; configure Agent connections again when their saved endpoints need updating.
 
-For a personal service, re-run `powercontext service install --env-file .env` after saving the file, then check
-`powercontext service status`. This updates its file identity and restarts an active service when needed;
-an explicitly stopped service stays stopped until `powercontext service start`. Saving alone does not reload
-or restart the process. For a foreground instance, stop it and restart with the same file. With port `18000`, open
+After saving, apply the configuration using the [startup steps below](#3-run-the-same-configuration).
+Saving alone does not reload or restart Server. With port `18000`, open
 `http://127.0.0.1:18000/` for Dashboard; MCP uses `http://127.0.0.1:18000/mcp`.
 Foreground CLI options and process environment variables still override the saved file.
 
@@ -131,18 +129,16 @@ inference-dependent runtime features are configured, it also checks the Runtime 
 
 ## 3. Run the same configuration
 
-For supported personal macOS and Linux installations, install the background service explicitly:
+For supported personal macOS and Linux installations with a loopback listener, install the service with this file:
 
 ```bash
 powercontext service install --env-file .env
 powercontext service status
 ```
 
-The native per-user manager keeps Server running after the terminal closes and resumes it when you log in after a
-reboot. Linux requires an available `systemd --user` manager. The service reads the protected file by its recorded
-absolute path; it does not discover `.env` or copy the caller's shell environment. Re-run installation after upgrading
-PowerContext or editing this file, including Scope bindings, so the next start accepts the updated file.
-See [personal-service requirements](../operate/deploy-server.md#run-a-persistent-personal-server) for platform and network limits.
+Re-run installation with the same file after editing it. For service requirements and maintenance, or non-loopback
+and managed deployments, see [Deploy the Server](../operate/deploy-server.md). For development, debugging, temporary
+use, or unsupported platforms, see [foreground startup](install-and-run.md#foreground-use-for-development-or-debugging).
 
 In the same terminal, load the generated client connection settings before checking the service:
 
@@ -156,22 +152,5 @@ powercontext capabilities
 
 This supplies the client address and, when authentication is enabled, the Server token. Local unauthenticated configurations need no token.
 Follow `.env.next-steps.md` to create Scopes and install plugins, then verify real memory using the [quickstart](quickstart.md).
-
-### Optional foreground startup
-
-For development, debugging, temporary use, or unsupported platforms:
-
-```bash
-powercontext server run --env-file .env
-```
-
-Keep this terminal open and run client commands in another terminal. Press `Ctrl-C` to stop; restart manually after
-a reboot. Stop an existing foreground instance before installing the personal service. If a personal service already
-owns the address, run `powercontext service stop` before starting in the foreground, then stop the foreground process
-and run `powercontext service start` to resume background operation.
-
-`server run` discovers `.env` in the current directory. Use `--env-file <path>` to select a different file or
-`--no-env-file` to disable file loading. CLI options take precedence, followed by process environment variables, the
-selected file, and defaults. The command prints the resolved file path without printing credentials.
 
 For every variable, default, and precedence rule, see [Configuration](../operate/configuration.md).

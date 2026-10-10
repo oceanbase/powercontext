@@ -64,9 +64,7 @@ powercontext service install
 powercontext service status
 ```
 
-首次安装会在后台启动 Server。关闭终端不会停止服务；机器重启后，服务会在登录时恢复。
-Linux 需要可用的 `systemd --user` 管理器。安装服务是显式步骤，安装包或 Agent 插件不会自动完成它。
-远程或共享部署见[部署 Server](../operate/deploy-server.md)。
+服务会在后台启动 Server，并在重启后登录时恢复。服务要求及远程或共享部署见[部署 Server](../operate/deploy-server.md)。
 
 没有配置环境文件时，Server 使用以下默认值：
 
@@ -76,8 +74,8 @@ Linux 需要可用的 `systemd --user` 管理器。安装服务是显式步骤�
 - 在操作系统的用户数据目录中创建持久化 SQLite 数据库；
 - 无需推理服务即可支持显式 Memory 操作。
 
-使用向导生成的配置时，安装服务必须传入 `--env-file .env`。服务不会自动发现 `.env`，也不会复制调用者的 shell 环境。
-将自定义存储路径、模型设置和凭据保存在受保护的文件中；已经使用 `POWERCONTEXT_HOME` 时，也要保留该配置。
+使用向导生成的配置时，传入 `--env-file .env`；安装服务不会自动发现 `.env`。
+在文件中保留已有存储路径和其他自定义设置。
 
 Dashboard 是个人使用和演示的可选内容查看器，默认关闭。它不需要单独安装前端或配置模型。
 本地免 token 启用时，在环境文件中设置以下值：
@@ -124,9 +122,7 @@ powercontext server run --env-file /path/to/powercontext.env
 ```
 
 没有环境文件时使用 `powercontext server run`。保持该终端打开，在另一个终端执行客户端命令。
-按 `Ctrl-C` 停止 Server；机器重启后需要手动启动。将已有前台实例改为个人服务前，先按 `Ctrl-C` 停止，
-再使用同一份配置安装服务。如果个人服务已占用该地址，先执行 `powercontext service stop`；恢复后台运行时，
-先停止前台进程，再执行 `powercontext service start`。
+按 `Ctrl-C` 停止；机器重启后需要手动启动。已有服务与前台运行的切换，按[服务生命周期步骤](../operate/deploy-server.md#运行持久个人-server)操作。
 
 ## 使用嵌入式 seekDB
 
@@ -144,13 +140,7 @@ uv tool install --force "powercontext[cli,server,seekdb]==1.2.0"
 POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
 ```
 
-使用同一份文件校验并安装或更新服务：
-
-```bash
-powercontext config validate --env-file .env
-powercontext service install --env-file .env
-powercontext service status
-```
+按上方[本地启动步骤](#运行本地-server)应用这份文件。
 
 PowerContext 固定使用 seekDB 内置的 `test` 数据库。未设置 `POWERCONTEXT_SERVER_DATABASE_PATH` 时，实例保存在
 PowerContext 用户数据目录的 `seekdb` 子目录中；如果设置了 `POWERCONTEXT_HOME`，默认路径为
@@ -200,14 +190,9 @@ uv tool install --force "powercontext[cli,server]==1.2.0"
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
 ```
 
-完成所需迁移后，使用同一份受保护的文件重新执行 `powercontext service install --env-file .env`，更新注册的程序和配置。
-只有原服务未配置环境文件时，才省略 `--env-file`。
-服务每次启动都会校验文件身份，因此任何文件修改，包括只涉及客户端的 Scope 设置，也需要重新安装。
-如果此前显式执行了 `powercontext service stop`，安装会保留停止状态；准备恢复时执行 `powercontext service start`。
-使用 `powercontext service status` 和上述就绪检查确认恢复。
-
-按[各自的集成文档](../integrations/index.md)更新已安装宿主，并使用同一个 ref，再开启新的宿主会话。
-前台用户需要手动重启 Server。只要没有修改 `POWERCONTEXT_HOME` 或数据库 URL，现有 SQLite 数据会继续保留。
+按[各自的集成文档](../integrations/index.md)更新已安装宿主，并使用同一个 ref。完成所需迁移后，重新执行
+`powercontext service install`；原服务配置了环境文件时，继续传入原来的 `--env-file`，详见[服务维护](../operate/deploy-server.md#运行持久个人-server)。
+前台实例需手动重启，再开启新的宿主会话。只要没有修改 `POWERCONTEXT_HOME` 或数据库 URL，现有 SQLite 数据会继续保留。
 
 ## 为 Python 项目安装角色
 

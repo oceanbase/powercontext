@@ -30,7 +30,7 @@ home:
         description: 依次选择存储、访问场景、记忆能力、Dashboard 和 Agent。向导会生成配置文件，以及适合当前配置的后续操作说明。
         command: powercontext config init
       - title: 安装个人后台服务
-        description: 在受支持的 macOS 和 Linux 环境中，使用生成的 .env 安装后台 Server，再执行 powercontext service status。服务会在重启后登录时恢复。
+        description: 在受支持的 macOS 和 Linux 环境中，使用生成的 .env 安装个人服务并检查状态。
         command: powercontext service install --env-file .env
       - title: 接入 Agent 并验收记忆
         description: 按 .env.next-steps.md 创建或选择 Scope、接入 Agent。先确认真实对话进入 Source，再检查已启用的记忆处理能力。

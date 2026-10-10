@@ -49,7 +49,7 @@ before starting the Server. Saving files or installing dependencies does not sta
 
 ## 2. Install and verify the personal service
 
-In this terminal, run:
+For supported local macOS and Linux installations, run in this terminal:
 
 ```bash
 powercontext config validate --env-file .env
@@ -57,10 +57,8 @@ powercontext service install --env-file .env
 powercontext service status
 ```
 
-For supported personal macOS and Linux installations, this is the recommended startup path. Installation starts the
-Server under the native per-user service manager; it keeps running after the terminal closes and resumes when you
-log in after a reboot. Linux requires an available `systemd --user` manager. If a foreground Server is already running,
-stop it with `Ctrl-C` before installing the service. See [personal-service requirements](../operate/deploy-server.md#run-a-persistent-personal-server).
+Server keeps running after the terminal closes and resumes when you log in after a reboot.
+See [personal-service requirements](../operate/deploy-server.md#run-a-persistent-personal-server).
 
 Open the Dashboard URL printed by the wizard, using the port saved as
 `POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. With authentication disabled, the page opens directly. Otherwise, sign in
@@ -94,17 +92,11 @@ The planned `codex-xxxxxxxx` value is a title, not an ID. For Claude Code, put t
 in `POWERCONTEXT_CLAUDE_SCOPE_ID`. Agents can have separate Scopes or explicitly share an existing one.
 Changing directories does not create isolation. Use the same Scope in the Dashboard and Agent during this check.
 
-After editing `.env`, update the service registration on the Server machine:
+After saving the Scope IDs, update the personal service with the same file:
 
 ```bash
-powercontext config validate --env-file .env
 powercontext service install --env-file .env
-powercontext service status
 ```
-
-The service checks the environment file's identity on every start. Re-run installation after any file change,
-including client-only Scope settings, and after upgrading PowerContext. If you explicitly stopped the service,
-installation preserves that stop; run `powercontext service start` when ready to resume.
 
 Reload the client settings and install the matching plugin:
 
@@ -155,22 +147,9 @@ In basic-memory mode, explicitly ask the Agent to save Aurora's uv decision in P
 new session and verify its citation. That test does not cover automatic extraction. Profile, Experience, and Skill have
 additional triggers or review requirements; see [Capability behavior](configure-models.md#full-capabilities-do-not-generate-every-artifact-from-every-message).
 
-## Optional: run in the foreground
-
-For development, debugging, temporary use, or platforms without a supported personal-service manager:
-
-```bash
-powercontext server run --env-file .env
-```
-
-Keep this terminal open and use a second terminal for client and Agent commands. Press `Ctrl-C` to stop;
-after a reboot, you must start it manually. If the personal service is running, stop it with
-`powercontext service stop` before using the same address in the foreground. To return to service-managed operation,
-stop the foreground process and run `powercontext service start`.
-
 ## Continue
 
-- [Install and run](install-and-run.md): versions, seekdb dependencies, existing storage, and updates.
+- [Install and run](install-and-run.md): versions, seekdb dependencies, existing storage, updates, and optional foreground startup.
 - [Deploy the Server](../operate/deploy-server.md): background services, SSH, HTTPS, and backups.
 - [Configure models](configure-models.md): API protocols, vector dimensions, and extraction checks.
 - [Troubleshoot](../operate/troubleshoot.md): service, model, capture, or recall failures.
