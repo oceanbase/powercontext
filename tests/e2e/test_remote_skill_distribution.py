@@ -28,7 +28,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_runtime
 from powercontext.client import PowerContextClient, RemoteSkillReceiver, RemoteSkillReceiverConfig, ServerResponseError
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
     DownloadRemoteSkillPackageRequest,
@@ -116,8 +116,8 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                         archive_base64=base64.b64encode(package.archive_bytes).decode("ascii"),
                     )
                 )
-                approved = await admin.approve_artifact_candidate(
-                    ApproveArtifactCandidateRequest(
+                approved = await admin.approve_candidate(
+                    ApproveCandidateRequest(
                         scope_id=scope_id,
                         candidate_id=candidate.candidate_id,
                         expected_version=candidate.version,
@@ -131,8 +131,8 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                         target=approved.result_artifact,
                     )
                 )
-                updated_approved = await admin.approve_artifact_candidate(
-                    ApproveArtifactCandidateRequest(
+                updated_approved = await admin.approve_candidate(
+                    ApproveCandidateRequest(
                         scope_id=scope_id,
                         candidate_id=updated_candidate.candidate_id,
                         expected_version=updated_candidate.version,

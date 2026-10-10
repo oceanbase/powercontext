@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "source_path": "integrations/claude-code/plugins/powercontext/skills/powercontext-project-context",
-  "source_commit": "1b728e953196c3a2f988d4bd490d67e74af5fe5f",
+  "source_commit": "7a2f355ef43ded661960bfa03c984a42ba2e7f0e",
   "files": {
-    "SKILL.md": "fd6aec8d2ee4e4aa522f8ecf75138b640c3d197c02401c5d3185089d7b345ac3",
-    "references/review-publication.md": "83f3fa674d83785d06945669cbbe08b6d679665fed7e165d778dbfbcd9d10841",
+    "SKILL.md": "558af63997d4cfe3fcf0f93aa1b5873a4bbc2e4ab06932a490f30ac789b128c6",
+    "references/review-publication.md": "9d5fc58501e136b2ac9aa8dac1c2a816c176897af15b311ac2555cdbdcd2e209",
     "references/scope-memory.md": "6858a67a67fe83164234c2cdce42e094def4e1821034816739be31635c8a2943",
     "references/work-handoff.md": "76dea45b708f2155e395029afe57b31ac112d8b13d614a6ab604aa436e3d2b2e"
   },
-  "content_sha256": "57a0b69a26e979ce2bda7fdb3a4c0989cf581d89eb284aea2faf721fff4f2c30"
+  "content_sha256": "37d7703e8030f93a96e97a69d018415d314502647a31e93db6cd51f71d8d856d"
 }

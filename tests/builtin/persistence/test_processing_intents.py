@@ -195,3 +195,32 @@ def test_sqlite_fence_lock_serializes_worker_commit_and_term_replacement(tmp_pat
                     assert scopes == ("commit",)
 
     asyncio.run(scenario())
+
+
+def test_runtime_requires_explicit_counter_migration_without_changing_pending_work(tmp_path):
+    import sqlite3
+
+    from powercontext.builtin.persistence.dream_schema import DreamSchemaNotReadyError
+    from powercontext.builtin.runtime.composition import open_builtin_contexts
+    from powercontext.builtin.runtime.config import BuiltinConfig
+
+    async def scenario():
+        path = tmp_path / "upgrade.db"
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{path}"))
+        async with open_builtin_contexts(config) as contexts, contexts.database.transaction() as connection:
+            await ArtifactProcessingIntentRepository().request(connection, "upgrade", BINDING)
+            await connection.exec_driver_sql(
+                "ALTER TABLE pc_artifact_processing_intents DROP COLUMN consecutive_dream_attempts"
+            )
+        with sqlite3.connect(path) as connection:
+            before = tuple(connection.iterdump())
+        with pytest.raises(DreamSchemaNotReadyError, match="migration_required"):
+            async with open_builtin_contexts(config):
+                pytest.fail("Pending work needs explicit migration")
+        with sqlite3.connect(path) as connection:
+            assert tuple(connection.iterdump()) == before
+            assert connection.execute(
+                "SELECT requested_generation FROM pc_artifact_processing_intents WHERE scope_id='upgrade'"
+            ).fetchone() == (1,)
+
+    asyncio.run(scenario())

@@ -19,7 +19,7 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `boundary_source: SourceReference`, `objective: string`, `scope_id: string`.
 - Optional: `evidence: array<HandoffCitation> = []`, `max_bytes: integer = 8000`.
 
-## mcp__powercontext__approve_artifact_candidate
+## mcp__powercontext__approve_candidate
 
 - Required: `candidate_id: string`, `expected_version: integer`, `scope_id: string`.
 - Optional: (none).
@@ -46,8 +46,8 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 
 ## mcp__powercontext__create_dream_run
 
-- Required: `idempotency_key: string`, `operation: "refine_experience" | "derive_skill"`, `scope_id: string`.
-- Optional: `artifacts: array<ArtifactReference> = []`, `memory_citations: array<MemoryCitation> = []`, `sources: array<DreamSourceReference> = []`, `target: ArtifactReference | null`.
+- Required: `idempotency_key: string`, `operation: "refine_experience" | "derive_skill" | "revise_skill" | "revise_profile" | "revise_memory" | "revise_topic_memory" | "refresh_handoff" | "revise_prompt" | "revise_tags"`, `scope_id: string`.
+- Optional: `artifacts: array<ArtifactReference> = []`, `memory_citations: array<MemoryCitation> = []`, `sources: array<DreamSourceReference> = []`, `tag_target: TagDreamTarget | null`, `target: ArtifactReference | null`.
 
 ## mcp__powercontext__create_scope
 
@@ -64,7 +64,7 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `draft: HandoffDraft`, `scope_id: string`.
 - Optional: (none).
 
-## mcp__powercontext__get_artifact_candidate
+## mcp__powercontext__get_candidate
 
 - Required: `candidate_id: string`, `scope_id: string`.
 - Optional: (none).
@@ -99,10 +99,10 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `handoff: CurrentWorkHandoff`, `scope_id: string`, `source_id: string`.
 - Optional: (none).
 
-## mcp__powercontext__list_artifact_candidates
+## mcp__powercontext__list_candidates
 
 - Required: `scope_id: string`.
-- Optional: `cursor: string | null`, `family: "experience" | "skill" | "profile" | null`, `limit: integer = 50`, `status: "pending" | "approved" | "rejected" = "pending"`.
+- Optional: `candidate_kind: "artifact" | "tag" | null`, `cursor: string | null`, `family: "experience" | "skill" | "profile" | "memory" | "topic-memory" | "handoff" | "prompt" | null`, `limit: integer = 50`, `status: "pending" | "approved" | "rejected" = "pending"`.
 
 ## mcp__powercontext__list_dream_runs
 
@@ -134,7 +134,7 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `outcome: TaskOutcome`, `scope_id: string`, `source_id: string`.
 - Optional: (none).
 
-## mcp__powercontext__reject_artifact_candidate
+## mcp__powercontext__reject_candidate
 
 - Required: `candidate_id: string`, `expected_version: integer`, `reason: string`, `scope_id: string`.
 - Optional: (none).
@@ -154,10 +154,10 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `citation: MemoryCitation`, `scope_id: string`.
 - Optional: `reason: string | null`.
 
-## mcp__powercontext__revise_artifact_candidate
+## mcp__powercontext__revise_candidate
 
-- Required: `artifact_refs: array<ArtifactReference>`, `candidate_id: string`, `expected_version: integer`, `proposal: ExperienceProposal | SkillProposal | ProfileWriteContent`, `scope_id: string`, `source_refs: array<SourceReference>`.
-- Optional: `memory_citations: array<MemoryCitation> | null`, `reason: string | null`, `target: ArtifactReference | null`.
+- Required: `candidate_id: string`, `expected_version: integer`, `proposal: ExperienceProposal | SkillProposal | ProfileWriteContent | MemoryDreamCandidateProposal | TopicMemoryDreamProposal | HandoffContent | PromptContent | CatalogChangeProposal`, `scope_id: string`.
+- Optional: `artifact_refs: array<ArtifactReference> = []`, `artifacts: array<ArtifactReference> | null`, `memory_citations: array<MemoryCitation> | null`, `reason: string | null`, `source_refs: array<SourceReference> = []`, `sources: array<DreamSourceReference> | null`, `target: ArtifactReference | null`.
 
 ## mcp__powercontext__revise_memory_entry
 

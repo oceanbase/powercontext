@@ -34,6 +34,7 @@ from powercontext.builtin.persistence.artifact_governance import ArtifactLifecyc
 from powercontext.builtin.persistence.skill_publications import SkillPublicationDesiredState
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
+from powercontext.builtin.scope import ScopeDraft
 
 
 def _package(instruction: str = "Run the release verification."):
@@ -45,6 +46,11 @@ def _package(instruction: str = "Run the release verification."):
             validation=("The report passes.",),
         )
     )
+
+
+async def _create_scope(contexts, key: str) -> str:
+    scope = await contexts.scopes.create(ScopeDraft(title=key, summary="Skill distribution test", idempotency_key=key))
+    return scope.scope_id
 
 
 async def _approved_package(contexts, scope_id: str, *, target: ArtifactRef | None = None):
@@ -136,7 +142,7 @@ def test_remote_enrollment_is_one_time_and_revocation_invalidates_the_credential
 def test_remote_publish_reconcile_download_receipt_and_safe_unpublish_converge() -> None:
     async def exercise() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
-            scope_id = "project:one"
+            scope_id = await _create_scope(contexts, "project:one")
             artifact, package = await _approved_package(contexts, scope_id)
             service = contexts.remote_skill_distribution()
             _enrollment, target = await _active_target(service, scope_id)
@@ -219,7 +225,7 @@ def test_remote_publish_reconcile_download_receipt_and_safe_unpublish_converge()
 def test_remote_publish_distinguishes_skill_lifecycle_from_target_state() -> None:
     async def exercise() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
-            scope_id = "project:one"
+            scope_id = await _create_scope(contexts, "project:one")
             artifact, _package_snapshot = await _approved_package(contexts, scope_id)
             service = contexts.remote_skill_distribution()
             _enrollment, target = await _active_target(service, scope_id)
@@ -264,7 +270,7 @@ def test_remote_publish_distinguishes_skill_lifecycle_from_target_state() -> Non
 def test_remote_receipt_loss_and_failure_retry_do_not_advance_or_regress_desired_generation() -> None:
     async def exercise() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
-            scope_id = "project:one"
+            scope_id = await _create_scope(contexts, "project:one")
             artifact, package = await _approved_package(contexts, scope_id)
             service = contexts.remote_skill_distribution()
             _enrollment, target = await _active_target(service, scope_id)
@@ -328,7 +334,7 @@ def test_remote_receipt_loss_and_failure_retry_do_not_advance_or_regress_desired
 def test_reconcile_persists_authenticated_drift_after_a_successful_receipt() -> None:
     async def exercise() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
-            scope_id = "project:one"
+            scope_id = await _create_scope(contexts, "project:one")
             artifact, package = await _approved_package(contexts, scope_id)
             service = contexts.remote_skill_distribution()
             _enrollment, target = await _active_target(service, scope_id)

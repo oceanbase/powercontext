@@ -229,7 +229,7 @@ def test_all_19_sdk_tools_preserve_memory_handoff_and_candidate_readback(sdk_htt
 
     # Approval belongs to the administrator, not to the 19-tool plugin.
     approved = http.post(
-        "/v1/artifact-candidates/approve",
+        "/v1/candidates/approve",
         json={
             "scope_id": a,
             "candidate_id": candidate["candidate_id"],
@@ -249,7 +249,7 @@ def test_all_19_sdk_tools_preserve_memory_handoff_and_candidate_readback(sdk_htt
         },
     )["candidate"]
     approved = http.post(
-        "/v1/artifact-candidates/approve",
+        "/v1/candidates/approve",
         json={
             "scope_id": a,
             "candidate_id": skill_candidate["candidate_id"],

@@ -845,7 +845,7 @@ sequenceDiagram
 | 反序列化构造点 | `src/powercontext/builtin/persistence/experience_index.py:381-387` `_content()` → `load_model(ExperienceContent, ...)` |
 | 其余 `src/` 命中 | 全部是类型标注 / `isinstance` / `TypeAlias` / `CONTENT_MODELS` 注册表：`dream/models.py:175,198`、`runtime/models.py:320,428,436-437`、`review/service.py:105,114,529-545,580`、`review/generation.py:61`、`relational.py:233,505,1705`、`server/dashboard/api.py:39`、`family_management.py:264`、`incubation.py:56,69`、`generation.py:31,37,49`、`search.py:22,30,33,44,50` |
 | 字段赋值 `content.(situation\|action\|outcome\|lesson\|failure) =` | `src/` 侧 **0 命中**（唯一命中 `tests/test_cli.py:1315` 是只读断言 `experience.proposal.lesson == "..."`） |
-| `model_copy` / `.copy(update=)` 作用在 `ExperienceContent` 上 | **0 命中**。全仓 40+ 处 `model_copy` 的作用对象是 `ArtifactCandidate`（`review/service.py:533`）、`HandoffDraft`/`PreparedHandoff`（`handoff/service.py:117,131,161`）、`DreamRun`/`DreamPlan`（`dream/service.py:262-421`）、`SkillPublication`、`MemoryProjection`、`TopicMemory`、`ProfilePolicy`、`Source`（`records.py:195`、`receipt_migration.py:91`）、`SourceRequest`（`client/client.py:493`）——**无一与 Experience 内容有关** |
+| `model_copy` / `.copy(update=)` 作用在 `ExperienceContent` 上 | **0 命中**。全仓 40+ 处 `model_copy` 的作用对象是 `Candidate`（`review/service.py:533`）、`HandoffDraft`/`PreparedHandoff`（`handoff/service.py:117,131,161`）、`DreamRun`/`DreamPlan`（`dream/service.py:262-421`）、`SkillPublication`、`MemoryProjection`、`TopicMemory`、`ProfilePolicy`、`Source`（`records.py:195`、`receipt_migration.py:91`）、`SourceRequest`（`client/client.py:493`）——**无一与 Experience 内容有关** |
 | 测试侧 | 20+ 处构造点全为 `ExperienceContent(...)` / `ExperienceContent.model_validate(...)`，无事后修改 |
 
 **风险与判定**

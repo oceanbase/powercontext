@@ -227,15 +227,13 @@ def test_profile_http_policy_crud_review_and_rollback(tmp_path, enforced):
             assert pending.status_code == 200, pending.text
             candidate_id = pending.json()["candidate_id"]
             assert candidate_id
-            candidate = await client.post(
-                "/v1/artifact-candidates/get", json={"scope_id": sid, "candidate_id": candidate_id}
-            )
+            candidate = await client.post("/v1/candidates/get", json={"scope_id": sid, "candidate_id": candidate_id})
             assert {ref["name"] for ref in candidate.json()["source_refs"]} == {"note", "content"}
             assert {ref["source_id"] for ref in candidate.json()["source_refs"] if ref["name"] == "note"} == set(
                 remote_ids
             )
             approved = await client.post(
-                "/v1/artifact-candidates/approve",
+                "/v1/candidates/approve",
                 json={
                     "scope_id": sid,
                     "candidate_id": candidate_id,

@@ -116,13 +116,11 @@ def test_mcp_full_profile_preserves_review_and_external_fingerprints(tmp_path: P
                     generated = await call(f"generate_{family}", scope_id=scope_id, **evidence, **extra)
                     assert generated["status"] == "pending"
                     candidate = generated["candidate"]
-                    inspected = await call(
-                        "get_artifact_candidate", scope_id=scope_id, candidate_id=candidate["candidate_id"]
-                    )
+                    inspected = await call("get_candidate", scope_id=scope_id, candidate_id=candidate["candidate_id"])
                     assert inspected["status"] == "pending"
                     assert inspected["result_artifact"] is None
                     approved = await call(
-                        "approve_artifact_candidate",
+                        "approve_candidate",
                         scope_id=scope_id,
                         candidate_id=candidate["candidate_id"],
                         expected_version=candidate["version"],
@@ -218,7 +216,7 @@ def test_mcp_generation_distinguishes_missing_model_from_no_op(configured: bool)
                     else:
                         assert result.is_error
                         assert "503" in result.content[0].text
-                inbox = await client.call_tool("list_artifact_candidates", {"scope_id": scope_id})
+                inbox = await client.call_tool("list_candidates", {"scope_id": scope_id})
                 assert inbox.structured_content["candidates"] == []
 
     asyncio.run(scenario())

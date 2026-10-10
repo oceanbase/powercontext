@@ -415,7 +415,7 @@ def test_method_pagination_returns_to_the_previous_records(dashboard: TestClient
         assert result.status_code == 201
         candidate = result.json()
         approved = dashboard.post(
-            "/v1/artifact-candidates/approve",
+            "/v1/candidates/approve",
             json={
                 "scope_id": scope,
                 "candidate_id": candidate["candidate_id"],
@@ -454,7 +454,7 @@ def test_skill_with_usage_provenance_is_readable_and_searchable(dashboard: TestC
         },
     ).json()
     approved = dashboard.post(
-        "/v1/artifact-candidates/approve",
+        "/v1/candidates/approve",
         json={
             "scope_id": scope,
             "candidate_id": candidate["candidate_id"],
@@ -487,7 +487,7 @@ def test_skill_with_usage_provenance_is_readable_and_searchable(dashboard: TestC
         },
     ).json()
     updated = dashboard.post(
-        "/v1/artifact-candidates/approve",
+        "/v1/candidates/approve",
         json={
             "scope_id": scope,
             "candidate_id": candidate["candidate_id"],
@@ -604,7 +604,7 @@ def test_reviewed_methods_link_to_exact_memory_evidence(dashboard: TestClient) -
         assert proposed.status_code == 201, proposed.text
         candidate = proposed.json()
         approved = dashboard.post(
-            "/v1/artifact-candidates/approve",
+            "/v1/candidates/approve",
             json={
                 "scope_id": scope,
                 "candidate_id": candidate["candidate_id"],

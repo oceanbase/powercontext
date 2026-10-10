@@ -12,7 +12,7 @@ Generation needs the corresponding Server model configuration. When the caller s
 `propose_experience` and `propose_skill` submit it directly without model generation. Neither path approves content.
 
 Report the returned `pending` candidate and version, or the explicit `no_op` reason. Inspect with
-`get_artifact_candidate`; use the existing [review workflow](review-publication.md) for an authorized decision.
+`get_candidate`; use the existing [review workflow](review-publication.md) for an authorized decision.
 Do not infer an approved revision from a candidate, and do not silently retry a write with an unknown outcome.
 
 ## Inspect or import an external Skill

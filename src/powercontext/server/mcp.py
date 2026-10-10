@@ -38,7 +38,7 @@ from typing_extensions import override
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
-    APPROVE_ARTIFACT_CANDIDATE,
+    APPROVE_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     CLEAR_SCOPE_BINDING,
     COMMIT_HANDOFF,
@@ -49,7 +49,8 @@ from powercontext.http._generated.operations import (
     FINALIZE_HANDOFF,
     GENERATE_EXPERIENCE,
     GENERATE_SKILL,
-    GET_ARTIFACT_CANDIDATE,
+    GET_CANDIDATE,
+    GET_CANDIDATE_HISTORY,
     GET_DREAM_RUN,
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
@@ -60,7 +61,7 @@ from powercontext.http._generated.operations import (
     GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
-    LIST_ARTIFACT_CANDIDATES,
+    LIST_CANDIDATES,
     LIST_DREAM_RUNS,
     LIST_EXTERNAL_SKILLS,
     LIST_MANAGED_SKILLS,
@@ -72,12 +73,12 @@ from powercontext.http._generated.operations import (
     PUBLISH_ARTIFACT,
     QUERY_CODE,
     RECORD_TASK_OUTCOME,
-    REJECT_ARTIFACT_CANDIDATE,
+    REJECT_CANDIDATE,
     REMEMBER_MEMORY,
     RESOLVE_EXTERNAL_SKILL,
     RESOLVE_SCOPE_BINDING,
     RETIRE_MEMORY_ENTRY,
-    REVISE_ARTIFACT_CANDIDATE,
+    REVISE_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
@@ -163,11 +164,12 @@ _MCP_OPERATION_IDS = frozenset({
     REVISE_MEMORY_ENTRY.operation_id,
     GET_HANDOFF_REPORT.operation_id,
     RETIRE_MEMORY_ENTRY.operation_id,
-    LIST_ARTIFACT_CANDIDATES.operation_id,
-    GET_ARTIFACT_CANDIDATE.operation_id,
-    APPROVE_ARTIFACT_CANDIDATE.operation_id,
-    REJECT_ARTIFACT_CANDIDATE.operation_id,
-    REVISE_ARTIFACT_CANDIDATE.operation_id,
+    LIST_CANDIDATES.operation_id,
+    GET_CANDIDATE.operation_id,
+    GET_CANDIDATE_HISTORY.operation_id,
+    APPROVE_CANDIDATE.operation_id,
+    REJECT_CANDIDATE.operation_id,
+    REVISE_CANDIDATE.operation_id,
     CREATE_SCOPE.operation_id,
     LIST_SCOPES.operation_id,
     GET_SCOPE.operation_id,
@@ -194,8 +196,9 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     GET_MEMORY_CAPACITY.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     GET_HANDOFF_REPORT.operation_id,
-    LIST_ARTIFACT_CANDIDATES.operation_id,
-    GET_ARTIFACT_CANDIDATE.operation_id,
+    LIST_CANDIDATES.operation_id,
+    GET_CANDIDATE.operation_id,
+    GET_CANDIDATE_HISTORY.operation_id,
     LIST_SCOPES.operation_id,
     GET_SCOPE.operation_id,
     RESOLVE_SCOPE_BINDING.operation_id,
@@ -214,9 +217,9 @@ _MCP_EXTERNAL_SKILL_OPERATION_IDS = frozenset({
     IMPORT_EXTERNAL_SKILL.operation_id,
 })
 _MCP_REVIEW_WRITE_OPERATION_IDS = frozenset({
-    APPROVE_ARTIFACT_CANDIDATE.operation_id,
-    REJECT_ARTIFACT_CANDIDATE.operation_id,
-    REVISE_ARTIFACT_CANDIDATE.operation_id,
+    APPROVE_CANDIDATE.operation_id,
+    REJECT_CANDIDATE.operation_id,
+    REVISE_CANDIDATE.operation_id,
 })
 
 
@@ -378,6 +381,7 @@ def create_mcp_server(
     client = httpx.AsyncClient(
         transport=_InternalBridgeTransport(app=server_app),
         base_url="http://fastapi",
+        headers={"X-PowerContext-Dream-Contract": "2"},
     )
     openapi_spec = server_app.openapi()
     provider = OpenAPIProvider(

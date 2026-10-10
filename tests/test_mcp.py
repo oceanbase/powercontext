@@ -94,7 +94,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "import_external_skill",
         "activate_handoff",
         "acknowledge_handoff",
-        "approve_artifact_candidate",
+        "approve_candidate",
         "capture_content_source",
         "clear_scope_binding",
         "commit_handoff",
@@ -103,7 +103,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "create_scope",
         "create_work_contract",
         "finalize_handoff",
-        "get_artifact_candidate",
+        "get_candidate",
         "get_memory_capacity",
         "get_memory_entry",
         "get_topic_memory",
@@ -112,17 +112,18 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "create_dream_run",
         "get_dream_run",
         "list_dream_runs",
-        "list_artifact_candidates",
+        "get_candidate_history",
+        "list_candidates",
         "list_memory_entries",
         "list_scopes",
         "publish_artifact",
         "query_code",
-        "reject_artifact_candidate",
+        "reject_candidate",
         "record_task_outcome",
         "resolve_scope_binding",
         "remember_memory",
         "retire_memory_entry",
-        "revise_artifact_candidate",
+        "revise_candidate",
         "revise_memory_entry",
         "search_memory",
         "search_topic_memory",
@@ -258,9 +259,9 @@ def test_mcp_accepts_first_handoff_carrier_in_followup_tool_schemas() -> None:
 
 def test_mcp_describes_review_write_side_effects_for_host_approval() -> None:
     review_writes = {
-        "approve_artifact_candidate",
-        "reject_artifact_candidate",
-        "revise_artifact_candidate",
+        "approve_candidate",
+        "reject_candidate",
+        "revise_candidate",
     }
 
     async def inspect_annotations() -> dict[str, Any]:

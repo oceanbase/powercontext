@@ -106,7 +106,7 @@ def request_for(operation: str, parameters: dict, connection: Connection, scope_
             raise PluginError("invalid_request")
         if not 1 <= len(request["source_refs"]) + len(request["artifact_refs"]) <= 32:
             raise PluginError("invalid_request")
-    if operation == "list_artifact_candidates" and request.get("family") not in {None, "experience", "skill"}:
+    if operation == "list_candidates" and request.get("family") not in {None, "experience", "skill"}:
         raise PluginError("invalid_request")
     if operation == "capture_content_source":
         metadata = request.get("metadata")
@@ -144,7 +144,7 @@ class PowerContextTool(Tool):
                 (self.operation == "prepare_context" and data["status"] == "empty")
                 or (self.operation == "search_memory" and not data["hits"])
                 or (self.operation == "list_memory_entries" and not data["entries"])
-                or (self.operation == "list_artifact_candidates" and not data["candidates"])
+                or (self.operation == "list_candidates" and not data["candidates"])
             )
             outcome = {
                 "ok": True,

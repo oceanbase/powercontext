@@ -65,7 +65,7 @@ describe('agent tool surface', () => {
     expect(names).not.toContain('pc_call')
     expect(names).not.toContain('purge_handoff_report_activities')
     expect(names).not.toContain('detach_handoff_report_workspace')
-    expect(names).not.toContain('approve_artifact_candidate')
+    expect(names).not.toContain('approve_candidate')
     expect(preExecute).toBeTypeOf('function')
   })
 

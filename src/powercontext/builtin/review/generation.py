@@ -36,7 +36,7 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.review.errors import InvalidCandidateError
-from powercontext.builtin.review.models import ArtifactCandidate
+from powercontext.builtin.review.models import Candidate
 from powercontext.builtin.review.service import ReviewService
 from powercontext.errors import PowerContextError
 from powercontext.sources import Source, SourceRef
@@ -58,7 +58,7 @@ class GenerationCapabilityUnavailableError(PowerContextError, RuntimeError):
         super().__init__(f"{family} generation is not configured")
 
 
-GeneratedCandidate: TypeAlias = ArtifactCandidate[ExperienceContent] | ArtifactCandidate[SkillContent]
+GeneratedCandidate: TypeAlias = Candidate[ExperienceContent] | Candidate[SkillContent]
 
 
 class GeneratedCandidateResult(BaseModel):

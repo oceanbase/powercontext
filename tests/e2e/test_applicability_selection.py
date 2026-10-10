@@ -56,13 +56,13 @@ from powercontext.builtin.sources.content import ContentCapture
 from powercontext.builtin.sources.skill_usage import SkillUsageCapture
 from powercontext.client import ForbiddenResponseError, PowerContextClient
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     ArtifactReference,
     CaptureContentSourceRequest,
     ExperienceProposal,
     ProposeExperienceRequest,
     ProposeSkillPackageRequest,
-    RejectArtifactCandidateRequest,
+    RejectCandidateRequest,
     SkillLifecycleState,
     UpdateSkillLifecycleRequest,
 )
@@ -141,8 +141,8 @@ async def propose(client: PowerContextClient, scope_id: str, name: str, *, incom
 
 
 async def approve(client: PowerContextClient, scope_id: str, pending) -> ArtifactReference:
-    approved = await client.approve_artifact_candidate(
-        ApproveArtifactCandidateRequest(
+    approved = await client.approve_candidate(
+        ApproveCandidateRequest(
             scope_id=scope_id,
             candidate_id=pending.candidate_id,
             expected_version=pending.version,
@@ -158,8 +158,8 @@ def test_authorized_catalog_excludes_unreviewed_retired_and_incompatible_package
             scope_id, references = await seed_fixture(client)
             await propose(client, scope_id, "http-contract-pending")
             rejected = await propose(client, scope_id, "http-contract-rejected")
-            await client.reject_artifact_candidate(
-                RejectArtifactCandidateRequest(
+            await client.reject_candidate(
+                RejectCandidateRequest(
                     scope_id=scope_id,
                     candidate_id=rejected.candidate_id,
                     expected_version=rejected.version,

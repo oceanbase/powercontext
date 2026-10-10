@@ -18,4 +18,4 @@ from powercontext_dify import tool
 
 
 class PcReviewListTool(tool.PowerContextTool):
-    operation = "list_artifact_candidates"
+    operation = "list_candidates"

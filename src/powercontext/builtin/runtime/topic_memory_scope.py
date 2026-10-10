@@ -59,13 +59,24 @@ class TopicMemoryProcessingTarget:
 
 
 async def topic_memory_processing_block(
-    connection: AsyncConnection, scope_id: str, binding_name: str
+    connection: AsyncConnection, scope_id: str, binding_name: str, *, dream_enabled: bool = False
 ) -> ArtifactProcessingBlock | None:
     """Check only the current Cursor, target/head and durable work allowance.
 
     Input selection, projections, token estimation and models stay in the
     Worker. A finished target must still be allowed to retire its intent.
     """
+    if dream_enabled:
+        from powercontext.builtin.dream.bindings import operations_for_binding
+        from powercontext.builtin.persistence.dream import DreamRepository
+
+        # Exact Dream requests have their own evidence and budget; an exhausted
+        # automatic Source window must not prevent their Worker from starting.
+        pending = await DreamRepository().next_pending(
+            connection, scope_id, operations_for_binding(binding_name), binding=binding_name
+        )
+        if pending is not None:
+            return None
     cursor = await SourceCursorRepository().load(connection, scope_id, binding_name)
     source_after = 0 if cursor is None else cursor.cursor.sequence
     targets = TOPIC_MEMORY_PROCESSING_TARGETS_TABLE

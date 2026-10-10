@@ -93,12 +93,12 @@ TOOLS = {
     ),
     "pc_skill_get": ("get_skill", "Read a Skill Artifact using its exact reference.", "按精确引用读取技能产物。"),
     "pc_review_list": (
-        "list_artifact_candidates",
+        "list_candidates",
         "Inspect candidates with stable status/family/cursor pagination; no approval.",
         "分页查看候选，保持筛选与游标，不执行审批。",
     ),
     "pc_review_get": (
-        "get_artifact_candidate",
+        "get_candidate",
         "Inspect one candidate, its evidence and version; no approval.",
         "查看候选内容、证据和版本，不执行审批。",
     ),

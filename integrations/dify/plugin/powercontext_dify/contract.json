@@ -227,27 +227,27 @@
         }
       }
     },
-    "list_artifact_candidates": {
+    "list_candidates": {
       "method": "POST",
-      "path": "/v1/artifact-candidates/list",
+      "path": "/v1/candidates/list",
       "request": {
-        "$ref": "#/components/schemas/ListArtifactCandidatesRequest"
+        "$ref": "#/components/schemas/ListCandidatesRequest"
       },
       "responses": {
         "200": {
-          "$ref": "#/components/schemas/ArtifactCandidatePage"
+          "$ref": "#/components/schemas/CandidatePage"
         }
       }
     },
-    "get_artifact_candidate": {
+    "get_candidate": {
       "method": "POST",
-      "path": "/v1/artifact-candidates/get",
+      "path": "/v1/candidates/get",
       "request": {
-        "$ref": "#/components/schemas/GetArtifactCandidateRequest"
+        "$ref": "#/components/schemas/GetCandidateRequest"
       },
       "responses": {
         "200": {
-          "$ref": "#/components/schemas/ArtifactCandidate"
+          "$ref": "#/components/schemas/Candidate"
         }
       }
     }
@@ -270,8 +270,8 @@
     "pc_experience_get": "get_experience",
     "pc_skill_generate": "generate_skill",
     "pc_skill_get": "get_skill",
-    "pc_review_list": "list_artifact_candidates",
-    "pc_review_get": "get_artifact_candidate"
+    "pc_review_list": "list_candidates",
+    "pc_review_get": "get_candidate"
   },
   "json_parameters": {
     "search_memory": [],
@@ -329,11 +329,12 @@
     "get_skill": [
       "artifact"
     ],
-    "list_artifact_candidates": [
+    "list_candidates": [
       "family",
-      "cursor"
+      "cursor",
+      "candidate_kind"
     ],
-    "get_artifact_candidate": []
+    "get_candidate": []
   },
   "components": {
     "schemas": {
@@ -377,10 +378,63 @@
           }
         }
       },
-      "ArtifactCandidate": {
+      "ArtifactReference": {
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "family",
+          "artifact_id",
+          "revision"
+        ],
+        "properties": {
+          "family": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\x21-\\x7E]+$"
+          },
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\x21-\\x7E]+$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ArtifactTagTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "family",
+          "artifact_id"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "artifact"
+            ]
+          },
+          "family": {
+            "$ref": "#/components/schemas/TaggableArtifactFamily"
+          },
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "Candidate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate_kind",
           "candidate_id",
           "version",
           "family",
@@ -394,11 +448,21 @@
           "decision_reason"
         ],
         "properties": {
+          "audit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CandidateAudit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "memory_citations": {
             "type": "array",
             "maxItems": 32,
             "default": [],
-            "description": "Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.",
+            "description": "Exact Memory entry provenance for Experience, Profile Dream or Memory Dream changes. Counted toward the combined evidence bound.",
             "items": {
               "$ref": "#/components/schemas/MemoryCitation"
             }
@@ -444,6 +508,21 @@
               },
               {
                 "$ref": "#/components/schemas/ProfileCandidateProposal"
+              },
+              {
+                "$ref": "#/components/schemas/MemoryDreamCandidateProposal"
+              },
+              {
+                "$ref": "#/components/schemas/TopicMemoryDreamProposal"
+              },
+              {
+                "$ref": "#/components/schemas/HandoffContent"
+              },
+              {
+                "$ref": "#/components/schemas/PromptContent"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogChangeProposal"
               }
             ]
           },
@@ -506,10 +585,127 @@
                 "type": "null"
               }
             ]
+          },
+          "candidate_kind": {
+            "type": "string",
+            "enum": [
+              "artifact",
+              "tag"
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogTagResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "dream",
+                  "manual"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dream_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
-      "ArtifactCandidatePage": {
+      "CandidateAudit": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "origin",
+          "operation",
+          "dream_run_id",
+          "spec_version",
+          "proposal_digest",
+          "evidence_manifest_ref",
+          "validation_policy_digest",
+          "proposal_fingerprint"
+        ],
+        "properties": {
+          "origin": {
+            "type": "string",
+            "minLength": 1
+          },
+          "operation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "dream_run_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "spec_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "proposal_digest": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence_manifest_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "validation_policy_digest": {
+            "type": "string",
+            "minLength": 1
+          },
+          "proposal_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "CandidateFamily": {
+        "type": "string",
+        "enum": [
+          "experience",
+          "skill",
+          "profile",
+          "memory",
+          "topic-memory",
+          "handoff",
+          "prompt"
+        ]
+      },
+      "CandidatePage": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -520,7 +716,7 @@
           "candidates": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ArtifactCandidate"
+              "$ref": "#/components/schemas/Candidate"
             }
           },
           "next_cursor": {
@@ -534,41 +730,6 @@
             ]
           }
         }
-      },
-      "ArtifactReference": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "family",
-          "artifact_id",
-          "revision"
-        ],
-        "properties": {
-          "family": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[\\x21-\\x7E]+$"
-          },
-          "artifact_id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[\\x21-\\x7E]+$"
-          },
-          "revision": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
-      },
-      "CandidateFamily": {
-        "type": "string",
-        "enum": [
-          "experience",
-          "skill",
-          "profile"
-        ]
       },
       "CandidatePermissions": {
         "type": "object",
@@ -663,6 +824,100 @@
         "enum": [
           "accepted"
         ]
+      },
+      "CatalogChangeProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "expected_etag",
+          "before_tags",
+          "after_tags"
+        ],
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/TagTarget"
+          },
+          "expected_etag": {
+            "type": "string",
+            "minLength": 1
+          },
+          "basis_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "basis_citation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryCitation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "before_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 32
+          },
+          "after_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 32
+          }
+        }
+      },
+      "CatalogTagResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "target",
+          "tags",
+          "tag_digest",
+          "etag"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "$ref": "#/components/schemas/TagTarget"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 32
+          },
+          "tag_digest": {
+            "type": "string",
+            "minLength": 1
+          },
+          "etag": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       },
       "CommitHandoffRequest": {
         "type": "object",
@@ -832,6 +1087,26 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "DreamSourceReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_type",
+          "source_id"
+        ],
+        "properties": {
+          "source_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
           }
         }
       },
@@ -1177,7 +1452,7 @@
           "candidate": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ArtifactCandidate"
+                "$ref": "#/components/schemas/Candidate"
               },
               {
                 "type": "null"
@@ -1193,7 +1468,7 @@
           "no_op"
         ]
       },
-      "GetArtifactCandidateRequest": {
+      "GetCandidateRequest": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1805,7 +2080,7 @@
           }
         }
       },
-      "ListArtifactCandidatesRequest": {
+      "ListCandidatesRequest": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1853,6 +2128,20 @@
             "minimum": 1,
             "maximum": 100,
             "default": 50
+          },
+          "candidate_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "artifact",
+                  "tag"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -1930,6 +2219,77 @@
           }
         }
       },
+      "MemoryDreamCandidateProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "base",
+          "dream_run_id",
+          "changes"
+        ],
+        "properties": {
+          "base": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          },
+          "dream_run_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "changes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/MemoryDreamEntryChange"
+            }
+          }
+        }
+      },
+      "MemoryDreamEntryChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entry_id",
+          "entry_version_id",
+          "kind",
+          "text",
+          "reason",
+          "sources"
+        ],
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "entry_version_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/DreamSourceReference"
+            }
+          }
+        }
+      },
       "MemoryEntry": {
         "type": "object",
         "additionalProperties": false,
@@ -1979,6 +2339,40 @@
           "active",
           "inactive"
         ]
+      },
+      "MemoryEntryTagTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "family",
+          "artifact_id",
+          "entry_id"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "memory_entry"
+            ]
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "memory"
+            ]
+          },
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "entry_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
       },
       "MemoryMatchedBy": {
         "type": "string",
@@ -2197,7 +2591,6 @@
         "required": [
           "schema",
           "content",
-          "source_window",
           "generator_id",
           "generator_version",
           "created_at"
@@ -2214,7 +2607,44 @@
             "minLength": 1
           },
           "source_window": {
-            "$ref": "#/components/schemas/ProfileSourceWindow"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProfileSourceWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dream_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy_snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProfileDreamPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "generator_id": {
             "type": "string",
@@ -2227,6 +2657,26 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "ProfileDreamPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "format_version",
+          "generation_enabled"
+        ],
+        "properties": {
+          "format_version": {
+            "type": "integer",
+            "enum": [
+              1
+            ],
+            "default": 1
+          },
+          "generation_enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -2245,6 +2695,60 @@
           "through": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "PromptContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "mode",
+          "instructions",
+          "demonstrations"
+        ],
+        "description": "Canonical content is limited to 256 KiB. Auto requires empty instructions and demonstrations; Custom requires non-blank trimmed NFC instructions. Demonstrations must match the registered operation types.",
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "enum": [
+              "powercontext.prompt.v1"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "custom"
+            ]
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 32768
+          },
+          "demonstrations": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/PromptDemonstration"
+            }
+          }
+        }
+      },
+      "PromptDemonstration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "input",
+          "expected_output"
+        ],
+        "description": "A typed input/output pair limited to 64 KiB of canonical JSON.",
+        "properties": {
+          "input": {
+            "description": "Complete JSON input matching the registered Prompt Definition."
+          },
+          "expected_output": {
+            "description": "Desired JSON output matching the registered Prompt Definition."
           }
         }
       },
@@ -2641,7 +3145,7 @@
             "type": "array",
             "maxItems": 32,
             "default": [],
-            "description": "Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.",
+            "description": "Exact Memory entry provenance retained by approved Dream Skill revisions. Counted toward the combined evidence bound.",
             "items": {
               "$ref": "#/components/schemas/MemoryCitation"
             }
@@ -2855,6 +3359,62 @@
           "all",
           "any"
         ]
+      },
+      "TagTarget": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ArtifactTagTarget"
+          },
+          {
+            "$ref": "#/components/schemas/MemoryEntryTagTarget"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "artifact": "#/components/schemas/ArtifactTagTarget",
+            "memory_entry": "#/components/schemas/MemoryEntryTagTarget"
+          }
+        }
+      },
+      "TaggableArtifactFamily": {
+        "type": "string",
+        "description": "All readable Artifact families support logical tags on persisted Artifacts.",
+        "enum": [
+          "memory",
+          "experience",
+          "skill",
+          "handoff",
+          "profile",
+          "prompt",
+          "topic-memory"
+        ]
+      },
+      "TopicMemoryDreamProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "summary",
+          "detail"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 125000
+          }
+        }
       }
     }
   }

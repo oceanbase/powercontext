@@ -21,8 +21,8 @@ The provider declares exactly the following 19 tools. `generate_contract.py --ch
 | `pc_experience_get` | `get_experience` | Read an exact Experience artifact |
 | `pc_skill_generate` | `generate_skill` | Generate a managed Skill candidate |
 | `pc_skill_get` | `get_skill` | Read an exact managed Skill artifact |
-| `pc_review_list` | `list_artifact_candidates` | List candidates; explicit family experience / skill |
-| `pc_review_get` | `get_artifact_candidate` | Read a candidate |
+| `pc_review_list` | `list_candidates` | List candidates; explicit family experience / skill |
+| `pc_review_get` | `get_candidate` | Read a candidate |
 
 ## Parameter and output differences
 

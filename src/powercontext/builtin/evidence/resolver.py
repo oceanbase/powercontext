@@ -26,8 +26,18 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import Experience
+from powercontext.builtin.artifacts.handoff.models import (
+    Handoff,
+    HandoffArtifactCitation,
+    HandoffMemoryCitation,
+    HandoffSourceCitation,
+)
 from powercontext.builtin.artifacts.memory import Memory, MemoryEntryVersion
 from powercontext.builtin.artifacts.memory.errors import InvalidMemoryCitationError, MemoryEntryNotFoundError
+from powercontext.builtin.artifacts.profile.models import Profile
+from powercontext.builtin.artifacts.prompt.models import Prompt
+from powercontext.builtin.artifacts.skill import Skill
+from powercontext.builtin.artifacts.topic_memory.models import TopicMemory
 from powercontext.builtin.evidence.models import (
     EVIDENCE_TRANSFORM_VERSION,
     EvidenceEdge,
@@ -63,6 +73,9 @@ RootIdentityResolver = Callable[[SourceRef, Source], str | None]
 @dataclass
 class _Traversal:
     project: bool = True
+    target_ref: ArtifactRef | None = None
+    prompt_target: ArtifactRef | None = None
+    catalog_target: ArtifactRef | None = None
     nodes: dict[str, EvidenceNode] = field(default_factory=dict)
     bodies: dict[str, str] = field(default_factory=dict)
     edges: set[tuple[str, str]] = field(default_factory=set)
@@ -135,7 +148,7 @@ class EvidenceResolver:
                 await self.authorize(ref)
             try:
                 if isinstance(ref, ArtifactRef):
-                    node, children = await self._read_review_artifact(connection, ref)
+                    node, children = await self._read_review_artifact(connection, ref, state)
                 else:
                     node, _, children = await self._read(connection, ref, state, direct=direct, locked=locked)
             except RepositoryNotFoundError as error:
@@ -155,14 +168,16 @@ class EvidenceResolver:
         return state
 
     async def _read_review_artifact(
-        self, connection: AsyncConnection, ref: ArtifactRef
+        self, connection: AsyncConnection, ref: ArtifactRef, state: _Traversal
     ) -> tuple[EvidenceNode, tuple[EvidenceReference, ...]]:
         """Follow local Review lineage independently of Dream's supported input Families."""
 
         artifact = await self.artifacts.get(connection, self.scope_id, ref)
-        children: tuple[EvidenceReference, ...] = ()
-        if ref.family != "prompt" and artifact.lineage.publication_source is None:
-            children = (*artifact.lineage.sources, *artifact.lineage.artifacts, *artifact.lineage.memory_citations)
+        children = (
+            ()
+            if ref.family == "prompt" or artifact.lineage.publication_source is not None
+            else _artifact_children(artifact, ref, state)
+        )
         return (
             EvidenceNode(
                 evidence_id=evidence_id(ref),
@@ -181,12 +196,20 @@ class EvidenceResolver:
         sources: tuple[SourceRef, ...] = (),
         artifacts: tuple[ArtifactRef, ...] = (),
         memory_citations: tuple[MemoryCitation, ...] = (),
+        target: ArtifactRef | None = None,
         include_memory_text: bool = True,
         lock_memory: bool = False,
         pinned: EvidenceManifest | None = None,
         project: bool = True,
+        expose_prompt_target: bool = False,
+        expose_catalog_target: bool = False,
     ) -> ResolvedEvidence:
-        traversal = _Traversal(project=project)
+        traversal = _Traversal(
+            project=project,
+            target_ref=target,
+            prompt_target=target if expose_prompt_target else None,
+            catalog_target=target if expose_catalog_target else None,
+        )
         refs: tuple[EvidenceReference, ...] = (*sources, *artifacts, *memory_citations)
         if lock_memory:
             # Discover immutable entry paths first; lock every owner in one order, then
@@ -196,12 +219,17 @@ class EvidenceResolver:
                 sources=sources,
                 artifacts=artifacts,
                 memory_citations=memory_citations,
+                target=target,
                 project=False,
+                expose_prompt_target=expose_prompt_target,
+                expose_catalog_target=expose_catalog_target,
             )
             owners = tuple(citation for node in observed.manifest.nodes for citation in node.memory_citations)
             await self._lock_memories(connection, owners)
         for ref in refs:
             await self._visit(connection, ref, traversal, depth=0, direct=True, lock_memory=lock_memory)
+        if target is not None and (target_id := evidence_id(target)) in traversal.nodes:
+            traversal.nodes[target_id] = traversal.nodes[target_id].model_copy(update={"role": "target"})
         if pinned is not None:
             self._restore_snapshot(traversal, pinned)
         groups = self._groups(traversal)
@@ -284,7 +312,7 @@ class EvidenceResolver:
                 raise EvidenceResolutionError("evidence_limit_exceeded")
         return identity
 
-    async def _read(
+    async def _read(  # noqa: C901 - explicit typed projections for each supported evidence Family
         self,
         connection: AsyncConnection,
         ref: EvidenceReference,
@@ -299,7 +327,49 @@ class EvidenceResolver:
             return await self._read_memory(connection, ref, locked=locked)
         artifact = await self.artifacts.get(connection, self.scope_id, ref)
         digest = content_digest(artifact.model_dump_json().encode())
+        if ref == state.catalog_target:
+            return (
+                EvidenceNode(
+                    evidence_id=evidence_id(ref), kind="catalog_target", artifact=ref, digest=digest, role="target"
+                ),
+                artifact.content.model_dump_json(),
+                (),
+            )
+        if isinstance(artifact, Skill):
+            return (
+                EvidenceNode(evidence_id=evidence_id(ref), kind="skill", artifact=ref, digest=digest, role="derived"),
+                artifact.content.model_dump_json(),
+                _artifact_children(artifact, ref, state),
+            )
+        if isinstance(artifact, Profile):
+            return (
+                EvidenceNode(evidence_id=evidence_id(ref), kind="profile", artifact=ref, digest=digest, role="derived"),
+                artifact.content.content,
+                _artifact_children(artifact, ref, state),
+            )
+        if isinstance(artifact, TopicMemory):
+            return (
+                EvidenceNode(
+                    evidence_id=evidence_id(ref), kind="topic_memory", artifact=ref, digest=digest, role="derived"
+                ),
+                artifact.content.model_dump_json(),
+                _artifact_children(artifact, ref, state),
+            )
+        if isinstance(artifact, Handoff):
+            return (
+                EvidenceNode(evidence_id=evidence_id(ref), kind="handoff", artifact=ref, digest=digest, role="derived"),
+                artifact.content.model_dump_json(),
+                _artifact_children(artifact, ref, state),
+            )
         if ref.family == "prompt":
+            if isinstance(artifact, Prompt) and ref == state.prompt_target:
+                return (
+                    EvidenceNode(
+                        evidence_id=evidence_id(ref), kind="prompt", artifact=ref, digest=digest, role="target"
+                    ),
+                    artifact.content.model_dump_json(),
+                    (),
+                )
             return (
                 EvidenceNode(
                     evidence_id=evidence_id(ref),
@@ -309,7 +379,7 @@ class EvidenceResolver:
                     role="lineage_only",
                 ),
                 "",
-                (),
+                _artifact_children(artifact, ref, state),
             )
         if not isinstance(artifact, Experience) or artifact.lineage.publication_source is not None:
             return (
@@ -334,11 +404,7 @@ class EvidenceResolver:
                 historical=current.as_ref() != ref,
             ),
             artifact.content.model_dump_json(),
-            (
-                *artifact.lineage.sources,
-                *artifact.lineage.artifacts,
-                *artifact.lineage.memory_citations,
-            ),
+            _artifact_children(artifact, ref, state),
         )
 
     async def _read_source(
@@ -489,3 +555,31 @@ def root_ids(node_id: str, nodes: dict[str, EvidenceNode], edges: set[tuple[str,
             roots.add(current)
         pending.extend(upstream for derived, upstream in edges if derived == current)
     return roots
+
+
+def _artifact_children(artifact: object, ref: ArtifactRef, state: _Traversal) -> tuple[EvidenceReference, ...]:
+    """Return support dependencies while exempting the exact Dream target."""
+
+    if ref == state.target_ref and ref.family in {"skill", "profile", "topic-memory", "handoff", "prompt"}:
+        return ()
+    lineage = getattr(artifact, "lineage", None)
+    children: list[EvidenceReference] = []
+    if lineage is not None:
+        children.extend(lineage.sources)
+        children.extend(lineage.artifacts)
+        children.extend(lineage.memory_citations)
+    if isinstance(artifact, Handoff):
+        statements = (
+            *artifact.content.state,
+            *((artifact.content.next_action,) if artifact.content.next_action else ()),
+        )
+        citations = [citation for statement in statements for citation in statement.citations]
+        citations.extend(omission.citation for omission in artifact.content.omissions if omission.citation is not None)
+        for citation in citations:
+            if isinstance(citation, HandoffSourceCitation):
+                children.append(citation.source_ref)
+            elif isinstance(citation, HandoffArtifactCitation):
+                children.append(citation.artifact_ref)
+            elif isinstance(citation, HandoffMemoryCitation):
+                children.append(citation.memory_citation)
+    return unique_references(tuple(children))

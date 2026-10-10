@@ -557,7 +557,7 @@ function createTools(runtime: Runtime) {
         status: z.enum(['pending', 'approved', 'rejected']).optional(),
         family: z.enum(['experience', 'skill']).optional(),
       },
-      operationId: 'list_artifact_candidates',
+      operationId: 'list_candidates',
       payload: (args) => ({ status: args.status ?? 'pending', family: args.family }),
     }),
     pc_review_get: operationTool(runtime, {
@@ -567,7 +567,7 @@ function createTools(runtime: Runtime) {
         'authority; do not treat a pending candidate as an active artifact. Review mutations are not ' +
         'exposed as model tools in this host.',
       args: { candidate_id: z.string() },
-      operationId: 'get_artifact_candidate',
+      operationId: 'get_candidate',
       payload: (args) => ({ candidate_id: args.candidate_id }),
     }),
   }

@@ -38,7 +38,7 @@ from powercontext.builtin.persistence.experience_index import NoExperienceIndex
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
 from powercontext.builtin.runtime import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     BuiltinConfig,
     BuiltinRuntime,
     CaptureSource,
@@ -89,7 +89,7 @@ async def _approve(runtime: BuiltinRuntime, scope: str, family: str, marker: str
             ProposeSkillRequest(proposal=proposal, sources=(source.source_ref,), artifacts=lineage, target=target)
         )
     approved = await runtime.review.for_scope(scope).approve(
-        ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+        ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
     )
     assert approved.result_artifact is not None
     return approved.result_artifact, source.source_ref

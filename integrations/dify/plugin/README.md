@@ -49,8 +49,8 @@ The model cannot supply the top-level Scope, URL, token, binding, context assemb
 | `pc_experience_get` | `get_experience` | Read an exact Experience artifact |
 | `pc_skill_generate` | `generate_skill` | Generate a managed Skill candidate |
 | `pc_skill_get` | `get_skill` | Read an exact managed Skill artifact |
-| `pc_review_list` | `list_artifact_candidates` | List candidates; explicit family experience / skill |
-| `pc_review_get` | `get_artifact_candidate` | Read a candidate |
+| `pc_review_list` | `list_candidates` | List candidates; explicit family experience / skill |
+| `pc_review_get` | `get_candidate` | Read a candidate |
 
 Memory kinds are `decision`, `constraint`, `current-state`, `task-outcome`, `next-step` and `agent-note`. Memory text is checked after NFC normalization and trimming and must fit 8192 UTF-8 bytes. Search query length follows its HTTP character limit, with a default/maximum of 8 hits.
 

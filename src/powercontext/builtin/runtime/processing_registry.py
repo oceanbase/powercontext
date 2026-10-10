@@ -21,7 +21,13 @@ from typing import Any
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
 from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
-from powercontext.builtin.dream.bindings import DREAM_PROVIDERS, SKILL_DREAM_BINDING
+from powercontext.builtin.dream.bindings import (
+    DREAM_OPERATIONS,
+    DREAM_PROVIDERS,
+    HANDOFF_DREAM_BINDING,
+    PROMPT_DREAM_BINDING,
+    SKILL_DREAM_BINDING,
+)
 from powercontext.builtin.dream.models import DreamOperation
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
@@ -58,6 +64,8 @@ def processing_capabilities(config: BuiltinConfig) -> tuple[str, ...]:
         families.append("topic-memory")
     if config.runtime.dream_enabled and config.inference.generation_model.split(":", 1)[0] in DREAM_PROVIDERS:
         families.append("skill")
+        families.append("handoff")
+        families.append("prompt")
     return tuple(sorted(families))
 
 
@@ -73,9 +81,7 @@ def dream_operations(config: BuiltinConfig) -> tuple[DreamOperation, ...]:
         return ()
     families = processing_capabilities(config)
     return tuple(
-        operation
-        for operation, family in (("refine_experience", "experience"), ("derive_skill", "skill"))
-        if family in families
+        spec.operation for spec in DREAM_OPERATIONS if spec.family in families or (spec.family is None and families)
     )
 
 
@@ -101,6 +107,8 @@ def canonical_processing_manifest(config: BuiltinConfig) -> dict[str, Any]:
             EXPERIENCE_INCUBATION_CURSOR_NAME: "experience",
             PROFILE_SOURCE_WINDOW_BINDING: "profile",
             SKILL_DREAM_BINDING: "skill",
+            HANDOFF_DREAM_BINDING: "handoff",
+            PROMPT_DREAM_BINDING: "prompt",
         },
         "legacy_automatic_bindings": sorted(automatic),
     }

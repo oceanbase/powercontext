@@ -307,7 +307,7 @@ node --test integrations/zcode/plugins/powercontext/tests/host.test.mjs
 `handoff_current_work` → `continue_handoff`（prepared）→
 `commit_handoff` → 全新会话 `continue_handoff`（latest），提交的 revision 1 能从 Server 读回。
 其他已实测工具包括 `get_scope`、`list_memory_entries`、`capture_content_source`、
-`list_artifact_candidates` 和 `list_dream_runs`；后两者返回合法的空列表。
+`list_candidates` 和 `list_dream_runs`；后两者返回合法的空列表。
 另在由 Windows 登录用户创建的全新用户目录中安装插件，官方桌面版通过 MCP `list_scopes` 读取隔离 Server，
 Hook 也把该轮普通提示词写成 Source。其他官方版本尚未实测。
 开源 ZCode CLI 0.16.9 也已用真实模型和本地 Server 完成采集 → 自动生成 Memory → 全新会话召回：

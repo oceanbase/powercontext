@@ -28,7 +28,6 @@ from sqlalchemy import Connection
 
 from powercontext.builtin.persistence.migrations.backup import (
     BackupContext,
-    BackupRef,
     ForkBackupProvider,
     ForkWorkflowAcceptance,
     SQLiteBackupProvider,
@@ -268,102 +267,89 @@ def test_real_seekdb_reports_engine_fork_version_without_claiming_recovery_accep
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")
 def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_restore(short_tmp_path: Path) -> None:
     """Acceptance for one scratch-table shape, not the complete PC schema."""
-    from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+    from powercontext.builtin.persistence.migrations.connections import MaintenanceConnections
+    from powercontext.builtin.persistence.seekdb import SeekDBConfig
 
-    async def scenario() -> None:
-        path = short_tmp_path / "seekdb"
-        config = SeekDBConfig(path=path)
-        async with (
-            SeekDBProfile.open(config, tables=()) as profile,
-            profile.database.engine.connect() as connection,
-        ):
-            await connection.exec_driver_sql("CREATE TABLE pc_artifacts (id INT PRIMARY KEY, content VARCHAR(40))")
-            await connection.exec_driver_sql("INSERT INTO pc_artifacts VALUES (1, 'original')")
-            await connection.commit()
-            version = str((await connection.exec_driver_sql("SELECT VERSION()")).scalar_one())
-            comment = str((await connection.exec_driver_sql("SELECT @@version_comment")).scalar_one())
-            number = identify_fork_server(version, comment)[1]
-            assert number is not None
-            definition = str((await connection.exec_driver_sql("SHOW CREATE TABLE test.pc_artifacts")).one()[1])
-            # This test performs every claimed DDL/restart/restore check below.
-            # It does not install this evidence in any production adapter.
-            acceptance = ForkWorkflowAcceptance(
-                product="seekdb",
-                server_version=".".join(str(part) for part in number),
-                server_identity_digest=digest([version, comment]),
-                method="fork_database",
-                schema_fingerprint=digest({"pc_artifacts": definition}),
-                bundle_checksum=context().bundle_checksum,
-                covered_objects=("pc_artifacts",),
-                evidence_reference="scratch-table acceptance executed by this integration test",
-                restore_steps=(
-                    "While stopped, Fork the retained table into a new table in the original test database.",
-                    "Rename the current table to a retained name, then atomically give the restored table its original name.",
-                    "Verify original data and revision; preserve the original Fork database and failed table.",
-                ),
-                ddl_verified=True,
-                restart_verified=True,
-                restore_to_original_database=True,
-                events_not_supported=True,
-            )
+    adapter = MaintenanceConnections(SeekDBConfig(path=short_tmp_path / "seekdb"))
 
-            def create_provider_backup(sync: Connection) -> BackupRef:
-                provider = ForkBackupProvider(
-                    sync,
-                    database_name="test",
-                    expected_product="seekdb",
-                    directory=short_tmp_path / "manifests",
-                    acceptance=acceptance,
-                )
-                assert provider.capabilities(context()).available
-                return provider.create_backup(context())
+    def create_and_change(connection, _identity, _verify):
+        assert connection is not None
+        connection.exec_driver_sql("CREATE TABLE pc_artifacts (id INT PRIMARY KEY, content VARCHAR(40))")
+        connection.exec_driver_sql("INSERT INTO pc_artifacts VALUES (1, 'original')")
+        connection.commit()
+        version = str(connection.exec_driver_sql("SELECT VERSION()").scalar_one())
+        comment = str(connection.exec_driver_sql("SELECT @@version_comment").scalar_one())
+        number = identify_fork_server(version, comment)[1]
+        assert number is not None
+        definition = str(connection.exec_driver_sql("SHOW CREATE TABLE test.pc_artifacts").one()[1])
+        # This test performs every claimed DDL/restart/restore check below.
+        # It does not install this evidence in any production adapter.
+        acceptance = ForkWorkflowAcceptance(
+            product="seekdb",
+            server_version=".".join(str(part) for part in number),
+            server_identity_digest=digest([version, comment]),
+            method="fork_database",
+            schema_fingerprint=digest({"pc_artifacts": definition}),
+            bundle_checksum=context().bundle_checksum,
+            covered_objects=("pc_artifacts",),
+            evidence_reference="scratch-table acceptance executed by this integration test",
+            restore_steps=(
+                "While stopped, Fork the retained table into a new table in the original test database.",
+                "Rename the current table to a retained name, then atomically give the restored table its original name.",
+                "Verify original data and revision; preserve the original Fork database and failed table.",
+            ),
+            ddl_verified=True,
+            restart_verified=True,
+            restore_to_original_database=True,
+            events_not_supported=True,
+        )
+        provider = ForkBackupProvider(
+            connection,
+            database_name="test",
+            expected_product="seekdb",
+            directory=short_tmp_path / "manifests",
+            acceptance=acceptance,
+        )
+        assert provider.capabilities(context()).available
+        ref = provider.create_backup(context())
+        connection.exec_driver_sql("ALTER TABLE pc_artifacts ADD COLUMN changed INT")
+        connection.exec_driver_sql("UPDATE pc_artifacts SET content='changed'")
+        connection.commit()
+        return ref, acceptance
 
-            ref = await connection.run_sync(create_provider_backup)
-            await connection.exec_driver_sql("ALTER TABLE pc_artifacts ADD COLUMN changed INT")
-            await connection.exec_driver_sql("UPDATE pc_artifacts SET content='changed'")
-            await connection.commit()
+    # Each maintenance connection closes the engine and embedded instance. The
+    # second one reopens the scratch schema without initializing business tables.
+    ref, acceptance = adapter.run(create_and_change, writable=True)
 
-        async with (
-            SeekDBProfile.open(config, tables=()) as reopened,
-            reopened.database.engine.connect() as connection,
-        ):
+    def inspect_and_restore(connection, _identity, _verify):
+        assert connection is not None
+        provider = ForkBackupProvider(
+            connection,
+            database_name="test",
+            expected_product="seekdb",
+            directory=short_tmp_path / "manifests",
+            acceptance=acceptance,
+        )
+        assert provider.inspect_backup(ref).state == "completed"
+        assert provider.inspect_backup(ref).check_level == "metadata_checked"
+        assert not provider.inspect_backup(ref).recovery_verified
+        assert not provider.restore_plan(ref).automatic
+        # Source DDL and process restart must not replace the original
+        # point if the executor lost its own post-backup receipt.
+        assert provider.create_backup(context()) == ref
+        # The generated name is hexadecimal; it is not user SQL input.
+        connection.exec_driver_sql(f"FORK TABLE `{ref.location}`.`pc_artifacts` TO `test`.`pc_restore_probe`")
+        connection.exec_driver_sql(
+            "RENAME TABLE test.pc_artifacts TO test.pc_failed_retained,test.pc_restore_probe TO test.pc_artifacts"
+        )
+        connection.commit()
+        assert connection.exec_driver_sql("SELECT id,content FROM test.pc_artifacts").all() == [(1, "original")]
+        assert connection.exec_driver_sql("SELECT content FROM test.pc_failed_retained").all() == [("changed",)]
+        assert connection.exec_driver_sql(
+            f"SELECT id,content FROM `{ref.location}`.`pc_artifacts`"  # noqa: S608 -- generated hexadecimal name
+        ).all() == [(1, "original")]
 
-            def inspect_provider_backup(sync: Connection) -> None:
-                provider = ForkBackupProvider(
-                    sync,
-                    database_name="test",
-                    expected_product="seekdb",
-                    directory=short_tmp_path / "manifests",
-                    acceptance=acceptance,
-                )
-                assert provider.inspect_backup(ref).state == "completed"
-                assert provider.inspect_backup(ref).check_level == "metadata_checked"
-                assert not provider.inspect_backup(ref).recovery_verified
-                assert not provider.restore_plan(ref).automatic
-                # Source DDL and process restart must not replace the original
-                # point if the executor lost its own post-backup receipt.
-                assert provider.create_backup(context()) == ref
-
-            await connection.run_sync(inspect_provider_backup)
-            # The generated name is hexadecimal; it is not user SQL input.
-            await connection.exec_driver_sql(f"FORK TABLE `{ref.location}`.`pc_artifacts` TO `test`.`pc_restore_probe`")
-            await connection.exec_driver_sql(
-                "RENAME TABLE test.pc_artifacts TO test.pc_failed_retained,test.pc_restore_probe TO test.pc_artifacts"
-            )
-            await connection.commit()
-            assert (await connection.exec_driver_sql("SELECT id,content FROM test.pc_artifacts")).all() == [
-                (1, "original")
-            ]
-            assert (await connection.exec_driver_sql("SELECT content FROM test.pc_failed_retained")).all() == [
-                ("changed",)
-            ]
-            assert (
-                await connection.exec_driver_sql(
-                    f"SELECT id,content FROM `{ref.location}`.`pc_artifacts`"  # noqa: S608 -- generated hexadecimal name
-                )
-            ).all() == [(1, "original")]
-
-    asyncio.run(scenario())
+    adapter.run(inspect_and_restore, writable=True)
 
 
 def test_sqlite_backup_rejects_unrecorded_wal_even_when_main_checksum_matches(tmp_path: Path) -> None:

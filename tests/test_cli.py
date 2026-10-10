@@ -58,7 +58,7 @@ from powercontext.http import (
     RemoteSkillPublication,
     RemoteSkillTarget,
     RemoteSkillTargetCredential,
-    ReviseArtifactCandidateRequest,
+    ReviseCandidateRequest,
     RevokeRemoteSkillTargetRequest,
     ScopedStats,
     SkillArtifact,
@@ -1364,7 +1364,7 @@ def test_client_candidate_revision_commands_build_typed_proposals(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    received: list[ReviseArtifactCandidateRequest] = []
+    received: list[ReviseCandidateRequest] = []
 
     class RevisingClient:
         async def __aenter__(self) -> Self:
@@ -1373,9 +1373,9 @@ def test_client_candidate_revision_commands_build_typed_proposals(
         async def __aexit__(self, *_args) -> None:
             return None
 
-        async def revise_artifact_candidate(
+        async def revise_candidate(
             self,
-            request: ReviseArtifactCandidateRequest,
+            request: ReviseCandidateRequest,
         ) -> GeneratedCandidateResponse:
             received.append(request)
             return GeneratedCandidateResponse(status=GeneratedCandidateStatus.NO_OP, candidate=None)

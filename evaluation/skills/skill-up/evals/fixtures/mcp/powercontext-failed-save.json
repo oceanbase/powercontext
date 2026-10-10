@@ -6,7 +6,7 @@
     "activate_handoff": {
       "error": "unexpected"
     },
-    "approve_artifact_candidate": {
+    "approve_candidate": {
       "error": "unexpected"
     },
     "capture_content_source": {
@@ -33,7 +33,7 @@
     "finalize_handoff": {
       "error": "unexpected"
     },
-    "get_artifact_candidate": {
+    "get_candidate": {
       "default": {
         "candidate_id": "fixture-candidate-001",
         "version": 1,
@@ -56,7 +56,8 @@
         "target": null,
         "reason": "Fixture for read-only candidate inspection.",
         "result_artifact": null,
-        "decision_reason": null
+        "decision_reason": null,
+        "candidate_kind": "artifact"
       }
     },
     "get_dream_run": {
@@ -80,7 +81,7 @@
     "handoff_current_work": {
       "error": "unexpected"
     },
-    "list_artifact_candidates": {
+    "list_candidates": {
       "default": {
         "candidates": [
           {
@@ -105,7 +106,8 @@
             "target": null,
             "reason": "Fixture for read-only candidate inspection.",
             "result_artifact": null,
-            "decision_reason": null
+            "decision_reason": null,
+            "candidate_kind": "artifact"
           }
         ],
         "next_cursor": null
@@ -129,7 +131,7 @@
     "record_task_outcome": {
       "error": "unexpected"
     },
-    "reject_artifact_candidate": {
+    "reject_candidate": {
       "error": "unexpected"
     },
     "remember_memory": {
@@ -154,7 +156,7 @@
     "retire_memory_entry": {
       "error": "unexpected"
     },
-    "revise_artifact_candidate": {
+    "revise_candidate": {
       "error": "unexpected"
     },
     "revise_memory_entry": {

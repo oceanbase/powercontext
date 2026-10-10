@@ -137,9 +137,7 @@ class ReportTests(unittest.TestCase):
         markdown = report.render_markdown(manifest)
         for number in range(1, 9):
             self.assertIn(f"**C{number}**", markdown)
-        self.assertIn(
-            report.PREFIX + "approve_artifact_candidate", manifest["declared_names_without_recorded_verification"]
-        )
+        self.assertIn(report.PREFIX + "approve_candidate", manifest["declared_names_without_recorded_verification"])
 
     def test_missing_baseline_or_transcript_cannot_pass(self):
         self.result["case_results"] = self.result["case_results"][:-1]

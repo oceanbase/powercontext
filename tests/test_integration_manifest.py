@@ -129,7 +129,7 @@ def test_dify_probe_checks_provider_entries_and_their_operation_bindings(tmp_pat
     else:
         entry = plugin / "tools/pc_skill_generate.py"
         entry.write_text(
-            entry.read_text(encoding="utf-8").replace('"generate_skill"', '"approve_artifact_candidate"'),
+            entry.read_text(encoding="utf-8").replace('"generate_skill"', '"approve_candidate"'),
             encoding="utf-8",
         )
     manifest = load_integration_manifest()
@@ -139,7 +139,7 @@ def test_dify_probe_checks_provider_entries_and_their_operation_bindings(tmp_pat
     assert len(errors) == 1
     assert "pc_skill_generate:generate_skill" in errors[0]
     if change == "operation":
-        assert "pc_skill_generate:approve_artifact_candidate" in errors[0]
+        assert "pc_skill_generate:approve_candidate" in errors[0]
 
 
 def test_manifest_defines_each_availability_state() -> None:

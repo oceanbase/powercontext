@@ -469,7 +469,7 @@ class AcceptanceRun:
             "commit_handoff",
             "acknowledge_handoff",
             "record_task_outcome",
-            "approve_artifact_candidate",
+            "approve_candidate",
         ]
         write_json(
             self.config_file,

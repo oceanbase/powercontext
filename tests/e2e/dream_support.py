@@ -19,11 +19,13 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from copy import copy
+from functools import partial
+from typing import cast
 from weakref import WeakKeyDictionary
 
 from sqlalchemy import func, select
 
-from powercontext.builtin.dream.bindings import DREAM_BINDINGS
+from powercontext.builtin.dream.bindings import DREAM_OPERATIONS
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_INTENTS_TABLE
 from powercontext.builtin.runtime import BuiltinRuntime
@@ -34,6 +36,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerOutcome,
 )
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
+from powercontext.builtin.runtime.topic_memory_scope import topic_memory_processing_block
 
 _controllers: WeakKeyDictionary[BuiltinRuntime, Controller] = WeakKeyDictionary()
 
@@ -84,13 +87,16 @@ async def open_dream_runtime(config, **kwargs):
     controller = Controller()
     bindings = tuple(
         ArtifactProcessingBinding(
-            binding_name=binding,
-            artifact_family="skill" if operation == "derive_skill" else "experience",
+            binding_name=cast(str, spec.binding),
+            artifact_family=cast(str, spec.family),
             launcher=controller,
             max_workers=4,
             worker_timeout_seconds=180,
+            work_block=partial(topic_memory_processing_block, dream_enabled=config.runtime.dream_enabled)
+            if spec.family == "topic-memory"
+            else None,
         )
-        for operation, binding in DREAM_BINDINGS.items()
+        for spec in {item.binding: item for item in DREAM_OPERATIONS if item.binding is not None}.values()
     )
     async with open_runtime(config, artifact_processing_bindings=bindings, **kwargs) as runtime:
         controller.runtime = runtime

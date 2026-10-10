@@ -2017,6 +2017,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     }
                 ],
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "202": {
                         "description": "The accepted queued or running Dream.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2084,6 +2085,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                 ],
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The requested Dream state.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2121,6 +2123,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                 ],
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The requested Dream state.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2162,7 +2165,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "201": {
                         "description": "The pending Experience Candidate.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Candidate"}}},
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -2279,7 +2282,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "201": {
                         "description": "The pending managed Skill Candidate.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Candidate"}}},
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -2514,7 +2517,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "201": {
                         "description": "Pending exact package Candidate.",
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Candidate"}}},
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -3084,37 +3087,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
-        "/v1/artifact-candidates/list": {
+        "/v1/candidates/list": {
             "post": {
                 "tags": ["review"],
-                "summary": "List Artifact Candidates",
-                "description": "Page current Candidate heads; "
-                "pending is the default Review "
-                "Inbox view. List PowerContext "
-                "artifact candidates when the "
-                "user wants to inspect the "
-                "review queue. This is not a "
-                "Memory inventory or "
-                "historical search. Report "
-                "pending, approved, or "
-                "rejected status as returned; "
-                "listing does not approve, "
-                "install, publish, or execute "
-                "a candidate.",
-                "operationId": "list_artifact_candidates",
+                "summary": "List Candidates",
+                "description": "Page current Candidate heads; pending "
+                "is the default Review Inbox view. List "
+                "PowerContext artifact candidates when "
+                "the user wants to inspect the review "
+                "queue. This is not a Memory inventory "
+                "or historical search. Report pending, "
+                "approved, or rejected status as "
+                "returned; listing does not approve, "
+                "install, publish, or execute a "
+                "candidate.",
+                "operationId": "list_candidates",
                 "requestBody": {
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/ListArtifactCandidatesRequest"}}
-                    },
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ListCandidatesRequest"}}},
                     "required": True,
                 },
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The selected current Candidate heads.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidatePage"}}
-                        },
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CandidatePage"}}},
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
@@ -3129,34 +3126,30 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
-        "/v1/artifact-candidates/get": {
+        "/v1/candidates/get": {
             "post": {
                 "tags": ["review"],
-                "summary": "Get an Artifact Candidate",
-                "description": "Read the current head and "
-                "exact immutable proposal "
-                "version. Inspect one "
-                "PowerContext artifact "
-                "candidate by candidate_id "
-                "before discussing a requested "
-                "review. Read its proposal, "
+                "summary": "Get a Candidate",
+                "description": "Read the current head and exact "
+                "immutable proposal version. Inspect one "
+                "PowerContext artifact candidate by "
+                "candidate_id before discussing a "
+                "requested review. Read its proposal, "
                 "evidence, status, and version. "
                 "Inspection grants no approval "
-                "authority; do not treat a "
-                "pending candidate as an active "
-                "artifact.",
-                "operationId": "get_artifact_candidate",
+                "authority; do not treat a pending "
+                "candidate as an active artifact.",
+                "operationId": "get_candidate",
                 "requestBody": {
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/GetArtifactCandidateRequest"}}
-                    },
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GetCandidateRequest"}}},
                     "required": True,
                 },
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The current Candidate head.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Candidate"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -3172,40 +3165,35 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
-        "/v1/artifact-candidates/approve": {
+        "/v1/candidates/approve": {
             "post": {
                 "tags": ["review"],
-                "summary": "Approve an Artifact Candidate",
-                "description": "Commit the reviewed "
-                "proposal and mark the "
-                "Candidate approved in one "
-                "transaction. Approve an "
-                "inspected pending "
-                "candidate only on an "
-                "explicit human decision "
-                "for that exact candidate "
-                "and version, using the "
-                "current authorization "
-                "channel. A request to "
-                "list, summarize, generate, "
-                "or assess a candidate is "
-                "not approval. Never "
-                "self-approve generated "
-                "work; report success only "
-                "after the decision "
-                "completes.",
-                "operationId": "approve_artifact_candidate",
+                "summary": "Approve a Candidate",
+                "description": "Commit the reviewed proposal and "
+                "mark the Candidate approved in one "
+                "transaction. Approve an inspected "
+                "pending candidate only on an "
+                "explicit human decision for that "
+                "exact candidate and version, using "
+                "the current authorization channel. "
+                "A request to list, summarize, "
+                "generate, or assess a candidate is "
+                "not approval. Never self-approve "
+                "generated work; report success only "
+                "after the decision completes.",
+                "operationId": "approve_candidate",
                 "requestBody": {
                     "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/ApproveArtifactCandidateRequest"}}
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ApproveCandidateRequest"}}
                     },
                     "required": True,
                 },
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The approved Candidate and exact result Artifact.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Candidate"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
@@ -3222,37 +3210,34 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
-        "/v1/artifact-candidates/reject": {
+        "/v1/candidates/reject": {
             "post": {
                 "tags": ["review"],
-                "summary": "Reject an Artifact Candidate",
-                "description": "Move the exact pending "
-                "version to its rejected "
-                "terminal state without "
-                "writing an Artifact. Reject "
-                "an inspected pending "
-                "candidate only when the "
-                "user explicitly requests "
-                "that decision. Supply its "
-                "exact current version and "
-                "the requested reason. A "
-                "negative assessment alone "
-                "does not authorize a write. "
-                "Preserve conflicts and do "
-                "not claim rejection before "
-                "success.",
-                "operationId": "reject_artifact_candidate",
+                "summary": "Reject a Candidate",
+                "description": "Move the exact pending version to "
+                "its rejected terminal state without "
+                "writing an Artifact. Reject an "
+                "inspected pending candidate only "
+                "when the user explicitly requests "
+                "that decision. Supply its exact "
+                "current version and the requested "
+                "reason. A negative assessment alone "
+                "does not authorize a write. Preserve "
+                "conflicts and do not claim rejection "
+                "before success.",
+                "operationId": "reject_candidate",
                 "requestBody": {
                     "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/RejectArtifactCandidateRequest"}}
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RejectCandidateRequest"}}
                     },
                     "required": True,
                 },
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The rejected Candidate.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Candidate"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
@@ -3269,38 +3254,35 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
-        "/v1/artifact-candidates/revise": {
+        "/v1/candidates/revise": {
             "post": {
                 "tags": ["review"],
-                "summary": "Revise an Artifact Candidate",
-                "description": "Append a complete "
-                "replacement proposal as the "
-                "next immutable pending "
-                "version. Revise an "
-                "inspected candidate "
-                "proposal only when the user "
-                "explicitly requests the "
-                "change. Preserve exact "
-                "provenance and current "
-                "version. Revision is not "
-                "approval, publication, "
-                "installation, or execution; "
-                "after a conflict inspect "
-                "the current candidate "
-                "before deciding whether the "
-                "request still applies.",
-                "operationId": "revise_artifact_candidate",
+                "summary": "Revise a Candidate",
+                "description": "Append a complete replacement "
+                "proposal as the next immutable "
+                "pending version. Revise an inspected "
+                "candidate proposal only when the "
+                "user explicitly requests the change. "
+                "Preserve exact provenance and "
+                "current version. Revision is not "
+                "approval, publication, installation, "
+                "or execution; after a conflict "
+                "inspect the current candidate before "
+                "deciding whether the request still "
+                "applies.",
+                "operationId": "revise_candidate",
                 "requestBody": {
                     "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/ReviseArtifactCandidateRequest"}}
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ReviseCandidateRequest"}}
                     },
                     "required": True,
                 },
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The next pending Candidate version.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Candidate"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
@@ -3312,6 +3294,41 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
                 "x-powercontext-access": {
                     "action": "scope.review",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/candidates/history": {
+            "post": {
+                "tags": ["review"],
+                "summary": "History Candidates",
+                "description": "Review one Tag metadata change. "
+                "Approval checks both the exact "
+                "candidate version and current "
+                "Tag/content baseline; it never "
+                "creates an Artifact revision.",
+                "operationId": "get_candidate_history",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GetCandidateRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
+                    "200": {
+                        "description": "Current Candidate state.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CandidateHistory"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
                     "resource": {"type": "scope", "scope-id-from": "scope_id"},
                 },
                 "x-powercontext-scope-mode": "current",
@@ -4834,18 +4851,73 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["after", "through"],
             },
+            "ProfileDreamPolicy": {
+                "properties": {
+                    "format_version": {"type": "integer", "enum": [1], "default": 1},
+                    "generation_enabled": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["format_version", "generation_enabled"],
+            },
             "ProfileCandidateProposal": {
                 "properties": {
                     "schema": {"type": "string", "enum": ["powercontext.profile-candidate.v1"]},
                     "content": {"type": "string", "minLength": 1},
-                    "source_window": {"$ref": "#/components/schemas/ProfileSourceWindow"},
+                    "source_window": {"$ref": "#/components/schemas/ProfileSourceWindow", "nullable": True},
+                    "dream_run_id": {"type": "string", "nullable": True},
+                    "policy_snapshot": {"$ref": "#/components/schemas/ProfileDreamPolicy", "nullable": True},
+                    "policy_digest": {"type": "string", "nullable": True},
                     "generator_id": {"type": "string", "minLength": 1},
                     "generator_version": {"type": "string", "minLength": 1},
                     "created_at": {"type": "string", "format": "date-time"},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["schema", "content", "source_window", "generator_id", "generator_version", "created_at"],
+                "required": ["schema", "content", "generator_id", "generator_version", "created_at"],
+            },
+            "MemoryDreamEntryChange": {
+                "properties": {
+                    "entry_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "entry_version_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "kind": {"type": "string", "minLength": 1},
+                    "text": {"type": "string", "minLength": 1},
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1},
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/DreamSourceReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "minItems": 1,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["entry_id", "entry_version_id", "kind", "text", "reason", "sources"],
+            },
+            "MemoryDreamCandidateProposal": {
+                "properties": {
+                    "base": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "dream_run_id": {"type": "string", "minLength": 1},
+                    "changes": {
+                        "items": {"$ref": "#/components/schemas/MemoryDreamEntryChange"},
+                        "type": "array",
+                        "maxItems": 20,
+                        "minItems": 1,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["base", "dream_run_id", "changes"],
+            },
+            "TopicMemoryDreamProposal": {
+                "properties": {
+                    "title": {"type": "string", "maxLength": 512, "minLength": 1},
+                    "summary": {"type": "string", "maxLength": 8000, "minLength": 1},
+                    "detail": {"type": "string", "maxLength": 125000, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["title", "summary", "detail"],
             },
             "CreateProfileArtifactRequest": {
                 "properties": {
@@ -5238,11 +5310,41 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["principal", "receiver_identity_matches"],
                 "description": "Server-owned attestation stored separately from the immutable untrusted Receipt.",
             },
-            "DreamOperation": {"type": "string", "enum": ["refine_experience", "derive_skill"]},
+            "DreamOperation": {
+                "type": "string",
+                "enum": [
+                    "refine_experience",
+                    "derive_skill",
+                    "revise_skill",
+                    "revise_profile",
+                    "revise_memory",
+                    "revise_topic_memory",
+                    "refresh_handoff",
+                    "revise_prompt",
+                    "revise_tags",
+                ],
+            },
             "DreamStatus": {"type": "string", "enum": ["queued", "running", "succeeded", "failed"]},
             "DreamOutcome": {"type": "string", "enum": ["proposed", "no_change", "needs_evidence"]},
-            "DreamEvidenceKind": {"type": "string", "enum": ["source", "experience", "memory", "unresolved"]},
-            "DreamEvidenceRole": {"type": "string", "enum": ["root", "derived", "lineage_only", "unresolved"]},
+            "DreamEvidenceKind": {
+                "type": "string",
+                "enum": [
+                    "source",
+                    "experience",
+                    "memory",
+                    "profile",
+                    "topic_memory",
+                    "handoff",
+                    "skill",
+                    "prompt",
+                    "catalog_target",
+                    "unresolved",
+                ],
+            },
+            "DreamEvidenceRole": {
+                "type": "string",
+                "enum": ["root", "derived", "target", "lineage_only", "unresolved"],
+            },
             "DreamEvidenceIndependence": {"type": "string", "enum": ["attested", "unknown"]},
             "DreamSourceReference": {
                 "properties": {
@@ -5265,6 +5367,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "CreateDreamRunRequest": {
                 "properties": {
+                    "tag_target": {"$ref": "#/components/schemas/TagDreamTarget", "nullable": True},
                     "operation": {"$ref": "#/components/schemas/DreamOperation"},
                     "artifacts": {
                         "items": {"$ref": "#/components/schemas/ArtifactReference"},
@@ -5292,14 +5395,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["operation", "idempotency_key"],
-                "description": "Select 1-20 exact Experience "
-                "or Memory citations after "
+                "description": "Select exact Artifact or "
+                "Memory citations after "
                 "deduplication, with at most "
                 "32 combined references "
-                "including Sources. Only "
-                "refine_experience accepts "
-                "Memory citations or a "
-                "target.",
+                "including Sources. Profile "
+                "and Memory revisions require "
+                "their exact current target "
+                "and supporting evidence.",
             },
             "DreamBudget": {
                 "properties": {
@@ -5322,7 +5425,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
             },
             "DreamCandidateRef": {
-                "properties": {"candidate_id": {"type": "string"}, "version": {"type": "integer", "minimum": 1.0}},
+                "properties": {
+                    "kind": {"type": "string", "enum": ["artifact", "tag"], "default": "artifact"},
+                    "candidate_id": {"type": "string"},
+                    "version": {"type": "integer", "minimum": 1.0},
+                },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["candidate_id", "version"],
@@ -5416,6 +5523,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "DreamRun": {
                 "properties": {
+                    "tag_target": {"$ref": "#/components/schemas/TagDreamTarget", "nullable": True},
+                    "reused": {"type": "boolean", "default": False},
                     "scope_id": {"type": "string"},
                     "run_id": {"type": "string"},
                     "operation": {"$ref": "#/components/schemas/DreamOperation"},
@@ -5432,7 +5541,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "input_manifest": {"$ref": "#/components/schemas/DreamInputManifest", "nullable": True},
                     "usage": {"$ref": "#/components/schemas/DreamUsage"},
                     "budget": {"$ref": "#/components/schemas/DreamBudget"},
-                    "prompt_version": {"type": "string", "default": "powercontext.dream.v1"},
+                    "prompt_version": {"type": "string", "default": "powercontext.dream.v1.3"},
                     "model_config_id": {"type": "string", "nullable": True},
                 },
                 "additionalProperties": False,
@@ -5448,8 +5557,9 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["runs"],
             },
-            "ArtifactCandidate": {
+            "Candidate": {
                 "properties": {
+                    "audit": {"$ref": "#/components/schemas/CandidateAudit", "nullable": True},
                     "memory_citations": {
                         "items": {"$ref": "#/components/schemas/MemoryCitation"},
                         "type": "array",
@@ -5457,11 +5567,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "description": "Exact "
                         "Memory "
                         "entry "
-                        "provenance; "
-                        "non-empty "
-                        "only "
+                        "provenance "
                         "for "
-                        "Experience. "
+                        "Experience, "
+                        "Profile "
+                        "Dream "
+                        "or "
+                        "Memory "
+                        "Dream "
+                        "changes. "
                         "Counted "
                         "toward "
                         "the "
@@ -5481,8 +5595,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "advisory "
                         "and "
                         "checked "
-                        "again "
-                        "on "
+                        "again on "
                         "mutation.",
                         "nullable": True,
                     },
@@ -5495,6 +5608,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             {"$ref": "#/components/schemas/ExperienceProposal"},
                             {"$ref": "#/components/schemas/SkillProposal"},
                             {"$ref": "#/components/schemas/ProfileCandidateProposal"},
+                            {"$ref": "#/components/schemas/MemoryDreamCandidateProposal"},
+                            {"$ref": "#/components/schemas/TopicMemoryDreamProposal"},
+                            {"$ref": "#/components/schemas/HandoffContent"},
+                            {"$ref": "#/components/schemas/PromptContent"},
+                            {"$ref": "#/components/schemas/CatalogChangeProposal"},
                         ]
                     },
                     "source_refs": {
@@ -5507,12 +5625,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "Counted "
                         "with "
                         "artifact_refs "
-                        "toward "
-                        "a "
+                        "toward a "
                         "combined "
                         "maximum "
-                        "of "
-                        "32 "
+                        "of 32 "
                         "references.",
                     },
                     "artifact_refs": {
@@ -5529,18 +5645,23 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "a "
                         "combined "
                         "maximum "
-                        "of "
-                        "32 "
+                        "of 32 "
                         "references.",
                     },
                     "target": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
                     "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
                     "result_artifact": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
                     "decision_reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "candidate_kind": {"type": "string", "enum": ["artifact", "tag"]},
+                    "result": {"$ref": "#/components/schemas/CatalogTagResult", "nullable": True},
+                    "operation": {"type": "string", "nullable": True},
+                    "origin": {"type": "string", "enum": ["dream", "manual"], "nullable": True},
+                    "dream_run_id": {"type": "string", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
                 "required": [
+                    "candidate_kind",
                     "candidate_id",
                     "version",
                     "family",
@@ -5554,16 +5675,16 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "decision_reason",
                 ],
             },
-            "ArtifactCandidatePage": {
+            "CandidatePage": {
                 "properties": {
-                    "candidates": {"items": {"$ref": "#/components/schemas/ArtifactCandidate"}, "type": "array"},
+                    "candidates": {"items": {"$ref": "#/components/schemas/Candidate"}, "type": "array"},
                     "next_cursor": {"type": "string", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["candidates", "next_cursor"],
             },
-            "ApproveArtifactCandidateRequest": {
+            "ApproveCandidateRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
@@ -5572,6 +5693,23 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["scope_id", "candidate_id", "expected_version"],
+            },
+            "ArtifactDreamingOperationCapability": {
+                "properties": {
+                    "operation": {"$ref": "#/components/schemas/DreamOperation"},
+                    "output_kind": {"type": "string", "enum": ["candidate", "tag_candidate"]},
+                    "effect": {
+                        "type": "string",
+                        "enum": [
+                            "review_then_publish",
+                            "review_then_publish_configuration",
+                            "review_then_replace_tags",
+                        ],
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["operation", "output_kind", "effect"],
             },
             "Capabilities": {
                 "properties": {
@@ -5584,6 +5722,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "boolean",
                         "description": "Whether asynchronous Artifact Dream execution is configured.",
                         "default": False,
+                    },
+                    "artifact_dreaming_operations": {
+                        "items": {"$ref": "#/components/schemas/ArtifactDreamingOperationCapability"},
+                        "type": "array",
+                        "description": "Dream "
+                        "operations "
+                        "enabled "
+                        "by "
+                        "the "
+                        "current "
+                        "Runtime, "
+                        "including "
+                        "their "
+                        "reviewed "
+                        "effect.",
+                        "default": [],
                     },
                     "source_types": {"items": {"type": "string"}, "type": "array"},
                     "artifact_families": {"items": {"type": "string"}, "type": "array"},
@@ -7226,11 +7380,13 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "description": "Exact "
                         "Memory "
                         "entry "
-                        "provenance; "
-                        "non-empty "
-                        "only "
-                        "for "
-                        "Experience. "
+                        "provenance "
+                        "retained "
+                        "by "
+                        "approved "
+                        "Dream "
+                        "Skill "
+                        "revisions. "
                         "Counted "
                         "toward "
                         "the "
@@ -8071,7 +8227,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "artifact"],
             },
-            "GetArtifactCandidateRequest": {
+            "GetCandidateRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
@@ -8187,13 +8343,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["entries"],
             },
-            "ListArtifactCandidatesRequest": {
+            "ListCandidatesRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "status": {"$ref": "#/components/schemas/CandidateStatus", "default": "pending"},
                     "family": {"$ref": "#/components/schemas/CandidateFamily", "nullable": True},
                     "cursor": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
                     "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                    "candidate_kind": {"type": "string", "enum": ["artifact", "tag"], "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -8900,7 +9057,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "GeneratedCandidateResponse": {
                 "properties": {
                     "status": {"$ref": "#/components/schemas/GeneratedCandidateStatus"},
-                    "candidate": {"$ref": "#/components/schemas/ArtifactCandidate", "nullable": True},
+                    "candidate": {"$ref": "#/components/schemas/Candidate", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -8942,7 +9099,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "citation"],
             },
-            "RejectArtifactCandidateRequest": {
+            "RejectCandidateRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
@@ -8953,8 +9110,46 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "candidate_id", "expected_version", "reason"],
             },
-            "ReviseArtifactCandidateRequest": {
+            "ReviseCandidateRequest": {
                 "properties": {
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/DreamSourceReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Tag "
+                        "proposal "
+                        "Source "
+                        "evidence. "
+                        "Omission "
+                        "retains "
+                        "existing "
+                        "evidence; "
+                        "do "
+                        "not "
+                        "combine "
+                        "with "
+                        "source_refs.",
+                        "nullable": True,
+                    },
+                    "artifacts": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Tag "
+                        "proposal "
+                        "Artifact "
+                        "evidence. "
+                        "Omission "
+                        "retains "
+                        "existing "
+                        "evidence; "
+                        "do "
+                        "not "
+                        "combine "
+                        "with "
+                        "artifact_refs.",
+                        "nullable": True,
+                    },
                     "memory_citations": {
                         "items": {"$ref": "#/components/schemas/MemoryCitation"},
                         "type": "array",
@@ -8976,9 +9171,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "empty "
                         "array. "
                         "Non-empty "
-                        "only "
                         "for "
-                        "Experience.",
+                        "supported "
+                        "Memory-citing "
+                        "Candidate "
+                        "families.",
                         "nullable": True,
                     },
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
@@ -8989,6 +9186,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             {"$ref": "#/components/schemas/ExperienceProposal"},
                             {"$ref": "#/components/schemas/SkillProposal"},
                             {"$ref": "#/components/schemas/ProfileWriteContent"},
+                            {"$ref": "#/components/schemas/MemoryDreamCandidateProposal"},
+                            {"$ref": "#/components/schemas/TopicMemoryDreamProposal"},
+                            {"$ref": "#/components/schemas/HandoffContent"},
+                            {"$ref": "#/components/schemas/PromptContent"},
+                            {"$ref": "#/components/schemas/CatalogChangeProposal"},
                         ]
                     },
                     "source_refs": {
@@ -9008,6 +9210,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "of "
                         "32 "
                         "references.",
+                        "default": [],
                     },
                     "artifact_refs": {
                         "items": {"$ref": "#/components/schemas/ArtifactReference"},
@@ -9026,20 +9229,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "of "
                         "32 "
                         "references.",
+                        "default": [],
                     },
                     "target": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
                     "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": [
-                    "scope_id",
-                    "candidate_id",
-                    "expected_version",
-                    "proposal",
-                    "source_refs",
-                    "artifact_refs",
-                ],
+                "required": ["scope_id", "candidate_id", "expected_version", "proposal"],
             },
             "ReviseMemoryEntryRequest": {
                 "properties": {
@@ -10034,7 +10231,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"],
             },
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
-            "CandidateFamily": {"type": "string", "enum": ["experience", "skill", "profile"]},
+            "CandidateFamily": {
+                "type": "string",
+                "enum": ["experience", "skill", "profile", "memory", "topic-memory", "handoff", "prompt"],
+            },
             "ExternalSkillInstallationScope": {"type": "string", "enum": ["user", "project", "plugin"]},
             "ExternalSkillResolutionStatus": {"type": "string", "enum": ["available", "unavailable"]},
             "CandidateStatus": {"type": "string", "enum": ["pending", "approved", "rejected"]},
@@ -10586,8 +10786,102 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["items", "next_cursor"],
             },
+            "TagDreamTarget": {
+                "properties": {
+                    "target": {"$ref": "#/components/schemas/TagTarget"},
+                    "expected_etag": {"type": "string", "minLength": 1},
+                    "basis_ref": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "basis_citation": {"$ref": "#/components/schemas/MemoryCitation", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["target", "expected_etag"],
+            },
+            "CandidateAudit": {
+                "properties": {
+                    "origin": {"type": "string", "minLength": 1},
+                    "operation": {"type": "string", "minLength": 1},
+                    "dream_run_id": {"type": "string", "minLength": 1},
+                    "spec_version": {"type": "string", "minLength": 1},
+                    "proposal_digest": {"type": "string", "minLength": 1},
+                    "evidence_manifest_ref": {"type": "string", "minLength": 1},
+                    "validation_policy_digest": {"type": "string", "minLength": 1},
+                    "proposal_fingerprint": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "origin",
+                    "operation",
+                    "dream_run_id",
+                    "spec_version",
+                    "proposal_digest",
+                    "evidence_manifest_ref",
+                    "validation_policy_digest",
+                    "proposal_fingerprint",
+                ],
+            },
+            "CatalogChangeProposal": {
+                "properties": {
+                    "target": {"$ref": "#/components/schemas/TagTarget"},
+                    "expected_etag": {"type": "string", "minLength": 1},
+                    "basis_ref": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "basis_citation": {"$ref": "#/components/schemas/MemoryCitation", "nullable": True},
+                    "before_tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                    "after_tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["target", "expected_etag", "before_tags", "after_tags"],
+            },
+            "CatalogTagResult": {
+                "properties": {
+                    "scope_id": {"type": "string", "minLength": 1},
+                    "target": {"$ref": "#/components/schemas/TagTarget"},
+                    "tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                    "tag_digest": {"type": "string", "minLength": 1},
+                    "etag": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target", "tags", "tag_digest", "etag"],
+            },
+            "CandidateHistory": {
+                "properties": {
+                    "versions": {"items": {"$ref": "#/components/schemas/Candidate"}, "type": "array", "default": []}
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["versions"],
+            },
         },
         "responses": {
+            "ClientUpgradeRequired": {
+                "description": "This response requires a "
+                "coordinated client "
+                "supporting Dream contract "
+                "2. Upgrade the Python SDK, "
+                "CLI or integration and "
+                "send "
+                "X-PowerContext-Dream-Contract: "
+                "2. Original operations and "
+                "compatible candidate "
+                "shapes remain available "
+                "without the header.",
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+            },
             "BadRequest": {
                 "description": "The request query or pagination cursor is invalid.",
                 "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},

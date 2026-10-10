@@ -392,9 +392,9 @@ describe('Pi native tool surface', () => {
 
     expect(context.ui.confirm).toHaveBeenCalledTimes(3)
     expect(fetch.mock.calls.map(([url, init]) => [url, JSON.parse(String(init?.body))])).toEqual([
-      ['http://127.0.0.1:8000/v1/artifact-candidates/approve', { ...common, scope_id: 'project:demo' }],
-      ['http://127.0.0.1:8000/v1/artifact-candidates/reject', { ...common, reason: 'not applicable', scope_id: 'project:demo' }],
-      ['http://127.0.0.1:8000/v1/artifact-candidates/revise', {
+      ['http://127.0.0.1:8000/v1/candidates/approve', { ...common, scope_id: 'project:demo' }],
+      ['http://127.0.0.1:8000/v1/candidates/reject', { ...common, reason: 'not applicable', scope_id: 'project:demo' }],
+      ['http://127.0.0.1:8000/v1/candidates/revise', {
         ...common, proposal, source_refs: [], artifact_refs: [], target: null, reason: 'clarify', scope_id: 'project:demo',
       }],
     ])
@@ -573,10 +573,10 @@ describe('Pi native tool surface', () => {
         artifact: { family: 'skill', artifact_id: 'skill-1', revision: 3 },
         scope_id: 'project:demo',
       }],
-      ['http://127.0.0.1:8000/v1/artifact-candidates/list', {
+      ['http://127.0.0.1:8000/v1/candidates/list', {
         status: 'approved', family: 'skill', cursor: 'next-page', limit: 100, scope_id: 'project:demo',
       }],
-      ['http://127.0.0.1:8000/v1/artifact-candidates/get', {
+      ['http://127.0.0.1:8000/v1/candidates/get', {
         candidate_id: 'candidate-1', scope_id: 'project:demo',
       }],
     ])

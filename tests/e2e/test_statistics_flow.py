@@ -32,14 +32,14 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
 from powercontext.client import PowerContextClient
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     CaptureContentSourceRequest,
     ExperienceProposal,
     FlushMemoryRequest,
     GetStatsRequest,
     PrepareContextRequest,
     ProposeExperienceRequest,
-    RejectArtifactCandidateRequest,
+    RejectCandidateRequest,
     RememberMemoryRequest,
     ScopedStats,
     StatsPeriod,
@@ -169,8 +169,8 @@ def test_statistics_survive_the_authenticated_http_business_flow_and_restart(
                         artifact_refs=[],
                     )
                 )
-                await client.approve_artifact_candidate(
-                    ApproveArtifactCandidateRequest(
+                await client.approve_candidate(
+                    ApproveCandidateRequest(
                         scope_id=scope_id,
                         candidate_id=approved_candidate.candidate_id,
                         expected_version=approved_candidate.version,
@@ -184,8 +184,8 @@ def test_statistics_survive_the_authenticated_http_business_flow_and_restart(
                         artifact_refs=[],
                     )
                 )
-                await client.reject_artifact_candidate(
-                    RejectArtifactCandidateRequest(
+                await client.reject_candidate(
+                    RejectCandidateRequest(
                         scope_id=scope_id,
                         candidate_id=rejected_candidate.candidate_id,
                         expected_version=rejected_candidate.version,

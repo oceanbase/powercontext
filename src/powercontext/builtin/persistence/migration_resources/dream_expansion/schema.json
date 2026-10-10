@@ -1,0 +1,871 @@
+{
+  "source_commit": "e7ef406b2ecf2a8e4b2b19fe4857d3889d2270ac",
+  "target_commit": "6541705794b5f40a7ccc71c862cfb54a61890feb",
+  "tables": {
+    "pc_candidate_versions": {
+      "source_name": "pc_artifact_candidate_versions",
+      "target_name": "pc_candidate_versions",
+      "retained_name": "pc_retained_dream_candidate_versions",
+      "source_columns": [
+        "scope_id",
+        "candidate_id",
+        "version",
+        "family",
+        "proposal",
+        "source_refs",
+        "artifact_refs",
+        "memory_citations",
+        "target_family",
+        "target_artifact_id",
+        "target_revision",
+        "reason"
+      ],
+      "target_columns": [
+        "scope_id",
+        "candidate_id",
+        "version",
+        "family",
+        "proposal",
+        "source_refs",
+        "artifact_refs",
+        "memory_citations",
+        "target_family",
+        "target_artifact_id",
+        "target_revision",
+        "reason"
+      ],
+      "source": {
+        "sqlite": "CREATE TABLE pc_artifact_candidate_versions (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tproposal BLOB NOT NULL, \n\tsource_refs BLOB NOT NULL, \n\tartifact_refs BLOB NOT NULL, \n\tmemory_citations BLOB, \n\ttarget_family VARCHAR(128), \n\ttarget_artifact_id VARCHAR(128), \n\ttarget_revision INTEGER, \n\treason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id, version), \n\tFOREIGN KEY(scope_id, target_family, target_artifact_id, target_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_candidate_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_artifact_candidate_versions_target_complete CHECK ((target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR (target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0))\n)",
+        "mysql": "CREATE TABLE pc_artifact_candidate_versions (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcandidate_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tversion INTEGER NOT NULL, \n\tfamily VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tproposal MEDIUMBLOB NOT NULL, \n\tsource_refs MEDIUMBLOB NOT NULL, \n\tartifact_refs MEDIUMBLOB NOT NULL, \n\tmemory_citations MEDIUMBLOB, \n\ttarget_family VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttarget_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttarget_revision INTEGER, \n\treason MEDIUMTEXT, \n\tPRIMARY KEY (scope_id, candidate_id, version), \n\tFOREIGN KEY(scope_id, target_family, target_artifact_id, target_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_candidate_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_artifact_candidate_versions_target_complete CHECK ((target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR (target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0))\n)"
+      },
+      "target": {
+        "sqlite": "CREATE TABLE pc_candidate_versions (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tproposal BLOB NOT NULL, \n\tsource_refs BLOB NOT NULL, \n\tartifact_refs BLOB NOT NULL, \n\tmemory_citations BLOB, \n\ttarget_family VARCHAR(128), \n\ttarget_artifact_id VARCHAR(128), \n\ttarget_revision INTEGER, \n\treason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id, version), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, target_family, target_artifact_id, target_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_candidate_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_candidate_versions_target_complete CHECK ((target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR (target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0))\n)",
+        "mysql": "CREATE TABLE pc_candidate_versions (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcandidate_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tversion INTEGER NOT NULL, \n\tfamily VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tproposal MEDIUMBLOB NOT NULL, \n\tsource_refs MEDIUMBLOB NOT NULL, \n\tartifact_refs MEDIUMBLOB NOT NULL, \n\tmemory_citations MEDIUMBLOB, \n\ttarget_family VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttarget_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttarget_revision INTEGER, \n\treason MEDIUMTEXT, \n\tPRIMARY KEY (scope_id, candidate_id, version), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, target_family, target_artifact_id, target_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_candidate_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_candidate_versions_target_complete CHECK ((target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR (target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0))\n)"
+      },
+      "retained": {
+        "sqlite": "CREATE TABLE pc_retained_dream_candidate_versions (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tproposal BLOB NOT NULL, \n\tsource_refs BLOB NOT NULL, \n\tartifact_refs BLOB NOT NULL, \n\tmemory_citations BLOB, \n\ttarget_family VARCHAR(128), \n\ttarget_artifact_id VARCHAR(128), \n\ttarget_revision INTEGER, \n\treason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id, version), \n\tCONSTRAINT ck_pc_retained_dream_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_retained_dream_versions_target_complete CHECK ((target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR (target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0))\n)",
+        "mysql": "CREATE TABLE pc_retained_dream_candidate_versions (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcandidate_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tversion INTEGER NOT NULL, \n\tfamily VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tproposal MEDIUMBLOB NOT NULL, \n\tsource_refs MEDIUMBLOB NOT NULL, \n\tartifact_refs MEDIUMBLOB NOT NULL, \n\tmemory_citations MEDIUMBLOB, \n\ttarget_family VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttarget_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttarget_revision INTEGER, \n\treason MEDIUMTEXT, \n\tPRIMARY KEY (scope_id, candidate_id, version), \n\tCONSTRAINT ck_pc_retained_dream_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_retained_dream_versions_target_complete CHECK ((target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR (target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0))\n)"
+      }
+    },
+    "pc_candidate_heads": {
+      "source_name": "pc_artifact_candidate_heads",
+      "target_name": "pc_candidate_heads",
+      "retained_name": "pc_retained_dream_candidate_heads",
+      "source_columns": [
+        "scope_id",
+        "candidate_id",
+        "family",
+        "version",
+        "status",
+        "result_family",
+        "result_artifact_id",
+        "result_revision",
+        "decision_reason"
+      ],
+      "target_columns": [
+        "scope_id",
+        "candidate_id",
+        "family",
+        "version",
+        "status",
+        "candidate_kind",
+        "result_payload",
+        "result_family",
+        "result_artifact_id",
+        "result_revision",
+        "decision_reason"
+      ],
+      "source": {
+        "sqlite": "CREATE TABLE pc_artifact_candidate_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tresult_family VARCHAR(128), \n\tresult_artifact_id VARCHAR(128), \n\tresult_revision INTEGER, \n\tdecision_reason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id), \n\tFOREIGN KEY(scope_id, candidate_id, version) REFERENCES pc_artifact_candidate_versions (scope_id, candidate_id, version) ON DELETE RESTRICT, \n\tFOREIGN KEY(scope_id, result_family, result_artifact_id, result_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_candidate_heads_status CHECK (status IN ('pending', 'approved', 'rejected')), \n\tCONSTRAINT ck_pc_artifact_candidate_heads_terminal_result CHECK ((status = 'approved' AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR (status = 'rejected' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NOT NULL) OR (status = 'pending' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL))\n)",
+        "mysql": "CREATE TABLE pc_artifact_candidate_heads (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcandidate_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tfamily VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tversion INTEGER NOT NULL, \n\tstatus VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tresult_family VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tresult_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tresult_revision INTEGER, \n\tdecision_reason MEDIUMTEXT, \n\tPRIMARY KEY (scope_id, candidate_id), \n\tFOREIGN KEY(scope_id, candidate_id, version) REFERENCES pc_artifact_candidate_versions (scope_id, candidate_id, version) ON DELETE RESTRICT, \n\tFOREIGN KEY(scope_id, result_family, result_artifact_id, result_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_candidate_heads_status CHECK (status IN ('pending', 'approved', 'rejected')), \n\tCONSTRAINT ck_pc_artifact_candidate_heads_terminal_result CHECK ((status = 'approved' AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR (status = 'rejected' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NOT NULL) OR (status = 'pending' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL))\n)"
+      },
+      "target": {
+        "sqlite": "CREATE TABLE pc_candidate_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tcandidate_kind VARCHAR(16) DEFAULT 'artifact' NOT NULL, \n\tresult_payload BLOB, \n\tresult_family VARCHAR(128), \n\tresult_artifact_id VARCHAR(128), \n\tresult_revision INTEGER, \n\tdecision_reason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, candidate_id, version) REFERENCES pc_candidate_versions (scope_id, candidate_id, version) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, result_family, result_artifact_id, result_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_candidate_kind CHECK (candidate_kind IN ('artifact', 'tag')), \n\tCONSTRAINT ck_pc_candidate_heads_status CHECK (status IN ('pending', 'approved', 'rejected')), \n\tCONSTRAINT ck_pc_candidate_heads_terminal_result CHECK ((status = 'approved' AND candidate_kind = 'artifact' AND result_payload IS NULL AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL AND result_revision IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR (status = 'approved' AND candidate_kind = 'tag' AND result_payload IS NOT NULL AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL) OR (status = 'rejected' AND result_payload IS NULL AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NOT NULL) OR (status = 'pending' AND result_payload IS NULL AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL))\n)",
+        "mysql": "CREATE TABLE pc_candidate_heads (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcandidate_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tfamily VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tversion INTEGER NOT NULL, \n\tstatus VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcandidate_kind VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT 'artifact', \n\tresult_payload MEDIUMBLOB, \n\tresult_family VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tresult_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tresult_revision INTEGER, \n\tdecision_reason MEDIUMTEXT, \n\tPRIMARY KEY (scope_id, candidate_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, candidate_id, version) REFERENCES pc_candidate_versions (scope_id, candidate_id, version) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, result_family, result_artifact_id, result_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_candidate_kind CHECK (candidate_kind IN ('artifact', 'tag')), \n\tCONSTRAINT ck_pc_candidate_heads_status CHECK (status IN ('pending', 'approved', 'rejected')), \n\tCONSTRAINT ck_pc_candidate_heads_terminal_result CHECK ((status = 'approved' AND candidate_kind = 'artifact' AND result_payload IS NULL AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL AND result_revision IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR (status = 'approved' AND candidate_kind = 'tag' AND result_payload IS NOT NULL AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL) OR (status = 'rejected' AND result_payload IS NULL AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NOT NULL) OR (status = 'pending' AND result_payload IS NULL AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL))\n)"
+      },
+      "retained": {
+        "sqlite": "CREATE TABLE pc_retained_dream_candidate_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tresult_family VARCHAR(128), \n\tresult_artifact_id VARCHAR(128), \n\tresult_revision INTEGER, \n\tdecision_reason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id), \n\tCONSTRAINT ck_pc_retained_dream_heads_status CHECK (status IN ('pending', 'approved', 'rejected')), \n\tCONSTRAINT ck_pc_retained_dream_heads_terminal_result CHECK ((status = 'approved' AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR (status = 'rejected' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NOT NULL) OR (status = 'pending' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL))\n)",
+        "mysql": "CREATE TABLE pc_retained_dream_candidate_heads (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcandidate_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tfamily VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tversion INTEGER NOT NULL, \n\tstatus VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tresult_family VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tresult_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tresult_revision INTEGER, \n\tdecision_reason MEDIUMTEXT, \n\tPRIMARY KEY (scope_id, candidate_id), \n\tCONSTRAINT ck_pc_retained_dream_heads_status CHECK (status IN ('pending', 'approved', 'rejected')), \n\tCONSTRAINT ck_pc_retained_dream_heads_terminal_result CHECK ((status = 'approved' AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR (status = 'rejected' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NOT NULL) OR (status = 'pending' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL))\n)"
+      }
+    }
+  },
+  "add_columns": {
+    "pc_dream_runs": {
+      "column": "proposal_fingerprint",
+      "ddl": {
+        "sqlite": "proposal_fingerprint VARCHAR(71)",
+        "mysql": "proposal_fingerprint VARCHAR(71)"
+      }
+    },
+    "pc_artifact_processing_intents": {
+      "column": "consecutive_dream_attempts",
+      "ddl": {
+        "sqlite": "consecutive_dream_attempts BIGINT DEFAULT '0' NOT NULL",
+        "mysql": "consecutive_dream_attempts BIGINT NOT NULL DEFAULT '0'"
+      }
+    }
+  },
+  "indexes": {
+    "sqlite": "CREATE INDEX ix_pc_dream_runs_proposal_fingerprint ON pc_dream_runs (scope_id, principal_key, proposal_fingerprint)",
+    "mysql": "CREATE INDEX ix_pc_dream_runs_proposal_fingerprint ON pc_dream_runs (scope_id, principal_key, proposal_fingerprint)"
+  },
+  "task_payload_schema": {
+    "$defs": {
+      "ArtifactRef": {
+        "description": "A stable reference to one exact artifact revision.",
+        "properties": {
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "family",
+          "artifact_id",
+          "revision"
+        ],
+        "title": "ArtifactRef",
+        "type": "object"
+      },
+      "CreateDreamRunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "enum": [
+              "refine_experience",
+              "derive_skill"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "artifacts": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "memory_citations": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/MemoryCitation"
+            },
+            "title": "Memory Citations",
+            "type": "array"
+          },
+          "sources": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/SourceRef"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ArtifactRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "idempotency_key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "idempotency_key"
+        ],
+        "title": "CreateDreamRunRequest",
+        "type": "object"
+      },
+      "DreamBudget": {
+        "additionalProperties": false,
+        "properties": {
+          "max_items": {
+            "default": 32,
+            "maximum": 32,
+            "minimum": 1,
+            "title": "Max Items",
+            "type": "integer"
+          },
+          "max_bytes": {
+            "default": 65536,
+            "maximum": 65536,
+            "minimum": 1,
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "max_nodes": {
+            "default": 128,
+            "maximum": 128,
+            "minimum": 1,
+            "title": "Max Nodes",
+            "type": "integer"
+          },
+          "max_edges": {
+            "default": 256,
+            "maximum": 256,
+            "minimum": 1,
+            "title": "Max Edges",
+            "type": "integer"
+          },
+          "max_depth": {
+            "default": 8,
+            "maximum": 8,
+            "minimum": 1,
+            "title": "Max Depth",
+            "type": "integer"
+          },
+          "max_output_tokens": {
+            "default": 4096,
+            "maximum": 4096,
+            "minimum": 1,
+            "title": "Max Output Tokens",
+            "type": "integer"
+          },
+          "max_model_calls": {
+            "default": 2,
+            "maximum": 2,
+            "minimum": 1,
+            "title": "Max Model Calls",
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "default": 120,
+            "exclusiveMinimum": 0,
+            "maximum": 120,
+            "title": "Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "title": "DreamBudget",
+        "type": "object"
+      },
+      "DreamCandidateRef": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "version"
+        ],
+        "title": "DreamCandidateRef",
+        "type": "object"
+      },
+      "DreamRun": {
+        "properties": {
+          "scope_id": {
+            "title": "Scope Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "refine_experience",
+              "derive_skill"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "status": {
+            "default": "queued",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "proposed",
+                  "no_change",
+                  "needs_evidence"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Outcome"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ArtifactRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DreamCandidateRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reason"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "accepted_at": {
+            "format": "date-time",
+            "title": "Accepted At",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Completed At"
+          },
+          "attempt_count": {
+            "default": 0,
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "input_manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/EvidenceManifest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "usage": {
+            "$ref": "#/$defs/DreamUsage"
+          },
+          "budget": {
+            "$ref": "#/$defs/DreamBudget"
+          },
+          "prompt_version": {
+            "default": "powercontext.dream.v1",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "model_config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model Config Id"
+          }
+        },
+        "required": [
+          "scope_id",
+          "run_id",
+          "operation",
+          "accepted_at"
+        ],
+        "title": "DreamRun",
+        "type": "object"
+      },
+      "DreamUsage": {
+        "properties": {
+          "model_calls": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Model Calls",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Tokens"
+          }
+        },
+        "title": "DreamUsage",
+        "type": "object"
+      },
+      "EvidenceEdge": {
+        "additionalProperties": false,
+        "properties": {
+          "derived_id": {
+            "title": "Derived Id",
+            "type": "string"
+          },
+          "upstream_id": {
+            "title": "Upstream Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "derived_id",
+          "upstream_id"
+        ],
+        "title": "EvidenceEdge",
+        "type": "object"
+      },
+      "EvidenceManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "transform_version": {
+            "default": "powercontext.dream.evidence.v1",
+            "title": "Transform Version",
+            "type": "string"
+          },
+          "artifacts": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "memory_citations": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/MemoryCitation"
+            },
+            "title": "Memory Citations",
+            "type": "array"
+          },
+          "sources": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/SourceRef"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "nodes": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/EvidenceNode"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "edges": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/EvidenceEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "root_groups": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/RootEvidenceGroup"
+            },
+            "title": "Root Groups",
+            "type": "array"
+          },
+          "projection_digest": {
+            "title": "Projection Digest",
+            "type": "string"
+          },
+          "projection_bytes": {
+            "title": "Projection Bytes",
+            "type": "integer"
+          },
+          "incomplete": {
+            "default": false,
+            "title": "Incomplete",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "projection_digest",
+          "projection_bytes"
+        ],
+        "title": "EvidenceManifest",
+        "type": "object"
+      },
+      "EvidenceNode": {
+        "additionalProperties": false,
+        "description": "An immutable content digest and its exact provenance, never its body.",
+        "properties": {
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "source",
+              "experience",
+              "memory",
+              "profile",
+              "topic_memory",
+              "handoff",
+              "skill",
+              "prompt",
+              "catalog_target",
+              "unresolved"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ArtifactRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "memory_citations": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/MemoryCitation"
+            },
+            "title": "Memory Citations",
+            "type": "array"
+          },
+          "role": {
+            "enum": [
+              "root",
+              "derived",
+              "target",
+              "lineage_only",
+              "unresolved"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "historical": {
+            "default": false,
+            "title": "Historical",
+            "type": "boolean"
+          },
+          "current_entry_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Current Entry Version Id"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "kind",
+          "digest",
+          "role"
+        ],
+        "title": "EvidenceNode",
+        "type": "object"
+      },
+      "MemoryCitation": {
+        "description": "An exact entry version anchored in its owning Memory Revision.",
+        "properties": {
+          "memory_ref": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "entry_version_id": {
+            "title": "Entry Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memory_ref",
+          "entry_id",
+          "entry_version_id"
+        ],
+        "title": "MemoryCitation",
+        "type": "object"
+      },
+      "RootEvidenceGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "group_id": {
+            "title": "Group Id",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/$defs/SourceRef"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "independence": {
+            "default": "unknown",
+            "enum": [
+              "attested",
+              "unknown"
+            ],
+            "title": "Independence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id",
+          "sources"
+        ],
+        "title": "RootEvidenceGroup",
+        "type": "object"
+      },
+      "SourceRef": {
+        "description": "A stable reference to one Source in the current catalog view.",
+        "properties": {
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id"
+        ],
+        "title": "SourceRef",
+        "type": "object"
+      }
+    },
+    "description": "Private execution state; a principal identity is never a credential.",
+    "properties": {
+      "run": {
+        "$ref": "#/$defs/DreamRun"
+      },
+      "request": {
+        "$ref": "#/$defs/CreateDreamRunRequest"
+      },
+      "principal_id": {
+        "title": "Principal Id",
+        "type": "string"
+      },
+      "generation": {
+        "default": 0,
+        "title": "Generation",
+        "type": "integer"
+      },
+      "request_generation": {
+        "default": 0,
+        "title": "Request Generation",
+        "type": "integer"
+      },
+      "deadline_at": {
+        "anyOf": [
+          {
+            "format": "date-time",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Deadline At"
+      }
+    },
+    "required": [
+      "run",
+      "request",
+      "principal_id"
+    ],
+    "title": "DreamRecord",
+    "type": "object"
+  },
+  "processing_manifest": {
+    "schema_version": 1515,
+    "bindings": {
+      "memory-source-window": "memory",
+      "topic-memory-source-window": "topic-memory",
+      "experience-incubation": "experience",
+      "profile-source-window": "profile",
+      "skill.dream.v1": "skill"
+    },
+    "binding_additions": {
+      "handoff.dream.v1": "handoff",
+      "prompt.dream.v1": "prompt"
+    },
+    "capability_additions": [
+      "handoff",
+      "prompt"
+    ],
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "bindings",
+        "capabilities",
+        "legacy_automatic_bindings"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "global",
+            "dedicated"
+          ]
+        },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "memory",
+              "experience",
+              "profile",
+              "topic-memory",
+              "skill",
+              "handoff",
+              "prompt"
+            ]
+          }
+        },
+        "legacy_automatic_bindings": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "memory-source-window",
+              "topic-memory-source-window",
+              "experience-incubation",
+              "profile-source-window",
+              "skill.dream.v1"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

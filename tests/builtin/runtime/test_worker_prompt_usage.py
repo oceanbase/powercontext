@@ -38,9 +38,9 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
 from powercontext.builtin.persistence.tables import (
-    ARTIFACT_CANDIDATE_HEADS_TABLE,
     ARTIFACT_HEADS_TABLE,
     BUILTIN_TABLES,
+    CANDIDATE_HEADS_TABLE,
     MODEL_USAGE_DAILY_TABLE,
 )
 from powercontext.builtin.records import ArtifactWrite
@@ -224,7 +224,7 @@ def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(t
                         completed is not None and completed.handled_generation == assignment.claimed_request_generation
                     )
                     assert completed.clean_generation == completed.dirty_generation
-                    generated = ARTIFACT_CANDIDATE_HEADS_TABLE if family == "experience" else ARTIFACT_HEADS_TABLE
+                    generated = CANDIDATE_HEADS_TABLE if family == "experience" else ARTIFACT_HEADS_TABLE
                     assert (
                         await connection.scalar(
                             select(func.count()).select_from(generated).where(generated.c.family == family)

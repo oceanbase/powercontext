@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from powercontext.builtin.dream.bindings import DREAM_BINDINGS
+from powercontext.builtin.dream.bindings import binding_for_request
 from powercontext.builtin.dream.models import (
     CreateDreamRunRequest,
     DreamError,
@@ -49,7 +49,7 @@ class ScopedDreamApplication:
         async with self._runtime._scoped_operation(self.scope_id):
             run = await self._service().create(self.scope_id, self.principal_id, request)
         if not run.terminal and self._runtime.artifact_processing_supervisor is not None:
-            self._runtime.artifact_processing_supervisor.wake(DREAM_BINDINGS[run.operation])
+            self._runtime.artifact_processing_supervisor.wake(binding_for_request(request))
         return run
 
     async def get(self, request: GetDreamRunRequest, /) -> DreamRun:

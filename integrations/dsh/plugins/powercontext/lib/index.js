@@ -1020,9 +1020,9 @@ const OPERATIONS$1 = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	list_artifact_candidates: {
+	list_candidates: {
 		method: "POST",
-		path: "/v1/artifact-candidates/list",
+		path: "/v1/candidates/list",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -1031,9 +1031,9 @@ const OPERATIONS$1 = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	get_artifact_candidate: {
+	get_candidate: {
 		method: "POST",
-		path: "/v1/artifact-candidates/get",
+		path: "/v1/candidates/get",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -1042,9 +1042,9 @@ const OPERATIONS$1 = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	approve_artifact_candidate: {
+	approve_candidate: {
 		method: "POST",
-		path: "/v1/artifact-candidates/approve",
+		path: "/v1/candidates/approve",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -1053,9 +1053,9 @@ const OPERATIONS$1 = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	reject_artifact_candidate: {
+	reject_candidate: {
 		method: "POST",
-		path: "/v1/artifact-candidates/reject",
+		path: "/v1/candidates/reject",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -1064,9 +1064,20 @@ const OPERATIONS$1 = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	revise_artifact_candidate: {
+	revise_candidate: {
 		method: "POST",
-		path: "/v1/artifact-candidates/revise",
+		path: "/v1/candidates/revise",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_candidate_history: {
+		method: "POST",
+		path: "/v1/candidates/history",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -1689,6 +1700,7 @@ var PowerContextClient = class {
 	}
 	buildInit(spec, request, signal, requestTimeoutMs = this.requestTimeoutMs) {
 		const headers = {
+			"X-PowerContext-Dream-Contract": "2",
 			Accept: "application/json",
 			"User-Agent": PLUGIN_USER_AGENT,
 			...request.headers
@@ -2842,7 +2854,7 @@ async function call(runtime, cwd, operationId, payload, signal) {
 }
 async function handleReview(tokens, runtime, cwd, signal) {
 	const action = tokens[1];
-	if (!action) return call(runtime, cwd, "list_artifact_candidates", { status: "pending" }, signal);
+	if (!action) return call(runtime, cwd, "list_candidates", { status: "pending" }, signal);
 	if (action === "approve") {
 		const candidateId = tokens[2];
 		const version = Number(tokens[3]);
@@ -2850,7 +2862,7 @@ async function handleReview(tokens, runtime, cwd, signal) {
 			kind: "error",
 			text: "Usage: /pc review approve <candidate_id> <expected_version>"
 		};
-		return call(runtime, cwd, "approve_artifact_candidate", {
+		return call(runtime, cwd, "approve_candidate", {
 			candidate_id: candidateId,
 			expected_version: version
 		}, signal);
@@ -2863,7 +2875,7 @@ async function handleReview(tokens, runtime, cwd, signal) {
 			kind: "error",
 			text: "Usage: /pc review reject <candidate_id> <expected_version> <reason>"
 		};
-		return call(runtime, cwd, "reject_artifact_candidate", {
+		return call(runtime, cwd, "reject_candidate", {
 			candidate_id: candidateId,
 			expected_version: version,
 			reason
@@ -4022,7 +4034,7 @@ function artifactTools(runtime, defineTool) {
 					enum: ["experience", "skill"]
 				}
 			},
-			execute: (args, exec) => run(runtime, exec, "list_artifact_candidates", {
+			execute: (args, exec) => run(runtime, exec, "list_candidates", {
 				status: args.status ?? "pending",
 				family: args.family
 			})
@@ -4035,7 +4047,7 @@ function artifactTools(runtime, defineTool) {
 				type: "string",
 				required: true
 			} },
-			execute: (args, exec) => run(runtime, exec, "get_artifact_candidate", { candidate_id: args.candidate_id })
+			execute: (args, exec) => run(runtime, exec, "get_candidate", { candidate_id: args.candidate_id })
 		})
 	];
 }

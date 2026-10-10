@@ -159,6 +159,34 @@ output_schema:
           $ref: '#/definitions/Result/properties/candidate'
           type: object
           properties:
+            audit:
+              $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/audit'
+              type: object
+              properties:
+                origin:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/audit/anyOf/0/properties/origin'
+                  type: string
+                operation:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/audit/anyOf/0/properties/operation'
+                  type: string
+                dream_run_id:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/audit/anyOf/0/properties/dream_run_id'
+                  type: string
+                spec_version:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/audit/anyOf/0/properties/spec_version'
+                  type: string
+                proposal_digest:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/audit/anyOf/0/properties/proposal_digest'
+                  type: string
+                evidence_manifest_ref:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/audit/anyOf/0/properties/evidence_manifest_ref'
+                  type: string
+                validation_policy_digest:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/audit/anyOf/0/properties/validation_policy_digest'
+                  type: string
+                proposal_fingerprint:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/audit/anyOf/0/properties/proposal_fingerprint'
+                  type: string
             memory_citations:
               $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/memory_citations'
               type: array
@@ -185,8 +213,8 @@ output_schema:
                   entry_version_id:
                     $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/memory_citations/items/properties/entry_version_id'
                     type: string
-              description: Exact Memory entry provenance; non-empty only for Experience.
-                Counted toward the combined evidence bound.
+              description: Exact Memory entry provenance for Experience, Profile Dream
+                or Memory Dream changes. Counted toward the combined evidence bound.
             permissions:
               $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/permissions'
               type: object
@@ -215,6 +243,10 @@ output_schema:
               - experience
               - skill
               - profile
+              - memory
+              - topic-memory
+              - handoff
+              - prompt
             status:
               $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/status'
               type: string
@@ -291,6 +323,46 @@ output_schema:
             decision_reason:
               $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/decision_reason'
               type: string
+            candidate_kind:
+              $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/candidate_kind'
+              type: string
+              enum: &id004
+              - artifact
+              - tag
+            result:
+              $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/result'
+              type: object
+              properties:
+                scope_id:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/result/anyOf/0/properties/scope_id'
+                  type: string
+                target:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/result/anyOf/0/properties/target'
+                  type: object
+                tags:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/result/anyOf/0/properties/tags'
+                  type: array
+                  items:
+                    $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/result/anyOf/0/properties/tags/items'
+                    type: string
+                tag_digest:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/result/anyOf/0/properties/tag_digest'
+                  type: string
+                etag:
+                  $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/result/anyOf/0/properties/etag'
+                  type: string
+            operation:
+              $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/operation'
+              type: string
+            origin:
+              $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/origin'
+              type: string
+              enum: &id005
+              - dream
+              - manual
+            dream_run_id:
+              $ref: '#/definitions/Result/properties/candidate/anyOf/0/properties/dream_run_id'
+              type: string
       description: Complete successful HTTP response; empty object on error or unknown
         outcome.
   required:
@@ -314,6 +386,7 @@ output_schema:
           - type: object
             additionalProperties: false
             required:
+            - candidate_kind
             - candidate_id
             - version
             - family
@@ -326,12 +399,53 @@ output_schema:
             - result_artifact
             - decision_reason
             properties:
+              audit:
+                anyOf:
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - origin
+                  - operation
+                  - dream_run_id
+                  - spec_version
+                  - proposal_digest
+                  - evidence_manifest_ref
+                  - validation_policy_digest
+                  - proposal_fingerprint
+                  properties:
+                    origin:
+                      type: string
+                      minLength: 1
+                    operation:
+                      type: string
+                      minLength: 1
+                    dream_run_id:
+                      type: string
+                      minLength: 1
+                    spec_version:
+                      type: string
+                      minLength: 1
+                    proposal_digest:
+                      type: string
+                      minLength: 1
+                    evidence_manifest_ref:
+                      type: string
+                      minLength: 1
+                    validation_policy_digest:
+                      type: string
+                      minLength: 1
+                    proposal_fingerprint:
+                      anyOf:
+                      - type: string
+                      - type: 'null'
+                - type: 'null'
               memory_citations:
                 type: array
                 maxItems: 32
                 default: []
-                description: Exact Memory entry provenance; non-empty only for Experience.
-                  Counted toward the combined evidence bound.
+                description: Exact Memory entry provenance for Experience, Profile
+                  Dream or Memory Dream changes. Counted toward the combined evidence
+                  bound.
                 items:
                   type: object
                   additionalProperties: false
@@ -572,7 +686,6 @@ output_schema:
                   required:
                   - schema
                   - content
-                  - source_window
                   - generator_id
                   - generator_version
                   - created_at
@@ -585,18 +698,44 @@ output_schema:
                       type: string
                       minLength: 1
                     source_window:
-                      type: object
-                      additionalProperties: false
-                      required:
-                      - after
-                      - through
-                      properties:
-                        after:
-                          type: integer
-                          minimum: 0
-                        through:
-                          type: integer
-                          minimum: 0
+                      anyOf:
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - after
+                        - through
+                        properties:
+                          after:
+                            type: integer
+                            minimum: 0
+                          through:
+                            type: integer
+                            minimum: 0
+                      - type: 'null'
+                    dream_run_id:
+                      anyOf:
+                      - type: string
+                      - type: 'null'
+                    policy_snapshot:
+                      anyOf:
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - format_version
+                        - generation_enabled
+                        properties:
+                          format_version:
+                            type: integer
+                            enum:
+                            - 1
+                            default: 1
+                          generation_enabled:
+                            type: boolean
+                      - type: 'null'
+                    policy_digest:
+                      anyOf:
+                      - type: string
+                      - type: 'null'
                     generator_id:
                       type: string
                       minLength: 1
@@ -606,6 +745,782 @@ output_schema:
                     created_at:
                       type: string
                       format: date-time
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - base
+                  - dream_run_id
+                  - changes
+                  properties:
+                    base:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - family
+                      - artifact_id
+                      - revision
+                      properties:
+                        family:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                          pattern: ^[\x21-\x7E]+$
+                        artifact_id:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                          pattern: ^[\x21-\x7E]+$
+                        revision:
+                          type: integer
+                          minimum: 1
+                    dream_run_id:
+                      type: string
+                      minLength: 1
+                    changes:
+                      type: array
+                      minItems: 1
+                      maxItems: 20
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - entry_id
+                        - entry_version_id
+                        - kind
+                        - text
+                        - reason
+                        - sources
+                        properties:
+                          entry_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                          entry_version_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                          kind:
+                            type: string
+                            minLength: 1
+                          text:
+                            type: string
+                            minLength: 1
+                          reason:
+                            type: string
+                            minLength: 1
+                            maxLength: 2000
+                          sources:
+                            type: array
+                            minItems: 1
+                            maxItems: 32
+                            items:
+                              type: object
+                              additionalProperties: false
+                              required:
+                              - source_type
+                              - source_id
+                              properties:
+                                source_type:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 128
+                                source_id:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 256
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - title
+                  - summary
+                  - detail
+                  properties:
+                    title:
+                      type: string
+                      minLength: 1
+                      maxLength: 512
+                    summary:
+                      type: string
+                      minLength: 1
+                      maxLength: 8000
+                    detail:
+                      type: string
+                      minLength: 1
+                      maxLength: 125000
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - schema
+                  - objective
+                  - state
+                  - disposition
+                  - next_action
+                  - omissions
+                  properties:
+                    generation:
+                      anyOf:
+                      - type: object
+                        additionalProperties: false
+                        description: Server-derived, persisted generation origin.
+                          Raw copied metadata is not accepted as verified input without
+                          a valid receipt. Prompt references are configuration lineage,
+                          not factual citations.
+                        required:
+                        - scope_id
+                        - prompt_key
+                        - selection
+                        - artifact
+                        - definition_version
+                        - builtin_version
+                        - compiled_digest
+                        - original_draft_digest
+                        - edit_status
+                        properties:
+                          scope_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 256
+                          prompt_key:
+                            type: string
+                            enum:
+                            - handoff.generate
+                          selection:
+                            type: string
+                            enum:
+                            - built_in
+                            - artifact
+                          artifact:
+                            anyOf:
+                            - type: object
+                              additionalProperties: false
+                              required:
+                              - family
+                              - artifact_id
+                              - revision
+                              properties:
+                                family:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 128
+                                  pattern: ^[\x21-\x7E]+$
+                                artifact_id:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 128
+                                  pattern: ^[\x21-\x7E]+$
+                                revision:
+                                  type: integer
+                                  minimum: 1
+                            - type: 'null'
+                          definition_version:
+                            type: string
+                            minLength: 1
+                            maxLength: 256
+                          builtin_version:
+                            type: string
+                            minLength: 1
+                            maxLength: 256
+                          compiled_digest:
+                            type: string
+                            pattern: ^[0-9a-f]{64}$
+                          original_draft_digest:
+                            type: string
+                            pattern: ^[0-9a-f]{64}$
+                          edit_status:
+                            type: string
+                            enum:
+                            - unchanged
+                            - edited
+                      - type: 'null'
+                    schema:
+                      type: string
+                      enum:
+                      - powercontext.handoff.v1
+                    objective:
+                      type: string
+                      minLength: 1
+                      maxLength: 8192
+                      pattern: .*\S.*
+                    state:
+                      type: array
+                      minItems: 1
+                      maxItems: 64
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - text
+                        - citations
+                        properties:
+                          text:
+                            type: string
+                            minLength: 1
+                            maxLength: 8192
+                            pattern: .*\S.*
+                          citations:
+                            type: array
+                            minItems: 1
+                            maxItems: 32
+                            items:
+                              oneOf:
+                              - type: object
+                                additionalProperties: false
+                                required:
+                                - kind
+                                - source_ref
+                                properties:
+                                  kind:
+                                    type: string
+                                    enum:
+                                    - source
+                                  source_ref:
+                                    type: object
+                                    additionalProperties: false
+                                    required:
+                                    - name
+                                    - source_id
+                                    properties:
+                                      name:
+                                        type: string
+                                        description: Stable Source type.
+                                      source_id:
+                                        type: string
+                              - type: object
+                                additionalProperties: false
+                                required:
+                                - kind
+                                - artifact_ref
+                                properties:
+                                  kind:
+                                    type: string
+                                    enum:
+                                    - artifact
+                                  artifact_ref:
+                                    type: object
+                                    additionalProperties: false
+                                    required:
+                                    - family
+                                    - artifact_id
+                                    - revision
+                                    properties:
+                                      family:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      artifact_id:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      revision:
+                                        type: integer
+                                        minimum: 1
+                              - type: object
+                                additionalProperties: false
+                                required:
+                                - kind
+                                - memory_citation
+                                properties:
+                                  kind:
+                                    type: string
+                                    enum:
+                                    - memory
+                                  memory_citation:
+                                    type: object
+                                    additionalProperties: false
+                                    required:
+                                    - memory_ref
+                                    - entry_id
+                                    - entry_version_id
+                                    properties:
+                                      memory_ref:
+                                        type: object
+                                        additionalProperties: false
+                                        required:
+                                        - family
+                                        - artifact_id
+                                        - revision
+                                        properties:
+                                          family:
+                                            type: string
+                                            minLength: 1
+                                            maxLength: 128
+                                            pattern: ^[\x21-\x7E]+$
+                                          artifact_id:
+                                            type: string
+                                            minLength: 1
+                                            maxLength: 128
+                                            pattern: ^[\x21-\x7E]+$
+                                          revision:
+                                            type: integer
+                                            minimum: 1
+                                      entry_id:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      entry_version_id:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                              discriminator:
+                                propertyName: kind
+                                mapping:
+                                  source: '#/components/schemas/HandoffSourceCitation'
+                                  artifact: '#/components/schemas/HandoffArtifactCitation'
+                                  memory: '#/components/schemas/HandoffMemoryCitation'
+                    disposition:
+                      type: string
+                      enum:
+                      - continuable
+                      - blocked
+                      - complete
+                    next_action:
+                      anyOf:
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - text
+                        - citations
+                        properties:
+                          text:
+                            type: string
+                            minLength: 1
+                            maxLength: 8192
+                            pattern: .*\S.*
+                          citations:
+                            type: array
+                            minItems: 1
+                            maxItems: 32
+                            items:
+                              oneOf:
+                              - type: object
+                                additionalProperties: false
+                                required:
+                                - kind
+                                - source_ref
+                                properties:
+                                  kind:
+                                    type: string
+                                    enum:
+                                    - source
+                                  source_ref:
+                                    type: object
+                                    additionalProperties: false
+                                    required:
+                                    - name
+                                    - source_id
+                                    properties:
+                                      name:
+                                        type: string
+                                        description: Stable Source type.
+                                      source_id:
+                                        type: string
+                              - type: object
+                                additionalProperties: false
+                                required:
+                                - kind
+                                - artifact_ref
+                                properties:
+                                  kind:
+                                    type: string
+                                    enum:
+                                    - artifact
+                                  artifact_ref:
+                                    type: object
+                                    additionalProperties: false
+                                    required:
+                                    - family
+                                    - artifact_id
+                                    - revision
+                                    properties:
+                                      family:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      artifact_id:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      revision:
+                                        type: integer
+                                        minimum: 1
+                              - type: object
+                                additionalProperties: false
+                                required:
+                                - kind
+                                - memory_citation
+                                properties:
+                                  kind:
+                                    type: string
+                                    enum:
+                                    - memory
+                                  memory_citation:
+                                    type: object
+                                    additionalProperties: false
+                                    required:
+                                    - memory_ref
+                                    - entry_id
+                                    - entry_version_id
+                                    properties:
+                                      memory_ref:
+                                        type: object
+                                        additionalProperties: false
+                                        required:
+                                        - family
+                                        - artifact_id
+                                        - revision
+                                        properties:
+                                          family:
+                                            type: string
+                                            minLength: 1
+                                            maxLength: 128
+                                            pattern: ^[\x21-\x7E]+$
+                                          artifact_id:
+                                            type: string
+                                            minLength: 1
+                                            maxLength: 128
+                                            pattern: ^[\x21-\x7E]+$
+                                          revision:
+                                            type: integer
+                                            minimum: 1
+                                      entry_id:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      entry_version_id:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                              discriminator:
+                                propertyName: kind
+                                mapping:
+                                  source: '#/components/schemas/HandoffSourceCitation'
+                                  artifact: '#/components/schemas/HandoffArtifactCitation'
+                                  memory: '#/components/schemas/HandoffMemoryCitation'
+                      - type: 'null'
+                    omissions:
+                      type: array
+                      maxItems: 64
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - text
+                        - citation
+                        properties:
+                          text:
+                            type: string
+                            minLength: 1
+                            maxLength: 8192
+                            pattern: .*\S.*
+                          citation:
+                            anyOf:
+                            - oneOf:
+                              - type: object
+                                additionalProperties: false
+                                required:
+                                - kind
+                                - source_ref
+                                properties:
+                                  kind:
+                                    type: string
+                                    enum:
+                                    - source
+                                  source_ref:
+                                    type: object
+                                    additionalProperties: false
+                                    required:
+                                    - name
+                                    - source_id
+                                    properties:
+                                      name:
+                                        type: string
+                                        description: Stable Source type.
+                                      source_id:
+                                        type: string
+                              - type: object
+                                additionalProperties: false
+                                required:
+                                - kind
+                                - artifact_ref
+                                properties:
+                                  kind:
+                                    type: string
+                                    enum:
+                                    - artifact
+                                  artifact_ref:
+                                    type: object
+                                    additionalProperties: false
+                                    required:
+                                    - family
+                                    - artifact_id
+                                    - revision
+                                    properties:
+                                      family:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      artifact_id:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      revision:
+                                        type: integer
+                                        minimum: 1
+                              - type: object
+                                additionalProperties: false
+                                required:
+                                - kind
+                                - memory_citation
+                                properties:
+                                  kind:
+                                    type: string
+                                    enum:
+                                    - memory
+                                  memory_citation:
+                                    type: object
+                                    additionalProperties: false
+                                    required:
+                                    - memory_ref
+                                    - entry_id
+                                    - entry_version_id
+                                    properties:
+                                      memory_ref:
+                                        type: object
+                                        additionalProperties: false
+                                        required:
+                                        - family
+                                        - artifact_id
+                                        - revision
+                                        properties:
+                                          family:
+                                            type: string
+                                            minLength: 1
+                                            maxLength: 128
+                                            pattern: ^[\x21-\x7E]+$
+                                          artifact_id:
+                                            type: string
+                                            minLength: 1
+                                            maxLength: 128
+                                            pattern: ^[\x21-\x7E]+$
+                                          revision:
+                                            type: integer
+                                            minimum: 1
+                                      entry_id:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      entry_version_id:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                              discriminator:
+                                propertyName: kind
+                                mapping:
+                                  source: '#/components/schemas/HandoffSourceCitation'
+                                  artifact: '#/components/schemas/HandoffArtifactCitation'
+                                  memory: '#/components/schemas/HandoffMemoryCitation'
+                            - type: 'null'
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - schema_version
+                  - mode
+                  - instructions
+                  - demonstrations
+                  description: Canonical content is limited to 256 KiB. Auto requires
+                    empty instructions and demonstrations; Custom requires non-blank
+                    trimmed NFC instructions. Demonstrations must match the registered
+                    operation types.
+                  properties:
+                    schema_version:
+                      type: string
+                      enum:
+                      - powercontext.prompt.v1
+                    mode:
+                      type: string
+                      enum:
+                      - auto
+                      - custom
+                    instructions:
+                      type: string
+                      maxLength: 32768
+                    demonstrations:
+                      type: array
+                      maxItems: 50
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - input
+                        - expected_output
+                        description: A typed input/output pair limited to 64 KiB of
+                          canonical JSON.
+                        properties:
+                          input:
+                            description: Complete JSON input matching the registered
+                              Prompt Definition.
+                          expected_output:
+                            description: Desired JSON output matching the registered
+                              Prompt Definition.
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - target
+                  - expected_etag
+                  - before_tags
+                  - after_tags
+                  properties:
+                    target:
+                      oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - type
+                        - family
+                        - artifact_id
+                        properties:
+                          type:
+                            type: string
+                            enum:
+                            - artifact
+                          family:
+                            type: string
+                            description: All readable Artifact families support logical
+                              tags on persisted Artifacts.
+                            enum:
+                            - memory
+                            - experience
+                            - skill
+                            - handoff
+                            - profile
+                            - prompt
+                            - topic-memory
+                          artifact_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - type
+                        - family
+                        - artifact_id
+                        - entry_id
+                        properties:
+                          type:
+                            type: string
+                            enum:
+                            - memory_entry
+                          family:
+                            type: string
+                            enum:
+                            - memory
+                          artifact_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                          entry_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                      discriminator:
+                        propertyName: type
+                        mapping:
+                          artifact: '#/components/schemas/ArtifactTagTarget'
+                          memory_entry: '#/components/schemas/MemoryEntryTagTarget'
+                    expected_etag:
+                      type: string
+                      minLength: 1
+                    basis_ref:
+                      anyOf:
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - family
+                        - artifact_id
+                        - revision
+                        properties:
+                          family:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                            pattern: ^[\x21-\x7E]+$
+                          artifact_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                            pattern: ^[\x21-\x7E]+$
+                          revision:
+                            type: integer
+                            minimum: 1
+                      - type: 'null'
+                    basis_citation:
+                      anyOf:
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - memory_ref
+                        - entry_id
+                        - entry_version_id
+                        properties:
+                          memory_ref:
+                            type: object
+                            additionalProperties: false
+                            required:
+                            - family
+                            - artifact_id
+                            - revision
+                            properties:
+                              family:
+                                type: string
+                                minLength: 1
+                                maxLength: 128
+                                pattern: ^[\x21-\x7E]+$
+                              artifact_id:
+                                type: string
+                                minLength: 1
+                                maxLength: 128
+                                pattern: ^[\x21-\x7E]+$
+                              revision:
+                                type: integer
+                                minimum: 1
+                          entry_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                            pattern: ^[\x21-\x7E]+$
+                          entry_version_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                            pattern: ^[\x21-\x7E]+$
+                      - type: 'null'
+                    before_tags:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                        maxLength: 64
+                      maxItems: 32
+                    after_tags:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                        maxLength: 64
+                      maxItems: 32
               source_refs:
                 type: array
                 maxItems: 32
@@ -706,6 +1621,108 @@ output_schema:
                 - type: string
                   minLength: 1
                   maxLength: 2000
+                - type: 'null'
+              candidate_kind:
+                type: string
+                enum: *id004
+              result:
+                anyOf:
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - scope_id
+                  - target
+                  - tags
+                  - tag_digest
+                  - etag
+                  properties:
+                    scope_id:
+                      type: string
+                      minLength: 1
+                    target:
+                      oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - type
+                        - family
+                        - artifact_id
+                        properties:
+                          type:
+                            type: string
+                            enum:
+                            - artifact
+                          family:
+                            type: string
+                            description: All readable Artifact families support logical
+                              tags on persisted Artifacts.
+                            enum:
+                            - memory
+                            - experience
+                            - skill
+                            - handoff
+                            - profile
+                            - prompt
+                            - topic-memory
+                          artifact_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - type
+                        - family
+                        - artifact_id
+                        - entry_id
+                        properties:
+                          type:
+                            type: string
+                            enum:
+                            - memory_entry
+                          family:
+                            type: string
+                            enum:
+                            - memory
+                          artifact_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                          entry_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                      discriminator:
+                        propertyName: type
+                        mapping:
+                          artifact: '#/components/schemas/ArtifactTagTarget'
+                          memory_entry: '#/components/schemas/MemoryEntryTagTarget'
+                    tags:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                        maxLength: 64
+                      maxItems: 32
+                    tag_digest:
+                      type: string
+                      minLength: 1
+                    etag:
+                      type: string
+                      minLength: 1
+                - type: 'null'
+              operation:
+                anyOf:
+                - type: string
+                - type: 'null'
+              origin:
+                anyOf:
+                - type: string
+                  enum: *id005
+                - type: 'null'
+              dream_run_id:
+                anyOf:
+                - type: string
                 - type: 'null'
           - type: 'null'
       description: Complete successful HTTP response; empty object on error or unknown

@@ -26,7 +26,7 @@ from typing import Literal
 
 from powercontext.client import PowerContextClient
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     ArtifactReference,
     CaptureContentSourceRequest,
     CreateScopeRequest,
@@ -166,8 +166,8 @@ async def seed_fixture(client: PowerContextClient) -> tuple[str, dict[str, Artif
                 artifact_refs=[],
             )
         )
-        approved = await client.approve_artifact_candidate(
-            ApproveArtifactCandidateRequest(
+        approved = await client.approve_candidate(
+            ApproveCandidateRequest(
                 scope_id=scope_id,
                 candidate_id=pending.candidate_id,
                 expected_version=pending.version,
@@ -184,8 +184,8 @@ async def seed_fixture(client: PowerContextClient) -> tuple[str, dict[str, Artif
                 reason="Explicit review of a synthetic evaluation package.",
             )
         )
-        approved = await client.approve_artifact_candidate(
-            ApproveArtifactCandidateRequest(
+        approved = await client.approve_candidate(
+            ApproveCandidateRequest(
                 scope_id=scope_id,
                 candidate_id=pending.candidate_id,
                 expected_version=pending.version,

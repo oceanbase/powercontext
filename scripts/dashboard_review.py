@@ -131,7 +131,7 @@ def approve(
         directory,
         name + "-revised",
         "POST",
-        "/v1/artifact-candidates/revise",
+        "/v1/candidates/revise",
         {
             "scope_id": scope,
             "candidate_id": candidate["candidate_id"],
@@ -148,7 +148,7 @@ def approve(
         directory,
         name + "-approved",
         "POST",
-        "/v1/artifact-candidates/approve",
+        "/v1/candidates/approve",
         {
             "scope_id": scope,
             "candidate_id": revised["candidate_id"],

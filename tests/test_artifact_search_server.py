@@ -310,7 +310,7 @@ def test_sqlite_artifact_search_http_returns_exact_current_revision_and_lineage(
     from powercontext.builtin.artifacts.skill import SkillContent
     from powercontext.builtin.persistence.sqlite import SQLiteConfig
     from powercontext.builtin.runtime import (
-        ApproveArtifactCandidateRequest,
+        ApproveCandidateRequest,
         CaptureSource,
         GetExperienceRequest,
         GetSkillRequest,
@@ -353,7 +353,7 @@ def test_sqlite_artifact_search_http_returns_exact_current_revision_and_lineage(
                     )
                 )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
             )
             assert approved.result_artifact is not None
             references.append(approved.result_artifact)
