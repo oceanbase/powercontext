@@ -378,6 +378,20 @@ def test_memory_history_link_replaces_the_previously_selected_note_version(dashb
     assert "Revised note." not in reading
 
 
+def test_memory_history_link_tolerates_a_note_added_after_that_revision(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Memory revision navigation")["scope_id"]
+    for text in ("Alpha note.", "Beta note."):
+        remembered = dashboard.post("/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": text})
+        assert remembered.status_code == 200, remembered.text
+    beta = remembered.json()["entry"]["citation"]["entry_id"]
+    current = dashboard.get("/dashboard/notes", params={"scope": scope, "entry": beta, "lang": "en"})
+    selected = dashboard.get(next(href for href in _hrefs(current.text) if "memory_id=" in href and "entry=" in href))
+    page = dashboard.get(next(href for href in _hrefs(selected.text) if "memory_history=1" in href))
+    assert page.status_code == 200, page.text
+    assert "Alpha note." in page.text
+    assert "Beta note." not in page.text
+
+
 def test_older_memory_revision_ignores_a_later_notes_page(dashboard: TestClient) -> None:
     scope = create_scope(dashboard, "Paged memory history")["scope_id"]
     first = dashboard.post(

@@ -110,6 +110,11 @@ async def select_note(api: DashboardAPI, request: Request, ctx: dict[str, Any]) 
                 raise ReadError(422, "invalid_request") from error
         elif current:
             citation = current["citation"]
+        elif ctx.get("historical_notes"):
+            # The note was added after the selected revision, so show that revision's first note instead.
+            if ctx["data"]["notes"]:
+                ctx["selected_note"] = ctx["data"]["notes"][0]
+            return
         else:
             raise ReadError(404, "not_found")
         entry = await api.read("/v1/memory/entries/get", {"scope_id": scope, "citation": citation})
