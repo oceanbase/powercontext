@@ -82,6 +82,11 @@ For each user prompt, the Hook:
 3. strictly validates `powercontext.prepared-context.v1` and injects it unchanged through `additionalContext`;
 4. independently captures the prompt as ordinary Content Source evidence.
 
+Recall bounds its query before the request is built: a prompt of at most 8,192 characters and 8,192 UTF-8 bytes is sent
+as submitted, while a longer prompt recalls from its most recent text, cut to the last 8,192 characters and then to the
+last 8,192 bytes. A long prompt therefore narrows the query instead of failing the recall. Capture is independent and
+keeps its own limit.
+
 Bootstrap context is a separate, opt-in `SessionStart` path. Enable it before launching Claude Code:
 
 ```bash

@@ -53,6 +53,43 @@ def _prepared(content: str | None = "prepared context", *, status: str = "ready"
     }
 
 
+def _prepare_query(
+    recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    prompt: str,
+) -> str:
+    """Return the query Codex asks the Runtime to prepare for one submitted prompt."""
+
+    queries: list[str] = []
+    monkeypatch.setattr(
+        recall_module,
+        "_prepare_context",
+        lambda query, _scope, *, settings, deadline: queries.append(query) or _prepared(),
+    )
+    monkeypatch.setattr(recall_module, "resolve_scope_id", lambda _cwd, **_kwargs: "project:test")
+    monkeypatch.setattr(
+        recall_module,
+        "_capture_prompt",
+        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: {"position": 1},
+    )
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps({
+                "hook_event_name": "UserPromptSubmit",
+                "cwd": "/workspace/project",
+                "prompt": prompt,
+            })
+        ),
+    )
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+    assert recall_module.main() == 0
+    (query,) = queries
+    return query
+
+
 def test_recall_emits_bounded_untrusted_context(
     recall_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -100,6 +137,78 @@ def test_recall_emits_bounded_untrusted_context(
     assert context == prepared_content
     assert len(context.encode("utf-8")) <= 8_000
     assert captured == [("What decisions apply?", "project:test")]
+
+
+def test_recall_query_passes_a_prompt_that_fits_the_request_bound_through_unchanged(
+    recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The request contract bounds a query at 8,192 characters, and the bound is inclusive."""
+
+    prompt = "a" * 8_192
+
+    assert _prepare_query(recall_module, monkeypatch, prompt) == prompt
+
+
+def test_recall_query_keeps_the_latest_text_of_a_prompt_over_the_request_bound(
+    recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: a longer prompt used to reach prepare verbatim and fail validation."""
+
+    prompt = "earlier context that the transcript already carries " * 200 + "Which service owns the retry?"
+    assert len(prompt) > 8_192
+    query = _prepare_query(recall_module, monkeypatch, prompt)
+
+    assert query == prompt[-8_192:]
+    assert len(query) == 8_192
+    assert query.endswith("Which service owns the retry?")
+
+
+def test_recall_query_keeps_a_multibyte_prompt_within_the_request_byte_bound(
+    recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-ASCII text costs several bytes per character, so both bounds have to hold."""
+
+    prompt = "记忆 " * 4_000
+    query = _prepare_query(recall_module, monkeypatch, prompt)
+
+    assert prompt.strip().endswith(query)
+    assert len(query.encode("utf-8")) <= 8_192
+    assert "\ufffd" not in query
+
+
+def test_recall_captures_the_full_prompt_while_the_query_is_bounded(
+    recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Source capture keeps its own size limit and is untouched by the recall bound."""
+
+    prompt = "记忆 " * 3_000
+    captured: list[str] = []
+    monkeypatch.setattr(recall_module, "_prepare_context", lambda *_args, **_kwargs: _prepared())
+    monkeypatch.setattr(recall_module, "resolve_scope_id", lambda _cwd, **_kwargs: "project:test")
+    monkeypatch.setattr(
+        recall_module,
+        "_capture_prompt",
+        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+    )
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps({
+                "hook_event_name": "UserPromptSubmit",
+                "cwd": "/workspace/project",
+                "prompt": prompt,
+            })
+        ),
+    )
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+    assert recall_module.main() == 0
+    assert captured == [prompt]
 
 
 def test_recall_reads_utf8_stdin_on_windows_encodings(

@@ -77,6 +77,10 @@ MCP endpoint 来自 setup 保存的 `server_url`，Hook 可被 `POWERCONTEXT_CLA
 3. 严格校验 `powercontext.prepared-context.v1`，再通过 `additionalContext` 原样注入；
 4. 独立地将 prompt 采集为普通 Content Source 证据。
 
+召回在构造请求前先给 query 定界：不超过 8192 个字符、也不超过 8192 个 UTF-8 字节的 prompt 原样发送；更长的
+prompt 改用最近的文本召回，先取末尾 8192 个字符、再截到末尾 8192 字节。因此长 prompt 只会收窄 query，不会让
+召回失败。采集独立进行，仍按自身上限执行。
+
 启动上下文是独立且默认关闭的 `SessionStart` 路径。在启动 Claude Code 前显式启用：
 
 ```bash

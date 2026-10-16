@@ -79,7 +79,10 @@ uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/sc
 `POWERCONTEXT_CODEX_SCOPE_ID` 仍然优先于这条登记。已经开着的会话保持启动时写下的 Session binding；在该 Git 根新开一场会话后，没有显式变量、也没有更早的 Session binding 时，会使用这条 workspace binding。MCP 的 `set_scope_binding` 只改当前会话，不能代替这条命令。
 
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
-`powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为不可信历史、保留
+`powercontext.prepared-context.v1`，并原样注入返回内容。召回 query 在构造请求前先定界：不超过 8192 个字符、
+也不超过 8192 个 UTF-8 字节的 prompt 原样发送；更长的 prompt 改用最近的文本召回，先取末尾 8192 个字符、
+再截到末尾 8192 字节。因此长 prompt 只会收窄 query，不会让召回失败；prompt 采集不受影响，仍按自身上限执行。
+Runtime 负责把 Memory 内容标记为不可信历史、保留
 精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。自动注入的
 内容和 Handoff 都是历史信息；Codex 在据此行动前仍应与当前代码、用户要求和系统指令核对。
 

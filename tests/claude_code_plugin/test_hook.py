@@ -66,6 +66,40 @@ def _run_main(
     return output.getvalue(), errors.getvalue()
 
 
+def _prepare_query(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    prompt: str,
+) -> str:
+    """Return the query Claude Code asks the Runtime to prepare for one submitted prompt."""
+
+    queries: list[str] = []
+    monkeypatch.setattr(
+        hook_module,
+        "_prepare_context",
+        lambda query, _scope, *, settings, deadline: queries.append(query) or _prepared(),
+    )
+    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda _cwd, **_kwargs: "project:test")
+    monkeypatch.setattr(
+        hook_module,
+        "_capture_prompt",
+        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: {"position": 1},
+    )
+
+    _run_main(
+        hook_module,
+        monkeypatch,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "cwd": "/workspace/project",
+            "prompt": prompt,
+        },
+    )
+
+    (query,) = queries
+    return query
+
+
 def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     hook_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -109,6 +143,75 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     context = json.loads(output)["hookSpecificOutput"]["additionalContext"]
     assert context == prepared_content
     assert captured == [("What decisions apply?", "git:github.com/oceanbase/powercontext")]
+
+
+def test_user_prompt_submit_passes_a_prompt_that_fits_the_request_bound_through_unchanged(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The request contract bounds a query at 8,192 characters, and the bound is inclusive."""
+
+    prompt = "a" * 8_192
+
+    assert _prepare_query(hook_module, monkeypatch, prompt) == prompt
+
+
+def test_user_prompt_submit_keeps_the_latest_text_of_a_prompt_over_the_request_bound(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: a longer prompt used to reach prepare verbatim and fail validation."""
+
+    prompt = "earlier context that the transcript already carries " * 200 + "Which service owns the retry?"
+    assert len(prompt) > 8_192
+    query = _prepare_query(hook_module, monkeypatch, prompt)
+
+    assert query == prompt[-8_192:]
+    assert len(query) == 8_192
+    assert query.endswith("Which service owns the retry?")
+
+
+def test_user_prompt_submit_keeps_a_multibyte_prompt_within_the_request_byte_bound(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-ASCII text costs several bytes per character, so both bounds have to hold."""
+
+    prompt = "记忆 " * 4_000
+    query = _prepare_query(hook_module, monkeypatch, prompt)
+
+    assert prompt.strip().endswith(query)
+    assert len(query.encode("utf-8")) <= 8_192
+    assert "\ufffd" not in query
+
+
+def test_user_prompt_submit_captures_the_full_prompt_while_the_query_is_bounded(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Source capture keeps its own size limit and is untouched by the recall bound."""
+
+    prompt = "记忆 " * 3_000
+    captured: list[str] = []
+    monkeypatch.setattr(hook_module, "_prepare_context", lambda *_args, **_kwargs: _prepared())
+    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda _cwd, **_kwargs: "project:test")
+    monkeypatch.setattr(
+        hook_module,
+        "_capture_prompt",
+        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+    )
+
+    _run_main(
+        hook_module,
+        monkeypatch,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "cwd": "/workspace/project",
+            "prompt": prompt,
+        },
+    )
+
+    assert captured == [prompt]
 
 
 def test_user_prompt_submit_reads_utf8_stdin_on_windows_encodings(

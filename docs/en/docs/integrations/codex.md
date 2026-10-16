@@ -90,7 +90,11 @@ at startup. A new Session in that Git root uses the workspace binding when no ex
 binding apply. The MCP `set_scope_binding` tool changes only the current Session and does not replace this command.
 
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
-strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The Runtime labels
+strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The recall query is
+bounded before the request is built: a prompt of at most 8,192 characters and 8,192 UTF-8 bytes is sent as submitted,
+while a longer prompt recalls from its most recent text, cut to the last 8,192 characters and then to the last 8,192
+bytes. A long prompt therefore narrows the query instead of failing the recall; prompt capture is unaffected and keeps
+its own limit. The Runtime labels
 Memory-derived items as untrusted history, preserves exact citations, and owns final selection and rendering. Explicit
 search remains available through the Client and MCP; it is not a second automatic recall step. Automatically injected
 content and Handoffs are historical information. Codex must still check current code, user requests, and system
