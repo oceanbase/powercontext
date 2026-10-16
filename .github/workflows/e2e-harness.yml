@@ -138,6 +138,20 @@ jobs:
               raise SystemExit("All three live OceanBase contracts must execute; skipped tests are not acceptance.")
           PY
 
+      - name: Run the real OceanBase recovery upgrade without skips
+        run: |
+          uv run --locked pytest tests/e2e/test_topic_memory_recovery_migration.py -k oceanbase \
+            --junitxml=.powercontext/recall-effort-ci/topic-recovery.xml -q -rs
+          uv run --locked python - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          suites = ElementTree.parse(Path(".powercontext/recall-effort-ci/topic-recovery.xml")).getroot()
+          cases = list(suites.iter("testcase"))
+          if len(cases) != 2 or any(case.find("skipped") is not None for case in cases):
+              raise SystemExit("Both live OceanBase recovery upgrades must execute; skipped tests are not acceptance.")
+          PY
+
       - name: Run recall, statistics and prepared-context regressions
         run: |
           uv run --locked pytest \

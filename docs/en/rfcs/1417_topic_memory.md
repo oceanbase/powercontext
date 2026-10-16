@@ -747,17 +747,32 @@ Supervisor's shared admission time allowance yields control without attributing 
 
 A terminal frontier retains its Sources, Cursor, Pending, and later same-Scope Sources. It is not a NOOP, success, or
 permission to skip evidence. Other Scope keys remain processable. A retry that succeeds within the remaining allowance
-publishes normally and can process the tail. There is no automatic allowance reset, retry/reset API, or quarantine
-skip operation; terminal input or repeated failures require deliberate operator remediation. Repeated flushes and
-restarts cannot authorize additional model cost.
+publishes normally and can process the tail. There is no automatic allowance reset or quarantine skip operation.
+`POST /v1/topic-memory/processing/status` exposes the current Cursor, Source head, target and block; an active final
+attempt remains pending. `POST /v1/topic-memory/processing/blocks/get` reads an exact retained block. Scope readers may
+inspect these records; `POST /v1/topic-memory/processing/retry` requires `scope.admin` and the observed block ID. It
+atomically retains the old evidence, grants one new bounded allowance and requests processing without advancing the
+Cursor or deleting the target or Sources. Duplicate IDs return the original acceptance, even if another attempt has
+started or progress advanced. A stale unretried ID returns a conflict. Repeated ordinary flushes and restarts cannot
+authorize additional model cost.
+
+`pc_topic_memory_work_attempts` keeps one metadata record per attempt, including its exact owner, attempted range,
+target, usage snapshot and last error category. A terminal observation adds a stable block ID and `blocked_at`; retry
+records its timestamp and accepted request generation without replacing the original diagnostics. Records contain no
+Source/model text. The additive table is created on supported database startup without altering the budget schema.
+Legacy rows receive an observation time and nullable historical error; no original failure timestamp is inferred.
+Without a per-attempt audit record, a legacy range preserves the budget's cumulative coverage rather than inferring
+the final attempt's selected end.
+Lookups use indexed identities and writes touch one frontier. Normal processing adds at most three attempt records
+per window allowance; explicitly accepted retries add another bounded allowance. Records are retained for audit.
 
 `pc_topic_memory_work_budgets` stores the frontier, furthest attempted end, opaque attempt ID, attempt count, reserved
 requests/tokens, and a bounded failure code; it stores no prompts, Source text, or model outputs. Inspect these columns
 together with the Cursor and structured error logs to distinguish terminal work from transient backoff. A new attempt
-supersedes publication authority from an earlier attempt in the same leadership term. The row is removed only in the
-successful atomic publication transaction alongside Cursor CAS and Topic/index writes; rollback restores it. No
-fragment checkpoint or persistent job history is created. The table is additive and is created when an existing
-supported database opens.
+supersedes publication authority from an earlier attempt in the same leadership term. Successful publication removes
+the row atomically alongside Cursor CAS and Topic/index writes; rollback restores it. An explicitly accepted retry
+also removes the exact exhausted allowance atomically with its retained audit record and new request. No fragment
+checkpoint is created. The tables are additive and are created when an existing supported database opens.
 
 Actual errors—including model calls, output validation, retrieval, enabled Embedding, database commit, Worker crash, and
 timeout—use the same backoff strategy but must produce structured logs by `stage` and `error_code`. Cursor/Head CAS

@@ -37,6 +37,10 @@ from powercontext.service.controller import ServiceController
 from powercontext.service.model import ServiceError
 
 BackupPolicy = Literal["auto", "manual", "skip"]
+Bundle = Annotated[
+    Literal["artifacts", "topic-memory-recovery"],
+    typer.Option(help="Select the registered domain bundle; readiness covers only that bundle."),
+]
 EnvFile = Annotated[Path | None, typer.Option(help="Read the same environment file as the deployed Server.")]
 EvidenceDir = Annotated[
     Path | None,
@@ -72,18 +76,24 @@ def main() -> None:
 
 @app.command()
 def status(
-    env_file: EnvFile = None, evidence_dir: EvidenceDir = None, lock_coordination: LockCoordination = None
+    env_file: EnvFile = None,
+    evidence_dir: EvidenceDir = None,
+    lock_coordination: LockCoordination = None,
+    bundle: Bundle = "artifacts",
 ) -> None:
     """Inspect the schema version without creating a database or control tables."""
-    _inspect(env_file, evidence_dir=evidence_dir, lock_coordination=lock_coordination, verify=False)
+    _inspect(env_file, evidence_dir=evidence_dir, lock_coordination=lock_coordination, verify=False, bundle=bundle)
 
 
 @app.command()
 def verify(
-    env_file: EnvFile = None, evidence_dir: EvidenceDir = None, lock_coordination: LockCoordination = None
+    env_file: EnvFile = None,
+    evidence_dir: EvidenceDir = None,
+    lock_coordination: LockCoordination = None,
+    bundle: Bundle = "artifacts",
 ) -> None:
     """Verify database readiness; this does not assert Server or cluster readiness."""
-    _inspect(env_file, evidence_dir=evidence_dir, lock_coordination=lock_coordination, verify=True)
+    _inspect(env_file, evidence_dir=evidence_dir, lock_coordination=lock_coordination, verify=True, bundle=bundle)
 
 
 @app.command()
@@ -94,10 +104,13 @@ def plan(
     backup: Annotated[BackupPolicy, typer.Option(help="Bind the selected backup policy to the plan.")] = "auto",
     manage_service: ManageService = False,
     shared_database: SharedDatabase = False,
+    bundle: Bundle = "artifacts",
 ) -> None:
     """Preview the target, resource digests, backup policy, and maintenance scope."""
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
-        runner = deployment_runner(settings, evidence_dir=evidence_dir, lock_coordination=lock_coordination)
+        runner = deployment_runner(
+            settings, evidence_dir=evidence_dir, lock_coordination=lock_coordination, bundle=bundle
+        )
         service = _service_scope(_environment_file(env_file)) if manage_service else None
         reviewed = runner.plan(backup_policy=backup, service=service, shared_database=shared_database)
         _write_payload(reviewed)
@@ -137,6 +150,7 @@ def apply(
     backup_ref: Annotated[str | None, typer.Option(help="Optional reference for the operator's manual backup.")] = None,
     manage_service: ManageService = False,
     shared_database: SharedDatabase = False,
+    bundle: Bundle = "artifacts",
 ) -> None:
     """Review once, then stop writes, back up, migrate, verify, and optionally switch a local service."""
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
@@ -145,6 +159,7 @@ def apply(
             evidence_dir=evidence_dir,
             lock_coordination=lock_coordination,
             acknowledge_previous_run=acknowledge_previous_run,
+            bundle=bundle,
         )
         policy: BackupPolicy = backup or "auto"
         initial = runner.plan(backup_policy=policy, shared_database=shared_database)
@@ -199,9 +214,12 @@ def _inspect(
     evidence_dir: Path | None,
     lock_coordination: Literal["single-host"] | None,
     verify: bool,
+    bundle: Literal["artifacts", "topic-memory-recovery"] = "artifacts",
 ) -> None:
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
-        runner = deployment_runner(settings, evidence_dir=evidence_dir, lock_coordination=lock_coordination)
+        runner = deployment_runner(
+            settings, evidence_dir=evidence_dir, lock_coordination=lock_coordination, bundle=bundle
+        )
         result = runner.verify() if verify else runner.plan()
         _write_payload(result)
 

@@ -63,6 +63,51 @@ with a Generation model require a persistent, file-backed database rather than a
 [Configure models and full memory](../get-started/configure-models.md) and
 [Configuration options](../operate/configuration.md) for the complete settings and deployment constraints.
 
+## Inspect and retry blocked processing
+
+After processing exhausts its allowance, the same Scope's later Sources remain pending. The Supervisor stops launching
+Workers for that frontier and periodically checks metadata. Other Scopes can continue. A flush or restart does not
+grant more allowance.
+
+Inspect the current Cursor, Source head, target and block with `scope.read` permission:
+
+```bash
+powercontext --json topic-memory status --scope-id "$SCOPE_ID"
+```
+
+The state is `idle`, `pending`, or `blocked`. A block contains its exact `block_id`, attempted range, retained target,
+attempt/request/token counters, terminal `error_code`, `last_error_code`, and UTC `blocked_at`. An active third attempt
+remains pending because it can still finish. For legacy budgets, `blocked_at` is the first observation time and an
+unknown last error is null.
+`source_through` is the exact selected end, or null when unknown; `budget_source_through` separately preserves cumulative
+allowance coverage. Imported historical blocks without their original budget may have null cumulative coverage.
+`legacy_source_through` preserves an imported attempts-table value whose range semantics cannot be proven; it is null
+for new blocks. Successful and superseded attempts leave no retained history. Block snapshots and accepted receipts
+remain available indefinitely, without automatic expiry.
+
+Existing databases require the explicit [Topic recovery migration](../operate/database-migrations.md#topic-memory-recovery-bundle).
+Normal startup checks the format before business writes and does not migrate it.
+
+Correct the cause, then copy the returned block ID into `BLOCK_ID`. A Scope administrator can explicitly grant one
+new bounded allowance and request processing:
+
+```bash
+powercontext --json topic-memory retry --scope-id "$SCOPE_ID" --block-id "$BLOCK_ID"
+powercontext --json topic-memory block --scope-id "$SCOPE_ID" --block-id "$BLOCK_ID"
+```
+
+Retry requires `scope.admin`. Its `accepted` response means the request committed; it does not promise generation
+success. These reads require `scope.read`, which the `scope.admin` role does not include. Repeating the same ID returns
+the original acceptance even after processing is disabled, and cannot reset a later attempt. An unretried block
+that no longer owns the current frontier returns HTTP 409. Cursor, target and Sources are retained; the original block
+and its retry timestamp remain readable after progress resumes. Normal flushes and restarts retain their existing
+budget behavior. Each explicitly accepted retry grants the same three-attempt and provider ceilings.
+
+The equivalent Python Client SDK methods are `get_topic_memory_processing_status`,
+`get_topic_memory_processing_block`, and `retry_topic_memory_processing`. Their HTTP routes are
+`POST /v1/topic-memory/processing/status`, `POST /v1/topic-memory/processing/blocks/get`, and
+`POST /v1/topic-memory/processing/retry`. These administrative operations are not MCP tools.
+
 ## Verify a real topic
 
 Use the [Quick Start Topic Memory check](../get-started/quickstart.md#4-verify-topic-memory-with-ordinary-conversation)

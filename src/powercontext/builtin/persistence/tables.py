@@ -632,8 +632,60 @@ TOPIC_MEMORY_WORK_BUDGETS_TABLE = Table(
     Column("requests", BigInteger, nullable=False),
     Column("tokens", BigInteger, nullable=False),
     Column("failure_code", String(64), nullable=False),
+    Column("attempt_source_through", BigInteger, nullable=True),
+    Column("started_at", DateTime(timezone=False), nullable=True),
+    Column("finished_at", DateTime(timezone=False), nullable=True),
+    Column("supervisor_group", identity_string(64), nullable=True),
+    Column("supervisor_generation", BigInteger, nullable=True),
+    Column("holder_id", identity_string(36), nullable=True),
+    Column("last_error_code", String(64), nullable=True),
     CheckConstraint("source_after >= 0 AND source_through > source_after", name="ck_pc_topic_budget_window"),
     CheckConstraint("attempts > 0 AND requests >= 0 AND tokens >= 0", name="ck_pc_topic_budget_usage"),
+    CheckConstraint(
+        "attempt_source_through IS NULL OR "
+        "(attempt_source_through > source_after AND attempt_source_through <= source_through)",
+        name="ck_pc_topic_budget_attempt_range",
+    ),
+)
+
+
+TOPIC_MEMORY_WORK_BLOCKS_TABLE = Table(
+    "pc_topic_memory_work_blocks",
+    SHARED_METADATA,
+    Column("block_id", identity_string(36), primary_key=True),
+    Column("attempt_id", identity_string(36), nullable=False),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), nullable=False),
+    Column("source_after", BigInteger, nullable=False),
+    Column("source_through", BigInteger, nullable=True),
+    Column("budget_source_through", BigInteger, nullable=True),
+    Column("legacy_source_through", BigInteger, nullable=True),
+    Column("target_source_through", BigInteger, nullable=False),
+    Column("attempts", Integer, nullable=False),
+    Column("requests", BigInteger, nullable=False),
+    Column("tokens", BigInteger, nullable=False),
+    Column("last_error_code", String(64), nullable=True),
+    Column("error_code", String(64), nullable=False),
+    Column("blocked_at", DateTime(timezone=False), nullable=False),
+    Column("retried_at", DateTime(timezone=False), nullable=True),
+    Column("retry_request_generation", BigInteger, nullable=True),
+    CheckConstraint(
+        "source_after >= 0 AND target_source_through > source_after "
+        "AND (source_through IS NULL OR (source_through > source_after AND source_through <= target_source_through)) "
+        "AND (budget_source_through IS NULL OR "
+        "(budget_source_through > source_after AND budget_source_through <= target_source_through)) "
+        "AND (source_through IS NULL OR budget_source_through IS NULL OR source_through <= budget_source_through) "
+        "AND (legacy_source_through IS NULL OR "
+        "(legacy_source_through > source_after AND legacy_source_through <= target_source_through))",
+        name="ck_pc_topic_block_window",
+    ),
+    CheckConstraint("attempts > 0 AND requests >= 0 AND tokens >= 0", name="ck_pc_topic_block_usage"),
+    CheckConstraint(
+        "(retried_at IS NULL AND retry_request_generation IS NULL) OR "
+        "(retried_at IS NOT NULL AND retry_request_generation IS NOT NULL AND retry_request_generation > 0)",
+        name="ck_pc_topic_block_acceptance",
+    ),
+    UniqueConstraint("scope_id", "binding_name", "source_after", "attempt_id", name="uq_pc_topic_block_identity"),
 )
 
 
@@ -996,6 +1048,7 @@ SHARED_TABLES = (
     ARTIFACT_PROCESSING_LEASES_TABLE,
     ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     TOPIC_MEMORY_WORK_BUDGETS_TABLE,
+    TOPIC_MEMORY_WORK_BLOCKS_TABLE,
     ARTIFACT_PROCESSING_PENDING_TABLE,
     ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE,
     ARTIFACT_PROCESSING_SEQUENCES_TABLE,

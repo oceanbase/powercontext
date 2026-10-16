@@ -125,6 +125,7 @@ class ArtifactProcessingBinding:
     # Applies to every invocation, including explicit requests and retries.
     # Domains inspect durable metadata here; they retain their Worker guards.
     work_block: Callable[[AsyncConnection, str, str], Awaitable[ArtifactProcessingBlock | None]] | None = None
+    work_failure: Callable[[AsyncConnection, str, str, str], Awaitable[None]] | None = None
 
     def __post_init__(self) -> None:
         if not self.binding_name or self.binding_name != self.binding_name.strip():
@@ -1210,6 +1211,30 @@ class ArtifactProcessingSupervisor:
                 if block is not None:
                     self._wait_for_block(state, running.assignment, block)
                     continue
+                if state.binding.work_failure is not None:
+                    code = _worker_error_code(error)
+                    try:
+                        async with (
+                            asyncio.timeout(_ADMISSION_PROBE_TIMEOUT_SECONDS),
+                            self._database.transaction() as connection,
+                        ):
+                            await self._leases.require_fence(connection, running.assignment.fence)
+                            await state.binding.work_failure(connection, scope, state.binding.binding_name, code)
+                    except ArtifactProcessingLeadershipLostError:
+                        raise
+                    except Exception as recording_error:
+                        log_safely(
+                            logger,
+                            logging.WARNING,
+                            "Failed to retain processing failure diagnostics",
+                            extra={
+                                "event": "artifact_processing.failure_record_failed",
+                                "family": state.binding.artifact_family,
+                                "binding": state.binding.binding_name,
+                                "scope": scope,
+                                "exception_type": type(recording_error).__name__,
+                            },
+                        )
                 previous = state.retries.get(scope)
                 failures = 1 if previous is None else previous.failures + 1
                 delay = self._retry_delay(failures)
@@ -1309,17 +1334,11 @@ class ArtifactProcessingSupervisor:
         return None if not deadlines else max(0.001, min(deadlines) - now)
 
     def _record_failure(self, state: _FamilyState | None, error: BaseException, stage: str) -> None:
-        error_code = (
-            processing_error_code(error.failure.exception_type, error.failure.error_code)
-            if isinstance(error, _WorkerExecutionError)
-            else processing_error_code(type(error))
-        )
+        error_code = _worker_error_code(error)
         if stage in {"supervisor", "lease_renewal", "scope_discovery"}:
             error_code = f"{stage}_failed"
         elif is_inference_failure_code(error_code):
             stage = "inference"
-        elif isinstance(error, TimeoutError):
-            error_code = "worker_timeout"
         occurred_at = datetime.now(UTC).isoformat()
         for affected in self._families.values() if state is None else (state,):
             affected.last_error = error_code
@@ -1565,6 +1584,16 @@ def _observe_worker_error(span: RuntimeSpan | None) -> Iterator[None]:
                 if category is not None:
                     span.set_attributes({"powercontext.error.category": category})
         raise
+
+
+def _worker_error_code(error: BaseException) -> str:
+    """Keep live and retained Worker diagnostics in the same controlled category."""
+    if isinstance(error, _WorkerExecutionError):
+        return processing_error_code(error.failure.exception_type, error.failure.error_code)
+    code = processing_error_code(type(error), _safe_error_attribute(error, "error_code", ""))
+    if code == "processing_failed" and isinstance(error, TimeoutError):
+        return "worker_timeout"
+    return code
 
 
 def _worker_failure_category(error: BaseException) -> str:

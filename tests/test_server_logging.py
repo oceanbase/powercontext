@@ -180,7 +180,7 @@ logging.getLogger("powercontext.server.app").warning(
             assert f" {field}={json.dumps(value)}" in result.stdout
 
 
-def _run_configured_logging_probe(log_format: str, *, processing: bool = False) -> list[str]:
+def _run_configured_logging_probe(log_format: str, *, processing: bool = False, range_known: bool = True) -> list[str]:
     script = f"""
 import logging
 
@@ -206,6 +206,8 @@ logging.getLogger("powercontext.builtin.runtime.artifact_processing").warning(
     },
 )
 """
+    if not range_known:
+        script = script.replace('"source_through": 1, ', "")
     result = subprocess.run(
         [sys.executable, "-c", script],
         check=True,
@@ -240,8 +242,9 @@ def test_configured_json_logging_uses_uvicorn_display_name() -> None:
 
 
 @pytest.mark.parametrize("log_format", ["console", "json"])
-def test_configured_logging_preserves_processing_diagnostics_without_private_extras(log_format) -> None:
-    lines = _run_configured_logging_probe(log_format, processing=True)
+@pytest.mark.parametrize("range_known", [True, False])
+def test_configured_logging_preserves_processing_diagnostics_without_private_extras(log_format, range_known) -> None:
+    lines = _run_configured_logging_probe(log_format, processing=True, range_known=range_known)
     assert len(lines) == 4
     rendered = lines[-1]
     assert "private source sentinel" not in rendered and "private traceback sentinel" not in rendered
@@ -250,13 +253,18 @@ def test_configured_logging_preserves_processing_diagnostics_without_private_ext
         assert payload["error_code"] == "window_attempt_limit"
         assert payload["stage"] == "topic_memory" and payload["family"] == "topic-memory"
         assert payload["scope"] == "scope-a\nforged log"
-        assert (payload["source_after"], payload["source_through"], payload["attempts"]) == (0, 1, 3)
+        assert (payload["source_after"], payload["attempts"]) == (0, 3)
+        if range_known:
+            assert payload["source_through"] == 1
+        else:
+            assert "source_through" not in payload
         assert (payload["requests"], payload["tokens"], payload["retry_delay_seconds"]) == (9, 1000, 300)
     else:
         assert 'error_code="window_attempt_limit"' in rendered
         assert 'stage="topic_memory"' in rendered and 'family="topic-memory"' in rendered
         assert 'scope="scope-a\\nforged log"' in rendered
-        assert "source_after=0" in rendered and "source_through=1" in rendered and "attempts=3" in rendered
+        assert "source_after=0" in rendered and "attempts=3" in rendered
+        assert ("source_through=1" in rendered) is range_known
 
 
 def test_json_formatter_emits_stable_operational_fields() -> None:

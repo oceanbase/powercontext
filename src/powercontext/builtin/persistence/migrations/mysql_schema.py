@@ -532,11 +532,15 @@ def _check_definition(part: list[str], constraint: str | None) -> tuple[str, dic
     return constraint, {"expression": _Expression(expression).parse(), "enforced": part[end:] != ["not", "enforced"]}
 
 
-def _index_definition(part: list[str]) -> tuple[str, dict[str, Any]]:
+def _index_definition(part: list[str], constraint: str | None = None) -> tuple[str, dict[str, Any]]:
     unique = part[0] == "unique"
     offset = 2 if unique and part[1] in {"key", "index"} else 1
-    index_name = part[offset]
-    columns, end = _group(part, offset + 1)
+    if unique and part[offset] == "(" and constraint is not None:
+        index_name = constraint
+        columns, end = _group(part, offset)
+    else:
+        index_name = part[offset]
+        columns, end = _group(part, offset + 1)
     _physical(part[end:])
     return index_name, {"columns": _key_columns(columns), "unique": unique}
 
@@ -560,7 +564,7 @@ def _table_clause(
         constraint, definition = _check_definition(part, constraint)
         _put_named(table["checks"], constraint, definition)
     elif part[0] in {"key", "index", "unique"}:
-        index_name, definition = _index_definition(part)
+        index_name, definition = _index_definition(part, constraint)
         _put_named(table["indexes"], index_name, definition)
     elif constraint is None:
         _put_named(table["columns"], part[0], _column(part, defaults))

@@ -27,8 +27,16 @@ from powercontext.builtin.artifacts.topic_memory.generation import TopicMemoryGe
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import GenerationConflictError
-from powercontext.builtin.persistence.supervision import ArtifactProcessingFence, ArtifactProcessingLeaseRepository
-from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, TOPIC_MEMORY_WORK_BUDGETS_TABLE
+from powercontext.builtin.persistence.supervision import (
+    ArtifactProcessingFence,
+    ArtifactProcessingLeaseRepository,
+    database_utc_now,
+)
+from powercontext.builtin.persistence.tables import (
+    SOURCE_JOURNAL_HEADS_TABLE,
+    TOPIC_MEMORY_WORK_BLOCKS_TABLE,
+    TOPIC_MEMORY_WORK_BUDGETS_TABLE,
+)
 
 # Server-owned ceilings, shared by ALL attempts and stages at the same Cursor.
 MAX_TOPIC_MEMORY_WORK_ATTEMPTS = 3
@@ -64,23 +72,18 @@ def exhausted_reason(row: Mapping[Any, Any]) -> str:
 
 
 async def load_topic_memory_work_budget(
-    connection: AsyncConnection, scope_id: str, binding_name: str, source_after: int
+    connection: AsyncConnection, scope_id: str, binding_name: str, source_after: int, *, for_update: bool = False
 ) -> Mapping[Any, Any] | None:
     """Read one authoritative frontier's metadata without changing its allowance."""
     table = TOPIC_MEMORY_WORK_BUDGETS_TABLE
-    return (
-        (
-            await connection.execute(
-                select(table).where(
-                    table.c.scope_id == scope_id,
-                    table.c.binding_name == binding_name,
-                    table.c.source_after == source_after,
-                )
-            )
-        )
-        .mappings()
-        .one_or_none()
+    statement = select(table).where(
+        table.c.scope_id == scope_id,
+        table.c.binding_name == binding_name,
+        table.c.source_after == source_after,
     )
+    if for_update:
+        statement = statement.with_for_update()
+    return (await connection.execute(statement)).mappings().one_or_none()
 
 
 async def require_topic_memory_work_available(
@@ -90,6 +93,47 @@ async def require_topic_memory_work_available(
     row = await load_topic_memory_work_budget(connection, scope_id, binding_name, source_after)
     if row is not None and (reason := exhausted_reason(row)):
         raise TopicMemoryGenerationError(reason)
+
+
+async def record_topic_memory_work_failure(
+    connection: AsyncConnection, scope_id: str, binding_name: str, error_code: str, *, attempt_id: str | None = None
+) -> None:
+    """Settle a failed attempt after Worker exit without changing its allowance."""
+    await connection.execute(
+        update(SOURCE_JOURNAL_HEADS_TABLE)
+        .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
+        .values(position=SOURCE_JOURNAL_HEADS_TABLE.c.position)
+    )
+    cursor = await SourceCursorRepository().load(connection, scope_id, binding_name, for_update=True)
+    row = await load_topic_memory_work_budget(
+        connection, scope_id, binding_name, 0 if cursor is None else cursor.cursor.sequence, for_update=True
+    )
+    if row is None or (attempt_id is not None and row["attempt_id"] != attempt_id):
+        return
+    blocks = TOPIC_MEMORY_WORK_BLOCKS_TABLE
+    if await connection.scalar(
+        select(blocks.c.block_id).where(
+            blocks.c.scope_id == scope_id,
+            blocks.c.binding_name == binding_name,
+            blocks.c.source_after == row["source_after"],
+            blocks.c.attempt_id == row["attempt_id"],
+        )
+    ):
+        return
+    table = TOPIC_MEMORY_WORK_BUDGETS_TABLE
+    await connection.execute(
+        update(table)
+        .where(
+            table.c.scope_id == scope_id,
+            table.c.binding_name == binding_name,
+            table.c.source_after == row["source_after"],
+            table.c.attempt_id == row["attempt_id"],
+        )
+        .values(
+            finished_at=row["finished_at"] or await database_utc_now(connection),
+            last_error_code=row["last_error_code"] or error_code,
+        )
+    )
 
 
 class TopicMemoryWorkBudget:
@@ -178,6 +222,20 @@ class TopicMemoryWorkBudget:
                         source_through=max(self.source_through, row["source_through"]),
                     )
                 )
+            if not reason:
+                await connection.execute(
+                    update(table)
+                    .where(*self._key())
+                    .values(
+                        attempt_source_through=self.source_through,
+                        started_at=await database_utc_now(connection),
+                        finished_at=None,
+                        last_error_code=None,
+                        supervisor_group=self.fence.supervisor_group,
+                        supervisor_generation=self.fence.supervisor_generation,
+                        holder_id=self.fence.holder_id,
+                    )
+                )
         if reason:
             raise TopicMemoryGenerationError(reason)
 
@@ -231,6 +289,17 @@ class TopicMemoryWorkBudget:
                 .values(
                     failure_code=reason,
                 )
+            )
+            await record_topic_memory_work_failure(
+                connection, self.scope_id, self.binding_name, reason, attempt_id=self.attempt_id
+            )
+
+    async def record_failure(self, code: str) -> None:
+        """Keep a last-error category separately from deterministic rejection policy."""
+        async with self.database.transaction() as connection:
+            await self._lock(connection)
+            await record_topic_memory_work_failure(
+                connection, self.scope_id, self.binding_name, code, attempt_id=self.attempt_id
             )
 
     async def complete(self, connection: AsyncConnection) -> None:

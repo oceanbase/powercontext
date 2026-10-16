@@ -45,7 +45,7 @@ _T = TypeVar("_T")
 class BackendIdentity:
     """Stable maintenance identity, independent of credentials and proxy routes."""
 
-    product: Literal["seekdb", "oceanbase"]
+    product: Literal["sqlite", "seekdb", "oceanbase"]
     database_id: str
     database_name: str
 

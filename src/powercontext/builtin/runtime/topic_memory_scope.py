@@ -30,7 +30,7 @@ from powercontext.builtin.persistence.processing import ArtifactProcessingPendin
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, TOPIC_MEMORY_PROCESSING_TARGETS_TABLE
-from powercontext.builtin.persistence.topic_memory_budget import exhausted_reason, load_topic_memory_work_budget
+from powercontext.builtin.persistence.topic_memory_recovery import observe_topic_memory_block
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingBlock,
     ArtifactProcessingBlockedError,
@@ -77,28 +77,17 @@ async def topic_memory_processing_block(
         )
         if pending is not None:
             return None
-    cursor = await SourceCursorRepository().load(connection, scope_id, binding_name)
-    source_after = 0 if cursor is None else cursor.cursor.sequence
-    targets = TOPIC_MEMORY_PROCESSING_TARGETS_TABLE
-    target = await connection.scalar(
-        select(targets.c.source_through).where(targets.c.scope_id == scope_id, targets.c.binding_name == binding_name)
-    )
-    through = target
-    if through is None:
-        through = await connection.scalar(
-            select(SOURCE_JOURNAL_HEADS_TABLE.c.position).where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
-        )
-    if through is None or through <= source_after:
-        return None
-    row = await load_topic_memory_work_budget(connection, scope_id, binding_name, source_after)
-    if row is None or not (reason := exhausted_reason(row)):
+    block = await observe_topic_memory_block(connection, scope_id, binding_name, worker_stopped=True)
+    if block is None:
         return None
     return ArtifactProcessingBlock(
-        key=str(source_after),
+        key=block.block_id,
         stage="topic_memory",
-        error_code=reason,
+        error_code=block.error_code,
         details=tuple(
-            (name, int(row[name])) for name in ("source_after", "source_through", "attempts", "requests", "tokens")
+            (name, value)
+            for name in ("source_after", "source_through", "attempts", "requests", "tokens")
+            if (value := getattr(block, name)) is not None
         ),
     )
 
@@ -161,12 +150,21 @@ class TopicMemoryScopeProcessor:
         except GenerationConflictError:
             return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.CURSOR_CONFLICT)
         except TopicMemoryGenerationError as error:
-            async with self._database.transaction() as connection:
-                block = await topic_memory_processing_block(connection, assignment.scope_id, assignment.binding_name)
-            if block is not None and block.error_code == error.code:
-                raise ArtifactProcessingBlockedError(block) from error
-            raise
+            return await self._generation_failure(assignment, error)
         raise TopicMemoryGenerationError("target_did_not_converge")
+
+    async def _generation_failure(
+        self, assignment: ArtifactProcessingWorkAssignment, error: TopicMemoryGenerationError
+    ) -> ArtifactProcessingWorkerCompletion:
+        async with self._database.transaction() as connection:
+            try:
+                await self._leases.require_fence(connection, assignment.fence)
+            except ArtifactProcessingLeadershipLostError:
+                return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.LEADERSHIP_LOST)
+            block = await topic_memory_processing_block(connection, assignment.scope_id, assignment.binding_name)
+        if block is not None and block.error_code == error.code:
+            raise ArtifactProcessingBlockedError(block) from error
+        raise error
 
     async def _target(self, assignment: ArtifactProcessingWorkAssignment) -> TopicMemoryProcessingTarget | None:
         async with self._database.transaction() as connection:

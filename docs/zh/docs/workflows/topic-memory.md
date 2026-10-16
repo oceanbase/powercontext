@@ -85,6 +85,44 @@ Content-Type: application/json
 响应只包含 `status`。Source capture、主题生成和索引更新由部署配置的 worker 异步完成；没有配置生成模型或后台
 处理能力时，flush 不会凭空产生主题。向量或混合检索是否可用也是部署选项，不由调用方在请求中指定。
 
+## 查询并恢复阻塞的处理
+
+处理额度耗尽后，同一 Scope 后续的 Source 会保留待处理。Supervisor 停止为该 frontier 启动 Worker，仅定期检查
+metadata，其他 Scope 可继续处理。普通 flush 和重启不会增加额度。
+
+具有 `scope.read` 权限时，可以查询当前 Cursor、Source head、target 和阻塞记录：
+
+```bash
+powercontext --json topic-memory status --scope-id "$SCOPE_ID"
+```
+
+状态为 `idle`、`pending` 或 `blocked`。阻塞记录包含准确的 `block_id`、已尝试范围、保留的 target、尝试/请求/token
+计数、终止原因 `error_code`、最后错误类别 `last_error_code` 和 UTC 时间 `blocked_at`。仍在执行的第三次尝试可能
+成功，因此显示为 pending。旧预算的 `blocked_at` 表示首次观察到阻塞的时间，无法追溯的最后错误类别为 null。
+`source_through` 表示准确选择终点，未知时为 null；`budget_source_through` 独立保留累计额度覆盖，导入的历史阻塞
+已经没有原预算时也可能为 null。`legacy_source_through` 保留旧 attempts 表中无法证明含义的范围原值，新阻塞中为
+null。成功和被取代尝试不形成保留历史；阻塞快照和已接受回执永久可查询，不自动过期。
+
+已有数据库须先执行显式的 [Topic 恢复迁移](../operate/database-migrations.md#topic-memory-恢复-bundle)。普通启动在业务
+写入前检查格式，不执行迁移。
+
+修复失败原因后，将返回的阻塞 ID 填入 `BLOCK_ID`。Scope 管理员可显式申请一次新的有限额度，并请求后台处理：
+
+```bash
+powercontext --json topic-memory retry --scope-id "$SCOPE_ID" --block-id "$BLOCK_ID"
+powercontext --json topic-memory block --scope-id "$SCOPE_ID" --block-id "$BLOCK_ID"
+```
+
+retry 需要 `scope.admin` 权限，查询还需要该角色未包含的 `scope.read` 权限。`accepted` 表示请求已提交，不保证生成成功。
+重复提交同一个 ID 只返回原接受结果，即使后台处理已关闭也如此，
+不会重置后续尝试；尚未重试且已不再对应当前 frontier 的记录返回 HTTP 409。Cursor、target 和 Source 均保留，
+恢复后仍可读取原阻塞记录和重试时间。普通 flush、重启的额度语义不变；每次明确接受的 retry 使用相同的三次尝试
+和 provider 上限。
+
+Python Client SDK 对应方法为 `get_topic_memory_processing_status`、`get_topic_memory_processing_block` 和
+`retry_topic_memory_processing`。HTTP 路径分别为 `POST /v1/topic-memory/processing/status`、
+`POST /v1/topic-memory/processing/blocks/get` 和 `POST /v1/topic-memory/processing/retry`。这些管理操作不作为 MCP 工具提供。
+
 ## 搜索当前主题
 
 搜索需要 `scope.read` 权限，输入 `scope_id`、非空 `query`，可选 `limit`（范围 1–20，默认 10）：

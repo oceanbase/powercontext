@@ -135,6 +135,14 @@ from powercontext.http import (
     SubtreeScopeSelection,
     UnpublishRemoteSkillRequest,
 )
+from powercontext.http._generated.models import (
+    GetTopicMemoryProcessingBlockRequest,
+    RetryTopicMemoryProcessingRequest,
+    RetryTopicMemoryProcessingResponse,
+    TopicMemoryProcessingBlock,
+    TopicMemoryProcessingStatus,
+    TopicMemoryProcessingStatusRequest,
+)
 
 HELP_OPTION_NAMES = ("-h", "--help")
 _ClientResponse: TypeAlias = (
@@ -157,6 +165,9 @@ _ClientResponse: TypeAlias = (
     | ScanExternalSkillsResponse
     | SkillArtifact
     | ScopedStats
+    | TopicMemoryProcessingBlock
+    | TopicMemoryProcessingStatus
+    | RetryTopicMemoryProcessingResponse
 )
 _ClientOperation: TypeAlias = Callable[[PowerContextClient], Awaitable[_ClientResponse]]
 
@@ -166,6 +177,59 @@ dream_app = typer.Typer(
     help="Create and inspect asynchronous Artifact Dreams.",
     no_args_is_help=True,
 )
+
+topic_memory_app = typer.Typer(
+    name="topic-memory",
+    context_settings={"help_option_names": HELP_OPTION_NAMES},
+    help="Inspect and explicitly retry blocked Topic Memory processing.",
+    no_args_is_help=True,
+)
+
+
+@topic_memory_app.command("status")
+def topic_memory_status(
+    context: typer.Context, scope_id: Annotated[str, typer.Option(help="Scope to inspect.")]
+) -> None:
+    asyncio.run(
+        _execute(
+            context,
+            lambda client: client.get_topic_memory_processing_status(
+                TopicMemoryProcessingStatusRequest(scope_id=scope_id)
+            ),
+        )
+    )
+
+
+@topic_memory_app.command("block")
+def topic_memory_block(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Scope containing the block.")],
+    block_id: Annotated[str, typer.Option(help="Exact block ID returned by status.")],
+) -> None:
+    asyncio.run(
+        _execute(
+            context,
+            lambda client: client.get_topic_memory_processing_block(
+                GetTopicMemoryProcessingBlockRequest(scope_id=scope_id, block_id=block_id)
+            ),
+        )
+    )
+
+
+@topic_memory_app.command("retry")
+def topic_memory_retry(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Scope to retry; requires scope.admin.")],
+    block_id: Annotated[str, typer.Option(help="Exact observed block ID; duplicates reuse its acceptance.")],
+) -> None:
+    asyncio.run(
+        _execute(
+            context,
+            lambda client: client.retry_topic_memory_processing(
+                RetryTopicMemoryProcessingRequest(scope_id=scope_id, block_id=block_id)
+            ),
+        )
+    )
 
 
 @dream_app.command("run")
@@ -1773,6 +1837,9 @@ def _print_human_response(response: _ClientResponse) -> None:
             ListExternalSkillsResponse,
             ScanExternalSkillsResponse,
             SkillArtifact,
+            TopicMemoryProcessingBlock,
+            TopicMemoryProcessingStatus,
+            RetryTopicMemoryProcessingResponse,
         ),
     ):
         typer.echo(response.model_dump_json(indent=2))
@@ -1977,6 +2044,7 @@ def register_commands(cli: typer.Typer) -> set[str]:
     cli.command()(ready)
     cli.command("import-sessions")(import_sessions)
     cli.add_typer(dream_app, name="dream")
+    cli.add_typer(topic_memory_app, name="topic-memory")
     cli.add_typer(candidate_app, name="candidate")
     cli.add_typer(experience_app, name="experience")
     cli.add_typer(skill_app, name="skill")
@@ -1988,6 +2056,7 @@ def register_commands(cli: typer.Typer) -> set[str]:
         "ready",
         "import-sessions",
         "dream",
+        "topic-memory",
         "candidate",
         "experience",
         "skill",

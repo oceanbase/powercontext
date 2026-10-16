@@ -212,8 +212,14 @@ from powercontext.http._generated import operations as atomic_operations
 from powercontext.http._generated.models import (
     ArtifactTagPage,
     ArtifactTagSet,
+    GetTopicMemoryProcessingBlockRequest,
     QueryArtifactTagsRequest,
     ReplaceArtifactTagsRequest,
+    RetryTopicMemoryProcessingRequest,
+    RetryTopicMemoryProcessingResponse,
+    TopicMemoryProcessingBlock,
+    TopicMemoryProcessingStatus,
+    TopicMemoryProcessingStatusRequest,
 )
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
@@ -271,6 +277,8 @@ from powercontext.http._generated.operations import (
     GET_SOURCE,
     GET_STATS,
     GET_TOPIC_MEMORY,
+    GET_TOPIC_MEMORY_PROCESSING_BLOCK,
+    GET_TOPIC_MEMORY_PROCESSING_STATUS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ACCESS_AUDIT,
@@ -318,6 +326,7 @@ from powercontext.http._generated.operations import (
     RESOLVE_SCOPE_BINDING,
     RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
+    RETRY_TOPIC_MEMORY_PROCESSING,
     REVISE_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     REVOKE_ACCESS_BINDING,
@@ -960,6 +969,24 @@ class PowerContextClient:
         """Durably request Topic Memory processing without waiting for completion."""
 
         return await self._request(FLUSH_TOPIC_MEMORY, request)
+
+    async def get_topic_memory_processing_status(
+        self, request: TopicMemoryProcessingStatusRequest
+    ) -> TopicMemoryProcessingStatus:
+        """Inspect a frontier without granting another attempt."""
+        return await self._request(GET_TOPIC_MEMORY_PROCESSING_STATUS, request)
+
+    async def get_topic_memory_processing_block(
+        self, request: GetTopicMemoryProcessingBlockRequest
+    ) -> TopicMemoryProcessingBlock:
+        """Read the exact retained diagnostics, including a prior accepted retry."""
+        return await self._request(GET_TOPIC_MEMORY_PROCESSING_BLOCK, request)
+
+    async def retry_topic_memory_processing(
+        self, request: RetryTopicMemoryProcessingRequest
+    ) -> RetryTopicMemoryProcessingResponse:
+        """Idempotently request one fresh bounded allowance for an observed block."""
+        return await self._request(RETRY_TOPIC_MEMORY_PROCESSING, request)
 
     async def get_atomic_memory_state(self, scope_id: str, artifact_id: str) -> atomic_models.AtomicMemoryStateResponse:
         """Read current state independently of an immutable content revision."""

@@ -199,6 +199,7 @@ jobs:
             tests/builtin/persistence/test_database_migration_backends.py \
             tests/builtin/persistence/test_database_backup_providers.py \
             tests/builtin/persistence/test_database_migration_connections.py \
+            tests/e2e/test_topic_memory_recovery_migration.py \
             tests/builtin/persistence/test_mysql_migration_schema.py -k seekdb \
             2>&1 | tee seekdb-migrations.log
           uv run --locked --extra seekdb pytest --collect-only -q --color=no \

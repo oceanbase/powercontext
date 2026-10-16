@@ -19,6 +19,7 @@ import json
 import os
 import socket
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -33,6 +34,7 @@ from powercontext.builtin.persistence.migrations.models import MigrationResult
 from powercontext.builtin.persistence.migrations.mysql import MySQLMigrationRunner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.persistence.topic_memory_recovery_schema import recovery_statements
 from powercontext.cli.app import create_cli
 from powercontext.server import database_migration
 from powercontext.server.cli import app
@@ -47,14 +49,14 @@ def _configure(
     database = tmp_path / "database" / "server.db"
     environment = tmp_path / "deployment.env"
     environment.write_text(
-        f"POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{database}\n",
+        f"POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{database.as_posix()}\n",
         encoding="utf-8",
     )
     if existing:
         database.parent.mkdir(parents=True)
         bundle = production_bundle()
         schema = json.loads((bundle.snapshot_directory / "schemas/pre_dream.json").read_text())
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection, connection:
             for statement in schema["sqlite"]:
                 connection.execute(statement)
     if complete:
@@ -107,6 +109,42 @@ def _record_pending_run(path: Path, token: str) -> None:
         }),
         encoding="utf-8",
     )
+
+
+def test_registered_topic_bundle_uses_the_same_plan_apply_verify_entry_point(tmp_path, monkeypatch):
+    database, command = _configure(tmp_path, monkeypatch)
+    database.parent.mkdir(parents=True)
+    with sqlite3.connect(database) as connection:
+        connection.execute(recovery_statements("budget_v0", "sqlite")[0])
+        connection.execute(
+            "INSERT INTO pc_topic_memory_work_budgets VALUES ('scope','topic-memory-source-window',0,2,'old',3,9,1000,'')"
+        )
+    options = ["--bundle", "topic-memory-recovery"]
+    planned = _invoke(command, "plan", tmp_path, *options)
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["state"] == "migration_required" and plan["server_ready"] is False
+    applied = _invoke(
+        command,
+        "apply",
+        tmp_path,
+        *options,
+        "--backup",
+        "auto",
+        "--plan-id",
+        plan["plan_id"],
+        "--yes",
+        "--maintenance-confirmed",
+    )
+    assert applied.exit_code == 0, applied.output
+    assert json.loads(applied.output)["backup_state"] == "completed"
+    verified = _invoke(command, "verify", tmp_path, *options)
+    assert verified.exit_code == 0, verified.output
+    assert json.loads(verified.output)["state"] == "ready"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT attempts,requests,tokens,attempt_source_through FROM pc_topic_memory_work_budgets"
+        ).fetchone() == (3, 9, 1000, None)
 
 
 def test_read_only_commands_never_create_missing_target(tmp_path, monkeypatch):
@@ -433,7 +471,7 @@ def test_remote_cli_uses_the_configured_maintenance_identity_and_coordination_sc
     database_name = "test" if kind == "seekdb" else "pc_probe"
     environment = f"POWERCONTEXT_SERVER_DATABASE_KIND={kind}\n"
     if kind == "seekdb":
-        environment += f"POWERCONTEXT_SERVER_DATABASE_PATH={tmp_path / 'seekdb'}\n"
+        environment += f"POWERCONTEXT_SERVER_DATABASE_PATH={(tmp_path / 'seekdb').as_posix()}\n"
     else:
         environment += (
             "POWERCONTEXT_SERVER_DATABASE_URL=mysql+aoceanbase://operator:secret@database.invalid:2881/pc_probe"

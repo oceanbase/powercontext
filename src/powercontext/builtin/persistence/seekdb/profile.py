@@ -37,6 +37,7 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.dream_schema import assert_dream_schema_ready
 from powercontext.builtin.persistence.errors import PersistenceError
 from powercontext.builtin.persistence.schema import create_tables
+from powercontext.builtin.persistence.topic_memory_recovery_schema import BUDGET, prepare_topic_memory_recovery_schema
 
 _DIALECT_DRIVER = "mysql+aseekdb"
 _DIALECT_REGISTRY_NAME = "mysql.aseekdb"
@@ -121,6 +122,10 @@ class SeekDBProfile:
             profile = cls(database=database, tables=tables, connection_options=instance.connection_options())
             try:
                 await assert_dream_schema_ready(engine)
+                if tables:
+                    await prepare_topic_memory_recovery_schema(
+                        engine, initialize=any(table.name == BUDGET for table in tables)
+                    )
                 async with database.transaction() as connection:
                     await create_tables(connection, tables)
                 yield profile

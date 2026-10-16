@@ -764,7 +764,8 @@ def _matches_context(ref: BackupRef, context: BackupContext) -> bool:
 
 
 def _fsync_file(path: Path) -> None:
-    with path.open("rb") as source:
+    # Windows' flush requires a writable descriptor for our owned recovery file.
+    with path.open("rb+") as source:
         os.fsync(source.fileno())
 
 

@@ -31,6 +31,7 @@ from .connections import MaintenanceConnections
 from .models import MigrationError
 from .mysql import MySQLMigrationRunner
 from .sqlite import SQLiteMigrationRunner
+from .topic_memory_recovery import TopicMemoryRecoveryMigrationRunner
 
 if TYPE_CHECKING:
     from powercontext.server.settings import ServerSettings
@@ -41,7 +42,7 @@ def production_bundle() -> MigrationBundle:
     return MigrationBundle(Path(__file__).parent / "resources")
 
 
-MigrationRunner = SQLiteMigrationRunner | MySQLMigrationRunner
+MigrationRunner = SQLiteMigrationRunner | MySQLMigrationRunner | TopicMemoryRecoveryMigrationRunner
 
 
 def deployment_runner(
@@ -50,9 +51,19 @@ def deployment_runner(
     evidence_dir: Path | None = None,
     lock_coordination: Literal["single-host"] | None = None,
     acknowledge_previous_run: str | None = None,
+    bundle: Literal["artifacts", "topic-memory-recovery"] = "artifacts",
 ) -> MigrationRunner:
     """Use the real configured identity without opening a business profile."""
     database = settings.database
+    if bundle == "topic-memory-recovery":
+        if not isinstance(database, (SQLiteConfig, SeekDBConfig, OceanBaseConfig)):
+            raise MigrationError("unsupported_backend", "The database has no Topic recovery migration adapter.")
+        return TopicMemoryRecoveryMigrationRunner(
+            database,
+            evidence_directory=evidence_dir,
+            lock_coordination=lock_coordination,
+            acknowledge_previous_run=acknowledge_previous_run,
+        )
     if acknowledge_previous_run is not None and not isinstance(database, OceanBaseConfig):
         raise MigrationError("unsupported_option", "--acknowledge-previous-run is supported only for OceanBase.")
     if isinstance(database, (SeekDBConfig, OceanBaseConfig)):

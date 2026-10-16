@@ -38,6 +38,7 @@ from powercontext.builtin.runtime.artifact_processing import (
 from powercontext.builtin.runtime.composition import open_builtin_contexts
 from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig
 from powercontext.builtin.runtime.topic_memory_processing import TopicMemoryWorkerSpec, run_topic_memory_worker
+from powercontext.builtin.runtime.topic_memory_recovery import TopicMemoryRecoveryService
 from powercontext.builtin.runtime.topic_memory_scope import topic_memory_processing_block
 from powercontext.builtin.sources import ContentCapture
 from tests.builtin.runtime.test_processing_scheduler import _Launcher, _wait
@@ -120,7 +121,10 @@ def test_terminal_frontier_is_quiet_preserves_work_and_recovers_without_restart(
                     "topic-memory",
                     "scope-a",
                 )
-                assert (record.source_after, record.source_through) == (0, 1)
+                assert record.source_after == 0 and not hasattr(record, "source_through")
+                retained = (await TopicMemoryRecoveryService(profile.database).status("scope-a")).block
+                assert retained is not None and retained.source_through is None
+                assert retained.budget_source_through == 1
                 assert (record.attempts, record.requests, record.tokens) == (
                     before["attempts"],
                     before["requests"],

@@ -50,6 +50,8 @@ Child logging alone does not establish cross-process trace propagation.
 Common outcomes are `success`, `failure`, `cancelled`, and `noop`; admission blocks use `blocked` rather than success or failure.
 If a worker encounters a durable processing block, `artifact_processing.worker.blocked` is emitted at `WARNING`
 with outcome and error category `blocked`, preserving the block's diagnostic code and stage.
+Topic block `source_after` and known `source_through` are Source journal positions. When the exact selected end is
+unknown, block logs omit `source_through`; attempt/request/token counters remain available.
 Worker control results can also be `cursor_conflict`,
 `head_conflict`, or `leadership_lost`. A `artifact_processing.worker.returned` event describes the child's result;
 `artifact_processing.worker.acknowledged` indicates that the supervisor verified durable acknowledgement. A child

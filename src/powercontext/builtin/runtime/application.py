@@ -127,6 +127,11 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemorySearchMode,
     TopicMemorySearchResult,
 )
+from powercontext.builtin.artifacts.topic_memory.processing import (
+    TopicMemoryProcessingStatus,
+    TopicMemoryRetryResult,
+    TopicMemoryWorkBlock,
+)
 from powercontext.builtin.artifacts.topic_memory.search import bounded_topic_memory_query
 from powercontext.builtin.catalog_changes.application import CatalogChangeApplication
 from powercontext.builtin.catalog_changes.models import CatalogChangeProposal, TagDreamTarget
@@ -272,6 +277,7 @@ from powercontext.builtin.runtime.recall_sufficiency import (
 )
 from powercontext.builtin.runtime.skill_search import search_skill_library
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics, overview_selection
+from powercontext.builtin.runtime.topic_memory_recovery import TopicMemoryRecoveryService
 from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
 from powercontext.builtin.scope import ScopeApplication, ScopeDescriptor, ScopeSelection
 from powercontext.builtin.scope.subject_sources import SubjectSourceService
@@ -3359,6 +3365,45 @@ class ScopedTopicMemoryApplication:
         async with self._runtime._scoped_operation(self.scope_id):
             return await self._runtime._topic_memory_browse(self.scope_id, limit=limit, after=after)
 
+    async def processing_status(self) -> TopicMemoryProcessingStatus:
+        if self._runtime._topic_memory_recovery is None:
+            raise TopicMemoryProcessingUnavailableError
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await self._runtime._topic_memory_recovery.status(self.scope_id)
+
+    async def get_block(self, block_id: str) -> TopicMemoryWorkBlock:
+        if self._runtime._topic_memory_recovery is None:
+            raise TopicMemoryProcessingUnavailableError
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await self._runtime._topic_memory_recovery.get_block(self.scope_id, block_id)
+
+    async def retry(self, block_id: str) -> TopicMemoryRetryResult:
+        if self._runtime._topic_memory_recovery is None:
+            raise TopicMemoryProcessingUnavailableError
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            if not self._runtime._topic_memory_processing_available:
+                block = await self._runtime._topic_memory_recovery.get_block(self.scope_id, block_id)
+                if block.retried_at is None:
+                    raise TopicMemoryProcessingUnavailableError
+                # Reading an old acceptance does not require a configured Worker.
+                return TopicMemoryRetryResult(block=block)
+            result = await self._runtime._topic_memory_recovery.retry(self.scope_id, block_id)
+        if self._runtime.artifact_processing_supervisor is not None:
+            try:
+                self._runtime.artifact_processing_supervisor.wake(TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+            except Exception:
+                log_safely(
+                    logger,
+                    logging.WARNING,
+                    "Topic Memory supervisor wake failed after retry acceptance",
+                    extra={
+                        "event": "topic_memory.retry.wake_failed",
+                        "outcome": "accepted",
+                        "unit": "topic-memory",
+                    },
+                )
+        return result
+
     async def flush(self) -> TopicMemoryFlushResult:
         if not self._runtime._topic_memory_processing_available or self._runtime._topic_memory_flush is None:
             raise TopicMemoryProcessingUnavailableError
@@ -3586,6 +3631,7 @@ class BuiltinRuntime:
         topic_memory_get: TopicMemoryGet | None = None,
         topic_memory_browse: TopicMemoryBrowse | None = None,
         topic_memory_flush: TopicMemoryFlush | None = None,
+        topic_memory_recovery: TopicMemoryRecoveryService | None = None,
         topic_memory_embedding_model: EmbeddingModel | None = None,
         topic_memory_processing_available: bool = False,
         topic_memory_search_observer: TopicMemorySearchObserver | None = None,
@@ -3652,6 +3698,7 @@ class BuiltinRuntime:
         self._topic_memory_get = topic_memory_get
         self._topic_memory_browse = topic_memory_browse
         self._topic_memory_flush = topic_memory_flush
+        self._topic_memory_recovery = topic_memory_recovery
         self._topic_memory_embedding_model = topic_memory_embedding_model
         self._topic_memory_processing_available = topic_memory_processing_available
         self._topic_memory_search_observer = topic_memory_search_observer

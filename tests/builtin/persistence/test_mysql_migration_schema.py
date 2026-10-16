@@ -158,6 +158,21 @@ def test_native_formatting_fk_names_and_optional_generated_indexes_preserve_the_
     assert schema.fingerprint(inventory) == schema.fingerprint(_inventory(_ReflectedDatabase(tables)))
 
 
+def test_named_unique_constraints_and_native_keys_have_the_same_fingerprint(schema: MySQLSchema) -> None:
+    tables = _show_tables(citations=2, drop_family_check=True)
+    tables["pc_artifacts"] = _append_clause(
+        tables["pc_artifacts"], "CONSTRAINT uq_fixture_identity UNIQUE (scope_id, family, artifact_id)"
+    )
+    frozen = _inventory(_ReflectedDatabase(tables))
+    tables["pc_artifacts"] = tables["pc_artifacts"].replace(
+        "CONSTRAINT uq_fixture_identity UNIQUE", "UNIQUE KEY uq_fixture_identity"
+    )
+    native = _inventory(_ReflectedDatabase(tables))
+    assert schema.fingerprint(native) == schema.fingerprint(frozen)
+    with pytest.raises(MigrationError, match="incompatible_schema"):
+        schema.identify(native)
+
+
 @pytest.mark.parametrize("applied", range(7))
 def test_baseline_recovery_accepts_only_the_completed_statement_prefix(schema: MySQLSchema, applied: int) -> None:
     inventory = _inventory(_ReflectedDatabase(_show_tables(baseline_prefix=applied)))

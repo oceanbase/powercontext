@@ -47,6 +47,8 @@ Server role 为 `all`（API 与 supervisor）、`api` 或 `background`，child p
 常用 outcome 为 `success`、`failure`、`cancelled` 和 `noop`。Admission block 使用 `blocked`，不记为 success 或 failure。
 Worker 遇到持久处理阻塞时，以 `WARNING` 级别输出 `artifact_processing.worker.blocked`，
 outcome 和 error_category 均为 `blocked`，并保留阻塞的诊断代码和 stage。
+Topic 阻塞的 `source_after` 和已知的 `source_through` 表示 Source journal 位置。准确选择终点未知时，阻塞日志
+省略 `source_through`，仍保留尝试、请求和 token 计数。
 Worker control result 还可以是 `cursor_conflict`、
 `head_conflict` 或 `leadership_lost`。`artifact_processing.worker.returned` 表示 child 返回了结果；
 `artifact_processing.worker.acknowledged` 表示 supervisor 验证了 durable acknowledgement。

@@ -658,13 +658,25 @@ metadata 重新检查出错时保留已知终止状态、等待间隔和日志�
 不将正在检查的 Scope 记成新的失败。
 
 终止的 frontier 保留 Source、Cursor、Pending 以及同 Scope 尾部；不会视为 NOOP、成功或跳过证据的授权。其他 Scope
-仍可处理。剩余额度内重试成功后仍按原合同发布，并继续处理尾部。不提供自动额度重置、retry/reset API 或 quarantine
-跳过操作；终止输入或重复失败需要运维明确修复，反复 flush 或重启不能重新授权模型成本。
+仍可处理。剩余额度内重试成功后仍按原合同发布，并继续处理尾部。不提供自动额度重置或 quarantine 跳过操作。
+`POST /v1/topic-memory/processing/status` 返回当前 Cursor、Source head、target 和阻塞记录；仍在执行的最后一次尝试
+显示为 pending。`POST /v1/topic-memory/processing/blocks/get` 读取准确的历史阻塞记录。这些查询需要 `scope.read`。
+`POST /v1/topic-memory/processing/retry` 需要 `scope.admin` 和查询得到的 block ID，在一个事务中保留旧诊断、申请一次
+新的有限额度并接受处理请求，不推进 Cursor、不删除 target 或 Source。重复 ID 返回原接受结果，不能重置后续尝试；
+尚未重试且已过期的 ID 返回冲突。普通 flush 和重启仍不能重新授权模型成本。
+
+`pc_topic_memory_work_attempts` 为每次尝试保留一条 metadata 记录，包含准确的执行 owner、已尝试范围、target、额度
+快照及最后错误类别。首次观察到终止时记录稳定 block ID 和 `blocked_at`；retry 保存重试时间及接受的请求 generation，
+不覆盖原诊断。记录不含 Source 或模型原文。正常启动会创建新增表，不修改旧预算表。旧记录使用首次观察时间，缺失的
+历史错误类别为 null，不推测原始失败时间。没有逐次审计记录的旧范围保留预算的累计覆盖范围，不推测最后一次尝试的
+实际终点。查询使用索引身份，写入仅作用于一个 frontier；正常每个窗口额度最多产生
+三条尝试记录，显式接受的 retry 可再申请相同的有限额度。记录保留用于审计。
 
 `pc_topic_memory_work_budgets` 保存 frontier、尝试过的最远终点、不透明 attempt ID、尝试次数、预留请求/token 与有界
 failure code，不保存 prompt、Source 原文或模型输出。可结合 Cursor 和结构化错误日志检查这些列，区分持久终止与暂时
-退避。同一任期内新尝试也会使旧尝试失去发布权。只有成功原子发布事务才能与 Cursor CAS、Topic/index 写入一起删除
-该记录；回滚会恢复额度记录。不创建分片 checkpoint 或持久 Job history。该新增表会在现有受支持数据库打开时创建。
+退避。同一任期内新尝试也会使旧尝试失去发布权。成功原子发布事务与 Cursor CAS、Topic/index 写入一起删除额度记录，
+回滚会恢复记录。显式接受的 retry 也可在一个事务中移除准确的耗尽额度，并保留旧审计记录与新的处理请求。不创建
+分片 checkpoint。新增表会在现有受支持数据库打开时创建。
 
 模型调用、输出校验、检索、启用后的 Embedding、数据库提交、Worker crash 和 timeout 等实际错误采用同一退避策略，
 但必须按 `stage` 和 `error_code` 写结构化日志。Cursor/Head CAS 冲突与 leadership lost 是控制信号，不增加

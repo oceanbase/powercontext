@@ -16,6 +16,40 @@ description: 了解数据库迁移命令、备份策略、服务启停及当前�
 
 原有 `server processing-migrate` 保留，请按[迁移 Artifact 处理状态](artifact-processing-migration.md)使用。它尚未自动转发到统一入口。服务部署参考[部署 Server](deploy-server.md)。
 
+## Topic Memory 恢复 bundle
+
+选择 `--bundle topic-memory-recovery` 执行版本化的 `powercontext.topic-memory-recovery.v1` 转换。它识别恢复功能之前的
+预算布局和实现 #1966 的 attempts 表布局，保留已消费额度、终止阻塞和已接受回执。它仅验证已有 Server 数据库中
+登记的 Topic 对象和共享处理 lease 的 fencing，不改变其他业务表；输出仍报告 `server_ready=false`。
+默认 `--bundle artifacts` 仍为上面的局部验收范围。
+
+先停止全部 API、Worker、调度和 SDK 写入者，并暂停自动重启。审阅并执行一次计划：
+
+```bash
+powercontext server db-migrate plan --bundle topic-memory-recovery --env-file deployment.env --backup auto
+powercontext server db-migrate apply --bundle topic-memory-recovery --env-file deployment.env --backup auto --plan-id PLAN_ID --yes --maintenance-confirmed
+powercontext server db-migrate verify --bundle topic-memory-recovery --env-file deployment.env
+```
+
+SQLite 使用整个数据库的原生备份。OceanBase 还须提供 `--evidence-dir` 和 `--lock-coordination single-host`，按下文
+选择支持的备份策略并声明。中断后保留原恢复点和证据目录，以相同选项继续。SQLite 回滚未完成的转换；MySQL 兼容
+DDL 仅恢复库外证据登记的准确前缀，仍遵守旧远端执行的显式确认规则。
+
+当前尝试 metadata 移入预算；`pc_topic_memory_work_blocks` 仅保留终止阻塞和回执。原 ID、受理时间/generation 和
+成本保持不变。旧 attempts 没有可靠的范围来源：原数值进入 `legacy_source_through`，准确 `source_through` 为 null；
+`budget_source_through` 仅从同一份仍存在的额度复制，否则为 null。不能用当前额度解释旧回执。验证通过后才删除旧
+attempts 表，成功和被取代行仍保存在恢复点中。未知或不一致布局在写入前拒绝。普通启动要求目标格式，不升级已有库。
+准确阻塞查询和已受理 retry 回放不自动过期。
+
+空恢复存储先创建阻塞表，再创建预算；SQLite 原子提交两张表。只有冻结、空的阻塞表前缀且没有其他业务状态时才可
+继续初始化。允许已知的 Access bootstrap 和独立 Code 图表先存在，且不改变它们；其他业务表或回执在写入前拒绝，
+不能在保留恢复证据的同时静默重建缺失预算。
+
+转换通过递增 generation、按 UTC 使 lease 过期并设置维护窗口 holder，一次性撤销所有旧 processing lease；中断
+恢复时不重复推进这个 holder。这沿用既有 processing 维护的 fence 转换，要求共享这些 lease 的所有工作流均停写。
+已知尝试 owner 保留在预算，未知结束时间仍为 null。即使处理继续禁用、没有新 Supervisor 启动，查询也能固化已停止
+工作；升级前 Worker 不能重新获得发布权。
+
 ## 只读检查与一次确认
 
 下面的 `deployment.env` 示例使用 SQLite；OceanBase 命令还须传入下一节的证据目录和固定主机协调参数。先检查目标或预览计划，这些命令不会创建缺失数据库、父目录或控制表：

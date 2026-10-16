@@ -1940,6 +1940,159 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/topic-memory/processing/status": {
+            "post": {
+                "tags": ["topic-memory"],
+                "summary": "Inspect Topic Memory processing and its current terminal block",
+                "description": "Return the current "
+                "Cursor, Source head, "
+                "retained target and "
+                "durable blocked-window "
+                "diagnostics. An active "
+                "final attempt remains "
+                "pending because it may "
+                "still finish. Legacy "
+                "blocks receive their "
+                "first observation "
+                "timestamp; an "
+                "unavailable historical "
+                "error code is null. "
+                "This operation never "
+                "grants new processing "
+                "allowance.",
+                "operationId": "get_topic_memory_processing_status",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/TopicMemoryProcessingStatusRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Current durable processing state.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/TopicMemoryProcessingStatus"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/topic-memory/processing/blocks/get": {
+            "post": {
+                "tags": ["topic-memory"],
+                "summary": "Get a retained Topic Memory processing block",
+                "description": "Return one exact "
+                "block, including "
+                "its original "
+                "diagnostics and any "
+                "accepted retry, "
+                "after recovery.",
+                "operationId": "get_topic_memory_processing_block",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/GetTopicMemoryProcessingBlockRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The exact retained block.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/TopicMemoryProcessingBlock"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/topic-memory/processing/retry": {
+            "post": {
+                "tags": ["topic-memory"],
+                "summary": "Explicitly retry one observed Topic Memory block",
+                "description": "Require scope.admin and "
+                "the exact block_id "
+                "returned by status. "
+                "Atomically retain the "
+                "block's failure and "
+                "usage evidence, grant "
+                "one fresh bounded "
+                "allowance and request "
+                "asynchronous processing "
+                "without advancing the "
+                "Cursor or discarding the "
+                "target or Sources. "
+                "Repeating a block_id "
+                "returns its original "
+                "acceptance and cannot "
+                "reset a later attempt. "
+                "An unretried block that "
+                "no longer owns the "
+                "frontier returns "
+                "topic_memory_block_conflict. "
+                "Ordinary flushes, status "
+                "reads, restarts and "
+                "model changes never "
+                "reset allowance.",
+                "operationId": "retry_topic_memory_processing",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/RetryTopicMemoryProcessingRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "One retry was durably accepted, including duplicate acceptance.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/RetryTopicMemoryProcessingResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.admin",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
         "/v1/topic-memory/search": {
             "post": {
                 "tags": ["topic-memory"],
@@ -9114,6 +9267,136 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["status", "previous_cursor", "current_cursor", "high_watermark", "processed_source_count"],
+            },
+            "TopicMemoryProcessingStatusRequest": {
+                "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "GetTopicMemoryProcessingBlockRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "block_id": {"type": "string", "maxLength": 36, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "block_id"],
+            },
+            "RetryTopicMemoryProcessingRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "block_id": {"type": "string", "maxLength": 36, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "block_id"],
+            },
+            "TopicMemoryProcessingBlock": {
+                "properties": {
+                    "block_id": {"type": "string"},
+                    "attempt_id": {"type": "string"},
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "binding_name": {"type": "string"},
+                    "source_after": {"type": "integer", "minimum": 0.0},
+                    "source_through": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "Exact selected Source end; null when historical selection is unknown.",
+                        "nullable": True,
+                    },
+                    "budget_source_through": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "Cumulative "
+                        "coverage "
+                        "of "
+                        "the "
+                        "original "
+                        "allowance; "
+                        "null "
+                        "only "
+                        "for "
+                        "imported "
+                        "blocks "
+                        "without "
+                        "that "
+                        "allowance.",
+                        "nullable": True,
+                    },
+                    "legacy_source_through": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "Original "
+                        "ambiguous "
+                        "range "
+                        "of "
+                        "an "
+                        "imported "
+                        "attempts-table "
+                        "block; "
+                        "neither "
+                        "exact "
+                        "selection "
+                        "nor "
+                        "cumulative "
+                        "coverage.",
+                        "nullable": True,
+                    },
+                    "target_source_through": {"type": "integer", "minimum": 1.0},
+                    "attempts": {"type": "integer", "minimum": 1.0},
+                    "requests": {"type": "integer", "minimum": 0.0},
+                    "tokens": {"type": "integer", "minimum": 0.0},
+                    "error_code": {"type": "string"},
+                    "last_error_code": {"type": "string", "nullable": True},
+                    "blocked_at": {"type": "string", "format": "date-time"},
+                    "retried_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "retry_request_generation": {"type": "integer", "minimum": 1.0, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "block_id",
+                    "attempt_id",
+                    "scope_id",
+                    "binding_name",
+                    "source_after",
+                    "source_through",
+                    "budget_source_through",
+                    "legacy_source_through",
+                    "target_source_through",
+                    "attempts",
+                    "requests",
+                    "tokens",
+                    "error_code",
+                    "last_error_code",
+                    "blocked_at",
+                    "retried_at",
+                    "retry_request_generation",
+                ],
+            },
+            "TopicMemoryProcessingState": {"type": "string", "enum": ["idle", "pending", "blocked"]},
+            "TopicMemoryProcessingRetryStatus": {"type": "string", "enum": ["accepted"]},
+            "TopicMemoryProcessingStatus": {
+                "properties": {
+                    "state": {"$ref": "#/components/schemas/TopicMemoryProcessingState"},
+                    "source_cursor": {"type": "integer", "minimum": 0.0},
+                    "source_head": {"type": "integer", "minimum": 0.0},
+                    "target_source_through": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "block": {"allOf": [{"$ref": "#/components/schemas/TopicMemoryProcessingBlock"}], "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["state", "source_cursor", "source_head", "target_source_through", "block"],
+            },
+            "RetryTopicMemoryProcessingResponse": {
+                "properties": {
+                    "status": {"$ref": "#/components/schemas/TopicMemoryProcessingRetryStatus"},
+                    "block": {"$ref": "#/components/schemas/TopicMemoryProcessingBlock"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["status", "block"],
             },
             "FlushTopicMemoryRequest": {
                 "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"}},

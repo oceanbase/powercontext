@@ -131,6 +131,17 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryCurrentItem,
     TopicMemorySearchResult,
 )
+from powercontext.builtin.artifacts.topic_memory.processing import (
+    TopicMemoryBlockConflictError,
+    TopicMemoryBlockNotFoundError,
+)
+from powercontext.builtin.artifacts.topic_memory.processing import (
+    TopicMemoryProcessingStatus as RuntimeTopicMemoryProcessingStatus,
+)
+from powercontext.builtin.artifacts.topic_memory.processing import (
+    TopicMemoryRetryResult as RuntimeTopicMemoryRetryResult,
+)
+from powercontext.builtin.artifacts.topic_memory.processing import TopicMemoryWorkBlock as RuntimeTopicMemoryWorkBlock
 from powercontext.builtin.catalog_changes.models import CatalogChangeCandidate as RuntimeTagCandidate
 from powercontext.builtin.code.application import CodeApplication
 from powercontext.builtin.code.errors import CodeError
@@ -647,11 +658,17 @@ from powercontext.http._generated.models import (
 from powercontext.http._generated.models import (
     ArtifactTagPage,
     ArtifactTagSet,
+    GetTopicMemoryProcessingBlockRequest,
     QueryArtifactTagsRequest,
     ReplaceArtifactTagsRequest,
+    RetryTopicMemoryProcessingRequest,
+    RetryTopicMemoryProcessingResponse,
     TaggableArtifactFamily,
     TagMatch,
     TagTargetType,
+    TopicMemoryProcessingBlock,
+    TopicMemoryProcessingStatus,
+    TopicMemoryProcessingStatusRequest,
 )
 from powercontext.http._generated.models import (
     ShareUnit as TransportShareUnit,
@@ -716,6 +733,8 @@ from powercontext.http._generated.operations import (
     GET_SOURCE,
     GET_STATS,
     GET_TOPIC_MEMORY,
+    GET_TOPIC_MEMORY_PROCESSING_BLOCK,
+    GET_TOPIC_MEMORY_PROCESSING_STATUS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ACCESS_AUDIT,
@@ -764,6 +783,7 @@ from powercontext.http._generated.operations import (
     RESOLVE_SCOPE_BINDING,
     RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
+    RETRY_TOPIC_MEMORY_PROCESSING,
     REVISE_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     REVOKE_ACCESS_BINDING,
@@ -1227,6 +1247,12 @@ class _WorkApplication(Protocol):
 
 
 class _ScopedTopicMemoryApplication(Protocol):
+    async def processing_status(self) -> RuntimeTopicMemoryProcessingStatus: ...
+
+    async def get_block(self, block_id: str) -> RuntimeTopicMemoryWorkBlock: ...
+
+    async def retry(self, block_id: str) -> RuntimeTopicMemoryRetryResult: ...
+
     async def search(
         self,
         request: RuntimeSearchTopicMemoryRequest,
@@ -1476,6 +1502,9 @@ def create_app(
         execution_context=_atomic_execution_context,
     )
     _add_route(app, FLUSH_TOPIC_MEMORY, flush_topic_memory)
+    _add_route(app, GET_TOPIC_MEMORY_PROCESSING_STATUS, get_topic_memory_processing_status)
+    _add_route(app, GET_TOPIC_MEMORY_PROCESSING_BLOCK, get_topic_memory_processing_block)
+    _add_route(app, RETRY_TOPIC_MEMORY_PROCESSING, retry_topic_memory_processing)
     _add_route(app, SEARCH_TOPIC_MEMORY, search_topic_memory)
     _add_route(app, SEARCH_ARTIFACTS, search_artifacts)
     _add_route(app, GET_TOPIC_MEMORY, get_topic_memory)
@@ -2539,6 +2568,30 @@ async def list_artifacts(
         items=[_artifact_collection_item_response(item) for item in result.items],
         next_cursor=result.next_cursor,
     )
+
+
+async def get_topic_memory_processing_status(
+    request: TopicMemoryProcessingStatusRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> TopicMemoryProcessingStatus:
+    result = await application.topic_memory.for_scope(request.scope_id).processing_status()
+    return TopicMemoryProcessingStatus.model_validate(result.model_dump())
+
+
+async def get_topic_memory_processing_block(
+    request: GetTopicMemoryProcessingBlockRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> TopicMemoryProcessingBlock:
+    result = await application.topic_memory.for_scope(request.scope_id).get_block(request.block_id)
+    return TopicMemoryProcessingBlock.model_validate(result.model_dump())
+
+
+async def retry_topic_memory_processing(
+    request: RetryTopicMemoryProcessingRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> RetryTopicMemoryProcessingResponse:
+    result = await application.topic_memory.for_scope(request.scope_id).retry(request.block_id)
+    return RetryTopicMemoryProcessingResponse.model_validate(result.model_dump())
 
 
 async def flush_topic_memory(
@@ -5895,6 +5948,20 @@ def _map_report_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
 
 
 def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+    if isinstance(error, TopicMemoryBlockNotFoundError):
+        return (
+            status.HTTP_404_NOT_FOUND,
+            "topic_memory_block_not_found",
+            "The Topic Memory block was not found in this Scope.",
+            None,
+        )
+    if isinstance(error, TopicMemoryBlockConflictError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "topic_memory_block_conflict",
+            "The Topic Memory block no longer owns this frontier.",
+            None,
+        )
     if isinstance(error, AtomicMemoryIndexError):
         return 503, error.code, str(error), None
     if isinstance(error, AtomicMemoryError):

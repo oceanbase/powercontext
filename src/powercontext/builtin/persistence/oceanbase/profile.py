@@ -33,6 +33,7 @@ from powercontext.builtin.persistence.dream_schema import assert_dream_schema_re
 from powercontext.builtin.persistence.errors import PersistenceError
 from powercontext.builtin.persistence.schema import create_tables
 from powercontext.builtin.persistence.tables import MYSQL_IDENTITY_COLLATION
+from powercontext.builtin.persistence.topic_memory_recovery_schema import BUDGET, prepare_topic_memory_recovery_schema
 
 _DIALECT_DRIVER = "mysql+aoceanbase"
 _DIALECT_REGISTRY_NAME = "mysql.aoceanbase"
@@ -161,6 +162,10 @@ async def _initialized_profile(profile: OceanBaseProfile) -> AsyncIterator[Ocean
         async with profile.database.transaction() as connection:
             await _require_mysql_tenant(connection)
         await assert_dream_schema_ready(profile.database.engine)
+        if profile.tables:
+            await prepare_topic_memory_recovery_schema(
+                profile.database.engine, initialize=any(table.name == BUDGET for table in profile.tables)
+            )
         async with profile.database.transaction() as connection:
             await _require_compatible_identity_collations(connection, profile.tables)
             await create_tables(connection, profile.tables)
