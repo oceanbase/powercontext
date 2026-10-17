@@ -45,6 +45,22 @@ Handoff 记录工作连续性，Profile 保存 Scope 背景，Prompt 保存 Scop
 `get` 这组主题接口使用，目前没有通用的 create、update、delete 或 retire 操作。Source 是生成依据而不是 Artifact；
 Tag 是 Memory、Experience、Skill 和 Handoff 的元数据，也不是 Artifact family。
 
+## 按预期结果选择工作流
+
+这些值具有不同的生命周期。应先从想要得到的结果开始，而不是把每一条已采集的 Source 都当成创建长期上下文的指令。
+
+| 预期结果 | 从这里开始 | 后续会发生什么 |
+| --- | --- | --- |
+| 保留一条事实、决定、约束或下一步 | 显式写入 Memory | 它带有 Revision、可被搜索，也可 retire 而不丢失历史。 |
+| 维护相关证据的摘要 | 采集相关 Source 并启用 Topic 处理 | 配置的后台 pipeline 在发现符合条件的证据时，可能创建或更新 Topic Memory。 |
+| 将工作交给后续会话或协作者 | 准备并检查 Handoff | 只有当交接是值得保留的里程碑时才提交。 |
+| 复用已完成工作的经验 | 记录 Task Outcome，再提交或生成 Experience | Review 决定 candidate 是否成为 approved Artifact。 |
+| 复用一套流程 | 提交或生成 managed Skill | 批准不等于安装：必须导出精确的 approved Revision，宿主才能发现它。 |
+| 设置共享的 Scope 背景 | 配置 Profile policy | policy 与其审核工作流决定 Profile 何时变为 active。 |
+
+采集 Source 只提供证据；它本身不会创建 Memory、Experience、Skill、Handoff 或 Profile。Tag 可以帮助组织受支持的
+Artifact，但不会改变 Artifact 的生命周期，也不会授予执行权限。
+
 ## Memory 保存长期项目知识
 
 Memory 是带 Revision 的 Artifact family，用于保存可复用的决定、约束、事实、状态和下一步。Entry 可以是 active 或
