@@ -133,7 +133,7 @@ immediately generate content. To test existing input immediately, see Profile fl
 
 ## Verify extraction and recall
 
-Follow the primary [Quick Start check](quickstart.md#4-verify-topic-memory-with-ordinary-conversation):
+Follow the primary [Quick Start check](quickstart.md#4-verify-memory-in-your-selected-mode):
 
 1. Agent input arrives as Source evidence in the bound Scope.
 2. Topic Memory contains a related topic and evidence.

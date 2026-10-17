@@ -243,9 +243,10 @@ constraint 仍可在显式请求完整历史时审计。
 
 确认 Codex 报告 `README.md` 已修改且 `git diff --check` 通过。然后输入下面这一句话：
 
-> 交接
+> 保存当前工作的持久交接里程碑，并返回精确 Revision。
 
-`交接` 是创建持久 Handoff 里程碑的明确授权。PowerContext 的 `powercontext-project-context` Skill 会在同一轮中：
+这条请求明确授权创建下一会话将使用的持久里程碑。普通“交接”只准备临时转交，不授权 `commit_handoff`；
+只读预览不执行写入。PowerContext 的 `powercontext-project-context` Skill 会在同一轮中：
 
 1. 确认当前显式 Scope（即 `POWERCONTEXT_CODEX_SCOPE_ID`）；
 2. 检查当前目标、branch、worktree、changed files 和已运行检查；

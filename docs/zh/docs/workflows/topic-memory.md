@@ -56,7 +56,7 @@ Topic Memory 本身不强制要求 Embedding。需要向量或混合检索时，
 
 ## 验收一个真实主题
 
-按[快速开始中的 Topic Memory 验收](../get-started/quickstart.md#4-用普通对话验收-topic-memory)完成完整的
+按[快速开始中的 Topic Memory 验收](../get-started/quickstart.md#4-按所选模式验收记忆)完成完整的
 Agent 和 Dashboard 检查：
 
 1. 在新会话中发送一条具体的项目决策。

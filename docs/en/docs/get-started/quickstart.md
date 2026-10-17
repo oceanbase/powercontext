@@ -101,9 +101,18 @@ powercontext doctor codex
 codex
 ```
 
-Confirm that the PowerContext Hook and MCP have both loaded in Codex. For a non-default address, follow the Codex
-connection instructions in `.env.next-steps.md`: the installed plugin's `.mcp.json` must use the same Server as the Hook,
-with credentials configured when authentication is enabled. Installing the plugin does not start the Server.
+Before sending the first message in the new session:
+
+1. Open `/hooks`, inspect the PowerContext hooks, and grant trust when prompted. `SessionStart` resolves the Session Scope;
+   `UserPromptSubmit` automatically prepares relevant context and captures your input as a Source.
+2. Confirm that PowerContext MCP tools are available. Tool discovery and Hook execution are separate checks.
+3. If you skipped or denied trust, use the [Hook recovery steps](../integrations/codex.md#first-session-hook-trust)
+   before testing capture. Without an enabled `UserPromptSubmit` hook, automatic capture and recall do not run.
+
+For a non-default address, follow the Codex connection instructions in `.env.next-steps.md`: the installed plugin's
+`.mcp.json` must use the same Server as the Hook, with credentials configured when authentication is enabled.
+Installing the plugin does not start the Server. `doctor codex` checks installation, connection, and tool coverage;
+it does not establish Hook trust, execution, or successful memory processing.
 
 These commands use Codex CLI. A desktop app may not inherit terminal environment variables. Before testing in the
 desktop app, verify that both its Hook and MCP receive the same URL and Scope, and credentials when authentication
@@ -113,7 +122,30 @@ Full memory also needs a generation policy for this real Scope to use Profile. F
 [Profile policy steps](configure-models.md#enable-a-profile-policy-for-the-scope) to read its current version and update it;
 saving the configuration does not perform this operation.
 
-## 4. Verify Topic Memory with ordinary conversation
+## 4. Verify memory in your selected mode
+
+Both modes can capture Source evidence when the Hook is enabled. Basic memory needs no separate Server model API;
+the Agent still uses its own model. Choose the check matching your configuration.
+
+### Basic memory: explicitly save and retrieve
+
+Ask in the bound Codex session:
+
+```text
+Save this decision to PowerContext: the Aurora acceptance project uses uv for Python dependencies.
+Return the saved record reference.
+```
+
+Check the actual write result, then open a new session with the same Scope and ask:
+
+```text
+Search PowerContext for Aurora's Python dependency-management decision, with its citation.
+```
+
+Verify the saved content and citation. A conversational acknowledgement is not proof of a write; this check verifies
+explicit save and retrieval, not automatic extraction or Topic Memory generation.
+
+### Full memory: Source processing and Topic Memory
 
 Send a concrete project decision in the new Codex session:
 
@@ -135,9 +167,48 @@ Correct content and its citation complete the capture → evolution → cross-se
 `doctor codex` only checks installation and connectivity; it does not prove this workflow. The model may merge evidence
 or decide that no update is needed, so not every message creates a new memory.
 
-In basic-memory mode, explicitly ask the Agent to save Aurora's uv decision in PowerContext, then search for it in a
-new session and verify its citation. That test does not cover automatic extraction. Profile, Experience, and Skill have
-additional triggers or review requirements; see [Capability behavior](configure-models.md#full-capabilities-do-not-generate-every-artifact-from-every-message).
+Full memory does not generate every Artifact from every message. Profile, Experience, and Skill have additional
+triggers or review requirements; see [Capability behavior](configure-models.md#full-capabilities-do-not-generate-every-artifact-from-every-message).
+
+| Check | Evidence of success |
+| --- | --- |
+| Installation and MCP discovery | `doctor codex` reports connection and tool coverage; it does not verify Hook execution |
+| Prompt capture | The actual input appears as a Source in the bound Scope |
+| Explicit Memory save | A real saved record reference, with matching content found in a new session |
+| Automatic processing | A related Topic Memory and its Source evidence; check updates without assuming a fixed completion time |
+| Cross-session retrieval | Correct content with a citation, using the same Server and Scope |
+
+## 5. Choose your next workflow
+
+The seven Artifact families have different inputs and consumption paths. Source is evidence and Tag is metadata;
+neither is an Artifact family. The examples below are requests, not guaranteed keyword triggers. Use the actual tools
+available in your connection; follow the linked HTTP/CLI workflow for operations without a dedicated MCP tool.
+Read the [Artifact overview](faq.md#artifact-families-at-a-glance) for conceptual differences.
+
+| Capability and purpose | Request or starting point | Requirements and result |
+| --- | --- | --- |
+| [Atomic Memory](../workflows/atomic-memory.md): individual decisions and constraints | “Remember in PowerContext that Aurora uses uv.” | `remember_memory` saves explicitly without Server generation; search with `search_memory` and verify the record citation. Automatic extraction needs Generation and scheduling. |
+| [Topic Memory](../workflows/topic-memory.md): evolving topic summaries | “Search Aurora's deployment topics, then read the relevant revision.” | `search_topic_memory` / `get_topic_memory` read existing topics. Automatic generation needs configured Generation and scheduling; inspect the topic's Source references. |
+| [Profile](../workflows/use-profiles.md): Scope background | Follow the Profile workflow to generate and inspect the Scope's profile. | Automatic generation needs Generation, a Scope policy, and scheduling; policy selects review or automatic commit. Recall requires explicit assembly selection. |
+| [Handoff](../workflows/handoff-with-codex.md): continue unfinished work | “Hand off this work” for temporary transfer; “Commit a durable handoff” for a milestone; “Preview the handoff; do not commit” for a read-only preview. | The shipped Skill routes a transfer request to the Handoff workflow. Distinguish temporary prepared content from an exact committed Revision; no background extraction is required. |
+| [Experience](../workflows/create-and-review-experience.md): reusable lessons | “Generate an Experience candidate from these exact Source references.” | `generate_experience` needs Generation; `propose_experience` accepts caller-authored content without generation. Inspect the pending Candidate or `no_op`; generated proposals need review before reuse. |
+| [Skill](../workflows/create-and-export-skill.md): reusable procedures | “Generate a Skill candidate from these exact Source references.” | `generate_skill` needs Generation; `propose_skill` accepts complete content without generation. Review the candidate, then explicitly export the exact approved Revision to the Agent host. |
+| [Prompt](../workflows/manage-prompts.md): operational generation instructions | Read and configure an operation's Prompt through the HTTP workflow. | This is not a captured user message. Check customization support and `scope.admin` when access is enforced; saving a Revision does not enable an operation or reprocess history. |
+| [Source](../workflows/sources.md): original evidence | Send a distinctive ordinary message; for explicit material use `capture_content_source`. | Hook capture needs no generation model. Verify the Source; capture alone does not establish Memory generation. Do not infer capture of all Agent replies. |
+| [Tag](../workflows/manage-artifact-tags.md): organize saved Artifacts | Use the Python Client or HTTP workflow to label an exact Artifact and query the label. | No model is required. Use the existing Artifact ID, permissions, and tag ETag; verify the saved label and query result. There is no dedicated MCP tag-management tool. |
+
+### Plugin guidance and managed Skills
+
+The installed plugin includes `powercontext-project-context`, which routes requests to the relevant workflow. It is
+separate from a managed Skill stored in PowerContext. If the routing Skill is absent from the host catalog, check plugin
+installation; a natural-language example does not add missing tools or grant permission.
+
+For a generated managed Skill, inspect the Candidate and obtain an authorized review decision. Approval creates an
+immutable Revision; it does not install or execute it. Follow [Create and export a Skill](../workflows/create-and-export-skill.md)
+to export the exact approved Revision with `powercontext skill export --target codex` to the intended host-local
+`.agents/skills/<skill-name>` directory. Confirm that Codex discovers the exported Skill; restart if it does not appear.
+Direct Artifact writes have their own contract; the Candidate sequence here describes generation and proposal workflows.
+Review authority depends on permissions, not on whether the reviewer is human. Discovery does not grant execution authority.
 
 ## Continue
 

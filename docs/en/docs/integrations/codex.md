@@ -29,8 +29,24 @@ client settings and the previously installed MCP URL. Without a new declaration,
 Conflicting file and process declarations still require an explicit choice; use `--server-url` and align or unset
 runtime URL overrides before rerunning setup. `--source` selects plugin code, not the Server endpoint.
 
-Open a new Codex session after setup. Use `/hooks` to inspect and, when prompted, trust the PowerContext
-`SessionStart` and `UserPromptSubmit` hooks.
+### First-session Hook trust
+
+Open a new Codex session after setup. Before sending the first message, use `/hooks` to inspect PowerContext's hooks
+and, when prompted, grant trust. `SessionStart` resolves the Session Scope and optionally loads startup context;
+`UserPromptSubmit` prepares relevant context and independently captures the user input as a Source. The plugin also
+uses `PreToolUse` for MCP Scope binding. Loading the plugin or discovering MCP tools does not prove that these hooks ran.
+
+If trust was skipped or denied, inspect the PowerContext entries in `/hooks` and follow the host's available controls
+to enable or trust them. Follow any instruction to open a new session; check the hooks again before retrying capture.
+Controls and prompts depend on the Codex build. If the expected hooks are absent, check plugin installation and host
+support using the diagnostics below; do not treat a missing trust prompt as evidence that the hooks are enabled.
+
+With `UserPromptSubmit` disabled, automatic recall and prompt capture do not run. A working MCP connection is a separate
+path and is not evidence of automatic behavior. After enabling the hook, send a distinctive project decision and verify
+that it appears in the bound Scope's Source journal, then run the [memory checks](../get-started/quickstart.md#4-verify-memory-in-your-selected-mode).
+Prompt capture is enabled by default; see [Control prompt capture](#control-prompt-capture) if you intentionally disabled it.
+
+### Installation and connectivity diagnostics
 
 `powercontext doctor codex --json` reports basic MCP connectivity as `mcp_tools` and complete tool coverage as
 `mcp_full_profile`. Full coverage requires every capability-bearing tool in the Codex integration's `server-mcp`
@@ -55,15 +71,15 @@ In a Codex session with the plugin installed and the PowerContext Server availab
 handoff this work
 ```
 
-The `powercontext-project-context` Skill treats that imperative as explicit authorization to create one durable Handoff milestone.
-Codex inspects the current conversation and repository, assembles the objective, branch and worktree state, changed
-files, observed checks, blockers, omissions, and next action, then calls `handoff_current_work` followed by
-`commit_handoff` in the current Session Scope. After a successful commit, Codex reports the exact Handoff Revision; the
-user does not need to fill in the Handoff content or confirm the commit again.
+The `powercontext-project-context` Skill inspects the conversation and repository, assembles the objective, current
+state, observed checks, omissions, and next action, then calls `handoff_current_work` in the current Session Scope.
+An ordinary transfer returns the complete temporary Handoff carrier for the receiver; it does not commit a durable
+Revision. `交接` and `交接当前工作` use the same temporary-transfer path.
 
-`交接`, `交接当前工作`, and `commit a handoff` use the same behavior. To inspect the proposed content without writing,
-ask to `preview the handoff without committing`; the Skill renders the proposed fields in chat and calls no write
-tool. Discussing Handoff design or asking how it works does not authorize a write.
+To save a durable milestone, explicitly ask to `commit a durable handoff`. The Skill prepares the boundary and calls
+`commit_handoff`, reporting the exact Revision only after success. Existing authorization does not need a second
+confirmation. To inspect proposed content without writing, ask to `preview the handoff without committing`; the Skill
+renders the proposed fields in chat and calls no write tool. Discussing Handoff design does not authorize a write.
 
 At Session start, Codex resolves Scope in this order: an explicit `POWERCONTEXT_CODEX_SCOPE_ID`, an existing Session
 binding, a host-managed workspace binding, and the Server's default Scope. The selected Scope is fixed to the Session.
@@ -314,7 +330,7 @@ Hook binds the Scope and injects it into MCP data operations; a planned title or
 Desktop apps do not inherit changes made inside an already running terminal. On Windows, setup persists the value in
 the current user's environment, but an already running Desktop instance must still be restarted. Run `powercontext
 doctor codex`, then check Hook capture and MCP separately. An MCP connected status does not prove Source capture.
-Complete the [Source, topic evolution, and cross-session recall check](../get-started/quickstart.md#4-verify-topic-memory-with-ordinary-conversation).
+Complete the [Source, topic evolution, and cross-session recall check](../get-started/quickstart.md#4-verify-memory-in-your-selected-mode).
 
 ## Environment variables
 

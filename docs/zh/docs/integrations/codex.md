@@ -28,8 +28,21 @@ powercontext doctor codex
 未提供新地址时，setup 复用保存的地址。文件与进程中声明的地址冲突时，仍需显式选择：使用 `--server-url`，
 并在重新执行前统一或清除运行时地址覆盖。`--source` 指定插件代码来源，不指定 Server 地址。
 
-配置完成后开启新的 Codex 会话。通过 `/hooks` 查看 PowerContext `SessionStart` 和 `UserPromptSubmit` Hook，
-并在收到提示时授予信任。
+### 首次会话 Hook 信任
+
+配置完成后开启新的 Codex 会话。发送第一条消息前，通过 `/hooks` 检查 PowerContext Hook，并在收到提示时授予信任。
+`SessionStart` 解析会话 Scope，并按配置加载启动上下文；`UserPromptSubmit` 准备相关上下文，并独立地将用户输入采集为 Source。
+插件还使用 `PreToolUse` 绑定 MCP 操作的 Scope。插件已加载或 MCP 工具可发现，都不能证明这些 Hook 已执行。
+
+如果跳过或拒绝信任，进入 `/hooks` 检查 PowerContext 条目，按当前宿主提供的操作启用或信任它们。
+如宿主要求开启新会话，按提示操作，在重新验收采集前再次检查 Hook。不同 Codex 版本的控件和提示可能不同。
+如果找不到预期 Hook，按下文诊断安装与宿主支持情况；没有出现信任提示，不代表 Hook 已启用。
+
+`UserPromptSubmit` 未启用时，不会自动召回或采集输入。MCP 连通是另一条路径，不能证明自动行为正常。
+启用后发送一条含独特项目名的决定，确认它进入绑定 Scope 的 Source 日志，再按[记忆验收](../get-started/quickstart.md#4-按所选模式验收记忆)检查后续结果。
+提示词采集默认开启；如果曾主动关闭，先检查[提示词采集配置](#控制提示词采集)。
+
+### 安装与连接诊断
 
 `powercontext doctor codex --json` 通过 `mcp_tools` 报告基础 MCP 连接，通过 `mcp_full_profile` 报告完整工具覆盖。
 完整覆盖要求 Codex 集成 manifest 的 `server-mcp` 中声明的全部能力工具，包括 Memory 维护、Scope 管理和
@@ -53,14 +66,13 @@ Handoff 操作。缺失工具会按名称列出，并使结果降级；工具发
 交接
 ```
 
-`powercontext-project-context` Skill 会把这句话视为创建持久交接里程碑的明确授权。Codex 在同一轮中检查当前对话和仓库，整理目标、
-分支与工作区状态、改动文件、已执行检查、阻塞项、缺失项和下一步，然后在当前 Session Scope 中依次调用
-`handoff_current_work` 和 `commit_handoff`。提交成功后，Codex 返回 exact Handoff Revision；用户不需要再填写交接
-内容或重复确认提交。
+`powercontext-project-context` Skill 检查当前对话和仓库，整理目标、当前状态、已执行检查、遗漏和下一步，
+然后在当前 Session Scope 中调用 `handoff_current_work`。普通交接返回接收方可以使用的完整临时 Handoff，
+不会提交持久 Revision。`交接当前工作` 和 `handoff this work` 使用同一临时交接路径。
 
-`交接当前工作`、`把当前工作交接出去` 和 `handoff this work` 使用相同行为。若只想检查内容而不写入，请明确说
-`预览交接，不要提交`；Skill 此时只在对话中渲染建议内容，不调用写工具。讨论 Handoff 设计或询问 Handoff
-如何工作也不会触发持久化。
+需要持久里程碑时，明确要求“保存持久交接里程碑”。Skill 准备边界后调用 `commit_handoff`，只有提交成功才报告精确 Revision；
+已有明确授权无需再次确认。若只想检查内容而不写入，请说“预览交接，不要提交”；Skill 此时只在对话中渲染建议内容，
+不调用写工具。讨论 Handoff 设计不授权写入。
 
 Session 启动时，Codex 按以下顺序解析 Scope：显式的 `POWERCONTEXT_CODEX_SCOPE_ID`、已有 Session binding、
 host 管理的 workspace binding、Server 默认 Scope。解析出的 Scope 会固定到当前 Session。仓库和目录身份只用于查找
@@ -282,7 +294,7 @@ Hook 的 Server 地址从已安装插件 `.mcp.json` 派生，MCP 也读取同�
 桌面 App 不会继承已经运行的终端内部发生的环境变化。在 Windows 上，setup 会把值持久化到当前用户环境，但已
 运行的 Desktop 仍需重启才能继承。运行 `powercontext doctor codex`，再分别确认 Hook 采集成功与 MCP 可用。
 MCP 显示 connected 也不等于 Source 已采集。
-最后完成[Source、主题演进与新会话召回验收](../get-started/quickstart.md#4-用普通对话验收-topic-memory)。
+最后完成[Source、主题演进与新会话召回验收](../get-started/quickstart.md#4-按所选模式验收记忆)。
 
 ## 环境变量
 

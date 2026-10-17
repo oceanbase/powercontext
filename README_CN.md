@@ -65,6 +65,12 @@ powercontext setup codex --ref powercontext-v1.3.0
 powercontext doctor codex
 ```
 
+在新 Codex 会话发送第一条消息前，打开 `/hooks` 检查 PowerContext Hook，并在收到提示时授予信任。
+`UserPromptSubmit` Hook 未启用时，即使 MCP 连通，也不会自动采集输入或召回上下文。
+检查与恢复步骤见[首次会话 Hook 信任](docs/zh/docs/integrations/codex.md#首次会话-hook-信任)。
+完成下面的首次验收后，可按[能力与触发指南](docs/zh/docs/get-started/quickstart.md#5-选择下一项工作流)
+体验七类 Artifact、Source 和 Tag。基础记忆无需独立的 Server 模型 API；Agent 仍使用自己的模型。
+
 ### 2. 验收第一条端到端结果
 
 这一步检查 PowerContext 真正有用的链路：Source 采集 → 后台处理 → 跨会话召回。

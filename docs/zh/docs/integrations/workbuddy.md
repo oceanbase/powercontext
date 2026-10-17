@@ -153,9 +153,12 @@ powercontext doctor
   独立地把提示词采集为 Source 证据；
 - MCP 为 WorkBuddy 提供读取和维护 Memory 的显式工具，以及明确的 Handoff 工作流。
 
-`powercontext-project-context` Skill 把两条路径连接起来。诸如 `交接`、`交接当前工作` 或 `handoff this work`
-这样的指令会被视为创建持久交接里程碑的明确授权。Skill 会检查当前对话和仓库，调用
-`handoff_current_work`，然后通过 `commit_handoff` 立即提交返回的 `handoff`。预览或设计类请求保持只读。
+`powercontext-project-context` Skill 指导显式工作交接。对于 `交接`、`交接当前工作` 或 `handoff this work`
+等普通请求，Skill 检查当前对话和仓库，调用 `handoff_current_work`，并返回完整 `handoff` 成员作为临时载体。
+该操作记录 boundary Source，不会创建持久 Handoff Revision；接收方可通过 `selection: "prepared"` 和该精确载体继续。
+
+只有 `保存持久交接里程碑` 或 `commit a durable handoff` 等明确请求，才授权将返回载体原样传给 `commit_handoff`。
+必须成功返回精确 Revision，才能报告里程碑已提交。预览或设计请求保持只读；普通交接不授权提交。
 
 WorkBuddy 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它
 严格校验 `powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为

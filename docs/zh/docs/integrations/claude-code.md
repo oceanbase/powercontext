@@ -54,7 +54,7 @@ claude
 
 使用 `/hooks` 确认 `SessionStart` 和 `UserPromptSubmit` Hook，使用 `/mcp` 确认 `powercontext` Server。
 两者分别负责采集/召回和显式工具调用，必须都连接成功。`doctor claude-code` 主要检查安装状态，
-完整记忆还需完成[Source 与主题验收](../get-started/quickstart.md#4-用普通对话验收-topic-memory)。
+完整记忆还需完成[Source 与主题验收](../get-started/quickstart.md#4-按所选模式验收记忆)。
 
 为新 Scope 执行 `.env.next-steps.md` 中的创建请求，把返回的真实 `scope_id` 写入
 `.env` 的 `POWERCONTEXT_CLAUDE_SCOPE_ID`，然后重新加载并开启新会话。
@@ -129,10 +129,14 @@ resolver 只把 workspace 路径哈希用作外部 binding key，不会根据 Gi
 随附的 MCP Server 暴露已有的 PowerContext 操作。Claude 可以搜索和列出 Memory；只有用户明确要求持久化变更时，
 才创建、修订或废弃 Memory entry。
 
-转交任务时，随附 Skill 会引导 Claude 用 `handoff_current_work` 准备当前工作，并在“交接”等明确命令下把返回的
-`handoff` 原样传给 `commit_handoff`。接收方用 `continue_handoff` 读取 exact Revision，核验后通过
-`acknowledge_handoff` 回执；完成任务时用 `record_task_outcome` 关联该回执。Prepared Handoff 仍是临时载体，
-exact Revision 才是跨 Agent 的持久交接点。
+对于“交接”“交接当前工作”等普通请求，随附 Skill 引导 Claude 检查当前工作、调用 `handoff_current_work`，
+并返回完整的 `handoff` 成员作为临时载体。准备会记录 boundary Source，不会提交持久 Revision。
+只有“保存持久交接里程碑”等明确请求，才授权将返回值原样传给 `commit_handoff`；仅在成功返回精确 Revision 后，
+才能报告里程碑已提交。预览或设计请求不执行写入。
+
+接收方用 `continue_handoff` 的 `selection: "prepared"` 和完整载体，或精确的已提交 Revision，解析并核验交接，
+然后记录 `acknowledge_handoff` 回执。完成的工作若接续了已接受的持久 Handoff，使用 `record_task_outcome` 关联该回执。
+历史说明和回执都不会授予执行权限。
 
 自动召回不依赖 Claude 是否决定调用 MCP。反过来，MCP Memory 写入也不能替代 prompt 采集：启用采集后，Hook
 会把每条 prompt 保存为普通 Source 证据，之后是否从 Source 生成 Memory 由 Server 决定。

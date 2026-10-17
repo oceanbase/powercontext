@@ -60,6 +60,12 @@ powercontext setup codex --ref powercontext-v1.3.0
 powercontext doctor codex
 ```
 
+新しい Codex セッションで最初のメッセージを送る前に、`/hooks` で PowerContext Hook を確認し、求められたら信頼を許可してください。
+`UserPromptSubmit` Hook が無効な場合、MCP に接続できても入力の自動取得と想起は動作しません。
+[初回確認と復旧](docs/en/docs/integrations/codex.md#first-session-hook-trust)を参照してください。
+以下の確認後は、[機能と操作のガイド](docs/en/docs/get-started/quickstart.md#5-choose-your-next-workflow)から
+7 種類の Artifact、Source、Tag を試せます。Basic memory は Server 用の独立したモデル API が不要ですが、Agent 自身のモデルは使用します。
+
 ### 2. 最初のエンドツーエンド結果を確認する
 
 この確認では、PowerContext が役立つ流れを検証します：Source の取得 → バックグラウンド処理 → セッションをまたぐ想起。

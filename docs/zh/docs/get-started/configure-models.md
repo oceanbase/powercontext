@@ -127,7 +127,7 @@ PY
 
 ## 验证真实提取与召回
 
-主验收按[快速开始](quickstart.md#4-用普通对话验收-topic-memory)完成：
+主验收按[快速开始](quickstart.md#4-按所选模式验收记忆)完成：
 
 1. Agent 普通输入进入绑定 Scope 的 Source。
 2. Topic Memory 出现对应主题和证据。

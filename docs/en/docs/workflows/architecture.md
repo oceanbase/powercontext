@@ -27,7 +27,7 @@ updates can also accept content without automatic extraction.
 - Generated Experience and Skill proposals require Candidate review before commit. Direct Artifact Create/Replace can
   commit a validated payload as a formal Revision immediately; these endpoints do not create a Candidate automatically.
 - Profile policy selects automatic commit or review; manual creation and replacement are also supported.
-- Memory and Topic Memory commit according to their processing rules; Topic Memory does not support manual creation or updates.
+- Atomic Memory and Topic Memory can commit through Source processing or their supported explicit Artifact write APIs.
 - Handoff commits through the work continuity workflow; Prompt is managed through configuration APIs.
 
 A successful commit creates an immutable Artifact Revision. See each type's guide for permissions, version checks, and
@@ -86,11 +86,11 @@ host-local copy without granting execution authority. `PreparedContext` is tempo
 | Topic Memory | Incrementally derives topic summaries from long-running Sources with progressive detail | Request `flush`, search current heads, then `get` an exact Revision |
 | Handoff | Records task boundaries, transfers, and milestones | prepare → optional commit → receiver acknowledgement / outcome |
 | Prompt | Scope-level operational prompt configuration, not factual evidence and not ordinary recall | Manage with `scope.admin` access |
-| Tag | Filterable metadata for Memory, Experience, Skill, and Handoff | Manage through tag APIs; it is not an Artifact family |
+| Tag | Filterable metadata for all seven saved Artifact families | Manage through tag APIs; it is not an Artifact family |
 
-The code enum for write-capable Artifact families is `memory`, `experience`, `skill`, `handoff`, `profile`, and `prompt`.
-Artifact reads also expose the specialized `topic-memory` family. Topic Memory currently has no generic create, update,
-delete, or retire API.
+Artifact families are `atomic-memory`, `experience`, `skill`, `handoff`, `profile`, `prompt`, and `topic-memory`.
+[Topic Memory](topic-memory.md#write-through-the-generic-artifact-interfaces) supports generic creation and replacement as well
+as Source processing. Use each family's workflow for its validation, permissions, and lifecycle operations.
 
 ## Current data governance and recovery boundary
 

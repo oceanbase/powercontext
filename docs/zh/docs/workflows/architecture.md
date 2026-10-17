@@ -24,7 +24,7 @@ Source 保存证据。处理证据与提交制品是不同的动作：采集完�
 
 - Experience、Skill 的生成提案通过 Candidate 审核后提交；直接调用 Artifact Create/Replace 可以在内容校验通过后立即创建正式 Revision，不会自动生成 Candidate。
 - Profile 根据策略自动提交或进入审核，也支持人工创建和替换。
-- Memory 和 Topic Memory 按各自的处理规则提交；Topic Memory 不支持手工创建和更新。
+- Atomic Memory 和 Topic Memory 可以通过 Source 处理或各自支持的显式 Artifact 写入接口提交。
 - Handoff 通过交接工作流提交；Prompt 通过配置接口管理。
 
 成功提交会形成不可变的 Artifact Revision。具体权限、版本校验与生成条件见各类型的操作指南。
@@ -79,10 +79,11 @@ SQLite 使用本地数据文件，OceanBase / SeekDB 使用配置的数据库连
 | Topic Memory | 从长期 Source 增量提炼的主题摘要，支持渐进式 detail | `flush` 请求后台处理，`search` 找到当前 head，`get` 读取精确 Revision |
 | Handoff | 记录任务边界、交接和里程碑 | prepare → 可选 commit → 接收方 acknowledgement / outcome |
 | Prompt | Scope 级操作提示词配置，不是事实证据，也不进入普通 recall | 由具备 `scope.admin` 的调用方管理 |
-| Tag | Memory、Experience、Skill、Handoff 的筛选元数据 | 通过标签 API 管理，不是 Artifact family |
+| Tag | 七类已保存 Artifact 的筛选元数据 | 通过标签 API 管理，不是 Artifact family |
 
-写入型 Artifact family 的代码枚举是 `memory`、`experience`、`skill`、`handoff`、`profile`、`prompt`；读取
-制品时还包含专用的 `topic-memory`。Topic Memory 目前没有通用的 create、update、delete 或 retire API。
+Artifact family 为 `atomic-memory`、`experience`、`skill`、`handoff`、`profile`、`prompt`、`topic-memory`。
+[Topic Memory](topic-memory.md#通过通用-artifact-接口写入) 除 Source 处理外，也支持通用创建与替换。
+各家族的校验、权限和生命周期操作以对应工作流为准。
 
 ## 数据治理与恢复的现状
 

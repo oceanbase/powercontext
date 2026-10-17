@@ -41,20 +41,29 @@ even after the family head advances.
 
 ## Artifact families currently supported
 
-The code's write-capable families are `memory`, `experience`, `skill`, `handoff`, `profile`, and `prompt`. They share
-immutable Revisions and exact references, but expose different operations: Memory stores durable facts, Experience and
-Skill go through Candidate review, Handoff records work continuity, Profile stores Scope background, and Prompt stores
-Scope-level operational configuration.
+The current runtime supports seven families: `atomic-memory`, `experience`, `skill`, `handoff`, `profile`, `prompt`,
+and `topic-memory`. They share immutable Revisions and exact references, but expose different operations. Atomic Memory
+stores individual facts and decisions; Experience and Skill generation proposals go through Candidate review; Handoff
+records work continuity; Profile stores Scope background; Prompt configures operations; Topic Memory organizes topics.
+Direct Artifact writes follow each family's validation and permissions rather than automatically creating Candidates.
 
-Read APIs also expose the specialized `topic-memory` family. Topic Memory is produced by background Source processing and
-is used through `flush`, `search`, and `get`; it currently has no generic create, update, delete, or retire operation. A
-Source is evidence rather than an Artifact. A Tag is metadata for Memory, Experience, Skill, and Handoff rather than an
-Artifact family.
+[Topic Memory](../workflows/topic-memory.md#write-through-the-generic-artifact-interfaces) supports generic creation and
+replacement as well as background Source processing and its dedicated `flush`, `search`, and `get` operations.
+A Source is evidence rather than an Artifact. [Tags](../workflows/manage-artifact-tags.md) organize saved Artifacts in all
+seven current families without changing content Revisions; Tag is not a separate Artifact family.
+
+Some API schemas retain the legacy `memory` identifier for compatibility; it is not a current writable family.
+Do not infer general legacy collection-read support from that identifier. For old data and reference handling, follow
+[Atomic Memory migration](../operate/atomic-memory-migration.md).
 
 ## Memory stores durable project knowledge
 
-Memory is a revisioned Artifact family for reusable decisions, constraints, facts, state, and next steps. Entries can
-be active or inactive; retiring an entry removes it from active recall without deleting its history.
+Each Atomic Memory is an independent revisioned Artifact for a reusable decision, constraint, fact, status, or next
+step. Its current state is `active`, `forgotten`, `merged`, or `retired`; ordinary recall selects active records only.
+The public lifecycle operation accepts `forgotten` with the exact Artifact reference and current `state_version`,
+removing the record from active recall without deleting history. Merge and restoration have separate operations;
+the four readable states are not four freely assignable lifecycle values. See [Atomic Memory](../workflows/atomic-memory.md)
+for content revisions, state changes, and exact historical reads.
 
 Explicit Memory writes do not require a model. Source-based extraction does require a configured generation pipeline.
 Memory is durable and searchable, unlike the temporary context prepared for one Agent turn. See
@@ -111,7 +120,7 @@ HTTP is the complete remote application contract. The Python Client provides typ
 curated Agent-facing projection, while the CLI covers setup, diagnostics, Server operation, and human review tasks.
 Core protocols support applications that assemble their own Source, Artifact, and Trigger implementations.
 
-Model generation, human Review, and execution authority remain separate. A model can propose content, Review can
+Model generation, Review, and execution authority remain separate. A model can propose content, Review can
 approve an Artifact Revision, and export can create a host-local copy. None of those steps grants an Agent permission
 to execute instructions.
 

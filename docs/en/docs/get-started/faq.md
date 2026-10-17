@@ -69,9 +69,11 @@ configuration.
 Approval, installation, and execution are three separate steps:
 
 1. **Approval** creates an immutable Skill Revision in PowerContext.
-2. **Export / install** copies an exact Revision to the Agent host (for example via Remote Skill distribution or
-   manual `download_skill_package`).
-3. **Execution** happens when the Agent's host discovers and loads the installed `SKILL.md`.
+2. **Export / install** places the exact Revision in a directory the Agent host discovers. For Codex, follow
+   [Create and export a Skill](../workflows/create-and-export-skill.md) with `powercontext skill export --target codex`.
+   Downloading a package through `download_skill_package` alone does not establish host installation or discovery.
+3. **Discovery and use** happen on the Agent host. Verify that it discovers the exported `SKILL.md`; loading it does
+   not itself authorize execution of its instructions.
 
 Approving a Skill does not install it; installing it does not execute it. Each step is explicit so that you keep
 control over what runs where.

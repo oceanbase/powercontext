@@ -63,9 +63,9 @@ Profile 需要在 assembly 中显式选择。
 批准、安装和执行是三个独立步骤：
 
 1. **批准**在 PowerContext 中创建一个不可变的 Skill Revision。
-2. **导出 / 安装**把指定 Revision 复制到 Agent 宿主（例如通过 Remote Skill 分发，或手动调用
-   `download_skill_package`）。
-3. **执行**发生在 Agent 宿主发现并加载已安装的 `SKILL.md` 之后。
+2. **导出 / 安装**把精确 Revision 放到 Agent 宿主能发现的目录。Codex 用户按[创建与导出 Skill](../workflows/create-and-export-skill.md)
+   使用 `powercontext skill export --target codex`。仅通过 `download_skill_package` 下载包，不能证明已安装到宿主或已被发现。
+3. **发现与使用**发生在 Agent 宿主。确认它能发现导出的 `SKILL.md`；加载内容本身不会授予执行其中指令的权限。
 
 批准 Skill 不等于安装它；安装它也不等于执行它。每一步都是显式的，以便你掌控"什么内容在什么地方运行"。
 

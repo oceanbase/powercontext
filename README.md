@@ -70,6 +70,12 @@ powercontext setup codex --ref powercontext-v1.3.0
 powercontext doctor codex
 ```
 
+Before sending the first message in a new Codex session, open `/hooks` and, when prompted, trust the PowerContext
+hooks. Without an enabled `UserPromptSubmit` hook, automatic prompt capture and recall do not run, even if MCP connects.
+See [first-session checks and recovery](docs/en/docs/integrations/codex.md#first-session-hook-trust).
+After the first check below, use the [capability and trigger guide](docs/en/docs/get-started/quickstart.md#5-choose-your-next-workflow)
+to try all seven Artifact families, Source, and Tag. Basic memory needs no separate Server model API; the Agent still uses its own model.
+
 ### 2. Verify the first end-to-end result
 
 This checks the path that makes PowerContext useful: Source capture → background processing → cross-session recall. In

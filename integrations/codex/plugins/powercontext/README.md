@@ -35,12 +35,15 @@ proxy, not provider-verified or billable savings. Positive reductions use
 The `powercontext-project-context` skill uses four high-level work operations instead of
 assembling the low-level Handoff lifecycle manually: `create_work_contract`,
 `handoff_current_work`, `acknowledge_handoff`, and `record_task_outcome`.
-When the user says `交接`, `交接当前工作`, `handoff this work`, or an equivalent
-imperative, the Skill inspects the current conversation and repository, calls
-`handoff_current_work`, and immediately commits the returned `handoff` member
-through the artifact-level `commit_handoff` operation. The imperative itself
-is the explicit authorization
-for that durable milestone; preview or design requests remain read-only.
+For ordinary `交接`, `交接当前工作`, or `handoff this work` requests, the Skill
+inspects the current conversation and repository, calls `handoff_current_work`,
+and returns its complete `handoff` member as a temporary carrier. This records
+the boundary Source but does not commit a durable Handoff Revision. The receiver
+can use `continue_handoff` with `selection: "prepared"` and that exact carrier.
+Only an explicit durable request, such as `commit a durable handoff` or
+`保存持久交接里程碑`, authorizes passing the returned `handoff` unchanged to
+`commit_handoff`. Report a committed milestone only after it returns an exact
+Revision. Preview or design requests remain read-only.
 Acknowledgements and historical authorization notes never grant Codex new
 execution authority, and the prompt hook does not infer completion from Stop or
 SessionEnd.

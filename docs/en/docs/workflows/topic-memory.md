@@ -65,7 +65,7 @@ with a Generation model require a persistent, file-backed database rather than a
 
 ## Verify a real topic
 
-Use the [Quick Start Topic Memory check](../get-started/quickstart.md#4-verify-topic-memory-with-ordinary-conversation)
+Use the [Quick Start Topic Memory check](../get-started/quickstart.md#4-verify-memory-in-your-selected-mode)
 for a full Agent and Dashboard acceptance flow:
 
 1. Send a concrete project decision in a new session.

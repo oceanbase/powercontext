@@ -37,18 +37,25 @@ Artifact ID 保持稳定，approved replacement 会创建后续 Revision。Linea
 
 ## 当前 Artifact family
 
-代码中的写入型 family 是 `memory`、`experience`、`skill`、`handoff`、`profile` 和 `prompt`。它们共享
-不可变 Revision 和精确引用，但可用操作不同：Memory 用于长期事实，Experience 和 Skill 经过 Candidate 审核，
-Handoff 记录工作连续性，Profile 保存 Scope 背景，Prompt 保存 Scope 级操作配置。
+当前 Runtime 支持七类 family：`atomic-memory`、`experience`、`skill`、`handoff`、`profile`、`prompt` 和
+`topic-memory`。它们共享不可变 Revision 和精确引用，但可用操作不同：Atomic Memory 保存独立事实与决定；
+Experience 和 Skill 的生成提案经过 Candidate 审核；Handoff 记录工作连续性；Profile 保存 Scope 背景；
+Prompt 配置操作；Topic Memory 整理主题。直接 Artifact 写入遵循各家族的校验和权限，不会自动创建 Candidate。
 
-读取接口还提供专用的 `topic-memory` family。Topic Memory 由 Source 后台处理产生，只能通过 `flush`、`search` 和
-`get` 这组主题接口使用，目前没有通用的 create、update、delete 或 retire 操作。Source 是生成依据而不是 Artifact；
-Tag 是 Memory、Experience、Skill 和 Handoff 的元数据，也不是 Artifact family。
+[Topic Memory](../workflows/topic-memory.md#通过通用-artifact-接口写入) 除 Source 后台处理和专用的
+`flush`、`search`、`get` 操作外，也支持通用创建与替换。Source 是证据而不是 Artifact；
+[Tag](../workflows/manage-artifact-tags.md) 可以整理七类当前已保存制品，不改变内容 Revision，也不是独立 Artifact family。
+
+部分 API schema 为兼容保留旧 `memory` 标识，但它不是当前可写家族，也不能据此推断通用旧集合读取仍受支持。
+已有数据和旧引用的处理见[Atomic Memory 迁移](../operate/atomic-memory-migration.md)。
 
 ## Memory 保存长期项目知识
 
-Memory 是带 Revision 的 Artifact family，用于保存可复用的决定、约束、事实、状态和下一步。Entry 可以是 active 或
-inactive；retire 会让 entry 退出 active recall，但不会删除历史。
+每条 Atomic Memory 都是独立的带 Revision 制品，保存一条可复用的决定、约束、事实、状态或下一步。
+当前状态为 `active`、`forgotten`、`merged` 或 `retired`；普通召回只选择 active 记录。
+公开 lifecycle 操作使用精确 Artifact 引用及当前 `state_version`，接受 `forgotten`，让记录退出 active recall，但不删除历史。
+合并与恢复使用独立操作；四种可读状态并不意味着可以任意设置四种 lifecycle 值。
+正文修订、状态变更和精确历史读取见[Atomic Memory](../workflows/atomic-memory.md)。
 
 显式写入 Memory 不需要模型。根据 Source 自动提取则需要配置 generation pipeline。Memory 可以长期保存和检索，不同于
 只供一次 Agent turn 使用的临时上下文。长期知识与任务转交的边界见[理解 Memory 和 Handoff](../workflows/memory-and-handoff.md)。
@@ -100,7 +107,7 @@ Acknowledgement；Task Outcome 将最终状态和检查结果保存为 Source �
 HTTP 是完整的远程应用契约，Python Client 提供类型化访问，MCP 是面向 Agent 的精选投影，CLI 负责安装、诊断、Server
 操作和人工审核任务。Core protocol 供需要自行组合 Source、Artifact 和 Trigger 实现的应用使用。
 
-模型生成、人工 Review 和执行权限彼此独立。模型可以提出内容，Review 可以批准 Artifact Revision，导出可以创建
+模型生成、Review 和执行权限彼此独立。模型可以提出内容，Review 可以批准 Artifact Revision，导出可以创建
 host-local 副本；这些步骤都不会授予 Agent 执行 instructions 的权限。
 
 当前接口可用范围见[接口](../develop/interfaces.md)，精确设置和默认值见[配置](../operate/configuration.md)。RFC 记录

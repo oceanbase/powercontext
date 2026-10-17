@@ -58,7 +58,7 @@ claude
 
 Use `/hooks` to confirm the `SessionStart` and `UserPromptSubmit` Hooks and `/mcp` to confirm the `powercontext` Server.
 These are separate capture/recall and explicit-tool connections; both must work. `doctor claude-code` primarily checks
-installation state. Complete the [Source and Topic check](../get-started/quickstart.md#4-verify-topic-memory-with-ordinary-conversation) to verify memory behavior.
+installation state. Complete the [Source and Topic check](../get-started/quickstart.md#4-verify-memory-in-your-selected-mode) to verify memory behavior.
 
 For a new Scope, run the creation request in `.env.next-steps.md`, write the returned real `scope_id` to
 `POWERCONTEXT_CLAUDE_SCOPE_ID` in `.env`, reload it, and start a new session. The planned
@@ -139,11 +139,15 @@ remote or directory. Set an explicit Scope only when that separation or sharing 
 The bundled MCP Server exposes the existing PowerContext operations. Claude can search and list Memory, and can
 create, revise, or retire an entry when the user explicitly asks to persist a change.
 
-For a task transfer, the bundled Skill guides Claude to prepare current work with `handoff_current_work` and, for an
-explicit imperative such as “handoff this work,” pass the returned `handoff` unchanged to `commit_handoff`. The
-receiver uses `continue_handoff` with the exact Revision, verifies it, and records an `acknowledge_handoff` receipt;
-completed work uses `record_task_outcome` with that receipt. A Prepared Handoff is temporary, while an exact Revision
-is the durable cross-agent transfer point.
+For an ordinary transfer such as “handoff this work,” the bundled Skill guides Claude to inspect current work, call
+`handoff_current_work`, and return the complete `handoff` member as a temporary carrier. Preparation records a boundary
+Source; it does not commit a durable Revision. Only an explicit request such as “commit a durable handoff” authorizes
+passing that returned value unchanged to `commit_handoff`. Report a committed milestone only after it returns an exact
+Revision. Preview or design requests make no writes.
+
+The receiver uses `continue_handoff` with `selection: "prepared"` and the complete carrier, or with an exact committed
+Revision, verifies it, and records an `acknowledge_handoff` receipt. When completed work continues an accepted committed
+Handoff, `record_task_outcome` links that receipt. Historical notes and acknowledgements grant no execution authority.
 
 Automatic recall does not depend on Claude deciding to call MCP. Conversely, MCP Memory writes do not replace prompt
 capture: the Hook stores each enabled prompt as ordinary Source evidence, and the Server decides whether later Source
