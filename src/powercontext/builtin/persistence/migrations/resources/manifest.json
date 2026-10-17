@@ -5,12 +5,16 @@
     ],
     "p0002": [],
     "p0003": [],
-    "p0004": []
+    "p0004": [],
+    "p0005": [
+      "schemas/atomic_memory_evidence_v1.json"
+    ]
   },
   "sqlite_baselines": {
     "e1cae089a8a565291a7a1f782cea1f6c6e1a6cdd9eab75ef0c4ca61dfda453cb": "p0001",
     "fcee685ed307ee6d02fe5e950ed4e80be75f38d19de902ccacf443f21ee8c73d": "p0003",
-    "8cb2d41e53cde751c8d0ef4023c344ec5ec78d9e579366c1c93d17de30aa5ea4": "p0004"
+    "8cb2d41e53cde751c8d0ef4023c344ec5ec78d9e579366c1c93d17de30aa5ea4": "p0004",
+    "5d2a458f6cb278e4fbff5aa7cef9429bcb940be5fb0a29649be50c30482e00e1": "p0005"
   },
   "sqlite_fingerprints": {
     "p0001": [
@@ -26,6 +30,10 @@
     "p0004": [
       "f65244be963a382a62565118ff874cd775ab1ea33cf51a49881b40391e47c051",
       "8cb2d41e53cde751c8d0ef4023c344ec5ec78d9e579366c1c93d17de30aa5ea4"
+    ],
+    "p0005": [
+      "10b8f62310f90e4e267e795efef0aa6e6716c1ecad515ab745e783507f6496f3",
+      "5d2a458f6cb278e4fbff5aa7cef9429bcb940be5fb0a29649be50c30482e00e1"
     ]
   },
   "affected_objects": [
@@ -33,7 +41,10 @@
     "pc_artifact_heads",
     "pc_artifact_candidate_versions",
     "pc_artifact_tags",
-    "pc_artifact_handles"
+    "pc_artifact_handles",
+    "pc_atomic_memory_evidence_schema",
+    "pc_atomic_memory_evidence_history",
+    "pc_source_evidence_bindings"
   ],
   "retained_objects": [
     "pc_retained_p0002_artifact_tags"

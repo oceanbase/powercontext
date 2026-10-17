@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -26,6 +27,7 @@ import pytest
 from pydantic import SecretStr
 from sqlalchemy.engine import make_url
 
+from powercontext.builtin.persistence.migrations.backup import identify_fork_server
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -63,6 +65,17 @@ def migration_backend(request: pytest.FixtureRequest, short_tmp_path: Path) -> I
         nonlocal owned
         async with migration_profile(config) as profile, profile.database.transaction() as connection:
             assert (await connection.exec_driver_sql("SELECT DATABASE()")).scalar_one() == url.database
+            version = str((await connection.exec_driver_sql("SELECT VERSION()")).scalar_one())
+            comment = str((await connection.exec_driver_sql("SELECT @@version_comment")).scalar_one())
+            product, engine_version = identify_fork_server(version, comment)
+            if product != "oceanbase_ai" or engine_version is None:
+                pytest.fail(
+                    "Acceptance requires an identified real OceanBase version, not MySQL or SeekDB", pytrace=False
+                )
+            if create:
+                evidence = {"backend": "oceanbase", "version": version, "engine_version": engine_version}
+                request.node.user_properties.append(("backend_identity", evidence))
+                print(json.dumps(evidence, ensure_ascii=False))
             await connection.exec_driver_sql(
                 f"CREATE DATABASE `{database}`" if create else f"DROP DATABASE `{database}`"
             )

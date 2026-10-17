@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Persistence for worker-owned Source Definition manifests."""
+"""Immutable historical manifests owned by the Source registration boundary."""
 
 from __future__ import annotations
 
@@ -26,15 +26,17 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
 from powercontext.builtin.persistence.errors import (
     IdentityMismatchError,
+    InvalidStoredColumnError,
+    InvalidStoredPayloadError,
     RepositoryNotFoundError,
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.tables import SOURCE_DEFINITION_MANIFESTS_TABLE
-from powercontext.sources import SourceDefinitionManifest
+from powercontext.sources import SourceDefinition, SourceDefinitionManifest, manifest_for_definition
 
 
 class SourceDefinitionManifestRepository:
-    """Register immutable worker-owned Definition manifests by name and version."""
+    """Retain native and worker manifests without changing their identities."""
 
     async def register(
         self,
@@ -59,13 +61,38 @@ class SourceDefinitionManifestRepository:
             )
         except IntegrityError:
             existing = await self.find(connection, manifest.name, manifest.version)
-            if existing is None or existing != manifest:
+            if existing is None:
+                raise
+            if existing != manifest:
                 raise StoredPayloadConflictError(
                     "source-definition-manifest",
                     (manifest.name, manifest.version),
                 ) from None
             return existing
         return manifest
+
+    async def register_native(
+        self,
+        connection: AsyncConnection,
+        definition: SourceDefinition[Any, Any, Any],
+        /,
+    ) -> SourceDefinitionManifest | None:
+        """Retain the existing manifest representation for trusted native material.
+
+        This internal registration cannot replace an older manifest. A missing,
+        invalid or conflicting ancillary manifest leaves the Source declaration
+        neutral; database failures still abort the caller's transaction. External
+        registration keeps its existing active-Definition ownership guard.
+        """
+
+        try:
+            manifest = manifest_for_definition(definition)
+        except Exception:  # Native schema providers may not expose a valid manifest.
+            return None
+        try:
+            return await self.register(connection, manifest)
+        except (IdentityMismatchError, InvalidStoredColumnError, InvalidStoredPayloadError, StoredPayloadConflictError):
+            return None
 
     async def get(
         self,

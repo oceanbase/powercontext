@@ -14,7 +14,7 @@
 
 """Recognize the frozen MySQL layouts without importing application metadata.
 
-Only the reviewed linear p0001--p0004 history is supported. DDL recovery accepts
+Only the reviewed linear p0001--p0005 history is supported. DDL recovery accepts
 an exact prefix of the next revision, never an arbitrary collection of objects.
 The caller owns maintenance evidence, backup, the pinned database lock and the
 version row; this module never writes or stamps a revision.
@@ -35,7 +35,7 @@ from .bundle import MigrationBundle
 from .models import MigrationError, digest
 
 _LEXEME = re.compile(r"\s+|`(?:``|[^`])*`|'(?:''|\\.|[^'\\])*'|[A-Za-z_][A-Za-z_0-9$]*|[0-9]+|>=|<=|<>|!=|[(),.=<>+-]")
-_REVISIONS = ("p0001", "p0002", "p0003", "p0004")
+_REVISIONS = ("p0001", "p0002", "p0003", "p0004", "p0005")
 _CITATION_TABLES = ("pc_artifacts", "pc_artifact_candidate_versions")
 _FAMILY_CHECK = "ck_pc_artifact_tags_family"
 _CONTROL_TABLE = "pc_schema_revision"
@@ -151,11 +151,15 @@ class MySQLSchema:
         self.bundle = bundle
         baseline = json.loads((bundle.snapshot_directory / "schemas/pre_dream.json").read_text())["mysql"]
         current = json.loads((bundle.snapshot_directory / "schemas/v1_1_0.json").read_text())["mysql"]
+        evidence = json.loads((bundle.snapshot_directory / "schemas/atomic_memory_evidence_v1.json").read_text())[
+            "mysql"
+        ]
         self._statements = {
             "p0001": tuple(baseline),
             "p0002": tuple(f"ALTER TABLE {table} ADD COLUMN memory_citations MEDIUMBLOB" for table in _CITATION_TABLES),
             "p0003": (f"ALTER TABLE pc_artifact_tags DROP CHECK {_FAMILY_CHECK}",),
             "p0004": (_ARTIFACT_HANDLES_DDL,),
+            "p0005": tuple(evidence[:-1]),
         }
         inventory = _empty_inventory()
         self._prefixes: dict[str, list[dict[str, Any]]] = {}

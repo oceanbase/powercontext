@@ -80,6 +80,9 @@ class AtomicMemoryProjections(Protocol):
         prepared: PreparedAtomicMemoryProjection,
     ) -> None: ...
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None: ...
+    async def capture_evidence(
+        self, connection: AsyncConnection, scope_id: str, record: AtomicMemoryRecord
+    ) -> None: ...
 
 
 ATOMIC_MERGE_ERRORS = ArtifactMergeErrors(
@@ -478,6 +481,11 @@ class AtomicMemoryService:
             read_set=tuple(_common_read(read) for read in read_set),
             direct_source=direct_source,
         )
+        for item, result in zip(prepared, results, strict=True):
+            revisions = {write.artifact_id for write in item.plan.writes if write.draft is not None}
+            for record in result.records:
+                if record.artifact.artifact_id in revisions:
+                    await self.projections.capture_evidence(connection, scope_id, _atomic_record(record))
         return tuple(
             AtomicMemoryMutationResult(
                 changed=result.changed,

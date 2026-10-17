@@ -204,7 +204,7 @@ from powercontext.builtin.sources import (
 )
 from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
-from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
+from powercontext.sources import AdapterSourceDefinition, Source, SourceDefinitionRegistry, SourceProjectionKey
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -885,7 +885,17 @@ def _validate_processing_source_registry(
         type(source_registry) is not SourceDefinitionRegistry
         or len(definitions) != len(builtin_definitions)
         or any(
-            definition is not expected for definition, expected in zip(definitions, builtin_definitions, strict=True)
+            not (
+                definition is expected
+                or (
+                    type(definition) is AdapterSourceDefinition
+                    and type(expected) is AdapterSourceDefinition
+                    and definition.adapter is expected.adapter
+                    and definition.version == expected.version
+                    and definition.projections is expected.projections
+                )
+            )
+            for definition, expected in zip(definitions, builtin_definitions, strict=True)
         )
     ):
         raise BuiltinConfigurationError("artifact-processing-source-registry")

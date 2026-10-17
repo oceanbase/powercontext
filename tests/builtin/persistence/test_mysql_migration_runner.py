@@ -299,10 +299,10 @@ def test_mysql_initialization_and_shared_evidence_noop(backend: _BackendTarget) 
     assert result.state == "ready"
     assert result.changed
     assert result.backup_state == "not_required"
-    assert result.revision == "p0004"
+    assert result.revision == "p0005"
     replacement = backend.runner()
     assert replacement.plan().state == "ready"
-    assert replacement.verify().revision == "p0004"
+    assert replacement.verify().revision == "p0005"
     assert not replacement.apply().changed
 
 
@@ -322,7 +322,7 @@ def test_mysql_operator_backup_choices_preserve_baseline_data_without_fork(
     result = _apply(runner, policy=policy)
     assert result.backup_state == ("user_confirmed" if policy == "manual" else "skipped")
     state = _read_state(backend)
-    assert state["revision"] == "p0004"
+    assert state["revision"] == "p0005"
     assert state["content"] == [(b'{"content":"preserved"}',)]
     assert state["tags"] == [("Keep",)]
     assert "memory_citations" in state["columns"]["pc_artifacts"]
@@ -390,7 +390,7 @@ def test_mysql_committed_partial_ddl_resumes_from_shared_original_evidence(backe
     replacement = _acknowledge_known_completed_interruption(backend, recovery)
     assert _apply(replacement, policy="manual").state == "ready"
     state = _read_state(backend)
-    assert state["revision"] == "p0004"
+    assert state["revision"] == "p0005"
     assert state["content"] == [(b'{"content":"preserved"}',)]
     assert state["tags"] == [("Keep",)]
     assert replacement.verify().state == "ready"
@@ -436,7 +436,7 @@ def test_mysql_empty_source_recovers_baseline_and_citation_ddl_without_probing_b
     )
     result = _apply(replacement)
     assert result.backup_state == "not_required"
-    assert replacement.verify().revision == "p0004"
+    assert replacement.verify().revision == "p0005"
     assert _read_state(backend)["content"] == []
 
 
@@ -453,7 +453,7 @@ def test_mysql_baseline_adoption_recovers_an_empty_committed_version_table(backe
     assert recovered.adopt_baseline
     replacement = _acknowledge_known_completed_interruption(backend, recovered)
     assert _apply(replacement, policy="manual").state == "ready"
-    assert replacement.verify().revision == "p0004"
+    assert replacement.verify().revision == "p0005"
     assert _read_state(backend)["tags"] == [("Keep",)]
 
 
@@ -479,7 +479,7 @@ def test_mysql_committed_revision_recovers_before_evidence_advance(backend: _Bac
     assert recovery.source_revision == "p0002"
     replacement = _acknowledge_known_completed_interruption(backend, recovery)
     assert _apply(replacement, policy="manual").state == "ready"
-    assert replacement.verify().revision == "p0004"
+    assert replacement.verify().revision == "p0005"
     assert _read_state(backend)["content"] == [(b'{"content":"preserved"}',)]
 
 
@@ -488,7 +488,7 @@ def test_mysql_completed_head_with_an_interrupted_run_requires_exact_acknowledge
         pytest.skip("embedded seekdb closes its engine and has no remote in-flight run receipt")
     _load_baseline(backend)
     assert _apply(backend.runner(), policy="manual").state == "ready"
-    assert backend.runner().verify().revision == "p0004"
+    assert backend.runner().verify().revision == "p0005"
 
     def committed_write_then_interrupt(
         connection: Connection | None, _identity: BackendIdentity, verify: Callable[[], None]
@@ -502,12 +502,12 @@ def test_mysql_completed_head_with_an_interrupted_run_requires_exact_acknowledge
     with pytest.raises(_InterruptedDDL):
         backend.connections().run(committed_write_then_interrupt, writable=True)
     before = _read_state(backend)
-    assert before["revision"] == "p0004"
+    assert before["revision"] == "p0005"
     assert before["tags"] == [("Confirmed",)]
     replacement = backend.runner(backup_factory=_forbidden_automatic_backup)
     recovery = replacement.plan()
     assert recovery.state == "recovery_required"
-    assert recovery.source_revision == "p0004"
+    assert recovery.source_revision == "p0005"
     assert recovery.revisions == ()
     pending = (recovery.coordination or {}).get("pending_run_id")
     assert pending
@@ -526,6 +526,6 @@ def test_mysql_completed_head_with_an_interrupted_run_requires_exact_acknowledge
     assert result.state == "ready"
     assert not result.changed
     assert _read_state(backend) == before
-    assert backend.runner().verify().revision == "p0004"
+    assert backend.runner().verify().revision == "p0005"
     assert not backend.runner().apply().changed
     assert "pending_run_id" not in (backend.runner().plan().coordination or {})

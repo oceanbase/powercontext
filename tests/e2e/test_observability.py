@@ -50,6 +50,7 @@ from powercontext.builtin.artifacts.memory import (
 )
 from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
+from powercontext.builtin.persistence.atomic_memory_evidence import AtomicMemoryEvidenceRepository
 from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryIndexCapabilities,
     AtomicMemoryProjection,
@@ -240,10 +241,16 @@ class _VectorMemoryIndex:
     tables = ()
 
     def __init__(self, profile=None):
-        pass
+        self._evidence = AtomicMemoryEvidenceRepository()
 
     async def initialize(self, connection: AsyncConnection, /):
         pass
+
+    async def save_evidence(self, connection, scope_id, artifact_ref, sources, /):
+        return await self._evidence.save(connection, scope_id, artifact_ref, sources)
+
+    async def read_evidence(self, connection, scope_id, artifact_ref, /):
+        return await self._evidence.read(connection, scope_id, artifact_ref)
 
     async def replace(self, connection: AsyncConnection, scope_id: str, projection: AtomicMemoryProjection, /):
         pass

@@ -21,12 +21,20 @@ from collections.abc import Sequence
 from sqlalchemy import MetaData, Table
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.builtin.persistence.atomic_memory_evidence_schema import ATOMIC_MEMORY_EVIDENCE_TABLES
+from powercontext.builtin.persistence.migrations.atomic_memory_evidence import apply_atomic_memory_evidence_migration
+
 
 async def create_tables(connection: AsyncConnection, tables: Sequence[Table], /) -> None:
-    """Create missing tables and indexes using SQLAlchemy's native metadata support."""
+    """Create selected tables, applying retained evidence through its frozen revision."""
 
     groups: dict[MetaData, list[Table]] = {}
+    evidence_names = {table.name for table in ATOMIC_MEMORY_EVIDENCE_TABLES}
+    if any(table.name in evidence_names or table.name == "pc_sources" for table in tables):
+        await apply_atomic_memory_evidence_migration(connection)
     for table in tables:
+        if table.name in evidence_names:
+            continue
         groups.setdefault(table.metadata, []).append(table)
 
     for metadata, selected in groups.items():

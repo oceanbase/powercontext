@@ -18,10 +18,16 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Iterable, Mapping, Sequence
 from contextlib import suppress
+from hashlib import sha256
 from typing import Any, Literal, cast
 
 import rfc8785
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 from sqlalchemy import func, insert, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -29,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
 from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+from powercontext.builtin.persistence.atomic_memory_evidence_schema import SOURCE_EVIDENCE_BINDINGS_TABLE
 from powercontext.builtin.persistence.codec import load_model, stored_bytes
 from powercontext.builtin.persistence.errors import (
     IdentityMismatchError,
@@ -39,12 +46,22 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
+from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, SOURCES_TABLE
-from powercontext.builtin.sources.content import ContentSource
+from powercontext.builtin.sources.content import CONTENT_SOURCE_NAME, ContentSource
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 from powercontext.errors import SourceDefinitionNotFoundError
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
-from powercontext.sources import Source, SourceAdapter, SourceDefinitionRegistry, SourceObservation, SourceRef
+from powercontext.sources import (
+    MemoryEvidenceDeclaration,
+    Source,
+    SourceAdapter,
+    SourceDefinitionManifest,
+    SourceDefinitionRegistry,
+    SourceEvidence,
+    SourceObservation,
+    SourceRef,
+)
 
 _AnySourceAdapter = SourceAdapter[Any, Any, Any]
 _JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
@@ -165,6 +182,7 @@ class SourceRepository:
             if stored.value != source:
                 raise StoredPayloadConflictError("source", (scope_id, ref)) from None
             return stored, False
+        await self._bind_memory_evidence(connection, scope_id, ref, source)
         # Centralized here so capture, record projection and import all publish
         # discoverable input atomically. Replayed Source identities do not dirty
         # a binding again. Disabled processors simply retain ordinary dirty.
@@ -232,6 +250,259 @@ class SourceRepository:
             if (ref.source_type, ref.source_id) not in decoded:
                 raise RepositoryNotFoundError("source", (scope_id, ref))
         return tuple(decoded[(ref.source_type, ref.source_id)] for ref in ordered)
+
+    async def evidence(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        refs: Sequence[SourceRef],
+        /,
+    ) -> tuple[SourceEvidence, ...]:
+        """Read accepted declarations against exact stored Source material.
+
+        Source reads retain their existing errors and never become generation
+        eligibility checks. Missing or invalid declaration bindings are neutral;
+        database failures propagate. No current registry declaration or provider
+        value is substituted for historical registration facts.
+        """
+
+        return await self.historical_evidence(connection, scope_id, refs)
+
+    async def historical_evidence(
+        self, connection: AsyncConnection, scope_id: str, refs: Sequence[SourceRef], /
+    ) -> tuple[SourceEvidence, ...]:
+        """Check retained material without loading today's native Definition.
+
+        Only the stored representation selects decoding. Canonical JSON retains
+        all native fields, rather than round-tripping through a newer model.
+        This does not supply a decoder or provider value for ordinary reads.
+        """
+
+        _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
+        identities = tuple(dict.fromkeys((ref.source_type, ref.source_id) for ref in refs))
+        if not identities:
+            return ()
+        rows = (
+            (
+                await connection.execute(
+                    select(SOURCES_TABLE).where(
+                        SOURCES_TABLE.c.scope_id == scope_id,
+                        tuple_(SOURCES_TABLE.c.source_type, SOURCES_TABLE.c.source_id).in_(identities),
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+        by_ref = {(row["source_type"], row["source_id"]): row for row in rows}
+        materials: list[SourceEvidence] = []
+        fingerprints: dict[tuple[str, str], str] = {}
+        for ref in identities:
+            reference = SourceRef(source_type=ref[0], source_id=ref[1])
+            row = by_ref.get(ref)
+            if row is None:
+                raise RepositoryNotFoundError("source", (scope_id, reference))
+            source, material = await self._historical_material(connection, reference, row)
+            if isinstance(source, SourceObservation):
+                fingerprints[ref] = source.definition_fingerprint
+            elif ref[0] == CONTENT_SOURCE_NAME:
+                # The server-owned Content witness is the sole permitted material
+                # mutation; this exclusion is the same one used at acceptance.
+                internal = material.get("internal")
+                if (
+                    isinstance(internal, dict)
+                    and internal.get("role") == "lineage_only"
+                    and internal.get("operation") in {"artifact_create", "artifact_replace"}
+                ):
+                    continue
+                material = {key: value for key, value in material.items() if key != "handoff_receipt"}
+            materials.append(
+                SourceEvidence(
+                    source_ref=reference,
+                    materialization=source.materialization,
+                    material_digest=_source_material_digest_material(material),
+                    definition_name=ref[0],
+                    definition_version=source.definition_version,
+                )
+            )
+        return await self._bound_evidence(connection, scope_id, tuple(materials), fingerprints)
+
+    async def _historical_material(
+        self, connection: AsyncConnection, reference: SourceRef, row: Mapping[Any, Any]
+    ) -> tuple[Source, dict[str, JsonValue]]:
+        """Validate the stored representation and its retained schema, not a live model."""
+
+        payload = stored_bytes(row["payload"], column="payload")
+        try:
+            envelope = load_model(_StoredSourcePayload, payload, kind="source-envelope", name=reference.source_type)
+        except InvalidStoredPayloadError:
+            # Bare legacy material has no representation discriminator. Use
+            # its registered decoder when available; otherwise retain opaque
+            # canonical fields for neutral maintenance, not a guessed schema.
+            try:
+                self._registry.definition_for_name(reference.source_type)
+            except SourceDefinitionNotFoundError:
+                source = load_model(Source, payload, kind="source", name=reference.source_type)
+                if source.name != reference.source_id:
+                    raise IdentityMismatchError("source", reference.source_id, source.name) from None
+                try:
+                    material = _JSON_OBJECT.validate_json(payload, strict=True)
+                except ValueError as error:
+                    raise InvalidStoredPayloadError("source", reference.source_type, "payload is not JSON") from error
+                return source, material
+            source = self._decode_row(row).value
+            try:
+                material = _JSON_OBJECT.validate_json(payload, strict=True)
+            except ValueError as error:
+                raise InvalidStoredPayloadError("source", reference.source_type, "payload is not JSON") from error
+            return source, material
+        material = envelope.value
+        model = SourceObservation if envelope.representation == "observation" else Source
+        source = load_model(model, rfc8785.dumps(material), kind="source", name=reference.source_type)
+        decoded = SourceRef(
+            source_type=source.source_type if isinstance(source, SourceObservation) else reference.source_type,
+            source_id=source.name,
+        )
+        if reference != decoded:
+            raise IdentityMismatchError("source", reference, decoded)
+        table = SOURCE_EVIDENCE_BINDINGS_TABLE
+        fingerprint = await connection.scalar(
+            select(table.c.manifest_fingerprint).where(
+                table.c.scope_id == row["scope_id"],
+                table.c.source_type == reference.source_type,
+                table.c.source_id == reference.source_id,
+                table.c.definition_name == reference.source_type,
+                table.c.definition_version == source.definition_version,
+            )
+        )
+        manifest = await _find_evidence_manifest(connection, reference.source_type, source.definition_version)
+        if manifest is not None and manifest.fingerprint == fingerprint:
+            try:
+                Draft202012Validator.check_schema(manifest.source_schema)
+                value = source.payload if isinstance(source, SourceObservation) else material
+                Draft202012Validator(manifest.source_schema, registry=Registry()).validate(value)
+            except JsonSchemaValidationError as error:
+                raise InvalidStoredPayloadError(
+                    "source", reference.source_type, "payload does not match the historical schema"
+                ) from error
+            except (SchemaError, Unresolvable):
+                self._validate_unbound_material(reference, envelope, source)
+        else:
+            self._validate_unbound_material(reference, envelope, source)
+        return source, material
+
+    def _validate_unbound_material(self, reference: SourceRef, envelope: _StoredSourcePayload, source: Source) -> None:
+        """Keep supported exact-read errors when no historical schema is available.
+
+        A live decoder validates only material of its own version; it never
+        contributes a declaration or reinterprets a valid historical binding.
+        """
+
+        if envelope.representation == "observation":
+            return  # SourceObservation already validated its envelope and payload.
+        try:
+            definition = self._registry.definition_for_name(reference.source_type)
+        except SourceDefinitionNotFoundError:
+            return
+        if definition.version == source.definition_version:
+            self._decode_envelope(reference.source_type, envelope)
+
+    @staticmethod
+    async def _bound_evidence(
+        connection: AsyncConnection,
+        scope_id: str,
+        materials: tuple[SourceEvidence, ...],
+        fingerprints: Mapping[tuple[str, str], str],
+    ) -> tuple[SourceEvidence, ...]:
+        if not materials:
+            return ()
+        table = SOURCE_EVIDENCE_BINDINGS_TABLE
+        rows = (
+            (
+                await connection.execute(
+                    select(table).where(
+                        table.c.scope_id == scope_id,
+                        tuple_(table.c.source_type, table.c.source_id).in_(
+                            tuple((value.source_ref.source_type, value.source_ref.source_id) for value in materials)
+                        ),
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+        bindings = {(row["source_type"], row["source_id"]): row for row in rows}
+        manifests: dict[tuple[str, str], SourceDefinitionManifest | None] = {}
+        evidence: list[SourceEvidence] = []
+        for value in materials:
+            identity = (value.source_ref.source_type, value.source_ref.source_id)
+            binding = bindings.get(identity)
+            if binding is None or (
+                binding["material_digest"] != value.material_digest
+                or binding["definition_name"] != value.definition_name
+                or binding["definition_version"] != value.definition_version
+                or not isinstance(binding["manifest_fingerprint"], str)
+            ):
+                evidence.append(value)
+                continue
+            definition_identity = (value.definition_name, value.definition_version)
+            if definition_identity not in manifests:
+                manifests[definition_identity] = await _find_evidence_manifest(connection, *definition_identity)
+            manifest = manifests[definition_identity]
+            if (
+                manifest is None
+                or manifest.fingerprint != binding["manifest_fingerprint"]
+                or (identity in fingerprints and fingerprints[identity] != manifest.fingerprint)
+            ):
+                evidence.append(value)
+                continue
+            try:
+                declaration = MemoryEvidenceDeclaration.model_validate_json(
+                    stored_bytes(binding["declaration"], column="declaration")
+                )
+            except (InvalidStoredColumnError, TypeError, ValueError):
+                declaration = MemoryEvidenceDeclaration()
+            evidence.append(
+                value.model_copy(
+                    update={
+                        "manifest_fingerprint": manifest.fingerprint,
+                        "declaration": declaration,
+                    }
+                )
+            )
+        return tuple(evidence)
+
+    async def _bind_memory_evidence(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        ref: SourceRef,
+        source: Source,
+    ) -> None:
+        """Freeze registration evidence only for a newly accepted Source row."""
+
+        if isinstance(source, SourceObservation):
+            manifest = await _find_evidence_manifest(connection, ref.source_type, source.definition_version)
+            if manifest is not None and manifest.fingerprint != source.definition_fingerprint:
+                manifest = None
+        else:
+            definition = self._registry.definition_for_source(source)
+            manifest = await SourceDefinitionManifestRepository().register_native(connection, definition)
+        declaration = (
+            MemoryEvidenceDeclaration() if manifest is None else self._registry.memory_evidence_for_source(source)
+        )
+        await connection.execute(
+            insert(SOURCE_EVIDENCE_BINDINGS_TABLE).values(
+                scope_id=scope_id,
+                source_type=ref.source_type,
+                source_id=ref.source_id,
+                material_digest=_source_material_digest(source),
+                definition_name=ref.source_type,
+                definition_version=source.definition_version,
+                manifest_fingerprint=None if manifest is None else manifest.fingerprint,
+                declaration=declaration.model_dump_json().encode("utf-8"),
+            )
+        )
 
     async def list(
         self,
@@ -440,6 +711,36 @@ class SourceRepository:
             self._registry.definition_for_source(source)
             decoded = SourceRef(source_type=definition.name, source_id=source.name)
         return cast(Source, source), decoded
+
+
+def _source_material_digest(source: Source) -> str:
+    # Preserve every material field except the narrow server witness upgrade.
+    material = source.model_dump(mode="json", by_alias=True)
+    if isinstance(source, ContentSource):
+        material.pop("handoff_receipt", None)
+    return f"sha256:{sha256(rfc8785.dumps(material)).hexdigest()}"
+
+
+def _management_write_source(source: Source) -> bool:
+    return (
+        isinstance(source, ContentSource)
+        and source.internal is not None
+        and source.internal.role == "lineage_only"
+        and source.internal.operation in {"artifact_create", "artifact_replace"}
+    )
+
+
+async def _find_evidence_manifest(
+    connection: AsyncConnection, name: str, version: str
+) -> SourceDefinitionManifest | None:
+    try:
+        return await SourceDefinitionManifestRepository().find(connection, name, version)
+    except (IdentityMismatchError, InvalidStoredColumnError, InvalidStoredPayloadError):
+        return None
+
+
+def _source_material_digest_material(material: Mapping[str, JsonValue]) -> str:
+    return f"sha256:{sha256(rfc8785.dumps(material)).hexdigest()}"
 
 
 def _dump_source(

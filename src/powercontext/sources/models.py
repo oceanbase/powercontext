@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from powercontext.errors import InvalidSourceReferenceError
 from powercontext.limits import MAX_SOURCE_ID_LENGTH, MAX_SOURCE_TYPE_LENGTH
@@ -60,10 +60,11 @@ class SourceProjectionKey(BaseModel):
 class Source(BaseModel):
     """Base value for an adapter-owned Source description."""
 
-    name: str
-    definition_version: str = "1"
-    materialization: SourceMaterialization
-    description: str | None = None
+    # Envelope keys stay canonical for validation and serialization, independently of adapter aliases.
+    name: str = Field(alias="name")
+    definition_version: str = Field(default="1", alias="definition_version")
+    materialization: SourceMaterialization = Field(alias="materialization")
+    description: str | None = Field(default=None, alias="description")
 
     @field_validator("definition_version")
     @classmethod

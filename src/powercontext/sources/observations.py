@@ -163,7 +163,7 @@ class SourceObservation(Source):
 def manifest_for_definition(definition: SourceDefinition[Any, Any, Any], /) -> SourceDefinitionManifest:
     """Build the immutable declaration transported by a remote worker."""
 
-    source_schema = _json_object(definition.source_class.model_json_schema())
+    source_schema = _json_object(definition.source_class.model_json_schema(mode="serialization"))
     projections = tuple(
         SourceProjectionManifest(
             key=SourceProjectionKey(name=projection.name, version=projection.version),
@@ -199,7 +199,7 @@ def project_source_for_transport(
             "remote Source observations must retain their canonical value",
         )
     manifest = manifest_for_definition(definition)
-    payload = _json_object(source.model_dump(mode="json"))
+    payload = _json_object(source.model_dump(mode="json", by_alias=True))
     projections = tuple(
         SourceProjectionValue(key=key, value=registry.project(source, key)) for key in registry.projection_keys(source)
     )
