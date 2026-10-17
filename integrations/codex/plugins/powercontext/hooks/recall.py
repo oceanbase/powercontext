@@ -45,6 +45,7 @@ from settings import CodexPluginSettings  # noqa: E402
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse
 _validate_prepared_context = _prepared_context.validate_prepared_context
+_bounded_recall_query = _prepared_context.bounded_recall_query
 _MAX_RESPONSE_BYTES = 1_048_576
 _MAX_SOURCE_LENGTH = 200_000
 _READ_CHUNK_BYTES = 65_536
@@ -150,8 +151,9 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         )
         bootstrap_receipt_id = load_receipt(session_id, scope_id)
         clear_receipt(session_id)
+        query = _bounded_recall_query(prompt)
         context = _recall_context(
-            prompt,
+            query,
             scope_id,
             settings=settings,
             deadline=http_deadline,
