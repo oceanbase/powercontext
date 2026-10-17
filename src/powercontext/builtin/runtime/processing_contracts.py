@@ -91,6 +91,7 @@ class ArtifactProcessingWorkerCompletion:
     outcome: ArtifactProcessingWorkerOutcome = ArtifactProcessingWorkerOutcome.SUCCEEDED
     held_count: int = 0
     hold_codes: tuple[str, ...] = ()
+    noop: bool = False
 
 
 class ArtifactProcessingWorkerHandle(Protocol):

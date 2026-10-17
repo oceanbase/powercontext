@@ -51,7 +51,7 @@ def _samples(rendered):
         (sample.name, sample.labels["family"]): sample.value
         for metric in text_string_to_metric_families(rendered)
         for sample in metric.samples
-        if sample.name.startswith(PREFIX)
+        if sample.name.startswith(PREFIX) and "family" in sample.labels
     }
 
 
@@ -84,14 +84,14 @@ def test_processing_metrics_expose_family_capacity_progress_and_counter_snapshot
     assert instruments[PREFIX + "failed"].type == "counter"
     assert instruments[PREFIX + "timeouts"].type == "counter"
     assert instruments[PREFIX + "unacknowledged_requests"].type == "gauge"
-    assert "latest requested-work discovery pass" in instruments[PREFIX + "unacknowledged_requests"].documentation
+    assert "latest background pending observation" in instruments[PREFIX + "unacknowledged_requests"].documentation
     assert "resets on restart" in instruments[PREFIX + "completed"].documentation
     assert not any(secret in rendered for secret in ("scope-secret", "worker-secret", "binding-secret"))
     assert all(
         set(sample.labels) == {"family"}
         for instrument in instruments.values()
         for sample in instrument.samples
-        if sample.name.startswith(PREFIX)
+        if sample.name.startswith(PREFIX) and "family" in sample.labels
     )
 
     # Scrapes observe cumulative state; they never add it repeatedly.
@@ -130,7 +130,7 @@ def test_existing_metrics_endpoint_refreshes_current_supervisor_snapshot(tmp_pat
     with TestClient(app) as client:
         runtime = app.state.application
         previous = runtime.artifact_processing_supervisor
-        supervisor = SimpleNamespace(family_status={"memory": _status()})
+        supervisor = SimpleNamespace(family_status={"memory": _status()}, status=SimpleNamespace(value="leader"))
         runtime.artifact_processing_supervisor = supervisor
         try:
             first = client.get("/metrics")

@@ -845,7 +845,10 @@ async def open_builtin_runtime(
                 decision_model=configured_decision,
                 publication_application=contexts.publications,
                 scope_application=contexts.scopes,
-                readiness=RuntimeReadinessChecks(readiness_probes),
+                readiness=RuntimeReadinessChecks(
+                    readiness_probes,
+                    disabled_dependencies=(name for name, probe in inference_readiness if probe is None),
+                ),
                 tracing=tracing,
                 scheduled_source_runner=scheduled_source_runner,
                 scheduled_experience_runner=scheduled_experience_runner,

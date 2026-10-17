@@ -120,8 +120,7 @@ class _MetricsEndpoint:
                 ),
             )
         runtime = request.app.state.application
-        supervisor = None if runtime is None else runtime.artifact_processing_supervisor
-        self._metrics.set_processing_families({} if supervisor is None else supervisor.family_status)
+        self._metrics.refresh_runtime(runtime)
         return Response(self._metrics.render(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -165,7 +164,7 @@ def create_server_app(  # noqa: C901
         inference=resolved.inference,
         external_skills=resolved.external_skills,
     )
-    metrics = ServerMetrics() if resolved.metrics.enabled else None
+    metrics = ServerMetrics(role=resolved.runtime.artifact_processing_role) if resolved.metrics.enabled else None
     resolved_tracing = (
         ServerTracing.context_only(role=resolved.runtime.artifact_processing_role) if tracing is None else tracing
     )

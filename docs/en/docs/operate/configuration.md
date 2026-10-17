@@ -314,9 +314,11 @@ family, or disabling built-in background families with `ARTIFACT_PROCESSING_FAMI
 before accepting work. Turning off schedules alone is insufficient because explicit requests still start workers.
 Custom Source registries remain available to synchronous SDK contexts and API-only composition.
 
-The authenticated `/metrics` endpoint exposes `powercontext_server_artifact_processing_*` observations with only a `family`
-label: Worker capacity, ready/retry queues, unacknowledged Scopes, discovery and invocation duration, completions,
+The authenticated `/metrics` endpoint exposes `powercontext_server_artifact_processing_*` observations with a bounded `family`
+label and, where applicable, `state`, `outcome`, `category`, or `reason`: Worker capacity, ready/retry queues,
+unacknowledged Scopes, discovery and invocation duration, completions,
 failures, and timeouts. Unacknowledged counts reflect the latest discovery; counters reset with the Supervisor instance.
+See [Logs, metrics, and tracing](observability.md) for freshness, state, attempt/acknowledgement, and alert semantics.
 
 The `extraction` object in `GET /v1/capabilities` separates configuration, background execution, and local observations.
 Reading this snapshot does not query the database or call a model, and does not produce an overall health verdict.
@@ -408,9 +410,12 @@ Handoff Report API routes are independently enabled by default. See
 [Use Handoff Report](../workflows/use-handoff-report.md) for selection, inspection, and export.
 
 The Artifact Processing Supervisor is enabled by the default `all` role. OceanBase deployments may run `api` and
-`background` separately; `powercontext server run --role background` starts no HTTP, MCP, or Dashboard listener, and
-multiple background candidates use the database Lease to elect one active Leader. SQLite and embedded seekdb support
-only the single-process `all` role. Automatic Topic Memory waves remain disabled until a positive interval is set;
+`background` separately. `powercontext server run --role background` starts only a metrics HTTP listener when metrics
+are enabled, using `POWERCONTEXT_SERVER_HTTP_HOST` and `POWERCONTEXT_SERVER_HTTP_PORT`; it does not serve API, MCP,
+Dashboard, or health routes. `/metrics` uses the same authentication and `server.observe` authorization as the API host.
+Use distinct ports for API and background processes on the same host. `POWERCONTEXT_SERVER_METRICS_ENABLED=false`
+opens no background listener. Multiple background candidates use the database Lease to elect one active Leader.
+SQLite and embedded seekdb support only the single-process `all` role. Automatic Topic Memory waves remain disabled until a positive interval is set;
 explicit flush work remains recoverable regardless of that interval. Topic workers need file-backed SQLite: configuring
 a generation model with an in-memory SQLite database is rejected before processing is advertised. Use a persistent
 `POWERCONTEXT_SERVER_DATABASE_URL`, such as `sqlite+aiosqlite:////srv/powercontext/runtime.db`.

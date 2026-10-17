@@ -46,6 +46,7 @@ from powercontext.cli.env_file import environment_context
 from powercontext.cli.inference_notice import write_inference_capability_notice
 from powercontext.server.authz import PrincipalRef
 from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.server.background_metrics import create_background_metrics_app, serve_background_metrics
 from powercontext.server.configuration import (
     ServerConfigurationError,
     resolve_server_environment_file,
@@ -55,6 +56,7 @@ from powercontext.server.database_migration import app as database_migration_app
 from powercontext.server.factory import create_server_app
 from powercontext.server.identity import open_server_identity_repository
 from powercontext.server.logging import WorkerLogging, configure_server_logging
+from powercontext.server.metrics import ServerMetrics
 from powercontext.server.processing_security import build_worker_security
 from powercontext.server.settings import (
     MissingAuthenticationProviderError,
@@ -452,7 +454,7 @@ def _run_server(application: Any, *, host: str, port: int) -> None:
 
 
 def _run_background(settings: ServerSettings, tracing: Any) -> None:
-    """Run a Supervisor-only process until SIGINT or SIGTERM."""
+    """Run a Supervisor and optional metrics listener until SIGINT or SIGTERM."""
 
     asyncio.run(_run_background_async(settings, tracing))
 
@@ -492,7 +494,7 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
                     )
                 )
             worker_security = build_worker_security(settings, access, legacy_static_principal=principal)
-            await resources.enter_async_context(
+            runtime = await resources.enter_async_context(
                 open_builtin_runtime(
                     config,
                     instrumentation=tracing.instrumentation,
@@ -501,7 +503,14 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
                     worker_initializer=WorkerLogging(settings.logging),
                 )
             )
-            await stopped.wait()
+            if settings.metrics.enabled and not stopped.is_set():
+                metrics = ServerMetrics(role="background")
+                application = create_background_metrics_app(
+                    settings, runtime=runtime, metrics=metrics, access_control=access
+                )
+                await serve_background_metrics(application, settings, stopped)
+            else:
+                await stopped.wait()
     finally:
         for signum in installed:
             loop.remove_signal_handler(signum)

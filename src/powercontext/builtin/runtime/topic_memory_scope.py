@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -147,15 +147,17 @@ class TopicMemoryScopeProcessor:
         try:
             # An old G0 target may survive while the dispatcher now claims G1.
             # Retire G0 atomically before freezing G1; never extend an active H.
+            did_work = False
             for _ in range(2):
                 target = await self._target(assignment)
                 if target is None:
-                    return ArtifactProcessingWorkerCompletion()
+                    return ArtifactProcessingWorkerCompletion(noop=not did_work)
                 result = await self._process_target(assignment, target)
                 if result.outcome is not ArtifactProcessingWorkerOutcome.SUCCEEDED:
                     return result
+                did_work = did_work or not result.noop
                 if target.target_request_generation == assignment.claimed_request_generation:
-                    return result
+                    return replace(result, noop=not did_work)
         except ArtifactProcessingLeadershipLostError:
             return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.LEADERSHIP_LOST)
         except GenerationConflictError:
@@ -229,6 +231,7 @@ class TopicMemoryScopeProcessor:
     async def _process_target(
         self, assignment: ArtifactProcessingWorkAssignment, target: TopicMemoryProcessingTarget
     ) -> ArtifactProcessingWorkerCompletion:
+        did_work = False
         while True:
             async with self._database.transaction() as connection:
                 await self._leases.require_fence(connection, assignment.fence)
@@ -240,7 +243,7 @@ class TopicMemoryScopeProcessor:
                         await self._commit_authorizer(connection, assignment.scope_id, ())
                     await self._finish_target(connection, assignment, target)
                     await self._leases.require_fence(connection, assignment.fence)
-                    return ArtifactProcessingWorkerCompletion()
+                    return ArtifactProcessingWorkerCompletion(noop=not did_work)
             ceiling = min(target.source_through, source_after + self._source_window_limit)
             through = await self._selector.select(assignment.scope_id, source_after, ceiling)
             if not isinstance(through, int) or isinstance(through, bool) or not source_after < through <= ceiling:
@@ -265,8 +268,11 @@ class TopicMemoryScopeProcessor:
                     await self._require_target(connection, assignment, target)
 
             completion = await self._processor.process(window, commit_hook=commit)
-            if completion.outcome is not ArtifactProcessingWorkerOutcome.SUCCEEDED or through == target.source_through:
+            did_work = did_work or not completion.noop
+            if completion.outcome is not ArtifactProcessingWorkerOutcome.SUCCEEDED:
                 return completion
+            if through == target.source_through:
+                return replace(completion, noop=not did_work)
 
     async def _finish_target(
         self,

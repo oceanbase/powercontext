@@ -200,6 +200,8 @@ A managed Skill holds a name, a discovery description, instructions, validation 
 install or execute it: an exact approved Revision must be exported explicitly before an Agent host can discover the
 host-local projection.
 
+[Operational metrics](docs/en/docs/operate/observability.md) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
+
 ## Why PowerContext?
 
 - **Context lives outside the conversation.** Memory, Handoff, Experience, and Skill are server-side artifacts, not

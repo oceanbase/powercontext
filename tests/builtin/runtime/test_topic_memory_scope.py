@@ -143,6 +143,7 @@ def test_snapshot_reads_current_input_but_acknowledges_only_claimed_generation()
             processor = _processor(profile, sources, topics, probe)
             result = await processor.process(assignment)
             assert result.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
+            assert result.noop is False
             intent, cursor, pending, targets = await _state(profile)
             assert intent.requested_generation == 2
             assert intent.handled_generation == 1
@@ -150,7 +151,8 @@ def test_snapshot_reads_current_input_but_acknowledges_only_claimed_generation()
             assert cursor == 2 and pending is None and not targets
 
             await _capture(profile, sources, 3)
-            await processor.process(assignment)
+            replay = await processor.process(assignment)
+            assert replay.noop is True
             assert len(probe.inputs) == 2
             assert (await _state(profile))[1] == 2
             await processor.process(replace(assignment, claimed_request_generation=2))
@@ -331,6 +333,34 @@ def test_authorization_failure_preserves_target_and_unacknowledged_work(empty):
                 await _processor(profile, sources, topics, _Probe(), commit_authorizer=deny).process(assignment)
             intent, cursor, _, targets = await _state(profile)
             assert cursor == 0 and intent.handled_generation == 0 and targets
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("first_noop", [False, True])
+def test_multi_window_noop_requires_every_window_to_be_noop(monkeypatch, first_noop):
+    async def scenario():
+        manager, profile, sources, topics = await _repositories()
+        try:
+            await _capture(profile, sources, 1)
+            await _capture(profile, sources, 2)
+            assignment = await _assignment(profile, generation=2)
+            original = TopicMemoryProcessor.process
+            calls = 0
+
+            async def process_window(self, window, *, commit_hook=None):
+                nonlocal calls
+                calls += 1
+                completion = await original(self, window, commit_hook=commit_hook)
+                return replace(completion, noop=first_noop if calls == 1 else True)
+
+            monkeypatch.setattr(TopicMemoryProcessor, "process", process_window)
+            result = await _processor(profile, sources, topics, _Probe()).process(assignment)
+            assert calls == 2
+            assert result.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
+            assert result.noop is first_noop
         finally:
             await manager.__aexit__(None, None, None)
 

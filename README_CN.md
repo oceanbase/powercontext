@@ -168,6 +168,8 @@ Experience 记录一个场景、一次动作、观察到的结果，以及可复
 
 一个受管的 Skill 包含名称、发现描述、指令、校验项和血缘。评审通过**不等于**安装或执行：必须先显式导出某一个明确的已通过 Revision，Agent 宿主才能发现对应的宿主内副本。
 
+[运行指标](docs/zh/docs/operate/observability.md)提供依赖状态观察、处理进度新鲜度和执行尝试延迟；独立后台部署也可使用受保护的专用指标端点。
+
 ## 为什么选 PowerContext？
 
 - **上下文活在对话之外。** Memory、Handoff、Experience、Skill 都是服务端 Artifact，不是某个 Agent 家目录里的文件。从 Codex 换到 Claude Code，或者把工作交给同事，工作本身跟着你走。

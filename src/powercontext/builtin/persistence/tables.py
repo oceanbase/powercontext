@@ -32,7 +32,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.mysql import BINARY, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
+from sqlalchemy.dialects.mysql import BINARY, DATETIME, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
 
 from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
@@ -578,6 +578,19 @@ ARTIFACT_PROCESSING_INTENTS_TABLE = Table(
     Index("ix_pc_processing_intent_binding_sequence", "binding_name", "pending_sequence"),
 )
 
+# Only unresolved invocation timestamps are retained. Existing intent generations
+# without a row have unknown acceptance time; opening a database never backfills it.
+ARTIFACT_PROCESSING_REQUESTS_TABLE = Table(
+    "pc_artifact_processing_requests",
+    SHARED_METADATA,
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("generation", BigInteger, primary_key=True, autoincrement=False),
+    Column("requested_at", DateTime(timezone=False).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
+    CheckConstraint("generation > 0", name="ck_pc_processing_request_generation"),
+    Index("ix_pc_processing_request_oldest", "binding_name", "requested_at"),
+)
+
 TOPIC_MEMORY_PROCESSING_TARGETS_TABLE = Table(
     "pc_topic_memory_processing_targets",
     SHARED_METADATA,
@@ -1000,6 +1013,7 @@ SHARED_TABLES = (
     ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE,
     ARTIFACT_PROCESSING_SEQUENCES_TABLE,
     ARTIFACT_PROCESSING_INTENTS_TABLE,
+    ARTIFACT_PROCESSING_REQUESTS_TABLE,
     TOPIC_MEMORY_PROCESSING_TARGETS_TABLE,
     ARTIFACT_PROCESSING_SCHEMA_TABLE,
     ARTIFACT_PROCESSING_MIGRATION_RECEIPTS_TABLE,

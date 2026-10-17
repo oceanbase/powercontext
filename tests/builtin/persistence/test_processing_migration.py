@@ -122,6 +122,7 @@ def test_legacy_migration_preserves_targets_untracked_calls_cursor_and_remaining
         async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
             old = await _legacy(profile)
             async with profile.database.transaction() as connection:
+                await connection.exec_driver_sql("DROP TABLE pc_artifact_processing_requests")
                 plan = await plan_processing_migration(connection, config_manifest=MANIFEST)
                 assert plan.required and len(plan.missing_state_columns) == 4
                 with pytest.raises(ProcessingSchemaNotReadyError):
@@ -133,6 +134,9 @@ def test_legacy_migration_preserves_targets_untracked_calls_cursor_and_remaining
                 intents = {
                     row.scope_id: row for row in await ArtifactProcessingIntentRepository().scan(connection, BINDING)
                 }
+                observation = await ArtifactProcessingIntentRepository().pending_observation(connection, BINDING)
+                assert observation.pending_count == observation.unknown_count == 3
+                assert observation.oldest_requested_at is None
                 assert intents["flush"].requested_generation == 1
                 assert intents["untracked"].requested_generation == 1
                 assert intents["frozen"].requested_generation == 1

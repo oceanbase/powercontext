@@ -32,12 +32,12 @@ from enum import StrEnum
 from multiprocessing.context import SpawnProcess
 from multiprocessing.process import BaseProcess
 from random import SystemRandom
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import func, select, update
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
@@ -57,7 +57,8 @@ from powercontext.builtin.persistence.supervision import (
     ArtifactProcessingLeaseRepository,
     database_utc_now,
 )
-from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_INTENTS_TABLE, ARTIFACT_PROCESSING_LEASES_TABLE
+from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_LEASES_TABLE
+from powercontext.builtin.runtime.observations import DurationObservations, DurationObservationSnapshot
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingBlock,
     ArtifactProcessingBlockedError,
@@ -395,6 +396,17 @@ class _RunningWorker:
     started_at: float
 
 
+@dataclass(frozen=True, slots=True)
+class ProcessingObservationSnapshot:
+    """Process-local bounded observations; reading never performs domain work."""
+
+    attempt_durations: tuple[DurationObservationSnapshot, ...]
+    discovery_durations: tuple[DurationObservationSnapshot, ...]
+    error_counts: tuple[tuple[str, int], ...]
+    retry_counts: tuple[tuple[str, int], ...]
+    admission_blocks: int
+
+
 @dataclass(slots=True)
 class _FamilyState:
     binding: ArtifactProcessingBinding
@@ -427,6 +439,18 @@ class _FamilyState:
     last_error_stage: str = ""
     last_error_at: str = ""
     last_success_at: str = ""
+    last_acknowledgement_timestamp_seconds: float = 0
+    requested_snapshot_timestamp_seconds: float = 0
+    next_pending_observation_at: float = 0
+    pending_age_unknown_scopes: int = 0
+    oldest_pending_timestamp_seconds: float | None = None
+    pending_observation_failures: int = 0
+    pending_observed: dict[str, tuple[int, float]] = field(default_factory=dict)
+    attempt_durations: DurationObservations = field(default_factory=DurationObservations)
+    discovery_durations: DurationObservations = field(default_factory=DurationObservations)
+    error_counts: dict[str, int] = field(default_factory=dict)
+    retry_counts: dict[str, int] = field(default_factory=dict)
+    admission_blocks: int = 0
 
 
 class ArtifactProcessingSupervisor:
@@ -449,6 +473,7 @@ class ArtifactProcessingSupervisor:
         retry_cap_seconds: float = _RETRY_CAP_SECONDS,
         retry_jitter: Callable[[], float] | None = None,
         blocked_check_seconds: float = _BLOCKED_CHECK_SECONDS,
+        pending_observation_interval_seconds: float = 30.0,
         tracing: RuntimeTracing | None = None,
     ) -> None:
         for attribute in ("binding_name", "artifact_family", "config_prefix"):
@@ -475,6 +500,9 @@ class ArtifactProcessingSupervisor:
         if blocked_check_seconds <= 0:
             raise ValueError("blocked check interval must be positive")  # noqa: TRY003
         self._blocked_check_seconds = blocked_check_seconds
+        if pending_observation_interval_seconds <= 0:
+            raise ValueError("pending observation interval must be positive")  # noqa: TRY003
+        self._pending_observation_interval = pending_observation_interval_seconds
         self._tracing = tracing
         self._fence: ArtifactProcessingFence | None = None
         self._status = ArtifactProcessingSupervisorStatus.STANDBY
@@ -523,7 +551,45 @@ class ArtifactProcessingSupervisor:
                 "last_error_stage": state.last_error_stage,
                 "last_error_at": state.last_error_at,
                 "last_success_at": state.last_success_at,
+                "last_acknowledgement_timestamp_seconds": state.last_acknowledgement_timestamp_seconds,
+                "requested_snapshot_timestamp_seconds": state.requested_snapshot_timestamp_seconds,
+                "oldest_observed_pending_age_seconds": max(
+                    0.0, time.monotonic() - min(observed for _, observed in state.pending_observed.values())
+                )
+                if state.pending_observed
+                else 0.0,
+                "pending_age_unknown_scopes": state.pending_age_unknown_scopes,
+                "pending_observation_failures": state.pending_observation_failures,
+                **(
+                    {
+                        "oldest_pending_timestamp_seconds": state.oldest_pending_timestamp_seconds,
+                        "oldest_pending_age_seconds": max(
+                            0.0, state.requested_snapshot_timestamp_seconds - state.oldest_pending_timestamp_seconds
+                        ),
+                    }
+                    if (
+                        state.unacknowledged > 0
+                        and state.oldest_pending_timestamp_seconds is not None
+                        and state.pending_age_unknown_scopes == 0
+                    )
+                    else {}
+                ),
+                "observed_pending_scopes": len(state.pending_observed),
+                "blocked_wait": sum(retry.block is not None for retry in state.retries.values()),
             }
+            for state in self._families.values()
+        }
+
+    @property
+    def processing_observations(self) -> dict[str, ProcessingObservationSnapshot]:
+        return {
+            state.binding.artifact_family: ProcessingObservationSnapshot(
+                state.attempt_durations.snapshot(),
+                state.discovery_durations.snapshot(),
+                tuple(sorted(state.error_counts.items())),
+                tuple(sorted(state.retry_counts.items())),
+                state.admission_blocks,
+            )
             for state in self._families.values()
         }
 
@@ -618,6 +684,7 @@ class ArtifactProcessingSupervisor:
         self._status = ArtifactProcessingSupervisorStatus.LEADER
         for state in self._families.values():
             state.discovery_pending = True
+            state.next_pending_observation_at = 0
             state.reconcile_complete = False
             state.reconcile_after = None
         if self._lease_mode == "oceanbase":
@@ -660,21 +727,62 @@ class ArtifactProcessingSupervisor:
                 and now >= max(state.next_discovery_at, state.overflow_not_before)
             )
             if discoverable:
+                discovery_outcome = "success"
                 try:
                     async with asyncio.timeout(_DISCOVERY_TIMEOUT_SECONDS):
                         await self._discover(state)
                     state.degraded = False
                 except ArtifactProcessingLeadershipLostError:
+                    discovery_outcome = "leadership_lost"
+                    raise
+                except asyncio.CancelledError:
+                    discovery_outcome = "cancelled"
                     raise
                 except Exception as error:
+                    discovery_outcome = "failure"
                     state.degraded = True
                     state.next_discovery_at = now + self._tick
                     self._record_failure(state, error, "scope_discovery")
                     self._log_failure(state, None, error, "scope_discovery")
                 finally:
                     state.discovery_seconds = asyncio.get_running_loop().time() - now
+                    with suppress(Exception):
+                        state.discovery_durations.record(discovery_outcome, state.discovery_seconds)
+            await self._observe_pending_requests(state)
             await self._activate_retries(state)
             await self._dispatch(state)
+            retained = state.queued | state.running.keys() | state.retries.keys()
+            state.pending_observed = {
+                key: observed for key, observed in state.pending_observed.items() if key in retained
+            }
+
+    async def _observe_pending_requests(self, state: _FamilyState) -> None:
+        # Independent of worker capacity: a stalled worker must not freeze the
+        # pending snapshot. Rate-limit aggregate reads, including after failures.
+        now = asyncio.get_running_loop().time()
+        if now < state.next_pending_observation_at:
+            return
+        state.next_pending_observation_at = now + self._pending_observation_interval
+        try:
+            async with asyncio.timeout(_DISCOVERY_TIMEOUT_SECONDS):
+                async with self._database.transaction(consistent_snapshot=True) as connection:
+                    observation = await self._intents.pending_observation(connection, state.binding.binding_name)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            state.pending_observation_failures += 1
+            self._log_failure(state, None, error, "pending_observation")
+            return
+        state.unacknowledged = observation.pending_count
+        state.pending_age_unknown_scopes = observation.unknown_count
+        state.oldest_pending_timestamp_seconds = (
+            observation.oldest_requested_at.replace(tzinfo=UTC).timestamp()
+            if observation.oldest_requested_at is not None
+            else None
+        )
+        state.requested_snapshot_timestamp_seconds = observation.observed_at.replace(tzinfo=UTC).timestamp()
+        if not state.unacknowledged:
+            state.pending_observed.clear()
 
     async def _discover(self, state: _FamilyState) -> None:
         binding = state.binding
@@ -707,19 +815,6 @@ class ArtifactProcessingSupervisor:
             state.notification_at_start = self._notifications
         async with self._database.transaction() as connection:
             await self._leases.require_fence(connection, self._require_current_fence())
-            if state.requested_after == 0:
-                table = ARTIFACT_PROCESSING_INTENTS_TABLE
-                state.unacknowledged = int(
-                    await connection.scalar(
-                        select(func.count())
-                        .select_from(table)
-                        .where(
-                            table.c.binding_name == state.binding.binding_name,
-                            table.c.requested_generation > table.c.handled_generation,
-                        )
-                    )
-                    or 0
-                )
             rows = await self._intents.scan(
                 connection,
                 state.binding.binding_name,
@@ -728,6 +823,7 @@ class ArtifactProcessingSupervisor:
                 requested_only=True,
             )
         for row in rows:
+            self._observe_pending(state, row.scope_id, row.requested_generation)
             state.requested_after = row.pending_sequence
             if row.scope_id not in state.running and row.scope_id not in state.retries:
                 self._enqueue(state, row.scope_id)
@@ -848,6 +944,14 @@ class ArtifactProcessingSupervisor:
                 state.retries[scope] = retry
                 allowance -= 1
 
+    @staticmethod
+    def _observe_pending(state: _FamilyState, scope: str, generation: int) -> None:
+        previous = state.pending_observed.get(scope)
+        if previous is None and len(state.pending_observed) >= _RETRY_STATE_LIMIT:
+            return
+        if previous is None or previous[0] != generation:
+            state.pending_observed[scope] = (generation, time.monotonic())
+
     def _enqueue(self, state: _FamilyState, scope: str, *, retry: bool = False) -> None:
         if scope not in state.queued and scope not in state.running:
             state.ready.append(scope)
@@ -865,7 +969,9 @@ class ArtifactProcessingSupervisor:
         block: ArtifactProcessingBlock | None = None,
         request_generation: int = 0,
         probe_error: tuple[str, str] | None = None,
+        reason: Literal["failure", "conflict", "blocked"] = "failure",
     ) -> None:
+        state.retry_counts[reason] = state.retry_counts.get(reason, 0) + 1
         if scope not in state.retries and len(state.retries) >= _RETRY_STATE_LIMIT:
             now = asyncio.get_running_loop().time()
             expired = next(
@@ -921,7 +1027,9 @@ class ArtifactProcessingSupervisor:
                 row = await self._intents.load(connection, scope, state.binding.binding_name, for_update=True)
             if row is None or row.requested_generation <= row.handled_generation:
                 state.retries.pop(scope, None)
+                state.pending_observed.pop(scope, None)
                 continue
+            self._observe_pending(state, scope, row.requested_generation)
             assignment = ArtifactProcessingWorkAssignment(
                 binding_name=state.binding.binding_name,
                 scope_id=scope,
@@ -946,6 +1054,7 @@ class ArtifactProcessingSupervisor:
                     self._defer_admission_error(state, assignment, error)
                     continue
                 if block is not None:
+                    state.admission_blocks += 1
                     self._wait_for_block(state, assignment, block)
                     continue
             if retry is not None and retry.block is not None:
@@ -990,6 +1099,7 @@ class ArtifactProcessingSupervisor:
                 block=retry.block,
                 request_generation=assignment.claimed_request_generation,
                 probe_error=probe_error,
+                reason="blocked",
             )
             return
         failures = 1 if retry is None else retry.failures + 1
@@ -1032,14 +1142,18 @@ class ArtifactProcessingSupervisor:
             asyncio.get_running_loop().time() + self._blocked_check_seconds,
             block=block,
             request_generation=assignment.claimed_request_generation,
+            reason="blocked",
         )
 
     def _retry_delay(self, failures: int) -> float:
         return min(self._retry_cap, self._retry_base * 2 ** min(failures - 1, 20) * self._jitter())
 
-    async def _execute(
+    async def _execute(  # noqa: C901 - worker lifecycle and observation boundaries
         self, binding: ArtifactProcessingBinding, assignment: ArtifactProcessingWorkAssignment
     ) -> ArtifactProcessingWorkerCompletion:
+        state = self._families[binding.binding_name]
+        started_at = time.perf_counter()
+        attempt_outcome = "failure"
         attributes = {"powercontext.artifact_processing.family": binding.artifact_family}
         background = (
             nullcontext()
@@ -1092,12 +1206,27 @@ class ArtifactProcessingSupervisor:
                             logger,
                             logging.INFO,
                             "Artifact processing invocation acknowledged",
-                            extra={"event": "artifact_processing.worker.acknowledged", "outcome": "success"},
+                            extra={
+                                "event": "artifact_processing.worker.acknowledged",
+                                "outcome": "hold"
+                                if completion.held_count
+                                else "noop"
+                                if completion.noop
+                                else "success",
+                            },
                         )
-                    elif span is not None:
-                        span.set_outcome(completion.outcome.value)
+                    attempt_outcome = (
+                        ("hold" if completion.held_count else "noop" if completion.noop else "success")
+                        if completion.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
+                        else completion.outcome.value
+                    )
+                    if span is not None:
+                        span.set_outcome(attempt_outcome)
                     return completion
             except BaseException as error:
+                attempt_outcome, category = _attempt_failure_observation(error)
+                if category:
+                    state.error_counts[category] = state.error_counts.get(category, 0) + 1
                 if isinstance(error, (asyncio.CancelledError, TimeoutError)):
                     log_safely(
                         logger,
@@ -1117,6 +1246,9 @@ class ArtifactProcessingSupervisor:
                     cleanup = asyncio.create_task(self._terminate_worker(handle))
                     await _complete_cleanup(cleanup)
                 raise
+            finally:
+                with suppress(Exception):
+                    state.attempt_durations.record(attempt_outcome, max(0.0, time.perf_counter() - started_at))
 
     def _log_completion_hold(
         self,
@@ -1177,6 +1309,7 @@ class ArtifactProcessingSupervisor:
                         scope,
                         0 if previous is None else previous.failures,
                         asyncio.get_running_loop().time() + _CONTROL_CONFLICT_RETRY_SECONDS,
+                        reason="conflict",
                     )
                     continue
                 async with self._database.transaction() as connection:
@@ -1191,7 +1324,12 @@ class ArtifactProcessingSupervisor:
                 state.retries.pop(scope, None)
                 state.completed += 1
                 state.last_success_at = datetime.now(UTC).isoformat()
+                state.last_acknowledgement_timestamp_seconds = time.time()
+                if row.requested_generation <= row.handled_generation:
+                    state.pending_observed.pop(scope, None)
                 if row.requested_generation > row.handled_generation:
+                    if scope in state.pending_observed:
+                        state.pending_observed[scope] = (row.requested_generation, time.monotonic())
                     self.wake(state.binding.binding_name)
             except (ArtifactProcessingLeadershipLostError, _WorkerTerminationError):
                 # Retain the slot until the old term is revoked and all children are reaped.
@@ -1217,7 +1355,7 @@ class ArtifactProcessingSupervisor:
                 state.failed += 1
                 if isinstance(error, TimeoutError):
                     state.timeouts += 1
-                self._record_failure(state, error, "worker")
+                self._record_failure(state, error, "worker", count_error=running.task.exception() is not error)
                 self._log_failure(state, running.assignment, error, "worker", failures, delay)
             finally:
                 if not retain_slot:
@@ -1260,6 +1398,7 @@ class ArtifactProcessingSupervisor:
         await self._reap_unconfirmed_exits()
         for state in self._families.values():
             state.running.clear()
+            state.pending_observed.clear()
             state.ready.clear()
             state.queued.clear()
             state.retry_queued.clear()
@@ -1290,6 +1429,7 @@ class ArtifactProcessingSupervisor:
         now = asyncio.get_running_loop().time()
         deadlines: list[float] = []
         for state in self._families.values():
+            deadlines.append(state.next_pending_observation_at)
             if len(state.running) >= state.binding.max_workers:
                 continue
             deadlines.extend(
@@ -1308,7 +1448,9 @@ class ArtifactProcessingSupervisor:
                 deadlines.append(max(now, state.next_discovery_at))
         return None if not deadlines else max(0.001, min(deadlines) - now)
 
-    def _record_failure(self, state: _FamilyState | None, error: BaseException, stage: str) -> None:
+    def _record_failure(
+        self, state: _FamilyState | None, error: BaseException, stage: str, *, count_error: bool = True
+    ) -> None:
         error_code = (
             processing_error_code(error.failure.exception_type, error.failure.error_code)
             if isinstance(error, _WorkerExecutionError)
@@ -1321,7 +1463,10 @@ class ArtifactProcessingSupervisor:
         elif isinstance(error, TimeoutError):
             error_code = "worker_timeout"
         occurred_at = datetime.now(UTC).isoformat()
+        _, category = _attempt_failure_observation(error)
         for affected in self._families.values() if state is None else (state,):
+            if count_error and category:
+                affected.error_counts[category] = affected.error_counts.get(category, 0) + 1
             affected.last_error = error_code
             affected.last_error_stage = stage
             affected.last_error_at = occurred_at
@@ -1427,6 +1572,12 @@ class ArtifactProcessingSupervisors:
     def family_status(self) -> dict[str, dict[str, int | float | str]]:
         return {family: status for item in self.supervisors for family, status in item.family_status.items()}
 
+    @property
+    def processing_observations(self) -> dict[str, ProcessingObservationSnapshot]:
+        return {
+            family: snapshot for item in self.supervisors for family, snapshot in item.processing_observations.items()
+        }
+
     def wake(self, binding_name: str | None = None) -> None:
         for supervisor in self.supervisors:
             supervisor.wake(binding_name)
@@ -1472,8 +1623,12 @@ def _run_spawned_worker(
                 extra={
                     "event": "artifact_processing.worker.returned",
                     "outcome": "success"
-                    if completion is None or completion.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
-                    else completion.outcome.value,
+                    if completion is None
+                    else (
+                        ("hold" if completion.held_count else "noop" if completion.noop else "success")
+                        if completion.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
+                        else completion.outcome.value
+                    ),
                     "duration_ms": max(time.perf_counter() - started_at, 0) * 1000,
                 },
             )
@@ -1565,6 +1720,26 @@ def _observe_worker_error(span: RuntimeSpan | None) -> Iterator[None]:
                 if category is not None:
                     span.set_attributes({"powercontext.error.category": category})
         raise
+
+
+def _attempt_failure_observation(error: BaseException) -> tuple[str, str]:
+    """Classify at the owner; never expose custom child codes as metric labels."""
+    if isinstance(error, ArtifactProcessingLeadershipLostError):
+        return "leadership_lost", ""
+    if isinstance(error, asyncio.CancelledError):
+        return "cancelled", "cancelled"
+    if isinstance(error, ArtifactProcessingBlockedError) or (
+        isinstance(error, _WorkerExecutionError) and error.failure.block is not None
+    ):
+        return "blocked", "blocked"
+    if isinstance(error, _WorkerExecutionError) and error.failure.cancelled:
+        return "cancelled", "cancelled"
+    code = (
+        processing_error_code(error.failure.exception_type, error.failure.error_code)
+        if isinstance(error, _WorkerExecutionError)
+        else processing_error_code(type(error))
+    )
+    return "failure", "timeout" if isinstance(error, TimeoutError) else error_category(code) or "internal"
 
 
 def _worker_failure_category(error: BaseException) -> str:

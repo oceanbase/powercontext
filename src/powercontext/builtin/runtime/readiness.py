@@ -17,12 +17,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
-from time import monotonic
+from time import monotonic, time
 
 from powercontext.builtin.inference import InferenceConfigurationError
+from powercontext.builtin.runtime.observations import DurationObservations, DurationObservationSnapshot
 
 READINESS_PROBE_TIMEOUT_SECONDS = 2.0
 READINESS_PROBE_CACHE_SECONDS = 300.0
@@ -74,17 +76,112 @@ class RuntimeReadiness:
         return self.status is RuntimeReadinessStatus.READY
 
 
-class RuntimeReadinessChecks:
-    """Run independent dependency probes concurrently."""
+@dataclass(frozen=True, slots=True)
+class DependencyReadinessSnapshot:
+    """Last completed dependency observation, without diagnostic/provider values."""
 
-    def __init__(self, probes: Mapping[str, ReadinessProbeDefinition] | None = None) -> None:
+    name: str
+    blocking: bool
+    status: str
+    last_checked_at: float | None = None
+    last_success_at: float | None = None
+    durations: tuple[DurationObservationSnapshot, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeReadinessSnapshot:
+    """Read-only process-local observations; absence is distinct from healthy zero."""
+
+    status: str
+    observed_at: float | None
+    dependencies: tuple[DependencyReadinessSnapshot, ...]
+
+
+class _ProbeObservations:
+    def __init__(self) -> None:
+        self.status = "unobserved"
+        self.last_checked_at: float | None = None
+        self.last_success_at: float | None = None
+        self.durations = DurationObservations()
+
+    async def run(self, probe: ReadinessProbe) -> str:
+        started_at = monotonic()
+        try:
+            result = await probe()
+        except asyncio.CancelledError:
+            self._record_duration("cancelled", started_at)
+            raise
+        except Exception:
+            self._completed(ReadinessCheckStatus.UNAVAILABLE, started_at)
+            raise
+        status = result.split(":", 1)[0]
+        if status not in {item.value for item in ReadinessCheckStatus}:
+            status = ReadinessCheckStatus.UNAVAILABLE
+        self._completed(status, started_at)
+        return result
+
+    def _completed(self, status: str, started_at: float) -> None:
+        self.status = status
+        self.last_checked_at = time()
+        if status == ReadinessCheckStatus.READY:
+            self.last_success_at = self.last_checked_at
+        self._record_duration(status, started_at)
+
+    def _record_duration(self, outcome: str, started_at: float) -> None:
+        # Observations must never replace a readiness result or cancellation.
+        with suppress(Exception):
+            self.durations.record(outcome, max(monotonic() - started_at, 0.0))
+
+    def snapshot(self, name: str, *, blocking: bool) -> DependencyReadinessSnapshot:
+        return DependencyReadinessSnapshot(
+            name=name,
+            blocking=blocking,
+            status=self.status,
+            last_checked_at=self.last_checked_at,
+            last_success_at=self.last_success_at,
+            durations=self.durations.snapshot(),
+        )
+
+
+class RuntimeReadinessChecks:
+    """Run independent dependency probes concurrently and retain local observations."""
+
+    def __init__(
+        self,
+        probes: Mapping[str, ReadinessProbeDefinition] | None = None,
+        *,
+        disabled_dependencies: Iterable[str] = (),
+    ) -> None:
         self._probes = {} if probes is None else dict(probes)
+        self._disabled_dependencies = tuple(name for name in disabled_dependencies if name not in self._probes)
+        self._observations = {
+            name: probe.probe._observations if isinstance(probe.probe, CachedReadinessProbe) else _ProbeObservations()
+            for name, probe in self._probes.items()
+        }
+        self._status: str = "unobserved"
+        self._observed_at: float | None = None
+
+    def snapshot(self) -> RuntimeReadinessSnapshot:
+        """Copy existing observations without invoking any dependency or cache refresh."""
+
+        return RuntimeReadinessSnapshot(
+            status=self._status,
+            observed_at=self._observed_at,
+            dependencies=tuple(
+                self._observations[name].snapshot(name, blocking=definition.blocking)
+                for name, definition in self._probes.items()
+            )
+            + tuple(
+                DependencyReadinessSnapshot(name=name, blocking=False, status="disabled")
+                for name in self._disabled_dependencies
+            ),
+        )
 
     async def run(self) -> RuntimeReadiness:
         """Return safe results in registration order without exposing failures."""
 
         names = tuple(self._probes)
-        results = await asyncio.gather(*(self._run(self._probes[name].probe) for name in names))
+        results = await asyncio.gather(*(self._run(name) for name in names))
         checks = dict(zip(names, results, strict=True))
         blocking_failure = any(
             checks[name] is not ReadinessCheckStatus.READY and self._probes[name].blocking for name in names
@@ -95,12 +192,16 @@ class RuntimeReadinessChecks:
             status = RuntimeReadinessStatus.DEGRADED
         else:
             status = RuntimeReadinessStatus.READY
+        self._status = status
+        self._observed_at = time()
         return RuntimeReadiness(status=status, checks=checks)
 
-    @staticmethod
-    async def _run(probe: ReadinessProbe) -> str:
+    async def _run(self, name: str) -> str:
+        probe = self._probes[name].probe
         try:
-            return await probe()
+            if isinstance(probe, CachedReadinessProbe):
+                return await probe()
+            return await self._observations[name].run(probe)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -125,6 +226,7 @@ class CachedReadinessProbe:
         self._lock = asyncio.Lock()
         self._result: str | None = None
         self._expires_at = 0.0
+        self._observations = _ProbeObservations()
 
     async def __call__(self) -> str:
         """Return a fresh cached result, refreshing it at most once."""
@@ -136,7 +238,7 @@ class CachedReadinessProbe:
             result = self._fresh_result()
             if result is not None:
                 return result
-            result = await self._probe()
+            result = await self._observations.run(self._probe)
             self._result = result
             ttl_seconds = (
                 self._transient_ttl_seconds
@@ -190,11 +292,13 @@ __all__ = [
     "READINESS_PROBE_TIMEOUT_SECONDS",
     "READINESS_PROBE_TRANSIENT_CACHE_SECONDS",
     "CachedReadinessProbe",
+    "DependencyReadinessSnapshot",
     "ReadinessCheckStatus",
     "ReadinessProbe",
     "ReadinessProbeDefinition",
     "RuntimeReadiness",
     "RuntimeReadinessChecks",
+    "RuntimeReadinessSnapshot",
     "RuntimeReadinessStatus",
     "dependency_readiness_probe",
 ]

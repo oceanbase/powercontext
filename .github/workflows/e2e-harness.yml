@@ -387,6 +387,7 @@ jobs:
           uv run --locked --extra server python -m pytest -vv -ra \
             tests/e2e/test_atomic_memory_search_authorization_snapshot.py \
             tests/e2e/test_atomic_memory_read_snapshot.py \
+            tests/e2e/test_server_metrics_oceanbase.py \
             tests/e2e/test_runtime_server.py -k oceanbase \
             --junitxml="$RUNNER_TEMP/atomic-memory-oceanbase-snapshots.xml"
           uv run --locked --extra server python - <<'PY'

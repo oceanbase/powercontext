@@ -23,6 +23,7 @@ import sys
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from threading import Lock
 from typing import TYPE_CHECKING, Any, TextIO
 
 from opentelemetry import trace
@@ -197,6 +198,17 @@ class _HumanContextFilter(OperationalContextFilter):
         return True
 
 
+_LOG_FAILURE_LOCK = Lock()
+_LOG_FAILURES = 0
+
+
+def log_record_failures() -> int:
+    """Return process-local records the configured handler could not deliver."""
+
+    with _LOG_FAILURE_LOCK:
+        return _LOG_FAILURES
+
+
 class _OperationalStreamHandler(_StreamHandler):
     """Report one bounded failure without Python logging's raw-record stderr dump."""
 
@@ -214,6 +226,9 @@ class _OperationalStreamHandler(_StreamHandler):
 
     @override
     def handleError(self, record: logging.LogRecord) -> None:
+        global _LOG_FAILURES
+        with _LOG_FAILURE_LOCK:
+            _LOG_FAILURES += 1
         if not self._failure_reported:
             self._failure_reported = True
             with suppress(Exception):

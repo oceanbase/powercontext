@@ -437,6 +437,7 @@ def test_spawned_family_restores_trusted_identity_and_persists_noop_ack(tmp_path
             try:
                 result = await asyncio.wait_for(worker.wait(), timeout=30)
                 assert result.outcome == "succeeded"
+                assert result.noop is True
             finally:
                 await worker.terminate()
             async with profile.database.transaction() as connection:

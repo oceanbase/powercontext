@@ -254,6 +254,7 @@ from powercontext.builtin.runtime.readiness import (
     ReadinessCheckStatus,
     RuntimeReadiness,
     RuntimeReadinessChecks,
+    RuntimeReadinessSnapshot,
     RuntimeReadinessStatus,
 )
 from powercontext.builtin.runtime.recall_sufficiency import (
@@ -3764,6 +3765,21 @@ class BuiltinRuntime:
         if self._extraction_diagnostics is None:
             return None
         return self._extraction_diagnostics.snapshot(self.artifact_processing_supervisor)
+
+    def readiness_snapshot(self) -> RuntimeReadinessSnapshot:
+        """Read dependency observations without probing storage or inference providers."""
+
+        snapshot = self._readiness.snapshot()
+        if (
+            self._closing
+            or self._closed
+            or (
+                self.artifact_processing_supervisor is not None
+                and self.artifact_processing_supervisor.status.value == "degraded"
+            )
+        ):
+            return replace(snapshot, status=RuntimeReadinessStatus.NOT_READY)
+        return snapshot
 
     async def readiness(self) -> RuntimeReadiness:
         """Check whether the Runtime and its assembled dependencies can accept work."""

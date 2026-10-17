@@ -225,7 +225,7 @@ async def _process_family_invocation(  # noqa: C901 - one guarded dispatch per r
                 async with contexts.database.transaction() as connection:
                     await invocation.start(connection)
                     await invocation.complete(connection, remaining_work=False)
-                return ArtifactProcessingWorkerCompletion()
+                return ArtifactProcessingWorkerCompletion(noop=True)
         if assignment.artifact_family == "memory":
             atomic_context = (
                 None
@@ -242,13 +242,15 @@ async def _process_family_invocation(  # noqa: C901 - one guarded dispatch per r
             )
             if result.held_count:
                 return ArtifactProcessingWorkerCompletion(held_count=result.held_count, hold_codes=result.hold_codes)
+            return ArtifactProcessingWorkerCompletion(noop=not result.processed)
         elif assignment.artifact_family == "experience":
-            await contexts.incubate_experience(
+            experience_result = await contexts.incubate_experience(
                 scope,
                 config.runtime.source_window_limit,
                 processing=invocation,
                 on_commit=None if security is None else partial(security.experience_commit, scope_id=scope),
             )
+            return ArtifactProcessingWorkerCompletion(noop=not experience_result.processed)
         else:
             result = await contexts.profiles.flush(
                 scope,
@@ -261,8 +263,9 @@ async def _process_family_invocation(  # noqa: C901 - one guarded dispatch per r
             )
             if result.status == "conflict":
                 return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.HEAD_CONFLICT)
+            return ArtifactProcessingWorkerCompletion(noop=result.status in {"noop", "disabled"})
     except InvocationAlreadyHandled:
-        return ArtifactProcessingWorkerCompletion()
+        return ArtifactProcessingWorkerCompletion(noop=True)
     except GenerationConflictError:
         return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.CURSOR_CONFLICT)
     except RevisionConflictError:
