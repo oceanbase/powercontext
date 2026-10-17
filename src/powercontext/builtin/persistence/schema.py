@@ -20,6 +20,7 @@ from collections.abc import Sequence
 
 from sqlalchemy import MetaData, Table
 from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 
 async def create_tables(connection: AsyncConnection, tables: Sequence[Table], /) -> None:
@@ -30,6 +31,20 @@ async def create_tables(connection: AsyncConnection, tables: Sequence[Table], /)
         groups.setdefault(table.metadata, []).append(table)
 
     for metadata, selected in groups.items():
+        if connection.dialect.name == "mysql":
+            # OceanBase/seekdb support native idempotent DDL. A separate
+            # checkfirst read can race with another replica's startup.
+            for table in metadata.sorted_tables:
+                if table not in selected:
+                    continue
+                await connection.execute(CreateTable(table, if_not_exists=True))
+                for index in sorted(table.indexes, key=lambda item: item.name or ""):
+                    # Native vector indexes have their own schema visitor and
+                    # owner. Compiling them as CreateIndex would emit ordinary
+                    # INDEX SQL and discard their VECTOR type and parameters.
+                    if index.__visit_name__ == "index":
+                        await connection.execute(CreateIndex(index, if_not_exists=True))
+            continue
         await connection.run_sync(
             lambda sync_connection, current=metadata, owned=selected: current.create_all(
                 sync_connection,

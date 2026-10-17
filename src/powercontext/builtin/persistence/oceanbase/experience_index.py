@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import literal, select, text
+from sqlalchemy import literal, select
 from sqlalchemy.dialects.mysql import match
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -38,18 +38,9 @@ from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFA
 
 _OCEANBASE_FTS_INDEX_NAME = "ix_pc_artifact_heads_fts"
 _OCEANBASE_CREATE_FTS_SQL = f"""
-CREATE FULLTEXT INDEX {_OCEANBASE_FTS_INDEX_NAME}
+CREATE FULLTEXT INDEX IF NOT EXISTS {_OCEANBASE_FTS_INDEX_NAME}
 ON pc_artifact_heads (searchable_text) WITH PARSER SPACE
 """
-_OCEANBASE_FTS_INDEX_EXISTS_SQL = text(
-    """
-    SELECT COUNT(*)
-    FROM information_schema.statistics
-    WHERE table_schema = DATABASE()
-      AND table_name = 'pc_artifact_heads'
-      AND index_name = :index_name
-    """
-)
 
 
 class OceanBaseExperienceFTSIndex:
@@ -61,12 +52,7 @@ class OceanBaseExperienceFTSIndex:
         await ensure_artifact_head_searchable_text(connection)
         await rebuild_experience_projections(connection)
         await rebuild_skill_projections(connection)
-        count = await connection.scalar(
-            _OCEANBASE_FTS_INDEX_EXISTS_SQL,
-            {"index_name": _OCEANBASE_FTS_INDEX_NAME},
-        )
-        if count == 0:
-            await connection.exec_driver_sql(_OCEANBASE_CREATE_FTS_SQL)
+        await connection.exec_driver_sql(_OCEANBASE_CREATE_FTS_SQL)
         probe = match(ARTIFACT_HEADS_TABLE.c.searchable_text, against="powercontext")
         await connection.execute(select(ARTIFACT_HEADS_TABLE.c.artifact_id).where(probe).limit(1))
 

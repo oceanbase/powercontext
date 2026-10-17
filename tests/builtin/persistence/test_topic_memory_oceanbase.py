@@ -135,12 +135,12 @@ def test_oceanbase_fts_initializes_and_queries_both_current_projection_channels(
 
         create_statements = [call.args[0] for call in connection.exec_driver_sql.await_args_list]
         query_statements = [
-            str(call.args[0].compile(dialect=mysql.dialect())) for call in connection.execute.await_args_list[1:]
+            str(call.args[0].compile(dialect=mysql.dialect())) for call in connection.execute.await_args_list[2:]
         ]
         assert create_statements == [
-            "CREATE FULLTEXT INDEX ix_pc_topic_memory_active_topics_fts "
+            "CREATE FULLTEXT INDEX IF NOT EXISTS ix_pc_topic_memory_active_topics_fts "
             "ON pc_topic_memory_active_topics (searchable_text) WITH PARSER SPACE",
-            "CREATE FULLTEXT INDEX ix_pc_topic_memory_active_chunks_fts "
+            "CREATE FULLTEXT INDEX IF NOT EXISTS ix_pc_topic_memory_active_chunks_fts "
             "ON pc_topic_memory_active_chunks (searchable_text) WITH PARSER SPACE",
         ]
         assert "MATCH (pc_topic_memory_active_topics.searchable_text) AGAINST" in query_statements[0]

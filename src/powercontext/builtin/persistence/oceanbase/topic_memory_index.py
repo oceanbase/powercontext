@@ -53,6 +53,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemorySearchChannels,
     TopicMemorySearchRequest,
 )
+from powercontext.builtin.persistence.oceanbase.schema import create_vector_index
 from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
@@ -71,12 +72,6 @@ _CHUNK_VECTOR_TABLE = "pc_topic_memory_vector_chunks"
 _TOPIC_VECTOR_INDEX = "ix_pc_topic_memory_vector_topics_embedding"
 _CHUNK_VECTOR_INDEX = "ix_pc_topic_memory_vector_chunks_embedding"
 
-_INDEX_EXISTS_SQL = text(
-    """
-    SELECT COUNT(*) FROM information_schema.statistics
-    WHERE table_schema = DATABASE() AND table_name = :table_name AND index_name = :index_name
-    """
-)
 _VECTOR_TYPE_SQL = text(
     """
     SELECT data_type FROM information_schema.columns
@@ -146,13 +141,17 @@ class OceanBaseTopicMemoryFTSIndex:
     async def initialize(self, connection: AsyncConnection, /) -> None:
         if connection.dialect.name != "mysql":
             raise TopicMemoryCapabilityError("oceanbase-fts")
-        await self._ensure_index(connection, TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.name, _TOPIC_FTS_INDEX)
-        await self._ensure_index(connection, TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.name, _CHUNK_FTS_INDEX)
-        await connection.execute(
-            select(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id)
-            .where(match(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.searchable_text, against="powercontext"))
-            .limit(1)
-        )
+        # Both projections must support MATCH before startup can succeed.
+        for table, index_name in (
+            (TOPIC_MEMORY_ACTIVE_TOPICS_TABLE, _TOPIC_FTS_INDEX),
+            (TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE, _CHUNK_FTS_INDEX),
+        ):
+            await connection.exec_driver_sql(
+                f"CREATE FULLTEXT INDEX IF NOT EXISTS {index_name} ON {table.name} (searchable_text) WITH PARSER SPACE"
+            )
+            await connection.execute(
+                select(table.c.artifact_id).where(match(table.c.searchable_text, against="powercontext")).limit(1)
+            )
 
     async def replace(
         self,
@@ -313,17 +312,6 @@ class OceanBaseTopicMemoryFTSIndex:
     ) -> bool:
         return False
 
-    @staticmethod
-    async def _ensure_index(connection: AsyncConnection, table_name: str, index_name: str) -> None:
-        count = await connection.scalar(
-            _INDEX_EXISTS_SQL,
-            {"table_name": table_name, "index_name": index_name},
-        )
-        if int(count or 0) == 0:
-            await connection.exec_driver_sql(
-                f"CREATE FULLTEXT INDEX {index_name} ON {table_name} (searchable_text) WITH PARSER SPACE"
-            )
-
 
 class OceanBaseTopicMemoryVectorIndex:
     """Use native HNSW indexes for complete Topic and detail embeddings."""
@@ -392,8 +380,8 @@ class OceanBaseTopicMemoryVectorIndex:
                     "vector",
                     f"OceanBase projection {table.name} uses {actual!r}; expected {expected}",
                 )
-        await connection.run_sync(lambda sync: self._topic_index.create(sync, checkfirst=True))
-        await connection.run_sync(lambda sync: self._chunk_index.create(sync, checkfirst=True))
+        await create_vector_index(connection, self._topic_index)
+        await create_vector_index(connection, self._chunk_index)
 
     async def validate_current(self, connection: AsyncConnection, /) -> None:
         await validate_current_topic_vectors(connection, self.topic_table, self.chunk_table, self._fingerprint)
