@@ -88,9 +88,9 @@ def render_paired_report(report: PairedReport) -> str:
         *_nodes(
             markdown,
             f"Preliminary: {report.trials} trial(s) per arm. Intervals are 95%: a Wilson score interval for each "
-            "arm's success rate and a seeded percentile bootstrap over scored pairs for ON minus OFF. Errors and ON "
-            "runs that did not receive PowerContext's treatment are counted but left out of success rates, paired "
-            "differences, and step metrics; timed-out runs stay in all three. Step metrics are the host's own usage "
+            "arm's success rate and a seeded percentile bootstrap over scored pairs for ON minus OFF. Errors, ON runs "
+            "that did not receive PowerContext's treatment, and ON runs that reached another Scope are counted but "
+            "left out of success rates, paired differences, and step metrics; timed-out runs stay in all three. Step metrics are the host's own usage "
             "figures as Harbor reports them. Each figure is a mean over the runs that reported it: n/a when none did, "
             "and followed by its count, as in `1,000 (1 of 2 runs)`, when only some did.",
         ),
@@ -129,7 +129,8 @@ def _arm_text(arm: ArmSummary) -> str:
     rate = "" if arm.success_rate is None else f", {arm.success_rate:.0%}{_interval(arm.success_rate_interval, '.0%')}"
     return (
         f"{arm.passed}/{arm.scored} passed{rate} ({arm.timeouts} timed out); "
-        f"{arm.errors} error(s), {arm.integration_failures} integration failure(s) not scored"
+        f"{arm.errors} error(s), {arm.integration_failures} integration failure(s), "
+        f"{arm.cross_scope_accesses} run(s) that reached another Scope not scored"
     )
 
 

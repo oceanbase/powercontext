@@ -33,6 +33,7 @@ from powercontext.client import UnauthorizedResponseError, UnavailableResponseEr
 
 from powercontext_e2e import paired as paired_module
 from powercontext_e2e import sessions as sessions_module
+from powercontext_e2e.__main__ import main as e2e_main
 from powercontext_e2e.catalog import TaskOutcomeComparisonSpec, load_tasks
 from powercontext_e2e.models import (
     HarborTrialObservation,
@@ -256,7 +257,9 @@ def test_the_recall_step_reward_decides_the_arm_whatever_harbor_averaged() -> No
     )
     averaged = HarborTrialObservation(rewards={"reward": 0.5})
 
-    outcome = arm_outcome(steps, averaged, scored_step="recall", harness_failed=False, treatment_failures=())
+    outcome = arm_outcome(
+        steps, averaged, scored_step="recall", harness_failed=False, treatment_failures=(), reached_another_scope=False
+    )
 
     assert outcome == "passed"
 
@@ -291,10 +294,21 @@ def test_continuation_tasks_cannot_gate_the_recall_step_behind_an_earlier_reward
         ({"treatment_failures": ("no context",), "reward": 1.0}, "integration_failed"),
         # A timed-out ON run counts as a failed attempt, as it would with OFF, even when it also missed the treatment.
         ({"exception_types": ("AgentTimeoutError",), "treatment_failures": ("not observed",)}, "timeout"),
+        # A run that acted on another Scope, which can hold the answer, is left out whatever its reward.
+        ({"reached_another_scope": True, "reward": 1.0}, "cross_scope_access"),
+        ({"reached_another_scope": True, "reward": 0.0}, "cross_scope_access"),
+        ({"reached_another_scope": True, "exception_types": ("AgentTimeoutError",)}, "cross_scope_access"),
+        ({"reached_another_scope": True, "harness_failed": True}, "error"),
     ],
 )
 def test_outcome_classification(kwargs, outcome: str) -> None:
-    arguments = {"harness_failed": False, "exception_types": (), "treatment_failures": (), "reward": None} | kwargs
+    arguments = {
+        "harness_failed": False,
+        "exception_types": (),
+        "treatment_failures": (),
+        "reward": None,
+        "reached_another_scope": False,
+    } | kwargs
 
     assert classify_outcome(**arguments) == outcome
 
@@ -342,14 +356,16 @@ def test_summary_pairs_only_trials_where_both_arms_were_scored() -> None:
             _observation(2, "on", "integration_failed"),
             _observation(3, "off", "passed"),
             _observation(3, "on", "passed"),
+            _observation(4, "off", "failed"),
+            _observation(4, "on", "cross_scope_access"),
         ),
-        trials=3,
+        trials=4,
         agent=_AGENT,
     )
 
     (task,) = report.tasks
-    assert (task.off.passed, task.off.scored, task.off.timeouts) == (1, 3, 1)
-    assert (task.on.passed, task.on.scored, task.on.integration_failures) == (2, 2, 1)
+    assert (task.off.passed, task.off.scored, task.off.timeouts) == (1, 4, 1)
+    assert (task.on.passed, task.on.scored, task.on.integration_failures, task.on.cross_scope_accesses) == (2, 2, 1, 1)
     assert task.pairs == 2
     assert task.mean_delta == 0.5
     assert (report.total.pairs, report.total.mean_delta) == (2, 0.5)
@@ -525,15 +541,21 @@ def test_paired_report_renders_intervals_a_step_table_and_server_usage() -> None
             _observation(2, "off", "failed", steps=(_step("recall", seconds=3.5, tokens=6400),)),
             # A scored run without a Scope snapshot is left out of the Server mean, and the report says so.
             _observation(2, "on", "timeout", steps=(_step("recall", seconds=4.3),)),
+            _observation(3, "off", "failed"),
+            _observation(3, "on", "cross_scope_access"),
         ),
-        trials=2,
+        trials=3,
         agent=_AGENT,
     )
 
     rendered = render_paired_report(report)
 
-    assert "- OFF: 0/2 passed, 0% [0%, 66%] (0 timed out)" in rendered
-    assert "- ON: 1/2 passed, 50% [9%, 91%] (1 timed out)" in rendered
+    assert "and ON runs that reached another Scope are counted but left out of success rates" in rendered
+    assert "- OFF: 0/3 passed, 0% [0%, 56%] (0 timed out)" in rendered
+    assert (
+        "- ON: 1/2 passed, 50% [9%, 91%] (1 timed out); 0 error(s), 0 integration failure(s), "
+        "1 run(s) that reached another Scope not scored"
+    ) in rendered
     assert "ON minus OFF: +0.50 [+0.00, +1.00]; ON better in 1, OFF better in 0, tied in 1" in rendered
     assert "| recall | OFF | 2 | 3.5 (3.5-3.5) | 6,500 | 3,250 | 10 | 0.0065 |" in rendered
     assert "| recall | ON | 2 | 4.3 (4.3-4.3) | n/a | n/a | n/a | n/a |" in rendered
@@ -756,7 +778,9 @@ def test_a_task_outcome_workload_is_scored_by_the_trial_reward() -> None:
     no_trial = HarborTrialObservation(exception_type="HarborJobError")
 
     outcomes = [
-        arm_outcome((), harbor, scored_step=None, harness_failed=False, treatment_failures=())
+        arm_outcome(
+            (), harbor, scored_step=None, harness_failed=False, treatment_failures=(), reached_another_scope=False
+        )
         for harbor in (passed, failed, unscored, no_trial)
     ]
 
@@ -851,6 +875,9 @@ class _ReadyClient:
     async def get_capabilities(self) -> SimpleNamespace:
         return SimpleNamespace(memory_extraction=True)
 
+    async def list_access_audit(self, request) -> SimpleNamespace:
+        return SimpleNamespace(items=[], next_cursor=None)
+
 
 def test_a_workload_ends_after_harbor_ran_a_task_the_manifest_does_not_pin(monkeypatch, tmp_path: Path) -> None:
     # Every further trial of that workload would repeat the error at the cost of a full run; other workloads go on.
@@ -882,3 +909,118 @@ def test_a_workload_ends_after_harbor_ran_a_task_the_manifest_does_not_pin(monke
     ]
     assert (report.tasks[0].off.errors, report.tasks[0].pairs) == (1, 0)
     assert report.tasks[1].pairs == 2
+
+
+class _AuditedServer(_FlushingClient):
+    """A Server whose Access audit holds what an ON arm's agent did while the arm ran."""
+
+    def __init__(self, agent_reads: tuple[str, ...]) -> None:
+        super().__init__([])
+        self._agent_reads = agent_reads
+        self.scope_created_at: datetime | None = None
+        self.audit_windows: list[tuple[datetime, datetime]] = []
+
+    async def create_scope(self, request):
+        self.scope_created_at = datetime.now(UTC)
+        return SimpleNamespace(scope_id="scope-1")
+
+    async def list_access_audit(self, request):
+        window = (request.time_range.start, request.time_range.end)
+        self.audit_windows.append(window)
+        events = [
+            {"scope_id": scope_id, "transport": "http", "operation": "search_memory"}
+            for scope_id in ("scope-1", *self._agent_reads)
+        ]
+        return SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    occurred_at=window[0],
+                    transport=event["transport"],
+                    operation=event["operation"],
+                    action=SimpleNamespace(value="scope.read"),
+                    resource=SimpleNamespace(root=SimpleNamespace(type="scope", scope_id=event["scope_id"])),
+                    allowed=True,
+                )
+                for event in events
+            ],
+            next_cursor=None,
+        )
+
+
+class _OneSessionJob:
+    def __init__(self) -> None:
+        self._hooks = []
+
+    def on_agent_ended(self, hook) -> None:
+        self._hooks.append(hook)
+
+    async def run(self):
+        for hook in self._hooks:
+            await hook(None)
+        return SimpleNamespace(trial_results=[])
+
+
+@pytest.mark.parametrize(("agent_reads", "outcome"), [((), "passed"), (("scope-earlier-trial",), "cross_scope_access")])
+def test_an_on_arm_that_read_another_scope_is_not_scored(monkeypatch, tmp_path: Path, agent_reads, outcome) -> None:
+    (task,) = load_tasks(_REPOSITORY / "e2e" / "bub" / "paired-tasks" / "swebench-pro")[:1]
+    server = _AuditedServer(agent_reads)
+
+    async def create_job(config):
+        return _OneSessionJob()
+
+    monkeypatch.setattr(paired_module.Job, "create", create_job)
+    monkeypatch.setattr(paired_module, "_job_config", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        paired_module,
+        "_harbor_observation",
+        lambda result, settings: (HarborTrialObservation(rewards={"reward": 1.0}), (), None),
+    )
+
+    observation, _ = asyncio.run(
+        paired_module._run_arm(
+            server,
+            task,
+            host=paired_module.host_adapter("pi"),
+            trial=2,
+            arm="on",
+            position=1,
+            scored=ScoredSession(0, None),
+            output_dir=tmp_path,
+            settings=_SETTINGS,
+        )
+    )
+
+    assert observation.outcome == outcome
+    assert [access.scope_id for access in observation.outside_scope] == list(agent_reads)
+    ((start, end),) = server.audit_windows
+    # Creating the Scope is the harness's own decision, so the audited window opens after it.
+    assert server.scope_created_at is not None
+    assert server.scope_created_at <= start <= end
+
+
+def test_the_paired_command_fails_when_an_on_run_reached_another_scope(monkeypatch, tmp_path: Path) -> None:
+    # Like errors and integration failures, such a run is not a measurement, so the command reports the run invalid.
+    async def run_paired_stub(tasks, **kwargs):
+        return summarize(
+            (_observation(1, "off", "failed"), _observation(1, "on", "cross_scope_access")), trials=1, agent=_AGENT
+        )
+
+    monkeypatch.setattr(paired_module, "run_paired", run_paired_stub)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "powercontext-e2e",
+            "paired",
+            "--id",
+            "project-decision-continuation",
+            "--trials",
+            "1",
+            "--output",
+            str(tmp_path),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exited:
+        e2e_main()
+
+    assert exited.value.code == 1

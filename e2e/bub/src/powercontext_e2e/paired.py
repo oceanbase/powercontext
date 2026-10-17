@@ -27,6 +27,7 @@ from powercontext.client import PowerContextClient, UnauthorizedResponseError
 from powercontext.client.settings import ClientSettings
 from powercontext.http import CreateScopeRequest
 
+from .access_audit import outside_scope_accesses, reached_another_scope, require_access_audit
 from .catalog import ContinuationEvaluationSpec, E2ETask, TaskOutcomeComparisonSpec, is_paired
 from .evidence import redact, write_evidence
 from .hosts import HostAdapter, host_adapter
@@ -36,6 +37,7 @@ from .models import (
     ArmSummary,
     HarborTrialObservation,
     MetricSummary,
+    OutsideScopeAccess,
     PairedAgent,
     PairedArmObservation,
     PairedReport,
@@ -114,6 +116,7 @@ async def run_paired(
         await require_authenticated_server()
         if not (await client.get_capabilities()).memory_extraction:
             raise MemoryExtractionUnavailableError
+        await require_access_audit(client, settings.access_deployment_id)
         for task in tasks:
             for trial in range(1, trials + 1):
                 order: tuple[Arm, Arm] = ("off", "on") if trial % 2 else ("on", "off")
@@ -242,6 +245,8 @@ async def _run_arm(
     output_dir.mkdir(parents=True, exist_ok=True)
     started_at = datetime.now(UTC)
     scope_id: str | None = None
+    window_start: datetime | None = None
+    outside_scope: tuple[OutsideScopeAccess, ...] = ()
     recorder: SessionRecorder | None = None
     harbor = HarborTrialObservation()
     step_results: tuple[StepResult, ...] = ()
@@ -259,6 +264,8 @@ async def _run_arm(
                     )
                 )
             ).scope_id
+            # Creating the Scope is the harness's own Server-wide decision, so the audited window starts after it.
+            window_start = datetime.now(UTC)
         job = await Job.create(_job_config(task, run_id, scope_id, output_dir, settings, host=host))
         if scope_id is not None:
             recorder = SessionRecorder(client, scope_id, final_session=scored.session)
@@ -276,6 +283,17 @@ async def _run_arm(
             errors.append(mismatch)
     except Exception as exc:
         errors.append(redact(f"{type(exc).__name__}: {exc}", settings))
+    if scope_id is not None and window_start is not None:
+        try:
+            outside_scope = await outside_scope_accesses(
+                client,
+                deployment_id=settings.access_deployment_id,
+                scope_id=scope_id,
+                start=window_start,
+                end=datetime.now(UTC),
+            )
+        except Exception as exc:
+            errors.append(redact(f"Reading the Access audit failed: {type(exc).__name__}: {exc}", settings))
 
     sessions = () if recorder is None else tuple(recorder.snapshots)
     treatment = (
@@ -303,10 +321,12 @@ async def _run_arm(
             scored_step=scored.step,
             harness_failed=bool(errors),
             treatment_failures=treatment,
+            reached_another_scope=reached_another_scope(outside_scope),
         ),
         errors=tuple(errors),
         sessions=sessions,
         treatment_failures=treatment,
+        outside_scope=outside_scope,
     )
     return observation, mismatch
 
@@ -331,6 +351,7 @@ def arm_outcome(
     scored_step: str | None,
     harness_failed: bool,
     treatment_failures: Sequence[str],
+    reached_another_scope: bool,
 ) -> ArmOutcome:
     """Classify one arm from Harbor's results, scoring it by the scored step's own reward or the trial's."""
 
@@ -352,6 +373,7 @@ def arm_outcome(
         exception_types=exception_types,
         treatment_failures=treatment_failures,
         reward=reward,
+        reached_another_scope=reached_another_scope,
     )
 
 
@@ -452,16 +474,21 @@ def classify_outcome(
     exception_types: Sequence[str],
     treatment_failures: Sequence[str],
     reward: float | None,
+    reached_another_scope: bool,
 ) -> ArmOutcome:
     """Classify one arm run.
 
     An agent timeout counts as a failed attempt in both arms. Harness and infrastructure errors, and ON runs that did
     not receive PowerContext's treatment, are not measurements of the task, so they are counted separately and left
-    out of the success rate and the paired difference.
+    out of the success rate and the paired difference. So are ON runs that reached another Scope, such as an earlier
+    trial's, whatever their reward: that Scope can hold the answer, and leaving out only the runs that passed would
+    bias the rest.
     """
 
     if harness_failed:
         return "error"
+    if reached_another_scope:
+        return "cross_scope_access"
     if AGENT_TIMEOUT in exception_types:
         return "timeout"
     if exception_types:
@@ -523,6 +550,7 @@ def _arm_summary(observations: Sequence[PairedArmObservation]) -> ArmSummary:
         timeouts=outcomes.count("timeout"),
         errors=outcomes.count("error"),
         integration_failures=outcomes.count("integration_failed"),
+        cross_scope_accesses=outcomes.count("cross_scope_access"),
         success_rate=passed / len(scored) if scored else None,
         success_rate_interval=wilson_interval(passed, len(scored)),
         steps=_step_summaries(scored),

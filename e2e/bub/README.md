@@ -192,7 +192,30 @@ its Scopes to a client without a token. Start the Server with `POWERCONTEXT_SERV
 passes it to the ON arm's integration as `POWERCONTEXT_BUB_API_TOKEN` or `POWERCONTEXT_<HOST>_AUTHORIZATION`. The
 harness holds that value in its own environment and gives Harbor a reference to it, so Harbor's job files record the
 reference and no part of the token. The token still lets an ON agent read other Scopes on the same Server, including
-earlier trials'.
+earlier trials', which hold the same workload's answer: the integrations keep their own tools on their Scope, but an
+agent can call the Server with the token from its environment.
+
+The harness therefore checks the Server's Access audit, in which an enforced Server records every authorization decision
+on an API or MCP request, allowed or denied. After each ON arm it lists the decisions recorded from just after it
+created the arm's Scope until the arm ended. An ON run reached another Scope when the Server allowed it either of two
+kinds of request: a request on another Scope, its Memory, or its Artifacts, other than one that returns none of them,
+namely reading the Scope's descriptor, its statistics, or its resolved identity, flushing it, or an Access API request,
+such as checking a permission on it, which returns decisions, Bindings, or audit records; or a Handoff Report over every
+Scope or a subtree, which the Server authorizes once for the whole Server but which carries each Scope's latest Handoff.
+A write to another Scope gives the agent nothing, but it shows the integration acting outside its Scope, as when it
+falls back to the Default Scope. Such a run is reported and left out of success rates and paired differences whatever
+its reward, because leaving out only the runs that passed would bias the rest. The arm's observation lists every API or
+MCP decision of that window about another Scope or about the Server as a whole. A denied request, the requests above
+that return no content, and the Server's other Server-wide operations, such as listing Scopes, which return descriptors,
+settings, or counts, are recorded without excluding the run. A flush is also left out because a host plugin's own
+end-of-session flush of the previous ON arm's Scope can still be extracting Memory after that arm ended. The Server's
+background processing records its decisions under its own transport and is not counted. The audit cannot tell the agent
+from the harness, which uses the same token, but the harness touches only the arm's own Scope while the arm runs. The
+check therefore needs a Server that no other client, such as a second paired run or the Dashboard, uses during the run,
+and a Server clock that agrees with the harness's, because the window is compared with the Server's timestamps. The
+audit is named by the Server's `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID`, which the Server does not expose: when the
+Server sets it, give the harness the same value as `POWERCONTEXT_E2E_ACCESS_DEPLOYMENT_ID`, which defaults to the
+Server's default, `powercontext`. The command stops before the first run when it cannot read that audit.
 
 After each ON session the harness records the Scope's Server statistics. When another session follows, it first flushes
 the Scope, standing in for the time that passes between real sessions, and repeats the flush until the Scope has
@@ -210,11 +233,12 @@ An ON run counts only when Server statistics for its Scope show that Sources wer
 (during it, for a single-session workload) and that the integration asked PowerContext for context during it.
 Otherwise it is an integration failure. Whether a flush creates Memory and whether recall returns content are
 PowerContext's own behavior, so the snapshots record them but a run that gets nothing useful still counts as an ON
-attempt. Integration failures and harness or infrastructure errors are reported but left out of success rates and
-paired differences. A session whose model request failed is such an error on every host: Codex and Claude Code exit
-non-zero, Harbor reads OpenCode's error events, and the harness reads Pi's last message, because Pi exits 0 in the
-JSON mode Harbor uses. The harness reads Pi's output through the logs that Harbor's Docker environment mounts and
-stops with an error when the file is not there. An agent timeout counts as a failed attempt in either arm.
+attempt. Integration failures, runs that reached another Scope, and harness or infrastructure errors are reported but
+left out of success rates and paired differences. A session whose model request failed is such an error on every host:
+Codex and Claude Code exit non-zero, Harbor reads OpenCode's error events, and the harness reads Pi's last message,
+because Pi exits 0 in the JSON mode Harbor uses. The harness reads Pi's output through the logs that Harbor's Docker
+environment mounts and stops with an error when the file is not there. An agent timeout counts as a failed attempt in
+either arm.
 
 The harness Client waits for each flush, which runs the Server's generation model, so raise its 10-second default
 timeout; the Bub plugin also flushes during a session.
@@ -345,7 +369,7 @@ arm could not be scored; a task that fails in either arm is a result, not a comm
 For each workload and over all of them, the report gives:
 
 - Each arm's passed and scored runs, its success rate with a 95% Wilson score interval, and the runs left out as
-  errors or integration failures.
+  errors, integration failures, or runs that reached another Scope.
 - The mean ON minus OFF score over the trials in which both arms were scored, with a 95% percentile bootstrap
   interval over those pairs (10,000 resamples from a fixed seed, so the same evidence gives the same interval), and
   how many pairs only ON passed, only OFF passed, or tied.
@@ -370,7 +394,7 @@ report cannot tell that from a real 0. The report shows `n/a` when no run report
 `1,000 (1 of 2 runs)`, when only some did; `paired-report.json` keeps the count of every figure.
 
 The report is marked preliminary. With two trials the intervals are wide, which is the point: they show how little
-such a pilot can say. The command does not yet check the Default Scope for leaks or run in the fixed Compose harness.
+such a pilot can say. The command does not yet run in the fixed Compose harness.
 
 ### MemoryCode workloads
 

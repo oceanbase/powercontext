@@ -136,6 +136,12 @@ class HarnessSettings(BaseSettings):
         default=None,
         validation_alias="POWERCONTEXT_E2E_AGENT_PROXY_URL",
     )
+    # The Server's POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID, which names its Access audit; the Server does not expose it.
+    access_deployment_id: str = Field(
+        default="powercontext",
+        min_length=1,
+        validation_alias="POWERCONTEXT_E2E_ACCESS_DEPLOYMENT_ID",
+    )
 
     def repository_path(self) -> Path:
         return self.repository.expanduser().resolve()
