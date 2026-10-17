@@ -51,6 +51,23 @@ is used through `flush`, `search`, and `get`; it currently has no generic create
 Source is evidence rather than an Artifact. A Tag is metadata for Memory, Experience, Skill, and Handoff rather than an
 Artifact family.
 
+## Choose the workflow that matches the outcome
+
+These values have different lifecycles. Start with the outcome you need instead of treating every captured Source as
+an instruction to create durable context.
+
+| Outcome | Start here | What happens next |
+| --- | --- | --- |
+| Preserve one fact, decision, constraint, or next step | Write a Memory explicitly | It is revisioned, searchable, and can be retired without losing its history. |
+| Maintain a summary of related evidence | Capture relevant Sources and enable Topic processing | The background pipeline may produce or update Topic Memory when the configured policy finds eligible evidence. |
+| Carry work to a later session or collaborator | Prepare and inspect a Handoff | Commit it only when the handoff is a milestone worth preserving. |
+| Reuse a lesson from completed work | Record a Task Outcome, then propose or generate an Experience | Review decides whether the candidate becomes an approved Artifact. |
+| Reuse a procedure | Propose or generate a managed Skill | Approval is not installation: export an exact approved Revision before a host can discover it. |
+| Set shared Scope background | Configure the Profile policy | The policy and its review workflow determine when a Profile becomes active. |
+
+Source capture provides evidence; it does not by itself create Memory, Experience, Skill, Handoff, or Profile. Tags help
+organize supported Artifacts, but do not change an Artifact's lifecycle or grant execution authority.
+
 ## Memory stores durable project knowledge
 
 Memory is a revisioned Artifact family for reusable decisions, constraints, facts, state, and next steps. Entries can
