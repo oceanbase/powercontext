@@ -395,7 +395,7 @@ class ReviewService:
                 )
             ).mappings()
             return tuple(
-                self._candidates._decode_row({
+                self._candidates.decode_candidate({
                     **row,
                     "status": "pending",
                     "result_family": None,

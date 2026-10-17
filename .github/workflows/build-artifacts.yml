@@ -380,6 +380,7 @@ jobs:
             --find-links "$BUNDLE_ROOT/wheelhouse" \
             "$cli_wheel[cli]"
           build/cli-smoke-venv/bin/powercontext skill remote-sync --help
+          build/cli-smoke-venv/bin/powercontext archive --help
 
           plugin_root="$BUNDLE_ROOT/integrations/plugins/powercontext"
           (

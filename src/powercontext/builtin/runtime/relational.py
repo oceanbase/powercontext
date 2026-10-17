@@ -33,7 +33,7 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from jsonschema.protocols import Validator
 from referencing import Registry
 from referencing.exceptions import Unresolvable
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
@@ -174,6 +174,7 @@ from powercontext.builtin.persistence.tags import RelationalTagService
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
 from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
+from powercontext.builtin.portability import PortableBundleService
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
@@ -270,6 +271,23 @@ ExperienceCommitHook = Callable[[AsyncConnection, tuple[Candidate[ExperienceCont
 
 def _artifact_identity(ref: ArtifactRef) -> tuple[str, str, int]:
     return ref.family, ref.artifact_id, ref.revision
+
+
+_MEMORY_COMMIT_STAGE = "memory.commit"
+_MEMORY_COMMIT_MEMORY_CHANGED = "powercontext.memory.commit.memory_changed"
+_MEMORY_COMMIT_ENTRY_VERSION_COUNT = "powercontext.memory.commit.entry_version_count"
+
+
+BUILTIN_ARTIFACT_TYPES = (Handoff, AtomicMemory, Experience, Skill, Profile, Prompt, TopicMemory)
+BUILTIN_CANDIDATE_PROPOSAL_TYPES = {
+    Experience.family: ExperienceContent,
+    Skill.family: SkillContent,
+    Profile.family: ProfileCandidateProposal,
+    AtomicMemory.family: AtomicMemoryContent,
+    TopicMemory.family: TopicMemoryContent,
+    Handoff.family: HandoffContent,
+    Prompt.family: PromptContent,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -518,7 +536,7 @@ class RelationalContexts:
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         source_repository = SourceRepository(self.source_registry)
         artifact_repository = ArtifactRepository(
-            (Handoff, AtomicMemory, Experience, Skill, Profile, Prompt, TopicMemory),
+            BUILTIN_ARTIFACT_TYPES,
             sources=source_repository,
         )
         if atomic_memory_index is None:
@@ -569,15 +587,7 @@ class RelationalContexts:
             sources=source_repository,
             artifacts=artifact_repository,
             governance=ArtifactGovernanceRepository(),
-            candidates=CandidateRepository({
-                Experience.family: ExperienceContent,
-                Skill.family: SkillContent,
-                Profile.family: ProfileCandidateProposal,
-                AtomicMemory.family: AtomicMemoryContent,
-                TopicMemory.family: TopicMemoryContent,
-                Handoff.family: HandoffContent,
-                Prompt.family: PromptContent,
-            }),
+            candidates=CandidateRepository(BUILTIN_CANDIDATE_PROPOSAL_TYPES),
             connector_checkpoints=ConnectorCheckpointRepository(),
             source_definitions=SourceDefinitionManifestRepository(),
             cursors=SourceCursorRepository(),
@@ -592,6 +602,14 @@ class RelationalContexts:
             processing_binding_states=ArtifactProcessingBindingStateRepository(),
             topic_memories=topic_memory_repository,
             decision_observations=DecisionObservationRepository(),
+        )
+        self.portability = PortableBundleService(
+            database,
+            projection_rebuilder=self.rebuild_portable_projections,
+            supported_source_types=tuple(definition.name for definition in self.source_registry.definitions),
+            supported_artifact_families=artifact_repository.families,
+            artifact_content_decoder=artifact_repository.decode_content,
+            candidate_decoder=self.repositories.candidates.decode_candidate,
         )
         self._model_usage = _ModelUsageRecorder(
             database,
@@ -1417,6 +1435,69 @@ class RelationalContexts:
                 )
             ).scalars()
             return tuple(str(value) for value in values)
+
+    async def rebuild_portable_projections(self, scope_ids: tuple[str, ...], /) -> None:
+        """Rebuild target-local search projections after a logical restore."""
+
+        for scope_id in scope_ids:
+            async with self.database.transaction() as connection:
+                await self.atomic_memory_index.initialize(connection)
+                await connection.execute(
+                    self.atomic_memory_index.table.delete().where(self.atomic_memory_index.table.c.scope_id == scope_id)
+                )
+            atomic_memories = self.atomic_memory.for_scope(scope_id)
+            cursor = None
+            rebuilt = 0
+            while True:
+                page = await atomic_memories.list(limit=100, cursor=cursor)
+                for record in page.items:
+                    prepared = await self.atomic_memory.publisher.prepare(record.artifact.content)
+                    async with self.database.transaction() as connection:
+                        await self.atomic_memory.publisher.publish(connection, scope_id, record, prepared)
+                    rebuilt += 1
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+            async with self.database.transaction() as connection:
+                projected = int(
+                    await connection.scalar(
+                        select(func.count())
+                        .select_from(self.atomic_memory_index.table)
+                        .where(self.atomic_memory_index.table.c.scope_id == scope_id)
+                    )
+                    or 0
+                )
+                if projected != rebuilt:
+                    raise RuntimeError("restored Atomic Memory projection is incomplete")  # noqa: TRY003
+                topic_heads = tuple(
+                    (
+                        await connection.execute(
+                            select(ARTIFACT_HEADS_TABLE.c.artifact_id, ARTIFACT_HEADS_TABLE.c.revision)
+                            .where(
+                                ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                                ARTIFACT_HEADS_TABLE.c.family == TopicMemory.family,
+                            )
+                            .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id)
+                        )
+                    ).all()
+                )
+            for artifact_id, revision in topic_heads:
+                ref = ArtifactRef(
+                    family=TopicMemory.family,
+                    artifact_id=str(artifact_id),
+                    revision=int(revision),
+                )
+                async with self.database.transaction() as connection:
+                    topic = await self.repositories.artifacts.get(connection, scope_id, ref)
+                if not isinstance(topic, TopicMemory):
+                    raise TypeError("restored Topic Memory decoded to the wrong Artifact type")  # noqa: TRY003
+                projection = await self._topic_memory_writer.prepare(topic.content, usage_scope_id=scope_id)
+                async with self.database.transaction() as connection:
+                    await self.repositories.topic_memories.rebuild_current(connection, scope_id, topic, projection)
+        async with self.database.transaction() as connection:
+            await self.topic_memory_index.validate_current(connection)
+        async with self.database.transaction() as connection:
+            await self.experience_index.initialize(connection)
 
     async def _authorize_atomic_tag_write(self, connection, scope_id: str, artifact_id: str, context=None) -> None:
         await self.atomic_memory.security.authorize(

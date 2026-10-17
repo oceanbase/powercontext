@@ -6,6 +6,7 @@
     "connect-remote-server",
     "database-migrations",
     "artifact-processing-migration",
+    "portable-archive",
     "atomic-memory-migration",
     "observability",
     "trace-with-phoenix",

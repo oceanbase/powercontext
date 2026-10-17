@@ -92,6 +92,12 @@ class ArtifactRepository:
 
         return frozenset(self._by_family)
 
+    def decode_content(self, family: str, payload: bytes, /) -> BaseModel:
+        """Decode canonical content using the registered family's storage contract."""
+
+        self._artifact_type(family)
+        return load_model(self._content_types[family], payload, kind="artifact", name=family)
+
     @property
     def source_repository(self) -> Any | None:
         """Expose the composed Source repository to services recording revision provenance."""
@@ -670,11 +676,9 @@ class ArtifactRepository:
     ) -> Artifact[Any]:
         family = str(row["family"])
         artifact_type = self._artifact_type(family)
-        content = load_model(
-            self._content_types[family],
+        content = self.decode_content(
+            family,
             stored_bytes(row["content"], column="payload"),
-            kind="artifact",
-            name=family,
         )
         ref = ArtifactRef(
             family=family,
