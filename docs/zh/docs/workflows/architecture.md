@@ -63,7 +63,8 @@ SQLite 使用本地数据文件，OceanBase / SeekDB 使用配置的数据库连
 | Review / Projection | 审核 Candidate，或把精确的 approved Skill Revision 导出到宿主 | 不修改历史 Revision，不自动安装或执行 Skill |
 | 数据库和持久化层 | 保存 Scope、Source、Artifact Revision 和处理状态 | 不替代部署层的备份与恢复策略 |
 
-模型生成、人工审核和执行权限是三个独立边界：需要审核的提案在批准后提交，直接 Create/Replace 则按接口校验和调用方的治理策略提交正式 Revision。
+模型生成、Review 批准和执行权限是三个独立边界：需要审核的提案在批准后提交，谁可以批准由[审核权限](review-candidates.md#审核权限)
+决定，不要求审核者一定是人或与提案人不同。直接 Create/Replace 则按接口校验和调用方的治理策略提交正式 Revision。
 导出创建宿主本地副本，不授予执行权限。`PreparedContext` 是一次 Agent turn 的临时结果，不是新的 Artifact。
 
 ## 当前支持的内容类型

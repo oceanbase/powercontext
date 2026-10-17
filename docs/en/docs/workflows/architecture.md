@@ -69,9 +69,11 @@ See [deployment and operations](../operate/index.md) for deployment settings, se
 | Review / projection | Reviews Candidates or exports an exact approved Skill Revision to a host | Rewriting historical Revisions, installing, or executing a Skill automatically |
 | Database and persistence layer | Stores Scopes, Sources, Artifact Revisions, and processing state | The deployment layer's backup and recovery policy |
 
-Model generation, human review, and execution authority are separate boundaries. Proposals requiring review commit after
-approval; direct Create/Replace commits a validated Revision under the caller's governance policy. Export creates a
-host-local copy without granting execution authority. `PreparedContext` is temporary for one Agent turn, not a new Artifact.
+Model generation, Review approval, and execution authority are separate boundaries. Proposals requiring review commit after
+approval; [review authority](review-candidates.md#review-authority) determines who can approve, without requiring a human
+or a different proposer identity. Direct Create/Replace commits a validated Revision under the caller's governance
+policy. Export creates a host-local copy without granting execution authority. `PreparedContext` is temporary for one
+Agent turn, not a new Artifact.
 
 ## Content types currently supported
 

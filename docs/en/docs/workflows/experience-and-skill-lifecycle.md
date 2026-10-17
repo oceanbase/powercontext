@@ -5,9 +5,10 @@ description: Learn how evidence becomes reviewed Experience and managed Skill Ar
 
 # Experience and Skill lifecycle
 
-Experience and managed Skill content passes through the same review boundary. Evidence supports a proposal, a human
-reviews one exact Candidate version, and approval creates an immutable Artifact Revision. Generation never approves
-its own result.
+Experience and managed Skill content passes through the same review boundary. Evidence supports a proposal, a reviewer
+inspects one exact Candidate version, and approval creates an immutable Artifact Revision. Generation returns pending
+content; approval requires a separate operation. The reviewer may be an authorized Agent, including the proposer.
+For human review, [separate submission and review permissions](review-candidates.md#separate-agent-submission-from-review).
 
 ## Evidence comes first
 

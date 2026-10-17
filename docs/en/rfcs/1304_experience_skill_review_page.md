@@ -36,7 +36,9 @@ writable.
 
 Experience and managed Skill are intentionally gated by Review. A generated proposal is untrusted, does not receive
 final Artifact identity, and cannot enter retrieval or PreparedContext until a reviewer approves it. This boundary is
-already implemented across HTTP, the Python Client, CLI, and MCP.
+already implemented across HTTP, the Python Client, CLI, and MCP. It is a lifecycle and retrieval boundary, not proof
+of human or independent review. RFC 1396 governs authorization when enforced; an Agent with review authority can
+approve its own Candidate. The page does not add a prohibition on self-approval or a trusted human-confirmation step.
 
 The Server Dashboard currently shows how many Candidates are pending, but it does not let a user inspect or act on
 them. Completing the review requires command-line or MCP calls with exact IDs, versions, proposal shapes, and evidence

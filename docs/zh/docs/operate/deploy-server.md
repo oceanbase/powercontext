@@ -167,6 +167,9 @@ Cookie，最长八小时；HTTPS 下设置 Secure。反向代理应正确传递�
 注入 Authentication Provider 或 AccessControlService 的部署必须关闭 Dashboard；不兼容的启用配置会在启动时被拒绝。
 关闭 Dashboard 不影响团队的 API 和 MCP。个人启用步骤见[安装和运行](../get-started/install-and-run.md)。
 
+共享静态 token 不会强制人工审核，也不会阻止 Agent 批准自己的 Candidate。需要分离提交和审批时，应使用不同的已认证
+Principal，并仅向审核者授予审核权限。参见[分离 Agent 提交与审核](../workflows/review-candidates.md#分离-agent-提交与审核)。
+
 ## 检查部署
 
 使用 liveness 判断进程能否响应 HTTP 请求：

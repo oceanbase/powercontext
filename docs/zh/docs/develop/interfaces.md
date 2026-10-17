@@ -162,6 +162,10 @@ Candidate 的统一 HTTP 路径为 `/v1/candidates/list`、`get`、`history`、`
 通过 `candidate_kind=artifact|tag` 区分类型；旧 Artifact Candidate 路径直接移除，调用方必须同步升级。
 Artifact 批准返回真实版本引用，Tag 批准返回标签集和 ETag，不生成正文版本。
 
+MCP 继续暴露审核决策操作。启用权限控制时，Server 要求 `scope.review`，但不禁止有权限的提案人批准自己的 Candidate。
+MCP 工具注解供宿主执行确认策略，不强制人工确认。权限模式与审核者分离方式见
+[审核权限](../workflows/review-candidates.md#审核权限)。
+
 `candidate` 命令组提供面向人工的 Review Inbox。列出、检查、修订、批准和拒绝的操作步骤见
 [审核 Candidate](../workflows/review-candidates.md)。
 
@@ -192,7 +196,7 @@ Skill generation 还必须声明 provenance 形态：
 - `usage`：引用精确 target Skill 和有界 usage Source。
 
 这些 generation operation 需要配置 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL`。已经拥有完整类型化内容和
-精确证据的人或 integration 仍可使用低阶 `propose_*` operation。两条路径都不能自行批准 Candidate。
+精确证据的人或 integration 仍可使用低阶 `propose_*` operation。两条路径返回的都是 pending 内容，批准需要单独调用审核操作。
 Experience 经 Review 批准后，确定性的 `searchable_text` 会写入现有通用 Artifact head 并进入 backend 可重建 FTS
 索引，从而可在同一 scope 内被 `PreparedContext` 召回。pending/rejected Candidate、所有 managed Skill 和历史
 Experience Revision 仍不会进入 PreparedContext。

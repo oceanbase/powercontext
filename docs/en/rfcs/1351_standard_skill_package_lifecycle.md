@@ -175,8 +175,9 @@ Approval creates only the proposed managed Revision; the original snapshot remai
 
 A person may upload a complete package, or a configured generation model may propose one from exact SourceRef and
 ArtifactRef evidence. Generation produces package content outside the approval transaction. PowerContext validates and
-stores it before creating a pending Candidate. A model cannot approve the Candidate, allocate final Artifact identity,
-publish the package, or gain script authority.
+stores it before creating a pending Candidate. Generation does not approve the Candidate or allocate final Artifact
+identity. Approval is a separate operation available to authorized callers, including Agents; it does not prohibit
+self-approval. Publication is another explicit operation, and none of these steps grants script execution authority.
 
 ## Review the package that will be published
 

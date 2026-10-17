@@ -32,7 +32,9 @@ approval 之后的独立显式操作，只能写入配置中明确允许的 host
 # Motivation
 
 Experience 和 managed Skill 被有意置于 Review gate 后。生成的 proposal 不受信任，不会获得最终 Artifact identity，也不能
-在审核者批准前进入检索或 PreparedContext。该边界已经在 HTTP、Python Client、CLI 和 MCP 中实现。
+在审核者批准前进入检索或 PreparedContext。该生命周期与检索边界已经在 HTTP、Python Client、CLI 和 MCP 中实现，
+但不证明经过人工或独立审核。启用权限控制时由 RFC 1396 管理授权；有审核权限的 Agent 可以批准自己的 Candidate。
+页面不增加禁止自审的规则，也不增加可信的人工确认步骤。
 
 Server Dashboard 目前会显示 pending Candidate 的数量，却不能让用户查看或处理它们。完成审核需要通过命令行或 MCP
 调用，并准确提供 ID、版本、proposal shape 和证据引用。这适合自动化和调试，但日常人工治理难以发现，也容易被搁置。

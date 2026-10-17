@@ -24,8 +24,10 @@ Skill 都必须从 Experience 生成。当前 Agent 环境已经安装或提供�
 Experience 和 managed Skill 都复用现有 Artifact identity、不可变 Revision、lineage 和 CAS。它们的 create 和 revise 必须先进入 RFC 0031 定义的 Review Inbox。外部 Skill 的发现不产生 managed Artifact；只有显式 import 或 fork 才会提出新的 managed Skill Candidate。
 
 Experience 和 managed Skill 的生成与演化是需要配置生成模型的高级能力。未配置模型时，Runtime 不生成 Candidate，也不使用
-规则降级；Artifact 的存储、Review、exact read 和本地 External Skill registration 仍可独立工作。模型不能批准自己的
-Candidate、分配最终 Artifact identity 或获得执行权限。
+规则降级；Artifact 的存储、Review、exact read 和本地 External Skill registration 仍可独立工作。生成只创建 pending 内容，
+不分配最终 Artifact identity，也不授予执行权限。批准是独立的 Review 操作，启用权限控制后需要 `scope.review`；
+拥有该权限的 Agent 可以批准自己的 Candidate。需要由独立审核者决定时，应向不同的已认证身份分配提交与审核权限，参见
+[审核 Candidate](../docs/workflows/review-candidates.md#分离-agent-提交与审核)。
 
 # Motivation
 
@@ -435,8 +437,9 @@ Skill Registry 不依赖 LLM：
 - 已有 Candidate 的 Review 以及已批准 Artifact 的 exact read 正常工作；
 - Runtime 不用确定性规则或原始摘要强行包装 Experience/managed Skill。
 
-规则仍负责输入上限、scope、exact reference、typed shape 和 lineage 校验，但这些校验不能代替语义生成。LLM 可用时也不获得
-额外权限：模型不能批准 Candidate、选择执行授权、伪造 evidence、自动安装 Skill 或提交最终 Revision。
+规则仍负责输入上限、scope、exact reference、typed shape 和 lineage 校验，但这些校验不能代替语义生成。生成模型只提供
+proposal 内容，不执行审批或最终 Revision 提交，也不得伪造 evidence。Review 通过独立操作提交最终 Revision；
+有权限的 Agent 可以调用该操作。生成与批准都不授予安装或执行权限。
 
 ## Identity, Revision, persistence, and projections
 

@@ -168,7 +168,7 @@ Experience は、状況・行動・観察された結果・再利用可能な教
 - **すべてがリビジョン管理され、追跡可能です。** 各 Artifact は `ファミリ/ARTIFACT_ID@REVISION` で識別されます。承認された置換が後のリビジョンを作っても ARTIFACT_ID は変わらず、正確な参照を読めば、ファミリのヘッドが進んだ後でもその時点のスナップショットが返ります。
 - **生成・レビュー・実行は別々のステップです。** モデルが内容を提案し、レビューがリビジョンを承認し、エクスポートがホスト内のコピーを作ります。いずれのステップも、Agent に命令実行の権限を与えるものではありません。各入口が現在何を公開しているかは[インターフェース](https://powercontext.oceanbase.io/en/docs/develop/interfaces/)を参照してください。
 - **想起はまとめてではなく、境界つきで行われます。** `PreparedContext` は設定されたセクションからアクティブな Memory と承認済み Experience を選択し、必要に応じて Profile スナップショットと Topic Memory を加え、共有のバイト予算を適用して `ready` または `empty` を返します。想起された内容は履歴であり、命令の権威ではありません。受け手の Agent は現在の指示に従い、実際のワークスペースの状態を確認します。
-- **再利用の前にレビューを通します。** Experience と Skill はレビューの決定を経ます。承認・却下のいずれも終端です。モデルは提案までを担い、自分の出力を暗黙のうちに昇格させることはありません。
+- **再利用の前にレビューを通します。** Experience と Skill はレビューの決定を経て、承認・却下のいずれも終端です。承認は不変リビジョンを書き込みます。アクセス制御が有効な場合、承認には `scope.review` が必要です。レビュー権限を持つ Agent は自分の Candidate も承認できます。人が判断する運用では、異なる ID と権限で[Agent の提出とレビューを分離](https://powercontext.oceanbase.io/en/docs/workflows/review-candidates/#separate-agent-submission-from-review)してください。
 - **1 つの Server、同じ契約の複数の見え方。** HTTP が完全なリモートアプリケーション契約です。Python クライアントは型付きアクセスを提供し、MCP は Agent 向けに取捨選択された投影であり、Core プロトコルを使えばアプリケーション側で Source・Artifact・Trigger の実装を組み込めます。
 
 ### 他手段との比較

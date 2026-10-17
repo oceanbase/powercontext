@@ -37,6 +37,11 @@ Scope 选择项目上下文边界。其不透明 ID 用于标识数据，不负�
 创建 Scope 需要 `server.admin`；修改 Prompt 需要当前 `scope.admin` 权限。
 能够读取候选材料不代表能够批准候选材料。
 
+需要 Agent 提交新的 Experience 或 Skill Candidate、再由独立审核者决定时，为不同的已认证身份分别分配
+`scope.contributor` 和 `scope.reviewer`，并将审核者凭据保留在 Agent 环境之外。同一 Principal 同时持有两种权限时，
+仍可批准自己的 Candidate。角色分配示例、拒绝后重新提交的流程和已有 Artifact 的权限限制见
+[分离 Agent 提交与审核](review-candidates.md#分离-agent-提交与审核)。
+
 定时处理需要有权限的后台 Principal。标签查询需要 `scope.read`，修改目标标签遵循目标自身的写权限。
 相关流程见[标签](manage-artifact-tags.md)和 [Scope Profile](use-profiles.md)。
 

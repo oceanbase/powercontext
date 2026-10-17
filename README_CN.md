@@ -174,7 +174,7 @@ Experience 记录一个场景、一次动作、观察到的结果，以及可复
 - **一切都带版本、可追溯。** 每个 Artifact 都以 `家族/ARTIFACT_ID@REVISION` 寻址。通过替换产生的后续 Revision 不会改变 Artifact ID，读取一个精确的引用会返回那一份历史快照，即使家族主版本已经前进。
 - **生成、评审、执行是三个分开的步骤。** 模型可以提出内容，评审通过某个 Revision，导出生成宿主内副本。这三步都不会授予 Agent 执行指令的权限。各个入口目前各自暴露了什么，见[接口说明](https://powercontext.oceanbase.io/zh/docs/develop/interfaces/)。
 - **召回是有边界的，不是整包倾倒。** `PreparedContext` 会按请求选择活跃的 Memory 和已通过的 Experience，并可选加入 Profile 快照和 Topic Memory，再套用一个共享的字节预算，返回 `ready` 内容或 `empty`。召回的内容是历史，不是指令权威：接收方仍然要遵循当前指令，并检查工作区的实时状态。
-- **复用之前先评审。** Experience 和 Skill 都要经过一次评审决策，无论通过还是驳回都是终态。模型负责提议，而不是悄悄把自己生成的内容提上去。
+- **复用之前先评审。** Experience 和 Skill 都要经过一次评审决策，无论通过还是驳回都是终态；批准会写入不可变 Revision。启用权限控制后，批准需要 `scope.review`。有审核权限的 Agent 仍可批准自己的 Candidate；需要由人决定时，应使用不同身份和权限[分离 Agent 提交与审核](https://powercontext.oceanbase.io/zh/docs/workflows/review-candidates/#分离-agent-提交与审核)。
 - **一个 Server，同一份契约的多个视图。** HTTP 是完整的远端应用契约。Python Client 提供带类型的访问，MCP 是面向 Agent 的精选投影，Core 协议则允许应用自行组装 Source、Artifact 和 Trigger 实现。
 
 ### 横向对比

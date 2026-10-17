@@ -155,7 +155,7 @@ Promotion is based on replay and labeled evidence, not on provider claims.
 
 ## Boundaries that users should not expect
 
-This RFC does not add a general decision workflow engine. It does not let a model approve Review candidates, accept a
+This RFC does not add a general decision workflow engine. Gate evaluation does not approve Review candidates, accept a
 Handoff, verify task completion, deactivate Memory, install a Skill, or select tools for an agent. Those remain domain
 actions owned by existing PowerContext services and their review or authorization contracts.
 
@@ -423,8 +423,9 @@ rewrite Memory.
 ### RFC 0050
 
 Review Inbox remains the place for review-owned families and explicit review proposals. A gate may create a pending
-Candidate only where the owning family already supports that flow, and the model cannot approve the Candidate it
-creates.
+Candidate only where the owning family already supports that flow. Gate evaluation creates no approval; approval is
+a separate Review operation. An Agent authorized to call that operation can approve its own Candidate, so independent
+review requires distinct authenticated identities and suitable permission assignments.
 
 ## Compatibility, persistence, and API impact
 
@@ -480,7 +481,7 @@ PowerContext already has the building blocks:
 - RFC 1745 defines a decision-model rerank seam and the fail-closed distinction for reranking.
 - RFC 1560 defines a model-free recall sufficiency gate with bounded expansion.
 - RFC 1652 defines evidence-preserving Memory quality and lifecycle boundaries.
-- RFC 0050 defines the Review Inbox and the rule that generated candidates cannot approve themselves.
+- RFC 0050 defines the Review Inbox and the separate approval operation required before a Candidate becomes an Artifact.
 - RFC 0046 defines observability foundations that the observation stream should reuse rather than bypass.
 
 Adjacent systems provide cautionary examples. Hermes-style Jev plugins show the value of cheap code-invoked gates,

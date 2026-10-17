@@ -179,6 +179,11 @@ The unified HTTP review routes are `/v1/candidates/list`, `get`, `history`, `rev
 `candidate_kind=artifact|tag` distinguishes proposals. Old Artifact Candidate routes are removed; callers must upgrade together.
 Artifact approval returns a real revision; Tag approval returns committed tags and ETag without creating a content revision.
 
+Review decisions remain available through MCP. With access control enforced, Server authorization requires
+`scope.review`; it does not prohibit an authorized proposer from approving its own Candidate. MCP tool annotations let
+hosts apply confirmation policies but do not require human confirmation. See
+[Review authority](../workflows/review-candidates.md#review-authority) for access modes and reviewer separation.
+
 The `candidate` command group exposes the human Review Inbox. See [Review Candidates](../workflows/review-candidates.md)
 for the ordered workflow to list, inspect, revise, approve, or reject Candidates.
 
@@ -210,8 +215,8 @@ sets `target`. Managed Skill generation also declares its provenance shape:
 
 These generation operations require `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL`. The lower-level `propose_*`
 operations remain available for a human or integration that already has complete typed content and exact evidence.
-Neither path approves its own Candidate. After Review approval, deterministic `searchable_text` is stored on the
-existing generic Artifact head and enters the backend's rebuildable FTS index, making the Experience eligible for
+Both paths return pending content; approval is a separate operation. After Review approval, deterministic
+`searchable_text` is stored on the existing generic Artifact head and enters the backend's rebuildable FTS index, making the Experience eligible for
 `PreparedContext` recall in the same scope. Pending and rejected Candidates, all managed Skills, and historical
 Experience revisions remain excluded.
 

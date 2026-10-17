@@ -127,7 +127,7 @@ promotion 基于 replay 和带标签证据，而不是 provider 宣称。
 
 ## 用户不应该期待的边界
 
-本 RFC 不新增通用决策工作流引擎。它不允许模型 approve Review candidate、accept Handoff、验证任务完成、deactivate Memory、install Skill，或替 agent 选 tool。这些仍然是现有 PowerContext 服务及其 review/authorization 契约拥有的领域动作。
+本 RFC 不新增通用决策工作流引擎。Gate evaluation 不执行 Review candidate 批准、Handoff 接受、任务完成验证、Memory 停用、Skill 安装或 agent 工具选择。这些仍然是现有 PowerContext 服务及其 review/authorization 契约拥有的领域动作。
 
 本 RFC 也不改变 RFC 1745。Decision reranking 是一个特殊的非 advisory consumer，其失败策略在 RFC 0080 下是 fail-closed。共享 policy 层可以描述该角色，但不能把 reranking 变成 fail-open advisory gate。
 
@@ -345,7 +345,7 @@ Memory quality 与 lifecycle effects 仍然是 review-oriented 且保留证据�
 
 ### RFC 0050
 
-Review Inbox 仍然服务于 review-owned families 和明确的 review proposal。只有所属 family 已支持这种流程时，gate 才可以创建 pending Candidate，而且模型不能 approve 它自己创建的 Candidate。
+Review Inbox 仍然服务于 review-owned families 和明确的 review proposal。只有所属 family 已支持这种流程时，gate 才可以创建 pending Candidate。Gate evaluation 不执行批准；批准是独立的 Review 操作。有权调用该操作的 Agent 可以批准自己的 Candidate，因此独立审核需要不同的已认证身份和适当的权限分配。
 
 ## 兼容性、持久化和 API 影响
 
@@ -393,7 +393,7 @@ PowerContext 已经有相关基础：
 - RFC 1745 定义了 decision-model rerank seam，以及 reranking 的 fail-closed 区分。
 - RFC 1560 定义了 model-free recall sufficiency gate 与 bounded expansion。
 - RFC 1652 定义了 evidence-preserving 的 Memory quality 与 lifecycle 边界。
-- RFC 0050 定义了 Review Inbox，以及 generated candidate 不能 approve 自己的规则。
+- RFC 0050 定义了 Review Inbox，以及 Candidate 成为 Artifact 前所需的独立审批操作。
 - RFC 0046 定义了 observability foundations，observation stream 应复用它，而不是绕开它。
 
 相邻系统提供了反例和经验。Hermes 风格的 Jev 插件展示了 cheap code-invoked gates、shadow mode 和 local rules 的价值，但它们的阈值与宿主特定 hook 不是 PowerContext 默认值。OpenClaw 风格的 decision role 说明，decision model 更适合作为 runtime collaborator，而不是 model-callable tool。Jev 与 Laya 是候选后端或参考点，不拥有 policy。

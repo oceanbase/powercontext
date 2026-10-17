@@ -232,8 +232,12 @@ pending Candidate; the latter reads an approved Experience Revision only by exac
 The generated Python Client exposes the same operations, the CLI provides
 `candidate list/show/approve/reject/revise`, and MCP projects all five Review operations as tools. Transport does not
 change Candidate validation, `expected_version` checks, or the atomic approval transaction. PowerContext does not treat
-MCP visibility as an authorization boundary; deployments that require reviewer separation must control access to the
-MCP endpoint.
+MCP visibility as an authorization boundary. With RFC 1396 access control enforced, review decisions require
+`scope.review` through every transport. With access control disabled, any caller that reaches the operation can make
+a decision. An authorized proposer may approve its own Candidate. Deployments requiring separate submission and review
+must use distinct authenticated Principals, withhold review authority from the submitting Agent, and keep reviewer
+credentials outside its environment. MCP annotations describe side effects for host confirmation policies; they do
+not enforce human confirmation.
 
 This RFC does not modify the existing Memory contract:
 

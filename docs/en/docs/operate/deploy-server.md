@@ -181,6 +181,10 @@ AccessControlService must disable the Dashboard; an incompatible enabled configu
 Disabling it does not affect team API or MCP access. For personal setup, see
 [Install and run](../get-started/install-and-run.md).
 
+A shared static token does not enforce human review or prevent an Agent from approving its own Candidate. For separate
+submission and approval, use distinct authenticated Principals and grant review permission only to the reviewer.
+See [Separate Agent submission from review](../workflows/review-candidates.md#separate-agent-submission-from-review).
+
 ## Check the deployment
 
 Use liveness to determine whether the process can answer HTTP requests:

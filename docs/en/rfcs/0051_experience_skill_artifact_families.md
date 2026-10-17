@@ -32,8 +32,11 @@ does not create a managed Artifact. Only an explicit import or fork proposes a n
 
 Experience and managed Skill generation and evolution are advanced capabilities that require a configured generation
 model. Without one, Runtime generates no Candidate and provides no rule-based fallback. Artifact persistence, Review,
-exact reads, and local external Skill registration continue to work independently. A model cannot approve its own
-Candidate, allocate final Artifact identity, or acquire execution authority.
+exact reads, and local external Skill registration continue to work independently. Generation creates pending content
+without final Artifact identity or execution authority. Approval is a separate Review operation. With access control
+enforced, it requires `scope.review`; an Agent holding that permission may approve its own Candidate. To reserve
+approval for a separate reviewer, assign submission and review permissions to distinct authenticated identities. See
+[Review Candidates](../docs/workflows/review-candidates.md#separate-agent-submission-from-review).
 
 # Motivation
 
@@ -469,8 +472,9 @@ Without a configured generation model:
 - Runtime never wraps raw summaries or deterministic rule output in Experience or managed Skill content.
 
 Rules still enforce input bounds, scope, exact references, typed shape, and lineage, but those checks do not replace
-semantic generation. Even when available, an LLM cannot approve Candidates, choose execution authority, invent
-evidence, install Skills, or commit final Revisions.
+semantic generation. A generation model supplies proposal content, not approval or final Revision commits, and must
+not invent evidence. Review commits the final Revision through a separate operation; an authorized Agent can call
+that operation. Generation and approval do not grant installation or execution authority.
 
 ## Identity, Revision, persistence, and projections
 

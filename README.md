@@ -215,8 +215,11 @@ host-local projection.
   Experience, with optional Profile snapshots and Topic Memory, then applies a shared byte budget and returns `ready`
   content or `empty`. Recalled content is history, not an instruction authority: the receiving Agent still follows
   current instructions and checks live workspace state.
-- **Review before reuse.** Experience and Skill pass through a review decision that is terminal either way. The model
-  proposes rather than silently promoting its own output.
+- **Review before reuse.** Experience and Skill pass through a review decision that is terminal either way, and
+  approval writes an immutable Revision. With access control enforced, approval requires `scope.review`. An
+  authorized Agent can approve its own Candidate;
+  [separate submission and review](https://powercontext.oceanbase.io/en/docs/workflows/review-candidates/#separate-agent-submission-from-review)
+  with distinct identities and permissions when a person must decide.
 - **One Server, several views of the same contract.** HTTP is the complete remote application contract. The Python Client
   gives typed access, MCP is a curated Agent-facing projection, and Core protocols let an application assemble its own
   Source, Artifact, and Trigger implementations.

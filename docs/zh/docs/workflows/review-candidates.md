@@ -32,6 +32,62 @@ powercontext ready
 将 `POWERCONTEXT_SCOPE_ID` 设置为 Candidate 所在的已有 Scope ID。本指南从 Experience 或 Skill 操作已经创建
 pending Candidate 后开始。
 
+## 审核权限
+
+Review 是一次状态转换：pending 内容只有经过显式批准，才能成为不可变的 Artifact Revision。
+这一步本身不证明内容由人审核，也不要求审核者与提案人不同。
+
+| Server 权限模式 | 谁可以批准 |
+| --- | --- |
+| `disabled`（默认） | 能访问审核操作的调用者；不强制审核者身份 |
+| `enforced` | 拥有 `scope.review` 的已认证 Principal，同时满足 Candidate 的证据与目标权限要求 |
+
+HTTP、Python Client、CLI 和 MCP 使用同一套 Server 授权。一个 Principal 同时具有提交和审核权限时，可以批准自己的
+Candidate。内置静态 Bearer token 代表一个共享的管理员身份；共享该 token 无法区分 Agent 与审核者。
+
+MCP 暴露 `approve_candidate`、`reject_candidate` 和 `revise_candidate`。这些工具的注解描述操作副作用，供宿主执行
+自己的确认策略。注解不会强制弹出确认，也不证明已经经过人工确认。批准 Skill 同样不等于安装、发布或授予执行权限。
+
+## 分离 Agent 提交与审核
+
+如果希望由 Agent 提交新的 Experience 或 Skill Candidate，再由人决定是否批准：
+
+1. 启用 `POWERCONTEXT_SERVER_ACCESS_MODE=enforced`，配置能够建立不同身份的 Authentication Provider。
+   参见 [Scope 与访问控制](scopes-and-access.md#启用访问控制)。共享静态 token 无法满足这一要求。
+2. 由管理员在同一个精确 Scope 上，为 Agent 分配 `scope.contributor`，为审核者分配 `scope.reviewer`。
+   不要通过其他角色、群组或额外凭据向 Agent 授予审核或角色管理权限。
+3. 不要把审核者凭据交给 Agent 的工具或进程环境。审核使用已认证的 Client 或集成；Dashboard 面向个人和演示部署，
+   不支持团队 RBAC。
+4. 以 Agent 身份提交 Candidate，再分别以两个身份读取。Agent 通过 HTTP 或 MCP 尝试批准时都应被拒绝；
+   审核者可以批准确切的 pending version。
+5. 需要修改时，由审核者填写原因并拒绝，再提交修正后的新 Candidate。拒绝是终态。修订已有 Candidate 同时要求
+   `scope.review` 和原提案人身份，因此上述两个分离的角色都不能直接使用 `revise`；不要为了编辑提案给 Agent 增加审核权限。
+
+使用内置可写 Access Provider 时，管理员可以向 `POST /v1/access/bindings/create` 分别发送以下请求。
+将身份替换为 Authentication Provider 确认的身份，将 Scope ID 替换为已有值；请求体只分配角色，不会认证其中的主体。
+
+```json
+{
+  "subject": {"type": "service", "id": "coding-agent"},
+  "resource": {"type": "scope", "scope_id": "scope-project"},
+  "role": "scope.contributor",
+  "idempotency_key": "project-agent-contributor"
+}
+```
+
+```json
+{
+  "subject": {"type": "user", "id": "reviewer"},
+  "resource": {"type": "scope", "scope_id": "scope-project"},
+  "role": "scope.reviewer",
+  "idempotency_key": "project-human-reviewer"
+}
+```
+
+上述分配适用于创建新的 Artifact identity。修改已有 Artifact 的提案还需要相应的目标权限，两个 Scope 角色并不授权所有
+replacement。这个工作流通过角色分配隔离权限，Server 没有全面禁止自审的规则；若同一身份后来同时获得两种权限，
+它仍然可以提交并批准自己的 Candidate。
+
 ## 从已有证据发起 Dream
 
 Dream 在后台将选中的 Atomic Memory 或 Experience Revision 提炼成一个待审核候选；也可以返回 `no_change` 或

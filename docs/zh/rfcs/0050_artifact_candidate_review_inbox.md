@@ -210,7 +210,10 @@ exact `ArtifactRef` 读取已经批准的 Experience Revision。对应 HTTP 路�
 
 生成的 Python Client 暴露相同操作，CLI 提供 `candidate list/show/approve/reject/revise`，MCP 则把五个 Review
 operation 全部投影为 tool。transport 不改变 Candidate validation、`expected_version` 校验或原子 approval transaction。
-PowerContext 不把 MCP 可见性作为授权边界；需要 reviewer separation 的部署必须控制 MCP endpoint 的访问权限。
+PowerContext 不把 MCP 可见性作为授权边界。启用 RFC 1396 权限控制后，各 transport 的审核决策都需要 `scope.review`；
+关闭权限控制时，能访问该操作的调用者都可以决策。有审核权限的提案人可以批准自己的 Candidate。需要分离提交与审核的
+部署必须使用不同的已认证 Principal，不向提交内容的 Agent 授予审核权限，并将审核者凭据保留在其环境之外。
+MCP 注解描述操作副作用，供宿主执行确认策略，不会强制人工确认。
 
 本 RFC 不修改现有 Memory contract：
 

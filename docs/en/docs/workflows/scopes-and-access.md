@@ -42,6 +42,12 @@ Inspect `GET /v1/access/me` for the active identity and provider capabilities. R
 Scope, and Artifact actions. Scope creation requires `server.admin`; Prompt changes require current `scope.admin`.
 The ability to read review candidates does not grant permission to approve them.
 
+To let an Agent submit new Experience or Skill Candidates while a separate reviewer decides, assign
+`scope.contributor` to the Agent and `scope.reviewer` to the reviewer using distinct authenticated identities.
+Keep reviewer credentials out of the Agent's environment. A Principal holding both permissions can approve its own
+Candidate. Follow [Separate Agent submission from review](review-candidates.md#separate-agent-submission-from-review)
+for role-assignment examples, rejection and resubmission, and existing-Artifact permission limits.
+
 Scheduled processing needs an authorized background Principal. Tag queries require `scope.read`, while editing a
 target's tags follows that target's write permission. Use [Tags](manage-artifact-tags.md) and
 [Scope profiles](use-profiles.md) for the corresponding workflows.

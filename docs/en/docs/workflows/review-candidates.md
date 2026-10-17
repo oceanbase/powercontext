@@ -33,6 +33,67 @@ powercontext ready
 Set `POWERCONTEXT_SCOPE_ID` to the existing Scope ID that contains the Candidate. This guide starts after an
 Experience or Skill operation has created a pending Candidate.
 
+## Review authority
+
+Review is a state transition: pending content becomes an immutable Artifact Revision only after an explicit approval.
+It does not by itself prove that a person reviewed the content or that the reviewer differs from the proposer.
+
+| Server access mode | Who can approve |
+| --- | --- |
+| `disabled` (default) | Any caller that can reach the review operation; no reviewer identity is enforced |
+| `enforced` | An authenticated Principal with `scope.review`, subject to the Candidate's evidence and target permissions |
+
+HTTP, the Python Client, CLI, and MCP use the same Server authorization. A Principal with submission and review
+permissions can approve its own Candidate. The built-in static bearer token represents one shared administrator
+identity; sharing that token does not separate an Agent from a reviewer.
+
+MCP exposes `approve_candidate`, `reject_candidate`, and `revise_candidate`. Their tool annotations describe side
+effects so a host can apply its confirmation policy. Annotations do not force a prompt or prove human confirmation.
+Approval also does not install, publish, or authorize execution of a Skill.
+
+## Separate Agent submission from review
+
+For a workflow where an Agent submits new Experience or Skill Candidates and a person decides whether to approve:
+
+1. Enable `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and configure an Authentication Provider that establishes distinct
+   identities. See [Scopes and access](scopes-and-access.md#enable-access-control). A shared static token is insufficient.
+2. Have an administrator grant the Agent `scope.contributor` and the reviewer `scope.reviewer` on the exact Scope.
+   Do not give the Agent review or role-management authority, including through groups or additional credentials.
+3. Keep the reviewer's credentials outside the Agent's tools and process environment. Use an authenticated Client or
+   integration for review. The Dashboard supports personal and demonstration deployments, not team RBAC.
+4. Submit a Candidate as the Agent, then read it as each identity. The Agent must receive a denial when attempting
+   approval through HTTP or MCP; the reviewer can approve the exact pending version.
+5. If changes are needed, reject with a reason and submit a corrected new Candidate. Rejection is terminal. Revising
+   an existing Candidate requires both `scope.review` and the original proposer identity, so neither of these separate
+   roles can use `revise` in this setup. Do not grant review authority to the Agent just to edit a proposal.
+
+With the built-in writable Access Provider, an administrator can send these requests to
+`POST /v1/access/bindings/create`. Replace the IDs with identities established by the Authentication Provider and the
+existing Scope ID; request bodies assign roles and do not authenticate the named subjects.
+
+```json
+{
+  "subject": {"type": "service", "id": "coding-agent"},
+  "resource": {"type": "scope", "scope_id": "scope-project"},
+  "role": "scope.contributor",
+  "idempotency_key": "project-agent-contributor"
+}
+```
+
+```json
+{
+  "subject": {"type": "user", "id": "reviewer"},
+  "resource": {"type": "scope", "scope_id": "scope-project"},
+  "role": "scope.reviewer",
+  "idempotency_key": "project-human-reviewer"
+}
+```
+
+These assignments cover new Artifact identities. A proposal that revises an existing Artifact also requires the
+applicable target permissions; the two Scope roles alone do not authorize every replacement. This workflow separates
+authority through role assignments, without a Server rule prohibiting all self-approval. If one identity later receives
+both permissions, it can submit and approve its own Candidate.
+
 ## Start a Dream from existing evidence
 
 Dreaming turns selected Atomic Memory or Experience revisions into one proposal for review. It runs in the background;

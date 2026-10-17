@@ -5,8 +5,9 @@ description: 了解证据如何变成经过审核的 Experience 和 managed Skil
 
 # Experience 与 Skill 生命周期
 
-Experience 和 managed Skill 使用同一个审核边界。证据支撑 proposal，人工审核一个精确 Candidate version，批准后
-创建不可变的 Artifact Revision。Generation 不会自行批准结果。
+Experience 和 managed Skill 使用同一个审核边界。证据支撑 proposal，审核者检查一个精确 Candidate version，批准后
+创建不可变的 Artifact Revision。Generation 返回 pending 内容，批准需要单独调用操作。审核者可以是有权限的 Agent，
+也可以是提案人自己。需要人工审核时，应[分离提交与审核权限](review-candidates.md#分离-agent-提交与审核)。
 
 ## 先有证据
 

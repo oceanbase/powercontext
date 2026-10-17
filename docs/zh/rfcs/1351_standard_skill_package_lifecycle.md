@@ -164,8 +164,9 @@ Revision 完整包含捕获的包。外部包和导入后的受管 Skill 成为�
 ### 创作或生成受管 Skill
 
 用户可以上传完整包，也可以由已配置的生成模型根据精确 SourceRef 和 ArtifactRef 证据提出一个包。生成在批准
-事务之外完成。PowerContext 先校验和保存包，再创建 pending Candidate。模型不能批准自己的 Candidate、分配最终
-Artifact identity、发布包或获得脚本执行权限。
+事务之外完成。PowerContext 先校验和保存包，再创建 pending Candidate。生成不批准 Candidate，也不分配最终
+Artifact identity。批准是面向有权限的调用者（包括 Agent）的独立操作，不禁止自审。发布需要另一个显式操作，
+这些步骤都不授予脚本执行权限。
 
 ## Review 最终会被发布的包
 
