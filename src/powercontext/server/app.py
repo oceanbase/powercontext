@@ -172,6 +172,7 @@ from powercontext.builtin.publication import (
 )
 from powercontext.builtin.records import (
     ArtifactAlreadyExistsError,
+    ArtifactRevisionActor,
     ArtifactRevisionPreconditionError,
     BaseAccessError,
     BaseOperationNotSupportedError,
@@ -942,6 +943,9 @@ class _ScopedRecordApplication(Protocol):
         expected_etag: str,
         write: RuntimeArtifactWrite,
         /,
+        *,
+        actor_type: str | None = None,
+        actor_id: str | None = None,
     ) -> RuntimeArtifactRecord: ...
 
 
@@ -2811,11 +2815,14 @@ async def replace_artifact(
     if family.value == "memory":
         raise BaseOperationNotSupportedError("artifact_family", "memory", "collection writes")
     expected_etag = _require_artifact_etag(if_match)
+    principal = current_principal()
     result = await application.records.for_scope(scope_id).replace_artifact(
         family.value,
         artifact_id,
         expected_etag,
         _artifact_write(request),
+        actor_type=None if principal is None else principal.type,
+        actor_id=None if principal is None else principal.id,
         **(
             {"execution_context": _atomic_execution_context(http_request, REPLACE_ARTIFACT.operation_id)}
             if family.value == "atomic-memory"
@@ -2864,6 +2871,12 @@ def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
     )
 
 
+def _transport_actor(actor: ArtifactRevisionActor | None) -> TransportAccessPrincipal | None:
+    if actor is None:
+        return None
+    return TransportAccessPrincipal(type=actor.type, id=actor.id)
+
+
 def _artifact_revision_response(value: RuntimeArtifactRecord) -> ArtifactRevision:
     return ArtifactRevision(
         scope_id=value.scope_id,
@@ -2874,6 +2887,10 @@ def _artifact_revision_response(value: RuntimeArtifactRecord) -> ArtifactRevisio
         sources=[mapping.source_type_reference(ref) for ref in value.sources],
         artifacts=[mapping.artifact_reference(ref) for ref in value.artifacts],
         content_digest=value.content_digest,
+        created_at=value.created_at,
+        created_by=_transport_actor(value.created_by),
+        restored_from_revision=value.restored_from_revision,
+        reason=value.reason,
     )
 
 
@@ -2901,6 +2918,10 @@ def _artifact_collection_item_response(value: RuntimeArtifactCollectionItem) -> 
         summary=value.summary,
         published_at=value.published_at,
         source_count=value.source_count,
+        created_at=value.created_at,
+        created_by=_transport_actor(value.created_by),
+        restored_from_revision=value.restored_from_revision,
+        reason=value.reason,
     )
 
 
@@ -2910,6 +2931,8 @@ def _artifact_write(value: CreateArtifactRequest | ReplaceArtifactRequest) -> Ru
         content = mapping.runtime_handoff_content(content)
     return RuntimeArtifactWrite(
         prompt_key=value.root.prompt_key.value if isinstance(value.root, CreatePromptArtifactRequest) else None,
+        restored_from_revision=getattr(value.root, "restored_from_revision", None),
+        reason=getattr(value.root, "reason", None),
         content=cast(
             dict[str, JsonValue],
             content.model_dump(

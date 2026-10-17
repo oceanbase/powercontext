@@ -73,6 +73,8 @@ for (const item of Object.values(contract.paths))
     if (wanted.includes(op?.operationId)) collectSchemas(op);
 function rustType(schema) {
   if (schema.$ref) return schema.$ref.split("/").at(-1);
+  // A single-member allOf is how the contract annotates a nullable or described reference.
+  if (schema.allOf?.length === 1) return rustType(schema.allOf[0]);
   switch (schema.type) {
     case "string":
       return "String";

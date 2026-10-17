@@ -380,15 +380,12 @@ Approve/Reject 失败不部分推进 Cursor；终态重复请求遵循既有 Can
 及现有 lineage 规则。Create 固定 artifact_id=profile，已有 Head 返回 409。自动提交使用同一 Family 校验与 repository，
 但引用真实 evidence Source，不伪造人工系统 Source。
 
-回退无需新 API：先 GET 历史 Revision，再 GET 当前 Head 的 ETag，PUT 完整正文并可在 ProfileWriteContent 中带
-`restored_from_revision`。服务端校验历史 Revision 存在且规范化正文相同，写入新的 rollback Revision；不移动 Head 回旧版本，
-不回退 Cursor。未提供该可选字段时视为普通人工 Replace。Create 不允许指定 restored_from_revision。
-历史比较由客户端读取两个 Revision 完成，不新增 diff/history-list 接口。
+回退无需新 API：先 GET 历史 Revision，再 GET 当前 Head 的 ETag，然后 PUT 完整正文。`restored_from_revision` 可以放在 `content` 旁边，也可以放在 ProfileWriteContent 里；两处都给出时必须是同一个整数。给出源修订时必须同时给出非空 `reason`，最长 1024 个字符。服务端校验历史 Revision 存在且规范化正文相同，写入新的 rollback Revision，并记下源修订、原因和已认证主体；不移动 Head 回旧版本，不回退 Cursor。两处源修订都不提供时视为普通人工 Replace。Create 不允许指定 restored_from_revision。历史比较由客户端读取两个 Revision 完成，Dashboard 负责展示，不另设 diff 接口。
 
 ## Persistence inventory and example rows
 
 下面示例中的 BLOB 展示解码后的 JSON，外键和 lineage 使用实际完整身份。时间、摘要使用可读示例值；省略的默认列
-在实现中仍按现有表定义写入。现有表均无 DDL 变动，只扩展 Profile 对应的类型化 BLOB schema 和代码分支。
+在实现中仍按现有表定义写入。现有表约束保持不变。Artifact 行增加可空的 `created_at`、`created_by`、`restored_from_revision` 和 `rollback_reason`。Profile 的类型化 BLOB schema 和代码分支按下文扩展。
 
 ```mermaid
 erDiagram

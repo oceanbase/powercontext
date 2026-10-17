@@ -191,6 +191,23 @@ output_schema:
         content_digest:
           $ref: '#/definitions/Result/properties/content_digest'
           type: string
+        created_at:
+          $ref: '#/definitions/Result/properties/created_at'
+          type: string
+          description: When this revision was committed. Absent for revisions stored
+            before this field existed.
+        created_by:
+          $ref: '#/definitions/Result/properties/created_by'
+          description: Principal that committed a rollback. Ordinary revisions omit
+            it.
+        restored_from_revision:
+          $ref: '#/definitions/Result/properties/restored_from_revision'
+          type: number
+          description: Historical revision restored by this rollback.
+        reason:
+          $ref: '#/definitions/Result/properties/reason'
+          type: string
+          description: Reason recorded for a rollback.
       description: Complete successful HTTP response; empty object on error or unknown
         outcome.
   required:
@@ -269,6 +286,52 @@ output_schema:
         content_digest:
           type: string
           pattern: ^sha256:[0-9a-f]{64}$
+        created_at:
+          anyOf:
+          - type: string
+            format: date-time
+            description: When this revision was committed. Absent for revisions stored
+              before this field existed.
+          - type: 'null'
+        created_by:
+          anyOf:
+          - allOf:
+            - type: object
+              additionalProperties: false
+              required:
+              - type
+              - id
+              properties:
+                type:
+                  type: string
+                  enum:
+                  - user
+                  - service
+                id:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                description:
+                  anyOf:
+                  - type: string
+                    minLength: 1
+                    maxLength: 255
+                  - type: 'null'
+            description: Principal that committed a rollback. Ordinary revisions omit
+              it.
+          - type: 'null'
+        restored_from_revision:
+          anyOf:
+          - type: integer
+            minimum: 1
+            description: Historical revision restored by this rollback.
+          - type: 'null'
+        reason:
+          anyOf:
+          - type: string
+            maxLength: 1024
+            description: Reason recorded for a rollback.
+          - type: 'null'
       description: Complete successful HTTP response; empty object on error or unknown
         outcome.
 extra:

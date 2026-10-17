@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
@@ -39,6 +40,11 @@ from powercontext.builtin.persistence.errors import (
     InvalidRepositoryArgumentError,
     RepositoryNotFoundError,
     StoredPayloadConflictError,
+)
+from powercontext.builtin.persistence.revision_meta import (
+    attach_revision_meta,
+    meta_from_row,
+    rollback_columns,
 )
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
@@ -597,6 +603,8 @@ class ArtifactRepository:
         if not isinstance(content, BaseModel):
             raise TypeError("artifact content must be a BaseModel")  # noqa: TRY003
         payload = dump_model(content, kind="artifact", name=artifact_type.family)
+        created_at = datetime.now(UTC)
+        stamped = rollback_columns(ref.family, ref.artifact_id, ref.revision)
         await connection.execute(
             insert(ARTIFACTS_TABLE).values(
                 scope_id=scope_id,
@@ -604,6 +612,8 @@ class ArtifactRepository:
                 artifact_id=ref.artifact_id,
                 revision=ref.revision,
                 content=payload,
+                created_at=created_at,
+                **stamped,
             )
         )
         if lineage.sources:
@@ -645,6 +655,7 @@ class ArtifactRepository:
             content=content,
             lineage=lineage,
         )
+        attach_revision_meta(artifact, meta_from_row({"created_at": created_at, **stamped}))
         if artifact.as_ref() != ref:
             raise IdentityMismatchError("artifact", ref, artifact.as_ref())
         return artifact
@@ -687,6 +698,7 @@ class ArtifactRepository:
             content=content,
             lineage=lineage,
         )
+        attach_revision_meta(artifact, meta_from_row(row))
         if artifact.as_ref() != ref:
             raise IdentityMismatchError("artifact", ref, artifact.as_ref())
         return artifact

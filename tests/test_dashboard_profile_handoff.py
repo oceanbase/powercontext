@@ -14,16 +14,29 @@
 
 """Read and download exact artifacts through the authenticated Dashboard."""
 
+import json
 import re
+import sqlite3
 from html import unescape
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
 from markdown_it import MarkdownIt
 
+from powercontext.builtin.artifacts.prompt import PROMPT_KEYS, PromptRegistry
+from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.dashboard.api import DashboardAPI
+from powercontext.server.dashboard.pagination import PAGE_SIZE
+from powercontext.server.factory import create_server_app
+from powercontext.server.settings import (
+    DashboardConfig,
+    McpConfig,
+    ServerSettings,
+)
 from tests.test_dashboard import commit_handoff, create_scope
 from tests.test_dashboard import dashboard as dashboard
 
@@ -92,8 +105,513 @@ def test_profile_safe_markdown_and_scope_isolation(dashboard):
     empty = dashboard.get("/dashboard/profile", params={"scope": other, "lang": "en"})
     assert "No profile in this scope" in empty.text
     assert "Chinese 中文" not in empty.text
-    for params in ({"revision": "0"}, {"revision": "no"}, {"view": "history", "revision": "1"}):
+    for params in ({"revision": "0"}, {"revision": "no"}, {"view": "draft"}):
         assert dashboard.get("/dashboard/profile", params={"scope": scope, **params}).status_code == 422
+    combined = dashboard.get("/dashboard/profile", params={"scope": scope, "view": "history", "revision": "1"})
+    assert combined.status_code == 200
+    assert "Chinese 中文" in combined.text
+
+
+def test_profile_page_rolls_back_to_a_new_revision(dashboard):
+    scope = create_scope(dashboard, "Profile rollback")["scope_id"]
+    original = "# First profile\n\nOriginal preference."
+    _profile(dashboard, scope, original)
+    path = f"/v1/scopes/{scope}/artifacts/profile/profile"
+    current = dashboard.get(path)
+    changed = dashboard.put(
+        path,
+        json={"content": {"content": "# Second profile\n\nLater preference."}},
+        headers={"If-Match": current.headers["etag"]},
+    )
+    assert changed.status_code == 200, changed.text
+    opened = dashboard.get("/dashboard/profile", params={"scope": scope, "revision": "1", "lang": "en"})
+    assert opened.status_code == 200
+    assert 'name="reason"' in opened.text
+    stale = dashboard.post(
+        "/dashboard/rollback",
+        data={
+            "scope": scope,
+            "family": "profile",
+            "artifact_id": "profile",
+            "source_revision": "1",
+            "expected_revision": "1",
+            "reason": "Restore the approved profile",
+        },
+        headers={"Origin": "http://testserver"},
+    )
+    assert stale.status_code == 200
+    assert "The current revision changed" in stale.text
+    restored = dashboard.post(
+        "/dashboard/rollback",
+        data={
+            "scope": scope,
+            "family": "profile",
+            "artifact_id": "profile",
+            "source_revision": "1",
+            "expected_revision": "2",
+            "reason": "Restore the approved profile",
+        },
+        headers={"Origin": "http://testserver"},
+    )
+    assert restored.status_code == 200
+    assert "Confirm rollback" not in restored.text
+    head = dashboard.get(path)
+    assert head.status_code == 200
+    body = head.json()
+    assert body["revision"] == 3
+    stored = dashboard.get(f"{path}/revisions/1").json()
+    assert body["content"]["content"] == stored["content"]["content"]
+    assert body["restored_from_revision"] == 1
+    assert body["reason"] == "Restore the approved profile"
+    assert body["created_by"]["id"]
+
+
+def test_rollback_is_offered_when_access_control_is_disabled(tmp_path: Path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/open.db"),
+            dashboard=DashboardConfig(enabled=True),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "scheduler.db",
+    )
+    with TestClient(app) as client:
+        scope = create_scope(client, "Open rollback")["scope_id"]
+        _profile(client, scope, "# First profile\n\nOriginal preference.")
+        current = client.get(f"/v1/scopes/{scope}/artifacts/profile/profile")
+        changed = client.put(
+            f"/v1/scopes/{scope}/artifacts/profile/profile",
+            json={"content": {"content": "# Second profile\n\nLater preference."}},
+            headers={"If-Match": current.headers["etag"]},
+        )
+        assert changed.status_code == 200, changed.text
+        opened = client.get("/dashboard/profile", params={"scope": scope, "revision": "1", "lang": "en"})
+        assert opened.status_code == 200
+        assert 'name="reason"' in opened.text
+        assert 'type="number"' in opened.text
+
+
+def test_existing_database_without_revision_metadata_columns_keeps_working(tmp_path: Path) -> None:
+    def open_app():
+        return create_server_app(
+            settings=ServerSettings(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/existing.db"),
+                dashboard=DashboardConfig(enabled=True),
+                mcp=McpConfig(enabled=False),
+            ),
+            scheduler_path=tmp_path / "scheduler.db",
+        )
+
+    with TestClient(open_app()) as client:
+        scope = create_scope(client, "Existing database")["scope_id"]
+        _profile(client, scope, "# First profile\n\nOriginal preference.")
+    # A database written before revision metadata existed has none of these columns.
+    with sqlite3.connect(tmp_path / "existing.db") as connection:
+        for column in ("created_at", "created_by", "restored_from_revision", "rollback_reason"):
+            connection.execute(f"ALTER TABLE pc_artifacts DROP COLUMN {column}")
+    with TestClient(open_app()) as client:
+        path = f"/v1/scopes/{scope}/artifacts/profile/profile"
+        current = client.get(path)
+        assert current.status_code == 200, current.text
+        assert current.json()["created_at"] is None
+        changed = client.put(
+            path,
+            json={"content": {"content": "# Second profile\n\nLater preference."}},
+            headers={"If-Match": current.headers["etag"]},
+        )
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["created_at"] is not None
+
+
+def test_profile_compare_accepts_a_revision_outside_the_current_page(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Profile compare")["scope_id"]
+    _profile(dashboard, scope, "# First profile\n\nOriginal preference.")
+    path = f"/v1/scopes/{scope}/artifacts/profile/profile"
+    for revision in range(2, 9):
+        previous = dashboard.get(path)
+        changed = dashboard.put(
+            path,
+            json={"content": {"content": f"# Profile {revision}\n\nUpdated preference."}},
+            headers={"If-Match": previous.headers["etag"]},
+        )
+        assert changed.status_code == 200, changed.text
+    compared = dashboard.get(
+        "/dashboard/profile",
+        params={"scope": scope, "revision": "1", "compare": "8", "lang": "en"},
+    )
+    assert compared.status_code == 200
+    assert 'id="compare-revision"' in compared.text
+    assert 'type="number"' in compared.text
+    assert "First profile" in compared.text
+    assert "Profile 8" in compared.text
+    missing = dashboard.get(
+        "/dashboard/profile",
+        params={"scope": scope, "revision": "1", "compare": "99", "lang": "en"},
+    )
+    assert "That revision could not be compared." in missing.text
+
+
+def test_prompt_page_shows_the_selected_revision(dashboard: TestClient) -> None:
+    # This fixture has no generation model, so custom prompts are otherwise rejected.
+    writer = cast(Any, dashboard.app).state.application._records()._family_writers.get("prompt")
+    writer._registry = PromptRegistry(builtin_prompt_definitions(), supported=frozenset(PROMPT_KEYS))
+    scope = create_scope(dashboard, "Prompt history")["scope_id"]
+    created = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={
+            "family": "prompt",
+            "prompt_key": "experience.generate",
+            "content": {
+                "schema_version": "powercontext.prompt.v1",
+                "mode": "custom",
+                "instructions": "Keep the approved prompt.",
+                "demonstrations": [],
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+    current = dashboard.get(f"/v1/scopes/{scope}/artifacts/prompt/experience.generate")
+    replaced = dashboard.put(
+        f"/v1/scopes/{scope}/artifacts/prompt/experience.generate",
+        json={
+            "content": {
+                "schema_version": "powercontext.prompt.v1",
+                "mode": "custom",
+                "instructions": "Keep a later prompt.",
+                "demonstrations": [],
+            }
+        },
+        headers={"If-Match": current.headers["etag"]},
+    )
+    assert replaced.status_code == 200, replaced.text
+    opened = dashboard.get(
+        "/dashboard/prompts",
+        params={"scope": scope, "prompt_key": "experience.generate", "prompt_revision": "1", "lang": "en"},
+    )
+    assert opened.status_code == 200
+    assert "Keep the approved prompt." in opened.text
+    assert "Keep a later prompt." not in opened.text
+    missing = dashboard.get(
+        "/dashboard/prompts",
+        params={"scope": scope, "prompt_key": "experience.generate", "prompt_revision": "99", "lang": "en"},
+    )
+    assert missing.status_code == 200
+    assert 'role="alert"' in missing.text
+    assert "Keep a later prompt." not in missing.text
+    assert "/dashboard/rollback" not in missing.text
+    assert 'id="compare-revision"' not in missing.text
+
+
+def _put_content(
+    client: TestClient, scope: str, family: str, artifact_id: str, content: dict[str, Any]
+) -> dict[str, Any]:
+    path = f"/v1/scopes/{scope}/artifacts/{family}/{artifact_id}"
+    current = client.get(path)
+    assert current.status_code == 200, (family, current.text)
+    replaced = client.put(path, json={"content": content}, headers={"If-Match": current.headers["etag"]})
+    assert replaced.status_code == 200, (family, replaced.text)
+    return replaced.json()
+
+
+def _rollback(client: TestClient, scope: str, family: str, artifact_id: str, expected: int) -> Any:
+    return client.post(
+        "/dashboard/rollback",
+        data={
+            "scope": scope,
+            "family": family,
+            "artifact_id": artifact_id,
+            "source_revision": "1",
+            "expected_revision": str(expected),
+            "reason": "Restore the approved revision",
+        },
+        headers={"Origin": "http://testserver"},
+    )
+
+
+def _hrefs(html: str) -> list[str]:
+    return [unescape(href) for href in re.findall(r'href="([^"]+)"', html)]
+
+
+def _revised_memory(client: TestClient, scope: str) -> str:
+    remembered = client.post("/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": "Original note."})
+    assert remembered.status_code == 200, remembered.text
+    artifact_id = remembered.json()["records"][0]["artifact"]["artifact_id"]
+    path = f"/v1/scopes/{scope}/artifacts/atomic-memory/{artifact_id}"
+    current = client.get(path)
+    revised = client.put(
+        path, headers={"If-Match": current.headers["etag"]}, json={"content": {"kind": "fact", "text": "Revised note."}}
+    )
+    assert revised.status_code == 200, revised.text
+    return artifact_id
+
+
+def _reading(html: str) -> str:
+    return html.split('id="note-reading"', 1)[1]
+
+
+def test_atomic_memory_history_compares_its_own_revisions_read_only(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Atomic memory history")["scope_id"]
+    artifact_id = _revised_memory(dashboard, scope)
+    page = dashboard.get(
+        "/dashboard/notes",
+        params={"scope": scope, "artifact": artifact_id, "revision": "1", "compare": "2", "lang": "en"},
+    )
+    assert page.status_code == 200, page.text
+    assert "Original note." in _reading(page.text).split("Revision history", 1)[0]
+    assert "Revision history" in page.text
+    assert "+ Revised note." in unescape(page.text)
+    assert "- Original note." in unescape(page.text)
+    assert "/dashboard/rollback" not in page.text
+
+
+def test_atomic_memory_history_link_opens_that_exact_revision(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Atomic memory navigation")["scope_id"]
+    artifact_id = _revised_memory(dashboard, scope)
+    current = dashboard.get("/dashboard/notes", params={"scope": scope, "lang": "en"})
+    assert current.status_code == 200, current.text
+    assert "Revised note." in _reading(current.text)
+    older = next(
+        href
+        for href in _hrefs(current.text)
+        if f"artifact={artifact_id}" in href and "revision=1" in href.split("#")[0]
+    )
+    page = dashboard.get(older)
+    assert page.status_code == 200, page.text
+    reading = _reading(page.text).split("Revision history", 1)[0]
+    assert "Original note." in reading
+    assert "Revised note." not in reading
+
+
+def test_notes_directory_link_drops_the_previous_notes_revision_cursor(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Atomic memory cursor")["scope_id"]
+    for index in range(PAGE_SIZE + 1):
+        remembered = dashboard.post(
+            "/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": f"Note {index}."}
+        )
+        assert remembered.status_code == 200, remembered.text
+    first = dashboard.get("/dashboard/notes", params={"scope": scope, "lang": "en"})
+    selected = re.search(r'atomic-memory/([^@"]+)@', first.text)
+    assert selected is not None
+    path = f"/v1/scopes/{scope}/artifacts/atomic-memory/{selected.group(1)}"
+    for revision in range(2, PAGE_SIZE + 2):
+        current = dashboard.get(path)
+        revised = dashboard.put(
+            path,
+            headers={"If-Match": current.headers["etag"]},
+            json={"content": {"kind": "fact", "text": f"Revised {revision}."}},
+        )
+        assert revised.status_code == 200, revised.text
+    opened = dashboard.get("/dashboard/notes", params={"scope": scope, "lang": "en"})
+    paged = dashboard.get(next(href for href in _hrefs(opened.text) if "notes_revision_cursor=" in href))
+    assert paged.status_code == 200, paged.text
+    directory = next(href for href in _hrefs(paged.text) if "notes_cursor=" in href)
+    assert "notes_revision_cursor" not in directory
+    following = dashboard.get(directory)
+    assert following.status_code == 200, following.text
+    assert "Revision history" in following.text
+
+
+def test_atomic_memory_replace_rejects_rollback_fields(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Atomic memory rollback")["scope_id"]
+    artifact_id = _revised_memory(dashboard, scope)
+    path = f"/v1/scopes/{scope}/artifacts/atomic-memory/{artifact_id}"
+    current = dashboard.get(path)
+    restored = dashboard.put(
+        path,
+        headers={"If-Match": current.headers["etag"]},
+        json={"content": {"kind": "fact", "text": "Original note."}, "restored_from_revision": 1, "reason": "Undo"},
+    )
+    assert restored.status_code == 422, restored.text
+    assert dashboard.get(path).json()["revision"] == 2
+
+
+def test_rollback_rejects_a_cross_origin_request(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Rollback origin")["scope_id"]
+    _profile(dashboard, scope, "# First profile\n\nOriginal preference.")
+    path = f"/v1/scopes/{scope}/artifacts/profile/profile"
+    current = dashboard.get(path)
+    changed = dashboard.put(
+        path,
+        json={"content": {"content": "# Second profile\n\nLater preference."}},
+        headers={"If-Match": current.headers["etag"]},
+    )
+    assert changed.status_code == 200, changed.text
+    payload = {
+        "scope": scope,
+        "family": "profile",
+        "artifact_id": "profile",
+        "source_revision": "1",
+        "expected_revision": "2",
+        "reason": "Restore the approved profile",
+    }
+    missing = dashboard.post("/dashboard/rollback", data=payload)
+    foreign = dashboard.post("/dashboard/rollback", data=payload, headers={"Origin": "http://sibling.test"})
+    assert missing.status_code == 403
+    assert foreign.status_code == 403
+    assert dashboard.get(path).json()["revision"] == 2
+
+
+def test_topic_history_cursor_does_not_follow_a_link_to_another_topic(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Topic history cursor")["scope_id"]
+    ids = []
+    for title in ("Topic A", "Topic B"):
+        created = dashboard.post(
+            f"/v1/scopes/{scope}/artifacts",
+            json={"family": "topic-memory", "content": {"title": title, "summary": "Summary", "detail": "Detail."}},
+        )
+        assert created.status_code == 201, created.text
+        ids.append(created.json()["artifact_id"])
+    for revision in range(2, 10):
+        _put_content(
+            dashboard,
+            scope,
+            "topic-memory",
+            ids[0],
+            {"title": "Topic A", "summary": f"Summary {revision}", "detail": "Detail."},
+        )
+    opened = dashboard.get(
+        "/dashboard/topics", params={"scope": scope, "topic_artifact": ids[0], "topic_revision": "9", "lang": "en"}
+    )
+    assert opened.status_code == 200, opened.text
+    paged = dashboard.get(next(href for href in _hrefs(opened.text) if "topic_revision_cursor=" in href))
+    assert paged.status_code == 200, paged.text
+    other = next(href for href in _hrefs(paged.text) if f"topic_artifact={ids[1]}" in href)
+    assert "topic_revision_cursor" not in other
+    assert "Revision history" in dashboard.get(other).text
+
+
+def test_dashboard_restores_a_legacy_instruction_only_skill_revision(dashboard: TestClient, tmp_path: Path) -> None:
+    scope = create_scope(dashboard, "Legacy skill rollback")["scope_id"]
+    legacy = {
+        "name": "compatibility-check",
+        "description": "Check compatibility before release",
+        "instructions": "Run the approved compatibility tests.",
+        "validation": ["Compatibility tests pass"],
+    }
+    created = dashboard.post(f"/v1/scopes/{scope}/artifacts", json={"family": "skill", "content": legacy})
+    assert created.status_code == 201, created.text
+    skill_id = created.json()["artifact_id"]
+    _put_content(dashboard, scope, "skill", skill_id, {**legacy, "instructions": "Run a later set of tests."})
+    # Revisions written before package-backed Skills stored the instruction core without a package.
+    with sqlite3.connect(tmp_path / "data.db") as connection:
+        connection.execute(
+            "UPDATE pc_artifacts SET content = ? WHERE scope_id = ? AND family = 'skill' AND artifact_id = ? "
+            "AND revision = 1",
+            (json.dumps(legacy).encode(), scope, skill_id),
+        )
+    restored = _rollback(dashboard, scope, "skill", skill_id, 2)
+    assert restored.status_code == 200, restored.text
+    head = dashboard.get(f"/v1/scopes/{scope}/artifacts/skill/{skill_id}").json()
+    assert head["revision"] == 3
+    assert head["content"]["instructions"].startswith("Run the approved compatibility tests.")
+
+
+def test_dashboard_rolls_back_experience_skill_topic_and_handoff(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Family rollback")["scope_id"]
+    experience = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={
+            "family": "experience",
+            "content": {
+                "situation": "A compatibility issue was found before release",
+                "action": "Add cross-version tests",
+                "outcome": "Avoided a production regression",
+                "lesson": "Public API changes require compatibility coverage",
+            },
+        },
+    )
+    assert experience.status_code == 201, experience.text
+    experience_id = experience.json()["artifact_id"]
+    _put_content(
+        dashboard,
+        scope,
+        "experience",
+        experience_id,
+        {
+            "situation": "A compatibility issue was found before release",
+            "action": "Add cross-version tests",
+            "outcome": "Avoided a production regression",
+            "lesson": "A later lesson replaced the approved one",
+        },
+    )
+    restored = _rollback(dashboard, scope, "experience", experience_id, 2)
+    assert restored.status_code == 200
+    assert "Public API changes require compatibility coverage" in restored.text
+    assert dashboard.get(f"/v1/scopes/{scope}/artifacts/experience/{experience_id}").json()["revision"] == 3
+
+    skill = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={
+            "family": "skill",
+            "content": {
+                "name": "compatibility-check",
+                "description": "Check compatibility before release",
+                "instructions": "Run the approved compatibility tests.",
+                "validation": ["Compatibility tests pass"],
+            },
+        },
+    )
+    assert skill.status_code == 201, skill.text
+    skill_id = skill.json()["artifact_id"]
+    _put_content(
+        dashboard,
+        scope,
+        "skill",
+        skill_id,
+        {
+            "name": "compatibility-check",
+            "description": "Check compatibility before release",
+            "instructions": "Run a later set of tests.",
+            "validation": ["Compatibility tests pass"],
+        },
+    )
+    restored_skill = _rollback(dashboard, scope, "skill", skill_id, 2)
+    assert restored_skill.status_code == 200, restored_skill.text
+    assert "Run the approved compatibility tests." in restored_skill.text
+
+    topic = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={
+            "family": "topic-memory",
+            "content": {"title": "Approved topic", "summary": "Approved summary", "detail": "Approved detail."},
+        },
+    )
+    assert topic.status_code == 201, topic.text
+    topic_id = topic.json()["artifact_id"]
+    _put_content(
+        dashboard,
+        scope,
+        "topic-memory",
+        topic_id,
+        {"title": "Later topic", "summary": "Later summary", "detail": "Later detail."},
+    )
+    restored_topic = _rollback(dashboard, scope, "topic-memory", topic_id, 2)
+    assert restored_topic.status_code == 200, restored_topic.text
+    assert "Approved detail." in restored_topic.text
+
+    handoff = commit_handoff(dashboard, scope)
+    handoff_id = handoff["artifact_id"]
+    original = dashboard.get(f"/v1/scopes/{scope}/artifacts/handoff/{handoff_id}").json()["content"]
+    source = {"kind": "source", "source_ref": {"name": "content", "source_id": "review"}}
+    changed = {
+        "schema": original["schema"],
+        "objective": "A later objective replaced the approved handoff.",
+        "state": [{"text": "Review remains in progress.", "citations": [source]}],
+        "disposition": original["disposition"],
+        "next_action": {"text": "Continue the review.", "citations": [source]},
+        "omissions": [],
+    }
+    _put_content(dashboard, scope, "handoff", handoff_id, changed)
+    confirmation = dashboard.get(
+        "/dashboard/handoff-detail",
+        params={"scope": scope, "artifact": handoff_id, "revision": "1", "lang": "en"},
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    assert "This creates a new revision" in confirmation.text
+    restored_handoff = _rollback(dashboard, scope, "handoff", handoff_id, 2)
+    assert restored_handoff.status_code == 200, restored_handoff.text
+    assert "Review the HTTP contract" in restored_handoff.text
+    assert "A later objective replaced the approved handoff." not in restored_handoff.text
 
 
 def test_profile_evidence_is_bound_to_the_exact_revision(dashboard):

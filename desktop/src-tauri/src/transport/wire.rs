@@ -181,6 +181,18 @@ pub struct ArtifactRevision {
     pub r#sources: Vec<SourceTypeReference>,
     pub r#artifacts: Vec<ArtifactReference>,
     pub r#content_digest: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#created_by: Option<AccessPrincipal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#restored_from_revision: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub r#reason: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]

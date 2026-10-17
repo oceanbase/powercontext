@@ -36,7 +36,7 @@ New Handoff writes use a Scope singleton, while detail links can select historic
 - Distinguish absent content, read errors, historical content, and failed downloads.
 - Preserve collection return context and recover exact reading destinations after authentication.
 - Preserve existing Prompt and Topic Memory routes, layouts, search, and pagination without duplicate entry points.
-- Exclude profile editing, rollback, regeneration, review, and processing policy management.
+- Exclude profile editing, regeneration, review, and processing policy management. History, comparison, and rollback of one exact stored revision stay on the existing page and reuse conditional replace.
 - Exclude an all-artifacts browser, cross-Scope aggregation, batch downloads, PDF, public sharing, imports, and a new
   machine-readable Agent handoff contract.
 
@@ -320,8 +320,8 @@ public selection and digest contract would broaden the feature, so use a Dashboa
 
 Allowlisted relative destinations survive refreshes and copied links; browser history and Referer cannot reliably
 distinguish normal navigation, direct entry, and authentication. Returning to exact detail after login preserves an
-explicit download action. Profile editing, generation, and rollback require conditional writes, review, and conflict
-recovery and remain available through existing tools and APIs.
+explicit download action. Profile editing, generation, and review remain available through existing tools and APIs.
+Rolling back one stored revision reuses conditional replace on the page that already shows that revision.
 
 # Prior art
 
@@ -340,6 +340,6 @@ aggregation, Profile editing, and batch reports require separate designs.
 
 # Future possibilities
 
-Future work can add conditional Profile editing, historical comparisons, and explicitly named latest-Scope report
+Future work can add conditional Profile editing and explicitly named latest-Scope report
 downloads. Improvements to existing Prompt and Topic Memory pages should address demonstrated gaps separately while
 retaining Scope permissions and exact references.

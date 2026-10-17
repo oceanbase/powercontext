@@ -82,7 +82,9 @@ def test_sqlite_startup_rejects_unmigrated_memory_with_legacy_artifact_head_colu
             await add_legacy_citation_columns(connection)
             # Frozen legacy payloads retain the old collection and entry identities.
             await connection.execute(
-                text("INSERT INTO pc_artifacts VALUES ('project', 'memory', 'memory', 1, :content, NULL)"),
+                text(
+                    "INSERT INTO pc_artifacts (scope_id, family, artifact_id, revision, content, memory_citations) VALUES ('project', 'memory', 'memory', 1, :content, NULL)"
+                ),
                 {"content": content},
             )
             await connection.execute(text("INSERT INTO pc_artifact_heads VALUES ('project', 'memory', 'memory', 1)"))

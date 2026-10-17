@@ -267,12 +267,15 @@ Rollback is deliberately not a history rewrite and does not require a third endp
 
 1. read the old exact revision;
 2. read the current head and ETag;
-3. replace the current head with the old revision's `content` and the current ETag; and
+3. replace the current head with the old revision's `content`, the current ETag, `restored_from_revision`, and a
+   non-blank `reason`; and
 4. receive a new revision whose content digest matches the restored revision.
 
 For example, restoring revision 2 while revision 5 is current creates revision 6. Revisions 2 through 5 remain
-readable. Generic request audit identifies the actor and request; equality with the restored content is visible through
-the content digest. The Server never moves the head pointer backward.
+readable. The new revision stores the source revision, the reason, and the authenticated principal. Every new revision
+stores `created_at`. Equality with the restored content is visible through the content digest. The Server never moves
+the head pointer backward. Omitting both rollback fields remains an ordinary replace. Naming a source without a valid
+reason, naming the current head, or submitting content that does not match that source returns 422.
 
 # Reference-level explanation
 
@@ -815,7 +818,8 @@ as every update.
 - **Draft, review, and activation workflows:** duplicate Candidate/Review concepts and are not needed for the first
   administrative vertical slice.
 - **A dedicated rollback endpoint:** adds an action whose safe semantics are already expressed by exact read plus
-  conditional replacement.
+  conditional replacement. The replace request may name the source revision and a reason; it does not add a route or
+  a permission.
 
 Doing nothing leaves operational prompts fixed at deployment composition and forces customers to fork Runtime code or
 run separate deployments for different prompt behavior.

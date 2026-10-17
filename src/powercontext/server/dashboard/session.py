@@ -26,6 +26,16 @@ from powercontext.server.dashboard.navigation import reading_return, request_rea
 COOKIE_NAME = "powercontext_dashboard_token"
 
 
+def same_origin(request: Request) -> bool:
+    """Return whether the browser Origin matches this request's host and scheme."""
+
+    origin = request.headers.get("origin")
+    if not origin:
+        return False
+    parsed = urlsplit(origin)
+    return parsed.netloc == request.headers.get("host") and parsed.scheme == request.url.scheme
+
+
 def login_response(
     status: int = 401, *, rejected: bool = False, request: Request | None = None, next_url: str | None = None
 ) -> HTMLResponse:
@@ -57,12 +67,7 @@ def authentication_headers(scope: Scope) -> dict[str, str]:
 
 
 async def save_session(request: Request) -> HTMLResponse | RedirectResponse:
-    origin = request.headers.get("origin")
-    if (
-        not origin
-        or urlsplit(origin).netloc != request.headers.get("host")
-        or urlsplit(origin).scheme != request.url.scheme
-    ):
+    if not same_origin(request):
         return HTMLResponse(status_code=403)
     length = request.headers.get("content-length", "0")
     if not length.isdecimal() or len(length) > 6 or int(length) > 32768:

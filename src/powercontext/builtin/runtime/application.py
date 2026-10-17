@@ -753,6 +753,8 @@ class ScopedRecordApplication:
         write: ArtifactWrite,
         /,
         *,
+        actor_type: str | None = None,
+        actor_id: str | None = None,
         execution_context: Any = None,
     ) -> ArtifactRecord:
         async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
@@ -762,6 +764,8 @@ class ScopedRecordApplication:
                 artifact_id,
                 expected_etag,
                 write,
+                actor_type=actor_type,
+                actor_id=actor_id,
                 execution_context=execution_context,
             )
 

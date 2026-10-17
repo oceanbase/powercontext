@@ -808,7 +808,7 @@ def test_family_projection_failure_rolls_back_source_and_artifact() -> None:
 
 def test_base_access_reuses_existing_tables_without_lifecycle_columns() -> None:
     assert "created_at" not in SOURCES_TABLE.c
-    assert "created_at" not in ARTIFACTS_TABLE.c
+    assert "deleted_at" not in ARTIFACTS_TABLE.c
     assert "deleted_at" not in ARTIFACT_HEADS_TABLE.c
 
 

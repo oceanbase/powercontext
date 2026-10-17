@@ -260,6 +260,22 @@ class ReplaceProfileArtifactRequest(BaseModel):
         extra="forbid",
     )
     content: ProfileWriteContent
+    restored_from_revision: Annotated[
+        StrictInt | None,
+        Field(
+            description="Historical Profile revision restored by this replacement. Must match content.restored_from_revision when both are set.",
+            ge=1,
+        ),
+    ] = None
+    reason: Annotated[
+        StrictStr | None,
+        Field(
+            description="Required when restored_from_revision or content.restored_from_revision is set.",
+            max_length=1024,
+            min_length=1,
+            pattern=".*\\S.*",
+        ),
+    ] = None
 
 
 class ArtifactReference(BaseModel):
@@ -2344,6 +2360,8 @@ class ReplaceTopicMemoryArtifactRequest(BaseModel):
         extra="forbid",
     )
     content: TopicMemoryWriteContent
+    restored_from_revision: Annotated[StrictInt | None, Field(ge=1)] = None
+    reason: Annotated[StrictStr | None, Field(max_length=1024, min_length=1, pattern=".*\\S.*")] = None
 
 
 class Family3(StrEnum):
@@ -3649,6 +3667,10 @@ class ArtifactCollectionItem(BaseModel):
     source_count: Annotated[
         StrictInt | None, Field(description="Family-provided number of direct Source inputs when available.", ge=0)
     ] = None
+    created_at: AwareDatetime | None = None
+    created_by: AccessPrincipal | None = None
+    restored_from_revision: Annotated[StrictInt | None, Field(ge=1)] = None
+    reason: Annotated[StrictStr | None, Field(max_length=1024)] = None
 
 
 class ArtifactCreated(BaseModel):
@@ -3682,6 +3704,17 @@ class ArtifactRevision(BaseModel):
     sources: list[SourceTypeReference]
     artifacts: list[ArtifactReference]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    created_at: Annotated[
+        AwareDatetime | None,
+        Field(description="When this revision was committed. Absent for revisions stored before this field existed."),
+    ] = None
+    created_by: Annotated[
+        AccessPrincipal | None, Field(description="Principal that committed a rollback. Ordinary revisions omit it.")
+    ] = None
+    restored_from_revision: Annotated[
+        StrictInt | None, Field(description="Historical revision restored by this rollback.", ge=1)
+    ] = None
+    reason: Annotated[StrictStr | None, Field(description="Reason recorded for a rollback.", max_length=1024)] = None
 
 
 class HandoffReceiptIdentity(BaseModel):
@@ -4505,6 +4538,8 @@ class ReplaceExperienceArtifactRequest(BaseModel):
         extra="forbid",
     )
     content: ExperienceProposal
+    restored_from_revision: Annotated[StrictInt | None, Field(ge=1)] = None
+    reason: Annotated[StrictStr | None, Field(max_length=1024, min_length=1, pattern=".*\\S.*")] = None
 
 
 class ReplaceSkillArtifactRequest(BaseModel):
@@ -4512,6 +4547,8 @@ class ReplaceSkillArtifactRequest(BaseModel):
         extra="forbid",
     )
     content: SkillProposal
+    restored_from_revision: Annotated[StrictInt | None, Field(ge=1)] = None
+    reason: Annotated[StrictStr | None, Field(max_length=1024, min_length=1, pattern=".*\\S.*")] = None
 
 
 class SourceRecord(BaseModel):
@@ -4728,6 +4765,8 @@ class ReplacePromptArtifactRequest(BaseModel):
         extra="forbid",
     )
     content: PromptContent
+    restored_from_revision: Annotated[StrictInt | None, Field(ge=1)] = None
+    reason: Annotated[StrictStr | None, Field(max_length=1024, min_length=1, pattern=".*\\S.*")] = None
 
 
 class ReplaceMemoryArtifactRequest(BaseModel):
@@ -5007,6 +5046,8 @@ class ReplaceHandoffArtifactRequest(BaseModel):
         extra="forbid",
     )
     content: HandoffContent
+    restored_from_revision: Annotated[StrictInt | None, Field(ge=1)] = None
+    reason: Annotated[StrictStr | None, Field(max_length=1024, min_length=1, pattern=".*\\S.*")] = None
 
 
 class Candidate(BaseModel):
