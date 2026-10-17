@@ -61,7 +61,7 @@ def test_doctor_runtime_option_requires_explicit_selection(kimi_home):
     install()
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "kimi-code", "--session-id", "session"])
     assert result.exit_code != 0
-    assert "require --runtime" in unstyle(result.output)
+    assert "--session-id requires --runtime" in unstyle(result.output)
 
 
 def test_cli_installs_repeatably_and_preserves_configuration(kimi_home):
@@ -210,3 +210,30 @@ def test_reconfiguration_rejects_installed_source_with_stale_scope(kimi_home):
     with pytest.raises(SetupError, match="original PowerContext checkout"):
         kimi_code.install_kimi_plugin(source=installed, scope_id="another-scope")
     assert (installed / "powercontext.json").read_bytes() == before
+
+
+def test_workspace_scope_setup_preserves_mode_and_can_restore_explicit_scope(kimi_home):
+    result = CliRunner().invoke(
+        create_cli([setup_app]), ["setup", "kimi-code", "--source", str(REPOSITORY), "--workspace-scope", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    metadata = json.loads(result.output)
+    assert metadata["scope_id"] is None
+    installed = Path(metadata["plugin_path"])
+    kimi_code.install_kimi_plugin(source=REPOSITORY)
+    settings = json.loads((installed / "powercontext.json").read_text(encoding="utf-8"))
+    assert settings["scope_id"] is None
+    skill = (installed / "skills/powercontext-project-context/SKILL.md").read_text(encoding="utf-8")
+    assert "explicit Scope is null" in skill
+    assert "__POWERCONTEXT_" not in skill
+    assert (installed / "scripts/scope.mjs").is_file()
+    kimi_code.install_kimi_plugin(source=REPOSITORY, scope_id="scope-explicit")
+    assert json.loads((installed / "powercontext.json").read_text(encoding="utf-8"))["scope_id"] == "scope-explicit"
+    kimi_code.install_kimi_plugin(source=REPOSITORY, workspace_scope=True)
+    assert json.loads((installed / "powercontext.json").read_text(encoding="utf-8"))["scope_id"] is None
+
+
+def test_workspace_mode_rejects_an_ambiguous_explicit_scope_before_writing(kimi_home):
+    with pytest.raises(SetupError, match="mutually exclusive"):
+        kimi_code.install_kimi_plugin(source=REPOSITORY, workspace_scope=True, scope_id="scope-conflict")
+    assert not (kimi_home / "plugins/installed.json").exists()

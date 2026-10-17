@@ -1,8 +1,8 @@
 # PowerContext for Kimi Code
 
-A minimal native Kimi plugin: explicit Memory search/save and exact Artifact readback through HTTP MCP, plus bounded prompt recall and Source capture through UserPromptSubmit. All operations use one configured, existing Scope. Server owns memory generation; the Hook does not flush.
+A minimal native Kimi plugin: explicit Memory search/save and exact Artifact readback through HTTP MCP, plus bounded prompt recall and Source capture through UserPromptSubmit. Operations share the current Server-resolved Scope: explicit configuration, workspace binding, then Server default. Server owns memory generation; the Hook does not flush.
 
-Install from a local checkout with powercontext setup kimi-code --source /path/to/powercontext --scope-id <existing-id>. Keep Node on PATH, start Server, and open a fresh Kimi session afterwards.
+Install from a local checkout with powercontext setup kimi-code --source /path/to/powercontext --scope-id <existing-id>. Alternatively use `--workspace-scope` and the installed `scripts/scope.mjs bind --cwd <absolute-workspace> --scope-id <existing-id>` to select per-workspace Scopes. Keep Node on PATH, start Server, and open a fresh Kimi session afterwards.
 
 See the [English guide](../../docs/en/docs/integrations/kimi-code.md) or [中文指南](../../docs/zh/docs/integrations/kimi-code.md).
 

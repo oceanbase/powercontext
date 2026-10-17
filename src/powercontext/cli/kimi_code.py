@@ -43,6 +43,7 @@ REQUIRED_FILES = (
     "shared/runtime.mjs",
     "shared/observations.mjs",
     "scripts/doctor.mjs",
+    "scripts/scope.mjs",
     "scripts/status.mjs",
     "skills/powercontext-project-context/SKILL.md",
 )
@@ -53,7 +54,7 @@ class KimiSetupResult:
     plugin_path: str
     config_file: str
     server_url: str
-    scope_id: str
+    scope_id: str | None
 
 
 def kimi_home() -> Path:
@@ -126,7 +127,12 @@ def _endpoint(value: str) -> str:
 
 
 def install_kimi_plugin(  # noqa: C901 - validates and atomically replaces two user-owned destinations.
-    *, source: Path, server_url: str | None = None, scope_id: str | None = None, capture_prompts: bool | None = None
+    *,
+    source: Path,
+    server_url: str | None = None,
+    scope_id: str | None = None,
+    capture_prompts: bool | None = None,
+    workspace_scope: bool = False,
 ) -> KimiSetupResult:
     """Install a local plugin and preserve other records and existing enablement choices."""
     if kimi_executable() is None or which("node") is None:
@@ -135,8 +141,9 @@ def install_kimi_plugin(  # noqa: C901 - validates and atomically replaces two u
     plugin = source if (source / "kimi.plugin.json").is_file() else source / PLUGIN_RELATIVE
     if any(not (plugin / name).is_file() for name in REQUIRED_FILES):
         raise SetupError("Local source does not contain a complete PowerContext Kimi plugin")  # noqa: TRY003
-    if "__POWERCONTEXT_SCOPE_JSON__" not in (plugin / "skills/powercontext-project-context/SKILL.md").read_text(
-        encoding="utf-8"
+    skill_template = (plugin / "skills/powercontext-project-context/SKILL.md").read_text(encoding="utf-8")
+    if any(
+        marker not in skill_template for marker in ("__POWERCONTEXT_SCOPE_JSON__", "__POWERCONTEXT_SCOPE_SCRIPT_JSON__")
     ):
         raise SetupError("Source must be an unconfigured plugin; use the original PowerContext checkout")  # noqa: TRY003
     manifest = _read_json(plugin / "kimi.plugin.json")
@@ -160,9 +167,14 @@ def install_kimi_plugin(  # noqa: C901 - validates and atomically replaces two u
         raise SetupError("Existing Kimi PowerContext directory is not owned by this installer")  # noqa: TRY003
     previous = _read_json(destination / "powercontext.json") if destination.exists() else {}
     endpoint = _endpoint(server_url if server_url is not None else previous.get("server_url", "http://127.0.0.1:8000"))
-    selected_scope = scope_id if scope_id is not None else previous.get("scope_id")
-    if not isinstance(selected_scope, str) or not selected_scope.strip() or len(selected_scope) > 256:
-        raise SetupError("Specify --scope-id with an existing Scope; setup never creates or guesses one")  # noqa: TRY003
+    if workspace_scope and scope_id is not None:
+        raise SetupError("--workspace-scope and --scope-id are mutually exclusive")  # noqa: TRY003
+    selected_scope = None if workspace_scope else scope_id if scope_id is not None else previous.get("scope_id")
+    if (selected_scope is None and not workspace_scope and "scope_id" not in previous) or (
+        selected_scope is not None
+        and (not isinstance(selected_scope, str) or not selected_scope.strip() or len(selected_scope) > 256)
+    ):
+        raise SetupError("Specify --scope-id or --workspace-scope; setup never creates a Scope")  # noqa: TRY003
     token = os.environ.get("POWERCONTEXT_KIMI_TOKEN")
     if token is not None and (
         not token or not token.isascii() or any(ord(c) < 33 or ord(c) > 126 for c in token) or len(token) > 8192
@@ -202,8 +214,12 @@ def install_kimi_plugin(  # noqa: C901 - validates and atomically replaces two u
         }
         skill = staging / "skills/powercontext-project-context/SKILL.md"
         skill.write_text(
-            skill.read_text(encoding="utf-8").replace(
-                "__POWERCONTEXT_SCOPE_JSON__", json.dumps(selected_scope, ensure_ascii=False)
+            skill
+            .read_text(encoding="utf-8")
+            .replace("__POWERCONTEXT_SCOPE_JSON__", json.dumps(selected_scope, ensure_ascii=False))
+            .replace(
+                "__POWERCONTEXT_SCOPE_SCRIPT_JSON__",
+                json.dumps(str(destination / "scripts/scope.mjs"), ensure_ascii=False),
             ),
             encoding="utf-8",
         )
@@ -305,9 +321,9 @@ def run_kimi_diagnostics(
         checks["server"] = Diagnostic(skipped, "Node is required for readonly probes")
         return checks
     try:
-        arguments = [node, str(destination / "scripts/doctor.mjs")]
+        arguments = [node, str(destination / "scripts/doctor.mjs"), "--cwd", str((cwd or Path.cwd()).resolve())]
         if runtime:
-            arguments.extend(["--cwd", str((cwd or Path.cwd()).resolve())])
+            arguments.append("--runtime")
             if session_id is not None:
                 arguments.extend(["--session-id", session_id])
         result = subprocess.run(  # noqa: S603 - fixed Node script and no shell.
@@ -322,27 +338,29 @@ def run_kimi_diagnostics(
         if result.returncode or report.get("schema") != "powercontext.kimi-code.diagnostics.v1":
             raise ValueError  # noqa: TRY301 - invalid external probe output joins the failure path.
         for name, value in report["checks"].items():
-            checks[name] = Diagnostic(DiagnosticStatus(value["status"]), value["detail"])
+            checks[name] = Diagnostic(DiagnosticStatus(value["status"]), value["detail"], value.get("checks"))
         if runtime:
-            history = report["runtime"]
-            state = history["status"]
-            status = (
-                failed
-                if state == "failed"
-                else ok
-                if state == "observed" and history["freshness"] == "recent"
-                else skipped
-            )
-            details = {"selection": history["selection"]} if "selection" in history else {}
-            details.update({
-                name: ": ".join(part for part in (value["state"], value.get("code") or value.get("reason")) if part)
-                for name, value in history.get("stages", {}).items()
-            })
-            if "freshness" in history:
-                details["freshness"] = history["freshness"]
-                details["scope_id"] = history["scope_id"]
-                details["started_at"] = datetime.fromtimestamp(history["started_at"] / 1000, tz=UTC).isoformat()
-            checks["runtime"] = Diagnostic(status, history.get("code", state), details)
+            checks["runtime"] = _runtime_diagnostic(report["runtime"])
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
         checks["server"] = Diagnostic(failed, "Readonly probes failed; run powercontext doctor kimi-code after repair")
     return checks
+
+
+def _runtime_diagnostic(history: dict[str, Any]) -> Diagnostic:
+    """Project local history separately from the current Server and Scope probes."""
+    ok, failed, skipped = DiagnosticStatus.OK, DiagnosticStatus.FAILED, DiagnosticStatus.SKIPPED
+    state = history["status"]
+    status = (
+        failed if state == "failed" else ok if state == "observed" and history["freshness"] == "recent" else skipped
+    )
+    details = {"selection": history["selection"]} if "selection" in history else {}
+    details.update({
+        name: ": ".join(part for part in (value["state"], value.get("code") or value.get("reason")) if part)
+        for name, value in history.get("stages", {}).items()
+    })
+    if "freshness" in history:
+        details["freshness"] = history["freshness"]
+        if history.get("scope_id") is not None:
+            details["scope_id"] = history["scope_id"]
+        details["started_at"] = datetime.fromtimestamp(history["started_at"] / 1000, tz=UTC).isoformat()
+    return Diagnostic(status, history.get("code", state), details)

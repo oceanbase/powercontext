@@ -15,6 +15,8 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { isAbsolute, resolve } from 'node:path'
 import { isIP } from 'node:net'
 import { fileURLToPath } from 'node:url'
 
@@ -44,7 +46,7 @@ export function loadSettings({ credentials = true } = {}) {
     (isIP(url.hostname) === 4 && url.hostname.startsWith('127.'))
   if (!(url.protocol === 'https:' || url.protocol === 'http:' && loopback) ||
       url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Failure('invalid_settings')
-  if (typeof value.scope_id !== 'string' || !value.scope_id.trim() || [...value.scope_id].length > 256 ||
+  if (!(value.scope_id === null || isScopeId(value.scope_id)) ||
       typeof value.capture_prompts !== 'boolean' || typeof value.use_token !== 'boolean') throw new Failure('invalid_settings')
   return { serverUrl: url.origin, scopeId: value.scope_id, capturePrompts: value.capture_prompts,
     useToken: value.use_token, authorization: credentials ? authorization(value.use_token) : undefined }
@@ -98,11 +100,24 @@ export async function request(settings, method, path, body, budgetSignal) {
   } catch { throw new Failure(signal.aborted ? 'server_unavailable' : 'invalid_response', response.status, true) }
 }
 
-export async function resolveScope(settings, signal) {
-  const { value } = await request(settings, 'POST', '/v1/scope-bindings/resolve', {
-    explicit_scope_id: settings.scopeId, binding_keys: [],
+export function isScopeId(value) {
+  return typeof value === 'string' && [...value].length <= 256 && /[^\p{White_Space}\u001c-\u001f]/u.test(value)
+}
+
+export function workspaceKey(cwd) {
+  if (typeof cwd !== 'string' || !isAbsolute(cwd)) throw new Failure('workspace_required')
+  return { integration: 'kimi-code', kind: 'workspace',
+    external_id: createHash('sha256').update(resolve(cwd)).digest('hex') }
+}
+
+export async function resolveScope(settings, signal, input = {}) {
+  const keys = input.cwd === undefined && settings.scopeId ? [] : [workspaceKey(input.cwd)]
+  const { status, value } = await request(settings, 'POST', '/v1/scope-bindings/resolve', {
+    explicit_scope_id: settings.scopeId, binding_keys: keys,
   }, signal)
-  if (value.scope_id !== settings.scopeId) throw new Failure('invalid_response')
+  if (status !== 200 || !isScopeId(value.scope_id) || settings.scopeId && value.scope_id !== settings.scopeId) {
+    throw new Failure('invalid_response')
+  }
   return value.scope_id
 }
 

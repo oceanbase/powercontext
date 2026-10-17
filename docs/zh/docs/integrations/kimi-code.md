@@ -6,7 +6,7 @@ status: community
 
 # Kimi Code
 
-本接入为 experimental，支持 minimal profile：记忆读写、自动 Source 采集和上下文注入。同一 Kimi home 内所有项目和会话共用一个配置好的 Scope；需要隔离工作时，使用另一 Kimi home 或显式修改 Scope。
+本接入为 experimental，支持 minimal profile：记忆读写、自动 Source 采集和上下文注入。可以显式共用一个 Scope，也可以通过工作区绑定为不同工作目录选择各自的 Scope。
 
 ## 安装
 
@@ -55,6 +55,27 @@ Hook 总预算 4 秒，通过 Kimi 的 message 字段注入。失败时普通对
 
 显式记忆读写不需要 Generation API。自动生成记忆需要 Server 配置 Generation 和定时处理；Source 接受不证明记忆已生成，插件不调用 flush。Kimi 登录凭据不等于 Server 的模型凭据。
 
+
+## 工作区 Scope 绑定
+
+需要在同一 Kimi home 中按项目选择 Scope 时，以工作区模式安装或更新：
+
+```text
+powercontext setup kimi-code --source /path/to/powercontext --workspace-scope
+node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" bind --cwd /绝对路径/项目 --scope-id <已有 Scope ID>
+node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" resolve --cwd /绝对路径/项目
+powercontext doctor kimi-code --cwd /绝对路径/项目 --json
+node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" unbind --cwd /绝对路径/项目
+```
+
+修改安装模式后开启新 Kimi 会话。显式 `--scope-id` 优先于工作区绑定；`--workspace-scope` 清除显式选择，两者互斥。更新时均省略则保留当前模式；首次安装必须选择其中一种。
+
+Hook、Scope 脚本和 doctor 共用 Server 的解析顺序：显式 Scope、工作区绑定、Server 默认 Scope。绑定目标缺失或不可用时解析失败，客户端不自行回退或创建 Scope。绑定键使用 integration `kimi-code`、kind `workspace`，external_id 为规范化绝对工作目录的 SHA-256，不含原始路径。请使用 Kimi 会话实际提交的工作目录；子目录具有独立身份。本接入不提供 session binding。
+
+bind/unbind 只修改该工作区在 Server 上的绑定。JSON 将 `binding` 写入结果与后续解析分开：绑定保存成功后仍可能被显式 Scope 遮盖（`bound_scope_is_current: false`），或在后续解析失败时继续保留。无法确认的写入为 `unknown`，不自动重试；重新 resolve 成功后才能宣称当前 Scope 已切换。
+
+原生 MCP 操作使用本轮 Hook 的 binding metadata，或实际工作区的 Scope 脚本只读解析结果，不从历史内容推断 Scope。doctor 显示当前 Scope ID 与解析策略（`explicit` 或 `workspace_or_default`），后者不表示已确认具体命中了工作区绑定还是默认值。
+
 ## 诊断与移除
 
 doctor 只读检查注册/启用状态、Node、MCP/Hook 声明、Server readiness 和 Scope 可访问性，不证明真实 MCP 调用或模型注入已成功。缺失/错误 token 显示 authentication_failed，已禁用的插件/MCP 不会被 setup 自动开启。错误 endpoint 或不可访问的 Scope 需显式修正后开启新会话。
@@ -83,7 +104,7 @@ powercontext doctor kimi-code --runtime --cwd /path/to/workspace --session-id <K
 node "<Kimi home>/plugins/managed/powercontext/scripts/status.mjs" --cwd /path/to/workspace --session-id <Kimi session ID>
 ```
 
-默认 `doctor` 仍执行当前 Server/Scope 的只读探测；`--runtime` 附加本地历史，不执行 capture 或 flush，也不将当前连接成功解释为历史阶段成功。
+工作区模式下历史保留当时实际解析的 Scope；绑定后来改变时，只读历史不会联网重新核对。当前解析结果查看 doctor 的 `scope`。默认 `doctor` 仍执行当前 Server/Scope 的只读探测；`--runtime` 附加本地历史，不执行 capture 或 flush，也不将当前连接成功解释为历史阶段成功。
 
 ## 验证
 

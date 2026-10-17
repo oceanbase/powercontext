@@ -80,7 +80,19 @@ async function fixture(t, overrides = {}, settings = {}, listenHost = '127.0.0.1
       { env: { ...process.env, KIMI_CODE_HOME: home }, windowsHide: true }).catch(error => error)
     return { exit_code: result.code ?? 0, ...JSON.parse(result.stdout) }
   }
-  return { captures, requests, invoke, installed, home, status }
+  async function scope(action, scopeId, cwd = workspace) {
+    const args = [join(installed, 'scripts/scope.mjs'), action, '--cwd', cwd]
+    if (scopeId !== undefined) args.push('--scope-id', scopeId)
+    const result = await promisify(execFile)(process.execPath, args,
+      { env: { ...process.env, KIMI_CODE_HOME: home }, windowsHide: true }).catch(error => error)
+    return { exit_code: result.code ?? 0, ...JSON.parse(result.stdout) }
+  }
+  async function doctor(cwd = workspace) {
+    const result = await promisify(execFile)(process.execPath, [join(installed, 'scripts/doctor.mjs'), '--cwd', cwd],
+      { env: { ...process.env, KIMI_CODE_HOME: home }, windowsHide: true })
+    return JSON.parse(result.stdout)
+  }
+  return { captures, requests, invoke, installed, home, workspace, status, scope, doctor }
 }
 
 test('context and capture use the explicit Scope and shared runtime token', async t => {
@@ -93,7 +105,10 @@ test('context and capture use the explicit Scope and shared runtime token', asyn
   assert.equal(f.captures[0].scope_id, 'scope-test')
   assert.equal(f.captures[0].metadata.session_id, 'session-test')
   assert.ok(f.requests.every(r => r.authorization === 'Bearer synthetic-token'))
-  assert.deepEqual(f.requests[0].body, { explicit_scope_id: 'scope-test', binding_keys: [] })
+  assert.equal(f.requests[0].body.explicit_scope_id, 'scope-test')
+  assert.equal(f.requests[0].body.binding_keys[0].integration, 'kimi-code')
+  assert.equal(f.requests[0].body.binding_keys[0].kind, 'workspace')
+  assert.match(f.requests[0].body.binding_keys[0].external_id, /^[a-f0-9]{64}$/u)
   await f.invoke(undefined, { POWERCONTEXT_KIMI_TOKEN: 'synthetic-token' })
   assert.notEqual(f.captures[0].source_id, f.captures[1].source_id)
 })
@@ -329,4 +344,77 @@ test('retention preserves unowned files and incomplete attempts; capacity failur
   const result = await f.invoke()
   assert.match(result.output.message, /Historical context/)
   assert.match(result.stderr, /runtime_unavailable/)
+})
+
+test('workspace bindings route Hooks and doctor while explicit Scope still overrides a saved binding', async t => {
+  const bindings = new Map()
+  function reply(res, value) { res.writeHead(200); res.end(JSON.stringify(value)) }
+  const f = await fixture(t, {
+    '/v1/scope-bindings': (_req, res, body) => {
+      bindings.set(body.key.external_id, body.scope_id); reply(res, body)
+    },
+    '/v1/scope-bindings/clear': (_req, res, body) => {
+      reply(res, { cleared: bindings.delete(body.key.external_id) })
+    },
+    '/v1/scope-bindings/resolve': (_req, res, body) => {
+      reply(res, { scope_id: body.explicit_scope_id ?? bindings.get(body.binding_keys[0]?.external_id) ?? 'scope-default' })
+    },
+  }, { scope_id: null })
+  assert.equal((await f.scope('resolve')).scope_id, 'scope-default')
+  const other = join(f.workspace, '..', 'other-workspace')
+  for (const [cwd, scopeId] of [[f.workspace, 'scope-first'], [other, 'scope-second']]) {
+    const bound = await f.scope('bind', scopeId, cwd)
+    assert.equal(bound.binding.status, 'saved')
+    assert.equal(bound.bound_scope_is_current, true)
+    const result = await f.invoke({ cwd, session_id: 'session-test', hook_event_name: 'UserPromptSubmit', prompt })
+    assert.equal(result.stderr, '')
+    assert.match(result.output.message, new RegExp(scopeId))
+    assert.equal(f.captures.at(-1).scope_id, scopeId)
+    assert.equal((await f.status('session-test', cwd)).scope_id, scopeId)
+    assert.equal((await f.doctor(cwd)).checks.scope.checks.scope_id, scopeId)
+  }
+  assert.ok(f.requests.filter(item => item.body?.key).every(item => !JSON.stringify(item.body.key).includes(f.workspace)))
+  const settingsPath = join(f.installed, 'powercontext.json')
+  const settings = JSON.parse(await readFile(settingsPath, 'utf8'))
+  await writeFile(settingsPath, JSON.stringify({ ...settings, scope_id: 'scope-explicit' }))
+  const overridden = await f.scope('bind', 'scope-third')
+  assert.equal(overridden.binding.scope_id, 'scope-third')
+  assert.equal(overridden.scope_id, 'scope-explicit')
+  assert.equal(overridden.bound_scope_is_current, false)
+  await writeFile(settingsPath, JSON.stringify(settings))
+  assert.equal((await f.scope('resolve')).scope_id, 'scope-third')
+  assert.equal((await f.scope('unbind')).binding.status, 'cleared')
+  assert.equal((await f.scope('unbind')).binding.status, 'absent')
+  assert.equal((await f.scope('resolve')).scope_id, 'scope-default')
+  assert.equal((await f.scope('resolve', undefined, other)).scope_id, 'scope-second')
+})
+
+test('a confirmed binding survives later resolution failure and failed resolution never captures', async t => {
+  const f = await fixture(t, {
+    '/v1/scope-bindings': (_req, res, body) => { res.writeHead(200); res.end(JSON.stringify(body)) },
+    '/v1/scope-bindings/resolve': (_req, res) => { res.writeHead(409); res.end('{}') },
+  }, { scope_id: null })
+  const result = await f.scope('bind', 'scope-saved')
+  assert.equal(result.exit_code, 1)
+  assert.equal(result.binding.status, 'saved')
+  assert.equal(result.binding.scope_id, 'scope-saved')
+  assert.equal(result.status, 'failed')
+  const hook = await f.invoke()
+  assert.deepEqual(hook.output, {})
+  assert.deepEqual(f.captures, [])
+  assert.ok(f.requests.every(item => !['/v1/context/prepare', '/v1/sources/content'].includes(item.path)))
+  const history = await f.status()
+  assert.equal(history.status, 'observed')
+  assert.equal(history.scope_id, null)
+  assert.equal(history.stages.scope.state, 'failed')
+})
+
+test('an unconfirmed binding write stays unknown without retry and invalid workspace input sends nothing', async t => {
+  const f = await fixture(t, { '/v1/scope-bindings': req => req.socket.destroy() }, { scope_id: null })
+  assert.equal((await f.scope('bind', 'scope-target', 'relative')).code, 'workspace_required')
+  assert.deepEqual(f.requests, [])
+  const result = await f.scope('bind', 'scope-target')
+  assert.equal(result.binding.status, 'unknown')
+  assert.equal(result.status, 'failed')
+  assert.equal(f.requests.filter(item => item.path === '/v1/scope-bindings').length, 1)
 })

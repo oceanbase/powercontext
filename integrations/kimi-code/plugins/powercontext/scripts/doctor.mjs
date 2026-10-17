@@ -18,6 +18,9 @@ import { Failure, loadSettings, request, resolveScope } from '../shared/runtime.
 import { parseArgs } from 'node:util'
 import { queryObservations } from '../shared/observations.mjs'
 
+const { values } = parseArgs({ options: { cwd: { type: 'string' }, 'session-id': { type: 'string' },
+  runtime: { type: 'boolean', default: false } } })
+const input = { cwd: values.cwd ?? process.cwd(), session_id: values['session-id'] }
 const checks = {}
 let settings
 function result(error) {
@@ -34,15 +37,15 @@ if (settings) {
       { status: 'failed', detail: 'Server is not ready.' }
   } catch (error) { checks.server = result(error) }
   try {
-    await resolveScope(settings, AbortSignal.timeout(1500))
-    checks.scope = { status: 'ok', detail: 'Configured Scope is accessible.' }
+    const scopeId = await resolveScope(settings, AbortSignal.timeout(1500), input)
+    checks.scope = { status: 'ok', detail: 'Current Scope is accessible.',
+      checks: { scope_id: scopeId, selection: settings.scopeId ? 'explicit' : 'workspace_or_default' } }
   } catch (error) { checks.scope = result(error) }
 }
-const { values } = parseArgs({ options: { cwd: { type: 'string' }, 'session-id': { type: 'string' } } })
 let runtime
-if (values.cwd) {
+if (values.runtime) {
   try {
-    runtime = await queryObservations({ cwd: values.cwd, session_id: values['session-id'] }, loadSettings({ credentials: false }))
+    runtime = await queryObservations(input, loadSettings({ credentials: false }))
   } catch (error) {
     runtime = { status: 'failed', code: ['invalid_state', 'runtime_capacity_exceeded', 'invalid_settings', 'invalid_session']
       .includes(error.code ?? error.message) ? error.code ?? error.message : 'runtime_unavailable' }

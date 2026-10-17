@@ -662,7 +662,12 @@ def setup_kimi_code(
     server_url: Annotated[
         str | None, typer.Option(help="Server origin; omission preserves the installed endpoint.")
     ] = None,
-    scope_id: Annotated[str | None, typer.Option(help="Existing Scope ID; required on first installation.")] = None,
+    scope_id: Annotated[
+        str | None, typer.Option(help="Existing explicit Scope ID; overrides workspace bindings.")
+    ] = None,
+    workspace_scope: Annotated[
+        bool, typer.Option("--workspace-scope", help="Resolve workspace bindings, then the Server default Scope.")
+    ] = False,
     capture_prompts: Annotated[
         bool | None,
         typer.Option("--capture-prompts/--no-capture-prompts", help="Omission preserves capture preference."),
@@ -674,7 +679,11 @@ def setup_kimi_code(
 
     try:
         result = install_kimi_plugin(
-            source=source, server_url=server_url, scope_id=scope_id, capture_prompts=capture_prompts
+            source=source,
+            server_url=server_url,
+            scope_id=scope_id,
+            capture_prompts=capture_prompts,
+            workspace_scope=workspace_scope,
         )
     except (SetupError, OSError, ValueError) as error:
         typer.echo(str(error), err=True)
@@ -693,7 +702,8 @@ def doctor_kimi_code(
     json_output: Annotated[bool, typer.Option("--json", help="Write diagnostics as JSON.")] = False,
     runtime: Annotated[bool, typer.Option("--runtime", help="Inspect local Hook history for this workspace.")] = False,
     cwd: Annotated[
-        Path | None, typer.Option(help="Workspace for runtime history; defaults to the current directory.")
+        Path | None,
+        typer.Option(help="Workspace for Scope resolution and runtime history; defaults to the current directory."),
     ] = None,
     session_id: Annotated[
         str | None, typer.Option(help="Exact Kimi session; omission selects workspace history.")
@@ -702,8 +712,8 @@ def doctor_kimi_code(
     """Check Kimi plugin declarations and readonly Server/Scope connectivity."""
     from powercontext.cli.kimi_code import run_kimi_diagnostics
 
-    if (cwd is not None or session_id is not None) and not runtime:
-        raise typer.BadParameter("--cwd and --session-id require --runtime")  # noqa: TRY003 - CLI option validation.
+    if session_id is not None and not runtime:
+        raise typer.BadParameter("--session-id requires --runtime")  # noqa: TRY003 - CLI option validation.
     diagnostics = run_kimi_diagnostics(runtime=runtime, cwd=cwd, session_id=session_id)
     required = {
         name: value

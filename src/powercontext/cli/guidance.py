@@ -115,7 +115,7 @@ HOST_GUIDANCE = {
         allow_insecure_http=True,
         script_evidence=("scripts/scope.mjs",),
     ),
-    "kimi-code": HostGuidance("integrations/kimi-code/plugins/powercontext"),
+    "kimi-code": HostGuidance("integrations/kimi-code/plugins/powercontext", script_evidence=("scripts/scope.mjs",)),
     "agent-plugin": HostGuidance("integrations/agent-plugin/powercontext"),
     "minimax": HostGuidance("integrations/minimax/plugins/powercontext"),
 }

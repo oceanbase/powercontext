@@ -41,4 +41,4 @@ candidate_review permits listing and reading candidates only; it never grants de
 | langgraph | Framework adapter | Master only | — | memory_read<br>memory_write<br>context_injection |
 | bub | Evaluation harness | Master only | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint |
 | dify | Framework adapter | Experimental | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>handoff<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review |
-| kimi-code | Agent host | Experimental | minimal | memory_read<br>memory_write<br>source_capture<br>context_injection |
+| kimi-code | Agent host | Experimental | minimal | memory_read<br>memory_write<br>source_capture<br>context_injection<br>persistent_scope_binding |

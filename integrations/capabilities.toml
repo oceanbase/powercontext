@@ -1078,14 +1078,27 @@ probe = "kimi_code_prompt_hook"
 id = "kimi-code:UserPromptSubmit"
 capabilities = ["source_capture", "context_injection"]
 
+[[toolsets]]
+id = "kimi-code-scope"
+probe = "kimi_code_scope"
+[[toolsets.tools]]
+id = "kimi-code:scope:resolve"
+capabilities = ["persistent_scope_binding"]
+[[toolsets.tools]]
+id = "kimi-code:scope:bind"
+capabilities = ["persistent_scope_binding"]
+[[toolsets.tools]]
+id = "kimi-code:scope:unbind"
+capabilities = ["persistent_scope_binding"]
+
 [[integrations]]
 id = "kimi-code"
 kind = "agent_host"
 availability = "experimental"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "persistent_scope_binding"]
 profiles = ["minimal"]
-toolsets = ["kimi-code-mcp", "kimi-code-prompt-hook"]
+toolsets = ["kimi-code-mcp", "kimi-code-prompt-hook", "kimi-code-scope"]
 [integrations.evidence]
-implementation = ["integrations/kimi-code/plugins/powercontext/kimi.plugin.json", "integrations/kimi-code/plugins/powercontext/hooks/user_prompt_submit.mjs", "src/powercontext/cli/kimi_code.py"]
+implementation = ["integrations/kimi-code/plugins/powercontext/kimi.plugin.json", "integrations/kimi-code/plugins/powercontext/hooks/user_prompt_submit.mjs", "integrations/kimi-code/plugins/powercontext/scripts/scope.mjs", "src/powercontext/cli/kimi_code.py"]
 documentation = ["docs/en/docs/integrations/kimi-code.md", "docs/zh/docs/integrations/kimi-code.md"]
 tests = ["tests/test_cli_kimi_code.py", "integrations/kimi-code/plugins/powercontext/tests/plugin.test.mjs", "tests/e2e/test_kimi_code_host.py"]

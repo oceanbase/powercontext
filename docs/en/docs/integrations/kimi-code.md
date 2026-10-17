@@ -6,7 +6,7 @@ status: community
 
 # Kimi Code
 
-The integration is experimental and supports the minimal profile: Memory read/write, automatic Source capture and context injection. One configured Scope is shared across projects and sessions in the selected Kimi home. Use another Kimi home or explicitly reconfigure the Scope when work needs isolation.
+The integration is experimental and supports the minimal profile: Memory read/write, automatic Source capture and context injection. An explicit Scope can be shared across projects, or workspace bindings can select a separate Scope for each working directory.
 
 ## Install
 
@@ -55,6 +55,27 @@ The Hook has a 4-second total budget and returns context through Kimi's message 
 
 Explicit Memory operations need no Generation API. Automatic Memory requires the Server's Generation configuration and scheduled processing; Source acceptance alone does not prove Memory creation, and the plugin does not flush. Kimi credentials do not supply Server Generation credentials.
 
+
+## Workspace Scope binding
+
+To use separate project Scopes within one Kimi home, install or update in workspace mode:
+
+```text
+powercontext setup kimi-code --source /path/to/powercontext --workspace-scope
+node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" bind --cwd /absolute/project --scope-id <existing-scope-id>
+node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" resolve --cwd /absolute/project
+powercontext doctor kimi-code --cwd /absolute/project --json
+node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" unbind --cwd /absolute/project
+```
+
+Open a new Kimi session after changing the installation mode. An explicit `--scope-id` overrides workspace bindings; `--workspace-scope` clears that explicit selection, and the options are mutually exclusive. Omitting both on an update preserves the installed mode. Initial installation requires one of them.
+
+The Hook, Scope script and doctor use the same Server resolution: explicit Scope, then the workspace binding, then the Server default. A missing or broken binding target fails resolution without client fallback or Scope creation. The binding key uses integration `kimi-code`, kind `workspace`, and SHA-256 of the normalized absolute working directory; it contains no raw path. Use the exact working directory supplied by the Kimi session; subdirectories have separate identities. Session bindings are outside this integration's scope.
+
+Bind/unbind changes only that workspace's Server-owned binding. The JSON result keeps `binding` separate from subsequent resolution: a saved binding may be masked by an explicit Scope (`bound_scope_is_current: false`), or remain saved when resolution fails. An unconfirmed write stays `unknown` and is not retried automatically. Resolve again before claiming the active Scope changed.
+
+For native MCP operations, use this request's Hook binding metadata or a successful read-only Scope-script result for the actual workspace; never infer a Scope from historical content. Doctor reports the current Scope ID and selection strategy (`explicit` or `workspace_or_default`); the latter does not assert which fallback matched.
+
 ## Diagnose and remove
 
 doctor is readonly: it checks registration/enablement, Node, MCP/Hook declarations, Server readiness and Scope access. It does not prove that a real MCP call or model injection succeeded. Missing/wrong tokens surface as authentication_failed; a disabled plugin/MCP stays disabled after setup. Incorrect endpoints or inaccessible Scopes require explicit correction and a new session.
@@ -83,7 +104,7 @@ The local status script needs neither Server nor runtime token and never maintai
 node "<Kimi home>/plugins/managed/powercontext/scripts/status.mjs" --cwd /path/to/workspace --session-id <Kimi session ID>
 ```
 
-Doctor still probes current Server/Scope connectivity. `--runtime` adds local history without capture or flush; successful current probes do not rewrite historical outcomes.
+In workspace mode, history retains the Scope resolved at that time; offline queries do not recheck later binding changes. Use the doctor scope result for current resolution. Doctor still probes current Server/Scope connectivity. `--runtime` adds local history without capture or flush; successful current probes do not rewrite historical outcomes.
 
 ## Verification
 
