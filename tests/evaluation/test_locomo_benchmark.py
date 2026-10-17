@@ -184,27 +184,31 @@ def test_run_manifest_is_stable_and_excludes_database_credentials(tmp_path: Path
         ),
     )
 
-    first = prepare_run(
-        dataset=dataset,
-        settings=settings,
-        run_id="smoke / test",
-        output_directory=tmp_path,
-        top_k=30,
-        categories=(1, 2, 3, 4),
-        conversation_limit=1,
-        question_limit=5,
-        operation_retries=3,
+    first = asyncio.run(
+        prepare_run(
+            dataset=dataset,
+            settings=settings,
+            run_id="smoke / test",
+            output_directory=tmp_path,
+            top_k=30,
+            categories=(1, 2, 3, 4),
+            conversation_limit=1,
+            question_limit=5,
+            operation_retries=3,
+        )
     )
-    second = prepare_run(
-        dataset=dataset,
-        settings=settings,
-        run_id="smoke / test",
-        output_directory=tmp_path,
-        top_k=30,
-        categories=(1, 2, 3, 4),
-        conversation_limit=1,
-        question_limit=5,
-        operation_retries=3,
+    second = asyncio.run(
+        prepare_run(
+            dataset=dataset,
+            settings=settings,
+            run_id="smoke / test",
+            output_directory=tmp_path,
+            top_k=30,
+            categories=(1, 2, 3, 4),
+            conversation_limit=1,
+            question_limit=5,
+            operation_retries=3,
+        )
     )
 
     assert first == second
@@ -247,36 +251,40 @@ def test_run_manifest_records_inference_aware_answer_policy(tmp_path: Path) -> N
         ),
     )
 
-    manifest = prepare_run(
-        dataset=dataset,
-        settings=settings,
-        run_id="inference-aware",
-        output_directory=tmp_path / "treatment",
-        top_k=30,
-        answer_k=10,
-        answer_source_content=True,
-        answer_inference_aware=True,
-        categories=(3,),
-        conversation_limit=None,
-        question_limit=None,
-        operation_retries=3,
+    manifest = asyncio.run(
+        prepare_run(
+            dataset=dataset,
+            settings=settings,
+            run_id="inference-aware",
+            output_directory=tmp_path / "treatment",
+            top_k=30,
+            answer_k=10,
+            answer_source_content=True,
+            answer_inference_aware=True,
+            categories=(3,),
+            conversation_limit=None,
+            question_limit=None,
+            operation_retries=3,
+        )
     )
 
     assert manifest["schema"] == "powercontext.benchmark.locomo.run.v8"
     assert manifest["answer_inference_aware"] is True
     assert manifest["answer_instructions"] == "powercontext.benchmark.locomo.answer.source.inference.v1"
     with pytest.raises(ValueError, match="requires Source expansion"):
-        prepare_run(
-            dataset=dataset,
-            settings=settings,
-            run_id="invalid-inference-aware",
-            output_directory=tmp_path / "invalid",
-            top_k=30,
-            answer_inference_aware=True,
-            categories=(3,),
-            conversation_limit=None,
-            question_limit=None,
-            operation_retries=3,
+        asyncio.run(
+            prepare_run(
+                dataset=dataset,
+                settings=settings,
+                run_id="invalid-inference-aware",
+                output_directory=tmp_path / "invalid",
+                top_k=30,
+                answer_inference_aware=True,
+                categories=(3,),
+                conversation_limit=None,
+                question_limit=None,
+                operation_retries=3,
+            )
         )
 
 
@@ -293,19 +301,21 @@ def test_run_manifest_records_unknown_fallback_inference_policy(tmp_path: Path) 
         ),
     )
 
-    manifest = prepare_run(
-        dataset=dataset,
-        settings=settings,
-        run_id="unknown-fallback-inference",
-        output_directory=tmp_path / "fallback",
-        top_k=30,
-        answer_k=10,
-        answer_source_content=True,
-        answer_unknown_fallback_inference=True,
-        categories=(1, 2, 3, 4),
-        conversation_limit=None,
-        question_limit=None,
-        operation_retries=3,
+    manifest = asyncio.run(
+        prepare_run(
+            dataset=dataset,
+            settings=settings,
+            run_id="unknown-fallback-inference",
+            output_directory=tmp_path / "fallback",
+            top_k=30,
+            answer_k=10,
+            answer_source_content=True,
+            answer_unknown_fallback_inference=True,
+            categories=(1, 2, 3, 4),
+            conversation_limit=None,
+            question_limit=None,
+            operation_retries=3,
+        )
     )
 
     assert manifest["schema"] == "powercontext.benchmark.locomo.run.v8"
@@ -315,17 +325,19 @@ def test_run_manifest_records_unknown_fallback_inference_policy(tmp_path: Path) 
     assert manifest["direct_answer_instructions"] == "powercontext.benchmark.locomo.answer.source.v1"
     assert manifest["fallback_answer_instructions"] == "powercontext.benchmark.locomo.answer.source.inference.v1"
     with pytest.raises(ValueError, match="requires Source expansion"):
-        prepare_run(
-            dataset=dataset,
-            settings=settings,
-            run_id="invalid-unknown-fallback",
-            output_directory=tmp_path / "invalid-fallback",
-            top_k=30,
-            answer_unknown_fallback_inference=True,
-            categories=(3,),
-            conversation_limit=None,
-            question_limit=None,
-            operation_retries=3,
+        asyncio.run(
+            prepare_run(
+                dataset=dataset,
+                settings=settings,
+                run_id="invalid-unknown-fallback",
+                output_directory=tmp_path / "invalid-fallback",
+                top_k=30,
+                answer_unknown_fallback_inference=True,
+                categories=(3,),
+                conversation_limit=None,
+                question_limit=None,
+                operation_retries=3,
+            )
         )
 
 

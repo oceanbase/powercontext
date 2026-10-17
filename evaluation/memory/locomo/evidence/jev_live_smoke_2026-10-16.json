@@ -1,0 +1,175 @@
+{
+  "schema": "powercontext.jev.hosted-adapter-evidence.v1",
+  "date": "2026-10-16",
+  "endpoint": "https://jevmodel.org/v1/systemone",
+  "model": "jev-1.13.0",
+  "scope": "Public smoke fixtures through the actual HTTP adapter; no Runtime ingestion, answer model, judge, or paired quality/cost comparison.",
+  "initial_run": {
+    "schema": "powercontext.jev.live-adapter-smoke.v1",
+    "completed_at": "2026-10-16T15:21:54.028776+00:00",
+    "endpoint": "https://jevmodel.org/v1/systemone",
+    "model": "jev-1.13.0",
+    "timeout_seconds": 30.0,
+    "max_concurrency": 4,
+    "adapter_sha256": "f0022c1fd1aa1012ff7f1b4f2fd598133d0c43aa0ae4f2a5db869b52044c43bc",
+    "dataset_sha256": "4188ddcfd6df3040c4c9f725d4faf9a729080a3a85c2074aa79e55e3e8fe211d",
+    "scope": "Hosted adapter on public fixture session texts; no ingestion, Runtime, answer model or judge.",
+    "cases": [
+      {
+        "sample_id": "en-lexical-distractor",
+        "candidate_count": 3,
+        "status": "error",
+        "error_type": "InferenceConfigurationError",
+        "latency_ms": 7104.800084023736
+      },
+      {
+        "sample_id": "zh-complementary-evidence",
+        "candidate_count": 3,
+        "status": "error",
+        "error_type": "InferenceConfigurationError",
+        "latency_ms": 4694.348791992525
+      },
+      {
+        "sample_id": "en-negation",
+        "candidate_count": 3,
+        "status": "ok",
+        "selected_ranks": [
+          2,
+          1
+        ],
+        "used_fallback": false,
+        "usage": {
+          "requests": 3,
+          "input_tokens": 1163,
+          "output_tokens": 63
+        },
+        "latency_ms": 8051.869499991881
+      },
+      {
+        "sample_id": "zh-version-condition",
+        "candidate_count": 3,
+        "status": "error",
+        "error_type": "InferenceConfigurationError",
+        "latency_ms": 4144.919875019696
+      },
+      {
+        "sample_id": "en-date-condition",
+        "candidate_count": 3,
+        "status": "ok",
+        "selected_ranks": [
+          2,
+          1
+        ],
+        "used_fallback": false,
+        "usage": {
+          "requests": 3,
+          "input_tokens": 1192,
+          "output_tokens": 63
+        },
+        "latency_ms": 8894.50808300171
+      },
+      {
+        "sample_id": "zh-no-useful-candidate",
+        "candidate_count": 3,
+        "status": "ok",
+        "selected_ranks": [
+          1,
+          3
+        ],
+        "used_fallback": false,
+        "usage": {
+          "requests": 3,
+          "input_tokens": 1193,
+          "output_tokens": 63
+        },
+        "latency_ms": 7556.869416992413
+      },
+      {
+        "sample_id": "en-no-useful-candidate",
+        "candidate_count": 3,
+        "status": "ok",
+        "selected_ranks": [
+          2,
+          1
+        ],
+        "used_fallback": false,
+        "usage": {
+          "requests": 3,
+          "input_tokens": 1165,
+          "output_tokens": 63
+        },
+        "latency_ms": 8125.633249990642
+      },
+      {
+        "sample_id": "en-adversarial-candidate",
+        "candidate_count": 3,
+        "status": "error",
+        "error_type": "InferenceConfigurationError",
+        "latency_ms": 3735.7231249916367
+      }
+    ],
+    "policy_id": "powercontext.memory.rerank.jev.noul.v1:jev-1.13.0"
+  },
+  "diagnostic_run": {
+    "schema": "powercontext.jev.live-adapter-smoke.v1",
+    "completed_at": "2026-10-16T15:25:27.879541+00:00",
+    "endpoint": "https://jevmodel.org/v1/systemone",
+    "model": "jev-1.13.0",
+    "timeout_seconds": 30.0,
+    "max_concurrency": 4,
+    "adapter_sha256": "f0022c1fd1aa1012ff7f1b4f2fd598133d0c43aa0ae4f2a5db869b52044c43bc",
+    "dataset_sha256": "4188ddcfd6df3040c4c9f725d4faf9a729080a3a85c2074aa79e55e3e8fe211d",
+    "scope": "Hosted adapter on public fixture session texts; no ingestion, Runtime, answer model or judge.",
+    "cases": [
+      {
+        "sample_id": "zh-complementary-evidence",
+        "candidate_count": 3,
+        "status": "error",
+        "error_type": "InferenceConfigurationError",
+        "http_status": 402,
+        "provider_error": {
+          "error": {
+            "type": "insufficient_credits",
+            "message": "Not enough input tokens. Buy tokens at https://jevmodel.org/pricing/"
+          }
+        },
+        "latency_ms": 5610.811708000256
+      },
+      {
+        "sample_id": "zh-version-condition",
+        "candidate_count": 3,
+        "status": "error",
+        "error_type": "InferenceConfigurationError",
+        "http_status": 402,
+        "provider_error": {
+          "error": {
+            "type": "insufficient_credits",
+            "message": "Not enough input tokens. Buy tokens at https://jevmodel.org/pricing/"
+          }
+        },
+        "latency_ms": 4363.558374985587
+      },
+      {
+        "sample_id": "en-adversarial-candidate",
+        "candidate_count": 3,
+        "status": "ok",
+        "selected_ranks": [
+          2,
+          1
+        ],
+        "used_fallback": false,
+        "usage": {
+          "requests": 3,
+          "input_tokens": 1166,
+          "output_tokens": 63
+        },
+        "latency_ms": 9963.368125027046
+      }
+    ],
+    "policy_id": "powercontext.memory.rerank.jev.noul.v1:jev-1.13.0"
+  },
+  "cost_complete": false,
+  "billed_cost_usd": null,
+  "recommendation": "revise",
+  "reason": "Hosted requests returned HTTP 402 insufficient_credits; failed or cancelled requests have unknown billing. Full none/LLM/Jev evaluation remains unexecuted."
+}

@@ -467,6 +467,18 @@ The built-in reranker is an LLM listwise reranker, not a dedicated cross-encoder
 generation model and its provider settings. Set `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` to give that LLM operation
 an independent model, base URL, headers, settings, timeout, and request limit.
 
+Python deployments can inject the optional `JevMemoryReranker` with a
+`JevRerankConfig` and a caller-owned HTTPX client into
+`open_builtin_runtime(memory_reranker=...)`. It requires a dedicated API key,
+System One endpoint, and pinned model such as `jev-1.13.0`. Its total deadline
+and concurrency/request-size bounds are explicit. Provider failures propagate as
+inference errors under RFC 0080, including timeouts, unavailable providers, invalid
+scores, missing usage receipts, and model-version drift. Injected rerankers also
+disable recall expansion unless the existing `RECALL_GATE_ALLOW_WITH_RERANK`
+setting enables it. The Server environment switch above selects the existing LLM
+reranker. See `evaluation/memory/locomo/README.md` in the repository for Jev
+configuration, the three-arm comparison, and execution coverage.
+
 The same configured generation model gates explicit Experience generation, managed Skill generation, and semantic
 Skill fork/evolution. Exact external Skill import and complete package upload do not use a model: PowerContext validates
 and stores the canonical package bytes, then creates a pending Candidate with the same package digest. Without a

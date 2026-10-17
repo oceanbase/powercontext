@@ -194,3 +194,103 @@ non-secret result separately when it should become repository evidence.
 Reviewed non-secret comparison reports should be published as separate artifacts with the
 `run.json` identity (dataset hash, extraction profile, top-k, judge profile, and model names).
 This repository does not currently include a reviewed coding-versus-conversation A/B report.
+
+## Jev Memory comparison
+
+`--rerank-mode jev` injects `JevMemoryReranker` into the Atomic Memory Runtime.
+It scores each authorized candidate independently with a native System One Noul
+question, then selects original ranks by decreasing probability, preserving coarse
+order for ties. It does not use the LLM listwise generation protocol. Configure
+dedicated credentials and an explicit model version in the run's local env file:
+
+```dotenv
+JEV_API_KEY=your-dedicated-key
+JEV_MODEL=jev-1.13.0
+JEV_ENDPOINT=https://api.typesafe.ai/v1/systemone
+```
+
+The adapter has a 30-second total deadline, a shared concurrency bound of four,
+and a 32 KiB UTF-8 limit per request. The deadline includes connection-pool waits
+and any transport retries. The adapter adds no retries; the ordinary HTTPX transport
+also defaults to zero retries. A timeout, provider rejection, invalid score, missing
+usage receipt, oversized request, or returned model-version mismatch fails the
+operation under RFC 0080's inference error contract. Caller cancellation propagates,
+and outstanding requests are cancelled and awaited. A failed benchmark observation
+keeps its total billed cost unknown; it cannot be treated as a successful coarse result.
+
+Runtime authorization, exact Artifact revisions, lifecycle eligibility, and final
+PreparedContext budgets still apply. Injected rerankers suppress recall expansion
+unless `recall_gate_allow_with_rerank` is explicitly enabled. The adapter does not
+log candidate text. Benchmark observations intentionally contain the inspected and
+delivered evidence and belong in the ignored local results directory.
+
+Compare three runs against **one ingestion** and the same registered Scope mappings.
+Pin the candidate count, answer count, UTF-8 budget, downstream model, question set,
+and question policies before evaluation. `--answer-max-bytes` fits the complete
+serialized answer payload, including metadata and any expanded Source text, by
+dropping the lowest-ranked memories. Observations record the exact delivered hits
+and bytes. The fixed quality-regression tolerance is zero and is saved before inference.
+
+First ingest once with `--skip-evaluation`; use the same arguments for each evaluation:
+
+```bash
+uv run python -m evaluation.memory.locomo run \
+  --env-file .env --run-id jev-comparison \
+  --output-directory evaluation/memory/locomo/results/jev-comparison/none \
+  --top-k 30 --answer-k 5 --answer-max-bytes 4096 --skip-evaluation
+```
+
+Copy that run's `ingestion.json` to the `llm` and `jev` output directories.
+Run each arm with `--skip-ingestion`, its own output directory, and respectively
+`--rerank-mode none`, `--rerank-mode llm`, and `--rerank-mode jev`. Keep the original
+run ID and all selection/model/budget arguments. Retain the three `run.json` files.
+The comparator rejects changed query sets, exact ordered candidate pools, budgets,
+deployment settings, or predeclared quality tolerance.
+The downstream identity fingerprints the endpoint resolved by the model provider,
+including environment variables such as `OPENAI_BASE_URL` and the provider's own
+defaults. The independent LLM reranker resolves its own provider endpoint in the
+same way, including `ANTHROPIC_BASE_URL`. A changed reranker endpoint invalidates
+resuming its run. A changed downstream endpoint also invalidates comparing runs;
+explicitly setting the same resolved default does not change the identity.
+
+Comparison answer, judge, and LLM rerank models disable native SDK retries.
+The runner owns transient retries and records them explicitly; token receipts
+are required for every model response, including structured-output retries.
+Missing receipts fail the observation and leave cost unknown. Manifests record
+this billing policy so older runs without observable provider billing cannot
+establish complete costs or recommend adoption.
+
+```bash
+uv run python -m evaluation.memory.locomo compare-rerank \
+  --none evaluation/memory/locomo/results/jev-comparison/none \
+  --llm evaluation/memory/locomo/results/jev-comparison/llm \
+  --jev evaluation/memory/locomo/results/jev-comparison/jev \
+  --llm-input-price "$LLM_INPUT_PRICE" --llm-output-price "$LLM_OUTPUT_PRICE" \
+  --jev-input-price "$JEV_INPUT_PRICE" --jev-output-price "$JEV_OUTPUT_PRICE" \
+  --generation-input-price "$GENERATION_INPUT_PRICE" \
+  --generation-output-price "$GENERATION_OUTPUT_PRICE" \
+  --output evaluation/memory/locomo/results/jev-comparison/comparison.json
+```
+
+Supply actual USD-per-million-token rates. If retrieval used embeddings, provide
+the measured total retrieval costs for the three arms with
+`--retrieval-cost-usd NONE LLM JEV`. Without those receipts, or when retries/errors
+leave billing unknown, total evaluation cost stays `null`. Shared ingestion cost
+is excluded and must be reported separately when reporting the complete ingest-to-answer
+pipeline. The report includes evidence recall/MRR, downstream correctness, delivered
+bytes, request/token counts, fallbacks/retries, and p50/p95 latency. Adoption requires
+complete cost evidence, no Jev fallbacks, no accuracy regression against either
+baseline, a lower evaluation cost than LLM reranking, and no p95 latency regression.
+The comparator does not establish held-out independence or statistical significance.
+
+`dataset/jev_rerank_cases.json` is a small runnable LoCoMo-format smoke dataset with
+English/Chinese queries, lexical distractors, complementary evidence, negation,
+date/version conditions, no-match questions, and an adversarial passage. Pass it
+with `--dataset` to exercise the pipeline. It is public smoke input, not an independent
+held-out quality evaluation. Calibrate the question policy on a separate dataset and
+freeze it before running a held-out comparison. A dedicated reranker baseline is
+not supplied by this experiment; report its absence or evaluate one separately using
+the same candidate pools.
+
+See [Jev evaluation evidence](JEV_EVALUATION.md) for execution coverage and the
+adoption recommendation.

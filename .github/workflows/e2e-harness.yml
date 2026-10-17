@@ -120,13 +120,14 @@ jobs:
           uv lock --check
           uv run --locked prek run -a
 
-      - name: Run the real OceanBase contract without skips
+      - name: Run OceanBase contracts and Jev integration without skips
         run: |
           mkdir -p .powercontext/recall-effort-ci
           uv run --locked pytest \
             tests/builtin/persistence/test_oceanbase_profile.py::test_live_oceanbase_profile_smoke \
             'tests/builtin/persistence/test_recall_effort_statistics.py::test_recall_effort_schema_upgrade_and_atomic_daily_scope_accounting[oceanbase]' \
             tests/builtin/persistence/test_oceanbase_profile.py::test_live_oceanbase_profile_rejects_old_schema_collation \
+            tests/e2e/test_jev_memory_reranking.py \
             --junitxml=.powercontext/recall-effort-ci/oceanbase.xml -q -rs
           uv run --locked python - <<'PY'
           from pathlib import Path
@@ -134,8 +135,8 @@ jobs:
 
           suites = ElementTree.parse(Path(".powercontext/recall-effort-ci/oceanbase.xml")).getroot()
           cases = list(suites.iter("testcase"))
-          if len(cases) != 3 or any(case.find("skipped") is not None for case in cases):
-              raise SystemExit("All three live OceanBase contracts must execute; skipped tests are not acceptance.")
+          if len(cases) != 9 or any(case.find("skipped") is not None for case in cases):
+              raise SystemExit("All nine database contracts must execute; skipped tests are not acceptance.")
           PY
 
       - name: Run recall, statistics and prepared-context regressions

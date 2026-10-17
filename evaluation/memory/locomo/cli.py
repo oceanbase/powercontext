@@ -25,6 +25,7 @@ from pathlib import Path
 from powercontext.builtin.artifacts.memory import MemoryRerankMode
 from powercontext.builtin.runtime import MemoryExtractionProfile
 
+from .compare_rerank import compare_rerank_runs
 from .prompts import JudgeProfile
 from .runner import (
     evaluate_dataset,
@@ -73,12 +74,13 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="maximum memories sent to the answer model; defaults to --top-k",
     )
+    run.add_argument("--answer-max-bytes", type=_positive_int, help="UTF-8 bound for the answer input")
     run.add_argument(
         "--rerank-mode",
         type=MemoryRerankMode,
         choices=tuple(MemoryRerankMode),
         default=MemoryRerankMode.NONE,
-        help="PowerContext Memory search policy; llm enables the runtime listwise reranker",
+        help="Memory search policy; jev uses dedicated JEV_API_KEY and a pinned JEV_MODEL",
     )
     run.add_argument(
         "--answer-source-content",
@@ -152,7 +154,44 @@ def _parser() -> argparse.ArgumentParser:
         help="do not retry failed judge observations already present in the JSONL checkpoint",
     )
     rejudge.set_defaults(handler=_rejudge)
+    compare = commands.add_parser("compare-rerank", help="compare matched none, llm, and jev runs")
+    compare.add_argument("--none", type=Path, required=True)
+    compare.add_argument("--llm", type=Path, required=True)
+    compare.add_argument("--jev", type=Path, required=True)
+    compare.add_argument("--llm-input-price", type=float, required=True, help="USD per million input tokens")
+    compare.add_argument("--llm-output-price", type=float, required=True, help="USD per million output tokens")
+    compare.add_argument("--jev-input-price", type=float, required=True, help="USD per million input tokens")
+    compare.add_argument("--jev-output-price", type=float, required=True, help="USD per million output tokens")
+    compare.add_argument("--generation-input-price", type=float, required=True, help="answer and judge input price")
+    compare.add_argument("--generation-output-price", type=float, required=True, help="answer and judge output price")
+    compare.add_argument(
+        "--retrieval-cost-usd",
+        type=float,
+        nargs=3,
+        metavar=("NONE", "LLM", "JEV"),
+        help="measured retrieval costs for each run; required for total cost when embeddings are used",
+    )
+    compare.add_argument("--output", type=Path, required=True)
+    compare.set_defaults(handler=_compare_rerank)
     return parser
+
+
+def _compare_rerank(arguments: argparse.Namespace) -> int:
+    result = compare_rerank_runs(
+        {"none": arguments.none, "llm": arguments.llm, "jev": arguments.jev},
+        input_prices={"none": 0, "llm": arguments.llm_input_price, "jev": arguments.jev_input_price},
+        output_prices={"none": 0, "llm": arguments.llm_output_price, "jev": arguments.jev_output_price},
+        generation_input_price=arguments.generation_input_price,
+        generation_output_price=arguments.generation_output_price,
+        retrieval_costs_usd=(
+            dict(zip(("none", "llm", "jev"), arguments.retrieval_cost_usd, strict=True))
+            if arguments.retrieval_cost_usd is not None
+            else None
+        ),
+    )
+    arguments.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
 
 
 def _inspect(arguments: argparse.Namespace) -> int:
@@ -202,26 +241,27 @@ def _run(arguments: argparse.Namespace) -> int:
         if arguments.output_directory is None
         else arguments.output_directory.resolve()
     )
-    manifest = prepare_run(
-        dataset=dataset,
-        settings=settings,
-        run_id=run_id,
-        output_directory=output_directory,
-        top_k=arguments.top_k,
-        answer_k=arguments.answer_k,
-        rerank_mode=arguments.rerank_mode,
-        answer_source_content=arguments.answer_source_content,
-        answer_inference_aware=arguments.answer_inference_aware,
-        answer_unknown_fallback_inference=arguments.answer_unknown_fallback_inference,
-        judge_profile=arguments.judge_profile,
-        categories=arguments.categories,
-        conversation_limit=arguments.conversation_limit,
-        question_limit=arguments.question_limit,
-        operation_retries=arguments.operation_retries,
-    )
-    print(json.dumps({"run": manifest, "output_directory": str(output_directory)}, ensure_ascii=False, indent=2))
 
     async def scenario() -> None:
+        manifest = await prepare_run(
+            dataset=dataset,
+            settings=settings,
+            run_id=run_id,
+            output_directory=output_directory,
+            top_k=arguments.top_k,
+            answer_k=arguments.answer_k,
+            answer_max_bytes=arguments.answer_max_bytes,
+            rerank_mode=arguments.rerank_mode,
+            answer_source_content=arguments.answer_source_content,
+            answer_inference_aware=arguments.answer_inference_aware,
+            answer_unknown_fallback_inference=arguments.answer_unknown_fallback_inference,
+            judge_profile=arguments.judge_profile,
+            categories=arguments.categories,
+            conversation_limit=arguments.conversation_limit,
+            question_limit=arguments.question_limit,
+            operation_retries=arguments.operation_retries,
+        )
+        print(json.dumps({"run": manifest, "output_directory": str(output_directory)}, ensure_ascii=False, indent=2))
         if not arguments.skip_ingestion:
             result = await ingest_dataset(
                 dataset,
@@ -241,6 +281,7 @@ def _run(arguments: argparse.Namespace) -> int:
                 output_directory=output_directory,
                 top_k=arguments.top_k,
                 answer_k=arguments.answer_k,
+                answer_max_bytes=arguments.answer_max_bytes,
                 rerank_mode=arguments.rerank_mode,
                 answer_source_content=arguments.answer_source_content,
                 answer_inference_aware=arguments.answer_inference_aware,
