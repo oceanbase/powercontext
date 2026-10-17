@@ -18,12 +18,15 @@ import asyncio
 import json
 import os
 
+import pytest
 from click import unstyle
 from typer.testing import CliRunner
 
+from powercontext.builtin.persistence.bootstrap import MissingDatabaseError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.cli.app import create_cli
+from powercontext.server import cli as server_cli
 from powercontext.server.cli import app
 
 
@@ -58,3 +61,73 @@ def test_processing_maintenance_plan_apply_verify_require_maintenance_and_reuse_
     replay = runner.invoke(cli, [*command, "--action", "apply", "--maintenance-confirmed"])
     assert replay.exit_code == 0, replay.output
     assert config.url not in plan.output + applied.output + verified.output + replay.output
+
+
+class _ReadOnlyInspection:
+    """A backend profile whose read-only opener refuses to provision the database."""
+
+    @classmethod
+    def open(cls, config, *, tables):
+        raise AssertionError("read-only inspection must not use the provisioning opener")  # noqa: TRY003
+
+    @classmethod
+    def open_existing(cls, config, *, tables):
+        raise MissingDatabaseError("configured_db")
+
+
+@pytest.mark.parametrize("action", ["plan", "verify"])
+@pytest.mark.parametrize("backend", ["oceanbase", "seekdb"])
+def test_processing_inspection_never_provisions_the_configured_database(tmp_path, monkeypatch, action, backend):
+    for key in tuple(os.environ):
+        if key.startswith("POWERCONTEXT_SERVER_"):
+            monkeypatch.delenv(key)
+    monkeypatch.setattr(server_cli, "OceanBaseProfile", _ReadOnlyInspection)
+    monkeypatch.setattr(server_cli, "SeekDBProfile", _ReadOnlyInspection)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", backend)
+    if backend == "oceanbase":
+        monkeypatch.setenv(
+            "POWERCONTEXT_SERVER_DATABASE_URL",
+            "mysql+aoceanbase://user:password@host:2881/configured_db?charset=utf8mb4",
+        )
+    else:
+        monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "seekdb"))
+
+    result = CliRunner().invoke(create_cli([app]), ["server", "processing-migrate", "--action", action])
+
+    assert result.exit_code == 2, result.output
+    assert "require an existing database" in unstyle(result.output)
+    assert "configured_db" in unstyle(result.output)
+
+
+@pytest.mark.parametrize("action", ["plan", "verify"])
+@pytest.mark.parametrize("target_state", ["missing", "empty", "file", "unrecognized"])
+def test_processing_inspection_preserves_uninitialized_seekdb_target(tmp_path, monkeypatch, action, target_state):
+    for key in tuple(os.environ):
+        if key.startswith("POWERCONTEXT_SERVER_"):
+            monkeypatch.delenv(key)
+    path = tmp_path / "missing-parent" / "seekdb"
+    if target_state == "empty":
+        path.mkdir(parents=True)
+    elif target_state == "file":
+        path.parent.mkdir()
+        path.write_bytes(b"retained evidence")
+    elif target_state == "unrecognized":
+        path.mkdir(parents=True)
+        (path / "user-content.txt").write_bytes(b"retained evidence")
+    original = {
+        item.relative_to(tmp_path): item.read_bytes() if item.is_file() else None for item in tmp_path.rglob("*")
+    }
+
+    def unexpected_binding():
+        pytest.fail("inspection must reject an uninitialized target before starting the native engine")
+
+    monkeypatch.setattr("powercontext.builtin.persistence.seekdb.profile._load_binding", unexpected_binding)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(path))
+    result = CliRunner().invoke(create_cli([app]), ["server", "processing-migrate", "--action", action])
+
+    assert result.exit_code == 2, result.output
+    assert "existing seekdb instance" in unstyle(result.output)
+    assert {
+        item.relative_to(tmp_path): item.read_bytes() if item.is_file() else None for item in tmp_path.rglob("*")
+    } == original

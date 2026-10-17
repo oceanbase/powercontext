@@ -430,7 +430,7 @@ def test_remote_cli_uses_the_configured_maintenance_identity_and_coordination_sc
     tmp_path, monkeypatch, kind: Literal["seekdb", "oceanbase"]
 ):
     _database, command = _configure(tmp_path, monkeypatch)
-    database_name = "test" if kind == "seekdb" else "pc_probe"
+    database_name = "powercontext" if kind == "seekdb" else "pc_probe"
     environment = f"POWERCONTEXT_SERVER_DATABASE_KIND={kind}\n"
     if kind == "seekdb":
         environment += f"POWERCONTEXT_SERVER_DATABASE_PATH={tmp_path / 'seekdb'}\n"

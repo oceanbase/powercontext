@@ -154,9 +154,16 @@ class SeekDBGraphReader:
 
 
 class SeekDBGraphStore:
-    def __init__(self, path: Path, connection_options: Mapping[str, object]) -> None:
-        self.identity = "seekdb:" + digest_bytes(str(path.expanduser().resolve()).encode())
+    def __init__(self, path: Path, connection_options: Mapping[str, object], *, database: str) -> None:
+        # Retain legacy graph references for explicitly selected test databases.
+        location = str(path.expanduser().resolve())
+        self.identity = "seekdb:" + digest_bytes(location.encode())
+        if database != "test":
+            self.identity += ":" + digest_bytes(database.encode())
+        self.database_name = database
         self.options = dict(connection_options)
+        self.options.pop("database", None)
+        self.options.pop("db", None)
         self._condition = threading.Condition()
         self._active = 0
         self._closed = False
@@ -172,7 +179,7 @@ class SeekDBGraphStore:
             remaining = max(1, deadline - time.monotonic())
             with pymysql.connect(
                 **self.options,
-                database="test",
+                database=self.database_name,
                 charset="utf8mb4",
                 autocommit=False,
                 connect_timeout=min(10, int(remaining) + 1),

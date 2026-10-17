@@ -128,7 +128,10 @@ powercontext server run
 `--env-file <path>` 选择其他文件，或使用 `--no-env-file` 忽略环境文件。进程管理器和容器通常应提供显式环境，
 不要依赖其工作目录。
 
-PowerContext 固定使用 seekDB 内置的 `test` 数据库。未设置 `POWERCONTEXT_SERVER_DATABASE_PATH` 时，实例保存在
+PowerContext 默认使用专用数据库 `powercontext`，先创建缺失的数据库，再初始化应用表。
+设置 `POWERCONTEXT_SERVER_DATABASE_DATABASE=my_context` 可以指定其他名称；缺失时创建，已有时复用。
+包含反引号的库名会在初始化之前被拒绝。
+未设置 `POWERCONTEXT_SERVER_DATABASE_PATH` 时，实例保存在
 PowerContext 用户数据目录的 `seekdb` 子目录中；如果设置了 `POWERCONTEXT_HOME`，默认路径为
 `$POWERCONTEXT_HOME/seekdb`。只有需要其他位置时才设置 `POWERCONTEXT_SERVER_DATABASE_PATH`。
 
@@ -139,6 +142,81 @@ powercontext doctor
 powercontext ready
 powercontext capabilities
 ```
+
+### 已有 seekDB 部署
+
+升级前先备份 seekDB 实例和配置，再显式保留旧数据库：
+
+```bash
+export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
+export POWERCONTEXT_SERVER_DATABASE_DATABASE=test
+powercontext server run
+```
+
+保持原来的 `POWERCONTEXT_SERVER_DATABASE_PATH` 或 `POWERCONTEXT_HOME`。实例目录和数据库名称是两个独立配置，
+修改其中任何一个都可能连接到不同的数据。服务和容器也需要使用相同配置。
+
+如果没有显式配置库名，而 `test` 中存在以 PowerContext 的 `pc_` 为前缀的表，启动会在创建应用表前停止，
+要求选择数据库。系统不会自动选择、复制或删除旧库。显式选择 `test` 可以继续使用旧数据；显式选择
+`powercontext` 则使用新库。配置向导也会询问数据库名称，已有用户应填写 `test`。
+
+需要迁移时，先继续使用 `test`，直到完成备份并准备好针对当前引擎版本验证过的导出、导入流程。
+停止所有源库写入者，准备目标库，按该流程导出、导入结构和数据，校验身份、关联关系，并通过 PowerContext
+读取迁移结果后再切换配置。自动建库不执行数据迁移。不能假定任意 SQL 转储都能跨引擎或表结构版本使用；
+已有表仍需通过兼容性检查，表结构升级需要显式维护。
+代码图引用绑定实例和数据库，仅复制关系表数据不等于迁移代码图存储；校验流程应包含目标库的 Code 索引重建和查询。
+显式继续使用 `test` 会保留旧代码图身份。
+
+切换后由用户选择保留期，旧库保持停写。记录源和目标实例路径、库名、备份位置、停写及切换时间、校验结果和复核日期。
+手动删除旧库前，确认所有部署均已停止使用它，并且仍有可用备份。目标库的新写入不会同步回源库，保留源库不代表
+可以无损回退。PowerContext 不会自动迁移、发送到期提醒、比较新旧库或删除旧库。
+
+## 使用 OceanBase
+
+连接已有 OceanBase **MySQL 兼容模式的用户租户**。PowerContext 在该租户内创建数据库，
+不负责创建 OceanBase 实例、租户或账户。确认网络可达，并安装 Server extra：
+
+```bash
+uv tool install --force "powercontext[cli,server]==1.3.0"
+export POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase
+# 凭据应保存在密钥管理服务或受保护的环境文件中。
+export POWERCONTEXT_SERVER_DATABASE_URL='mysql+aoceanbase://user%40tenant:encoded-password@host:2881/?charset=utf8mb4'
+powercontext server run
+```
+
+使用租户账户和实际的直连或 OBProxy 地址、端口。URL 用户名和密码中的保留字符需要百分号编码，例如
+`user@tenant` 编码为 `user%40tenant`。URL 必须使用 `mysql+aoceanbase` 驱动、显式端口和 `charset=utf8mb4`。
+
+示例省略库名，因此使用 `powercontext`。自定义库名放在 URL 路径中，例如 `/team_context?charset=utf8mb4`。
+已有 URL 中显式指定的库名保持有效。库名仅通过 URL 路径指定，不接受 `db` 或 `database` 查询参数。
+数据库名称支持 1～64 个 BMP 字符，不允许控制字符、斜杠、反斜杠、点、反引号、
+首尾空白或系统数据库名称；PowerContext 不会静默裁剪或改名，服务器自身的标识符大小写规则仍然适用。
+包含反引号的名称会在配置校验阶段被拒绝，不会连接或创建数据库。请使用 `powercontext`、`team_context`
+或不含反引号的中文名称。
+
+启动先尝试连接目标库，已有可用库不要求额外建库权限。只有明确的“数据库不存在”错误才触发实例或租户级连接，
+执行 `CREATE DATABASE IF NOT EXISTS`，随后重新连接目标库并初始化应用表。认证、网络错误不会触发建库或切库。
+如果服务器拒绝访问但无法确认库是否存在，错误会要求管理员同时检查数据库和权限。
+
+目标库缺失而应用账户没有建库权限时，请管理员在**同一租户**中执行以下 SQL；自定义部署应替换为实际库名，
+然后为应用账户授予所需数据库权限：
+
+```sql
+CREATE DATABASE IF NOT EXISTS `powercontext` CHARACTER SET utf8mb4;
+```
+
+准备完成后使用原 URL 重启。创建缺失表仍然需要建表权限；已有完整可用库不会新增建库权限要求。
+启动不会删除或重建已有数据库，不会在失败后切换其他数据库，也不授权升级已有表结构。
+并发创建使用幂等建库、建表 DDL，并处理索引重名竞争；这不提供已有表结构迁移的协调能力，也不改变嵌入式 seekDB
+对实例进程所有权的限制。
+
+Python 调用方使用 `OceanBaseProfile.open()` 时可省略 URL 中的库名，并按需建库。
+`OceanBaseProfile.open_existing()` 只连接已准备好的数据库；`attach()` 要求调用方的 engine 已显式选择一个已有数据库。
+两者都不替换 engine 或改变连接目标。只读巡检（`plan`、`verify` 与 `db-migrate` 的检查类命令）不会创建缺失的
+OceanBase 或内嵌 seekDB 库；显式的 seekDB 写入维护可以在应用迁移包前准备配置指定的数据库。
+
+只读 seekDB 巡检要求实例目录已初始化。路径缺失或目录为空时，会在启动 native 引擎前报错，不创建父目录或存储文件。
+路径为文件，或非空目录中没有可识别的 native 存储时，也会拒绝操作并保留原有内容。普通启动仍可初始化新实例。
 
 ## 验证安装
 

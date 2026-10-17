@@ -28,6 +28,7 @@ import pytest
 from pydantic import SecretStr
 from pydantic_ai.messages import ModelResponse, RetryPromptPart, TextPart, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
+from sqlalchemy.engine import make_url
 
 from evaluation.memory.locomo.dataset import LoCoMoConversation, LoCoMoSession, LoCoMoTurn
 from evaluation.memory.locomo_plus import runner
@@ -982,8 +983,8 @@ def test_legacy_manifest_remains_replayable_but_cannot_resume(
         ),
         (
             "mysql+aoceanbase://tenant:old-secret@db.example:2881/benchmark?charset=utf8mb4",
-            "mysql+aoceanbase://ignored:new-secret@other.example:2882/ignored"
-            "?charset=utf8mb4&user=tenant&host=db.example&port=2881&db=benchmark",
+            "mysql+aoceanbase://ignored:new-secret@other.example:2882/benchmark"
+            "?charset=utf8mb4&user=tenant&host=db.example&port=2881",
         ),
         (
             "mysql+aoceanbase://tenant:password@db.example:2881/benchmark"
@@ -1037,11 +1038,18 @@ def test_oceanbase_resume_preserves_effective_target_when_credentials_or_spellin
 
 
 @pytest.mark.parametrize(
-    "target_override",
-    ["host=other.example", "port=2882", "user=other-tenant", "db=other-database", "unix_socket=/other/database.sock"],
+    "target_suffix",
+    [
+        "/benchmark?charset=utf8mb4&host=other.example",
+        "/benchmark?charset=utf8mb4&port=2882",
+        "/benchmark?charset=utf8mb4&user=other-tenant",
+        "/other-database?charset=utf8mb4",
+        "/benchmark?charset=utf8mb4&unix_socket=/other/database.sock",
+    ],
+    ids=["host", "port", "user", "database", "unix-socket"],
 )
 def test_oceanbase_resume_rejects_effective_target_changes_before_opening_services(
-    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch, target_override: str
+    tmp_path: Path, offline_benchmark: dict[str, Any], monkeypatch: pytest.MonkeyPatch, target_suffix: str
 ) -> None:
     url = "mysql+aoceanbase://tenant:password@db.example:2881/benchmark?charset=utf8mb4"
     settings = _settings()
@@ -1063,7 +1071,9 @@ def test_oceanbase_resume_rejects_effective_target_changes_before_opening_servic
 
     monkeypatch.setattr(runner, "open_builtin_runtime", unexpected_service)
     monkeypatch.setattr(runner, "open_model", unexpected_service)
-    settings.database = OceanBaseConfig.model_validate({"url": f"{url}&{target_override}"})
+    settings.database = OceanBaseConfig.model_validate({
+        "url": f"mysql+aoceanbase://tenant:password@db.example:2881{target_suffix}"
+    })
     with pytest.raises(ValueError, match="run identity changed"):
         asyncio.run(runner.run_benchmark(**parameters))
     assert (tmp_path / "run.json").read_bytes() == original_manifest
@@ -1072,7 +1082,6 @@ def test_oceanbase_resume_rejects_effective_target_changes_before_opening_servic
 @pytest.mark.parametrize(
     "options",
     [
-        "db=first&db=private-secret",
         "password=first&password=private-secret",
         "read_default_file=private-secret",
         "read_default_group=private-secret",
@@ -1106,6 +1115,15 @@ def test_oceanbase_rejects_ambiguous_routing_before_opening_services(
         )
     assert "private-secret" not in str(error.value)
     assert not (tmp_path / "run.json").exists()
+
+
+@pytest.mark.parametrize("options", ["db=other-database", "database=other-database"])
+def test_oceanbase_target_rejects_query_database_overrides(options: str) -> None:
+    """Only the URL path selects the database; an override is refused rather than silently ignored."""
+    base = "mysql+aoceanbase://tenant:password@db.example:2881/benchmark?charset=utf8mb4"
+    assert runner._oceanbase_target(make_url(base))["database"] == "benchmark"
+    with pytest.raises(ValueError, match="URL path"):
+        runner._oceanbase_target(make_url(f"{base}&{options}"))
 
 
 def test_unversioned_oceanbase_manifest_is_replayable_but_cannot_resume(

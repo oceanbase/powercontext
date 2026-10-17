@@ -28,6 +28,12 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
+from powercontext.builtin.persistence.bootstrap import (
+    DEFAULT_DATABASE,
+    ensure_database,
+    require_existing_database,
+    validate_database_name,
+)
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.dream_schema import assert_dream_schema_ready
 from powercontext.builtin.persistence.errors import PersistenceError
@@ -93,7 +99,13 @@ class OceanBaseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     kind: Literal["oceanbase"] = "oceanbase"
-    url: Annotated[SecretStr, Field(repr=False)]
+    url: Annotated[
+        SecretStr,
+        Field(
+            repr=False,
+            description="Official async OceanBase URL; an omitted database selects powercontext; database names cannot contain backticks",
+        ),
+    ]
     echo: bool = False
     pool_pre_ping: bool = True
 
@@ -102,8 +114,8 @@ class OceanBaseConfig(BaseModel):
     def require_official_async_dialect(cls, value: SecretStr) -> SecretStr:
         """Reject sync, generic MySQL and malformed URLs without exposing credentials."""
 
-        _validate_oceanbase_url(value.get_secret_value())
-        return value
+        url = _validate_oceanbase_url(value.get_secret_value())
+        return SecretStr(url.render_as_string(hide_password=False))
 
 
 class OceanBaseProfile:
@@ -123,21 +135,50 @@ class OceanBaseProfile:
     ) -> AsyncIterator[OceanBaseProfile]:
         """Create, initialize and exclusively own an official OceanBase engine."""
 
-        _register_official_dialect()
-        engine = create_async_engine(
-            config.url.get_secret_value(),
-            # OceanBase's MySQL handshake can leave aiomysql believing the
-            # session is transactional while the server still autocommits.
-            # Explicitly disabling autocommit keeps SAVEPOINT-based conflict
-            # recovery and the surrounding publication transaction atomic.
-            connect_args={"init_command": "SET autocommit = 0"},
-            echo=config.echo,
-            hide_parameters=True,
-            pool_pre_ping=config.pool_pre_ping,
-        )
-        database = AsyncDatabase.own(engine)
-        async with _initialized_profile(cls(database=database, tables=tables)) as profile:
+        async with cls._connect(config, tables=tables, provision=True) as profile:
             yield profile
+
+    @classmethod
+    @asynccontextmanager
+    async def open_existing(
+        cls,
+        config: OceanBaseConfig,
+        *,
+        tables: tuple[Table, ...],
+    ) -> AsyncIterator[OceanBaseProfile]:
+        """Connect to an already provisioned database without creating one."""
+
+        async with cls._connect(config, tables=tables, provision=False) as profile:
+            yield profile
+
+    @classmethod
+    @asynccontextmanager
+    async def _connect(
+        cls,
+        config: OceanBaseConfig,
+        *,
+        tables: tuple[Table, ...],
+        provision: bool,
+    ) -> AsyncIterator[OceanBaseProfile]:
+        _register_official_dialect()
+        url = _validate_oceanbase_url(config.url.get_secret_value())
+        name = url.database or DEFAULT_DATABASE
+        engine = _create_engine(config, url)
+        database = AsyncDatabase.own(engine)
+        try:
+            if provision:
+                await ensure_database(
+                    engine,
+                    lambda: _create_engine(config, url.set(database="")),
+                    name=name,
+                    require_backend=_require_mysql_tenant,
+                )
+            else:
+                await require_existing_database(engine, name=name)
+            async with _initialized_profile(cls(database=database, tables=tables)) as profile:
+                yield profile
+        finally:
+            await database.close()
 
     @classmethod
     @asynccontextmanager
@@ -147,12 +188,27 @@ class OceanBaseProfile:
         *,
         tables: tuple[Table, ...],
     ) -> AsyncIterator[OceanBaseProfile]:
-        """Initialize a caller-owned official OceanBase engine without disposing it."""
-
+        """Initialize an explicitly selected caller-owned database without replacing its engine."""
         _validate_oceanbase_url(engine.url)
+        if not engine.url.database:
+            raise ValueError(  # noqa: TRY003
+                "Attached OceanBase engines must select a database; use OceanBaseProfile.open for defaults"
+            )
         database = AsyncDatabase.attach(engine)
         async with _initialized_profile(cls(database=database, tables=tables)) as profile:
             yield profile
+
+
+def _create_engine(config: OceanBaseConfig, url: URL) -> AsyncEngine:
+    return create_async_engine(
+        url,
+        # Match AsyncDatabase's explicit transaction ownership even when the
+        # server handshake omits the autocommit status flag.
+        connect_args={"init_command": "SET autocommit = 0"},
+        echo=config.echo,
+        hide_parameters=True,
+        pool_pre_ping=config.pool_pre_ping,
+    )
 
 
 @asynccontextmanager
@@ -229,8 +285,11 @@ def _validate_oceanbase_url(value: str | URL) -> URL:
         raise ValueError("OceanBase profile URL must include a host")  # noqa: TRY003
     if url.port is None:
         raise ValueError("OceanBase profile URL must include an explicit port")  # noqa: TRY003
-    if not url.database:
-        raise ValueError("OceanBase profile URL must include a database")  # noqa: TRY003
+    if url.database is None or url.database == "":
+        url = url.set(database=DEFAULT_DATABASE)
+    validate_database_name(url.database or DEFAULT_DATABASE)
+    if "db" in url.query or "database" in url.query:
+        raise ValueError("Select the OceanBase database in the URL path, not db/database query parameters")  # noqa: TRY003
     if url.query.get("charset") != "utf8mb4":
         raise ValueError("OceanBase profile URL must set charset=utf8mb4")  # noqa: TRY003
     return url

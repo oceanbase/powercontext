@@ -201,6 +201,8 @@ def _storage(state: Wizard) -> None:
         _existing_server(state)
         return
     state.patch({f"{SERVER}DATABASE_KIND": kind})
+    if kind != "seekdb":
+        state.patch({f"{SERVER}DATABASE_DATABASE": None})
     if kind == "sqlite":
         previous = state.values.get(f"{SERVER}DATABASE_URL")
         default_path = str(default_database_path())
@@ -242,7 +244,21 @@ def _storage(state: Wizard) -> None:
             .expanduser()
             .absolute()
         )
-        state.patch({f"{SERVER}DATABASE_PATH": str(path), f"{SERVER}DATABASE_URL": None})
+        ui.say(
+            "The default database is powercontext. Existing seekdb users: enter test to retain old data.",
+            "默认数据库为 powercontext。已有 seekdb 用户：输入 test 以继续使用旧数据。",
+        )
+        database = ui.ask(
+            "Database name",
+            "数据库名称",
+            default=state.values.get(f"{SERVER}DATABASE_DATABASE", "powercontext"),
+            required=True,
+        )
+        state.patch({
+            f"{SERVER}DATABASE_PATH": str(path),
+            f"{SERVER}DATABASE_DATABASE": database,
+            f"{SERVER}DATABASE_URL": None,
+        })
         _prepare_seekdb_dependency(state)
     else:
         previous = state.values.get(f"{SERVER}DATABASE_URL", "")

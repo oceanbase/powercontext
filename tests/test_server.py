@@ -452,7 +452,7 @@ def test_server_settings_select_embedded_seekdb(tmp_path, monkeypatch) -> None:
 
     assert isinstance(settings.database, SeekDBConfig)
     assert settings.database.path == data_dir / "seekdb"
-    assert settings.database.database == "test"
+    assert settings.database.database == "powercontext"
     assert not data_dir.exists()
 
 
@@ -478,16 +478,18 @@ def test_server_settings_override_embedded_seekdb_path(tmp_path, monkeypatch) ->
 
     assert isinstance(settings.database, SeekDBConfig)
     assert settings.database.path == database_path
-    assert settings.database.database == "test"
+    assert settings.database.database == "powercontext"
 
 
-def test_server_settings_reject_custom_embedded_seekdb_database(tmp_path, monkeypatch) -> None:
+def test_server_settings_accept_custom_embedded_seekdb_database(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "seekdb"))
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_DATABASE", "custom")
 
-    with pytest.raises(ValidationError, match="Input should be 'test'"):
-        ServerSettings()
+    settings = ServerSettings()
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.database == "custom"
+    assert "database" in settings.database.model_fields_set
 
 
 def test_supervisor_uses_primary_database_without_scheduler_sidecar(tmp_path, monkeypatch) -> None:
@@ -1300,3 +1302,23 @@ def test_logging_failure_does_not_change_the_response(monkeypatch) -> None:
 
     assert response.status_code == 500
     assert re.fullmatch(r"[0-9a-f]{16}", response.headers["X-PowerContext-Request-ID"])
+
+
+def test_server_settings_keep_explicit_legacy_seekdb_database(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "seekdb"))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_DATABASE", "test")
+    settings = ServerSettings()
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.database == "test"
+    assert "database" in settings.database.model_fields_set
+
+
+def test_server_settings_default_oceanbase_database(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "oceanbase")
+    monkeypatch.setenv(
+        "POWERCONTEXT_SERVER_DATABASE_URL", "mysql+aoceanbase://user:password@localhost:2881/?charset=utf8mb4"
+    )
+    settings = ServerSettings()
+    assert isinstance(settings.database, OceanBaseConfig)
+    assert "/powercontext?charset=utf8mb4" in settings.database.url.get_secret_value()

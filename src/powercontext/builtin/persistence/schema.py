@@ -18,12 +18,20 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import MetaData, Table
+from sqlalchemy import Connection, MetaData, Table, inspect
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.schema import CreateTable
+
+from powercontext.builtin.persistence.bootstrap import mysql_error_code
 
 
 async def create_tables(connection: AsyncConnection, tables: Sequence[Table], /) -> None:
     """Create missing tables and indexes using SQLAlchemy's native metadata support."""
+
+    if connection.dialect.name == "mysql":
+        await connection.run_sync(lambda sync: _create_mysql_tables(sync, tables))
+        return
 
     groups: dict[MetaData, list[Table]] = {}
     for table in tables:
@@ -37,3 +45,33 @@ async def create_tables(connection: AsyncConnection, tables: Sequence[Table], /)
                 checkfirst=True,
             )
         )
+
+
+def _create_mysql_tables(connection: Connection, tables: Sequence[Table]) -> None:
+    """Use atomic table creation and normalize only verified index-name races.
+
+    Existing tables are left untouched. This initializes missing tables; it does
+    not reconcile existing schemas or replace the explicit migration workflow.
+    """
+    groups: dict[MetaData, set[Table]] = {}
+    for table in tables:
+        groups.setdefault(table.metadata, set()).add(table)
+    for metadata, selected in groups.items():
+        for table in metadata.sorted_tables:
+            if table not in selected or inspect(connection).has_table(table.name, schema=table.schema):
+                continue
+            connection.execute(CreateTable(table, if_not_exists=True))
+            for index in sorted(table.indexes, key=lambda item: str(item.name)):
+                try:
+                    index.create(connection, checkfirst=True)
+                except DBAPIError as error:
+                    if mysql_error_code(error) != 1061:
+                        raise
+                    actual = inspect(connection).get_indexes(table.name, schema=table.schema)
+                    if not any(
+                        item["name"] == index.name
+                        and item["column_names"] == [column.name for column in index.columns]
+                        and bool(item["unique"]) == bool(index.unique)
+                        for item in actual
+                    ):
+                        raise

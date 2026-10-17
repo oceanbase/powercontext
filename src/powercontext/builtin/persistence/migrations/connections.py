@@ -29,6 +29,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from powercontext.builtin.persistence.bootstrap import database_is_available, ensure_database
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.oceanbase import profile as oceanbase_profile
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
@@ -107,12 +108,14 @@ class MaintenanceConnections:
                 nonempty = path.exists() and any(path.iterdir())
                 if not writable and not nonempty:
                     return operation(None, identity, lambda: None)
-                if nonempty and not _seekdb_storage_exists(path):
+                if nonempty and not seekdb_profile.has_native_storage(path):
                     raise MigrationError(
                         "unsupported_target", "A nonempty seekdb directory must contain recognized native storage."
                     )
                 initial_inode = _directory_inode(path) if path.exists() else None
-                return asyncio.run(self._seekdb(operation, self.config, path, identity, initial_inode))
+                return asyncio.run(
+                    self._seekdb(operation, self.config, path, identity, initial_inode, writable=writable)
+                )
         return asyncio.run(self._oceanbase(operation, self.config, writable=writable))
 
     async def _seekdb(
@@ -122,6 +125,8 @@ class MaintenanceConnections:
         path: Path,
         identity: BackendIdentity,
         initial_inode: tuple[int, int] | None,
+        *,
+        writable: bool,
     ) -> _T:
         try:
             module = seekdb_profile._load_binding()
@@ -136,6 +141,17 @@ class MaintenanceConnections:
                 config.model_copy(update={"echo": False}), instance.connection_options()
             )
             try:
+                await seekdb_profile._require_explicit_legacy_database(config, instance.connection_options())
+                if writable:
+                    await ensure_database(
+                        engine,
+                        lambda: seekdb_profile._create_engine(
+                            config.model_copy(update={"echo": False}), instance.connection_options(), database=""
+                        ),
+                        name=config.database,
+                    )
+                elif not await database_is_available(engine):
+                    return operation(None, identity, lambda: None)
                 inode = _directory_inode(path)
                 if initial_inode is not None and initial_inode != inode:
                     raise MigrationError("migration_lock_lost", "The seekdb directory changed during engine startup.")
@@ -215,11 +231,6 @@ class MaintenanceConnections:
                         return await connection.run_sync(execute)
         finally:
             await _dispose_engine(engine)
-
-
-def _seekdb_storage_exists(path: Path) -> bool:
-    # These native markers are verified by the isolated seekdb reopen test.
-    return (path / "etc" / "seekdb.data_version.bin").is_file() and (path / "store" / "sstable" / "meta.db").is_file()
 
 
 def _directory_inode(path: Path) -> tuple[int, int]:

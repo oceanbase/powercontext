@@ -46,7 +46,7 @@ def test_missing_seekdb_inspection_creates_no_directory_or_database(tmp_path: Pa
     def inspect(connection: Connection | None, identity: BackendIdentity, verify: Callable[[], None]):
         assert connection is None
         assert identity.product == "seekdb"
-        assert identity.database_name == "test"
+        assert identity.database_name == "powercontext"
         verify()
         return identity
 
@@ -109,7 +109,7 @@ def _fake_seekdb(tmp_path: Path, monkeypatch):
 
     @event.listens_for(engine.sync_engine, "connect")
     def configure_database(connection, _record) -> None:
-        connection.create_function("DATABASE", 0, lambda: "test")
+        connection.create_function("DATABASE", 0, lambda: "powercontext")
 
     @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
     def translate_transaction(_connection, _cursor, statement, parameters, _context, _many):
@@ -137,7 +137,7 @@ def _fake_seekdb(tmp_path: Path, monkeypatch):
         await dispose()
         disposed = True
 
-    maintained_engine = SimpleNamespace(connect=engine.connect, dispose=dispose_engine)
+    maintained_engine = SimpleNamespace(connect=engine.connect, dispose=dispose_engine, dialect=engine.dialect)
     monkeypatch.setattr(connections.seekdb_profile, "_load_binding", lambda: SimpleNamespace(aopen=open_instance))
     monkeypatch.setattr(connections.seekdb_profile, "_create_engine", lambda _config, _options: maintained_engine)
     return path, assert_locked
@@ -153,7 +153,7 @@ def test_seekdb_lock_outlives_callback_failure_and_engine_shutdown(tmp_path: Pat
         raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
-        MaintenanceConnections(SeekDBConfig(path=path)).run(fail, writable=True)
+        MaintenanceConnections(SeekDBConfig(path=path, database="powercontext")).run(fail, writable=True)
     with local_migration_lock(path):
         pass
 
@@ -168,7 +168,7 @@ def test_seekdb_directory_replacement_is_rejected_before_success(tmp_path: Path,
         path.mkdir()
 
     with pytest.raises(MigrationError) as error:
-        MaintenanceConnections(SeekDBConfig(path=path)).run(replace, writable=True)
+        MaintenanceConnections(SeekDBConfig(path=path, database="powercontext")).run(replace, writable=True)
     assert error.value.code == "migration_lock_lost"
     with local_migration_lock(path):
         pass

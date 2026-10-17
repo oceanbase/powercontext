@@ -174,6 +174,23 @@ jobs:
       - name: Test code indexing with embedded seekdb
         run: make code-seekdb-test
 
+      - name: Test database bootstrap with embedded seekdb without skips
+        timeout-minutes: 5
+        env:
+          POWERCONTEXT_TEST_BOOTSTRAP_SEEKDB: "1"
+        run: |
+          uv run --locked --extra seekdb --extra code python -m pytest \
+            tests/e2e/test_database_bootstrap.py -k seekdb -q -rs \
+            --junitxml=.powercontext/database-bootstrap-ci/seekdb.xml
+          uv run --locked --extra seekdb --extra code python - <<'PYCODE'
+          from xml.etree import ElementTree
+
+          suites = ElementTree.parse(".powercontext/database-bootstrap-ci/seekdb.xml").getroot()
+          cases = list(suites.iter("testcase"))
+          if not cases or any(case.find("skipped") is not None for case in cases):
+              raise SystemExit("Real seekDB bootstrap contracts must execute; skipped tests are not acceptance.")
+          PYCODE
+
       - name: Test unified migrations with embedded seekdb
         timeout-minutes: 10
         env:

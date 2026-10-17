@@ -93,11 +93,11 @@ def make_repository(directory: Path) -> Path:
 
 @pytest.fixture(scope="module")
 def backend(tmp_path_factory):
-    database = SeekDBConfig(path=tmp_path_factory.mktemp("embedded-code") / "database")
+    database = SeekDBConfig(path=tmp_path_factory.mktemp("embedded-code") / "database", database="code_context")
     with asyncio.Runner() as runner:
         context = SeekDBProfile.open(database, tables=())
         profile = runner.run(context.__aenter__())
-        store = SeekDBGraphStore(database.path, profile.connection_options)
+        store = SeekDBGraphStore(database.path, profile.connection_options, database=database.database)
         try:
             store.initialize(time.monotonic() + 120)
             yield database, store
@@ -275,7 +275,7 @@ from pathlib import Path
 from powercontext.builtin.code import CodeConfig, CodeService
 from powercontext.builtin.code import seekdb
 
-config, database, options, marker, checkpoint = json.loads(sys.argv[1])
+config, database, options, database_name, marker, checkpoint = json.loads(sys.argv[1])
 marker = Path(marker)
 
 def pause():
@@ -300,13 +300,14 @@ else:
         return result
     seekdb.SeekDBGraphStore.create = interrupted_create
 
-store = seekdb.SeekDBGraphStore(Path(database), options)
+store = seekdb.SeekDBGraphStore(Path(database), options, database=database_name)
 CodeService(CodeConfig.model_validate(config), store=store).index("scope", full=True)
 """
     arguments = json.dumps([
         service.config.model_dump(mode="json"),
         str(database.path),
         store.options,
+        store.database_name,
         str(marker),
         checkpoint,
     ])

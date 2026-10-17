@@ -353,7 +353,10 @@ def test_eof_never_falls_back_to_a_template(tmp_path: Path) -> None:
     assert not output.exists()
 
 
-def test_seekdb_install_runs_behind_prompts_and_finishes_after_save(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("database_name", ["", "test", "team_context"])
+def test_seekdb_install_runs_behind_prompts_and_finishes_after_save(
+    tmp_path: Path, monkeypatch, database_name: str
+) -> None:
     output = tmp_path / "server.env"
     events: list[str] = []
 
@@ -387,10 +390,12 @@ def test_seekdb_install_runs_behind_prompts_and_finishes_after_save(tmp_path: Pa
     result = CliRunner().invoke(
         app,
         ["init", "--language", "zh", "--output", str(output)],
-        input=f"seekdb\n{tmp_path / 'seekdb'}\ny\nlocal\nbase\nn\n\nnone\ny\ny\n",
+        input=f"seekdb\n{tmp_path / 'seekdb'}\n{database_name}\ny\nlocal\nbase\nn\n\nnone\ny\ny\n",
     )
 
     assert result.exit_code == 0, result.output
+    saved = parse_environment(output.read_text(encoding="utf-8"))
+    assert saved["POWERCONTEXT_SERVER_DATABASE_DATABASE"] == (database_name or "powercontext")
     assert "在后台开始安装" in result.output
     assert "阿里云镜像" in result.output
     assert "seekdb 依赖安装完成，版本 1.3.0" in result.output  # noqa: RUF001
@@ -427,7 +432,7 @@ def test_seekdb_install_failure_prints_one_manual_command(tmp_path: Path, monkey
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"seekdb\n{tmp_path / 'seekdb'}\ny\nlocal\nbase\nn\n\nnone\ny\ny\n",
+        input=f"seekdb\n{tmp_path / 'seekdb'}\n\ny\nlocal\nbase\nn\n\nnone\ny\ny\n",
     )
 
     assert result.exit_code == 0, result.output
