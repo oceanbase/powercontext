@@ -20,7 +20,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from os import environ
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, override
 
 from harbor.models.trial.config import AgentConfig, ServiceVolumeConfig
 
@@ -28,6 +28,7 @@ from .catalog import E2ETask, MemoryEvaluationSpec, is_paired
 from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION, REMOTE_CODEX_AUTH, REMOTE_SOURCE
 from .harbor_claude_code import CLAUDE_CODE_VERSION
 from .harbor_codex import CODEX_VERSION
+from .harbor_kimi_code import KIMI_CODE_VERSION, KIMI_TOKEN, plugin_endpoint
 from .harbor_opencode import OPENCODE_VERSION
 from .harbor_pi import PI_VERSION
 from .settings import (
@@ -152,10 +153,10 @@ class PluginHost:
     """Run a host through Harbor's own agent for it, with the host's PowerContext plugin only in the ON arm.
 
     Only the ON arm installs the plugin and receives the plugin's native ``<plugin_prefix>*`` settings, with
-    ``<plugin_prefix>SCOPE_ID`` bound to the arm's Scope and ``<plugin_prefix>AUTHORIZATION`` carrying the harness
-    Client's token. ``<plugin_prefix>SERVER_URL`` names the Server as the agent container reaches it. The harness
-    selects the model with ``<setting_prefix>MODEL`` and passes the reasoning effort from
-    ``<setting_prefix>REASONING_EFFORT`` explicitly.
+    ``<plugin_prefix>SCOPE_ID`` bound to the arm's Scope and the harness Client's token in the plugin's credential
+    setting, ``<plugin_prefix>AUTHORIZATION`` unless the host says otherwise. ``<plugin_prefix>SERVER_URL`` names the
+    Server as the agent container reaches it. The harness selects the model with ``<setting_prefix>MODEL`` and passes
+    the reasoning effort from ``<setting_prefix>REASONING_EFFORT`` explicitly.
     """
 
     name: str
@@ -201,9 +202,7 @@ class PluginHost:
         if scope_id is not None:
             env = {**self._plugin_environment(), f"{self.plugin_prefix}SCOPE_ID": scope_id}
             if (token := server_api_token()) is not None:
-                # Each plugin sends this value as its Authorization header.
-                authorization = f"{self.plugin_prefix}AUTHORIZATION"
-                env[authorization] = agent_secret(authorization, f"Bearer {token}")
+                env.update(self.credential_environment(token))
         return AgentConfig(
             import_path=self.agent_import_path,
             model_name=self.agent_model(),
@@ -214,6 +213,13 @@ class PluginHost:
                 **self.agent_settings(),
             },
         )
+
+    def credential_environment(self, token: str) -> dict[str, str]:
+        """Return the ON arm's setting that gives the plugin the harness Client's token."""
+
+        # Each plugin sends this value as its Authorization header.
+        authorization = f"{self.plugin_prefix}AUTHORIZATION"
+        return {authorization: agent_secret(authorization, f"Bearer {token}")}
 
     @property
     def _server_url_setting(self) -> str:
@@ -276,6 +282,48 @@ PI = PluginHost(
 )
 
 
+class KimiCodeHost(PluginHost):
+    """Run Kimi Code, whose plugin takes the Server token without the ``Bearer`` scheme.
+
+    The plugin reads its Server URL and Scope only from the configuration that ``powercontext setup kimi-code``
+    writes, so the ON arm's agent writes ``<plugin_prefix>SCOPE_ID`` and a URL for ``<plugin_prefix>SERVER_URL``
+    there.
+    """
+
+    @override
+    def agent_config(
+        self,
+        task: E2ETask,
+        *,
+        scope_id: str | None,
+        invocation_scopes: tuple[str, ...] | None,
+    ) -> AgentConfig:
+        config = super().agent_config(task, scope_id=scope_id, invocation_scopes=invocation_scopes)
+        # Reject a Server URL the plugin cannot use before a trial starts, rather than in every ON run.
+        plugin_endpoint(config.kwargs["server_url"])
+        return config
+
+    @override
+    def credential_environment(self, token: str) -> dict[str, str]:
+        # The plugin's hook and Kimi Code's MCP connection both read the raw token and send it as a Bearer token.
+        return {KIMI_TOKEN: agent_secret(KIMI_TOKEN, token)}
+
+
+# Harbor 0.16 has no agent for Kimi Code, so the harness runs it with its own. The agent passes the key of the
+# model's provider, such as OPENROUTER_API_KEY.
+KIMI_CODE = KimiCodeHost(
+    name="kimi-code",
+    version=KIMI_CODE_VERSION,
+    agent_import_path="powercontext_e2e.harbor_kimi_code:PowerContextKimiCodeAgent",
+    plugin_prefix="POWERCONTEXT_KIMI_",
+    setting_prefix="POWERCONTEXT_E2E_KIMI_CODE_",
+    plugin_paths=tuple(
+        f"integrations/kimi-code/plugins/powercontext/{name}"
+        for name in ("kimi.plugin.json", "hooks", "scripts", "shared", "skills")
+    ),
+)
+
+
 def _capture_settings(task: E2ETask) -> tuple[bool, int, int]:
     evaluation = task.evaluation
     if isinstance(evaluation, MemoryEvaluationSpec):
@@ -305,7 +353,7 @@ def read_only_bind(source: Path, target: str) -> ServiceVolumeConfig:
     }
 
 
-_HOSTS: dict[str, HostAdapter] = {host.name: host for host in (BubHost(), CODEX, CLAUDE_CODE, OPENCODE, PI)}
+_HOSTS: dict[str, HostAdapter] = {host.name: host for host in (BubHost(), CODEX, CLAUDE_CODE, OPENCODE, PI, KIMI_CODE)}
 
 
 def host_adapter(name: str) -> HostAdapter:
