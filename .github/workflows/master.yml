@@ -186,11 +186,13 @@ jobs:
           mkdir -p "$TMPDIR"
           collect_diagnostics() {
             df -h . /tmp
-            # A timed-out pytest process cannot run fixture cleanup. Preserve
-            # native startup/recovery evidence too: a tail alone can omit the
-            # transaction that acquired the lock blocking the final SQL query.
-            find "$TMPDIR" -type f \( -name '*.log' -o -name '*.log.wf' \) \
-              -printf '%P\0' | tar -czf seekdb-native.tar.gz -C "$TMPDIR" --null -T -
+            # A timed-out pytest process cannot run fixture cleanup. Keep a
+            # short text tail and the complete available native log history,
+            # including rotated files, to retain the original lock holder.
+            find "$TMPDIR" -type f \( -name '*.log' -o -name '*.log.*' \) \
+              -print -exec tail -c 8388608 {} \; > seekdb-native.log
+            .venv/bin/python .github/scripts/run_seekdb_migration_test.py \
+              --archive-native-logs seekdb-native.tar.gz
           }
           trap collect_diagnostics EXIT
           df -h . /tmp
@@ -213,10 +215,16 @@ jobs:
             exit 1
           fi
           for seekdb_runner_node in "${seekdb_runner_nodes[@]}"; do
-            timeout --signal=TERM --kill-after=10s 180s \
-              uv run --locked --extra seekdb pytest -vv \
-              -o faulthandler_timeout=120 --durations=20 --log-cli-level=INFO \
-              "$seekdb_runner_node" -k seekdb \
+            uv run --locked --extra seekdb python .github/scripts/run_seekdb_migration_test.py \
+              "$seekdb_runner_node" \
+              2>&1 | tee -a seekdb-migrations.log
+          done
+          # These are required independent runs, not retries: any failure stops
+          # the job. Exercise the lifecycle race on both supported matrix ends.
+          for repetition in 2 3; do
+            echo "Baseline adoption stability run $repetition/3" | tee -a seekdb-migrations.log
+            uv run --locked --extra seekdb python .github/scripts/run_seekdb_migration_test.py \
+              'tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_baseline_adoption_recovers_an_empty_committed_version_table[seekdb]' \
               2>&1 | tee -a seekdb-migrations.log
           done
 
@@ -227,7 +235,9 @@ jobs:
           name: seekdb-migrations-${{ matrix.python-version }}
           path: |
             seekdb-migrations.log
+            seekdb-native.log
             seekdb-native.tar.gz
+            seekdb-live-diagnostics.log
           if-no-files-found: ignore
 
   atomic-memory-clean-seekdb:

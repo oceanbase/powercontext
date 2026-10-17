@@ -1,0 +1,50 @@
+name: SeekDB extended lock observation
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/seekdb-lock-observation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seekdb-lock-observation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out the documented reproduction snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: 0b4dd71c0e5f8189096f2958e79007440c438da2
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.11"
+
+      - name: Observe lock recovery beyond the normal test deadline
+        timeout-minutes: 30
+        run: |
+          git rev-parse HEAD
+          # Keep the ordinary migration CI deadline unchanged. This standalone
+          # experiment records snapshots every 45 seconds for up to 20 minutes
+          # per attempt, including beyond the observed 1000-second SQL timeout.
+          uv run --locked --extra seekdb python scripts/probe_seekdb_migration_lock.py \
+            --attempts 12 --timeout 1200 --output .powercontext/seekdb-lock-observation
+
+      - name: Upload observation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: seekdb-lock-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .powercontext/seekdb-lock-observation
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
