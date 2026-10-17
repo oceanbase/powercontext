@@ -34,16 +34,17 @@ async def load_collection(api: DashboardAPI, request: Request, ctx: dict[str, An
     ctx["collection_page_size"] = PAGE_SIZE
     try:
         cursor = request.query_params.get(f"{family}_cursor" if page == "methods" else "cursor")
+        query = ctx["search_query"] if page == "methods" else None
         result = await api.records(
             scope,
             family,
             cursor=cursor,
             limit=1 if page == "home" else PAGE_SIZE,
-            query=ctx["search_query"] if family == "skill" and page == "methods" else None,
+            query=query,
         )
         if page != "home":
-            if family == "skill":
-                window = list_page(result["items"], request.query_params.get("skill_page"))
+            if family == "skill" or query:
+                window = list_page(result["items"], request.query_params.get(f"{family}_page"))
                 result["items"] = window["items"]
                 result["pager"] = list_links(ctx, family, window)
             else:

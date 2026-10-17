@@ -47,6 +47,8 @@ CONTENT_MODELS = {
     "profile": ProfileContent,
 }
 
+SEARCH_LIMIT = 200
+
 
 def segment(value: str) -> str:
     return quote(value, safe="")
@@ -154,12 +156,22 @@ class DashboardAPI:
         self, scope: str, family: str, *, cursor: str | None = None, limit: int = 12, query: str | None = None
     ) -> dict[str, Any]:
         if family == "skill":
-            maximum = 1 if limit == 1 else 200
+            maximum = 1 if limit == 1 else SEARCH_LIMIT
             result = await self.read("/v1/skill/library", {"scope_id": scope, "limit": maximum, "query": query})
             return {
                 "items": [self.family_record(family, item) for item in result["skills"]],
                 "next_cursor": None,
-                "search_limited": maximum == 200 and len(result["skills"]) == maximum,
+                "search_limited": maximum == SEARCH_LIMIT and len(result["skills"]) == maximum,
+            }
+        if family == "experience" and query:
+            result = await self.read(
+                f"/v1/scopes/{segment(scope)}/artifacts/{segment(family)}/search",
+                {"query": query, "limit": SEARCH_LIMIT},
+            )
+            return {
+                "items": [self.family_record(family, self.search_record(item)) for item in result["results"]],
+                "next_cursor": None,
+                "search_limited": len(result["results"]) == SEARCH_LIMIT,
             }
         url = httpx.URL(f"/v1/scopes/{segment(scope)}/artifacts/{family}", params={"limit": limit})
         if cursor:
@@ -177,6 +189,20 @@ class DashboardAPI:
         return {
             "items": list(await asyncio.gather(*(load(item) for item in page["items"]))),
             "next_cursor": page["next_cursor"],
+        }
+
+    @staticmethod
+    def search_record(item: dict[str, Any]) -> dict[str, Any]:
+        """Adapt one family-scoped search hit to the exact-revision record shape."""
+
+        lineage = item["lineage"]
+        return {
+            "content": item["content"],
+            "artifact": {"artifact_id": item["artifact_id"], "revision": item["revision"]},
+            "source_refs": [
+                {"name": source["source_type"], "source_id": source["source_id"]} for source in lineage["sources"]
+            ],
+            "artifact_refs": lineage["artifacts"],
         }
 
     async def topic_memory_search(self, scope: str, query: str) -> dict[str, Any]:

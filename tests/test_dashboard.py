@@ -26,6 +26,9 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.server.dashboard.api import DashboardAPI
+from powercontext.server.dashboard.errors import ReadError
+from powercontext.server.dashboard.preferences import CATALOGS
 from powercontext.server.dashboard.routes import LABELS
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
@@ -119,6 +122,33 @@ def create_scope(client: TestClient, title: str, parent: str | None = None) -> d
     )
     assert result.status_code == 201
     return result.json()
+
+
+def capture_source(client: TestClient, scope: str, content: str) -> dict[str, Any]:
+    result = client.post("/v1/sources/content", json={"scope_id": scope, "source_id": "evidence", "content": content})
+    assert result.is_success
+    return result.json()["source"]
+
+
+def create_experience(client: TestClient, scope: str, source: dict[str, Any], situation: str, lesson: str) -> str:
+    proposal = {
+        "situation": situation,
+        "action": "Reuse the artifact search API",
+        "outcome": "Matching experiences return",
+        "lesson": lesson,
+    }
+    candidate = client.post(
+        "/v1/experience/propose",
+        json={"scope_id": scope, "proposal": proposal, "source_refs": [source], "artifact_refs": []},
+    )
+    assert candidate.status_code == 201
+    body = candidate.json()
+    approved = client.post(
+        "/v1/candidates/approve",
+        json={"scope_id": scope, "candidate_id": body["candidate_id"], "expected_version": body["version"]},
+    )
+    assert approved.status_code == 200
+    return approved.json()["result_artifact"]["artifact_id"]
 
 
 def test_scope_selection_default_and_unknown_scope(dashboard: TestClient) -> None:
@@ -430,6 +460,91 @@ def test_method_pagination_returns_to_the_previous_records(dashboard: TestClient
         expected.add(approved.json()["result_artifact"]["artifact_id"])
     first = dashboard.get("/dashboard/methods", params={"scope": scope, "kind": family})
     assert collect_pages(dashboard, first.text, f"/dashboard/{family}", "artifact") == expected
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_experience_search_filters_results_and_restores_browsing(dashboard: TestClient, language: str) -> None:
+    labels = CATALOGS[language]
+    scope = create_scope(dashboard, f"Experience search {language}")["scope_id"]
+    source = capture_source(dashboard, scope, "Search the dashboard experiences.")
+    create_experience(
+        dashboard, scope, source, situation="Adding dashboard search", lesson="Deploy the dashboard search form"
+    )
+    create_experience(
+        dashboard, scope, source, situation="Rotating the signing key", lesson="Never reuse a retired signing key"
+    )
+
+    browsing = dashboard.get("/dashboard/methods", params={"scope": scope, "kind": "experience", "lang": language})
+    assert browsing.status_code == 200
+    assert labels["search_experiences"] in browsing.text
+    assert "Deploy the dashboard search form" in browsing.text
+    assert "Never reuse a retired signing key" in browsing.text
+
+    searched = dashboard.get(
+        "/dashboard/methods", params={"scope": scope, "kind": "experience", "q": "dashboard", "lang": language}
+    )
+    assert searched.status_code == 200
+    assert 'value="dashboard"' in searched.text
+    assert "Deploy the dashboard search form" in searched.text
+    assert "Never reuse a retired signing key" not in searched.text
+
+    cleared = dashboard.get(page_link(searched.text, labels["clear_search"]))
+    assert cleared.status_code == 200
+    assert cleared.url.params["kind"] == "experience"
+    assert "Never reuse a retired signing key" in cleared.text
+    assert 'value="dashboard"' not in cleared.text
+
+    empty = dashboard.get(
+        "/dashboard/methods",
+        params={"scope": scope, "kind": "experience", "q": "absent-token", "lang": language},
+    )
+    assert empty.status_code == 200
+    assert labels["experiences_no_match"] in empty.text
+    assert labels["experience_empty"] not in empty.text
+
+
+def test_experience_search_keeps_the_query_across_result_pages(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Experience search paging")["scope_id"]
+    source = capture_source(dashboard, scope, "Page through the matching experiences.")
+    expected = {
+        create_experience(
+            dashboard,
+            scope,
+            source,
+            situation=f"Reviewing handoff {index}",
+            lesson=f"Keep handoff note {index} documented",
+        )
+        for index in range(7)
+    }
+
+    first = dashboard.get("/dashboard/methods", params={"scope": scope, "kind": "experience", "q": "handoff"})
+    assert first.status_code == 200
+    assert len(record_links(first.text, "/dashboard/experience", "artifact")) == 6
+    following = page_link(first.text, LABELS["next_page"])
+    assert parse_qs(urlsplit(following).query)["q"] == ["handoff"]
+    assert collect_pages(dashboard, first.text, "/dashboard/experience", "artifact") == expected
+
+
+def test_experience_search_reports_request_failures_distinctly(dashboard: TestClient, monkeypatch) -> None:
+    scope = create_scope(dashboard, "Experience search failure")["scope_id"]
+    source = capture_source(dashboard, scope, "Search failures stay separate from empty results.")
+    create_experience(dashboard, scope, source, situation="Losing the search backend", lesson="Surface a read failure")
+    read = DashboardAPI.read
+    search_path = f"/v1/scopes/{scope}/artifacts/experience/search"
+    seen: list[str] = []
+
+    async def failing(api, path, payload=None):
+        if path == search_path:
+            seen.append(path)
+            raise ReadError(503, "service_unavailable")
+        return await read(api, path, payload)
+
+    monkeypatch.setattr(DashboardAPI, "read", failing)
+    response = dashboard.get("/dashboard/methods", params={"scope": scope, "kind": "experience", "q": "search"})
+    assert response.status_code == 200
+    assert seen == [search_path]
+    assert LABELS["error_503"] in response.text
+    assert LABELS["experiences_no_match"] not in response.text
 
 
 def test_skill_with_usage_provenance_is_readable_and_searchable(dashboard: TestClient) -> None:
