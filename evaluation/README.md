@@ -10,11 +10,16 @@ Python environment and build configuration.
 | [`memory/`](memory/README.md) | Memory retrieval, answer quality, and write-gate evidence | [LoCoMo](memory/locomo/README.md), [LoCoMo-Plus](memory/locomo_plus/README.md), [LongMemEval-V2](memory/longmemeval_v2/README.md), [Memory write gate](memory/write_gate/README.md) |
 | [`performance/`](performance/README.md) | Load, latency, storage growth, and capacity limits | None yet |
 | [`skills/`](skills/README.md) | Agent instruction routing and authorization regressions | [Claude Code skill-up](skills/skill-up/README.md), [ZCode native CLI](zcode_guidance/README.md) |
+| [`artifact_evolution/`](artifact_evolution/README.md) | Evaluation-owned Dream recording and faithful replay | [Artifact evolution](artifact_evolution/README.md) |
 
 ```text
 evaluation/
 ├── pyproject.toml                 # Shared powercontext-eval environment and build
 ├── uv.lock
+├── artifact_evolution/             # Artifact-evolution recording and faithful replay
+│   ├── src/powercontext_eval_artifact_evolution/
+│   ├── tests/
+│   └── README.md
 ├── coding/
 │   ├── swebench_pro/
 │   │   ├── src/powercontext_eval_swebench_pro/
@@ -89,9 +94,10 @@ uv run --directory evaluation ty check
 uv build --project evaluation
 ```
 
-The `powercontext-eval` distribution contains three packages: `powercontext_eval_swebench_pro`,
-`powercontext_eval_work_continuity`, and `powercontext_eval_longmemeval_v2`. Editable installs and wheels expose the
-independent `swebench-pro`, `work-continuity`, and `longmemeval-v2` commands and their suite modules.
+The `powercontext-eval` distribution contains four packages: `powercontext_eval_artifact_evolution`,
+`powercontext_eval_swebench_pro`, `powercontext_eval_work_continuity`, and `powercontext_eval_longmemeval_v2`.
+Editable installs and wheels expose the independent `artifact-evolution`, `swebench-pro`, `work-continuity`, and
+`longmemeval-v2` commands and their suite modules.
 LoCoMo behavior tests remain under [`tests/`](../tests/), including [`tests/evaluation/`](../tests/evaluation/).
 Skill-up and ZCode guidance keep their own validation tests. The [Bub replay harness](../e2e/bub/README.md) and
 [product E2E tests](../tests/e2e/) cover cross-component acceptance.

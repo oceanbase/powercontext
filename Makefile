@@ -60,6 +60,7 @@ e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
 evaluation-unit-test: ## Run the evaluation project's unit tests, the work-continuity benchmark included.
 	@uv sync --project evaluation --frozen
 	@uv run --project evaluation pytest -c evaluation/pyproject.toml \
+		evaluation/artifact_evolution/tests \
 		evaluation/coding/swebench_pro/tests/unit \
 		evaluation/coding/work_continuity/tests/unit \
 		evaluation/memory/longmemeval_v2/tests -m "not live" -q

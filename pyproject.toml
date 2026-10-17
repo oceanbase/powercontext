@@ -200,6 +200,7 @@ exclude = [
     "tests/langgraph_adapter",
     "tests/e2e/test_langgraph_chain.py",
     "evaluation/coding",
+    "evaluation/artifact_evolution",
     "evaluation/memory/longmemeval_v2",
     "evaluation/skills",
     "evaluation/zcode_guidance",
