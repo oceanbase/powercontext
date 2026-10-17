@@ -359,10 +359,6 @@ TopicMemorySearchObserver = Callable[[str, bool], None]
 
 logger = logging.getLogger(__name__)
 
-# Leave room for database reads and assembly within the default one-second Hook request.
-_CONTEXT_TOPIC_EMBEDDING_TIMEOUT_SECONDS = 0.25
-_CONTEXT_MEMORY_EMBEDDING_TIMEOUT_SECONDS = 0.25
-
 _MEMORY_CAPTURE_STAGE = "memory.capture"
 _MEMORY_CAPTURE_SOURCE_COUNT = "powercontext.memory.capture.source_count"
 _WORKING_NOTE_RESERVED_METADATA = frozenset({"kind", "session_id", "note_kind", "expires_at"})
@@ -1550,7 +1546,7 @@ class ScopedContextApplication:
                         mode="auto",
                         admission=admission,
                         query_embedding=reuse,
-                        embedding_timeout_seconds=_CONTEXT_MEMORY_EMBEDDING_TIMEOUT_SECONDS,
+                        embedding_timeout_seconds=self._runtime.recall_embedding_timeout_seconds,
                         allow_embedding=allow_embedding,
                         recovery_admission=None if policy is None else policy.round2_admission,
                         context=_PREPARE_ATOMIC_CONTEXT.get(),
@@ -1639,7 +1635,7 @@ class ScopedContextApplication:
                         SearchTopicMemoryRequest(query=bounded_query, limit=limit),
                         admission=admission,
                         query_embedding=reuse,
-                        embedding_timeout_seconds=_CONTEXT_TOPIC_EMBEDDING_TIMEOUT_SECONDS,
+                        embedding_timeout_seconds=self._runtime.recall_embedding_timeout_seconds,
                         allow_embedding=allow_embedding,
                     )
                 )
@@ -3562,6 +3558,7 @@ class BuiltinRuntime:
         source_window_limit: int = 100,
         context_assembly_max_entries: int = 8,
         recall_sufficiency_policy: RecallSufficiencyPolicy | None = None,
+        recall_embedding_timeout_seconds: float = 0.25,
         scope_cache_size: int = DEFAULT_SCOPE_CACHE_SIZE,
         scope_evictor: ScopeEvictor | None = None,
         scope_cache_observer: ScopeCacheObserver | None = None,
@@ -3619,6 +3616,8 @@ class BuiltinRuntime:
             raise _RuntimeConfigurationError("source_window_limit")
         if context_assembly_max_entries < 1:
             raise _RuntimeConfigurationError("context_assembly_max_entries")
+        if not recall_embedding_timeout_seconds > 0:
+            raise _RuntimeConfigurationError("recall_embedding_timeout_seconds")
         if scope_cache_size < 1:
             raise _RuntimeConfigurationError("scope_cache_size")
         self._provider = provider
@@ -3698,6 +3697,7 @@ class BuiltinRuntime:
         self.source_window_limit = source_window_limit
         self.context_assembly_max_entries = context_assembly_max_entries
         self.recall_sufficiency_policy = recall_sufficiency_policy
+        self.recall_embedding_timeout_seconds = recall_embedding_timeout_seconds
         self._scope_cache = ScopeCache(
             scope_cache_size,
             evictor=scope_evictor,

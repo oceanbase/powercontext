@@ -180,6 +180,11 @@ class RuntimeConfig(BaseModel):
     recall_gate_allow_with_rerank: bool = False
     recall_fts_weight: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
     recall_vector_weight: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
+    # Budget for embedding the query in each Atomic Memory or Topic Memory search of a context preparation. A
+    # preparation searches the Scope and each context reference in turn, so the waits add up inside the Hook
+    # request; when a budget expires, that search continues with lexical matching only. A remote embedding
+    # provider needs more than the default.
+    recall_embedding_timeout_seconds: float = Field(default=0.25, gt=0.0, le=60.0, allow_inf_nan=False)
     profile_schedule_enabled: bool = False
     profile_cron: str = "0 2 * * *"
     profile_timezone: str = "Asia/Shanghai"
@@ -208,6 +213,13 @@ class RuntimeConfig(BaseModel):
         if self.recall_gate_round2_min_semantic_similarity > self.recall_gate_round1_min_semantic_similarity:
             raise ValueError(_RECALL_GATE_ROUND2_ORDER_ERROR)
         return self
+
+    @field_validator("recall_embedding_timeout_seconds", mode="before")
+    @classmethod
+    def reject_boolean_recall_embedding_timeout(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("recall embedding timeout must be a number")  # noqa: TRY003, TRY004 - Pydantic validation
+        return value
 
     @field_validator("recall_fts_weight", "recall_vector_weight", mode="before")
     @classmethod
