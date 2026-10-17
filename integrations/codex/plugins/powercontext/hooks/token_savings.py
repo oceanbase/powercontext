@@ -22,7 +22,7 @@ import sys
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from time import monotonic
-from typing import Any
+from typing import Any, cast
 from urllib.error import HTTPError
 from urllib.request import Request
 
@@ -87,8 +87,8 @@ def _scaled(value: float, suffix: str) -> str:
     return f"{rounded:.{digits}f}".removesuffix(".0") + suffix
 
 
-def token_reduction(value: object) -> int | None:
-    """Return a validated signed reduction from one scoped-statistics response."""
+def _validated_totals(value: object) -> dict[str, Any] | None:
+    """Return the validated recall totals of one scoped-statistics response."""
 
     if not isinstance(value, dict):
         return None
@@ -111,7 +111,29 @@ def token_reduction(value: object) -> int | None:
     reduction = totals.get("token_reduction")
     if not isinstance(reduction, int) or isinstance(reduction, bool):
         return None
-    return reduction
+    return cast("dict[str, Any]", totals)
+
+
+def token_reduction(value: object) -> int | None:
+    """Return a validated signed reduction from one scoped-statistics response."""
+
+    totals = _validated_totals(value)
+    return None if totals is None else totals["token_reduction"]
+
+
+def measured_reduction(value: object) -> int | None:
+    """Return the reduction to display, or ``None`` when the window measured nothing.
+
+    A window with no comparable preparations holds no estimate — estimation is
+    disabled, or the period had nothing comparable to measure — so it must read as
+    unavailable rather than as a measured zero. A window with comparable
+    preparations still reports a genuine zero reduction.
+    """
+
+    totals = _validated_totals(value)
+    if totals is None or totals["comparable_preparations"] == 0:
+        return None
+    return totals["token_reduction"]
 
 
 def savings_phrase(reduction: int | None, suffix: str) -> str:
@@ -125,8 +147,8 @@ def format_message(today: object, month: object) -> str:
     """Render the same two-window compression proxy used by OpenCode."""
 
     return (
-        f"PowerContext · {savings_phrase(token_reduction(today), 'today')}"
-        f" · {savings_phrase(token_reduction(month), 'in 30d')}"
+        f"PowerContext · {savings_phrase(measured_reduction(today), 'today')}"
+        f" · {savings_phrase(measured_reduction(month), 'in 30d')}"
     )
 
 

@@ -740,3 +740,58 @@ def test_stop_process_exits_within_the_host_deadline_against_a_slow_server(tmp_p
     assert completed.returncode == 0
     events = _diagnostics(io.StringIO(completed.stdout))
     assert [event["outcome"] for event in events] == ["server_unavailable"]
+
+
+def _without_estimate() -> dict[str, object]:
+    """A valid window where estimation is disabled: no comparable preparations."""
+
+    return {
+        "recall": {
+            "estimator": None,
+            "totals": {
+                "preparations": 0,
+                "ready_preparations": 0,
+                "comparable_preparations": 0,
+                "baseline_tokens": 0,
+                "recalled_tokens": 0,
+                "token_reduction": 0,
+            },
+        }
+    }
+
+
+def test_a_window_without_estimates_reads_as_unavailable_not_zero(token_savings_module: ModuleType) -> None:
+    assert token_savings_module.format_message(_without_estimate(), _without_estimate()) == (
+        "PowerContext · no data today · no data in 30d"
+    )
+    # A window that measured comparable preparations still reports a genuine zero.
+    assert token_savings_module.format_message(_stats(0), _stats(0)) == (
+        "PowerContext · saved 0 today · saved 0 in 30d"
+    )
+
+
+def test_stop_keeps_a_response_without_estimates_online(
+    token_savings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _serve(_stats_handler(_without_estimate())) as server_url:
+        output = _run_main(token_savings_module, monkeypatch, _settings(token_savings_module, server_url))
+
+    assert json.loads(output.getvalue()) == {
+        "continue": True,
+        "systemMessage": "PowerContext · no data today · no data in 30d",
+    }
+
+
+def test_the_reduction_helpers_return_an_int_or_none_not_the_totals(token_savings_module: ModuleType) -> None:
+    """A well-formed window yields numbers, never the validated totals mapping.
+
+    The display helper resolves a missing estimate to ``None`` (unavailable), while
+    the validity helper still reads the well-formed zero so the integration stays
+    online.
+    """
+
+    assert token_savings_module.token_reduction(_without_estimate()) == 0
+    assert token_savings_module.measured_reduction(_without_estimate()) is None
+    assert token_savings_module.token_reduction(_stats(0)) == 0
+    assert token_savings_module.measured_reduction(_stats(0)) == 0

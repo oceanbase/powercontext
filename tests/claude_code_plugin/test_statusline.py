@@ -570,3 +570,63 @@ def test_render_does_not_pair_another_servers_authorization_with_the_host_server
     assert "PC online" in rendered
     assert received
     assert {authorization for _, authorization in received} == {None}
+
+
+def _without_estimate() -> dict[str, object]:
+    """A valid window where estimation is disabled: no comparable preparations."""
+
+    return {
+        "recall": {
+            "estimator": None,
+            "totals": {
+                "preparations": 0,
+                "ready_preparations": 0,
+                "comparable_preparations": 0,
+                "baseline_tokens": 0,
+                "recalled_tokens": 0,
+                "token_reduction": 0,
+            },
+        }
+    }
+
+
+def test_a_window_without_estimates_reads_as_unavailable_not_zero(statusline_module: ModuleType) -> None:
+    assert statusline_module.format_statusline(_without_estimate(), _without_estimate(), color=False) == (
+        "● PC online · no data today · no data in 30d"
+    )
+    # A window that measured comparable preparations still reports a genuine zero.
+    assert statusline_module.format_statusline(_stats(0), _stats(0), color=False) == (
+        "● PC online · saved 0 today · saved 0 in 30d"
+    )
+
+
+def test_render_keeps_a_response_without_estimates_online(
+    statusline_module: ModuleType,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        statusline_module.sys,
+        "stdin",
+        StringIO(json.dumps({"workspace": {"current_dir": str(tmp_path)}})),
+    )
+    with _serve(_stats_handler(_without_estimate())) as server_url:
+        monkeypatch.setenv("POWERCONTEXT_CLAUDE_SERVER_URL", server_url)
+        rendered = statusline_module.render("http://127.0.0.1:9000")
+
+    assert "PC online" in rendered
+    assert "no data today" in rendered
+
+
+def test_the_reduction_helpers_return_an_int_or_none_not_the_totals(statusline_module: ModuleType) -> None:
+    """A well-formed window yields numbers, never the validated totals mapping.
+
+    The display helper resolves a missing estimate to ``None`` (unavailable), while
+    the validity helper still reads the well-formed zero so the integration stays
+    online.
+    """
+
+    assert statusline_module.token_reduction(_without_estimate()) == 0
+    assert statusline_module.measured_reduction(_without_estimate()) is None
+    assert statusline_module.token_reduction(_stats(0)) == 0
+    assert statusline_module.measured_reduction(_stats(0)) == 0
