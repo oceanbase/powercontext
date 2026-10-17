@@ -108,3 +108,39 @@ uv run pytest tests/test_server_logging.py tests/e2e/test_worker_logging.py -q
 敏感值排除和 failure isolation。跨进程支持必须用真实 spawned worker 验证；
 直接调用 hook 或替换 worker entrypoint 不能证明内置 worker 的完整覆盖。
 Model provider 或 OTLP backend 的支持声明需要各自的真实执行证据。交付前运行 `make check`。
+
+## Child execution 与 metric observations
+
+Server 通过 Runtime 的可选 `worker_entrypoint_wrapper` 注入 `WorkerTracing.wrap`。Wrapper 在 launch 时构建，
+只把当前 supervisor execution context 传过 spawn。Child composition 读取可选 `worker_observability` context，
+构建 instrumented models 和 runtime stages；不要在 Runtime 中导入 Server settings 或自行配置 provider。
+Custom launcher 自己负责 bootstrap。
+
+Processing observation 在最终 reap 后产生，只有验证 acknowledgement 后才计为 `success`。Telemetry observer 必须是
+同步、有界、无 I/O 的 callback，且不能改变 domain outcome。Queue-loss telemetry 由拥有 admission/write result 的
+recorder 产生。Spawn worker 累计各 recorder 的丢失增量，在资源清理后通过成功或失败结果回传一份有界 summary。
+Supervisor 每个 attempt 只报告一次；缺少 report 表示未知。后续 acknowledgement 验证失败也不能丢弃已收到的计数。
+Queue gauge 仅表示父进程 recorder；child 丢失计数累加到本地 snapshot，不覆盖它。
+Observation timestamp 与 scrape time 要明确区分，并记录
+cache、reset 以及覆盖不完整的语义。
+
+通过默认 `uv sync` 新建的开发环境不包含 `tracing-otlp`。在该环境中，`make test` 会跳过 OTLP worker tests
+和 worker model-usage tests 中的 tracing 用例。`make check` 不执行这些测试。
+`Main` workflow 的 `worker-observability` job 安装该 extra，
+并要求所选测试全部通过，不允许 skip：
+
+```bash
+uv run --locked --extra tracing-otlp pytest tests/e2e/test_worker_otlp.py \
+  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py -q
+```
+
+这些检查覆盖真实 spawn、OTLP/HTTP、本地 model fixture、Pydantic AI propagation 和 metrics HTTP surface。
+这些证据证明本地 reception，不能代替外部 backend 的存储与查询验收。
+
+Background CLI listener 生命周期测试需要可丢弃的 OceanBase 实例及
+`POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL`。`E2E harness` workflow 的 `atomic-memory-clean-oceanbase` job
+通过 clean migration acceptance runner 执行 `tests/e2e/test_background_metrics.py`，不允许测试 skip。
+该测试先初始化新建数据库，再启动真实 background CLI，检查 listener 启动、metrics 授权、business routes
+不可用，以及 SIGTERM 后正常退出。Listener 启动预算不包含首次建表与索引创建。
+CI 在 migration reports 中保留 `background-metrics/background.log`；启动失败时输出 child return code
+和有界 log tail。此步骤通过后，才能认定 backend 验收通过。未设置 backend 变量时，默认测试会跳过此用例。

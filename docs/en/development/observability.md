@@ -106,3 +106,40 @@ For new instrumentation, cover the observable outcome that can regress: success,
 required field output, sensitive-value exclusion, and failure isolation. A process-boundary claim requires a real
 spawned worker; invoking a hook directly or replacing the worker entrypoint cannot prove built-in worker coverage.
 Model-provider and OTLP-backend claims require their own real execution evidence. Run `make check` before delivery.
+
+## Child execution and metric observations
+
+Server composition supplies `WorkerTracing.wrap` through the Runtime's optional `worker_entrypoint_wrapper` port.
+The wrapper is built at launch, so only the current supervisor execution context crosses spawn. Child composition reads
+its optional `worker_observability` context to construct instrumented models and runtime stages; it must not import
+Server settings or configure a provider itself. Custom launchers remain responsible for their own bootstrap.
+
+Processing observations are emitted after finalized reap, and only verified acknowledgement receives `success`.
+Telemetry observers are synchronous, bounded, non-I/O callbacks and cannot change domain outcomes. Queue-loss telemetry
+is emitted by the recorder that owns admission/write results. Spawn workers collect per-recorder loss deltas and return
+one bounded summary after resource cleanup, including failure results. The supervisor reports it once per attempt;
+missing reports remain unknown. Preserve received counters even if subsequent acknowledgement verification fails.
+Queue gauges describe the parent recorder only; child loss counters are added without replacing that local snapshot.
+Keep observation timestamps distinct from scrape time, and document cache, reset and incomplete-coverage semantics.
+
+A fresh development environment installed with `uv sync` does not include `tracing-otlp`. In that environment,
+`make test` skips OTLP worker tests and the tracing cases in worker model-usage tests. `make check` does not execute
+these tests. The `Main` workflow's
+`worker-observability` job installs the extra and requires all selected tests to pass without skips:
+
+```bash
+uv run --locked --extra tracing-otlp pytest tests/e2e/test_worker_otlp.py \
+  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py -q
+```
+
+These checks exercise real spawn, OTLP/HTTP, a local model fixture, Pydantic AI propagation and the metrics HTTP
+surface. They prove local reception, not storage/query acceptance by an external backend.
+
+The background CLI listener lifecycle requires a disposable OceanBase instance and
+`POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL`. The `E2E harness` workflow's `atomic-memory-clean-oceanbase` job runs
+`tests/e2e/test_background_metrics.py` through the clean migration acceptance runner, which rejects skipped tests.
+The test initializes its fresh database before starting the real background CLI, then checks listener startup,
+authorized metrics, absence of business routes and clean SIGTERM shutdown. The listener startup budget excludes
+first-run schema and index creation. CI retains `background-metrics/background.log` with the migration reports;
+startup failures include the child return code and a bounded log tail. Backend acceptance requires this step to pass.
+Without the backend setting, default test runs skip that lifecycle test.

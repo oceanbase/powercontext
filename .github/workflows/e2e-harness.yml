@@ -250,11 +250,18 @@ jobs:
           echo 'OceanBase did not become ready within 10 minutes.' >&2
           exit 1
 
+      - name: Test background listener lifecycle without skips
+        timeout-minutes: 5
+        run: |
+          uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
+            oceanbase --output "$MIGRATION_REPORTS/background-metrics" --tests \
+            tests/e2e/test_background_metrics.py
+
       - name: Run clean migration evidence, grants and vectors without skips
         timeout-minutes: 45
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --output "$MIGRATION_REPORTS"
+            oceanbase --output "$MIGRATION_REPORTS/clean-migration"
 
       - name: Test long-query retrieval and admission without skips
         timeout-minutes: 10

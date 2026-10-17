@@ -155,6 +155,80 @@ def test_inference_instrumentation_records_no_content() -> None:
     assert instrumentation.include_model_request_parameters is False
 
 
+def test_inference_spans_sanitize_provider_exception_content() -> None:
+    from pydantic_ai import ModelRequest, UserPromptPart
+    from pydantic_ai.exceptions import ModelHTTPError
+    from pydantic_ai.models import ModelRequestParameters
+    from pydantic_ai.models.function import FunctionModel
+    from pydantic_ai.models.instrumented import InstrumentedModel
+
+    private = "private provider response sentinel"
+    tracing, exporter = _tracing(instrumented=True)
+    instrumentation = tracing.instrumentation
+    assert instrumentation is not None
+
+    async def fail(_messages, _info):
+        raise ModelHTTPError(400, "fixture-model", {"error": {"message": private}})
+
+    async def scenario() -> None:
+        model = InstrumentedModel(FunctionModel(fail), instrumentation)
+        with pytest.raises(ModelHTTPError):
+            await model.request(
+                [ModelRequest(parts=[UserPromptPart("bounded prompt")])],
+                None,
+                ModelRequestParameters(),
+            )
+
+    asyncio.run(scenario())
+    span = next(span for span in exporter.get_finished_spans() if span.name.startswith("chat "))
+    assert span.status.status_code is StatusCode.ERROR
+    assert span.status.description in (None, "")
+    assert span.events == ()
+    attributes = span.attributes or {}
+    assert attributes["error.type"] == "ModelHTTPError"
+    rendered = repr(dict(attributes)) + repr(span.events) + str(span.status.description)
+    assert private not in rendered
+    tracing.shutdown()
+
+
+def test_worker_execution_span_preserves_inference_failure_category(monkeypatch) -> None:
+    from powercontext.builtin.inference import InvalidInferenceOutputError
+    from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
+    from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingWorkAssignment
+    from powercontext.server.worker_tracing import WorkerTracing
+
+    private = "private inference output sentinel"
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracing = ServerTracing(provider)
+    monkeypatch.setattr(
+        "powercontext.server.worker_tracing.configure_server_tracing", lambda *_args, **_kwargs: tracing
+    )
+
+    def fail(_assignment: ArtifactProcessingWorkAssignment):
+        raise InvalidInferenceOutputError("memory-extract", private)
+
+    assignment = ArtifactProcessingWorkAssignment(
+        binding_name="memory-source-window",
+        scope_id="invalid-output",
+        artifact_family="memory",
+        claimed_request_generation=1,
+        fence=ArtifactProcessingFence(
+            supervisor_group="global", holder_id="owner", supervisor_generation=1, lease_mode="single-process"
+        ),
+        worker_id="worker-attempt",
+    )
+    with pytest.raises(InvalidInferenceOutputError):
+        WorkerTracing(TracingConfig(enabled=True)).wrap(fail)(assignment)
+
+    span = next(span for span in exporter.get_finished_spans() if span.name == "artifact_processing.worker.execute")
+    assert (span.attributes or {})["powercontext.error.category"] == "dependency"
+    assert span.status.status_code is StatusCode.ERROR
+    rendered = repr(span.attributes) + repr(span.events) + str(span.status.description)
+    assert private not in rendered
+
+
 def test_runtime_stage_records_attributes_and_inherits_current_span() -> None:
     tracing, exporter = _tracing()
     parent = tracing.start_span(

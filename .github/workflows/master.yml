@@ -93,6 +93,47 @@ jobs:
         if: matrix.suite == 'e2e'
         run: make e2e-test
 
+  worker-observability:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Test worker traces and metrics without skips
+        run: |
+          uv run --locked --extra tracing-otlp python -m pytest -q -ra \
+            tests/e2e/test_worker_otlp.py \
+            tests/e2e/test_worker_model_usage.py \
+            tests/test_observability_health.py \
+            --junitxml="$RUNNER_TEMP/worker-observability.xml"
+          uv run --locked --extra tracing-otlp python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          report = Path(os.environ["RUNNER_TEMP"]) / "worker-observability.xml"
+          cases = list(ET.parse(report).iter("testcase"))
+          if not cases or any(case.find(tag) is not None for case in cases for tag in ("skipped", "failure", "error")):
+              raise SystemExit("Worker traces and metrics must execute and pass without skips")
+          print(f"Worker observability: {len(cases)} cases passed without skips.")
+          PY
+
+      - name: Save worker observability results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: worker-observability
+          path: ${{ runner.temp }}/worker-observability.xml
+          if-no-files-found: error
+
   evaluation-tests:
     timeout-minutes: 20
     runs-on: ubuntu-latest

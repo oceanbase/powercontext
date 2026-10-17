@@ -118,6 +118,7 @@ def test_flush_persists_copied_usage_with_unknown_tokens_and_original_date(tmp_p
 def test_queue_capacity_drops_without_sql_or_sensitive_logs(caplog: pytest.LogCaptureFixture) -> None:
     async def scenario() -> None:
         async with _database() as database:
+            observations = []
             capacity = 2
             write_budget = 5.0
             # Queue admission is under test. The default short flush may return
@@ -125,6 +126,7 @@ def test_queue_capacity_drops_without_sql_or_sensitive_logs(caplog: pytest.LogCa
             recorder = _ModelUsageRecorder(
                 database,
                 StatisticsRepository(),
+                observer=lambda *snapshot: observations.append(snapshot),
                 queue_capacity=capacity,
                 write_timeout_seconds=write_budget,
                 flush_timeout_seconds=capacity * write_budget + 1,
@@ -132,9 +134,11 @@ def test_queue_capacity_drops_without_sql_or_sensitive_logs(caplog: pytest.LogCa
             try:
                 for _ in range(8):
                     _offer(recorder)
+                assert observations[-1] == (2, 2, 6, 0)
                 assert recorder.checkpoint() == 2
                 await recorder.flush()
                 assert (await _rows(database))[0].requests == 2
+                assert observations[-1] == (0, 2, 6, 0)
             finally:
                 await recorder.close()
 

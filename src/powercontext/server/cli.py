@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import signal
-from contextlib import AsyncExitStack, nullcontext
+from contextlib import AsyncExitStack, nullcontext, suppress
 from pathlib import Path
 from sqlite3 import SQLITE_CANTOPEN
 from typing import TYPE_CHECKING, Annotated, Any, Literal
@@ -52,9 +52,10 @@ from powercontext.server.configuration import (
     server_settings_context,
 )
 from powercontext.server.database_migration import app as database_migration_app
-from powercontext.server.factory import create_server_app
+from powercontext.server.factory import _ServerReadinessProbe, create_background_metrics_app, create_server_app
 from powercontext.server.identity import open_server_identity_repository
 from powercontext.server.logging import WorkerLogging, configure_server_logging
+from powercontext.server.metrics import ServerMetrics
 from powercontext.server.processing_security import build_worker_security
 from powercontext.server.settings import (
     MissingAuthenticationProviderError,
@@ -63,6 +64,7 @@ from powercontext.server.settings import (
     UnauthenticatedNonLoopbackBindError,
 )
 from powercontext.server.tracing import configure_server_tracing
+from powercontext.server.worker_tracing import WorkerTracing
 
 if TYPE_CHECKING:
     from powercontext.builtin.persistence.migrations.atomic_memory_references import CandidateDecision
@@ -466,6 +468,7 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
         inference=settings.inference,
         external_skills=settings.external_skills,
     )
+    metrics = ServerMetrics() if settings.metrics.enabled else None
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
     installed: list[signal.Signals] = []
@@ -492,16 +495,54 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
                     )
                 )
             worker_security = build_worker_security(settings, access, legacy_static_principal=principal)
-            await resources.enter_async_context(
+            runtime = await resources.enter_async_context(
                 open_builtin_runtime(
                     config,
                     instrumentation=tracing.instrumentation,
                     tracing=tracing,
                     worker_security=worker_security,
+                    model_usage_observer=None if metrics is None else metrics.observe_model_usage,
+                    worker_model_usage_observer=None if metrics is None else metrics.observe_worker_model_usage,
+                    processing_observer=None if metrics is None else metrics.observe_processing,
                     worker_initializer=WorkerLogging(settings.logging),
+                    worker_entrypoint_wrapper=WorkerTracing(settings.tracing).wrap,
                 )
             )
-            await stopped.wait()
+            if metrics is None or stopped.is_set():
+                await stopped.wait()
+            else:
+                import uvicorn
+
+                probe = _ServerReadinessProbe(metrics, tracing=tracing)
+                probe.bind(runtime)
+                await probe()
+                await resources.enter_async_context(probe.monitor())
+                app = create_background_metrics_app(settings, runtime, metrics, access)
+                server = uvicorn.Server(
+                    uvicorn.Config(
+                        app,
+                        host=settings.http.host,
+                        port=settings.metrics.background_port,
+                        access_log=False,
+                        log_config=None,
+                        timeout_graceful_shutdown=2,
+                    )
+                )
+                serving = asyncio.create_task(server.serve(), name="background-metrics-http")
+                stopping = asyncio.create_task(stopped.wait())
+                try:
+                    await asyncio.wait((serving, stopping), return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    server.should_exit = True
+                    stopping.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await stopping
+                    try:
+                        await asyncio.wait_for(asyncio.shield(serving), timeout=5)
+                    except TimeoutError:
+                        serving.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await serving
     finally:
         for signum in installed:
             loop.remove_signal_handler(signum)

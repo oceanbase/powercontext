@@ -571,13 +571,20 @@ def test_scheduler_activation_drops_finished_startup_request(tmp_path, caplog, f
         try:
             dispatched = triggers.dispatched if family == "memory" else incubation.dispatched
             await asyncio.wait_for(dispatched.wait(), timeout=3)
-            records = [r for r in caplog.records if getattr(r, "event", None) == "background.operation.completed"]
+            async with asyncio.timeout(3):
+                while True:
+                    records = [
+                        r for r in caplog.records if getattr(r, "event", None) == "background.operation.completed"
+                    ]
+                    if len(records) >= 2:
+                        break
+                    await asyncio.sleep(0.01)
             assert records
             assert all(r.outcome == "success" for r in records)
             assert all(r.request_id is None for r in records)
             roots = [s for s in exporter.get_finished_spans() if s.name.startswith("scheduled.")]
             assert roots and all(s.parent is None for s in roots)
-            assert all(r.trace_id == format(roots[0].context.trace_id, "032x") for r in records)
+            assert {r.trace_id for r in records} == {format(root.context.trace_id, "032x") for root in roots}
         finally:
             await runtime.close()
 

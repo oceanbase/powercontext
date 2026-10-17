@@ -68,10 +68,28 @@ class _SuppressibleTracer(Tracer):
 
     @override
     def start_as_current_span(self, name: str, *args: Any, **kwargs: Any) -> Any:
-        return self._selected().start_as_current_span(name, *args, **kwargs)
+        # Provider exceptions can echo Source or prompt content. Disable the SDK's automatic
+        # exception events and status descriptions, then apply only bounded failure metadata.
+        kwargs["record_exception"] = False
+        kwargs["set_status_on_exception"] = False
+        return _sanitized_span(self._selected().start_as_current_span(name, *args, **kwargs))
 
     def _selected(self) -> Tracer:
         return self._noop if self._suppressed.get() else self._delegate
+
+
+@contextmanager
+def _sanitized_span(manager: Any) -> Iterator[Span]:
+    with manager as span:
+        try:
+            yield span
+        except asyncio.CancelledError:
+            raise
+        except BaseException as error:
+            with suppress(Exception):
+                span.set_attribute("error.type", type(error).__qualname__)
+                span.set_status(Status(StatusCode.ERROR))
+            raise
 
 
 class ServerTracing:

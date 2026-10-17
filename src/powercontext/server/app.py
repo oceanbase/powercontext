@@ -1305,6 +1305,7 @@ class _PreconditionRequiredError(RuntimeError):
 def create_app(
     *,
     application: ServerApplication | None = None,
+    infrastructure_only: bool = False,
     capability_provider: CapabilityProvider | None = None,
     readiness_probe: ReadinessProbe | None = None,
     lifespan: Lifespan[FastAPI] | None = None,
@@ -1323,6 +1324,7 @@ def create_app(
         title=API_TITLE,
         version=API_VERSION,
         description=API_DESCRIPTION,
+        openapi_url=None if infrastructure_only else "/openapi.json",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -1414,6 +1416,10 @@ def create_app(
         )
         response.headers[REQUEST_ID_HEADER] = request_id
         return response
+
+    if infrastructure_only:
+        _add_route(app, GET_LIVENESS, get_liveness)
+        return app
 
     _add_route(app, CREATE_DREAM_RUN, create_dream_run)
     _add_route(app, GET_DREAM_RUN, get_dream_run)

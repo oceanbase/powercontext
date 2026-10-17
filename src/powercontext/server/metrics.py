@@ -21,7 +21,7 @@ import math
 import re
 from collections.abc import Iterator, Mapping
 from contextlib import suppress
-from time import perf_counter
+from time import perf_counter, time
 from typing import Any
 
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
@@ -40,10 +40,35 @@ from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metri
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from typing_extensions import override
 
+from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingModelUsageDelta
 from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH
 from powercontext.server.context import is_internal_bridge
 
 _PROCESSING_INSTRUMENTS = (
+    (
+        "unacknowledged_observed_timestamp_seconds",
+        "Unix time of the unacknowledged snapshot; zero means unobserved.",
+        False,
+    ),
+    ("supervisor_alive", "Whether the owning supervisor task is running.", False),
+    ("leader", "Whether this process holds the supervisor fence.", False),
+    ("degraded", "Whether discovery is degraded.", False),
+    ("blocked", "Locally retained invocations blocked by domain policy.", False),
+    (
+        "discovered_timestamp_seconds",
+        "Unix time of the latest successful discovery pass; zero means unobserved.",
+        False,
+    ),
+    (
+        "last_success_timestamp_seconds",
+        "Unix time of the latest verified acknowledgement; zero means unobserved.",
+        False,
+    ),
+    (
+        "oldest_observed_pending_timestamp_seconds",
+        "Oldest locally observed unfinished admission; zero means none observed.",
+        False,
+    ),
     ("max_workers", "Configured Worker capacity for this Artifact Family.", False),
     ("available_workers", "Available Worker slots for this Artifact Family.", False),
     ("used_workers", "Worker slots currently in use for this Artifact Family.", False),
@@ -97,6 +122,38 @@ class _ProcessingMetricsCollector:
                 if field in measurements:
                     instrument.add_metric([family], measurements[field])
             yield instrument
+
+
+class _ModelUsageMetricsCollector:
+    """Render local queue gauges and local plus completed-worker loss counters."""
+
+    def __init__(self) -> None:
+        self.snapshot: tuple[int, int, int, int] | None = None
+        self.worker_losses: tuple[int, int] | None = None
+
+    def collect(self) -> Iterator[Metric]:
+        snapshot = self.snapshot
+        worker_losses = self.worker_losses
+        if snapshot is None and worker_losses is None:
+            return
+        if snapshot is not None:
+            for name, value, description in (
+                ("queue_depth", snapshot[0], "Local queued records, excluding in-flight writes and child queues."),
+                ("queue_capacity", snapshot[1], "Local recorder queue capacity, excluding child queues."),
+            ):
+                yield GaugeMetricFamily("powercontext_server_model_usage_" + name, description, value=value)
+        local_losses = (0, 0) if snapshot is None else snapshot[2:]
+        losses = tuple(local + worker for local, worker in zip(local_losses, worker_losses or (0, 0), strict=True))
+        for name, value, description in zip(
+            ("dropped_records", "write_failures"),
+            losses,
+            (
+                "Dropped records from the local recorder and received child reports; resets on restart.",
+                "Failed/indeterminate writes from the local recorder and received child reports; resets on restart.",
+            ),
+            strict=True,
+        ):
+            yield CounterMetricFamily("powercontext_server_model_usage_" + name, description, value=value)
 
 
 class ServerMetrics:
@@ -154,6 +211,43 @@ class ServerMetrics:
             ("state",),
             registry=self.registry,
         )
+        self.readiness_states = Gauge(
+            "powercontext_server_readiness_state",
+            "Latest evaluated aggregate readiness.",
+            ("state",),
+            registry=self.registry,
+        )
+        self.readiness_evaluated = Gauge(
+            "powercontext_server_readiness_evaluated_timestamp_seconds",
+            "Unix time readiness was evaluated (probes may be cached).",
+            registry=self.registry,
+        )
+        self.dependency_states = Gauge(
+            "powercontext_server_dependency_state",
+            "Latest evaluated dependency state; missing means not configured.",
+            ("dependency", "state"),
+            registry=self.registry,
+        )
+        self.processing_duration = Histogram(
+            "powercontext_server_artifact_processing_invocation_duration_seconds",
+            "One reaped invocation attempt, including launch, execution and acknowledgement; retries are separate samples.",
+            ("family", "outcome"),
+            buckets=(0.1, 0.5, 1, 5, 15, 30, 60, 120, 300, 600, 1800),
+            registry=self.registry,
+        )
+        self._usage = _ModelUsageMetricsCollector()
+        self.registry.register(self._usage)
+        self.worker_usage_reports = Counter(
+            "powercontext_server_model_usage_worker_reports_total",
+            "Worker attempts with a received recorder summary or missing observations; missing is not zero losses.",
+            ("outcome",),
+            registry=self.registry,
+        )
+        self.collection_failures = Counter(
+            "powercontext_server_metrics_collection_failures_total",
+            "Failed processing snapshot refreshes.",
+            registry=self.registry,
+        )
         self._processing = _ProcessingMetricsCollector()
         self.registry.register(self._processing)
         self.set_runtime_scopes(0, 0)
@@ -195,6 +289,52 @@ class ServerMetrics:
         with suppress(Exception):
             self.runtime_ready.set(1 if ready else 0)
 
+    def observe_model_usage(self, queued: int, capacity: int, dropped: int, failed: int) -> None:
+        with suppress(Exception):
+            self._usage.snapshot = (queued, capacity, dropped, failed)
+
+    def observe_worker_model_usage(self, delta: ArtifactProcessingModelUsageDelta | None) -> None:
+        """Add one attempt's child counters once, independently of durable acknowledgement."""
+        with suppress(Exception):
+            if delta is None:
+                self.worker_usage_reports.labels(outcome="missing").inc()
+                return
+            dropped, failed = self._usage.worker_losses or (0, 0)
+            self._usage.worker_losses = (dropped + delta.dropped_records, failed + delta.write_failures)
+            self.worker_usage_reports.labels(outcome="received").inc()
+
+    def observe_readiness(self, state: str, checks: Mapping[str, str]) -> None:
+        """Publish the last evaluation without executing dependency probes at scrape time."""
+        with suppress(Exception):
+            for candidate in ("ready", "degraded", "not_ready"):
+                self.readiness_states.labels(state=candidate).set(int(state == candidate))
+            self.dependency_states.clear()
+            for dependency, result in checks.items():
+                if dependency not in {
+                    "database",
+                    "runtime",
+                    "inference.generation",
+                    "inference.embedding",
+                    "inference.rerank",
+                    "inference.decision",
+                }:
+                    continue
+                result = result.split(":", 1)[0]
+                if result not in {"ready", "unavailable", "timeout", "misconfigured", "not_ready"}:
+                    result = "unavailable"
+                for candidate in ("ready", "unavailable", "timeout", "misconfigured", "not_ready"):
+                    self.dependency_states.labels(dependency=dependency, state=candidate).set(int(result == candidate))
+            self.readiness_evaluated.set(time())
+
+    def observe_processing(self, family: str, outcome: str, duration: float) -> None:
+        with suppress(Exception):
+            if len(family) > MAX_ARTIFACT_FAMILY_LENGTH or re.fullmatch(r"[a-z][a-z0-9-]*", family) is None:
+                return
+            if outcome not in {"success", "failure", "blocked", "cancelled", "conflict", "timeout", "leadership_lost"}:
+                return
+            if math.isfinite(duration) and duration >= 0:
+                self.processing_duration.labels(family=family, outcome=outcome).observe(duration)
+
     def set_runtime_scopes(self, cached: int, active: int) -> None:
         for state, value in (("active", active), ("cached", cached)):
             with suppress(Exception):
@@ -203,8 +343,11 @@ class ServerMetrics:
     def set_processing_families(self, families: Mapping[str, Mapping[str, int | float | str]]) -> None:
         """Refresh bounded scheduler observations using only registered Family labels."""
 
-        with suppress(Exception):
+        try:
             self._processing.replace(families)
+        except Exception:
+            with suppress(Exception):
+                self.collection_failures.inc()
 
     def render(self) -> bytes:
         return generate_latest(self.registry)

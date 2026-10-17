@@ -111,6 +111,8 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerCompletion,
     ArtifactProcessingWorkerOutcome,
 )
+from powercontext.builtin.runtime.protocols import RuntimeTracing
+from powercontext.builtin.runtime.worker_observability import worker_observability
 from powercontext.builtin.source_eligibility import is_generation_eligible
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_NAME,
@@ -455,7 +457,9 @@ class TopicMemoryProcessor:
         history_min_candidates: int = 5,
         id_factory: Callable[[], str] | None = None,
         prompt_refs: Mapping[str, ArtifactRef] | None = None,
+        tracing: RuntimeTracing | None = None,
     ) -> None:
+        self._tracing = tracing
         self._database = database
         self._sources = sources
         self._topics = topics
@@ -525,14 +529,26 @@ class TopicMemoryProcessor:
         try:
             await budget.begin()
             try:
-                stored = await self._read_window(assignment)
-                evidence = {_evidence_id(index): item for index, item in enumerate(stored, start=1)}
-                projected = await _project_window(stored, self._sources)
-                proposals, candidates = await self._generate(assignment.scope_id, projected) if projected else ((), {})
-                operations = await self._prepare_operations(assignment.scope_id, proposals, candidates, evidence)
-                await self._publisher.publish(
-                    assignment, evidence, operations, work_budget=budget, commit_hook=commit_hook
-                )
+                with (
+                    nullcontext()
+                    if self._tracing is None
+                    else self._tracing.stage("topic_memory.prepare", attributes={})
+                ):
+                    stored = await self._read_window(assignment)
+                    evidence = {_evidence_id(index): item for index, item in enumerate(stored, start=1)}
+                    projected = await _project_window(stored, self._sources)
+                    proposals, candidates = (
+                        await self._generate(assignment.scope_id, projected) if projected else ((), {})
+                    )
+                    operations = await self._prepare_operations(assignment.scope_id, proposals, candidates, evidence)
+                with (
+                    nullcontext()
+                    if self._tracing is None
+                    else self._tracing.stage("topic_memory.commit", attributes={})
+                ):
+                    await self._publisher.publish(
+                        assignment, evidence, operations, work_budget=budget, commit_hook=commit_hook
+                    )
             except TopicMemoryGenerationError as error:
                 if error.code in RECORDED_TOPIC_MEMORY_REJECTIONS:
                     await budget.fail(error.code)
@@ -1646,6 +1662,9 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
         open_builtin_contexts,
     )
 
+    observation = worker_observability.get()
+    instrumentation = None if observation is None else observation.instrumentation
+    tracing = None if observation is None else observation.tracing
     config = spec.config
     inference = config.inference
     if inference.generation_model is None:
@@ -1671,15 +1690,16 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             base_url=inference.generation_base_url,
             headers=inference.generation_headers,
             resources=resources,
-            instrumentation=None,
+            instrumentation=instrumentation,
             disable_provider_retries=True,
         )
-        raw_embedding, _ = await _embedding_models(inference, resources, None, disable_provider_retries=True)
+        raw_embedding, _ = await _embedding_models(inference, resources, instrumentation, disable_provider_retries=True)
         embedding = None if raw_embedding is None else UsageReportingEmbeddingModel(raw_embedding)
         contexts = await resources.enter_async_context(
             open_builtin_contexts(
                 config,
                 embedding_model=embedding,
+                tracing=tracing,
                 _topic_memory_worker=True,
                 prompt_registry=PromptRegistry(
                     builtin_prompt_definitions(config.runtime.memory_extraction_profile),
@@ -1821,6 +1841,7 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             history_rrf_threshold=config.runtime.topic_memory_history_rrf_threshold,
             history_min_candidates=config.runtime.topic_memory_history_min_candidates,
             prompt_refs=prompt_refs,
+            tracing=tracing,
         )
         try:
             yield TopicMemoryScopeProcessor(

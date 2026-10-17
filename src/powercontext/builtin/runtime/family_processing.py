@@ -45,6 +45,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerOutcome,
 )
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
+from powercontext.builtin.runtime.worker_observability import worker_observability
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
 from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
@@ -95,19 +96,22 @@ async def _run_family_worker(
         open_builtin_contexts,
     )
 
+    observation = worker_observability.get()
+    instrumentation = None if observation is None else observation.instrumentation
+    tracing = None if observation is None else observation.tracing
     config = spec.config
     async with AsyncExitStack() as resources:
         pipelines = await _generation_pipelines(
-            config.inference, config.runtime, resources, None, BUILTIN_SOURCE_REGISTRY
+            config.inference, config.runtime, resources, instrumentation, BUILTIN_SOURCE_REGISTRY
         )
         decision_model = _fail_open_decision_model(
             None,
             pipelines[7],
-            None,
+            tracing,
             timeout_seconds=config.inference.decision_timeout_seconds or config.inference.generation_timeout_seconds,
         )
         memory_write_gate = _configured_memory_write_gate(None, decision_model, config.runtime)
-        embedding, _ = await _embedding_models(config.inference, resources, None)
+        embedding, _ = await _embedding_models(config.inference, resources, instrumentation)
         contexts = await resources.enter_async_context(
             open_builtin_contexts(
                 config,
@@ -134,6 +138,7 @@ async def _run_family_worker(
                         ),
                     ),
                 ),
+                tracing=tracing,
                 _topic_memory_worker=True,
             )
         )
@@ -158,7 +163,7 @@ async def _run_family_worker(
                     through_generation=assignment.claimed_request_generation,
                 )
             if record is not None:
-                generator = await _dream_generator(config.inference, record.run.budget, resources, None)
+                generator = await _dream_generator(config.inference, record.run.budget, resources, instrumentation)
         return await process_family_invocation(
             contexts, assignment, config=config, security=security, dream_generator=generator
         )
