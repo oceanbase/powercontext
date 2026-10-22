@@ -1,0 +1,39 @@
+groups:
+- name: explicit-acceptance-only
+  rules:
+  - alert: AcceptanceProcessingStalled
+    expr: (powercontext_server_artifact_processing_oldest_observed_pending_timestamp_seconds
+      > 0) and (time() - powercontext_server_artifact_processing_oldest_observed_pending_timestamp_seconds
+      > 2) and (time() - powercontext_server_artifact_processing_last_success_timestamp_seconds
+      > 2) and (powercontext_server_artifact_processing_leader == 1) and (time() -
+      powercontext_server_artifact_processing_discovered_timestamp_seconds < 120)
+    for: 3s
+    labels:
+      severity: warning
+    annotations:
+      summary: Observed pending work has no acknowledged progress
+      description: Inspect family, worker lifecycle and model timeout. Pending age
+        is a local lower bound, not durable backlog age; tune for expected task duration.
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextprocessingstalled
+  - alert: AcceptanceTargetDown
+    expr: (up{job="powercontext"} == 0) and (time() - timestamp(up{job="powercontext"})
+      < 45)
+    for: 3s
+    labels:
+      severity: warning
+    annotations:
+      summary: PowerContext metrics target is unreachable
+      description: Check target address, process, server.observe credentials and network
+        before restarting.
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontexttargetdown
+  - alert: AcceptanceDependencyFailure
+    expr: powercontext_server_dependency_state{state=~"unavailable|timeout|misconfigured|not_ready|degraded"}
+      == 1
+    for: 3s
+    labels:
+      severity: warning
+    annotations:
+      summary: A configured dependency is unhealthy
+      description: Inspect dependency label and readiness logs; check credentials,
+        database and provider. Cached inference probes can delay resolution.
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextdependencyfailure

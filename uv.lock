@@ -2869,7 +2869,7 @@ client = [
     { name = "pyyaml" },
 ]
 code = [
-    { name = "psutil", marker = "sys_platform == 'darwin'" },
+    { name = "psutil" },
     { name = "tree-sitter" },
     { name = "tree-sitter-go" },
     { name = "tree-sitter-javascript" },
@@ -3088,7 +3088,7 @@ requires-dist = [
     { name = "platformdirs", marker = "extra == 'server'", specifier = ">=4,<5" },
     { name = "prometheus-client", marker = "extra == 'ops'", specifier = ">=0.21,<1" },
     { name = "prometheus-client", marker = "extra == 'server'", specifier = ">=0.21,<1" },
-    { name = "psutil", marker = "sys_platform == 'darwin' and extra == 'code'", specifier = ">=7.2,<8" },
+    { name = "psutil", marker = "extra == 'code'", specifier = ">=7.2,<8" },
     { name = "pycasbin", marker = "extra == 'builtin'", specifier = ">=2.8,<3" },
     { name = "pycasbin", marker = "extra == 'cli'", specifier = ">=2.8,<3" },
     { name = "pycasbin", marker = "extra == 'ops'", specifier = ">=2.8,<3" },

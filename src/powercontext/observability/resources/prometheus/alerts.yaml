@@ -1,0 +1,130 @@
+groups:
+- name: powercontext
+  rules:
+  - alert: PowerContextTargetDown
+    expr: (up{job="powercontext"} == 0) and (time() - timestamp(up{job="powercontext"})
+      < 45)
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: PowerContext 指标目标不可达
+      description: 检查目标地址、进程、凭据和网络，再决定是否重启。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontexttargetdown
+  - alert: PowerContextTargetsMissing
+    expr: absent(up{job="powercontext"} and (time() - timestamp(up{job="powercontext"})
+      < 45))
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: 未配置或未发现 PowerContext 指标目标
+      description: 恢复 .local/targets.json；缺失序列不等于健康零值。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontexttargetsmissing
+  - alert: PowerContextReadinessStale
+    expr: (time() - powercontext_server_readiness_evaluated_timestamp_seconds > 120)
+      and on(job,instance) (up{job="powercontext"} == 1) and on(job,instance) (time()
+      - timestamp(up{job="powercontext"}) < 45)
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: 就绪状态评估已过期
+      description: 检查就绪评估器和进程日志；抓取不会刷新依赖探测。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextreadinessstale
+  - alert: PowerContextReadinessMissing
+    expr: ((up{job="powercontext"} == 1) and (time() - timestamp(up{job="powercontext"})
+      < 45)) unless on(job,instance) powercontext_server_readiness_evaluated_timestamp_seconds
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: 运行中的目标缺少就绪观测
+      description: 确认该端点有 PowerContext 指标且已启用指标。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextreadinessmissing
+  - alert: PowerContextDependencyFailure
+    expr: powercontext_server_dependency_state{state=~"unavailable|timeout|misconfigured|not_ready|degraded"}
+      == 1
+    for: 3m
+    labels:
+      severity: warning
+    annotations:
+      summary: 已配置的依赖不可用
+      description: 检查依赖标签、就绪日志、凭据、数据库和模型服务。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextdependencyfailure
+  - alert: PowerContextSustainedErrors
+    expr: (sum by(job,instance,role) (increase(powercontext_server_application_operations_total{outcome="failure"}[5m]))
+      >= 5) and (sum by(job,instance,role) (rate(powercontext_server_application_operations_total{outcome="failure"}[5m]))
+      / sum by(job,instance,role) (rate(powercontext_server_application_operations_total[5m]))
+      > 0.05)
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: 应用持续失败：5 分钟内失败超过 5% 且至少 5 次
+      description: 查看操作/结果、日志和采样调用链；空操作、阻止和取消不算失败。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextsustainederrors
+  - alert: PowerContextProcessingStalled
+    expr: (powercontext_server_artifact_processing_oldest_observed_pending_timestamp_seconds
+      > 0) and (time() - powercontext_server_artifact_processing_oldest_observed_pending_timestamp_seconds
+      > 600) and (time() - powercontext_server_artifact_processing_last_success_timestamp_seconds
+      > 600) and (powercontext_server_artifact_processing_leader == 1) and (time()
+      - powercontext_server_artifact_processing_discovered_timestamp_seconds < 120)
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: 后台待处理任务长时间没有确认进展
+      description: 检查处理类型、子进程和模型超时；按预期任务时长调整阈值。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextprocessingstalled
+  - alert: PowerContextDiscoveryStale
+    expr: (powercontext_server_artifact_processing_leader == 1) and (time() - powercontext_server_artifact_processing_discovered_timestamp_seconds
+      > 120)
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: 任务发现长时间没有上报进展
+      description: 检查 Supervisor 和数据库连接；缓存计数可能过期。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextdiscoverystale
+  - alert: PowerContextCollectionFailure
+    expr: increase(powercontext_server_metrics_collection_failures_total[5m]) > 0
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: 处理状态快照采集失败
+      description: 检查 Supervisor 快照错误；已有指标可能过期。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextcollectionfailure
+  - alert: TelemetryTargetDown
+    expr: (up{job=~"collector|tempo|loki|prometheus"} == 0) and (time() - timestamp(up{job=~"collector|tempo|loki|prometheus"})
+      < 45)
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: 遥测组件无法抓取
+      description: 检查组件日志和内存限制；业务健康与遥测健康独立。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#telemetrytargetdown
+  - alert: TelemetryExportFailure
+    expr: sum by(exporter) (increase({__name__=~"otelcol_exporter_send_failed_(spans|log_records)(_total)?"}[5m]))
+      > 0
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: 采集器导出失败
+      description: 检查 Tempo/Loki；队列和重试有上限，过期批次会丢失。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#telemetryexportfailure
+  - alert: PowerContextSustainedTransportErrors
+    expr: (sum by(job,instance,role) (increase(powercontext_server_transport_requests_total{outcome="failure"}[5m]))
+      >= 5) and (sum by(job,instance,role) (rate(powercontext_server_transport_requests_total{outcome="failure"}[5m]))
+      / sum by(job,instance,role) (rate(powercontext_server_transport_requests_total[5m]))
+      > 0.05)
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: 请求持续失败：5 分钟内失败超过 5% 且至少 5 次
+      description: 按操作和错误分类查日志；先区分客户端问题与服务故障。
+      runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextsustainedtransporterrors

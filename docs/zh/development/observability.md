@@ -81,6 +81,11 @@ JSON formatter 会忽略未登记的 extras。确需新增字段时：
 共享失败词汇与各 Family 覆盖矩阵见 [处理失败诊断](processing-failures.md)。
 
 Service identity 来自 `src/powercontext/server/telemetry.py`，logs 和 traces 共用同一 resource identity。
+可选的 `service_target` / `powercontext.service.target` 是配置的抓取端点，不是进程 ID。
+API/background profile 分别选择所属端点，Server 创建的 Worker 显式继承该值。新增 launcher 时保持此映射。
+含凭据或 URL 路径的值会被排除，未知目标保持缺失。
+Worker 同时继承 `service_owner_role` / `powercontext.service.owner_role`，用于按父角色筛选；
+实际 `service_role` 仍为 `worker`。这些字段不增加执行身份指标标签。
 Error classification 来自 `powercontext._logging.error_category`；`blocked` 等 domain-owned category
 由所属 boundary 明确设置。各 adapter 不应自行定义不同词汇。
 

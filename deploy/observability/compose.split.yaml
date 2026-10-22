@@ -1,0 +1,170 @@
+services:
+  reference-server:
+    build:
+      context: ../..
+      dockerfile: deploy/observability/Dockerfile
+    env_file:
+    - ./.local/server.env
+    - ./.local/split.env
+    environment:
+      POWERCONTEXT_SERVER_DATABASE_KIND: oceanbase
+      POWERCONTEXT_SERVER_DATABASE_URL: ${POWERCONTEXT_REFERENCE_DATABASE_URL:?Run
+        init.py --split first}
+      POWERCONTEXT_SERVER_HTTP_HOST: 0.0.0.0
+      POWERCONTEXT_SERVER_HTTP_PORT: '8000'
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://gateway:8080
+      POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE: api
+      POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL: openai-chat:reference-noop
+      POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES: '["memory"]'
+      POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS: '1'
+      OTEL_TRACES_SAMPLER_ARG: '1'
+      POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL: http://reference-model:8080/v1
+      OPENAI_API_KEY: reference-fixture
+    volumes:
+    - reference-data:/data
+    - ./.local/logs:/logs
+    entrypoint:
+    - /app/.venv/bin/python
+    - /app/run-host.py
+    - --container
+    mem_limit: 768m
+    cpus: 1
+    ports:
+    - 127.0.0.1:18081:8000
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    depends_on:
+      reference-init:
+        condition: service_completed_successfully
+      reference-model:
+        condition: service_started
+    image: powercontext-observability-reference-server:latest
+  reference-background:
+    build:
+      context: ../..
+      dockerfile: deploy/observability/Dockerfile
+    env_file:
+    - ./.local/server.env
+    - ./.local/split.env
+    environment:
+      POWERCONTEXT_SERVER_DATABASE_KIND: oceanbase
+      POWERCONTEXT_SERVER_DATABASE_URL: ${POWERCONTEXT_REFERENCE_DATABASE_URL:?Run
+        init.py --split first}
+      POWERCONTEXT_SERVER_HTTP_HOST: 0.0.0.0
+      POWERCONTEXT_SERVER_HTTP_PORT: '8000'
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://gateway:8080
+      POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE: background
+      POWERCONTEXT_SERVER_METRICS_BACKGROUND_PORT: '18082'
+      POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL: openai-chat:reference-noop
+      POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES: '["memory"]'
+      POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS: '1'
+      OTEL_TRACES_SAMPLER_ARG: '1'
+      POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL: http://reference-model:8080/v1
+      OPENAI_API_KEY: reference-fixture
+    volumes:
+    - reference-data:/data
+    - ./.local/logs:/logs
+    entrypoint:
+    - /app/.venv/bin/python
+    - /app/run-host.py
+    - --container
+    - --log-name
+    - background
+    mem_limit: 768m
+    cpus: 1
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    depends_on:
+      reference-init:
+        condition: service_completed_successfully
+      reference-model:
+        condition: service_started
+    ports:
+    - 127.0.0.1:18082:18082
+    image: powercontext-observability-reference-server:latest
+  reference-oceanbase:
+    image: oceanbase/oceanbase-ce:4.3.5.6-106000012026040916@sha256:31086a6900c21c479c2bcd942b6a28c53b17a51f4e9b9eb8eafcc596adfcd2e3
+    environment:
+      MODE: slim
+      OB_DATABASE: powercontext
+      OB_TENANT_PASSWORD: ${POWERCONTEXT_REFERENCE_DATABASE_PASSWORD:?Run init.py
+        --split first}
+    mem_limit: 6g
+    cpus: 2
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - obclient -h127.0.0.1 -P2881 -uroot@test -p"$$OB_TENANT_PASSWORD" -Dpowercontext
+        -e "SELECT 1" >/dev/null 2>&1
+      interval: 5s
+      timeout: 5s
+      retries: 120
+      start_period: 30s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - reference-oceanbase:/root/ob
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+  reference-init:
+    build:
+      context: ../..
+      dockerfile: deploy/observability/Dockerfile
+    env_file:
+    - ./.local/server.env
+    - ./.local/split.env
+    environment:
+      POWERCONTEXT_SERVER_DATABASE_KIND: oceanbase
+      POWERCONTEXT_SERVER_DATABASE_URL: ${POWERCONTEXT_REFERENCE_DATABASE_URL:?Run
+        init.py --split first}
+      POWERCONTEXT_SERVER_HTTP_HOST: 0.0.0.0
+      POWERCONTEXT_SERVER_HTTP_PORT: '8000'
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://gateway:8080
+      POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE: api
+      POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL: openai-chat:reference-noop
+      POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES: '["memory"]'
+      POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS: '1'
+      OTEL_TRACES_SAMPLER_ARG: '1'
+      POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL: http://reference-model:8080/v1
+      OPENAI_API_KEY: reference-fixture
+    entrypoint:
+    - /app/.venv/bin/python
+    - /app/init-db.py
+    mem_limit: 768m
+    cpus: 1
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    depends_on:
+      reference-oceanbase:
+        condition: service_healthy
+    image: powercontext-observability-reference-server:latest
+    restart: 'no'
+  reference-model:
+    image: powercontext-observability-reference-server:latest
+    entrypoint:
+    - /app/.venv/bin/python
+    - /app/model-fixture.py
+    mem_limit: 64m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+volumes:
+  reference-oceanbase: {}
+  reference-data: {}

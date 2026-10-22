@@ -17,8 +17,12 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import os
 import subprocess
 import sys
+import threading
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -217,6 +221,90 @@ def test_logging_rejects_unbounded_rotation_and_unsupported_compression(values) 
         ServerLoggingConfig(**values)
 
 
+@contextmanager
+def _otlp_log_receiver():
+    ExportLogsServiceRequest = pytest.importorskip(
+        "opentelemetry.proto.collector.logs.v1.logs_service_pb2"
+    ).ExportLogsServiceRequest
+    received = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):  # noqa: A002 - BaseHTTPRequestHandler signature.
+            return
+
+        def do_POST(self):
+            if self.path != "/v1/logs":
+                self.send_error(404)
+                return
+            request = ExportLogsServiceRequest()
+            request.ParseFromString(self.rfile.read(int(self.headers["Content-Length"])))
+            received.append(request)
+            self.send_response(200)
+            self.end_headers()
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", received
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_otlp_logging_exports_only_the_structured_allowlist() -> None:
+    from google.protobuf.json_format import MessageToDict
+
+    with _otlp_log_receiver() as (endpoint, received):
+        script = """
+import logging
+from powercontext.server.logging import configure_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+configure_server_logging(
+    ServerLoggingConfig(otlp_enabled=True),
+    role="api",
+    target="host.docker.internal:8000",
+)
+logging.getLogger("powercontext.server.probe").info(
+    "private-message-must-not-be-exported",
+    extra={
+        "event": "application.operation.completed",
+        "operation": "get_capabilities",
+        "outcome": "success",
+        "private_extra": "private-extra-must-not-be-exported",
+    },
+)
+"""
+        subprocess.run(
+            [sys.executable, "-c", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env={
+                **os.environ,
+                "OTEL_EXPORTER_OTLP_ENDPOINT": endpoint,
+                "OTEL_BLRP_SCHEDULE_DELAY": "50",
+            },
+        )
+    records = [
+        record
+        for request in received
+        for resource in request.resource_logs
+        for scope in resource.scope_logs
+        for record in scope.log_records
+    ]
+    assert len(records) == 1
+    body = MessageToDict(records[0].body)["kvlistValue"]["values"]
+    payload = {item["key"]: item["value"] for item in body}
+    assert payload["event"]["stringValue"] == "application.operation.completed"
+    assert payload["operation"]["stringValue"] == "get_capabilities"
+    assert payload["service_target"]["stringValue"] == "host.docker.internal:8000"
+    assert "private_extra" not in payload
+    assert "private-message-must-not-be-exported" not in json.dumps(payload)
+
+
 def test_operational_filter_uses_bound_request_id_without_overwriting_an_explicit_id() -> None:
     from powercontext.server.context import bind_request_id, reset_request_id
 
@@ -233,6 +321,33 @@ def test_operational_filter_uses_bound_request_id_without_overwriting_an_explici
     background = logging.makeLogRecord({"msg": "scheduled work"})
     OperationalContextFilter().filter(background)
     assert "request_id" not in json.loads(JsonFormatter().format(background))
+
+
+@pytest.mark.parametrize("log_format", ["json", "console"])
+def test_configured_artifact_read_logging_preserves_the_public_field_contract(log_format) -> None:
+    code = """
+import logging
+import sys
+from powercontext.server.logging import configure_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+configure_server_logging(ServerLoggingConfig(format=sys.argv[1]))
+logging.getLogger('powercontext.server.artifact_read_observation').info(
+    'Artifact read completed',
+    extra={'event':'artifact.read.completed', 'operation':'get_artifact', 'unit':'application',
+           'family':'profile', 'read_outcome':'not_modified', 'outcome':'success',
+           'duration_ms':1.25, 'private_extra':'private-content-must-not-appear'},
+)
+"""
+    result = subprocess.run([sys.executable, "-c", code, log_format], capture_output=True, text=True, check=True)
+    lines = [line for line in (result.stdout + result.stderr).splitlines() if "artifact.read.completed" in line]
+    assert len(lines) == 1 and "private-content-must-not-appear" not in lines[0]
+    if log_format == "json":
+        value = json.loads(lines[0])
+        assert value["family"] == "profile" and value["read_outcome"] == "not_modified"
+        assert value["duration_ms"] == 1.25
+    else:
+        assert 'family="profile"' in lines[0]
+        assert 'read_outcome="not_modified"' in lines[0]
 
 
 @pytest.mark.parametrize(
@@ -420,6 +535,8 @@ logging.getLogger("powercontext.builtin.runtime.artifact_processing").warning(
         "error_code": "window_attempt_limit", "binding": "topic-memory-source-window",
         "family": "topic-memory", "scope": "scope-a\\nforged log",
         "source_after": 0, "source_through": 1, "attempts": 3, "requests": 9, "tokens": 1000,
+        "last_error_code": "probe_unavailable", "last_error_stage": "worker",
+        "last_error_worker_id": "worker-1", "last_error_trace_id": "a" * 32,
         "retry_delay_seconds": 300, "source_body": "private source sentinel",
         "traceback": "private traceback sentinel",
     },
@@ -478,12 +595,18 @@ def test_configured_logging_preserves_processing_diagnostics_without_private_ext
         else:
             assert "source_through" not in payload
         assert (payload["requests"], payload["tokens"], payload["retry_delay_seconds"]) == (9, 1000, 300)
+        assert payload["last_error_code"] == "probe_unavailable"
+        assert payload["last_error_stage"] == "worker"
+        assert payload["last_error_worker_id"] == "worker-1"
+        assert payload["last_error_trace_id"] == "a" * 32
     else:
         assert 'error_code="window_attempt_limit"' in rendered
         assert 'stage="topic_memory"' in rendered and 'family="topic-memory"' in rendered
         assert 'scope="scope-a\\nforged log"' in rendered
         assert "source_after=0" in rendered and "attempts=3" in rendered
         assert ("source_through=1" in rendered) is range_known
+        assert 'last_error_code="probe_unavailable"' in rendered
+        assert 'last_error_trace_id="' + "a" * 32 + '"' in rendered
 
 
 def test_json_formatter_emits_stable_operational_fields() -> None:

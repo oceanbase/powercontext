@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
+from powercontext.builtin.inference.observability import ProviderObservationReport
 from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
 from powercontext.builtin.processing_diagnostics import ProcessingDiagnostics
 
@@ -103,6 +104,7 @@ class ArtifactProcessingWorkerFailure:
     cancelled: bool = False
     model_usage: ArtifactProcessingModelUsageDelta | None = None
     diagnostics: ProcessingDiagnostics | None = None
+    provider_observations: ProviderObservationReport | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +116,7 @@ class ArtifactProcessingWorkerCompletion:
     hold_codes: tuple[str, ...] = ()
     model_usage: ArtifactProcessingModelUsageDelta | None = None
     noop: bool = False
+    provider_observations: ProviderObservationReport | None = None
 
 
 class ArtifactProcessingWorkerHandle(Protocol):
@@ -146,19 +149,23 @@ class WorkerInitializerPreparation(Protocol):
 def processing_error_code(exception_type: type[BaseException] | str, error_code: str = "") -> str:
     """Expose only known categories, never exception messages or custom codes."""
 
-    inference_codes = {
+    known_codes = {
         "InferenceConfigurationError": "model_configuration_error",
         "PydanticAIConfigurationError": "model_configuration_error",
         "InferenceTimeoutError": "model_timeout",
         "InferenceUnavailableError": "model_unavailable",
         "InvalidInferenceOutputError": "invalid_model_output",
+        "AccessDeniedError": "access_denied",
+        "AccessIdentityRequiredError": "access_identity_required",
+        "AccessUnavailableError": "access_unavailable",
+        "TimeoutError": "worker_timeout",
     }
     names = (exception_type,) if isinstance(exception_type, str) else (base.__name__ for base in exception_type.__mro__)
     for name in names:
-        if name in inference_codes:
-            return inference_codes[name]
+        if name in known_codes:
+            return known_codes[name]
     if error_code in {
-        *inference_codes.values(),
+        *known_codes.values(),
         "worker_crash",
         "invalid_worker_result",
         "missing_durable_acknowledgement",

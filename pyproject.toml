@@ -40,7 +40,7 @@ classifiers = [
 
 [project.optional-dependencies]
 code = [
-    "psutil>=7.2,<8; sys_platform == 'darwin'",
+    "psutil>=7.2,<8",
     "tree-sitter==0.26.0",
     "tree-sitter-go==0.25.0",
     "tree-sitter-javascript==0.25.0",
@@ -122,6 +122,7 @@ powercontext-ops = "powercontext.ops.__main__:main"
 code = "powercontext.builtin.code.cli:app"
 config = "powercontext.cli.config:app"
 doctor = "powercontext.cli.system:doctor_app"
+observability = "powercontext.observability.cli:app"
 service = "powercontext.service.cli:app"
 server = "powercontext.server.cli:app"
 setup = "powercontext.cli.system:setup_app"
@@ -208,6 +209,10 @@ source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/powercontext", "src/powercontext_service_bootstrap"]
+
+[tool.hatch.build.targets.sdist]
+# Runtime templates live under src; deployment state and checkout-local credentials must never ship.
+only-include = ["src", "pyproject.toml", "README.md", "LICENSE", "LICENSES"]
 
 [tool.ty.environment]
 python = "./.venv"

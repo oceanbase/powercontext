@@ -1,0 +1,120 @@
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol/offsets
+    create_directory: true
+  health_check:
+    endpoint: 0.0.0.0:13133
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        max_request_body_size: 4194304
+  filelog:
+    include:
+    - /logs/*.jsonl*
+    - /logs/*/*.jsonl*
+    start_at: beginning
+    storage: file_storage
+    poll_interval: 1s
+    max_log_size: 64KiB
+    operators:
+    - type: json_parser
+      parse_to: body
+      on_error: drop
+      timestamp:
+        parse_from: body.timestamp
+        layout_type: gotime
+        layout: 2006-01-02T15:04:05.999999999Z07:00
+      severity:
+        parse_from: body.level
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  transform/logs:
+    error_mode: ignore
+    log_statements:
+    - context: log
+      statements:
+      - keep_keys(body, ["event", "operation", "unit", "outcome", "duration_ms", "error_code",
+        "error_category", "trace_id", "span_id", "request_id", "service_name", "service_version", "service_role",
+        "service_instance_id", "service_target", "service_owner_role", "worker_id", "family", "scope", "transport", "status_code",
+        "provider", "model_capability", "provider_retry", "provider_error_code", "retrieval_family", "retrieval_outcome", "read_outcome",
+        "result_count", "stage", "queue_wait_ms", "request_generation", "binding", "supervisor_group", "supervisor_generation",
+        "source_after", "source_through", "attempts", "requests", "tokens",
+        "last_error_code", "last_error_stage", "last_error_at", "last_error_worker_id", "last_error_trace_id"])
+      - set(resource.attributes["service.name"], "powercontext-server")
+      - set(resource.attributes["service.name"], body["service_name"]) where body["service_name"]
+        != nil
+      - set(resource.attributes["powercontext.service.role"], body["service_role"])
+        where body["service_role"] != nil
+      - delete_key(attributes, "log.file.name")
+      - delete_key(attributes, "log.file.path")
+  batch:
+    timeout: 1s
+    send_batch_size: 256
+    send_batch_max_size: 512
+exporters:
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
+    timeout: 3s
+    sending_queue:
+      queue_size: 128
+      num_consumers: 2
+    retry_on_failure:
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 30s
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    timeout: 3s
+    sending_queue:
+      queue_size: 128
+      num_consumers: 2
+    retry_on_failure:
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 30s
+  otlphttp/phoenix:
+    endpoint: http://phoenix:6006
+    timeout: 3s
+    sending_queue:
+      queue_size: 128
+      num_consumers: 2
+    retry_on_failure:
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 30s
+service:
+  extensions:
+  - file_storage
+  - health_check
+  telemetry:
+    metrics:
+      readers:
+      - pull:
+          exporter:
+            prometheus:
+              host: 0.0.0.0
+              port: 8888
+  pipelines:
+    traces:
+      receivers:
+      - otlp
+      processors:
+      - memory_limiter
+      - batch
+      exporters:
+      - otlphttp/tempo
+      - otlphttp/phoenix
+    logs:
+      receivers:
+      - otlp
+      processors:
+      - memory_limiter
+      - transform/logs
+      - batch
+      exporters:
+      - otlphttp/loki

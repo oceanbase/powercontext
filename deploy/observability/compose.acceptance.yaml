@@ -1,0 +1,8 @@
+services:
+  prometheus:
+    command:
+    - --config.file=/etc/prometheus/acceptance-prometheus.yaml
+    - --storage.tsdb.path=/prometheus
+    - --storage.tsdb.retention.time=7d
+    - --storage.tsdb.retention.size=1GB
+    - --enable-feature=exemplar-storage

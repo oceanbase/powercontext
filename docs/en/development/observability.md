@@ -81,6 +81,11 @@ See [Processing failure diagnostics](processing-failures.md) for the shared fail
 per-Family coverage matrix.
 
 Service identity comes from `src/powercontext/server/telemetry.py`; logs and traces use the same resource identity.
+The optional `service_target` / `powercontext.service.target` is the configured scrape endpoint, not a process ID.
+API/background profiles select the owning endpoint; Server-created workers inherit it explicitly. Preserve this
+mapping when adding a launcher. Credentials and URL paths are rejected, and an unknown target remains absent.
+Workers also inherit `service_owner_role` / `powercontext.service.owner_role` for parent-role filtering;
+their actual `service_role` remains `worker`. These roles do not add execution identities to metrics.
 Error classification comes from `powercontext._logging.error_category`, with domain-owned categories such as `blocked`
 set at their owning boundary. Do not create independent vocabularies in each adapter.
 

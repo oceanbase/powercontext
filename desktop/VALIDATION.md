@@ -1899,3 +1899,24 @@ retained the 180-second fixture startup allowance; protocol assertions and produ
 were unchanged. This qualifies SQLite protocol behavior for this snapshot and wheel, not
 Windows/macOS execution, native credential persistence, installed UI or release readiness.
 Historical qualification records retain their identities and evidence.
+
+## Managed observability protocol qualification
+
+`sqlite-observability-9f279e4e-v1` qualifies the eleven declared Desktop protocol operations
+against Server runtime sources at `9f279e4ee8b83894ac86dea49e9c1daeffc1c563`.
+
+OpenAPI SHA-256: `44194cfe8ab1516f87831d6f1290c74b2bb9fae84dfee42705e86adbc3cf98cd`.
+Wheel: `powercontext-1.4.2.dev123+g9f279e4ee-py3-none-any.whl`.
+Wheel SHA-256: `f29f48354a64ffaacc1c55bb7e462c0530dd08860c6e9b949504af20f3bcab71`.
+
+On 2026-11-02, macOS 26.5.2 arm64, Python 3.14.7 and Rust 1.95.0 passed all four
+built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous loopback, Bearer,
+HTTPS with an explicit CA/base path, and injected-provider/enforced access. The native
+`server_probe` was built from the current product sources and generated contract.
+The probe verified server identity, save/search/exact reads, Scope selection, lost write
+responses without replay, identity changes, revocation, and Server survival after client exit.
+
+The packaged runtime files match the recorded source bytes. Local evidence is retained under
+ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
+This record covers local SQLite protocol behavior; installed UI, native credentials,
+Windows, and external production systems require their own validation.
