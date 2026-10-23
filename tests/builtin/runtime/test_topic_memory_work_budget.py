@@ -43,6 +43,11 @@ from powercontext.builtin.persistence.topic_memory_budget import (
     MAX_TOPIC_MEMORY_WORK_REQUESTS,
     MAX_TOPIC_MEMORY_WORK_TOKENS,
 )
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
+)
 from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingWorkerOutcome
 from powercontext.builtin.runtime.composition import (
     BuiltinConfigurationError,
@@ -217,8 +222,21 @@ def test_fast_provider_stops_before_cumulative_request_or_token_ceiling(ceiling,
             reserve = 8_000_000 if ceiling == "tokens" else limit // 4
             capacity = limit + reserve
             processor = _processor(profile, sources, topics, fake, limit=limit, requests=requests, reserve=reserve)
-            with pytest.raises(TopicMemoryGenerationError, match="window_provider_budget_exceeded"):
+            with pytest.raises(TopicMemoryGenerationError, match="window_provider_budget_exceeded") as raised:
                 await processor.process(assignment)
+
+            diagnostics = classify_processing_error(raised.value)
+            assert diagnostics is not None
+            assert diagnostics.stage is ProcessingStage.GENERATION
+            assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+            assert diagnostics.failure_location == "window_provider_budget_exceeded"
+            if ceiling == "requests":
+                # The request ceiling stopped the window; the token budget did not.
+                assert diagnostics.estimated_input_tokens is None
+                assert diagnostics.effective_budget is None
+            else:
+                assert diagnostics.estimated_input_tokens is not None
+                assert diagnostics.effective_budget == MAX_TOPIC_MEMORY_WORK_TOKENS
             before = await _row(profile)
             assert before["failure_code"] == "window_provider_budget_exceeded"
             assert before["requests"] == fake.calls * requests <= MAX_TOPIC_MEMORY_WORK_REQUESTS

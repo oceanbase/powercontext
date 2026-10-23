@@ -108,6 +108,12 @@ from powercontext.builtin.persistence.topic_memory_budget import (
     TopicMemoryWorkBudget,
     require_topic_memory_work_available,
 )
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkAssignment,
@@ -584,7 +590,7 @@ class TopicMemoryProcessor:
     async def _reserve_stage(self, value: BaseModel, stage: str) -> None:
         self._used_stages.add(stage)
         if not self._stages.fits(value, stage):
-            raise TopicMemoryGenerationError("input_budget_exceeded")
+            raise self._input_budget_error(value, stage, input_item_count=_topic_memory_item_count(value))
         # Reserve every structured retry's entire input + output/transcript
         # capacity, even if the provider returns no usage or fails mid-call.
         reserve = self._stages.transcript_reserve
@@ -593,6 +599,41 @@ class TopicMemoryProcessor:
         )
         await self._reserve(requests=self._stages.max_requests, tokens=self._stages.max_requests * capacity)
 
+    def _estimate_stage_input(self, value: BaseModel, stage: str) -> int:
+        fixed = self._stages.fixed_prompts.get(stage, stage)
+        return self._stages.estimator.estimate(f"{fixed}\n{value.model_dump_json(exclude_none=False)}")
+
+    def _token_estimator_id(self) -> str | None:
+        try:
+            return self._stages.estimator.profile.estimator_id
+        except Exception:
+            return None
+
+    def _input_budget_error(
+        self,
+        value: BaseModel,
+        stage: str,
+        *,
+        input_item_count: int | None = None,
+        code: str = "input_budget_exceeded",
+    ) -> TopicMemoryGenerationError:
+        try:
+            estimate = self._estimate_stage_input(value, stage)
+        except Exception:
+            estimate = None
+        return attach_diagnostics(
+            TopicMemoryGenerationError(code),
+            ProcessingDiagnostics(
+                stage=ProcessingStage.BUSINESS_VALIDATION,
+                reason=ProcessingFailureReason.CONTEXT_OVERFLOW,
+                input_item_count=input_item_count,
+                estimated_input_tokens=estimate,
+                token_estimator_id=self._token_estimator_id(),
+                effective_budget=self._stages.input_tokens_limit,
+                failure_location=stage,
+            ),
+        )
+
     async def _reserve(self, *, requests: int, tokens: int) -> None:
         budget = self._work_budget.get()
         if budget is not None:
@@ -600,18 +641,34 @@ class TopicMemoryProcessor:
             return
         # Private stage helpers also have a finite allowance when used alone.
         # The public process entrypoint ALWAYS uses the durable reservation.
-        if (
-            self._local_requests + requests > MAX_TOPIC_MEMORY_WORK_REQUESTS
-            or self._local_tokens + tokens > MAX_TOPIC_MEMORY_WORK_TOKENS
-        ):
-            raise TopicMemoryGenerationError("window_provider_budget_exceeded")
-        self._local_requests += requests
-        self._local_tokens += tokens
+        requests_after = self._local_requests + requests
+        tokens_after = self._local_tokens + tokens
+        if requests_after > MAX_TOPIC_MEMORY_WORK_REQUESTS or tokens_after > MAX_TOPIC_MEMORY_WORK_TOKENS:
+            token_ceiling = requests_after <= MAX_TOPIC_MEMORY_WORK_REQUESTS
+            raise attach_diagnostics(
+                TopicMemoryGenerationError("window_provider_budget_exceeded"),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.GENERATION,
+                    reason=ProcessingFailureReason.USAGE_LIMIT,
+                    estimated_input_tokens=tokens_after if token_ceiling else None,
+                    effective_budget=MAX_TOPIC_MEMORY_WORK_TOKENS if token_ceiling else None,
+                    failure_location="window_provider_budget_exceeded",
+                ),
+            )
+        self._local_requests = requests_after
+        self._local_tokens = tokens_after
 
     async def _embed(self, texts: tuple[str, ...]):
         model = self._embedding_model
         if model is None:
-            raise TopicMemoryGenerationError("embedding_unavailable")
+            raise attach_diagnostics(
+                TopicMemoryGenerationError("embedding_unavailable"),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.EMBEDDING,
+                    reason=ProcessingFailureReason.CONFIGURATION,
+                    failure_location="topic-memory-embed",
+                ),
+            )
         cached = self._document_vectors.get()
         if cached is None:
             cached = {}
@@ -624,13 +681,27 @@ class TopicMemoryProcessor:
             )
             result = await model.embed(pending)
             if len(result.vectors) != len(pending):
-                raise InvalidInferenceOutputError("topic-memory.index", "requires one vector per input")
+                raise attach_diagnostics(
+                    InvalidInferenceOutputError("topic-memory.index", "requires one vector per input"),
+                    ProcessingDiagnostics(
+                        stage=ProcessingStage.EMBEDDING,
+                        reason=ProcessingFailureReason.INVALID_OUTPUT,
+                        failure_location="topic-memory-index",
+                    ),
+                )
             cached.update(((profile, text), vector) for text, vector in zip(pending, result.vectors, strict=True))
         return EmbeddingResult(vectors=tuple(cached[profile, text] for text in texts))
 
     async def _embed_query(self, texts: tuple[str, ...]):
         if self._embedding_model is None:
-            raise TopicMemoryGenerationError("embedding_unavailable")
+            raise attach_diagnostics(
+                TopicMemoryGenerationError("embedding_unavailable"),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.EMBEDDING,
+                    reason=ProcessingFailureReason.CONFIGURATION,
+                    failure_location="topic-memory-embed-query",
+                ),
+            )
         # At most one provider request per text (the adapter may batch them).
         await self._reserve(
             requests=max(1, len(texts)), tokens=max(1, sum(self._stages.estimator.estimate(text) for text in texts))
@@ -705,6 +776,21 @@ class TopicMemoryProcessor:
             max_result_tokens=max(1, self._stages.input_tokens_limit // 8),
         )
 
+    def _reduction_input_error(
+        self, items: Sequence[TopicMemoryProbe | TopicMemoryProposal], *, temporary: bool
+    ) -> TopicMemoryGenerationError:
+        if self._stages.reducer is None:
+            return attach_diagnostics(
+                TopicMemoryGenerationError("reduction_input_budget_exceeded"),
+                ProcessingDiagnostics(reason=ProcessingFailureReason.CONFIGURATION, failure_location="reduce"),
+            )
+        return self._input_budget_error(
+            self._reduction_input(items[:1], temporary=temporary),
+            "reduce",
+            input_item_count=1,
+            code="reduction_input_budget_exceeded",
+        )
+
     async def _compact_intermediates(
         self,
         values: Sequence[TopicMemoryProbe | TopicMemoryProposal],
@@ -738,7 +824,7 @@ class TopicMemoryProcessor:
             while size and not self._stages.fits(self._reduction_input(items[:size], temporary=temporary), "reduce"):
                 size -= 1
             if not size or self._stages.reducer is None:
-                raise TopicMemoryGenerationError("reduction_input_budget_exceeded")
+                raise self._reduction_input_error(items, temporary=temporary)
             request = self._reduction_input(items[:size], temporary=temporary)
             with self._usage(ModelUsagePurpose.TOPIC_MEMORY_GENERATION):
                 output = (await self._stages.reducer.generate(request)).output
@@ -755,7 +841,17 @@ class TopicMemoryProcessor:
                 raise TopicMemoryGenerationError("invalid_reduction")
             result_tokens = self._stages.estimator.estimate(result.model_dump_json())
             if result_tokens > request.max_result_tokens:
-                raise TopicMemoryGenerationError("reduction_output_budget_exceeded")
+                raise attach_diagnostics(
+                    TopicMemoryGenerationError("reduction_output_budget_exceeded"),
+                    ProcessingDiagnostics(
+                        stage=ProcessingStage.GENERATION,
+                        reason=ProcessingFailureReason.USAGE_LIMIT,
+                        input_item_count=len(items[:size]),
+                        token_estimator_id=self._token_estimator_id(),
+                        effective_budget=request.max_result_tokens,
+                        failure_location="reduce",
+                    ),
+                )
             if size == 1 and result_tokens >= self._stages.estimator.estimate(items[0].model_dump_json()):
                 raise TopicMemoryGenerationError("reduction_did_not_progress")
             items[:size] = [result]
@@ -809,7 +905,12 @@ class TopicMemoryProcessor:
                     break
                 size //= 2
             else:
-                raise TopicMemoryGenerationError("input_budget_exceeded")
+                value = (
+                    TopicMemoryProbeInput(evidence=(item,))
+                    if stage == "probe"
+                    else TopicMemoryTemporaryInput(work_id="work-batch", evidence=(item,))
+                )
+                raise self._input_budget_error(value, stage, input_item_count=1)
 
     def _evidence_batch_fits(
         self,
@@ -1024,7 +1125,11 @@ class TopicMemoryProcessor:
                     historical=historical,
                 )
                 if not self._stages.fits(flattened, "evolve"):
-                    raise TopicMemoryGenerationError("input_budget_exceeded")
+                    raise self._input_budget_error(
+                        flattened,
+                        "evolve",
+                        input_item_count=len(temporary) + (1 if historical is not None else 0),
+                    )
                 with self._usage(ModelUsagePurpose.TOPIC_MEMORY_GENERATION):
                     proposal = (await self._stages.evolver.generate(flattened)).output.proposal
             if proposal is not None:
@@ -1122,7 +1227,7 @@ class TopicMemoryProcessor:
                 ),
             )
             if not self._stages.fits(reconcile_input, "reconcile"):
-                raise TopicMemoryGenerationError("input_budget_exceeded")
+                raise self._input_budget_error(reconcile_input, "reconcile", input_item_count=len(members))
             known_ids.add(reconcile_input.component_id)
             with self._usage(ModelUsagePurpose.TOPIC_MEMORY_GENERATION):
                 reconciled = (await self._stages.reconciler.generate(reconcile_input)).output.proposals
@@ -1944,6 +2049,14 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             # A completed window leaves its own usage readable, matching the
             # family worker's completion boundary.
             await contexts.flush_model_usage()
+
+
+def _topic_memory_item_count(value: BaseModel) -> int | None:
+    for name in ("evidence", "items", "proposals", "candidates", "temporary"):
+        items = getattr(value, name, None)
+        if isinstance(items, (tuple, list)):
+            return len(items)
+    return None
 
 
 __all__ = [

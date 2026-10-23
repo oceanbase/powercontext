@@ -150,11 +150,91 @@ def diagnostics_of(error: BaseException) -> ProcessingDiagnostics | None:
     return value if isinstance(value, ProcessingDiagnostics) else None
 
 
+def _topic_memory_diagnostics(code: str) -> ProcessingDiagnostics | None:
+    """Classify the bounded Topic Memory generation rejection vocabulary."""
+
+    value = code.lower()
+    if value == "embedding_unavailable":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.EMBEDDING,
+            reason=ProcessingFailureReason.CONFIGURATION,
+            failure_location=value,
+        )
+    if value in {"input_budget_exceeded", "reduction_input_budget_exceeded"}:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.CONTEXT_OVERFLOW,
+            failure_location=value,
+        )
+    if value in {"window_provider_budget_exceeded", "window_attempt_limit"}:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.GENERATION,
+            reason=ProcessingFailureReason.USAGE_LIMIT,
+            failure_location=value,
+        )
+    if value == "reduction_output_budget_exceeded":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.GENERATION,
+            reason=ProcessingFailureReason.USAGE_LIMIT,
+            failure_location=value,
+        )
+    if value in {"output_budget_exceeded", "invalid_stage_budget", "invalid_max_tokens"}:
+        return ProcessingDiagnostics(reason=ProcessingFailureReason.CONFIGURATION, failure_location=value)
+    if value in {
+        "source_window_changed",
+        "invalid_window",
+        "duplicate_operation",
+        "window_attempt_superseded",
+        "target_did_not_converge",
+        "unaccepted_invocation",
+        "invalid_invocation",
+        "invalid_work_reservation",
+    }:
+        # Control-flow and concurrency rejections do not belong to a processing stage.
+        return ProcessingDiagnostics(failure_location=value)
+    if value in {"source_complexity_limit", "related_history_limit"}:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.CONTEXT_OVERFLOW,
+            failure_location=value,
+        )
+    if value == "incomplete_target":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.PERSISTENCE,
+            reason=ProcessingFailureReason.STORAGE_FAILURE,
+            failure_location=value,
+        )
+    if value.startswith("invalid_") or value in {
+        "unsupported_evidence",
+        "reduction_did_not_progress",
+        "duplicate_target",
+        "identity_merge",
+        "proposal_limit",
+    }:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    return None
+
+
 def safe_classify_processing_error(error: BaseException) -> ProcessingDiagnostics | None:
     """Never let classification itself change a processing outcome."""
 
     try:
         return classify_processing_error(error)
+    except Exception:
+        return None
+
+
+def classify_block_code(stage: str | None, code: str | None) -> ProcessingDiagnostics | None:
+    """Classify a durable block that was observed without a Worker failure."""
+
+    if not isinstance(code, str) or not code:
+        return None
+    try:
+        return _topic_memory_diagnostics(code) if stage == "topic_memory" else None
     except Exception:
         return None
 
@@ -275,6 +355,49 @@ def classify_processing_error(error: BaseException) -> ProcessingDiagnostics | N
         if code == "publication":
             return ProcessingDiagnostics(reason=ProcessingFailureReason.CONFIGURATION)
         return None
+    if "TopicMemoryGenerationError" in names:
+        return _topic_memory_diagnostics(str(getattr(error, "code", "") or ""))
+    if "TopicMemoryProjectionError" in names:
+        code = str(getattr(error, "code", "") or "").lower()
+        if code in {"content", "chunks", "lexical"}:
+            return ProcessingDiagnostics(
+                stage=ProcessingStage.BUSINESS_VALIDATION,
+                reason=ProcessingFailureReason.INVALID_OUTPUT,
+                failure_location=code,
+            )
+        if code in {"vector-unconfigured", "embedding-profile"}:
+            return ProcessingDiagnostics(
+                stage=ProcessingStage.PERSISTENCE,
+                reason=ProcessingFailureReason.CONFIGURATION,
+                failure_location=code,
+            )
+        if code == "embedding-values":
+            return ProcessingDiagnostics(
+                stage=ProcessingStage.EMBEDDING,
+                reason=ProcessingFailureReason.INVALID_OUTPUT,
+                failure_location=code,
+            )
+        if code in {"fts", "vector-incomplete"}:
+            return ProcessingDiagnostics(
+                stage=ProcessingStage.PERSISTENCE,
+                reason=ProcessingFailureReason.STORAGE_FAILURE,
+                failure_location=code,
+            )
+        return ProcessingDiagnostics(stage=ProcessingStage.PERSISTENCE, failure_location=code)
+    if "TopicMemoryStorageInvariantError" in names:
+        code = str(getattr(error, "code", "") or "").lower()
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.PERSISTENCE,
+            reason=ProcessingFailureReason.STORAGE_FAILURE,
+            failure_location=code or None,
+        )
+    if "TopicMemoryCapabilityError" in names:
+        capability = str(getattr(error, "capability", "") or "").lower()
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.PERSISTENCE,
+            reason=ProcessingFailureReason.CONFIGURATION,
+            failure_location=capability or None,
+        )
     return None
 
 
@@ -283,6 +406,7 @@ __all__ = [
     "ProcessingFailureReason",
     "ProcessingStage",
     "attach_diagnostics",
+    "classify_block_code",
     "classify_processing_error",
     "diagnostics_of",
     "safe_classify_processing_error",

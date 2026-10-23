@@ -13,7 +13,7 @@ telemetry 系统。
 | `processing_stage` | 失败所属的处理阶段 | `generation`、`embedding`、`output_parsing`、`business_validation`、`persistence`、`usage_accounting`（预留给账务上报或持久化） |
 | `failure_reason` | 有证据支持时才给出的有界原因 | `context_overflow`、`output_truncated`、`rate_limit`、`timeout`、`schema_invalid`、`provider_unavailable`、`configuration`、`invalid_output`、`storage_failure`、`usage_limit` |
 | `input_item_count` | 失败调用涉及的输入条目数 | 非负整数 |
-| `estimated_input_tokens` | 估算的输入 token 数 | 非负整数 |
+| `estimated_input_tokens` | 估算的输入 token 数；window token 上限触发时为已计费或已预留的 token 数 | 非负整数 |
 | `token_estimator_id` | 产生估算值的估算器标识 | 有界字符串 |
 | `effective_budget` | 本次调用生效的预算 | 非负整数 |
 | `provider_request_id` | provider 返回的请求标识 | 有界字符串 |
@@ -41,14 +41,14 @@ Worker/supervisor 值（`worker_process`、`work_admission`、`supervisor`、`le
 | Family | Generation | Embedding | Output parsing | Business validation | Persistence | Usage accounting |
 |---|---|---|---|---|---|---|
 | Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
-| Topic Memory | Partial | Partial | Partial | Missing | Missing | Missing |
+| Topic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
 | Experience | Partial | N/A | Partial | Missing | Missing | Missing |
 | Profile | Partial | N/A | Partial | Missing | Missing | Missing |
 | Skill | Partial | N/A | Partial | Missing | Missing | Missing |
 | Handoff | Partial | N/A | Partial | Missing | Missing | Missing |
 | Prompt | Partial | N/A | Partial | Missing | Missing | Missing |
 
-Memory / Atomic Memory 作为当前切片，按 operation 粒度跟踪：
+Memory / Atomic Memory 与 Topic Memory 作为当前切片，按 operation 粒度跟踪：
 
 | Operation | Stage | 状态 | 说明 |
 |---|---|---|---|
@@ -62,14 +62,25 @@ Memory / Atomic Memory 作为当前切片，按 operation 粒度跟踪：
 | Publish / index | Persistence | Partial | `AtomicMemoryIndexError` 的 code 已映射；其他存储失败保持 unknown。 |
 | Usage accounting | Usage accounting | Missing | 尚未分类账务上报与持久化失败；推理用量限制归入其来源阶段（generation，或 embedding adapter 上报时归入 embedding）。 |
 
-第一个落地切片覆盖 Memory / Atomic Memory：provider 失败、预算耗尽、提取/对账校验均有分类，安全计数字段
-可从子 Worker 传播到 supervisor 日志。其他 Family 在各自切片落地前保持现有行为；每次切片在同一变更中更新
-本矩阵。
+Topic Memory 的 operation 级覆盖：
+
+| Operation | Stage | 状态 | 说明 |
+|---|---|---|---|
+| `topic-memory` 各阶段（`probe`、`global`、`planner`、`evolve`、`temporary`、`reconcile`） | Generation | Partial | provider timeout、不可用、限流、配置错误已分类；仅 adapter 暴露 finish reason 时可见。 |
+| `topic-memory` 各阶段 | Output parsing | Partial | provider schema 失败走共享映射；语义拒绝归为 business validation。 |
+| `topic-memory` 各阶段 | Business validation | Covered | 每个 `TopicMemoryGenerationError` code 都有有界诊断：领域/模型拒绝携带 stage，并在有证据时给出 reason；控制流拒绝只携带 `failure_location`。输入预算失败携带输入计数、token 估算、estimator 标识和生效预算；window token 上限触发时携带已计费 token 与上限，attempt/request 上限通过 block details 报告。 |
+| `topic-memory.index` 与查询嵌入 | Embedding | Covered | 缺少 embedding adapter、向量数量错误均已分类。 |
+| Publish / persistence | Persistence | Partial | 投影内容规则归业务校验；发布与存储不变量失败归 `persistence` / `storage_failure`；不支持的能力归 `configuration`；publisher 冲突保留既有领域结果，其他存储失败保持 unknown。 |
+| Usage accounting | Usage accounting | Missing | window provider budget 归为 `generation` / `usage_limit`；账务失败未分类。 |
+
+前两个落地切片覆盖 Memory / Atomic Memory 与 Topic Memory：provider 失败、预算耗尽、提取/对账/领域校验
+均有分类，安全计数字段可从子 Worker 传播到 supervisor 日志。其他 Family 在各自切片落地前保持现有行为；
+每次切片在同一变更中更新本矩阵。
 
 ## 落地顺序
 
-1. 共享诊断契约、日志白名单字段、Worker 传播，以及 Memory / Atomic Memory 切片（本次变更）。
-2. Topic Memory：标注分阶段生成、索引/嵌入与持久化失败。
+1. 共享诊断契约、日志白名单字段、Worker 传播，以及 Memory / Atomic Memory 切片。
+2. Topic Memory：标注分阶段生成、索引/嵌入与持久化失败（本次变更）。
 3. Experience、Profile、Skill：标注生成输出校验与持久化入口。
 4. Handoff、Prompt：标注生成与发布失败，再补 usage accounting 分类并补全矩阵。
 
