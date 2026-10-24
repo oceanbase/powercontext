@@ -17,11 +17,12 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, RootModel
 from sqlalchemy import case, insert, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
@@ -95,20 +96,48 @@ class CandidateRepository:
             target=target,
             reason=reason,
         )
-        existing = await self._find_head(connection, scope_id, candidate_id)
-        if existing is not None:
-            raise CandidateConflictError(candidate_id, 1, int(existing["version"]))
-        await self._insert_version(connection, scope_id, candidate)
-        await connection.execute(
-            insert(CANDIDATE_HEADS_TABLE).values(
-                scope_id=scope_id,
-                candidate_id=candidate_id,
-                family=family,
-                version=1,
-                status=CandidateStatus.PENDING.value,
-            )
-        )
-        return candidate
+        return (await self.create_many(connection, scope_id, (candidate,)))[0]
+
+    async def create_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        candidates: Sequence[Candidate[Any]],
+        /,
+    ) -> tuple[Candidate[Any], ...]:
+        """Persist independent pending proposals from one operation by table."""
+
+        _require_scope(scope_id)
+        if not candidates:
+            return ()
+        versions = []
+        heads = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            self._require_proposal(candidate.family, candidate.proposal)
+            if candidate.version != 1 or candidate.status is not CandidateStatus.PENDING:
+                raise InvalidCandidateError("candidate", "bulk creation requires pending first versions")
+            if candidate.candidate_id in seen:
+                raise CandidateConflictError(candidate.candidate_id, 1, 1)
+            seen.add(candidate.candidate_id)
+            versions.append(self._version_row(scope_id, candidate))
+            heads.append({
+                "scope_id": scope_id,
+                "candidate_id": candidate.candidate_id,
+                "family": candidate.family,
+                "version": 1,
+                "status": CandidateStatus.PENDING.value,
+            })
+        try:
+            await connection.execute(insert(CANDIDATE_VERSIONS_TABLE), versions)
+            await connection.execute(insert(CANDIDATE_HEADS_TABLE), heads)
+        except IntegrityError:
+            for candidate in candidates:
+                existing = await self._find_head(connection, scope_id, candidate.candidate_id)
+                if existing is not None:
+                    raise CandidateConflictError(candidate.candidate_id, 1, int(existing["version"])) from None
+            raise
+        return tuple(candidates)
 
     async def get(
         self,
@@ -331,22 +360,24 @@ class CandidateRepository:
         scope_id: str,
         candidate: Candidate[Any],
     ) -> None:
+        await connection.execute(insert(CANDIDATE_VERSIONS_TABLE).values(**self._version_row(scope_id, candidate)))
+
+    @staticmethod
+    def _version_row(scope_id: str, candidate: Candidate[Any]) -> dict[str, Any]:
         target = candidate.target
-        await connection.execute(
-            insert(CANDIDATE_VERSIONS_TABLE).values(
-                scope_id=scope_id,
-                candidate_id=candidate.candidate_id,
-                version=candidate.version,
-                family=candidate.family,
-                proposal=_encode_proposal(candidate),
-                source_refs=dump_model(_SourceRefs(candidate.sources), kind="candidate", name="source-refs"),
-                artifact_refs=dump_model(_ArtifactRefs(candidate.artifacts), kind="candidate", name="artifact-refs"),
-                target_family=None if target is None else target.family,
-                target_artifact_id=None if target is None else target.artifact_id,
-                target_revision=None if target is None else target.revision,
-                reason=candidate.reason,
-            )
-        )
+        return {
+            "scope_id": scope_id,
+            "candidate_id": candidate.candidate_id,
+            "version": candidate.version,
+            "family": candidate.family,
+            "proposal": _encode_proposal(candidate),
+            "source_refs": dump_model(_SourceRefs(candidate.sources), kind="candidate", name="source-refs"),
+            "artifact_refs": dump_model(_ArtifactRefs(candidate.artifacts), kind="candidate", name="artifact-refs"),
+            "target_family": None if target is None else target.family,
+            "target_artifact_id": None if target is None else target.artifact_id,
+            "target_revision": None if target is None else target.revision,
+            "reason": candidate.reason,
+        }
 
     async def _find_head(
         self,

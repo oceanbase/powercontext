@@ -22,6 +22,7 @@ reused. Queue state and retry history are deliberately absent.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import cast
 
@@ -127,15 +128,76 @@ class ArtifactProcessingIntentRepository:
     async def mark_dirty(
         self, connection: AsyncConnection, scope_id: str, binding_name: str, /
     ) -> StoredArtifactProcessingIntent:
-        await self.ensure(connection, scope_id, binding_name)
-        table = ARTIFACT_PROCESSING_INTENTS_TABLE
-        await connection.execute(
-            update(table)
-            .where(table.c.scope_id == scope_id, table.c.binding_name == binding_name)
-            .values(dirty_generation=table.c.dirty_generation + 1)
-        )
+        await self.mark_dirty_many(connection, scope_id, (binding_name,))
         return cast(
             StoredArtifactProcessingIntent, await self.load(connection, scope_id, binding_name, for_update=True)
+        )
+
+    async def mark_dirty_many(
+        self, connection: AsyncConnection, scope_id: str, binding_names: Sequence[str], /, *, increment: int = 1
+    ) -> None:
+        """Advance each distinct binding for one or more committed inputs."""
+
+        names = tuple(dict.fromkeys(binding_names))
+        if not names:
+            return
+        if not isinstance(increment, int) or isinstance(increment, bool) or increment < 1:
+            raise InvalidRepositoryArgumentError("increment", "must be a positive integer")
+        for name in names:
+            _require_key(scope_id, name)
+        table = ARTIFACT_PROCESSING_INTENTS_TABLE
+        existing = set(
+            (
+                await connection.execute(
+                    select(table.c.binding_name).where(table.c.scope_id == scope_id, table.c.binding_name.in_(names))
+                )
+            ).scalars()
+        )
+        if len(existing) != len(names):
+            sequence = ARTIFACT_PROCESSING_SEQUENCES_TABLE
+            if connection.dialect.name == "sqlite":
+                seed = sqlite_insert(sequence).values(singleton=1, sequence=0).on_conflict_do_nothing()
+            elif connection.dialect.name == "mysql":
+                seed = mysql_insert(sequence).values(singleton=1, sequence=0)
+                seed = seed.on_duplicate_key_update(sequence=sequence.c.sequence)
+            else:
+                raise InvalidRepositoryArgumentError("dialect", "processing intents require SQLite or MySQL")
+            await connection.execute(seed)
+            # The global sequence lock also serializes a first registration
+            # in another Scope. Recheck after waiting for that writer.
+            await connection.execute(
+                update(sequence).where(sequence.c.singleton == 1).values(sequence=sequence.c.sequence)
+            )
+            existing = set(
+                (
+                    await connection.execute(
+                        select(table.c.binding_name)
+                        .where(table.c.scope_id == scope_id, table.c.binding_name.in_(names))
+                        .with_for_update()
+                    )
+                ).scalars()
+            )
+            missing = tuple(name for name in names if name not in existing)
+            if missing:
+                await connection.execute(
+                    update(sequence)
+                    .where(sequence.c.singleton == 1)
+                    .values(sequence=sequence.c.sequence + len(missing))
+                )
+                end = int(
+                    cast(int, await connection.scalar(select(sequence.c.sequence).where(sequence.c.singleton == 1)))
+                )
+                await connection.execute(
+                    insert(table),
+                    [
+                        {"binding_name": name, "scope_id": scope_id, "pending_sequence": end - len(missing) + offset}
+                        for offset, name in enumerate(missing, start=1)
+                    ],
+                )
+        await connection.execute(
+            update(table)
+            .where(table.c.scope_id == scope_id, table.c.binding_name.in_(names))
+            .values(dirty_generation=table.c.dirty_generation + increment)
         )
 
     async def request(

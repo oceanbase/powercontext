@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import struct
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import uuid4
 
@@ -341,28 +341,44 @@ class SQLiteTopicMemoryFTSIndex:
         projection: TopicMemoryProjection,
         /,
     ) -> None:
-        identity = {"scope_id": scope_id, "artifact_id": topic_ref.artifact_id}
-        await connection.execute(_DELETE_TOPIC_FTS_SQL, identity)
-        await connection.execute(_DELETE_CHUNK_FTS_SQL, identity)
-        topic_values = {
-            **identity,
-            "revision": topic_ref.revision,
-            "title": projection.content.title,
-            "summary": projection.content.summary,
-            "searchable_text": projection.topic_searchable_text,
-        }
-        await connection.execute(_INSERT_TOPIC_FTS_SQL, topic_values)
-        for chunk in projection.chunks:
-            await connection.execute(
-                _INSERT_CHUNK_FTS_SQL,
+        await self.replace_many(connection, scope_id, ((topic_ref, projection),))
+
+    async def replace_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[ArtifactRef, TopicMemoryProjection]],
+        /,
+    ) -> None:
+        if not items:
+            return
+        identities = [{"scope_id": scope_id, "artifact_id": ref.artifact_id} for ref, _ in items]
+        await connection.execute(_DELETE_TOPIC_FTS_SQL, identities)
+        await connection.execute(_DELETE_CHUNK_FTS_SQL, identities)
+        topics = []
+        chunks = []
+        for (ref, projection), identity in zip(items, identities, strict=True):
+            values = {
+                **identity,
+                "revision": ref.revision,
+                "title": projection.content.title,
+                "summary": projection.content.summary,
+                "searchable_text": projection.topic_searchable_text,
+            }
+            topics.append(values)
+            chunks.extend(
                 {
-                    **topic_values,
+                    **values,
                     "chunk_ordinal": chunk.ordinal,
                     "start_offset": chunk.start_offset,
                     "chunk_text": chunk.text,
                     "searchable_text": analyze_text(chunk.text),
-                },
+                }
+                for chunk in projection.chunks
             )
+        await connection.execute(_INSERT_TOPIC_FTS_SQL, topics)
+        if chunks:
+            await connection.execute(_INSERT_CHUNK_FTS_SQL, chunks)
 
     async def search(
         self,
@@ -561,6 +577,16 @@ class SQLiteTopicMemoryVectorIndex:
                     ),
                 },
             )
+
+    async def replace_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[ArtifactRef, TopicMemoryProjection]],
+        /,
+    ) -> None:
+        for ref, projection in items:
+            await self.replace(connection, scope_id, ref, projection)
 
     async def search(
         self,

@@ -129,7 +129,7 @@ def test_long_fts_query_related_recall_preserves_threshold(migration_backend):
                 "project", tuple({"kind": "fact", "text": body} for body in (ADMITTED, BELOW_THRESHOLD))
             )
             async with contexts.database.transaction() as connection:
-                hits = await contexts.atomic_memory.index.enumerate_related(
+                hits, _ = await contexts.atomic_memory.index.enumerate_related_with_heads(
                     connection, "project", AtomicMemoryRelatedRequest(QUERY, AtomicMemoryIndexFilter())
                 )
             assert [hit.text for hit in hits] == [ADMITTED]

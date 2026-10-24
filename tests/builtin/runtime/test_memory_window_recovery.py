@@ -387,9 +387,6 @@ def test_stale_timeout_cannot_rewind_concurrently_committed_cursor():
 
 
 def test_failed_commit_retains_reduction_until_consumption_succeeds():
-    async def fail_commit(*_args):
-        raise OSError("ownership commit failed")  # noqa: TRY003 - injected transaction failure
-
     async def scenario():
         pipeline = Pipeline()
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
@@ -399,13 +396,18 @@ def test_failed_commit_retains_reduction_until_consumption_succeeds():
             with pytest.raises(InferenceTimeoutError):
                 await context.triggers.flush(limit=100)
             assert (await context.triggers.flush(limit=1)).current_cursor == 1
-            original = contexts.atomic_memory.security.establish_owner
-            contexts.atomic_memory.security.establish_owner = fail_commit
+            async with profile.database.transaction() as connection:
+                await connection.exec_driver_sql(
+                    "CREATE TRIGGER fail_memory_write BEFORE INSERT ON pc_artifacts "
+                    "WHEN NEW.family = 'atomic-memory' "
+                    "BEGIN SELECT RAISE(ABORT, 'commit failed'); END"
+                )
             try:
-                with pytest.raises(OSError, match="ownership commit failed"):
+                with pytest.raises(IntegrityError, match="commit failed"):
                     await contexts.process_memory(scope, 100)
             finally:
-                contexts.atomic_memory.security.establish_owner = original
+                async with profile.database.transaction() as connection:
+                    await connection.exec_driver_sql("DROP TRIGGER fail_memory_write")
             assert (await context.triggers.cursor()).sequence == 1
             await contexts.records.create_source(scope, "content", "New input while retrying")
             # The failed final commit must roll back clearing the reduction too.

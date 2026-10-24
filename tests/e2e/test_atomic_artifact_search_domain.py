@@ -321,7 +321,7 @@ def test_atomic_bounded_public_search_keeps_complete_related_enumeration(tmp_pat
             application = contexts.atomic_memory
             async with application.database.transaction(consistent_snapshot=True) as connection:
                 filters = await application.security.filters(connection, "project", None)
-                complete = await application.index.enumerate_related(
+                complete, _ = await application.index.enumerate_related_with_heads(
                     connection, "project", AtomicMemoryRelatedRequest("alpha", filters)
                 )
             assert {hit.artifact_ref.artifact_id for hit in complete} == {item.artifact_id for item in created}

@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from typing import Any, TypeAlias, cast
 
@@ -30,7 +30,12 @@ from powercontext.builtin.artifacts.atomic_memory.models import (
     AtomicMemoryStateValue,
 )
 from powercontext.builtin.artifacts.atomic_memory.service import AtomicMemoryService
-from powercontext.builtin.artifacts.experience import Experience, ExperienceContent, ExperienceDraft
+from powercontext.builtin.artifacts.experience import (
+    Experience,
+    ExperienceCandidateInput,
+    ExperienceContent,
+    ExperienceDraft,
+)
 from powercontext.builtin.artifacts.experience.recurrence import (
     failure_item_text,
     failure_refs,
@@ -177,6 +182,34 @@ class ReviewService:
         )
         return _experience_candidate(candidate)
 
+    async def propose_experience_batch(
+        self,
+        plans: Sequence[ExperienceCandidateInput],
+        /,
+        *,
+        artifacts: tuple[ArtifactRef, ...] = (),
+    ) -> tuple[Candidate[ExperienceContent], ...]:
+        """Validate one generated window, then publish its independent proposals together."""
+
+        if not plans:
+            return ()
+        candidates = []
+        async with self._connection() as connection:
+            for plan in plans:
+                candidates.append(
+                    await self._prepare_proposal(
+                        connection,
+                        Experience.family,
+                        plan.proposal,
+                        sources=plan.sources,
+                        artifacts=artifacts,
+                        target=None,
+                        reason=plan.reason,
+                    )
+                )
+            stored = await self._candidates.create_many(connection, self._scope_id, candidates)
+        return tuple(_experience_candidate(_reviewed_candidate(candidate)) for candidate in stored)
+
     async def propose_skill(
         self,
         proposal: SkillContent,
@@ -191,9 +224,6 @@ class ReviewService:
     ) -> Candidate[SkillContent]:
         """Persist a human or integration supplied managed Skill proposal."""
 
-        canonical_sources = _unique_sources(sources)
-        canonical_artifacts = _unique_artifacts(artifacts)
-        _validate_reason(reason)
         async with self._connection() as connection:
             proposal = await self._canonical_skill_proposal(connection, proposal)
             if target is not None and candidate_id is not None and candidate_id.startswith("cand_dream_"):
@@ -202,8 +232,8 @@ class ReviewService:
                 connection,
                 Skill.family,
                 proposal,
-                sources=canonical_sources,
-                artifacts=canonical_artifacts,
+                sources=sources,
+                artifacts=artifacts,
                 target=target,
                 reason=reason,
                 candidate_id=candidate_id,
@@ -348,9 +378,38 @@ class ReviewService:
         candidate_id: str | None = None,
         on_commit: CandidateCommitHook | None = None,
     ) -> ReviewedCandidate:
+        candidate = await self._prepare_proposal(
+            connection,
+            family,
+            proposal,
+            sources=sources,
+            artifacts=artifacts,
+            target=target,
+            reason=reason,
+            candidate_id=candidate_id,
+        )
+        candidate = (await self._candidates.create_many(connection, self._scope_id, (candidate,)))[0]
+        if on_commit is not None:
+            await on_commit(connection, candidate)
+        return _reviewed_candidate(candidate)
+
+    async def _prepare_proposal(
+        self,
+        connection: AsyncConnection,
+        family: str,
+        proposal: ReviewedProposal,
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        target: ArtifactRef | None,
+        reason: str | None,
+        candidate_id: str | None = None,
+    ) -> Candidate[Any]:
+        _validate_reason(reason)
+        artifacts = _unique_artifacts(artifacts)
         sources = await self._validate_evidence(
             connection,
-            sources,
+            _unique_sources(sources),
             artifacts,
             proposal=proposal,
             target=target,
@@ -358,20 +417,17 @@ class ReviewService:
         )
         await self._validate_handoff_objective(connection, proposal, target)
         await self._validate_target(connection, family, target, artifacts)
-        candidate = await self._candidates.create(
-            connection,
-            self._scope_id,
-            candidate_id or self._id_factory("candidate"),
-            family,
-            proposal,
+        return Candidate(
+            candidate_id=candidate_id or self._id_factory("candidate"),
+            version=1,
+            family=family,
+            status=CandidateStatus.PENDING,
+            proposal=proposal,
             sources=sources,
             artifacts=artifacts,
             target=target,
             reason=reason,
         )
-        if on_commit is not None:
-            await on_commit(connection, candidate)
-        return _reviewed_candidate(candidate)
 
     async def candidate_page(self, request, *, metadata_only=False, connection=None):
         async with self._database.connection(

@@ -69,6 +69,7 @@ from powercontext.server.authz import (
     AccessAction,
     AccessAuditContext,
     AccessControlService,
+    CandidateOwnerAttestation,
     PrincipalRef,
     ResourceRef,
     access_control_for_mode,
@@ -468,36 +469,44 @@ def _scheduled_access_runners(
 
         async def on_commit(connection, candidates):
             bound = access.with_connection(connection)
-            for candidate in candidates:
-                await bound.attest_candidate_owner(
-                    scope_id=scope_id,
-                    candidate_id=candidate.candidate_id,
-                    family="experience",
-                    proposed_owner=principal,
-                    target=None
-                    if candidate.target is None
-                    else ResourceRef.artifact(
-                        scope_id,
-                        family=candidate.target.family,
-                        artifact_id=candidate.target.artifact_id,
-                    ),
-                    idempotency_key=f"background-candidate-owner:{scope_id}:{candidate.candidate_id}",
+            await bound.attest_candidate_owners(
+                tuple(
+                    CandidateOwnerAttestation(
+                        scope_id=scope_id,
+                        candidate_id=candidate.candidate_id,
+                        family="experience",
+                        proposed_owner=principal,
+                        target=None
+                        if candidate.target is None
+                        else ResourceRef.artifact(
+                            scope_id,
+                            family=candidate.target.family,
+                            artifact_id=candidate.target.artifact_id,
+                        ),
+                        idempotency_key=f"background-candidate-owner:{scope_id}:{candidate.candidate_id}",
+                    )
+                    for candidate in candidates
                 )
+            )
 
         if runtime.owner_write_database is not None and access.supports_write_transaction(
             runtime.owner_write_database.engine
         ):
             return await runtime.experience.for_scope(scope_id).incubate(on_commit=on_commit)
         result = await runtime.experience.for_scope(scope_id).incubate()
-        for candidate_id in result.candidate_ids:
-            await access.attest_candidate_owner(
-                scope_id=scope_id,
-                candidate_id=candidate_id,
-                family="experience",
-                proposed_owner=principal,
-                target=None,
-                idempotency_key=f"background-candidate-owner:{scope_id}:{candidate_id}",
+        await access.attest_candidate_owners(
+            tuple(
+                CandidateOwnerAttestation(
+                    scope_id=scope_id,
+                    candidate_id=candidate_id,
+                    family="experience",
+                    proposed_owner=principal,
+                    target=None,
+                    idempotency_key=f"background-candidate-owner:{scope_id}:{candidate_id}",
+                )
+                for candidate_id in result.candidate_ids
             )
+        )
         return result
 
     return (

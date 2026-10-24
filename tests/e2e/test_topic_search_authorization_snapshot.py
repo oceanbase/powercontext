@@ -136,7 +136,7 @@ async def _isolated_database(backend: str, tmp_path: Path) -> AsyncIterator[Data
     if backend == "seekdb":
         if importlib.util.find_spec("pylibseekdb") is None:
             pytest.skip("install powercontext[seekdb] for the real embedded backend")
-        with TemporaryDirectory(prefix="pc-topic-", dir="/tmp") as directory:
+        with TemporaryDirectory(prefix="pc-topic-", dir="/var/tmp") as directory:
             yield SeekDBConfig(path=Path(directory) / "db")
         return
     configured_url = os.environ.get("POWERCONTEXT_TEST_OCEANBASE_URL")

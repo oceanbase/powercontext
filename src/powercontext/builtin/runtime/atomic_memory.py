@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, replace
 from hashlib import sha256
@@ -83,7 +84,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
 )
 from powercontext.builtin.persistence.atomic_memory_index_schema import ATOMIC_MEMORY_PROJECTION_FORMAT
 from powercontext.builtin.persistence.cursor_codec import SignedCursorCodec
-from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE, AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE, MYSQL_IDENTITY_COLLATION
 from powercontext.builtin.persistence.tags import tag_predicate
@@ -125,6 +126,14 @@ def _log_embedding_fallback(error: Exception) -> None:
 class AtomicMemoryAccess(ArtifactMergeAccess):
     def __init__(self) -> None:
         super().__init__("atomic-memory")
+
+    @override
+    async def authorize_creates(self, connection, scope_id, context, refs) -> None:
+        if type(self) is AtomicMemoryAccess:
+            if refs:
+                await super().authorize(connection, scope_id, context, "create")
+            return
+        await super().authorize_creates(connection, scope_id, context, refs)
 
     @override
     async def authorize(
@@ -313,6 +322,55 @@ class ScopedAtomicMemory:
             return await self.application.service.get(
                 connection, self.scope_id, artifact_id, context, revision=revision
             )
+
+    async def get_many(self, artifact_ids: Sequence[str], *, context=None) -> tuple[AtomicMemoryRecord, ...]:
+        """Read a caller's exact results in one snapshot after checking each resource."""
+
+        if not artifact_ids:
+            return ()
+        async with self._read(context) as connection:
+            identities = tuple(dict.fromkeys(artifact_ids))
+            if context is not None and context.access is not None:
+                from powercontext.server.authz import ResourceRef
+
+                access = context.access.for_read(connection)
+                policy = access.prefetch_point_decisions(
+                    connection,
+                    context.principal,
+                    tuple(
+                        ResourceRef.artifact(self.scope_id, family="atomic-memory", artifact_id=artifact_id)
+                        for artifact_id in identities
+                    ),
+                    context=context.audit,
+                )
+            else:
+                policy = nullcontext()
+            async with policy:
+                for artifact_id in identities:
+                    await self.application.security.authorize(
+                        connection,
+                        self.scope_id,
+                        context,
+                        "read",
+                        ArtifactRef(family="atomic-memory", artifact_id=artifact_id, revision=1),
+                    )
+            rows = []
+            for offset in range(0, len(artifact_ids), SELECTION_BATCH_SIZE):
+                statement = with_artifact_content(
+                    select(ARTIFACT_HEADS_TABLE).where(
+                        ARTIFACT_HEADS_TABLE.c.scope_id == self.scope_id,
+                        ARTIFACT_HEADS_TABLE.c.family == "atomic-memory",
+                        ARTIFACT_HEADS_TABLE.c.artifact_id.in_(artifact_ids[offset : offset + SELECTION_BATCH_SIZE]),
+                    )
+                )
+                rows.extend((await connection.execute(statement)).mappings().all())
+            records = await self.application.service.read_many(connection, self.scope_id, rows)
+        by_id = {record.artifact.artifact_id: record for record in records}
+        if (
+            missing := next((artifact_id for artifact_id in artifact_ids if artifact_id not in by_id), None)
+        ) is not None:
+            raise RepositoryNotFoundError("artifact", (self.scope_id, "atomic-memory", missing))
+        return tuple(by_id[artifact_id] for artifact_id in artifact_ids)
 
     def list_query(
         self,

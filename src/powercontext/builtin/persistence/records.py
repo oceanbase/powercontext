@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import aclosing
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -212,7 +212,7 @@ class RelationalRecordService:
             wire_content=_JSON_VALUE.validate_python(content, strict=True),
             wire_content_present=True,
         )
-        return await self._store_source(scope_id, source_type, source)
+        return (await self._store_sources(scope_id, (source,)))[0]
 
     async def capture_source(
         self,
@@ -236,34 +236,33 @@ class RelationalRecordService:
             )
         except ValidationError as error:
             raise InvalidBaseAccessRequestError("content", "does not match the Source adapter") from error
-        return await self._store_source(
-            scope_id,
-            source_type,
-            (await CONTENT_SOURCE_ADAPTER.resolve(capture)).model_copy(
-                update={"handoff_receipt": handoff_receipt, "working_note": working_note}
-            ),
+        source = (await CONTENT_SOURCE_ADAPTER.resolve(capture)).model_copy(
+            update={"handoff_receipt": handoff_receipt, "working_note": working_note}
         )
+        return (await self._store_sources(scope_id, (source,)))[0]
 
-    async def _store_source(
-        self,
-        scope_id: str,
-        source_type: str,
-        source: ContentSource,
-    ) -> SourceRecord:
+    async def capture_sources(self, scope_id: str, captures: Sequence[ContentCapture], /) -> tuple[SourceRecord, ...]:
+        """Capture one ordered integration batch with a shared journal and pending transition."""
+
+        sources = tuple([await CONTENT_SOURCE_ADAPTER.resolve(capture) for capture in captures])
+        return await self._store_sources(scope_id, sources)
+
+    async def _store_sources(self, scope_id: str, sources: Sequence[ContentSource]) -> tuple[SourceRecord, ...]:
+        if not sources:
+            return ()
         try:
             async with self._database.transaction() as connection:
-                stored, created = await self._sources.add_with_status(connection, scope_id, source)
-                if created and self._processing_pending is not None:
+                stored = await self._sources.add_many_with_status(connection, scope_id, sources)
+                new_positions = [item.journal_position for item, created in stored if created]
+                if new_positions and self._processing_pending is not None:
                     for binding_name in self._source_processing_bindings:
-                        await self._processing_pending.raise_source(
-                            connection,
-                            scope_id,
-                            binding_name,
-                            stored.journal_position,
+                        await self._processing_pending.note_source(
+                            connection, scope_id, binding_name, max(new_positions)
                         )
         except StoredPayloadConflictError as error:
-            raise BaseValueConflictError("source", (scope_id, source_type, source.name)) from error
-        return _source_record(scope_id, stored)
+            scope, ref = cast(tuple[str, SourceRef], error.identity)
+            raise BaseValueConflictError("source", (scope, ref.source_type, ref.source_id)) from error
+        return tuple(_source_record(scope_id, item) for item, _ in stored)
 
     async def get_source(self, scope_id: str, source_type: str, source_id: str, /) -> SourceRecord:
         self._require_content_source(source_type)
@@ -404,17 +403,20 @@ class RelationalRecordService:
         writer = self._family_writers.get("atomic-memory")
         if not isinstance(writer, AtomicMemoryManagementWriter):
             raise BaseOperationNotSupportedError("artifact_family", "atomic-memory", "batch creation")
-        prepared = []
+        commands = []
         for content in contents:
             command = writer.validate_create(content)
             artifact_id = self._id_factory("atomic-memory")
-            value = await writer.prepare_command(scope_id, artifact_id, command, execution_context=execution_context)
-            prepared.append((artifact_id, command, value))
-        created = []
-        async with self._database.transaction() as connection:
-            for artifact_id, command, value in prepared:
-                payload = cast(dict[str, JsonValue], command.model_dump(mode="json", by_alias=True, exclude_none=True))
-                source = ContentSource(
+            commands.append((artifact_id, command))
+        values = await writer.prepare_creates(scope_id, commands, execution_context=execution_context)
+        prepared = tuple(
+            (artifact_id, command, value) for (artifact_id, command), value in zip(commands, values, strict=True)
+        )
+        source_values = []
+        for artifact_id, command, _ in prepared:
+            payload = cast(dict[str, JsonValue], command.model_dump(mode="json", by_alias=True, exclude_none=True))
+            source_values.append(
+                ContentSource(
                     name=self._id_factory("source"),
                     materialization=SourceMaterialization.CAPTURED,
                     content=_canonical_source_text(payload),
@@ -431,9 +433,27 @@ class RelationalRecordService:
                         ),
                     ),
                 )
-                stored = await self._sources.add(connection, scope_id, source)
-                artifact = await writer.create(connection, scope_id, artifact_id, value, stored.ref)
-                created.append(_artifact_created(scope_id, artifact))
+            )
+        created = []
+        async with self._database.transaction() as connection:
+            stored_sources = await self._sources.add_many_with_status(connection, scope_id, source_values)
+            stored_values = tuple(stored for stored, _ in stored_sources)
+            source_read_set = await self._sources.preload(
+                connection,
+                scope_id,
+                tuple(stored.ref for stored in stored_values),
+                known=stored_values,
+            )
+            artifacts = await writer.create_many(
+                connection,
+                scope_id,
+                tuple(
+                    (artifact_id, value, stored.ref)
+                    for (artifact_id, _, value), stored in zip(prepared, stored_values, strict=True)
+                ),
+                source_read_set=source_read_set,
+            )
+            created.extend(_artifact_created(scope_id, artifact) for artifact in artifacts)
         return tuple(created)
 
     async def get_artifact(

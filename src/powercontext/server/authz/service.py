@@ -28,7 +28,7 @@ from contextvars import ContextVar
 from copy import copy
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -151,6 +151,18 @@ class AccessRequest:
     action: AccessAction
     resource: ResourceRef
     context: AccessAuditContext
+
+
+@dataclass(slots=True)
+class _PointDecisionBatch:
+    principal: PrincipalRef
+    groups: tuple[GroupRef, ...]
+    provider_type: type
+    task: asyncio.Task[Any] | None
+    revision: str | None
+    evaluations: dict[str, Callable[[AccessRequest], AccessDecision]]
+    connection: AsyncConnection | None = None
+    resource_keys: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -506,36 +518,35 @@ class BuiltinAuthorizationProvider:
         decisions = await self.check_batch((request,))
         return decisions[0]
 
-    async def check_batch(
+    async def prepare_point_decisions(
         self,
-        requests: Sequence[AccessRequest],
-        /,
-    ) -> tuple[AccessDecision, ...]:
-        if not requests:
-            return ()
-        principal = requests[0].subject
-        if any(request.subject != principal for request in requests):
-            raise AccessInvalidRequestError("batch-subject")
+        principal: PrincipalRef,
+        groups: tuple[GroupRef, ...],
+        resources: Sequence[ResourceRef],
+        *,
+        at: datetime | None = None,
+    ) -> Callable[[AccessRequest], AccessDecision]:
+        """Read immutable policy inputs once; apply expiry at each actual point check."""
+        observed_at = self._clock() if at is None else at
         state = await read_decision_state(
             self._repository,
-            (principal, *requests[0].context.subject_groups),
-            now=self._clock(),
-            binding_resources=tuple(request.resource for request in requests),
+            (principal, *groups),
+            now=observed_at,
+            binding_resources=resources,
             artifact_resources=tuple(
-                request.resource for request in requests if request.resource.type is AccessResourceType.ARTIFACT
+                resource for resource in resources if resource.type is AccessResourceType.ARTIFACT
             ),
         )
-        revision = contextual_policy_revision(state.policy_revision, requests[0].context.subject_groups)
-        bindings = state.bindings
-        decisions: list[AccessDecision] = []
-        for request in requests:
+        revision = contextual_policy_revision(state.policy_revision, groups)
+
+        def decide(request: AccessRequest) -> AccessDecision:
             if request.action is AccessAction.ACCESS_SELF:
-                decisions.append(AccessDecision(True, "authenticated", revision))
-                continue
-            binding_decision = _binding_decision(bindings, request.action, request.resource, policy_revision=revision)
-            if binding_decision.allowed:
-                decisions.append(binding_decision)
-                continue
+                return AccessDecision(True, "authenticated", revision)
+            now = self._clock() if at is None else at
+            bindings = tuple(binding for binding in state.bindings if binding.active_at(now))
+            decision = _binding_decision(bindings, request.action, request.resource, policy_revision=revision)
+            if decision.allowed:
+                return decision
             owner = (
                 state.artifact_owners.get(request.resource.key)
                 if request.resource.type is AccessResourceType.ARTIFACT
@@ -546,17 +557,28 @@ class BuiltinAuthorizationProvider:
                 and owner.owner == principal
                 and request.action in ROLE_ACTIONS[AccessRole.ARTIFACT_OWNER]
             ):
-                decisions.append(
-                    AccessDecision(
-                        True,
-                        "artifact-owner",
-                        revision,
-                        matched_subject=principal,
-                    )
-                )
-                continue
-            decisions.append(binding_decision)
-        return tuple(decisions)
+                return AccessDecision(True, "artifact-owner", revision, matched_subject=principal)
+            return decision
+
+        return decide
+
+    async def check_batch(
+        self,
+        requests: Sequence[AccessRequest],
+        /,
+    ) -> tuple[AccessDecision, ...]:
+        if not requests:
+            return ()
+        principal = requests[0].subject
+        if any(request.subject != principal for request in requests):
+            raise AccessInvalidRequestError("batch-subject")
+        decide = await self.prepare_point_decisions(
+            principal,
+            requests[0].context.subject_groups,
+            tuple(request.resource for request in requests),
+            at=self._clock(),
+        )
+        return tuple(decide(request) for request in requests)
 
     async def resolve_resource_filter(
         self,
@@ -623,9 +645,108 @@ class AccessControlService:
             "powercontext_deferred_access_decisions",
             default=None,
         )
+        self._point_batch: ContextVar[_PointDecisionBatch | None] = ContextVar(
+            "powercontext_point_decision_batch", default=None
+        )
+
+    @asynccontextmanager
+    async def point_decision_batch(
+        self, principal: PrincipalRef | None, *, context: AccessAuditContext
+    ) -> AsyncIterator[None]:
+        """Reuse canonical local policy inputs while a single generation attempt prepares work."""
+        from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+
+        actor = _required_principal(principal)
+        provider = self.provider
+        if type(provider) not in {BuiltinAuthorizationProvider, CasbinAuthorizationProvider}:
+            yield
+            return
+        batch = _PointDecisionBatch(actor, context.subject_groups, type(provider), asyncio.current_task(), None, {})
+        token = self._point_batch.set(batch)
+        try:
+            yield
+        finally:
+            self._point_batch.reset(token)
+
+    @asynccontextmanager
+    async def prefetch_point_decisions(
+        self,
+        connection: AsyncConnection,
+        principal: PrincipalRef | None,
+        resources: Sequence[ResourceRef],
+        *,
+        context: AccessAuditContext,
+        observed_revision: str | None = None,
+    ) -> AsyncIterator[bool]:
+        """Reuse local policy inputs, optionally fenced by a caller's single-statement observation.
+
+        An observed revision can reuse only a complete matching batch. False asks
+        the caller to retry under a pinned snapshot, without admitting any inputs.
+        """
+        from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+        from powercontext.server.authz.repository import RelationalAccessRepository
+
+        provider = self.provider
+        repository = getattr(provider, "_repository", None)
+        if (
+            type(provider) not in {BuiltinAuthorizationProvider, CasbinAuthorizationProvider}
+            or type(repository) is not RelationalAccessRepository
+            or repository._bound_connection is not connection
+            or connection.dialect.name not in {"sqlite", "mysql"}
+            or not resources
+        ):
+            yield False
+            return
+        if observed_revision is None and connection.dialect.name == "sqlite":
+            driver = (await connection.get_raw_connection()).driver_connection
+            if not getattr(driver, "in_transaction", False):
+                # SQLAlchemy's logical transaction alone does not pin SQLite SELECTs.
+                yield False
+                return
+        actor = _required_principal(principal)
+        selected = tuple({resource.key: resource for resource in resources}.values())
+        batch = self._point_batch.get()
+        if batch is not None and (
+            batch.principal != actor
+            or batch.groups != context.subject_groups
+            or batch.provider_type is not type(provider)
+            or batch.task is not asyncio.current_task()
+        ):
+            batch = None
+        if observed_revision is not None:
+            if (
+                batch is None
+                or batch.revision != observed_revision
+                or any(resource.key not in batch.evaluations for resource in selected)
+            ):
+                yield False
+                return
+        elif batch is None:
+            batch = _PointDecisionBatch(actor, context.subject_groups, type(provider), asyncio.current_task(), None, {})
+        else:
+            revision = await repository.policy_revision()
+            if batch.revision != revision:
+                batch.revision = revision
+                batch.evaluations.clear()
+        missing = tuple(resource for resource in selected if resource.key not in batch.evaluations)
+        if missing:
+            evaluate = await cast(
+                "BuiltinAuthorizationProvider | CasbinAuthorizationProvider", provider
+            ).prepare_point_decisions(actor, context.subject_groups, missing)
+            batch.evaluations.update({resource.key: evaluate for resource in missing})
+        previous_connection, previous_keys = batch.connection, batch.resource_keys
+        batch.connection = connection
+        batch.resource_keys = frozenset(resource.key for resource in selected)
+        token = self._point_batch.set(batch)
+        try:
+            yield True
+        finally:
+            batch.connection, batch.resource_keys = previous_connection, previous_keys
+            self._point_batch.reset(token)
 
     def with_connection(self, connection):
         """Bind relationships, builtin authorization reads, and audit to a transaction."""
+        from powercontext.server.authz.casbin import CasbinAuthorizationProvider
         from powercontext.server.authz.repository import RelationalAccessRepository
 
         if not isinstance(self.relationships, RelationalAccessRepository) or self.audit is not self.relationships:
@@ -633,7 +754,13 @@ class AccessControlService:
         repository = self.relationships.with_connection(connection)
         provider = self.provider
         # Binding a Provider or Repository subclass could discard its custom rules; keep it unchanged.
-        if type(provider) is BuiltinAuthorizationProvider and type(provider._repository) is RelationalAccessRepository:
+        if (
+            type(provider) is BuiltinAuthorizationProvider and type(provider._repository) is RelationalAccessRepository
+        ) or (
+            type(provider) is CasbinAuthorizationProvider
+            and type(provider._repository) is RelationalAccessRepository
+            and self.supports_read_snapshot(connection.engine)
+        ):
             provider = provider.with_repository(repository)
         bound = copy(self)
         bound.provider = provider
@@ -814,7 +941,25 @@ class AccessControlService:
         actor = _required_principal(principal)
         validate_action_resource(action, resource, deployment_id=self.deployment_id)
         request = AccessRequest(subject=actor, action=action, resource=resource, context=context)
-        decision = await _access_call(self.provider.check(request))
+        batch = self._point_batch.get()
+        repository = getattr(self.provider, "_repository", None)
+        if (
+            batch is not None
+            and type(self.provider) is batch.provider_type
+            and getattr(repository, "_bound_connection", None) is batch.connection
+            and batch.principal == actor
+            and batch.groups == context.subject_groups
+            and batch.task is asyncio.current_task()
+            and resource.key in batch.resource_keys
+        ):
+            try:
+                decision = batch.evaluations[resource.key](request)
+            except AccessControlError:
+                raise
+            except Exception as error:
+                raise AccessUnavailableError() from error
+        else:
+            decision = await _access_call(self.provider.check(request))
         _validate_provider_decision(decision)
         if action is not AccessAction.ACCESS_SELF:
             await _access_call(self._record_decision(actor, action, resource, decision, context=context))
@@ -1094,18 +1239,53 @@ class AccessControlService:
         idempotency_key: str,
         context: AccessAuditContext,
     ) -> ArtifactOwnerRelation:
-        if resource.type is not AccessResourceType.ARTIFACT:
-            raise AccessInvalidRequestError("artifact-identity")
-        _validate_idempotency_key(idempotency_key)
-        relation = ArtifactOwnerRelation(
-            resource=resource,
-            owner=owner,
-            established_at=self._clock(),
-            policy_revision="pending",
-            idempotency_key=idempotency_key,
+        return (await self.establish_artifact_owners(((resource, idempotency_key),), owner, context=context))[0]
+
+    async def establish_artifact_owners(
+        self,
+        resources: Sequence[tuple[ResourceRef, str]],
+        owner: PrincipalRef,
+        *,
+        context: AccessAuditContext,
+    ) -> tuple[ArtifactOwnerRelation, ...]:
+        """Establish an independent local owner set, retaining each relation and audit."""
+        from powercontext.server.authz.repository import RelationalAccessRepository
+
+        if not resources:
+            return ()
+        relations = []
+        for resource, key in resources:
+            if resource.type is not AccessResourceType.ARTIFACT:
+                raise AccessInvalidRequestError("artifact-identity")
+            _validate_idempotency_key(key)
+            relations.append(
+                ArtifactOwnerRelation(
+                    resource=resource,
+                    owner=owner,
+                    established_at=self._clock(),
+                    policy_revision="pending",
+                    idempotency_key=key,
+                )
+            )
+        writer = self._relationship_writer()
+        if type(writer) is not RelationalAccessRepository or self.audit is not writer:
+            established = []
+            for relation in relations:
+                item = await _access_call(writer.establish_artifact_owner(relation))
+                await _access_call(self._record_owner(item, principal=owner, context=context))
+                established.append(item)
+            return tuple(established)
+        if writer._bound_connection is None:
+            async with writer._database.transaction() as connection:
+                return await self.with_connection(connection).establish_artifact_owners(
+                    resources, owner, context=context
+                )
+        established = await _access_call(writer.establish_artifact_owners(relations))
+        await _access_call(
+            writer.append_audits(
+                tuple(self._owner_event(relation, principal=owner, context=context) for relation in established)
+            )
         )
-        established = await _access_call(self._relationship_writer().establish_artifact_owner(relation))
-        await _access_call(self._record_owner(established, principal=owner, context=context))
         return established
 
     async def attest_candidate_owner(
@@ -1118,7 +1298,6 @@ class AccessControlService:
         target: ResourceRef | None,
         idempotency_key: str,
     ) -> CandidateOwnerAttestation:
-        _validate_idempotency_key(idempotency_key)
         attestation = CandidateOwnerAttestation(
             scope_id=scope_id,
             candidate_id=candidate_id,
@@ -1127,7 +1306,22 @@ class AccessControlService:
             target=target,
             idempotency_key=idempotency_key,
         )
-        return await _access_call(self._relationship_writer().attest_candidate_owner(attestation))
+        return (await self.attest_candidate_owners((attestation,)))[0]
+
+    async def attest_candidate_owners(
+        self, attestations: Sequence[CandidateOwnerAttestation]
+    ) -> tuple[CandidateOwnerAttestation, ...]:
+        """Persist one independent candidate window under the configured relationship store."""
+        from powercontext.server.authz.repository import RelationalAccessRepository
+
+        if not attestations:
+            return ()
+        for attestation in attestations:
+            _validate_idempotency_key(attestation.idempotency_key)
+        writer = self._relationship_writer()
+        if type(writer) is not RelationalAccessRepository:
+            return tuple([await _access_call(writer.attest_candidate_owner(item)) for item in attestations])
+        return await _access_call(writer.attest_candidate_owners(attestations))
 
     async def candidate_owner(self, scope_id: str, candidate_id: str) -> CandidateOwnerAttestation | None:
         return await _access_call(self._relationship_reader().get_candidate_owner(scope_id, candidate_id))
@@ -1393,24 +1587,27 @@ class AccessControlService:
         principal: PrincipalRef,
         context: AccessAuditContext,
     ) -> None:
-        await self.audit.append_audit(
-            AccessAuditEvent(
-                cursor=None,
-                event_id=str(uuid4()),
-                occurred_at=self._clock(),
-                request_id=context.request_id,
-                transport=context.transport,
-                operation=context.operation,
-                principal=principal,
-                actor=context.actor,
-                action=AccessAction.ARTIFACT_WRITE,
-                resource=relation.resource,
-                allowed=True,
-                reason_code="artifact-owner-established",
-                policy_revision=relation.policy_revision,
-                target=relation.owner,
-                role=AccessRole.ARTIFACT_OWNER,
-            )
+        await self.audit.append_audit(self._owner_event(relation, principal=principal, context=context))
+
+    def _owner_event(
+        self, relation: ArtifactOwnerRelation, *, principal: PrincipalRef, context: AccessAuditContext
+    ) -> AccessAuditEvent:
+        return AccessAuditEvent(
+            cursor=None,
+            event_id=str(uuid4()),
+            occurred_at=self._clock(),
+            request_id=context.request_id,
+            transport=context.transport,
+            operation=context.operation,
+            principal=principal,
+            actor=context.actor,
+            action=AccessAction.ARTIFACT_WRITE,
+            resource=relation.resource,
+            allowed=True,
+            reason_code="artifact-owner-established",
+            policy_revision=relation.policy_revision,
+            target=relation.owner,
+            role=AccessRole.ARTIFACT_OWNER,
         )
 
     def _encode_cursor(

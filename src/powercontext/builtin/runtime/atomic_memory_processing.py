@@ -24,7 +24,7 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import TYPE_CHECKING, Literal, NoReturn
 
-from sqlalchemy import select, update
+from sqlalchemy import func, literal, select, true, tuple_, update
 from sqlalchemy.exc import OperationalError
 
 from powercontext._logging import log_safely
@@ -37,7 +37,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     project_atomic_memory_evidence,
     require_atomic_memory_pipeline,
 )
-from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent, AtomicMemoryStateValue
+from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
     AtomicMemoryArtifactEvidence,
@@ -60,14 +60,24 @@ from powercontext.builtin.inference import (
     InvalidInferenceOutputError,
     embed_query,
 )
-from powercontext.builtin.persistence.artifacts import with_artifact_content
-from powercontext.builtin.persistence.atomic_memory_index import AtomicMemoryIndexError, AtomicMemoryRelatedRequest
+from powercontext.builtin.persistence.atomic_memory_index import (
+    AtomicMemoryIndexError,
+    AtomicMemoryIndexFilter,
+    AtomicMemoryRelatedRequest,
+)
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.decision_observations import DecisionObservationRepository
-from powercontext.builtin.persistence.errors import GenerationConflictError, RepositoryNotFoundError
+from powercontext.builtin.persistence.errors import (
+    GenerationConflictError,
+    RepositoryNotFoundError,
+)
 from powercontext.builtin.persistence.memory_windows import MemorySourceWindowRepository
 from powercontext.builtin.persistence.sources import SourceRepository
-from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.persistence.tables import (
+    ARTIFACT_HEADS_TABLE,
+    SOURCE_JOURNAL_HEADS_TABLE,
+    SOURCES_TABLE,
+)
 from powercontext.builtin.runtime.atomic_memory import AtomicMemoryApplication, deferred_decision_audit
 from powercontext.builtin.runtime.decision_policy import emit_decision_observation
 from powercontext.builtin.runtime.models import MemoryFlushResult
@@ -190,10 +200,9 @@ class AtomicMemorySourceWindowProcessor:
             await application.security.authorize(connection, scope_id, context, "create")
             cursor = await self.cursors.load(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME)
             state = trigger.initial_state() if cursor is None else cursor.cursor
-            high_watermark = await self.sources.journal_position(connection, scope_id)
+            high_watermark, limit = await self.windows.signal(connection, scope_id, state.sequence, limit)
             signal = SourceHighWatermark(sequence=high_watermark, limit=limit)
-            limit = await self.windows.limit(connection, scope_id, state.sequence, signal.limit)
-            transition = trigger.activate(signal.model_copy(update={"limit": limit}), state)
+            transition = trigger.activate(signal, state)
             if not transition.actions:
                 if processing is not None:
                     await processing.complete(connection, remaining_work=False)
@@ -213,7 +222,13 @@ class AtomicMemorySourceWindowProcessor:
             )
         pipeline = self.pipeline if eligible else None
         try:
-            workset, consulted_artifacts = await self._prepare(scope_id, eligible, pipeline, context)
+            policy_batch = (
+                nullcontext()
+                if context is None or context.access is None
+                else context.access.point_decision_batch(context.principal, context=context.audit)
+            )
+            async with policy_batch:
+                workset, consulted_artifacts = await self._prepare(scope_id, eligible, pipeline, context)
             prepared, decision, observation = await self._inspect_decisions(scope_id, workset, context)
         except (InferenceTimeoutError, InvalidInferenceOutputError) as error:
             reducible = (isinstance(error, InferenceTimeoutError) and error.operation == "generate") or (
@@ -274,32 +289,45 @@ class AtomicMemorySourceWindowProcessor:
     async def _inspect_decisions(self, scope_id, workset, context):
         application = self.application
         plans = []
-        async with self._read_transaction(context) as connection:
-            for item in workset.changes():
-                lineage = ArtifactLineage(sources=item.sources, artifacts=item.artifacts)
-                if len(item.origins) >= 2:
-                    plan = await application.service.inspect_merge(
-                        connection,
-                        scope_id,
-                        application.id_factory("atomic-memory"),
-                        item.origins,
-                        item.content,
-                        context,
-                        lineage=lineage,
-                    )
-                else:
-                    original = item.origins[0] if item.origins else None
-                    plan = await application.service.inspect_change(
-                        connection,
-                        scope_id,
-                        application.id_factory("atomic-memory") if original is None else original.ref.artifact_id,
-                        item.content,
-                        context,
-                        expected_revision=None if original is None else original.ref.revision,
-                        expected_state_version=None if original is None else original.state_version,
-                        lineage=lineage,
-                    )
-                plans.append(plan)
+        async with self._read_transaction(context, write_policy_first=True) as connection:
+            changes = workset.changes()
+            source_read_set = await self.sources.preload(
+                connection, scope_id, tuple(source for item in changes for source in item.sources)
+            )
+            async with self._prefetch_artifact_policy(
+                connection,
+                scope_id,
+                context,
+                tuple(ref for item in changes for ref in (*item.artifacts, *(read.ref for read in item.origins))),
+                include_scope=True,
+            ):
+                for item in changes:
+                    lineage = ArtifactLineage(sources=item.sources, artifacts=item.artifacts)
+                    if len(item.origins) >= 2:
+                        plan = await application.service.inspect_merge(
+                            connection,
+                            scope_id,
+                            application.id_factory("atomic-memory"),
+                            item.origins,
+                            item.content,
+                            context,
+                            lineage=lineage,
+                            source_read_set=source_read_set,
+                        )
+                    else:
+                        original = item.origins[0] if item.origins else None
+                        plan = await application.service.inspect_change(
+                            connection,
+                            scope_id,
+                            application.id_factory("atomic-memory") if original is None else original.ref.artifact_id,
+                            item.content,
+                            context,
+                            expected_revision=None if original is None else original.ref.revision,
+                            expected_state_version=None if original is None else original.state_version,
+                            lineage=lineage,
+                            source_read_set=source_read_set,
+                        )
+                    plans.append(plan)
         prepared = tuple([await application.service.prepare_change(plan) for plan in plans])
         decision, observation = await self._assess_write_gate(scope_id, workset, prepared)
         return prepared, decision, observation
@@ -356,16 +384,48 @@ class AtomicMemorySourceWindowProcessor:
                     _conflict("Source window changed during preparation")
                 if tuple(item for item in current_window if is_generation_eligible(item.value)) != eligible:
                     _conflict("Source generation eligibility changed during preparation")
-                await application.security.authorize_sources(
-                    connection, scope_id, context, tuple(item.ref for item in eligible)
-                )
-                for ref in consulted_artifacts:
-                    await self._authorize_artifact(connection, scope_id, context, ref)
-                results = ()
-                if decision is None or decision.verdict is not MemoryWriteVerdict.HOLD:
-                    results = await application.service.commit_window(
-                        connection, scope_id, prepared, context, read_set=tuple(workset.reads.values())
+                local_policy = False
+                if context is not None and context.access is not None:
+                    from powercontext.server.authz import BuiltinAuthorizationProvider
+                    from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+
+                    local_policy = (
+                        type(context.access.provider) in {BuiltinAuthorizationProvider, CasbinAuthorizationProvider}
+                        and context.access.supports_read_snapshot(connection.engine)
+                        and context.access.supports_write_transaction(connection.engine)
                     )
+                async with self._prefetch_artifact_policy(
+                    connection,
+                    scope_id,
+                    context,
+                    consulted_artifacts if local_policy else (),
+                    include_scope=True,
+                ):
+                    await application.security.authorize(connection, scope_id, context, "read")
+                    await application.security.authorize(connection, scope_id, context, "create")
+                    await application.security.authorize_sources(
+                        connection, scope_id, context, tuple(item.ref for item in eligible)
+                    )
+                    for ref in consulted_artifacts:
+                        await self._authorize_artifact(connection, scope_id, context, ref)
+                    results = ()
+                    if decision is None or decision.verdict is not MemoryWriteVerdict.HOLD:
+                        source_read_set = await self.sources.preload(
+                            connection,
+                            scope_id,
+                            tuple(
+                                source for write in writes if write.draft is not None for source in write.draft.sources
+                            ),
+                            known=current_window,
+                        )
+                        results = await application.service.commit_window(
+                            connection,
+                            scope_id,
+                            prepared,
+                            context,
+                            read_set=tuple(workset.reads.values()),
+                            source_read_set=source_read_set,
+                        )
                 finalized = await self._finalize_observation(
                     connection,
                     observation,
@@ -403,15 +463,20 @@ class AtomicMemorySourceWindowProcessor:
         prompt_refs = (
             () if extraction_prompt is None or extraction_prompt.artifact is None else (extraction_prompt.artifact,)
         )
+        local_policy = (
+            context is not None
+            and context.access is not None
+            and context.access.supports_read_snapshot(self.application.database.engine)
+        )
         await self._authorize_model_input(
             scope_id,
             context,
-            (),
-            tuple(item.ref for item in eligible),
+            eligible,
             prompt_refs,
-            generation_sources=eligible,
         )
         candidates = await pipeline.extract(extraction_input)
+        await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
+        admitted_prompts = {(ref.family, ref.artifact_id, ref.revision) for ref in prompt_refs}
         for ref in prompt_refs:
             artifacts[(ref.family, ref.artifact_id, ref.revision)] = ref
         by_id = {item.evidence_id: item for item in evidence}
@@ -437,8 +502,9 @@ class AtomicMemorySourceWindowProcessor:
             prior = tuple(
                 item.key for item in workset.items.values() if item.key != key and item.changed and item.retain
             )
-            hits = await self._recall(scope_id, candidate.text, context)
-            recalled = await self._load_related_items(scope_id, hits, context, workset, artifacts)
+            recalled = await self._recall_related_items(
+                scope_id, candidate.text, context, workset, artifacts, local_policy=local_policy
+            )
             pending = list(dict.fromkeys((*prior, *recalled)))
             compared = False
             while pending or not compared:
@@ -454,23 +520,16 @@ class AtomicMemorySourceWindowProcessor:
                 reconciliation_prompt = current_prompt("atomic_memory.reconcile")
                 if reconciliation_prompt is not None and reconciliation_prompt.artifact is not None:
                     ref = reconciliation_prompt.artifact
+                    identity = (ref.family, ref.artifact_id, ref.revision)
+                    if identity not in admitted_prompts:
+                        await self._authorize_model_input(scope_id, context, (), (ref,))
+                        admitted_prompts.add(identity)
                     prompt_refs = tuple(
                         {
                             (value.family, value.artifact_id, value.revision): value for value in (*prompt_refs, ref)
                         }.values()
                     )
                     artifacts[(ref.family, ref.artifact_id, ref.revision)] = ref
-                dependencies = tuple(
-                    read for item in (workset.items[workset.resolve(key)], *related) for read in item.origins
-                )
-                await self._authorize_model_input(
-                    scope_id,
-                    context,
-                    dependencies,
-                    tuple(item.source_ref for item in value.evidence if isinstance(item, AtomicMemoryEvidence)),
-                    tuple(artifacts.values()),
-                    generation_sources=eligible,
-                )
                 result = await pipeline.reconciler.generate(value)
                 key = workset.apply(key, related, AtomicMemoryReconciliationOutput.model_validate(result.output))
                 del pending[:selected_count]
@@ -480,83 +539,100 @@ class AtomicMemorySourceWindowProcessor:
             workset.items[item.key] = replace(item, artifacts=tuple(refs.values()))
         return workset, tuple(artifacts.values())
 
-    async def _load_related_items(self, scope_id, hits, context, workset, artifacts):
+    async def _load_related_items(self, connection, scope_id, hits, context, workset, artifacts, *, joined_heads):
         from powercontext.server.authz import AccessDeniedError
 
-        recalled = []
-        heads = ARTIFACT_HEADS_TABLE
-        for offset in range(0, len(hits), 100):
-            async with self._read_transaction(context) as connection:
-                allowed = []
-                for hit in hits[offset : offset + 100]:
-                    try:
-                        await self.application.security.authorize(
-                            connection,
-                            scope_id,
-                            context,
-                            "read",
-                            ArtifactRef(family="atomic-memory", artifact_id=hit.artifact_ref.artifact_id, revision=1),
-                        )
-                    except AccessDeniedError:
-                        continue
-                    allowed.append(hit)
-                if not allowed:
-                    continue
-                rows = (
-                    await connection.execute(
-                        with_artifact_content(select(heads)).where(
-                            heads.c.scope_id == scope_id,
-                            heads.c.family == "atomic-memory",
-                            heads.c.artifact_id.in_(tuple(hit.artifact_ref.artifact_id for hit in allowed)),
-                        )
-                    )
-                ).mappings()
-                by_id = {row["artifact_id"]: row for row in rows}
-                for hit in allowed:
-                    if hit.artifact_ref.artifact_id not in by_id:
-                        raise RepositoryNotFoundError(
-                            "artifact", (scope_id, "atomic-memory", hit.artifact_ref.artifact_id)
-                        )
-                records = await self.application.service.read_many(
-                    connection, scope_id, tuple(by_id[hit.artifact_ref.artifact_id] for hit in allowed)
+        allowed = []
+        for hit in hits:
+            try:
+                await self.application.security.authorize(
+                    connection,
+                    scope_id,
+                    context,
+                    "read",
+                    ArtifactRef(family="atomic-memory", artifact_id=hit.artifact_ref.artifact_id, revision=1),
                 )
-                for hit, record in zip(allowed, records, strict=True):
-                    try:
-                        await self.application.security.authorize(connection, scope_id, context, "write", record.ref)
-                    except AccessDeniedError:
-                        continue
-                    if (
-                        record.ref != hit.artifact_ref
-                        or record.state.state_version != hit.state_version
-                        or record.state.state is not AtomicMemoryStateValue.ACTIVE
-                        or record.artifact.content.kind != hit.kind
-                        or record.artifact.content.text != hit.text
-                    ):
-                        _conflict("Related memory changed before comparison")
-                    content = AtomicMemoryContent(kind=hit.kind, text=hit.text)
-                    supported = AtomicMemoryArtifactEvidence(
-                        evidence_id=f"artifact:{record.ref.artifact_id}@{record.ref.revision}",
-                        artifact_ref=record.ref,
+            except AccessDeniedError:
+                continue
+            allowed.append(hit)
+        if not allowed:
+            return []
+        by_id = joined_heads
+        for hit in allowed:
+            if hit.artifact_ref.artifact_id not in by_id:
+                raise RepositoryNotFoundError("artifact", (scope_id, "atomic-memory", hit.artifact_ref.artifact_id))
+        recalled = []
+        for hit in allowed:
+            try:
+                read = await self.application.service.authorize_comparison_hit(
+                    connection, scope_id, by_id[hit.artifact_ref.artifact_id], hit, context
+                )
+            except AccessDeniedError:
+                continue
+            content = AtomicMemoryContent(kind=hit.kind, text=hit.text)
+            supported = AtomicMemoryArtifactEvidence(
+                evidence_id=f"artifact:{read.ref.artifact_id}@{read.ref.revision}",
+                artifact_ref=read.ref,
+                content=content,
+            )
+            artifacts[(read.ref.family, read.ref.artifact_id, read.ref.revision)] = read.ref
+            recalled.append(
+                workset.add(
+                    AtomicMemoryWorkingItem(
+                        key=f"memory:{hit.artifact_ref.artifact_id}",
                         content=content,
+                        origins=(read,),
+                        evidence=(supported,),
+                        artifacts=(read.ref,),
                     )
-                    artifacts[(record.ref.family, record.ref.artifact_id, record.ref.revision)] = record.ref
-                    recalled.append(
-                        workset.add(
-                            AtomicMemoryWorkingItem(
-                                key=f"memory:{hit.artifact_ref.artifact_id}",
-                                content=content,
-                                origins=(record.as_read(),),
-                                evidence=(supported,),
-                                artifacts=(record.ref,),
-                            )
-                        )
-                    )
+                )
+            )
         return recalled
 
-    async def _recall(self, scope_id, query, context):
+    async def _recall_related_items(self, scope_id, query, context, workset, artifacts, *, local_policy=False):
         application = self.application
-        async with self._read_transaction(context) as connection:
-            filters = await application.security.filters(connection, scope_id, context)
+        if local_policy or context is None or (context.access is None and context.trusted_local):
+            # Trusted local work needs no policy read. Local policy already checked
+            # Scope and rechecks its revision before admitting retrieved bodies.
+            filters = AtomicMemoryIndexFilter()
+        else:
+            async with application.database.transaction() as connection:
+                filters = await application.security.filters(connection, scope_id, context)
+        request = await self._related_request(query, filters)
+        mode = request.mode
+        # Built-in indexes join authority in one statement. Permissioned reads
+        # retain a short snapshot across retrieval and per-hit authorization.
+        # Embedding and reconciliation stay outside either transaction.
+        one_statement = (context is None or context.access is None) and (
+            mode == "fts" or not self.config.related_fts_fallback
+        )
+        connection_manager = (
+            application.database.engine.connect()
+            if one_statement
+            else application.database.transaction(consistent_snapshot=True)
+        )
+        async with deferred_decision_audit(context), connection_manager as connection:
+            try:
+                hits, joined_heads = await application.index.enumerate_related_with_heads(connection, scope_id, request)
+            except AtomicMemoryIndexError as error:
+                if error.code == "stale-recall":
+                    _conflict("Related channels returned different memory versions")
+                if not self.config.related_fts_fallback or error.code not in {"incomplete-vector", "embedding-profile"}:
+                    raise
+                hits, joined_heads = await application.index.enumerate_related_with_heads(
+                    connection, scope_id, replace(request, mode="fts")
+                )
+            async with self._prefetch_artifact_policy(
+                connection, scope_id, context, tuple(hit.artifact_ref for hit in hits), include_scope=local_policy
+            ):
+                if local_policy:
+                    await application.security.authorize(connection, scope_id, context, "read")
+                return await self._load_related_items(
+                    connection, scope_id, hits, context, workset, artifacts, joined_heads=joined_heads
+                )
+
+    async def _related_request(self, query, filters):
+        application = self.application
         mode = self.config.related_mode
         profile = application.index.capabilities.embedding_profile
         if mode == "auto":
@@ -569,7 +645,7 @@ class AtomicMemorySourceWindowProcessor:
                 if not self.config.related_fts_fallback:
                     raise
                 mode = "fts"
-        request = AtomicMemoryRelatedRequest(
+        return AtomicMemoryRelatedRequest(
             query,
             filters,
             mode=mode,
@@ -577,15 +653,6 @@ class AtomicMemorySourceWindowProcessor:
             embedding_profile=profile,
             max_distance=self.config.related_max_distance,
         )
-        async with application.database.transaction(consistent_snapshot=True) as connection:
-            try:
-                return await application.index.enumerate_related(connection, scope_id, request)
-            except AtomicMemoryIndexError as error:
-                if error.code == "stale-recall":
-                    _conflict("Related channels returned different memory versions")
-                if not self.config.related_fts_fallback or error.code not in {"incomplete-vector", "embedding-profile"}:
-                    raise
-                return await application.index.enumerate_related(connection, scope_id, replace(request, mode="fts"))
 
     async def _query_vector(self, query):
         profile = self.application.index.capabilities.embedding_profile
@@ -597,41 +664,145 @@ class AtomicMemorySourceWindowProcessor:
             raise AtomicMemoryIndexError("embedding-result", "Related query requires one vector")
         return canonical_embedding(result.vectors[0], dimension=profile.dimension, normalization=profile.normalization)
 
-    async def _authorize_model_input(
-        self, scope_id, context, reads, source_refs, artifact_refs=(), *, generation_sources=()
-    ):
-        async with self._read_transaction(context) as connection:
-            await self.application.security.authorize(connection, scope_id, context, "read")
-            await self.application.security.authorize(connection, scope_id, context, "create")
-            await self.application.security.authorize_sources(connection, scope_id, context, source_refs)
-            current_sources = await self.sources.get_many(
-                connection, scope_id, tuple(item.ref for item in generation_sources)
+    async def _authorize_model_input(self, scope_id, context, generation_sources, artifact_refs=()):
+        """Admit Source and Prompt content against current data and authority."""
+        access = None if context is None else context.access
+        local_policy = (
+            access is not None
+            and access.supports_read_snapshot(self.application.database.engine)
+            and access.supports_write_transaction(self.application.database.engine)
+        )
+        refs = tuple(artifact_refs)
+        if local_policy or context is None or (access is None and context.trusted_local):
+            # A single SELECT owns its snapshot on both SQLite and MySQL. Larger
+            # inputs retain a short transaction across bounded observation chunks.
+            connection_manager = (
+                self.application.database.engine.connect()
+                if len(generation_sources) <= 100
+                else self.application.database.transaction(consistent_snapshot=True)
             )
-            if current_sources != generation_sources or any(
-                not is_generation_eligible(item.value) for item in current_sources
-            ):
-                _conflict("Source generation basis changed before model inference")
-            for read in reads:
-                current = await self.application.service.get(connection, scope_id, read.ref.artifact_id, context)
-                if current.as_read() != read:
-                    _conflict("Memory basis changed before model comparison")
-                await self.application.security.authorize(connection, scope_id, context, "write", read.ref)
-            for ref in artifact_refs:
-                await self._authorize_artifact(connection, scope_id, context, ref)
+            async with deferred_decision_audit(context), connection_manager as connection:
+                revision = await self._observe_model_input(
+                    connection, scope_id, generation_sources, include_policy=local_policy
+                )
+                async with self._prefetch_artifact_policy(
+                    connection, scope_id, context, refs, include_scope=True, observed_revision=revision
+                ) as ready:
+                    if ready:
+                        await self._require_model_authority(
+                            connection, scope_id, context, generation_sources, artifact_refs
+                        )
+                        return
+        async with (
+            self._read_transaction(context) as connection,
+            self._prefetch_artifact_policy(connection, scope_id, context, refs, include_scope=True),
+        ):
+            await self._require_model_authority(connection, scope_id, context, generation_sources, artifact_refs)
+            await self._observe_model_input(connection, scope_id, generation_sources)
+
+    async def _observe_model_input(self, connection, scope_id, generation_sources, *, include_policy=False):
+        # Decode stored Sources through their supported formats; re-encoding an
+        # older payload could mistake a serialization difference for a mutation.
+        sources = tuple({(item.ref.source_type, item.ref.source_id): item for item in generation_sources}.values())
+        policy = literal(None)
+        if include_policy:
+            from powercontext.server.authz.repository import ACCESS_POLICY_HEADS_TABLE
+
+            policy = func.coalesce(
+                select(ACCESS_POLICY_HEADS_TABLE.c.revision)
+                .where(ACCESS_POLICY_HEADS_TABLE.c.name == "authorization")
+                .scalar_subquery(),
+                0,
+            )
+        revision = None
+        for offset in range(0, max(len(sources), 1), 100):
+            source_rows = sources[offset : offset + 100]
+            selected_sources = (
+                select(SOURCES_TABLE)
+                .where(
+                    SOURCES_TABLE.c.scope_id == scope_id,
+                    tuple_(SOURCES_TABLE.c.source_type, SOURCES_TABLE.c.source_id).in_(
+                        tuple((item.ref.source_type, item.ref.source_id) for item in source_rows)
+                    ),
+                )
+                .subquery()
+            )
+            anchor = select(literal(1).label("one")).subquery()
+            rows = (
+                (
+                    await connection.execute(
+                        select(policy.label("policy_revision"), selected_sources).select_from(
+                            anchor.outerjoin(selected_sources, true())
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            current = {
+                (row["source_type"], row["source_id"]): self.sources.decode_source(row)
+                for row in rows
+                if row["source_id"] is not None
+            }
+            if any(current.get((item.ref.source_type, item.ref.source_id)) != item for item in source_rows):
+                _conflict("Model input Source basis changed")
+            observed = rows[0]["policy_revision"]
+            revision = None if observed is None else str(observed)
+        return revision
+
+    async def _require_model_authority(self, connection, scope_id, context, generation_sources, artifact_refs):
+        await self.application.security.authorize(connection, scope_id, context, "read")
+        await self.application.security.authorize(connection, scope_id, context, "create")
+        await self.application.security.authorize_sources(
+            connection, scope_id, context, tuple(item.ref for item in generation_sources)
+        )
+        for ref in artifact_refs:
+            await self._authorize_artifact(connection, scope_id, context, ref)
+
+    @asynccontextmanager
+    async def _prefetch_artifact_policy(
+        self, connection, scope_id, context, refs, *, include_scope=False, observed_revision=None
+    ):
+        if context is None or context.access is None or (not refs and not include_scope):
+            yield True
+            return
+        from powercontext.server.authz import ResourceRef
+
+        access = context.access.for_read(connection)
+        resources = tuple(
+            ResourceRef.artifact(scope_id, family=ref.family, artifact_id=ref.artifact_id) for ref in refs
+        )
+        if include_scope:
+            resources = (ResourceRef.scope(scope_id), *resources)
+        async with access.prefetch_point_decisions(
+            connection, context.principal, resources, context=context.audit, observed_revision=observed_revision
+        ) as ready:
+            yield ready
 
     async def _authorize_artifact(self, connection, scope_id, context, ref):
         await self.application.security.authorize(connection, scope_id, context, "read", ref)
 
     @asynccontextmanager
-    async def _read_transaction(self, context):
-        # Builtin authority shares the preparation snapshot; configured providers
-        # retain their own decision boundary. Audit writes flush after this read.
+    async def _read_transaction(self, context, *, write_policy_first=False, consistent_snapshot=True):
+        # Local policy can pin this snapshot through its own reads; external
+        # providers retain an explicit business-data pin. Audit flushes afterward.
         async with (
             deferred_decision_audit(context),
-            self.application.database.transaction(consistent_snapshot=True) as connection,
+            self.application.database.transaction(consistent_snapshot=consistent_snapshot) as connection,
         ):
-            if connection.dialect.name == "sqlite":
-                # Pin business data before an external policy decision can race with new content.
+            access = None if context is None else context.access
+            pins_with_policy = access is not None and access.supports_read_snapshot(connection.engine)
+            if pins_with_policy and write_policy_first:
+                from powercontext.server.authz import BuiltinAuthorizationProvider
+
+                # Read-side Casbin binds to the business transaction; its write
+                # path does not. Builtin policy binds both when relationships
+                # and audit share this engine.
+                pins_with_policy = type(
+                    access.provider
+                ) is BuiltinAuthorizationProvider and access.supports_write_transaction(connection.engine)
+            if connection.dialect.name == "sqlite" and access is not None and not pins_with_policy:
+                # Keep business data pinned before a separate policy decision.
                 await connection.execute(select(ARTIFACT_HEADS_TABLE.c.scope_id).limit(1))
             yield connection
 

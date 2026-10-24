@@ -94,7 +94,7 @@ async def _storage_profile(backend: str, path: Path) -> AsyncIterator[OceanBaseP
         pytest.importorskip("pylibseekdb")
         # The embedded engine's Unix socket must fit sockaddr_un. A deeply
         # nested pytest base path can exceed that limit even for a short suffix.
-        with TemporaryDirectory(prefix="pc-storage-", dir="/tmp") as directory:
+        with TemporaryDirectory(prefix="pc-storage-", dir="/var/tmp") as directory:
             async with SeekDBProfile.open(SeekDBConfig(path=Path(directory) / "db"), tables=tables) as profile:
                 yield profile
         return

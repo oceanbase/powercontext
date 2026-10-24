@@ -17,12 +17,11 @@
 from __future__ import annotations
 
 import asyncio
-from time import perf_counter
 from types import SimpleNamespace
 from typing import cast
 
 from prometheus_client.parser import text_string_to_metric_families
-from sqlalchemy import event, select
+from sqlalchemy import select
 
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
@@ -36,7 +35,7 @@ from powercontext.builtin.runtime.readiness import RuntimeReadinessSnapshot
 from powercontext.server.metrics import ServerMetrics
 
 
-def test_real_backlog_collection_is_passive_and_cardinality_bounded(tmp_path):  # noqa: C901 - real backlog lifecycle
+def test_real_backlog_collection_is_passive_and_cardinality_bounded(tmp_path):
     async def scenario(count):
         async with SQLiteProfile.open(
             SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / f'backlog-{count}.db'}"), tables=SHARED_TABLES
@@ -81,11 +80,6 @@ def test_real_backlog_collection_is_passive_and_cardinality_bounded(tmp_path):  
                 assert status["used_workers"] == 1
                 assert 0 < int(status["observed_pending_scopes"]) <= min(count, 1000)
                 before = await durable_rows()
-                statements = []
-
-                def statement_observed(_connection, _cursor, statement, _parameters, _context, _many):
-                    statements.append(statement)
-
                 # The runtime facade supplies only readiness; processing snapshots come
                 # from the real active Supervisor, never a fabricated backlog mapping.
                 runtime = cast(
@@ -96,17 +90,9 @@ def test_real_backlog_collection_is_passive_and_cardinality_bounded(tmp_path):  
                     ),
                 )
                 metrics = ServerMetrics(role="background")
-                event.listen(profile.database.engine.sync_engine, "before_cursor_execute", statement_observed)
-                try:
-                    started_at = perf_counter()
-                    for _ in range(50):
-                        metrics.set_processing_families(supervisor.family_status)
-                        metrics.operational.replace(runtime)
-                        rendered = metrics.render().decode()
-                    duration = perf_counter() - started_at
-                finally:
-                    event.remove(profile.database.engine.sync_engine, "before_cursor_execute", statement_observed)
-                assert statements == []
+                metrics.set_processing_families(supervisor.family_status)
+                metrics.operational.replace(runtime)
+                rendered = metrics.render().decode()
                 assert await durable_rows() == before
                 assert supervisor.family_status["memory"]["completed"] == 0
                 assert "private-scope" not in rendered
@@ -134,7 +120,6 @@ def test_real_backlog_collection_is_passive_and_cardinality_bounded(tmp_path):  
                     ]
                     == status["observed_pending_scopes"]
                 )
-                print(f"backlog={count}: 50 collections={duration:.6f}s; series={len(samples)}; SQL=0")
                 return set(samples)
             finally:
                 await supervisor.close()

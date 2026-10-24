@@ -19,6 +19,7 @@ from dataclasses import replace
 
 import pytest
 from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
@@ -34,6 +35,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemorySearchRequest,
 )
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE, SHARED_METADATA
 from powercontext.builtin.tags import TagFilter
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend, migration_index, migration_profile
 
@@ -43,6 +45,12 @@ class Embedding:
 
     async def embed(self, texts, /):
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+
+async def _initialize_related_authority(connection: AsyncConnection) -> None:
+    await connection.run_sync(
+        lambda sync: SHARED_METADATA.create_all(sync, tables=(ARTIFACTS_TABLE, ARTIFACT_HEADS_TABLE))
+    )
 
 
 @pytest.mark.parametrize("size", [3, 80])
@@ -56,6 +64,7 @@ def test_sqlite_lexical_scope_filter_preserves_global_raw_scores_and_complete_re
         scope = "项目a"
         async with migration_profile(SQLiteConfig()) as profile, profile.database.transaction() as connection:
             await index.initialize(connection)
+            await _initialize_related_authority(connection)
             for target in (scope, scope + "b", scope.upper()):
                 for number in range(size):
                     prepared = await preparer.prepare(
@@ -64,19 +73,21 @@ def test_sqlite_lexical_scope_filter_preserves_global_raw_scores_and_complete_re
                             text=f"alpha beta {target} evidence {number}",
                         )
                     )
-                    await index.replace(
+                    await index.replace_many(
                         connection,
                         target,
-                        AtomicMemoryProjection(
-                            artifact_ref=ArtifactRef(
-                                family="atomic-memory", artifact_id=f"memory-{number:02}", revision=1
+                        (
+                            AtomicMemoryProjection(
+                                artifact_ref=ArtifactRef(
+                                    family="atomic-memory", artifact_id=f"memory-{number:02}", revision=1
+                                ),
+                                state_version=0,
+                                prepared=prepared,
+                                tag_keys=("keep",),
                             ),
-                            state_version=0,
-                            prepared=prepared,
-                            tag_keys=("keep",),
                         ),
                     )
-            all_matches = await index.enumerate_related(
+            all_matches, _ = await index.enumerate_related_with_heads(
                 connection, scope, AtomicMemoryRelatedRequest(query="alpha beta", filters=AtomicMemoryIndexFilter())
             )
             assert len(all_matches) == size
@@ -87,7 +98,7 @@ def test_sqlite_lexical_scope_filter_preserves_global_raw_scores_and_complete_re
             filters = AtomicMemoryIndexFilter(kind="fact", tag_filter=TagFilter(tags=("keep",), match="all"))
             request = AtomicMemorySearchRequest(query="alpha beta", filters=filters, mode="fts", limit=2)
             hits = (await index.search(connection, scope, request)).fts
-            complete = await index.enumerate_related(
+            complete, _ = await index.enumerate_related_with_heads(
                 connection, scope, AtomicMemoryRelatedRequest(query="alpha beta", filters=filters)
             )
             assert [(hit.artifact_ref, hit.channel_scores) for hit in hits] == [
@@ -108,30 +119,35 @@ def test_vector_search_filters_and_complete_threshold_enumeration(migration_back
         async with migration_profile(migration_backend.config, load_vector_extension=True) as profile:
             async with profile.database.transaction() as connection:
                 await index.initialize(connection)
+                await _initialize_related_authority(connection)
                 for n in range(40):
                     prepared = await preparer.prepare(
                         AtomicMemoryContent(kind="fact" if n % 2 else "preference", text=f"Semantic fact {n}.")
                     )
-                    await index.replace(
+                    await index.replace_many(
                         connection,
                         "scope",
-                        AtomicMemoryProjection(
-                            artifact_ref=ArtifactRef(
-                                family="atomic-memory", artifact_id=f"memory-{39 - n:02}", revision=1
+                        (
+                            AtomicMemoryProjection(
+                                artifact_ref=ArtifactRef(
+                                    family="atomic-memory", artifact_id=f"memory-{39 - n:02}", revision=1
+                                ),
+                                state_version=0,
+                                prepared=prepared,
+                                tag_keys=("keep" if n % 3 else "other",),
                             ),
-                            state_version=0,
-                            prepared=prepared,
-                            tag_keys=("keep" if n % 3 else "other",),
                         ),
                     )
-                await index.replace(
+                await index.replace_many(
                     connection,
                     "foreign",
-                    AtomicMemoryProjection(
-                        artifact_ref=ArtifactRef(family="atomic-memory", artifact_id="foreign", revision=1),
-                        state_version=0,
-                        prepared=prepared,
-                        tag_keys=("keep",),
+                    (
+                        AtomicMemoryProjection(
+                            artifact_ref=ArtifactRef(family="atomic-memory", artifact_id="foreign", revision=1),
+                            state_version=0,
+                            prepared=prepared,
+                            tag_keys=("keep",),
+                        ),
                     ),
                 )
             filters = AtomicMemoryIndexFilter(kind="fact", tag_filter=TagFilter(tags=("keep",), match="all"))
@@ -166,7 +182,7 @@ def test_vector_search_filters_and_complete_threshold_enumeration(migration_back
                 assert not await index.probe_recoverable(
                     connection, "scope", request, AdmissionFloor(min_semantic_similarity=-1)
                 )
-                all_hits = await index.enumerate_related(connection, "scope", related)
+                all_hits, _ = await index.enumerate_related_with_heads(connection, "scope", related)
                 assert {h.artifact_ref.artifact_id for h in all_hits} == expected
                 expanded = (await index.search(connection, "scope", replace(request, limit=20000))).vector
                 assert {h.artifact_ref.artifact_id for h in expanded} == expected
@@ -185,6 +201,7 @@ def test_bounded_search_skips_unusable_vectors_while_complete_operations_reject_
         async with migration_profile(migration_backend.config, load_vector_extension=True) as profile:
             async with profile.database.transaction() as connection:
                 await index.initialize(connection)
+                await _initialize_related_authority(connection)
                 prepared = await preparer.prepare(AtomicMemoryContent(kind="fact", text="Semantic fact."))
                 projections = tuple(
                     AtomicMemoryProjection(
@@ -195,8 +212,7 @@ def test_bounded_search_skips_unusable_vectors_while_complete_operations_reject_
                     )
                     for identity in ("broken", "healthy")
                 )
-                for projection in projections:
-                    await index.replace(connection, "scope", projection)
+                await index.replace_many(connection, "scope", projections)
                 values = (
                     {"embedding": None, "profile_fingerprint": None, "embedding_input_hash": None}
                     if corruption == "missing"
@@ -230,21 +246,24 @@ def test_bounded_search_skips_unusable_vectors_while_complete_operations_reject_
                     hits = (await index.search(connection, "scope", replace(request, limit=limit))).vector
                     assert [hit.artifact_ref.artifact_id for hit in hits] == ["healthy"]
                 for operation in (
-                    index.enumerate_related(connection, "scope", related),
+                    index.enumerate_related_with_heads(connection, "scope", related),
                     index.probe_recoverable(connection, "scope", request, AdmissionFloor(min_semantic_similarity=-1)),
                 ):
                     with pytest.raises(AtomicMemoryIndexError, match="incomplete"):
                         await operation
-                assert not await index.enumerate_related(
+                filtered, _ = await index.enumerate_related_with_heads(
                     connection, "scope", replace(related, filters=AtomicMemoryIndexFilter(kind="other"))
                 )
-                assert not await index.enumerate_related(connection, "foreign", related)
+                assert not filtered
+                foreign, _ = await index.enumerate_related_with_heads(connection, "foreign", related)
+                assert not foreign
                 savepoint = await connection.begin_nested()
-                await index.replace(connection, "scope", projections[0])
-                assert len(await index.enumerate_related(connection, "scope", related)) == 2
+                await index.replace_many(connection, "scope", projections[:1])
+                complete, _ = await index.enumerate_related_with_heads(connection, "scope", related)
+                assert len(complete) == 2
                 await savepoint.rollback()
                 with pytest.raises(AtomicMemoryIndexError, match="incomplete"):
-                    await index.enumerate_related(connection, "scope", related)
+                    await index.enumerate_related_with_heads(connection, "scope", related)
 
     asyncio.run(scenario())
 
@@ -271,14 +290,18 @@ def test_sqlite_reopen_tag_updates_rollback_and_disabling_embeddings_preserve_se
                 await index.initialize(connection)
                 prepared = await preparer.prepare(AtomicMemoryContent(kind="fact", text="Semantic fact."))
                 for number in reversed(range(13)):
-                    await index.replace(
+                    await index.replace_many(
                         connection,
                         "scope",
-                        AtomicMemoryProjection(
-                            artifact_ref=ArtifactRef(family="atomic-memory", artifact_id=f"m{number:02}", revision=1),
-                            state_version=0,
-                            prepared=prepared,
-                            tag_keys=(),
+                        (
+                            AtomicMemoryProjection(
+                                artifact_ref=ArtifactRef(
+                                    family="atomic-memory", artifact_id=f"m{number:02}", revision=1
+                                ),
+                                state_version=0,
+                                prepared=prepared,
+                                tag_keys=(),
+                            ),
                         ),
                     )
                 before = (await index.search(connection, "scope", request)).vector
@@ -298,14 +321,16 @@ def test_sqlite_reopen_tag_updates_rollback_and_disabling_embeddings_preserve_se
             ] == ["m00"]
             savepoint = await connection.begin_nested()
             changed = await preparer.prepare(AtomicMemoryContent(kind="preference", text="Changed fact."))
-            await index.replace(
+            await index.replace_many(
                 connection,
                 "scope",
-                AtomicMemoryProjection(
-                    artifact_ref=ArtifactRef(family="atomic-memory", artifact_id="m00", revision=2),
-                    state_version=1,
-                    prepared=changed,
-                    tag_keys=("keep",),
+                (
+                    AtomicMemoryProjection(
+                        artifact_ref=ArtifactRef(family="atomic-memory", artifact_id="m00", revision=2),
+                        state_version=1,
+                        prepared=changed,
+                        tag_keys=("keep",),
+                    ),
                 ),
             )
             (updated,) = (await index.search(connection, "scope", filtered)).vector

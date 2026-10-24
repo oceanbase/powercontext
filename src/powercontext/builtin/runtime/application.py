@@ -545,6 +545,39 @@ class ScopedSourceApplication:
             raise InvalidRuntimeRequestError("working-note-dedicated-api")
         return await self._capture(value)
 
+    async def capture_many(self, values: Sequence[CaptureSource], /) -> tuple[SourceReceipt, ...]:
+        """Capture one ordered integration batch with stable Source identities."""
+
+        if not values:
+            return ()
+        if any(value.metadata.get("kind") == WORKING_NOTE_SOURCE_KIND for value in values):
+            raise InvalidRuntimeRequestError("working-note-dedicated-api")
+        captures = tuple(
+            ContentCapture(
+                source_id=value.source_id,
+                content=value.content,
+                metadata=value.model_dump(mode="json")["metadata"],
+            )
+            for value in values
+        )
+        if self._runtime._record_service is None:
+            raise InvalidRuntimeRequestError("batch-capture-unavailable")
+        try:
+            async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
+                with self._runtime._stage(_MEMORY_CAPTURE_STAGE, attributes={}) as span:
+                    records = await self._runtime._records().capture_sources(self.scope_id, captures)
+                    if span is not None:
+                        span.set_attributes({_MEMORY_CAPTURE_SOURCE_COUNT: len(records)})
+        except BaseValueConflictError as error:
+            raise SourceConflictError("identity", error.identity) from None
+        return tuple(
+            SourceReceipt(
+                source_ref=SourceRef(source_type=record.source_type, source_id=record.source_id),
+                sequence=record.position,
+            )
+            for record in records
+        )
+
     async def capture_working_note(self, value: CaptureWorkingNote, /) -> SourceReceipt:
         """Capture explicit session-local work state without Memory promotion."""
 
@@ -3363,7 +3396,7 @@ class ScopedAtomicMemoryApplication:
             created = await self._runtime._records().create_atomic_memories(
                 self.scope_id, values, execution_context=context
             )
-            records = tuple([await self._scoped.get(item.artifact_id, context=context) for item in created])
+            records = await self._scoped.get_many(tuple(item.artifact_id for item in created), context=context)
         return AtomicMemoryMutationResult(
             changed=True, records=records, primary_artifact_id=records[0].artifact.artifact_id
         )

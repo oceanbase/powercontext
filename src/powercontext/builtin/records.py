@@ -16,13 +16,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from powercontext.artifacts import ArtifactRef, StableHandle
+from powercontext.builtin.sources import ContentCapture
 from powercontext.sources import SourceRef
 
 if TYPE_CHECKING:
@@ -281,6 +282,10 @@ class RecordService(Protocol):
         handoff_receipt: bool = False,
         working_note: bool = False,
     ) -> SourceRecord: ...
+
+    async def capture_sources(
+        self, scope_id: str, captures: Sequence[ContentCapture], /
+    ) -> tuple[SourceRecord, ...]: ...
 
     async def get_source(self, scope_id: str, source_type: str, source_id: str, /) -> SourceRecord: ...
 

@@ -66,6 +66,7 @@ from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.source_eligibility import SourceNotEligibleError
 from powercontext.builtin.sources import ContentCapture
+from powercontext.sources import SourceRef
 
 
 async def _create_scope(runtime: BuiltinRuntime, idempotency_key: str = "project") -> str:
@@ -78,6 +79,47 @@ async def _create_scope(runtime: BuiltinRuntime, idempotency_key: str = "project
 
 class _InjectedCandidateStatusError(RuntimeError):
     pass
+
+
+def test_duplicate_candidate_identity_preserves_original_proposal() -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+            scope = await contexts.scopes.create(
+                ScopeDraft(title="Review", summary="Candidate identity", idempotency_key="duplicate-candidate")
+            )
+            source = await contexts.records.capture_source(
+                scope.scope_id, "content", "review-evidence", "Verified result", {}
+            )
+            review = contexts.review(scope.scope_id)
+            proposal = ExperienceContent(
+                situation="A verified task finished.",
+                action="Record the result.",
+                outcome="The next task can use it.",
+                lesson="Keep the verified evidence.",
+            )
+            source_ref = SourceRef(source_type="content", source_id=source.source_id)
+            original = await review.propose_experience(
+                proposal,
+                sources=(source_ref,),
+                artifacts=(),
+                target=None,
+                reason="Verified result",
+                candidate_id="same-candidate",
+            )
+            with pytest.raises(CandidateConflictError):
+                await review.propose_experience(
+                    proposal.model_copy(update={"lesson": "Different instruction."}),
+                    sources=(source_ref,),
+                    artifacts=(),
+                    target=None,
+                    reason="Verified result",
+                    candidate_id="same-candidate",
+                )
+            async with contexts.database.transaction() as connection:
+                stored = await contexts.repositories.candidates.get(connection, scope.scope_id, original.candidate_id)
+            assert stored.proposal == proposal and stored.version == 1
+
+    asyncio.run(scenario())
 
 
 class _InjectedExperienceProjectionError(RuntimeError):

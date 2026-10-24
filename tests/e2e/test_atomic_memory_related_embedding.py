@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -26,6 +27,7 @@ import pytest
 from powercontext.artifacts.search import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryCandidate,
+    AtomicMemoryEvidence,
     AtomicMemoryExtractionOutput,
     AtomicMemoryGenerationPipeline,
 )
@@ -52,13 +54,16 @@ from powercontext.server.authz import (
     AccessBindingState,
     AccessControlService,
     AccessDecision,
+    AccessDeniedError,
     AccessRole,
     AccessUnavailableError,
     BuiltinAuthorizationProvider,
     PrincipalRef,
     ResourceRef,
 )
+from powercontext.server.authz.casbin import CasbinAuthorizationProvider
 from powercontext.server.authz.repository import RelationalAccessRepository
+from tests.e2e.atomic_memory_migration_backend import MigrationBackend
 from tests.e2e.dream_support import memory_source_text
 
 PROFILE = EmbeddingProfile(
@@ -179,7 +184,7 @@ class _RecordingCreateReconciler:
         )
 
 
-async def _configured_flush_context(contexts, principal, binding_id="related-contributor"):
+async def _configured_flush_context(contexts, principal, binding_id="related-contributor", *, expires_at=None):
     repository = RelationalAccessRepository(contexts.database)
     await repository.create_binding(
         AccessBinding(
@@ -190,7 +195,7 @@ async def _configured_flush_context(contexts, principal, binding_id="related-con
             granted_by=principal,
             reason="Fixture Scope contribution authority",
             created_at=datetime.now(UTC),
-            expires_at=None,
+            expires_at=expires_at,
             state=AccessBindingState.ACTIVE,
             version=1,
             policy_revision="pending",
@@ -207,6 +212,177 @@ async def _configured_flush_context(contexts, principal, binding_id="related-con
         ),
         provider,
     )
+
+
+def test_atomic_bulk_result_read_checks_each_resource(tmp_path):
+    async def scenario():
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            await contexts.get("project")
+            principal = PrincipalRef(type="user", id="owner")
+            execution, custom_provider = await _configured_flush_context(contexts, principal)
+            created = await contexts.records.create_atomic_memories(
+                "project",
+                tuple({"kind": "fact", "text": f"Authorized result {index}"} for index in range(3)),
+                execution_context=execution,
+            )
+            ids = tuple(item.artifact_id for item in created)
+            memory = contexts.atomic_memory.for_scope("project")
+            records = await memory.get_many(ids, context=execution)
+            assert tuple(record.artifact.artifact_id for record in records) == ids
+            custom_provider.denied = (
+                AccessAction.ARTIFACT_READ,
+                ResourceRef.artifact("project", family="atomic-memory", artifact_id=ids[1]),
+            )
+            with pytest.raises(AccessDeniedError):
+                await memory.get_many(ids, context=execution)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("provider_type", [BuiltinAuthorizationProvider, CasbinAuthorizationProvider])
+@pytest.mark.parametrize("loss_of_access", ["revoked", "expired"])
+def test_flush_rejects_publication_after_policy_change(
+    migration_backend: MigrationBackend, provider_type, loss_of_access
+):
+    async def scenario():
+        principal = PrincipalRef(type="user", id="owner")
+        repository = None
+        now = datetime.now(UTC)
+
+        class RevokingReconciler(_RecordingCreateReconciler):
+            async def generate(self, request):
+                nonlocal now
+                result = await super().generate(request)
+                if len(self.inputs) == 1 and loss_of_access == "expired":
+                    now += timedelta(seconds=2)
+                elif len(self.inputs) == 1:
+                    assert repository is not None
+                    await repository.revoke_binding(
+                        "related-contributor",
+                        expected_version=1,
+                        idempotency_key="revoke-during-comparison",
+                        revoked_at=datetime.now(UTC),
+                        revoked_by=principal,
+                    )
+                return result
+
+        reconciler = RevokingReconciler()
+        pipeline = AtomicMemoryGenerationPipeline(
+            extractor=_Extractor(), reconciler=reconciler, estimator=character_token_estimator()
+        )
+        async with open_builtin_contexts(
+            BuiltinConfig(database=migration_backend.config, runtime=_config(migration_backend.directory).runtime),
+            embedding_model=_SymmetricEmbedding(),
+            candidate_pipeline=pipeline,
+        ) as contexts:
+            context = await contexts.get("project")
+            execution, _ = await _configured_flush_context(
+                contexts, principal, expires_at=now + timedelta(seconds=1) if loss_of_access == "expired" else None
+            )
+            repository = RelationalAccessRepository(contexts.database)
+            execution = replace(
+                execution,
+                access=AccessControlService(
+                    provider_type(repository, clock=lambda: now), relationships=repository, audit=repository
+                ),
+            )
+            await contexts.records.create_atomic_memories(
+                "project",
+                tuple({"kind": "fact", "text": f"Permitted rollout fact {number}."} for number in range(21)),
+                execution_context=execution,
+            )
+            await context.triggers.flush(limit=100)
+            reconciler.inputs.clear()
+            before = (await context.triggers.cursor()).sequence
+            await contexts.records.create_source("project", "content", EQUIVALENT)
+            with pytest.raises(AccessDeniedError):
+                await context.triggers.flush(limit=1, atomic_context=execution)
+            assert reconciler.inputs
+            assert (await context.triggers.cursor()).sequence == before
+
+    asyncio.run(scenario())
+
+
+def test_reconciliation_uses_current_source_attestation(tmp_path):
+    async def scenario():
+        changed = False
+
+        class AttestingExtractor(_Extractor):
+            async def generate(self, request):
+                nonlocal changed
+                result = await super().generate(request)
+                if not changed:
+                    changed = True
+                    async with contexts.database.transaction() as connection:
+                        stored = await contexts.repositories.sources.get(
+                            connection, "project", request.evidence[0].source_ref
+                        )
+                        await contexts.repositories.sources.add(
+                            connection, "project", stored.value.model_copy(update={"handoff_receipt": True})
+                        )
+                return result
+
+        reconciler = _RecordingCreateReconciler()
+        pipeline = AtomicMemoryGenerationPipeline(
+            extractor=AttestingExtractor(), reconciler=reconciler, estimator=character_token_estimator()
+        )
+        async with open_builtin_contexts(
+            _config(tmp_path), embedding_model=_SymmetricEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            context = await contexts.get("project")
+            await contexts.records.create_source("project", "content", ORIGINAL)
+            await context.triggers.flush(limit=1)
+            assert reconciler.inputs
+            assert all(
+                isinstance(evidence.source_metadata, dict) and evidence.source_metadata.get("handoff_receipt") is True
+                for request in reconciler.inputs
+                for evidence in request.evidence
+                if isinstance(evidence, AtomicMemoryEvidence)
+            )
+            assert (await context.triggers.cursor()).sequence == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("denied_action", [AccessAction.ARTIFACT_READ, AccessAction.ARTIFACT_WRITE])
+def test_flush_rejects_revoked_memory_authority_without_publishing(tmp_path, denied_action):
+    async def scenario():
+        class RevokePending(_RecordingCreateReconciler):
+            async def generate(self, request):
+                result = await super().generate(request)
+                if len(self.inputs) == 1:
+                    compared = {read.ref.artifact_id for item in request.related for read in item.original_refs}
+                    pending = next(item for item in owned if item.artifact_id not in compared)
+                    provider.denied = (
+                        denied_action,
+                        ResourceRef.artifact("project", family="atomic-memory", artifact_id=pending.artifact_id),
+                    )
+                return result
+
+        reconciler = RevokePending()
+        pipeline = AtomicMemoryGenerationPipeline(
+            extractor=_Extractor(), reconciler=reconciler, estimator=character_token_estimator()
+        )
+        async with open_builtin_contexts(
+            _config(tmp_path), embedding_model=_SymmetricEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            context = await contexts.get("project")
+            execution, provider = await _configured_flush_context(contexts, PrincipalRef(type="user", id="owner"))
+            owned = await contexts.records.create_atomic_memories(
+                "project",
+                tuple({"kind": "fact", "text": f"Permitted rollout fact {number}."} for number in range(21)),
+                execution_context=execution,
+            )
+            await context.triggers.flush(limit=100)
+            before = (await context.triggers.cursor()).sequence
+            await contexts.records.create_source("project", "content", EQUIVALENT)
+            with pytest.raises(AccessDeniedError):
+                await context.triggers.flush(limit=100, atomic_context=execution)
+            assert reconciler.inputs
+            assert (await context.triggers.cursor()).sequence == before
+            assert len((await contexts.atomic_memory.for_scope("project").list(limit=100)).items) == len(owned)
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("denied_action", [AccessAction.ARTIFACT_READ, AccessAction.ARTIFACT_WRITE])

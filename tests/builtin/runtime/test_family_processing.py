@@ -58,7 +58,7 @@ from powercontext.builtin.runtime.processing_registry import canonical_processin
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import SourceCursor
-from powercontext.server.authz import AccessDeniedError, PrincipalRef
+from powercontext.server.authz import AccessConflictError, AccessDeniedError, PrincipalRef
 from powercontext.server.authz.repository import ACCESS_OWNERS_TABLE, ACCESS_TABLES
 from powercontext.server.processing_security import WorkerSecuritySpec, open_worker_security
 from powercontext.sources import SourceRef
@@ -223,16 +223,12 @@ def test_owner_failure_rolls_back_domain_cursor_and_ack_then_retry_owns_result(t
             contexts, assignment = await prepare(profile, family)
             async with open_worker_security(security_spec(), profile.database) as security:
                 assert security is not None
-                hook_target = contexts.atomic_memory.security if family == "memory" else security
-                hook_name = "establish_owner" if family == "memory" else f"{family}_commit"
-                original = getattr(hook_target, hook_name)
-
-                async def failed_commit(*args, **kwargs):
-                    await original(*args, **kwargs)
-                    raise OSError("injected ownership failure")  # noqa: TRY003
-
-                setattr(hook_target, hook_name, failed_commit)
-                with pytest.raises(OSError, match="ownership failure"):
+                async with profile.database.transaction() as connection:
+                    await connection.exec_driver_sql(
+                        "CREATE TRIGGER fail_owner_insert BEFORE INSERT ON pc_access_owners "
+                        "BEGIN SELECT RAISE(ABORT, 'ownership failure'); END"
+                    )
+                with pytest.raises(AccessConflictError):
                     await process_family_invocation(contexts, assignment, config=config, security=security)
                 async with profile.database.transaction() as connection:
                     cursor = await SourceCursorRepository().load(
@@ -245,7 +241,8 @@ def test_owner_failure_rolls_back_domain_cursor_and_ack_then_retry_owns_result(t
                     assert intent is not None and intent.handled_generation == 0
                     for table in (ARTIFACT_HEADS_TABLE, CANDIDATE_HEADS_TABLE, ACCESS_OWNERS_TABLE):
                         assert await connection.scalar(select(func.count()).select_from(table)) == 0
-                setattr(hook_target, hook_name, original)
+                async with profile.database.transaction() as connection:
+                    await connection.exec_driver_sql("DROP TRIGGER fail_owner_insert")
                 result = await process_family_invocation(contexts, assignment, config=config, security=security)
                 assert result.outcome == ArtifactProcessingWorkerOutcome.SUCCEEDED
                 async with profile.database.transaction() as connection:

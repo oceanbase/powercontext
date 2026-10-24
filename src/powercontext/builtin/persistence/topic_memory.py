@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import cast
 
@@ -62,6 +63,7 @@ from powercontext.builtin.artifacts.topic_memory.fusion import _fuse_topic_memor
 from powercontext.builtin.artifacts.topic_memory.search import topic_fusion_parameters, validate_topic_weights
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError, RepositoryNotFoundError
+from powercontext.builtin.persistence.sources import StoredSource
 from powercontext.builtin.persistence.supervision import database_utc_now
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
@@ -92,6 +94,8 @@ class TopicMemoryRepository:
     ) -> None:
         self.artifacts = ArtifactRepository((TopicMemory,)) if artifacts is None else artifacts
         self.index = NoTopicMemoryIndex() if index is None else index
+        if not callable(getattr(self.index, "replace_many", None)):
+            raise InvalidRepositoryArgumentError("index", "Topic Memory indexes must implement replace_many")
         self.recall_channel_weights = recall_channel_weights
 
     async def initialize(self, connection: AsyncConnection, /, *, configure_retrieval_shape: bool = True) -> None:
@@ -245,17 +249,65 @@ class TopicMemoryRepository:
     ) -> PublishedTopicMemory:
         """Create Revision 1 and activate every configured channel atomically."""
 
-        projection = self._validate_projection(draft, projection)
+        return (await self.publish_creates(connection, scope_id, ((artifact_id, draft, projection),)))[0]
+
+    async def publish_creates(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[str, TopicMemoryDraft, TopicMemoryProjection]],
+        /,
+        *,
+        known_sources: Sequence[StoredSource] = (),
+    ) -> tuple[PublishedTopicMemory, ...]:
+        """Publish independent new Topics from one window with shared lineage and projection writes."""
+
+        if not items:
+            return ()
+        projections = tuple(self._validate_projection(draft, projection) for _, draft, projection in items)
         await self._ensure_retrieval_shape(connection)
-        topic = await self.artifacts.create(connection, scope_id, artifact_id, draft)
-        if not isinstance(topic, TopicMemory):
-            raise TopicMemoryStorageInvariantError("artifact-type", topic.as_ref())
-        published_at = await self._activate(connection, scope_id, topic, projection)
-        return PublishedTopicMemory(
-            topic=topic,
-            published_at=_aware_utc(published_at),
-            is_current=True,
-            current_artifact=topic.as_ref(),
+        source_repository = self.artifacts.source_repository
+        source_read_set = None
+        if source_repository is not None:
+            source_read_set = await source_repository.preload(
+                connection,
+                scope_id,
+                tuple(source for _, draft, _ in items for source in draft.sources),
+                known=known_sources,
+            )
+        validated = []
+        for artifact_id, draft, _ in items:
+            validated.append(
+                await self.artifacts.validate_lineage_sources(
+                    connection,
+                    scope_id,
+                    ArtifactRef(family=TopicMemory.family, artifact_id=artifact_id, revision=1),
+                    draft.sources,
+                    source_read_set=source_read_set,
+                )
+            )
+        created = await self.artifacts.create_many(
+            connection,
+            scope_id,
+            tuple(
+                (artifact_id, draft, source_check)
+                for (artifact_id, draft, _), source_check in zip(items, validated, strict=True)
+            ),
+        )
+        topics = []
+        for artifact in created:
+            if not isinstance(artifact, TopicMemory):
+                raise TopicMemoryStorageInvariantError("artifact-type", artifact.as_ref())
+            topics.append(artifact)
+        published_at = await self._activate(connection, scope_id, tuple(zip(topics, projections, strict=True)))
+        return tuple(
+            PublishedTopicMemory(
+                topic=topic,
+                published_at=_aware_utc(published_at),
+                is_current=True,
+                current_artifact=topic.as_ref(),
+            )
+            for topic in topics
         )
 
     async def publish_revision(
@@ -277,7 +329,7 @@ class TopicMemoryRepository:
         topic = await self.artifacts.revise(connection, scope_id, current, draft)
         if not isinstance(topic, TopicMemory):
             raise TopicMemoryStorageInvariantError("artifact-type", topic.as_ref())
-        published_at = await self._activate(connection, scope_id, topic, projection)
+        published_at = await self._activate(connection, scope_id, ((topic, projection),))
         return PublishedTopicMemory(
             topic=topic,
             published_at=_aware_utc(published_at),
@@ -303,7 +355,7 @@ class TopicMemoryRepository:
         )
         if not isinstance(topic, TopicMemory):
             raise TopicMemoryStorageInvariantError("artifact-type", topic.as_ref())
-        await self._activate(connection, target_scope_id, topic, projection)
+        await self._activate(connection, target_scope_id, ((topic, projection),))
         return topic
 
     async def get_exact(
@@ -583,21 +635,23 @@ class TopicMemoryRepository:
         self,
         connection: AsyncConnection,
         scope_id: str,
-        topic: TopicMemory,
-        projection: TopicMemoryProjection,
+        items: Sequence[tuple[TopicMemory, TopicMemoryProjection]],
     ) -> datetime:
         published_at = await database_utc_now(connection)
-        ref = topic.as_ref()
         await connection.execute(
-            insert(TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE).values(
-                scope_id=scope_id,
-                family=TopicMemory.family,
-                artifact_id=ref.artifact_id,
-                revision=ref.revision,
-                published_at=published_at,
-            )
+            insert(TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE),
+            [
+                {
+                    "scope_id": scope_id,
+                    "family": TopicMemory.family,
+                    "artifact_id": topic.artifact_id,
+                    "revision": topic.revision,
+                    "published_at": published_at,
+                }
+                for topic, _ in items
+            ],
         )
-        await self.rebuild_current(connection, scope_id, topic, projection)
+        await self._replace_current(connection, scope_id, items)
         return published_at
 
     async def rebuild_current(
@@ -629,49 +683,63 @@ class TopicMemoryRepository:
         )
         if current_revision != ref.revision or publication != ref.revision:
             raise TopicMemoryStorageInvariantError("projection-source", (scope_id, ref))
-        await self.index.replace(connection, scope_id, ref, projection)
+        await self._replace_current(connection, scope_id, ((topic, projection),))
+
+    async def _replace_current(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[TopicMemory, TopicMemoryProjection]],
+    ) -> None:
+        index_items = tuple((topic.as_ref(), projection) for topic, projection in items)
+        await self.index.replace_many(connection, scope_id, index_items)
+        ids = tuple(topic.artifact_id for topic, _ in items)
         await connection.execute(
             delete(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE).where(
                 TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == scope_id,
-                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id == ref.artifact_id,
+                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id.in_(ids),
             )
         )
         await connection.execute(
             delete(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE).where(
                 TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.scope_id == scope_id,
-                TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id == ref.artifact_id,
+                TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id.in_(ids),
             )
         )
         await connection.execute(
-            insert(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE).values(
-                scope_id=scope_id,
-                family=TopicMemory.family,
-                artifact_id=ref.artifact_id,
-                revision=ref.revision,
-                title=topic.content.title,
-                summary=topic.content.summary,
-                searchable_text=projection.topic_searchable_text,
-                source_count=len(topic.lineage.sources),
-            )
-        )
-        await connection.execute(
-            insert(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE),
+            insert(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE),
             [
                 {
                     "scope_id": scope_id,
                     "family": TopicMemory.family,
-                    "artifact_id": ref.artifact_id,
-                    "revision": ref.revision,
-                    "chunk_ordinal": chunk.ordinal,
-                    "start_offset": chunk.start_offset,
-                    "end_offset": chunk.end_offset,
-                    "chunk_text": chunk.text,
-                    "searchable_text": analyze_text(chunk.text),
-                    "policy_version": chunk.policy_version,
+                    "artifact_id": topic.artifact_id,
+                    "revision": topic.revision,
+                    "title": topic.content.title,
+                    "summary": topic.content.summary,
+                    "searchable_text": projection.topic_searchable_text,
+                    "source_count": len(topic.lineage.sources),
                 }
-                for chunk in projection.chunks
+                for topic, projection in items
             ],
         )
+        chunks = [
+            {
+                "scope_id": scope_id,
+                "family": TopicMemory.family,
+                "artifact_id": topic.artifact_id,
+                "revision": topic.revision,
+                "chunk_ordinal": chunk.ordinal,
+                "start_offset": chunk.start_offset,
+                "end_offset": chunk.end_offset,
+                "chunk_text": chunk.text,
+                "searchable_text": analyze_text(chunk.text),
+                "policy_version": chunk.policy_version,
+            }
+            for topic, projection in items
+            for chunk in projection.chunks
+        ]
+        if chunks:
+            await connection.execute(insert(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE), chunks)
 
     def _validate_projection(
         self,

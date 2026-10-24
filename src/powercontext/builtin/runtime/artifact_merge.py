@@ -92,15 +92,33 @@ class ArtifactMergeAccess:
         if sources:
             await self.authorize(connection, scope_id, context, "read")
 
-    async def establish_owner(self, connection: AsyncConnection, scope_id: str, artifact_id: str, context) -> None:
-        if context is None or context.access is None:
+    async def authorize_creates(
+        self, connection: AsyncConnection, scope_id: str, context, refs: Sequence[ArtifactRef]
+    ) -> None:
+        if not refs:
+            return
+        if type(self).authorize is ArtifactMergeAccess.authorize:
+            await self.authorize(connection, scope_id, context, "create")
+            return
+        for ref in refs:
+            await self.authorize(connection, scope_id, context, "create", ref)
+
+    async def establish_owners(
+        self, connection: AsyncConnection, scope_id: str, artifact_ids: Sequence[str], context
+    ) -> None:
+        if context is None or context.access is None or not artifact_ids:
             return
         from powercontext.server.authz import ResourceRef
 
-        await context.access.with_connection(connection).establish_artifact_owner(
-            ResourceRef.artifact(scope_id, family=self.family, artifact_id=artifact_id),
+        await context.access.with_connection(connection).establish_artifact_owners(
+            tuple(
+                (
+                    ResourceRef.artifact(scope_id, family=self.family, artifact_id=artifact_id),
+                    f"{self.family}-owner:{scope_id}:{artifact_id}",
+                )
+                for artifact_id in artifact_ids
+            ),
             context.principal,
-            idempotency_key=f"{self.family}-owner:{scope_id}:{artifact_id}",
             context=context.audit,
         )
 

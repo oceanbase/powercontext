@@ -45,6 +45,20 @@ The scope ID selects an isolated Source journal, Memory set, and Trigger cursor 
 input. Source-based extraction follows a separate path: capture Sources, then call `flush()` to process the pending
 Source window with the configured extraction pipeline. `cursor()` reports the processed Source position.
 
+On SQLite, seekdb, and OceanBase, `flush()` compares each new candidate with the relevant memories under the same
+retrieval and comparison rules. Sources and Prompts are authorized as the Source window enters processing; recalled
+memories are authorized as they enter the comparison set. A permission change during the window prevents publication,
+but inputs already admitted to that window can finish its comparisons. A retry must obtain fresh authorization.
+Changed Source or Artifact dependencies are rechecked before the cursor advances.
+
+Successful publication makes the new memories and their direct Source lineage readable together. If an Artifact ID
+collides or a dependency changes, the window does not publish partial results or advance its cursor. A multi-create
+call returns the created memories with their current content, state, and lineage; each returned memory remains subject
+to its own read authorization.
+
+Custom Atomic and Topic Memory indexes must support publication of a complete set of prepared projections. An index
+that lacks this capability is rejected before publication writes.
+
 The built-in extraction and reconciliation instructions preserve each fact's supporting Source language. Chinese
 facts stay in Chinese and English facts stay in English, including when they share a processing window. Mixed-language
 facts retain their natural-language framing and exact identifiers, names and values. An incoming translation alone

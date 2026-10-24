@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -36,6 +37,7 @@ from powercontext.server.authz import (
     AccessRole,
     AccessRoleCardinality,
     BuiltinAuthorizationProvider,
+    CandidateOwnerAttestation,
     CreateBinding,
     GroupRef,
     HandoffReceiptIdentity,
@@ -355,6 +357,31 @@ def test_resource_cursor_is_bound_to_policy_revision() -> None:
     asyncio.run(scenario())
 
 
+def test_independent_artifact_owners_share_a_write_without_losing_identity_or_audit() -> None:
+    async def scenario() -> None:
+        async with open_builtin_access_control(SQLiteConfig(), bootstrap_administrators=(ADMIN,)) as service:
+            resources = tuple(
+                ResourceRef.artifact("scope-a", family="skill", artifact_id=f"batch-{index}") for index in range(3)
+            )
+            requests = tuple((resource, f"batch-owner-{index}") for index, resource in enumerate(resources))
+            first = await service.establish_artifact_owners(requests, ALICE, context=AUDIT)
+            assert tuple(relation.resource for relation in first) == resources
+            assert len({relation.policy_revision for relation in first}) == len(first)
+            for resource in resources:
+                await service.require(ALICE, AccessAction.ARTIFACT_READ, resource, context=AUDIT)
+            audits = await service.audit.list_audit(resource=ResourceRef.scope("scope-a"))
+            assert {event.resource for event in audits if event.reason_code == "artifact-owner-established"} == set(
+                resources
+            )
+            assert await service.establish_artifact_owners(requests, ALICE, context=AUDIT) == first
+            with pytest.raises(AccessConflictError):
+                await service.establish_artifact_owners(
+                    ((resources[0], "batch-owner-0"), (resources[1], "different-key")), ALICE, context=AUDIT
+                )
+
+    asyncio.run(scenario())
+
+
 def test_resource_cursor_is_bound_to_trusted_group_membership() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
@@ -500,6 +527,35 @@ def test_candidate_owner_is_locked_to_proposer_and_target() -> None:
                     target=None,
                     idempotency_key="candidate-owner-b",
                 )
+
+    asyncio.run(scenario())
+
+
+def test_candidate_owner_window_preserves_idempotency_and_conflicts() -> None:
+    async def scenario() -> None:
+        async with open_builtin_access_control(SQLiteConfig(), bootstrap_administrators=(ADMIN,)) as service:
+            attestations = tuple(
+                CandidateOwnerAttestation(
+                    scope_id="scope-a",
+                    candidate_id=f"candidate-{index}",
+                    family="experience",
+                    proposed_owner=ALICE,
+                    target=None,
+                    idempotency_key=f"candidate-window-{index}",
+                )
+                for index in range(3)
+            )
+            assert await service.attest_candidate_owners(attestations) == attestations
+            assert await service.candidate_owners("scope-a", tuple(item.candidate_id for item in attestations)) == {
+                item.candidate_id: item for item in attestations
+            }
+            assert await service.attest_candidate_owners(attestations) == attestations
+            assert await service.attest_candidate_owners((attestations[0], attestations[0])) == (
+                attestations[0],
+                attestations[0],
+            )
+            with pytest.raises(AccessConflictError):
+                await service.attest_candidate_owners((attestations[0], replace(attestations[1], proposed_owner=BOB)))
 
     asyncio.run(scenario())
 

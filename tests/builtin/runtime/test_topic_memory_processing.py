@@ -202,8 +202,8 @@ class _FenceRevokingTopicRepository(TopicMemoryRepository):
         super().__init__(artifacts=delegate.artifacts, index=delegate.index)
         self._leases = leases
 
-    async def publish_create(self, connection, scope_id, artifact_id, draft, projection, /):
-        published = await super().publish_create(connection, scope_id, artifact_id, draft, projection)
+    async def publish_creates(self, connection, scope_id, items, /, *, known_sources=()):
+        published = await super().publish_creates(connection, scope_id, items, known_sources=known_sources)
         await self._leases.start_single_process_term(connection, "replacement-holder")
         return published
 

@@ -1354,7 +1354,7 @@ class RelationalContexts:
             await self.repositories.skill_packages.add(connection, scope, capture.package)
             stored, created = await self.repositories.sources.add_with_status(connection, scope, source)
             if created:
-                await self.repositories.processing_pending.raise_source(
+                await self.repositories.processing_pending.note_source(
                     connection,
                     scope,
                     TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
@@ -1650,7 +1650,7 @@ class _RelationalSources:
                 async with self._database.connection(self._bound_connection) as connection:
                     stored, created = await self._repository.add_with_status(connection, self._scope_id, source)
                     if created:
-                        await self._processing_pending.raise_source(
+                        await self._processing_pending.note_source(
                             connection,
                             self._scope_id,
                             TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
@@ -1901,14 +1901,7 @@ class _RelationalExperienceIncubator:
                 if processing is not None:
                     await processing.guard(connection)
                 review = self._services.review(connection)
-                for plan in plans:
-                    candidate = await review.propose_experience(
-                        plan.proposal,
-                        sources=plan.sources,
-                        artifacts=prompt_refs,
-                        target=None,
-                        reason=plan.reason,
-                    )
+                for candidate in await review.propose_experience_batch(plans, artifacts=prompt_refs):
                     candidate_ids.append(candidate.candidate_id)
                     candidates.append(candidate)
                 for proposal in await self._services.recurrence_ledger().record_window(connection, eligible_rows):

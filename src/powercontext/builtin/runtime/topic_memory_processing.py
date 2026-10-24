@@ -420,16 +420,11 @@ class TopicMemoryAtomicPublisher:
                 SourceCursor(sequence=assignment.source_through),
                 expected_generation=assignment.cursor_generation,
             )
-            for operation in sorted(operations, key=_operation_order):
-                if operation.current is None:
-                    await self._topics.publish_create(
-                        connection,
-                        assignment.scope_id,
-                        operation.artifact_id,
-                        operation.draft,
-                        operation.projection,
-                    )
-                else:
+            ordered = sorted(operations, key=_operation_order)
+            position = 0
+            while position < len(ordered):
+                operation = ordered[position]
+                if operation.current is not None:
                     await self._topics.publish_revision(
                         connection,
                         assignment.scope_id,
@@ -437,6 +432,19 @@ class TopicMemoryAtomicPublisher:
                         operation.draft,
                         operation.projection,
                     )
+                    position += 1
+                    continue
+                next_position = position + 1
+                while next_position < len(ordered) and ordered[next_position].current is None:
+                    next_position += 1
+                creates = ordered[position:next_position]
+                await self._topics.publish_creates(
+                    connection,
+                    assignment.scope_id,
+                    tuple((item.artifact_id, item.draft, item.projection) for item in creates),
+                    known_sources=stored,
+                )
+                position = next_position
             if commit_hook is not None:
                 await commit_hook(connection)
             await self._leases.require_fence(connection, assignment.fence)

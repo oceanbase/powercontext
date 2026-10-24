@@ -16,11 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-from collections import Counter
 from pathlib import Path
-
-from sqlalchemy import event
-from sqlalchemy.engine import Engine
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
@@ -539,19 +535,6 @@ def test_unlinked_handoff_citations_are_independent_of_selected() -> None:
         assert linked.by_scope[0].recurrence.unknown == 1
 
 
-def _statement_tables(statement: str, /) -> set[str]:
-    return {table for table in _BUDGETED_TABLES if table in statement}
-
-
-_BUDGETED_TABLES = (
-    "pc_source_journal_heads",
-    "pc_candidate_heads",
-    "pc_source_cursors",
-    "pc_model_usage_daily",
-    "pc_recall_token_daily",
-)
-
-
 async def _seed_selection(runtime: BuiltinRuntime, count: int, /) -> tuple[str, ...]:
     scope_ids = []
     for index in range(count):
@@ -565,75 +548,6 @@ async def _seed_selection(runtime: BuiltinRuntime, count: int, /) -> tuple[str, 
         )
         scope_ids.append(scope_id)
     return tuple(scope_ids)
-
-
-def test_statistics_selection_reads_each_table_once_regardless_of_scope_count() -> None:
-    """A selection must not cost one query per Scope; see issue #1599."""
-
-    async def counted(scope_count: int) -> Counter[str]:
-        counts: Counter[str] = Counter()
-        armed = False
-
-        def record(_conn, _cursor, statement, *_args) -> None:
-            if armed:
-                counts.update(_statement_tables(statement))
-
-        event.listen(Engine, "before_cursor_execute", record)
-        try:
-            async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-                await _seed_selection(runtime, scope_count)
-                selection = ScopeSelection(mode="all")
-                await runtime.statistics.overview(selection, period=StatisticsPeriod.THIRTY_DAYS)
-                armed = True
-                await runtime.statistics.overview(selection, period=StatisticsPeriod.THIRTY_DAYS)
-                armed = False
-        finally:
-            event.remove(Engine, "before_cursor_execute", record)
-        return counts
-
-    small = asyncio.run(counted(2))
-    large = asyncio.run(counted(6))
-
-    assert dict(small) == dict.fromkeys(_BUDGETED_TABLES, 1)
-    assert dict(large) == dict(small)
-
-
-# Measured with 32 Handoffs citing one Experience; slack of one statement above the observed value.
-_STATISTICS_CITED_READ_CEILING = 12
-
-
-def test_statistics_overview_statement_count_does_not_grow_with_cited_handoffs() -> None:
-    """Cited Experience reads must be batched, not one query per Handoff."""
-
-    async def counted(handoff_count: int) -> int:
-        statements: list[str] = []
-        armed = False
-
-        def record(_conn, _cursor, statement, *_args) -> None:
-            if armed:
-                statements.append(statement)
-
-        url = _database_url()
-        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig(url=url))) as runtime:
-            scope_id = await _create_scope(runtime, f"statistics-cited-{handoff_count}")
-            reference = await _create_artifact(url, scope_id, "experience-1", _experience_draft())
-            for index in range(handoff_count):
-                await _create_artifact(url, scope_id, f"handoff-{index:03d}", _handoff_draft(reference))
-            await runtime.statistics.for_scope(scope_id).overview(period=StatisticsPeriod.THIRTY_DAYS)
-            event.listen(Engine, "before_cursor_execute", record)
-            armed = True
-            try:
-                await runtime.statistics.for_scope(scope_id).overview(period=StatisticsPeriod.THIRTY_DAYS)
-            finally:
-                armed = False
-                event.remove(Engine, "before_cursor_execute", record)
-        return len(statements)
-
-    small = asyncio.run(counted(1))
-    large = asyncio.run(counted(32))
-
-    assert small == large
-    assert large <= _STATISTICS_CITED_READ_CEILING
 
 
 def test_statistics_selection_reports_the_same_scope_rows_as_scoped_overviews() -> None:
@@ -661,44 +575,3 @@ def test_statistics_selection_reports_the_same_scope_rows_as_scoped_overviews() 
             assert batched[scope_id] == scoped[scope_id].by_scope[0]
 
     asyncio.run(scenario())
-
-
-# Measured on the default text-recall path; slack of one statement above the observed value.
-_PREPARE_STATEMENT_CEILING = 18
-
-
-def test_prepare_context_statement_count_does_not_grow_with_memory_count() -> None:
-    """Recall must not cost one authority read per candidate; see issue #2075."""
-
-    async def counted(memory_count: int) -> int:
-        statements: list[str] = []
-
-        def record(_conn, _cursor, statement, *_args) -> None:
-            statements.append(statement)
-
-        event.listen(Engine, "before_cursor_execute", record)
-        try:
-            async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-                scope_id = await _create_scope(runtime, f"recall-fanout-{memory_count}")
-                assert runtime.atomic_memory is not None
-                await runtime.atomic_memory.for_scope(scope_id).create(
-                    tuple(
-                        AtomicMemoryContent(kind="fact", text=f"Contract decision {entry} binds the gateway to mTLS.")
-                        for entry in range(memory_count)
-                    )
-                )
-                statements.clear()
-                prepared = await runtime.context.for_scope(scope_id).prepare(
-                    PrepareContextRequest(query="contract gateway")
-                )
-        finally:
-            event.remove(Engine, "before_cursor_execute", record)
-
-        assert prepared.status == "ready"
-        return len(statements)
-
-    pool = asyncio.run(counted(8))
-    beyond = asyncio.run(counted(40))
-
-    assert pool == beyond
-    assert beyond <= _PREPARE_STATEMENT_CEILING

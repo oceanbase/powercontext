@@ -67,4 +67,23 @@ def test_mysql_source_write_read_and_replay(tmp_path, backend):
                     await contexts.repositories.sources.journal_position(connection, scope) == stored.journal_position
                 )
 
+            batch = tuple(
+                ContentSource(name=f"batch-{number}", materialization=SourceMaterialization.CAPTURED, content="证据")
+                for number in range(100)
+            )
+            async with contexts.database.transaction() as connection:
+                captured = await contexts.repositories.sources.add_many_with_status(connection, scope, batch)
+            assert all(created for _, created in captured)
+            assert [item.journal_position for item, _ in captured] == list(
+                range(stored.journal_position + 1, stored.journal_position + 101)
+            )
+            async with contexts.database.transaction() as connection:
+                assert await contexts.repositories.sources.get_many(
+                    connection, scope, tuple(item.ref for item, _ in captured)
+                ) == tuple(item for item, _ in captured)
+                assert all(
+                    not created
+                    for _, created in await contexts.repositories.sources.add_many_with_status(connection, scope, batch)
+                )
+
     asyncio.run(scenario())

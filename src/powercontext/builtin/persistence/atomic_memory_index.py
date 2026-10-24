@@ -18,12 +18,15 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
-from sqlalchemy import Table, bindparam, delete, func, insert, inspect, or_, select, text, update
+from sqlalchemy import Table, bindparam, delete, func, inspect, or_, select, text, update
+from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef, ChannelScore
@@ -180,8 +183,8 @@ class AtomicMemoryIndex(Protocol):
 
     async def validate_current(self, connection: AsyncConnection, /) -> None: ...
 
-    async def replace(
-        self, connection: AsyncConnection, scope_id: str, projection: AtomicMemoryProjection, /
+    async def replace_many(
+        self, connection: AsyncConnection, scope_id: str, projections: Sequence[AtomicMemoryProjection], /
     ) -> None: ...
 
     async def delete(self, connection: AsyncConnection, scope_id: str, artifact_id: str, /) -> None: ...
@@ -194,9 +197,9 @@ class AtomicMemoryIndex(Protocol):
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemorySearchRequest, floor: AdmissionFloor, /
     ) -> bool: ...
 
-    async def enumerate_related(
+    async def enumerate_related_with_heads(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
-    ) -> tuple[AtomicMemoryIndexHit, ...]: ...
+    ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]: ...
 
     async def refresh_tags(
         self, connection: AsyncConnection, scope_id: str, artifact_id: str, tag_keys: tuple[str, ...], /
@@ -212,6 +215,8 @@ class AtomicMemoryProjectionPublisher:
         *,
         embedding_model: EmbeddingModel | None = None,
     ) -> None:
+        if not callable(getattr(index, "replace_many", None)):
+            raise AtomicMemoryIndexError("publication", "Atomic Memory index must publish complete projection sets")
         self.index = index
         self._embedding_model = embedding_model
 
@@ -274,20 +279,37 @@ class AtomicMemoryProjectionPublisher:
         if record.state.state != "active":
             await self.remove(connection, scope_id, artifact.artifact_id)
             return
+        tags = await load_atomic_memory_tags(connection, scope_id, artifact.artifact_id)
+        await self.index.replace_many(connection, scope_id, (self._projection(record, prepared, tags),))
+
+    async def publish_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        records: Sequence[tuple[Any, PreparedAtomicMemoryProjection]],
+    ) -> None:
+        """Publish independent, newly created and untagged revisions in one transaction."""
+        await self.index.replace_many(
+            connection,
+            scope_id,
+            tuple(self._projection(record, prepared, ()) for record, prepared in records),
+        )
+
+    def _projection(
+        self, record: Any, prepared: PreparedAtomicMemoryProjection, tags: tuple[str, ...]
+    ) -> AtomicMemoryProjection:
+        artifact = record.artifact
+        if record.state.state != "active":
+            raise AtomicMemoryIndexError("state", "Bulk projection requires active Atomic Memory")
         content_hash = sha256(canonical_json(artifact.content.model_dump(mode="json", by_alias=True))).hexdigest()
         if content_hash != prepared.content_hash:
             raise AtomicMemoryIndexError("prepared-content", "Prepared projection does not match the committed content")
         self.validate_prepared(prepared)
-        tags = await load_atomic_memory_tags(connection, scope_id, artifact.artifact_id)
-        await self.index.replace(
-            connection,
-            scope_id,
-            AtomicMemoryProjection(
-                artifact_ref=artifact.as_ref(),
-                state_version=record.state.state_version,
-                prepared=prepared,
-                tag_keys=tags,
-            ),
+        return AtomicMemoryProjection(
+            artifact_ref=artifact.as_ref(),
+            state_version=record.state.state_version,
+            prepared=prepared,
+            tag_keys=tags,
         )
 
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None:
@@ -578,7 +600,32 @@ class RelationalAtomicMemoryIndex:
                 "powercontext server atomic-memory-rebuild-projection --maintenance-confirmed.",
             )
 
-    async def replace(self, connection: AsyncConnection, scope_id: str, projection: AtomicMemoryProjection, /) -> None:
+    async def replace_many(
+        self, connection: AsyncConnection, scope_id: str, projections: Sequence[AtomicMemoryProjection], /
+    ) -> None:
+        if not projections:
+            return
+        values = [self._projection_values(scope_id, projection) for projection in projections]
+        if connection.dialect.name == "sqlite":
+            statement = sqlite_insert(self.table)
+            statement = statement.on_conflict_do_update(
+                index_elements=("scope_id", "artifact_id"),
+                set_={
+                    name: getattr(statement.excluded, name)
+                    for name in values[0]
+                    if name not in {"scope_id", "artifact_id"}
+                },
+            )
+        elif connection.dialect.name == "mysql":
+            statement = mysql_insert(self.table)
+            statement = statement.on_duplicate_key_update(**{
+                name: getattr(statement.inserted, name) for name in values[0] if name not in {"scope_id", "artifact_id"}
+            })
+        else:
+            raise AtomicMemoryIndexError("dialect", "Atomic Memory projection needs SQLite or MySQL")
+        await connection.execute(statement, values)
+
+    def _projection_values(self, scope_id: str, projection: AtomicMemoryProjection) -> dict[str, object]:
         if projection.artifact_ref.family != "atomic-memory":
             raise AtomicMemoryIndexError("family", "Atomic Memory index only accepts atomic-memory artifacts")
         prepared = projection.prepared
@@ -603,24 +650,21 @@ class RelationalAtomicMemoryIndex:
                 )
             )
             fingerprint = atomic_memory_profile_fingerprint(self.profile)
-        await self.delete(connection, scope_id, projection.artifact_ref.artifact_id)
-        await connection.execute(
-            insert(self.table).values(
-                scope_id=scope_id,
-                artifact_id=projection.artifact_ref.artifact_id,
-                revision=projection.artifact_ref.revision,
-                state_version=projection.state_version,
-                content_hash=prepared.content_hash,
-                projection_format=ATOMIC_MEMORY_PROJECTION_FORMAT,
-                kind=prepared.kind,
-                text=prepared.text,
-                searchable_text=prepared.searchable_text,
-                tag_keys=json.dumps(sorted(set(projection.tag_keys)), ensure_ascii=False),
-                embedding=embedding,
-                profile_fingerprint=fingerprint,
-                embedding_input_hash=input_hash,
-            )
-        )
+        return {
+            "scope_id": scope_id,
+            "artifact_id": projection.artifact_ref.artifact_id,
+            "revision": projection.artifact_ref.revision,
+            "state_version": projection.state_version,
+            "content_hash": prepared.content_hash,
+            "projection_format": ATOMIC_MEMORY_PROJECTION_FORMAT,
+            "kind": prepared.kind,
+            "text": prepared.text,
+            "searchable_text": prepared.searchable_text,
+            "tag_keys": json.dumps(sorted(set(projection.tag_keys)), ensure_ascii=False),
+            "embedding": embedding,
+            "profile_fingerprint": fingerprint,
+            "embedding_input_hash": input_hash,
+        }
 
     async def delete(self, connection: AsyncConnection, scope_id: str, artifact_id: str, /) -> None:
         await connection.execute(

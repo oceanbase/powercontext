@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
@@ -41,7 +41,7 @@ from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.persistence.handoff import RelationalHandoffBackend, RelationalHandoffEvidenceResolver
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
-from powercontext.builtin.persistence.sources import SourceRepository
+from powercontext.builtin.persistence.sources import SourceRepository, _SourceReadSet
 from powercontext.builtin.records import (
     ArtifactAlreadyExistsError,
     InvalidBaseAccessRequestError,
@@ -532,25 +532,55 @@ class AtomicMemoryManagementWriter:
         expected_revision: int | None = None,
         execution_context=None,
     ) -> AtomicMemoryManagementPrepared:
+        return (
+            await self._prepare_commands(scope_id, ((artifact_id, content, expected_revision),), execution_context)
+        )[0]
+
+    async def prepare_creates(
+        self,
+        scope_id: str,
+        items: Sequence[tuple[str, BaseModel]],
+        *,
+        execution_context=None,
+    ) -> tuple[AtomicMemoryManagementPrepared, ...]:
+        return await self._prepare_commands(
+            scope_id, tuple((artifact_id, content, None) for artifact_id, content in items), execution_context
+        )
+
+    async def _prepare_commands(self, scope_id, items, context) -> tuple[AtomicMemoryManagementPrepared, ...]:
+        """Inspect one write window, then prepare its projections outside the transaction."""
         from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
         from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit
 
-        context = execution_context
-        # Preparation only reads; flush audit after closing its policy snapshot.
         async with (
             deferred_decision_audit(context),
             self.application.database.transaction() as connection,
         ):
-            plan = await self.application.service.inspect_change(
-                connection,
-                scope_id,
-                artifact_id,
-                cast(AtomicMemoryContent, content),
-                context,
-                expected_revision=expected_revision,
+            if all(expected_revision is None for _, _, expected_revision in items):
+                plans = await self.application.service.inspect_creates(
+                    connection,
+                    scope_id,
+                    tuple((artifact_id, cast(AtomicMemoryContent, content)) for artifact_id, content, _ in items),
+                    context,
+                )
+            else:
+                plans = tuple([
+                    await self.application.service.inspect_change(
+                        connection,
+                        scope_id,
+                        artifact_id,
+                        cast(AtomicMemoryContent, content),
+                        context,
+                        expected_revision=expected_revision,
+                    )
+                    for artifact_id, content, expected_revision in items
+                ])
+        return tuple([
+            AtomicMemoryManagementPrepared(
+                prepared=await self.application.service.prepare_change(plan), execution_context=context
             )
-        prepared = await self.application.service.prepare_change(plan)
-        return AtomicMemoryManagementPrepared(prepared=prepared, execution_context=context)
+            for plan in plans
+        ])
 
     async def create(
         self,
@@ -566,6 +596,33 @@ class AtomicMemoryManagementWriter:
             connection, command.prepared, command.execution_context, direct_source=direct_source
         )
         return result.primary.artifact
+
+    async def create_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[str, BaseModel, SourceRef]],
+        /,
+        *,
+        source_read_set: _SourceReadSet,
+    ) -> tuple[Artifact[Any], ...]:
+        """Commit independent prepared creations with their distinct direct Sources."""
+
+        if not items:
+            return ()
+        commands = tuple(cast(AtomicMemoryManagementPrepared, item[1]) for item in items)
+        context = commands[0].execution_context
+        if any(command.execution_context is not context for command in commands):
+            raise InvalidBaseAccessRequestError("entries", "a creation window requires one execution identity")
+        results = await self.application.service.commit_window(
+            connection,
+            scope_id,
+            tuple(command.prepared for command in commands),
+            context,
+            direct_sources=tuple(source for _, _, source in items),
+            source_read_set=source_read_set,
+        )
+        return tuple(result.primary.artifact for result in results)
 
     async def replace(
         self,

@@ -27,7 +27,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError, InferenceUsage
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLiteTopicMemoryFTSIndex
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tag_schema import ensure_topic_memory_tag_schema
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
@@ -880,7 +879,7 @@ def test_prepared_replace_rechecks_head_and_publication_races_are_idempotent(tmp
     asyncio.run(scenario())
 
 
-def test_index_failure_rolls_back_create_replace_and_publication(tmp_path, monkeypatch):
+def test_index_failure_rolls_back_create_replace_and_publication(tmp_path):
     with TestClient(_app(tmp_path), raise_server_exceptions=False) as client:
         source, target = _scope(client, "atomic-source"), _scope(client, "atomic-target")
         created = _create(client, source, "original")
@@ -891,16 +890,13 @@ def test_index_failure_rolls_back_create_replace_and_publication(tmp_path, monke
             "target_scope_id": target,
             "idempotency_key": "atomic",
         }
-        original = SQLiteTopicMemoryFTSIndex.replace
-
-        async def fail_after_index_write(self, *args, **kwargs):
-            await original(self, *args, **kwargs)
-            raise RuntimeError("injected index storage failure")  # noqa: TRY003
-
         with sqlite3.connect(tmp_path / "topics.db") as connection:
             source_count = connection.execute("SELECT count(*) FROM pc_sources").fetchone()[0]
-        with monkeypatch.context() as patch:
-            patch.setattr(SQLiteTopicMemoryFTSIndex, "replace", fail_after_index_write)
+            connection.execute(
+                "CREATE TRIGGER reject_topic_projection BEFORE INSERT ON pc_topic_memory_active_topics "
+                "BEGIN SELECT RAISE(ABORT, 'index storage failure'); END"
+            )
+        try:
             failed_create = client.post(
                 f"/v1/scopes/{source}/artifacts", json={"family": "topic-memory", "content": _content("failed")}
             )
@@ -912,6 +908,9 @@ def test_index_failure_rolls_back_create_replace_and_publication(tmp_path, monke
                 == 500
             )
             assert client.post("/v1/artifact-publications", json=request).status_code == 500
+        finally:
+            with sqlite3.connect(tmp_path / "topics.db") as connection:
+                connection.execute("DROP TRIGGER reject_topic_projection")
         assert client.get(path).json()["content"] == _content("original")
         assert len(client.get(path + "/revisions").json()["items"]) == 1
         assert len(client.get(f"/v1/scopes/{source}/artifacts/topic-memory").json()["items"]) == 1

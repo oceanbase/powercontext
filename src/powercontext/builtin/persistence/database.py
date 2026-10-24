@@ -182,15 +182,21 @@ class AsyncDatabase:
                             raise
                     else:
                         await connection.exec_driver_sql("START TRANSACTION")
+                snapshot = nullcontext()
+                if consistent_snapshot and connection.dialect.name == "sqlite":
+                    # SQLAlchemy's logical begin does not start a native SQLite
+                    # transaction for SELECT. One native BEGIN pins a fresh
+                    # owned snapshot. Retain a SAVEPOINT if the attached driver
+                    # has already started a physical transaction.
+                    driver = (await connection.get_raw_connection()).driver_connection
+                    if isinstance(driver, SQLiteConnection) and not driver.in_transaction:
+                        await connection.exec_driver_sql("BEGIN")
+                    else:
+                        snapshot = connection.begin_nested()
                 if self._shared_connection_lock is not None:
                     self._transaction_owner = owner
                     self._shared_connection = connection
                 try:
-                    snapshot = (
-                        connection.begin_nested()
-                        if consistent_snapshot and connection.dialect.name == "sqlite"
-                        else nullcontext()
-                    )
                     async with snapshot:
                         yield connection
                 finally:
