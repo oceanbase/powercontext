@@ -63,7 +63,8 @@ evaluation-unit-test: ## Run the evaluation project's unit tests, the work-conti
 		evaluation/artifact_evolution/tests \
 		evaluation/coding/swebench_pro/tests/unit \
 		evaluation/coding/work_continuity/tests/unit \
-		evaluation/memory/longmemeval_v2/tests -m "not live" -q
+		evaluation/memory/longmemeval_v2/tests \
+		evaluation/memory/evidence_admission/tests -m "not live" -q
 
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.

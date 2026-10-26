@@ -210,6 +210,7 @@ exclude = [
     "evaluation/coding",
     "evaluation/artifact_evolution",
     "evaluation/memory/longmemeval_v2",
+    "evaluation/memory/evidence_admission",
     "evaluation/skills",
     "evaluation/zcode_guidance",
 ]

@@ -1,0 +1,68 @@
+{
+  "schema_version": "evidence-admission.experiment.v3",
+  "arms": [
+    "complete-projection-v1",
+    "window-reduction-v1",
+    "bounded-fragments-v1",
+    "bounded-fragments-v2",
+    "bounded-fragments-v3"
+  ],
+  "budgets": [
+    2048,
+    4096,
+    8192
+  ],
+  "fragment_bytes": 512,
+  "ordering": "source-field-original-order-v1",
+  "selection": "field-fair-head-tail-mid-largest-gap-v1",
+  "estimator": "character:weighted@1",
+  "repetitions": 3,
+  "live_repetitions": 3,
+  "model_settings": {
+    "temperature": 0
+  },
+  "max_requests_per_call": 1,
+  "max_output_tokens": 2048,
+  "timeout_seconds": 60,
+  "concurrency": 1,
+  "normalization": "none",
+  "fixture_sha256": "a2328bcac39aee107a6f82cb3e0b6404449b7e1ef7a8e1cee789a724553c8968",
+  "catalog_sha256": "8b05926dae654dcd7c473b678f4d84d51a75ccdff1ed458ae0a33d1e51123776",
+  "decision_sha256": "b3466c00f4f47ef0ecad741b0b632f18ac6bd54d159ab99ffd3d7afa82f81248",
+  "v2": {
+    "version": "bounded-fragments-v2",
+    "boundaries": "newline-record-utf8-v2",
+    "selection": "source-field-index-gap-round-robin-v2",
+    "encoding": "source-range-bundle-v2",
+    "max_calls_per_sample": 16,
+    "total_input_budget_multiplier": 8,
+    "reference_encoding": "v1-claim-fragments",
+    "require_no_preparation_regression": true,
+    "validation_fixture_sha256": "3dd9728bdf34f68c4b5c72a31d0e6eae21bc75bbfed3720e26ad3ec824aa173b",
+    "validation_catalog_sha256": "a1e14839f3002eeed652585d0c002d2fb45a1420ed9f6f31ed5efa0b4390329f"
+  },
+  "v3": {
+    "version": "bounded-fragments-v3",
+    "boundaries": "newline-record-utf8-v2",
+    "selection": "source-family-distinct-first-v3",
+    "encoding": "source-range-bundle-v3",
+    "family_turns": {
+      "content": 2,
+      "metadata": 1,
+      "source_metadata": 1
+    },
+    "duplicate_scope": "source-materialization-projection-field-exact-json-value",
+    "duplicate_disposition": "defer-only-no-support-alias",
+    "max_calls_per_sample": 16,
+    "total_input_budget_multiplier": 8,
+    "reference_encoding": "v1-claim-fragments",
+    "require_no_preparation_regression": true,
+    "required_datasets": [
+      "synthetic-v1",
+      "validation-v2",
+      "validation-v3"
+    ],
+    "validation_fixture_sha256": "a712e52c247e05d6f2640636df2c52dd1b59455a2b4eb70041ef278a8e82dc03",
+    "validation_catalog_sha256": "8204de334efba53dfa7f3a0cca5ac63844bfa9a6660e595c2626b3030fcb804f"
+  }
+}

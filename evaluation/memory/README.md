@@ -8,6 +8,7 @@ the shared `evaluation/` environment.
 | --- | --- |
 | [LoCoMo](locomo/README.md) | End-to-end Source ingestion, Memory retrieval, answer generation, and judging on LoCoMo. |
 | [LongMemEval-V2](longmemeval_v2/README.md) | Long-horizon memory retrieval, prepared context, reader answers, and official scoring. |
+| [Evidence admission](evidence_admission/README.md) | Persisted Source replay, bounded evidence admission, exact provenance, cancellation, and production decision gates. |
 | [LoCoMo-Plus](locomo_plus/README.md) | Factual and cognitive memory evaluation with bounded smoke and full profiles. |
 | [Memory write gate](write_gate/README.md) | Offline evidence-sufficiency calibration, held-out checks, and promotion decision. |
 | [Source poisoning observation](source_poisoning/README.md) | Versioned synthetic inputs, immutable citations, and actual host answers from a bounded live-model run. |

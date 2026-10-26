@@ -1,0 +1,476 @@
+{
+  "schema": "evidence-admission.fixtures.v1",
+  "cases": [
+    {
+      "case_id": "probe-shifted-middle",
+      "categories": [
+        "v3-preimplementation-stress"
+      ],
+      "sources": [
+        {
+          "source_id": "probe",
+          "pieces": [
+            {
+              "text": "The deployment region is region-a.\n",
+              "repeat": 1
+            },
+            {
+              "text": "Temporary diagnostic noise without durable user information.\n",
+              "repeat": 1493
+            },
+            {
+              "text": "The approval owner is the release team.\n",
+              "repeat": 1
+            },
+            {
+              "text": "Temporary diagnostic noise without durable user information.\n",
+              "repeat": 2237
+            },
+            {
+              "text": "The release requires a canary stage.",
+              "repeat": 1
+            }
+          ],
+          "metadata": {},
+          "route": "native"
+        }
+      ],
+      "required": [
+        {
+          "claim_id": "head",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "The deployment region is region-a.",
+          "exact_literals": []
+        },
+        {
+          "claim_id": "middle",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "The approval owner is the release team.",
+          "exact_literals": []
+        },
+        {
+          "claim_id": "tail",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "The release requires a canary stage.",
+          "exact_literals": []
+        }
+      ],
+      "forbidden": [],
+      "completeness_ceiling": "budget_dependent",
+      "reducibility": "fragments"
+    },
+    {
+      "case_id": "probe-wide-metadata",
+      "categories": [
+        "v3-preimplementation-stress"
+      ],
+      "sources": [
+        {
+          "source_id": "probe",
+          "pieces": [
+            {
+              "text": "The deployment region is region-a.\n",
+              "repeat": 1
+            },
+            {
+              "text": "Temporary diagnostic noise without durable user information.\n",
+              "repeat": 1739
+            },
+            {
+              "text": "The release requires a canary stage.",
+              "repeat": 1
+            }
+          ],
+          "metadata": {
+            "field_000": "auxiliary value 0",
+            "field_001": "auxiliary value 1",
+            "field_002": "auxiliary value 2",
+            "field_003": "auxiliary value 3",
+            "field_004": "auxiliary value 4",
+            "field_005": "auxiliary value 5",
+            "field_006": "auxiliary value 6",
+            "field_007": "auxiliary value 7",
+            "field_008": "auxiliary value 8",
+            "field_009": "auxiliary value 9",
+            "field_010": "auxiliary value 10",
+            "field_011": "auxiliary value 11",
+            "field_012": "auxiliary value 12",
+            "field_013": "auxiliary value 13",
+            "field_014": "auxiliary value 14",
+            "field_015": "auxiliary value 15",
+            "field_016": "auxiliary value 16",
+            "field_017": "auxiliary value 17",
+            "field_018": "auxiliary value 18",
+            "field_019": "auxiliary value 19",
+            "field_020": "auxiliary value 20",
+            "field_021": "auxiliary value 21",
+            "field_022": "auxiliary value 22",
+            "field_023": "auxiliary value 23",
+            "field_024": "auxiliary value 24",
+            "field_025": "auxiliary value 25",
+            "field_026": "auxiliary value 26",
+            "field_027": "auxiliary value 27",
+            "field_028": "auxiliary value 28",
+            "field_029": "auxiliary value 29",
+            "field_030": "auxiliary value 30",
+            "field_031": "auxiliary value 31",
+            "field_032": "auxiliary value 32",
+            "field_033": "auxiliary value 33",
+            "field_034": "auxiliary value 34",
+            "field_035": "auxiliary value 35",
+            "field_036": "auxiliary value 36",
+            "field_037": "auxiliary value 37",
+            "field_038": "auxiliary value 38",
+            "field_039": "auxiliary value 39",
+            "field_040": "auxiliary value 40",
+            "field_041": "auxiliary value 41",
+            "field_042": "auxiliary value 42",
+            "field_043": "auxiliary value 43",
+            "field_044": "auxiliary value 44",
+            "field_045": "auxiliary value 45",
+            "field_046": "auxiliary value 46",
+            "field_047": "auxiliary value 47",
+            "field_048": "auxiliary value 48",
+            "field_049": "auxiliary value 49",
+            "field_050": "auxiliary value 50",
+            "field_051": "auxiliary value 51",
+            "field_052": "auxiliary value 52",
+            "field_053": "auxiliary value 53",
+            "field_054": "auxiliary value 54",
+            "field_055": "auxiliary value 55",
+            "field_056": "auxiliary value 56",
+            "field_057": "auxiliary value 57",
+            "field_058": "auxiliary value 58",
+            "field_059": "auxiliary value 59",
+            "field_060": "auxiliary value 60",
+            "field_061": "auxiliary value 61",
+            "field_062": "auxiliary value 62",
+            "field_063": "auxiliary value 63"
+          },
+          "route": "observation"
+        }
+      ],
+      "required": [
+        {
+          "claim_id": "head",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "The deployment region is region-a.",
+          "exact_literals": []
+        },
+        {
+          "claim_id": "tail",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "The release requires a canary stage.",
+          "exact_literals": []
+        }
+      ],
+      "forbidden": [],
+      "completeness_ceiling": "budget_dependent",
+      "reducibility": "fragments"
+    },
+    {
+      "case_id": "probe-reordered-metadata",
+      "categories": [
+        "v3-preimplementation-stress"
+      ],
+      "sources": [
+        {
+          "source_id": "probe",
+          "pieces": [
+            {
+              "text": "The deployment region is region-a.\n",
+              "repeat": 1
+            },
+            {
+              "text": "Temporary diagnostic noise without durable user information.\n",
+              "repeat": 1987
+            },
+            {
+              "text": "The release requires a canary stage.",
+              "repeat": 1
+            }
+          ],
+          "metadata": {
+            "zz_030": "auxiliary value 30",
+            "zz_029": "auxiliary value 29",
+            "zz_028": "auxiliary value 28",
+            "zz_027": "auxiliary value 27",
+            "zz_026": "auxiliary value 26",
+            "zz_025": "auxiliary value 25",
+            "zz_024": "auxiliary value 24",
+            "zz_023": "auxiliary value 23",
+            "zz_022": "auxiliary value 22",
+            "zz_021": "auxiliary value 21",
+            "zz_020": "auxiliary value 20",
+            "zz_019": "auxiliary value 19",
+            "zz_018": "auxiliary value 18",
+            "zz_017": "auxiliary value 17",
+            "zz_016": "auxiliary value 16",
+            "zz_015": "auxiliary value 15",
+            "zz_014": "auxiliary value 14",
+            "zz_013": "auxiliary value 13",
+            "zz_012": "auxiliary value 12",
+            "zz_011": "auxiliary value 11",
+            "zz_010": "auxiliary value 10",
+            "zz_009": "auxiliary value 9",
+            "zz_008": "auxiliary value 8",
+            "zz_007": "auxiliary value 7",
+            "zz_006": "auxiliary value 6",
+            "zz_005": "auxiliary value 5",
+            "zz_004": "auxiliary value 4",
+            "zz_003": "auxiliary value 3",
+            "zz_002": "auxiliary value 2",
+            "zz_001": "auxiliary value 1",
+            "zz_000": "auxiliary value 0"
+          },
+          "route": "observation"
+        }
+      ],
+      "required": [
+        {
+          "claim_id": "head",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "The deployment region is region-a.",
+          "exact_literals": []
+        },
+        {
+          "claim_id": "tail",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "The release requires a canary stage.",
+          "exact_literals": []
+        }
+      ],
+      "forbidden": [],
+      "completeness_ceiling": "budget_dependent",
+      "reducibility": "fragments"
+    },
+    {
+      "case_id": "probe-user-metadata-fact",
+      "categories": [
+        "v3-preimplementation-stress"
+      ],
+      "sources": [
+        {
+          "source_id": "probe",
+          "pieces": [
+            {
+              "text": "临时数据，不含持久信息。\r\n",
+              "repeat": 1801
+            }
+          ],
+          "metadata": {
+            "durable_note": "The rotation period is 29 days.",
+            "zz_00": "auxiliary value 0",
+            "zz_01": "auxiliary value 1",
+            "zz_02": "auxiliary value 2",
+            "zz_03": "auxiliary value 3",
+            "zz_04": "auxiliary value 4",
+            "zz_05": "auxiliary value 5",
+            "zz_06": "auxiliary value 6",
+            "zz_07": "auxiliary value 7",
+            "zz_08": "auxiliary value 8",
+            "zz_09": "auxiliary value 9",
+            "zz_10": "auxiliary value 10",
+            "zz_11": "auxiliary value 11"
+          },
+          "route": "native"
+        }
+      ],
+      "required": [
+        {
+          "claim_id": "metadata",
+          "source_id": "probe",
+          "field": "/content/metadata/durable_note",
+          "text": "The rotation period is 29 days.",
+          "exact_literals": [
+            "29"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "completeness_ceiling": "budget_dependent",
+      "reducibility": "fragments"
+    },
+    {
+      "case_id": "probe-near-repeat-number",
+      "categories": [
+        "v3-preimplementation-stress"
+      ],
+      "sources": [
+        {
+          "source_id": "probe",
+          "pieces": [
+            {
+              "text": "The rollout retention was 17 days.\n",
+              "repeat": 1807
+            },
+            {
+              "text": "The rollout retention is now 19 days.\n",
+              "repeat": 1
+            },
+            {
+              "text": "The rollout retention was 17 days.\n",
+              "repeat": 1753
+            }
+          ],
+          "metadata": {},
+          "route": "native"
+        }
+      ],
+      "required": [
+        {
+          "claim_id": "current",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "The rollout retention is now 19 days.",
+          "exact_literals": [
+            "19"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim_id": "old",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "The rollout retention was 17 days.",
+          "exact_literals": []
+        }
+      ],
+      "completeness_ceiling": "budget_dependent",
+      "reducibility": "fragments"
+    },
+    {
+      "case_id": "probe-near-repeat-negation",
+      "categories": [
+        "v3-preimplementation-stress"
+      ],
+      "sources": [
+        {
+          "source_id": "probe",
+          "pieces": [
+            {
+              "text": "Earlier guidance: the release does not require a canary stage.\n",
+              "repeat": 1709
+            },
+            {
+              "text": "Current guidance: the release requires a canary stage.\n",
+              "repeat": 1
+            },
+            {
+              "text": "Earlier guidance: the release does not require a canary stage.\n",
+              "repeat": 1811
+            }
+          ],
+          "metadata": {},
+          "route": "native"
+        }
+      ],
+      "required": [
+        {
+          "claim_id": "current",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "Current guidance: the release requires a canary stage.",
+          "exact_literals": []
+        }
+      ],
+      "forbidden": [
+        {
+          "claim_id": "old",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "Earlier guidance: the release does not require a canary stage.",
+          "exact_literals": []
+        }
+      ],
+      "completeness_ceiling": "budget_dependent",
+      "reducibility": "fragments"
+    },
+    {
+      "case_id": "probe-unicode-crlf",
+      "categories": [
+        "v3-preimplementation-stress"
+      ],
+      "sources": [
+        {
+          "source_id": "probe",
+          "pieces": [
+            {
+              "text": "临时🙂诊断\r\n",
+              "repeat": 1391
+            },
+            {
+              "text": "发布负责人是平台团队🙂。\r\n",
+              "repeat": 1
+            },
+            {
+              "text": "临时🙂诊断\r\n",
+              "repeat": 2179
+            }
+          ],
+          "metadata": {},
+          "route": "native"
+        }
+      ],
+      "required": [
+        {
+          "claim_id": "owner",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "发布负责人是平台团队🙂。",
+          "exact_literals": [
+            "平台团队🙂"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "completeness_ceiling": "budget_dependent",
+      "reducibility": "fragments"
+    },
+    {
+      "case_id": "probe-cross-fragment-record",
+      "categories": [
+        "v3-preimplementation-stress"
+      ],
+      "sources": [
+        {
+          "source_id": "probe",
+          "pieces": [
+            {
+              "text": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXThe release approval requires exactly three maintainers.YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY\n",
+              "repeat": 1
+            },
+            {
+              "text": "Temporary diagnostic noise without durable user information.\n",
+              "repeat": 1913
+            }
+          ],
+          "metadata": {},
+          "route": "native"
+        }
+      ],
+      "required": [
+        {
+          "claim_id": "approval",
+          "source_id": "probe",
+          "field": "/content/content",
+          "text": "The release approval requires exactly three maintainers.",
+          "exact_literals": [
+            "three"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "completeness_ceiling": "budget_dependent",
+      "reducibility": "fragments"
+    }
+  ]
+}
