@@ -39,12 +39,12 @@ from bootstrap_state import (  # noqa: E402
     load_receipt_state,
     save_receipt,
 )
-from hooks.bootstrap_context import (  # noqa: E402
+from plugin_version import PLUGIN_VERSION  # noqa: E402
+from powercontext_lifecycle.bootstrap_context import (  # noqa: E402
     InvalidBootstrapResponse,
     validate_bootstrap_context,
     validate_delivery_receipt,
 )
-from plugin_version import PLUGIN_VERSION  # noqa: E402
 from scope_binding import (  # noqa: E402
     ScopeBindingError,
     ScopeBindingRejectedError,

@@ -40,7 +40,7 @@ from bootstrap_state import (  # noqa: E402
     save_receipt,
 )
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
-from hooks.bootstrap_context import (  # noqa: E402
+from powercontext_lifecycle.bootstrap_context import (  # noqa: E402
     InvalidBootstrapResponse,
     validate_bootstrap_context,
     validate_delivery_receipt,

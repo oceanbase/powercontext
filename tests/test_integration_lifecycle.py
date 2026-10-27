@@ -14,9 +14,9 @@
 
 """The integration lifecycle helpers run inside plugins that are installed without the PowerContext package.
 
-Claude Code runs its hooks with the ``python3`` on ``PATH``, and Hermes installs no dependency for its plugin. Each
-plugin also puts its copy of a helper where it imports it. A helper may therefore import only the standard library,
-and no sibling.
+Claude Code runs its hooks with the ``python3`` on ``PATH``, and Hermes installs no dependency for its plugin.
+WorkBuddy and Hermes also ship single modules, which cannot reach their siblings. A helper may therefore import only
+the standard library, and no sibling.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def test_lifecycle_helper_imports_only_the_standard_library(module: Path) -> Non
 def _top_level_names(node: ast.Import | ast.ImportFrom) -> set[str]:
     if isinstance(node, ast.Import):
         return {alias.name.partition(".")[0] for alias in node.names}
-    # A relative import names a sibling, which a plugin's copy cannot reach.
+    # A relative import names a sibling, which a single-module copy cannot reach.
     return {""} if node.level else {(node.module or "").partition(".")[0]}
 
 

@@ -37,10 +37,10 @@ sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from bootstrap_state import clear_receipt, load_receipt  # noqa: E402
-from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
-from hooks.prompt_privacy import scrub_secrets  # noqa: E402
 from plugin_version import PLUGIN_VERSION  # noqa: E402
+from powercontext_lifecycle import prepared_context as _prepared_context  # noqa: E402
+from powercontext_lifecycle.prompt_privacy import scrub_secrets  # noqa: E402
 from scope_binding import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
