@@ -137,14 +137,17 @@ def coverage_order(items: tuple[BoundaryFragment, ...]):
             active.append(source)
 
 
-def bundle_input(items: tuple[BoundaryFragment, ...]) -> AtomicMemoryExtractionInput:
+def bundle_input(items: tuple[BoundaryFragment, ...], *, citation_only: bool = False) -> AtomicMemoryExtractionInput:
     sources = defaultdict(list)
     for item in sorted(items, key=lambda f: (f.source.journal_position, f.field_order, f.byte_start)):
         sources[item.source.journal_position].append(item)
     evidence = []
     for group in sources.values():
         first = group[0]
-        identity = digest({"policy": POLICY, "fragments": [item.identity for item in group]})
+        identity_data = {"policy": POLICY, "fragments": [item.identity for item in group]}
+        if citation_only:
+            identity_data["encoding"] = "source-range-bundle-citation-v2"
+        identity = digest(identity_data)
         evidence.append(
             AtomicMemoryEvidence(
                 evidence_id=f"fragment-bundle:{identity}",
@@ -154,7 +157,7 @@ def bundle_input(items: tuple[BoundaryFragment, ...]) -> AtomicMemoryExtractionI
                     "incomplete": True,
                     "ranges": [
                         {
-                            "id": item.identity,
+                            **({} if citation_only else {"id": item.identity}),
                             "field": item.field,
                             "value": item.value,
                             "bytes": [item.byte_start, item.byte_end],
@@ -175,16 +178,18 @@ def bundle_input(items: tuple[BoundaryFragment, ...]) -> AtomicMemoryExtractionI
     return AtomicMemoryExtractionInput(evidence=tuple(evidence))
 
 
-async def select_bundle(inventory: tuple[BoundaryFragment, ...], budget: int, instructions: str):
+async def select_bundle(
+    inventory: tuple[BoundaryFragment, ...], budget: int, instructions: str, *, citation_only: bool = False
+):
     selected = []
     for index, fragment in enumerate(coverage_order(inventory)):
-        candidate = bundle_input((*selected, fragment))
+        candidate = bundle_input((*selected, fragment), citation_only=citation_only)
         if token_count(candidate, instructions) <= budget:
             selected.append(fragment)
         if index % 32 == 0:
             await checkpoint("v2_selection")
     selected.sort(key=lambda f: (f.source.journal_position, f.field_order, f.byte_start))
-    return tuple(selected), bundle_input(tuple(selected))
+    return tuple(selected), bundle_input(tuple(selected), citation_only=citation_only)
 
 
 @dataclass(frozen=True)
@@ -242,7 +247,12 @@ async def hybrid_admission(
             chosen, prepared = window_fragments, value
             references = tuple(f.support(f.source.evidence_id) for f in chosen)
         else:
-            chosen, prepared = await select_bundle(window_fragments, budget, instructions)
+            chosen, prepared = await select_bundle(
+                window_fragments,
+                budget,
+                instructions,
+                citation_only=policy.encoding == "source-range-bundle-citation-v2",
+            )
             ids = {item.journal_position: item.evidence_id for item in prepared.evidence}
             references = tuple(f.support(ids[f.source.journal_position]) for f in chosen)
         if not chosen:

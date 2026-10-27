@@ -171,3 +171,11 @@ uv run --project evaluation evidence-admission prepare \
 
 Pass the same `--private-manifest` to live, audit and report commands. Private runs use the pinned decision policy, remain
 separate from synthetic results, and cannot satisfy the committed synthetic-suite production gate.
+
+## Citation protocol experiment
+
+[Experiment v4](V4_PROTOCOL.md) keeps the v3 selection algorithm while versioning its model-facing encoding, uniform citation instructions, sample/report records and reviewed smoke gate. Select `--experiment-version v4` explicitly on preparation, comparison, planning, smoke, audit and live commands. New bundles expose only the outer evidence ID as a citation identity. An invalid returned citation remains a failed generation, with its known usage preserved. Legacy configurations keep their original encodings.
+
+Original smoke and `audited_smoke` are separate artifacts; both remain excluded from formal comparisons. New formal runs require matching original/reviewed smoke directories and `ready_for_formal=true`. Full commands and review constraints are in the [Chinese runbook](V4_RUNBOOK.zh.md). Neither offline retention nor smoke passing establishes issue acceptance.
+
+[Experiment v5](V5_PROTOCOL.md) separates frozen v3 selection-envelope costs from the model-facing citation encoding. It preserves original selected ranges for every arm, removes internal citation-like IDs only after selection, and uses a shorter explicit citation instruction. Actual prepared-input costs must not exceed conservative selection costs. Select `--experiment-version v5` for every command in the [runbook](V5_RUNBOOK.zh.md). Experiment v4 remains available with its disclosed v2-control regression; its artifacts are not replaced.

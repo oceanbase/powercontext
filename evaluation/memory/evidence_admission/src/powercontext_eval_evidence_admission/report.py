@@ -25,11 +25,12 @@ import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 from .comparison import compare_preparation
 from .manifests import EvaluationError, Suite, file_hash, read_json
 from .models import Sample, canonical, digest
-from .runner import INSTRUCTIONS
+from .runner import instructions_for
 
 
 def code_identity(suite: Suite) -> dict:
@@ -78,7 +79,7 @@ def code_identity(suite: Suite) -> dict:
         "runtime_code_hash": runtime_hash,
         "frozen_committed": committed,
         "frozen_hashes": suite.frozen_hashes,
-        "instruction_hash": hashlib.sha256(INSTRUCTIONS.encode()).hexdigest(),
+        "instruction_hash": hashlib.sha256(instructions_for(suite).encode()).hexdigest(),
         "estimator": suite.experiment.estimator,
         "dependency_hashes": {str(path.relative_to(repository)): file_hash(path) for path in dependency_paths}
         if repository
@@ -95,6 +96,11 @@ def code_identity(suite: Suite) -> dict:
 
 
 def aggregate(suite: Suite, samples: tuple[Sample, ...], manifest: dict) -> dict:
+    expected_schema = (
+        "evidence-admission.sample.v2" if suite.experiment.citation_protocol else "evidence-admission.sample.v1"
+    )
+    if any(sample.schema_version != expected_schema for sample in samples):
+        raise EvaluationError("sample_protocol_mismatch")
     groups = defaultdict(list)
     for sample in samples:
         groups[(sample.case_hash, sample.arm, sample.budget)].append(sample)
@@ -134,6 +140,11 @@ def aggregate(suite: Suite, samples: tuple[Sample, ...], manifest: dict) -> dict
             "exact_literals_retained": sum(s.preparation.exact_literals_retained for s in rows if s.preparation),
             "prepared_requests": sum(s.metrics.prepared_requests for s in rows),
             "prepared_tokens_total": sum(s.metrics.prepared_tokens_total for s in rows),
+            **(
+                {"selection_prepared_tokens_total": sum(s.metrics.selection_prepared_tokens_total or 0 for s in rows)}
+                if suite.experiment.selection_cost_protocol
+                else {}
+            ),
             "requests": sum(s.requests for s in rows),
             "generation_calls": generation_calls,
             "generation_scored_samples": len(generations),
@@ -228,6 +239,12 @@ def aggregate(suite: Suite, samples: tuple[Sample, ...], manifest: dict) -> dict
             )
         )
     ]
+    if suite.experiment.citation_protocol:
+        critical.extend(
+            s.sample_id
+            for s in samples
+            if s.failure_kind == "invalid_evidence_reference" and s.sample_id not in critical
+        )
     for paired in baseline_comparisons or ([comparison] if comparison else []):
         critical.extend(row["sample_id"] for row in paired["regressions"] if row["sample_id"] not in critical)
     unresolved = [s.sample_id for s in samples if s.generation and s.generation.unresolved]
@@ -330,8 +347,10 @@ def aggregate(suite: Suite, samples: tuple[Sample, ...], manifest: dict) -> dict
         for s in samples
         if s.repetition == 0 and s.budget == main_budget
     ]
-    result = {
-        "schema": "evidence-admission.report.v1",
+    result: dict = {
+        "schema": "evidence-admission.report.v2"
+        if suite.experiment.citation_protocol
+        else "evidence-admission.report.v1",
         "decision": decision,
         "candidate_arm": candidate_arm,
         "comparison": comparison,
@@ -366,7 +385,7 @@ def aggregate(suite: Suite, samples: tuple[Sample, ...], manifest: dict) -> dict
         ],
     }
 
-    if manifest["mode"] == "smoke":
+    if manifest["mode"] in {"smoke", "audited_smoke"}:
         scope = manifest["smoke"]
         expected_smoke = {
             (digest(c.model_dump(mode="json")), arm, budget, repetition)
@@ -389,7 +408,7 @@ def aggregate(suite: Suite, samples: tuple[Sample, ...], manifest: dict) -> dict
             for s in samples
             if s.metrics.prepared_requests
         )
-        result["smoke"] = {
+        smoke_result: dict[str, Any] = {
             "formal_matrix": False,
             "scope_coverage_complete": actual == expected_smoke and len(samples) == len(expected_smoke),
             "execution_complete": bool(
@@ -398,7 +417,33 @@ def aggregate(suite: Suite, samples: tuple[Sample, ...], manifest: dict) -> dict
             "provider_requests": sum(s.requests for s in samples),
             "unresolved_samples": len(unresolved),
         }
+        if suite.experiment.citation_protocol:
+            all_arm_quality_failures = [
+                s.sample_id
+                for s in samples
+                if s.generation
+                and (s.generation.unsupported or s.generation.false_attribution or s.generation.invalid_support)
+            ]
+            request_cap = manifest["provider"]["max_requests"]
+            cap_valid = (
+                sum(s.requests for s in samples) <= request_cap
+                and sum(s.generation_calls for s in samples) * suite.experiment.max_requests_per_call <= request_cap
+            )
+            quality = not (critical or required_loss or generation_loss or unresolved or all_arm_quality_failures)
+            smoke_result["all_arm_quality_failures"] = all_arm_quality_failures
+            smoke_result["request_cap_breached"] = not cap_valid
+            smoke_result["ready_for_formal"] = bool(
+                manifest["mode"] == "audited_smoke" and smoke_result["execution_complete"] and quality and cap_valid
+            )
+        result["smoke"] = smoke_result
         result["limitations"].append("smoke_scope_does_not_replace_formal_matrix")
+        result["decision"] = "insufficient_evidence"
+    if suite.experiment.citation_protocol:
+        result["generation_failures"] = [
+            {"sample_id": s.sample_id, "phase": s.failure_phase, "kind": s.failure_kind}
+            for s in samples
+            if s.status == "failed"
+        ]
     return result
 
 
@@ -514,6 +559,21 @@ def markdown(report: dict) -> str:
                 "Generation quality is unmeasured. Window arms may use more than one call per sample.",
                 "",
                 "## Limitation details",
+                "",
+            ]
+        )
+    if "smoke" in report:
+        lines.extend(["", "## Smoke gate", "", f"`{json.dumps(report['smoke'], sort_keys=True)}`", ""])
+    if "generation_failures" in report:
+        lines.extend(
+            [
+                "",
+                "## Generation failures",
+                "",
+                *[
+                    f"- `{row['sample_id']}`: `{row['phase']}` / `{row['kind']}`"
+                    for row in report["generation_failures"]
+                ],
                 "",
             ]
         )

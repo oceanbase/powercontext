@@ -29,12 +29,12 @@ from urllib.parse import urlsplit
 import typer
 from pydantic import ValidationError
 
-from .live_evaluation import combined_live, live_plan
+from .live_evaluation import combined_live, live_plan, verify_smoke
 from .manifests import PACKAGE_ROOT, EvaluationError, Suite, live_policy, load_private_suite, load_suite, read_json
 from .models import digest
 from .private_audit import PrivateAuditJournal
 from .report import aggregate, code_identity, load_run, publish
-from .runner import INSTRUCTIONS, run_sample
+from .runner import instructions_for, run_sample
 from .verification import combined_preparation
 
 app = typer.Typer(no_args_is_help=True, help="Versioned, isolated Source evidence admission evaluation.")
@@ -54,7 +54,7 @@ def selected_suite(
 
 def manifest_for(suite: Suite, mode: str, *, provider: dict | None = None) -> dict:
     return {
-        "schema": "evidence-admission.run.v1",
+        "schema": "evidence-admission.run.v2" if suite.experiment.citation_protocol else "evidence-admission.run.v1",
         "mode": mode,
         "code": code_identity(suite),
         "repetitions": suite.experiment.repetitions if mode == "prepare" else suite.experiment.live_repetitions,
@@ -85,7 +85,7 @@ async def execute(
     records = []
     budgets = suite.experiment.budgets
     if manifest["mode"] == "smoke":
-        smoke = live_policy(suite.root)["smoke"]
+        smoke = live_policy(suite.root, version=suite.live_policy_version)["smoke"]
         if (
             manifest.get("smoke") != smoke
             or suite.dataset != smoke["dataset"]
@@ -158,10 +158,11 @@ def compare_preparation_command(
     run_dir: Annotated[list[Path], typer.Option()],
     output_file: Annotated[Path, typer.Option()],
     suite_root: Annotated[Path, typer.Option()] = PACKAGE_ROOT,
+    experiment_version: Annotated[str, typer.Option()] = "v3",
 ) -> None:
     if output_file.exists():
         raise EvaluationError("refusing_existing_output")
-    suite = load_suite(suite_root, experiment_version="v3")
+    suite = load_suite(suite_root, experiment_version=experiment_version)
     comparison = combined_preparation(suite, tuple(run_dir))
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with output_file.open("x", encoding="utf-8") as stream:
@@ -181,10 +182,11 @@ def plan_live_command(
     preparation_run_dir: Annotated[list[Path], typer.Option()],
     output_file: Annotated[Path, typer.Option()],
     suite_root: Annotated[Path, typer.Option()] = PACKAGE_ROOT,
+    experiment_version: Annotated[str, typer.Option()] = "v3",
 ) -> None:
     if output_file.exists():
         raise EvaluationError("refusing_existing_output")
-    suite = load_suite(suite_root, experiment_version="v3")
+    suite = load_suite(suite_root, experiment_version=experiment_version)
     plan = live_plan(suite, tuple(preparation_run_dir))
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with output_file.open("x", encoding="utf-8") as stream:
@@ -203,10 +205,11 @@ def compare_live_command(
     audited_run_dir: Annotated[list[Path], typer.Option()],
     output_file: Annotated[Path, typer.Option()],
     suite_root: Annotated[Path, typer.Option()] = PACKAGE_ROOT,
+    experiment_version: Annotated[str, typer.Option()] = "v3",
 ) -> None:
     if output_file.exists():
         raise EvaluationError("refusing_existing_output")
-    suite = load_suite(suite_root, experiment_version="v3")
+    suite = load_suite(suite_root, experiment_version=experiment_version)
     report = combined_live(suite, tuple(preparation_run_dir), tuple(original_run_dir), tuple(audited_run_dir))
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with output_file.open("x", encoding="utf-8") as stream:
@@ -266,7 +269,7 @@ async def live_generator(
             selected = AnthropicModel(model, provider=AnthropicProvider(anthropic_client=anthropic_sdk))
         generator = PydanticAIStructuredGenerator(
             model=selected,
-            instructions=INSTRUCTIONS,
+            instructions=instructions_for(suite),
             input_type=AtomicMemoryExtractionInput,
             output_type=AtomicMemoryExtractionOutput,
             limits=InferenceLimits(
@@ -305,6 +308,8 @@ def run_live(
     private_manifest: Annotated[Path | None, typer.Option()] = None,
     experiment_version: Annotated[str, typer.Option()] = "v1",
     dataset: Annotated[str, typer.Option()] = "synthetic-v1",
+    smoke_run_dir: Annotated[Path | None, typer.Option()] = None,
+    smoke_audited_run_dir: Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     suite = selected_suite(suite_root, private_manifest, experiment_version, dataset)
     manifest = manifest_for(
@@ -319,6 +324,11 @@ def run_live(
     )
     if not manifest["code"]["frozen_committed"]:
         raise EvaluationError("live_requires_committed_fixture_policy_and_code_freeze")
+
+    if suite.experiment.citation_protocol:
+        if smoke_run_dir is None or smoke_audited_run_dir is None:
+            raise EvaluationError("successful_audited_smoke_required")
+        manifest.update(verify_smoke(suite, smoke_run_dir, smoke_audited_run_dir, manifest["provider"]))
 
     async def run():
         async with live_generator(suite, provider, model, token_env, base_url, max_requests) as generator:
@@ -338,9 +348,12 @@ def run_smoke(
     base_url: Annotated[str, typer.Option()],
     max_requests: Annotated[int, typer.Option(min=1)],
     suite_root: Annotated[Path, typer.Option()] = PACKAGE_ROOT,
+    experiment_version: Annotated[str, typer.Option()] = "v3",
 ) -> None:
-    suite = load_suite(suite_root, experiment_version="v3")
-    scope = live_policy(suite.root)["smoke"]
+    if experiment_version not in {"v3", "v4", "v5"}:
+        raise EvaluationError("smoke_requires_versioned_live_protocol")
+    suite = load_suite(suite_root, experiment_version=experiment_version)
+    scope = live_policy(suite.root, version=suite.live_policy_version)["smoke"]
     cases = {c.case_id: c for c in suite.cases}
     suite = replace(suite, cases=tuple(cases[label] for label in scope["cases"]))
     manifest = manifest_for(
@@ -391,8 +404,8 @@ def report_command(
     suite = selected_suite(suite_root, private_manifest, experiment_version, dataset)
     manifest, samples, stored = load_run(run_dir)
     _matching_freeze(suite, manifest)
-    if manifest["mode"] == "smoke":
-        scope = live_policy(suite.root)["smoke"]
+    if manifest["mode"] in {"smoke", "audited_smoke"}:
+        scope = live_policy(suite.root, version=suite.live_policy_version)["smoke"]
         if suite.dataset != scope["dataset"] or manifest.get("smoke") != scope:
             raise EvaluationError("invalid_smoke_scope")
         cases = {c.case_id: c for c in suite.cases}
@@ -420,8 +433,19 @@ def audit_command(
     suite = selected_suite(suite_root, private_manifest, experiment_version, dataset)
     manifest, samples, _ = load_run(run_dir)
     _matching_freeze(suite, manifest)
-    if manifest["mode"] != "live":
+    smoke = manifest["mode"] == "smoke" and suite.experiment.citation_protocol is not None
+    if manifest["mode"] != "live" and not smoke:
         raise EvaluationError("audit_requires_original_live_run")
+    if smoke:
+        scope = live_policy(suite.root, version=suite.live_policy_version)["smoke"]
+        if (
+            suite.dataset != scope["dataset"]
+            or manifest.get("smoke") != scope
+            or manifest["repetitions"] != scope["repetitions"]
+        ):
+            raise EvaluationError("invalid_smoke_scope")
+        cases = {case.case_id: case for case in suite.cases}
+        suite = replace(suite, cases=tuple(cases[label] for label in scope["cases"]))
     raw = read_json(private_outputs)
     labels = read_json(reviews)
     if raw.get("manifest_hash") != digest(manifest) or labels.get("manifest_hash") != digest(manifest):
@@ -487,7 +511,7 @@ def audit_command(
     audited = asyncio.run(replay_audit())
     updated = {
         **manifest,
-        "mode": "audited_live",
+        "mode": "audited_smoke" if smoke else "audited_live",
         "parent_manifest_hash": digest(manifest),
         "review_hash": digest(labels),
     }

@@ -30,7 +30,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
 )
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.inference import GenerationResult, character_token_estimator
-from powercontext.builtin.inference.errors import InferenceError
+from powercontext.builtin.inference.errors import InferenceError, InvalidInferenceOutputError
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.memory_windows import MemorySourceWindowRepository
 from powercontext.builtin.triggers import SourceHighWatermark, SourceWindowTrigger
@@ -39,12 +39,27 @@ from pydantic import ValidationError
 from .admission import Admission, admit, fragments, summarize, token_count
 from .bounded_v2 import V2Admission, hybrid_admission
 from .bounded_v3 import hybrid_admission as v3_admission
+from .citation import render_citations
 from .manifests import EvaluationError, Suite
 from .models import Arm, Case, Sample, digest
 from .replay import Replay, checkpoint, replay_case
 from .scoring import score_generation, score_preparation
 
 INSTRUCTIONS = atomic_memory_extraction_instructions(MemoryExtractionProfile.CODING)
+CITATION_RULES = """
+Citation protocol evidence-id-only-v2: each candidate.evidence_ids entry must copy an exact evidence_id
+from an object in the top-level evidence array. Range positions, Source IDs, materialization/projection hashes
+and content values are data, never citation IDs. Preserve the complete evidence_id including its prefix.
+""".strip()
+
+
+def instructions_for(suite: Suite) -> str:
+    if suite.experiment.citation_protocol == "evidence-id-only-v3":
+        return INSTRUCTIONS.replace(
+            "Each candidate must cite one or more supplied evidence_ids and contain self-contained kind/text.",
+            "Cite only full top-level evidence_id values in evidence_ids; use self-contained kind/text.",
+        )
+    return f"{INSTRUCTIONS}\n{CITATION_RULES}" if suite.experiment.citation_protocol else INSTRUCTIONS
 
 
 class SampleIdentity(TypedDict):
@@ -95,7 +110,9 @@ def pipeline_for(generator: Any) -> AtomicMemoryGenerationPipeline:
     )
 
 
-async def window_admission(replay: Replay, budget: int, fragment_bytes: int) -> tuple[Admission, tuple]:
+async def window_admission(
+    replay: Replay, budget: int, fragment_bytes: int, instructions: str = INSTRUCTIONS
+) -> tuple[Admission, tuple]:
     windows = MemorySourceWindowRepository()
     trigger = SourceWindowTrigger()
     state = trigger.initial_state()
@@ -125,8 +142,8 @@ async def window_admission(replay: Replay, budget: int, fragment_bytes: int) -> 
                 ]
             )
         )
-        fits = token_count(value, INSTRUCTIONS) <= budget
-        attempts.append((action.after, action.through, token_count(value, INSTRUCTIONS), fits))
+        fits = token_count(value, instructions) <= budget
+        attempts.append((action.after, action.through, token_count(value, instructions), fits))
         if not fits:
             if action.through - action.after == 1:
                 break
@@ -148,7 +165,7 @@ async def window_admission(replay: Replay, budget: int, fragment_bytes: int) -> 
         tuple(inputs),
         inventory,
         tuple(admitted),
-        INSTRUCTIONS,
+        instructions,
         bounded=False,
         accepted=state.sequence == len(replay.value.evidence),
         reason="source_window",
@@ -167,6 +184,10 @@ async def run_sample(
     output_sink: Callable[[dict], None] | None = None,
     audits: dict | None = None,
 ) -> Sample:
+    instructions = instructions_for(suite)
+    selection_instructions = INSTRUCTIONS if suite.experiment.selection_cost_protocol else instructions
+    protocol_v2 = suite.experiment.citation_protocol is not None
+    schema_version = "evidence-admission.sample.v2" if protocol_v2 else "evidence-admission.sample.v1"
     identity: SampleIdentity = {
         "case_hash": digest(case.model_dump(mode="json")),
         "arm": arm,
@@ -206,7 +227,7 @@ async def run_sample(
                 if suite.experiment.v3 is None:
                     raise EvaluationError("v3_requires_versioned_experiment")
                 admission, attempts = await v3_admission(
-                    replay, budget, suite.experiment.fragment_bytes, INSTRUCTIONS, suite.experiment.v3
+                    replay, budget, suite.experiment.fragment_bytes, selection_instructions, suite.experiment.v3
                 )
             elif arm == "bounded-fragments-v2":
                 if suite.experiment.v2 is None:
@@ -215,27 +236,31 @@ async def run_sample(
                     replay,
                     budget,
                     suite.experiment.fragment_bytes,
-                    INSTRUCTIONS,
+                    selection_instructions,
                     suite.experiment.v2,
                 )
             elif arm == "window-reduction-v1":
-                admission, attempts = await window_admission(replay, budget, suite.experiment.fragment_bytes)
+                admission, attempts = await window_admission(
+                    replay, budget, suite.experiment.fragment_bytes, selection_instructions
+                )
             else:
                 admission = await admit(
                     replay.value,
                     replay.materializations,
                     budget=budget,
                     fragment_bytes=suite.experiment.fragment_bytes,
-                    instructions=INSTRUCTIONS,
+                    instructions=selection_instructions,
                     bounded=arm == "bounded-fragments-v1",
                 )
+            if suite.experiment.selection_cost_protocol:
+                admission = render_citations(admission, instructions, selection_instructions, budget)
             admission_seconds = time.perf_counter() - started
             admission = replace(
                 admission,
                 metrics=admission.metrics.model_copy(
                     update={
                         "prepared_requests": len(admission.inputs),
-                        "prepared_tokens_total": sum(token_count(value, INSTRUCTIONS) for value in admission.inputs),
+                        "prepared_tokens_total": sum(token_count(value, instructions) for value in admission.inputs),
                     }
                 ),
             )
@@ -248,6 +273,8 @@ async def run_sample(
             generation_calls = 0
             input_tokens = output_tokens = None
             usage_complete = True
+            failure_phase = "none"
+            failure_kind = "none"
             selected_generator = WaitingGenerator() if case.cancel_phase == "generation" else generator
             if selected_generator is not None and admission.inputs:
                 captured = CapturedGenerator(selected_generator, sample_id, output_sink)
@@ -258,9 +285,18 @@ async def run_sample(
                 try:
                     for value in admission.inputs:
                         candidates.extend(await pipeline.extract(value))
-                except InferenceError:
+                except InferenceError as error:
                     status = "failed"
                     usage_complete = False
+                    if protocol_v2:
+                        failure_phase, failure_kind = "generation", "inference_failed"
+                        if isinstance(error, InvalidInferenceOutputError):
+                            failure_phase, failure_kind = "output_validation", "invalid_output"
+                            if captured.calls:
+                                supplied_input, returned = captured.calls[-1]
+                                supplied_ids = {item.evidence_id for item in supplied_input.evidence}
+                                if any(not set(c.evidence_ids) <= supplied_ids for c in returned.output.candidates):
+                                    failure_kind = "invalid_evidence_reference"
                 else:
                     # Partial window progress remains a budget rejection for the fixture.
                     status = "generated" if admission.accepted else "budget_rejected"
@@ -274,13 +310,14 @@ async def run_sample(
                 if usages and all(u.output_tokens is not None for u in usages):
                     output_tokens = sum(u.output_tokens for u in usages if u.output_tokens is not None)
                 usage_complete = (
-                    usage_complete
+                    (len(captured.calls) == captured.attempts if protocol_v2 else usage_complete)
                     and bool(usages)
                     and all(u.input_tokens is not None and u.output_tokens is not None for u in usages)
                 )
                 outputs.extend(digest(result.output.model_dump(mode="json")) for _, result in captured.calls)
             memories, cursor = await replay.mutations()
             return Sample(
+                schema_version=schema_version,
                 sample_id=sample_id,
                 **identity,
                 completeness=admission.completeness,
@@ -306,6 +343,8 @@ async def run_sample(
                 provider_input_tokens=input_tokens,
                 provider_output_tokens=output_tokens,
                 usage_complete=usage_complete,
+                failure_phase=failure_phase,
+                failure_kind=failure_kind,
                 memory_mutations=memories,
                 published_cursor=cursor,
                 reason="generation_failed"
@@ -328,6 +367,7 @@ async def run_sample(
                 raise
             task.uncancel()
         return Sample(
+            schema_version=schema_version,
             sample_id=sample_id,
             **identity,
             completeness="cancelled",
@@ -347,6 +387,7 @@ async def run_sample(
         if case.fault == "none":
             raise
         return Sample(
+            schema_version=schema_version,
             sample_id=sample_id,
             **identity,
             completeness="unavailable",

@@ -92,7 +92,7 @@ class V2Policy(Record):
     version: Literal["bounded-fragments-v2"]
     boundaries: Literal["newline-record-utf8-v2"]
     selection: Literal["source-field-index-gap-round-robin-v2"]
-    encoding: Literal["source-range-bundle-v2"]
+    encoding: Literal["source-range-bundle-v2", "source-range-bundle-citation-v2"]
     max_calls_per_sample: int = Field(ge=1)
     total_input_budget_multiplier: int = Field(ge=1)
     reference_encoding: Literal["v1-claim-fragments"]
@@ -105,7 +105,7 @@ class V3Policy(Record):
     version: Literal["bounded-fragments-v3"]
     boundaries: Literal["newline-record-utf8-v2"]
     selection: Literal["source-family-distinct-first-v3"]
-    encoding: Literal["source-range-bundle-v3"]
+    encoding: Literal["source-range-bundle-v3", "source-range-bundle-citation-v2"]
     family_turns: dict[str, int]
     duplicate_scope: Literal["source-materialization-projection-field-exact-json-value"]
     duplicate_disposition: Literal["defer-only-no-support-alias"]
@@ -120,7 +120,11 @@ class V3Policy(Record):
 
 class Experiment(Record):
     schema_version: Literal[
-        "evidence-admission.experiment.v1", "evidence-admission.experiment.v2", "evidence-admission.experiment.v3"
+        "evidence-admission.experiment.v1",
+        "evidence-admission.experiment.v2",
+        "evidence-admission.experiment.v3",
+        "evidence-admission.experiment.v4",
+        "evidence-admission.experiment.v5",
     ]
     arms: tuple[Arm, ...]
     budgets: tuple[int, ...]
@@ -141,6 +145,9 @@ class Experiment(Record):
     decision_sha256: str
     v2: V2Policy | None = None
     v3: V3Policy | None = None
+    citation_protocol: Literal["evidence-id-only-v2", "evidence-id-only-v3"] | None = None
+    selection_cost_protocol: Literal["frozen-v3-envelope-v1"] | None = None
+    citation_encoding: Literal["source-range-bundle-citation-v2"] | None = None
 
     @property
     def candidate_arm(self) -> Arm:
@@ -181,6 +188,8 @@ class InputMetrics(Record):
     projected_tokens: int = 0
     prepared_tokens: int = 0
     prepared_tokens_total: int = 0
+    selection_prepared_tokens: int | None = None
+    selection_prepared_tokens_total: int | None = None
     prepared_requests: int = 0
     omitted_tokens: int = 0
     evidence_items: int = 0
@@ -218,6 +227,9 @@ class GenerationScore(Record):
 
 
 class Sample(Record):
+    schema_version: Literal["evidence-admission.sample.v1", "evidence-admission.sample.v2"] = (
+        "evidence-admission.sample.v1"
+    )
     sample_id: str
     case_hash: str
     arm: Arm
@@ -247,6 +259,8 @@ class Sample(Record):
     provider_input_tokens: int | None = None
     provider_output_tokens: int | None = None
     usage_complete: bool = True
+    failure_phase: Literal["none", "generation", "output_validation"] = "none"
+    failure_kind: Literal["none", "inference_failed", "invalid_output", "invalid_evidence_reference"] = "none"
     memory_mutations: int = 0
     published_cursor: int = 0
     reason: Literal[

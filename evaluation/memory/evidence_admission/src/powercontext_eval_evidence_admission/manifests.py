@@ -37,11 +37,15 @@ class EvaluationError(ValueError):
 
 
 LIVE_POLICY_SHA256 = "31cf973ca50fd2902dcdcca0775ad3dbe8574dfce2f82bdf9073e895d88719f5"
+LIVE_POLICY_V2_SHA256 = "a31de28c4783fd4319ffcfb6795bc988fe04eaede5d0d121d40eead856f2368c"
 
 
-def live_policy(root: Path = PACKAGE_ROOT) -> dict:
-    path = root / "manifests/live-policy-v1.json"
-    if file_hash(path) != LIVE_POLICY_SHA256:
+def live_policy(root: Path = PACKAGE_ROOT, *, version: str = "v1") -> dict:
+    expected = {"v1": LIVE_POLICY_SHA256, "v2": LIVE_POLICY_V2_SHA256}
+    if version not in expected:
+        raise EvaluationError("unsupported_live_policy")
+    path = root / f"manifests/live-policy-{version}.json"
+    if file_hash(path) != expected[version]:
         raise EvaluationError("live_policy_freeze_mismatch")
     return read_json(path)
 
@@ -119,9 +123,17 @@ class Suite:
     root: Path = PACKAGE_ROOT
     dataset: str = "synthetic-v1"
 
+    @property
+    def version(self) -> str:
+        return self.experiment.schema_version.rsplit(".", 1)[1]
+
+    @property
+    def live_policy_version(self) -> str:
+        return "v2" if self.experiment.citation_protocol else "v1"
+
 
 def load_suite(root: Path = PACKAGE_ROOT, *, experiment_version: str = "v1", dataset: str = "synthetic-v1") -> Suite:
-    if experiment_version not in {"v1", "v2", "v3"} or dataset not in {
+    if experiment_version not in {"v1", "v2", "v3", "v4", "v5"} or dataset not in {
         "synthetic-v1",
         "validation-v2",
         "validation-v3",
@@ -143,7 +155,7 @@ def load_suite(root: Path = PACKAGE_ROOT, *, experiment_version: str = "v1", dat
             "catalog": experiment.catalog_sha256,
             "decision": experiment.decision_sha256,
         }
-        if version in {"v2", "v3"} and experiment.v2:
+        if version in {"v2", "v3", "v4", "v5"} and experiment.v2:
             for name, directory in (("validation_fixture", "fixtures"), ("validation_catalog", "manifests")):
                 hashes[name] = file_hash(root / directory / "validation-v2.json")
             expected.update(
@@ -152,7 +164,7 @@ def load_suite(root: Path = PACKAGE_ROOT, *, experiment_version: str = "v1", dat
             )
         elif version != "v1" or experiment.v2 or dataset != "synthetic-v1":
             raise EvaluationError("invalid_experiment_policy")
-        if version == "v3" and experiment.v3:
+        if version in {"v3", "v4", "v5"} and experiment.v3:
             hashes["v3_validation_fixture"] = file_hash(root / "fixtures/validation-v3.json")
             hashes["v3_validation_catalog"] = file_hash(root / "manifests/validation-v3.json")
             expected.update(
@@ -163,8 +175,36 @@ def load_suite(root: Path = PACKAGE_ROOT, *, experiment_version: str = "v1", dat
                 experiment.v3.required_datasets != ("synthetic-v1", "validation-v2", "validation-v3")
             ):
                 raise EvaluationError("invalid_v3_selection_policy")
-        elif version == "v3" or experiment.v3 or dataset == "validation-v3":
+        elif version in {"v3", "v4", "v5"} or experiment.v3 or dataset == "validation-v3":
             raise EvaluationError("invalid_experiment_policy")
+        if version == "v5":
+            if (
+                experiment.citation_protocol != "evidence-id-only-v3"
+                or experiment.selection_cost_protocol != "frozen-v3-envelope-v1"
+                or experiment.citation_encoding != "source-range-bundle-citation-v2"
+                or not experiment.v2
+                or not experiment.v3
+                or experiment.v2.encoding != "source-range-bundle-v2"
+                or experiment.v3.encoding != "source-range-bundle-v3"
+            ):
+                raise EvaluationError("invalid_citation_protocol")
+        elif version == "v4":
+            if (
+                experiment.citation_protocol != "evidence-id-only-v2"
+                or not experiment.v2
+                or not experiment.v3
+                or experiment.v2.encoding != "source-range-bundle-citation-v2"
+                or experiment.v3.encoding != "source-range-bundle-citation-v2"
+            ):
+                raise EvaluationError("invalid_citation_protocol")
+        if version != "v5" and (experiment.selection_cost_protocol or experiment.citation_encoding):
+            raise EvaluationError("invalid_citation_protocol")
+        if version not in {"v4", "v5"} and (
+            experiment.citation_protocol is not None
+            or (experiment.v2 and experiment.v2.encoding != "source-range-bundle-v2")
+            or (experiment.v3 and experiment.v3.encoding != "source-range-bundle-v3")
+        ):
+            raise EvaluationError("invalid_citation_protocol")
         if hashes != expected:
             raise EvaluationError("frozen_manifest_hash_mismatch")
         if experiment.schema_version != f"evidence-admission.experiment.{version}":
@@ -190,9 +230,10 @@ def load_suite(root: Path = PACKAGE_ROOT, *, experiment_version: str = "v1", dat
     except (OSError, KeyError, TypeError, ValidationError):
         raise EvaluationError("invalid_frozen_suite") from None
     hashes["experiment"] = file_hash(root / f"manifests/experiment-{version}.json")
-    if version == "v3":
-        live_policy(root)
-        hashes["live_policy"] = file_hash(root / "manifests/live-policy-v1.json")
+    if version in {"v3", "v4", "v5"}:
+        policy_version = "v1" if version == "v3" else "v2"
+        live_policy(root, version=policy_version)
+        hashes["live_policy"] = file_hash(root / f"manifests/live-policy-{policy_version}.json")
     return Suite(cases, experiment, decision, hashes, root=root, dataset=dataset)
 
 

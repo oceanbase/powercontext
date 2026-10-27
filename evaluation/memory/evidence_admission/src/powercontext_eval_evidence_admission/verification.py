@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from .manifests import EvaluationError, Suite, file_hash, load_suite
@@ -33,7 +34,7 @@ def verified_runs(base: Suite, run_dirs: tuple[Path, ...], modes: set[str]) -> d
         dataset = manifest.get("dataset")
         if dataset not in policy.required_datasets or dataset in runs:
             raise EvaluationError("unexpected_or_duplicate_dataset")
-        suite = load_suite(base.root, experiment_version="v3", dataset=dataset)
+        suite = load_suite(base.root, experiment_version=base.version, dataset=dataset)
         current = code_identity(suite)
         keys = (
             "suite_code_hash",
@@ -48,6 +49,15 @@ def verified_runs(base: Suite, run_dirs: tuple[Path, ...], modes: set[str]) -> d
             raise EvaluationError("run_code_or_configuration_mismatch")
         if manifest["mode"] not in modes or manifest.get("private"):
             raise EvaluationError("unexpected_run_mode")
+        if (
+            base.experiment.citation_protocol
+            and manifest["mode"] != "prepare"
+            and any(
+                not re.fullmatch(r"[0-9a-f]{64}", manifest.get(key, ""))
+                for key in ("smoke_manifest_hash", "audited_smoke_manifest_hash")
+            )
+        ):
+            raise EvaluationError("missing_smoke_proof")
         if manifest["experiment"] != suite.experiment.model_dump(mode="json", exclude_none=True):
             raise EvaluationError("run_experiment_mismatch")
         repetitions = (

@@ -17,11 +17,69 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 
-from .manifests import EvaluationError, Suite, file_hash, live_policy
+from .manifests import EvaluationError, Suite, file_hash, live_policy, load_suite
 from .models import digest
+from .report import aggregate, code_identity, load_run
 from .verification import combined_preparation, verified_runs
+
+
+def verify_audit_derivation(parent, parent_samples, manifest, samples, *, mode):
+    review_hash = manifest.get("review_hash", "")
+    if manifest.get("parent_manifest_hash") != digest(parent) or not re.fullmatch(r"[0-9a-f]{64}", review_hash):
+        raise EvaluationError("audit_parent_or_review_mismatch")
+    expected = {**parent, "mode": mode, "parent_manifest_hash": digest(parent), "review_hash": review_hash}
+    if manifest != expected:
+        raise EvaluationError("audit_changed_run_identity")
+    parents = {s.sample_id: s for s in parent_samples}
+    if (
+        len(parents) != len(parent_samples)
+        or len(samples) != len(parent_samples)
+        or {s.sample_id for s in samples} != set(parents)
+    ):
+        raise EvaluationError("audit_changed_sample_set")
+    for sample in samples:
+        before = parents[sample.sample_id]
+        if sample.model_dump(exclude={"generation"}) != before.model_dump(exclude={"generation"}):
+            raise EvaluationError("audit_changed_execution_or_usage")
+        if (sample.generation is None) != (before.generation is None):
+            raise EvaluationError("audit_created_or_removed_generation")
+        if sample.generation and any(
+            getattr(sample.generation, key) != getattr(before.generation, key)
+            for key in ("candidates", "candidate_hashes", "support", "exact_duplicates", "near_duplicates")
+        ):
+            raise EvaluationError("audit_changed_candidates_or_support")
+
+
+def verify_smoke(base: Suite, original_dir: Path, audited_dir: Path, provider: dict) -> dict:
+    original, original_samples, original_report = load_run(original_dir)
+    audited, samples, stored = load_run(audited_dir)
+    scope = live_policy(base.root, version=base.live_policy_version)["smoke"]
+    suite = load_suite(base.root, experiment_version=base.version, dataset=scope["dataset"])
+    cases = {case.case_id: case for case in suite.cases}
+    suite = replace(suite, cases=tuple(cases[label] for label in scope["cases"]))
+    if (
+        original.get("mode") != "smoke"
+        or audited.get("mode") != "audited_smoke"
+        or original.get("smoke") != scope
+        or original.get("dataset") != scope["dataset"]
+        or original.get("repetitions") != scope["repetitions"]
+        or original.get("private")
+        or original.get("code") != code_identity(suite)
+        or original.get("experiment") != suite.experiment.model_dump(mode="json", exclude_none=True)
+        or not original["code"]["frozen_committed"]
+    ):
+        raise EvaluationError("smoke_freeze_or_scope_mismatch")
+    if any(original["provider"][key] != provider[key] for key in ("provider", "model", "endpoint_hash")):
+        raise EvaluationError("smoke_provider_model_or_endpoint_mismatch")
+    verify_audit_derivation(original, original_samples, audited, samples, mode="audited_smoke")
+    if aggregate(suite, original_samples, original) != original_report or aggregate(suite, samples, audited) != stored:
+        raise EvaluationError("stored_report_mismatch")
+    if not stored["smoke"].get("ready_for_formal"):
+        raise EvaluationError("successful_audited_smoke_required")
+    return {"smoke_manifest_hash": digest(original), "audited_smoke_manifest_hash": digest(audited)}
 
 
 def live_plan(base: Suite, preparation_dirs: tuple[Path, ...]) -> dict:
@@ -55,7 +113,7 @@ def live_plan(base: Suite, preparation_dirs: tuple[Path, ...]) -> dict:
         }
         total_calls += calls
         total_input += inputs
-    smoke = live_policy(base.root)["smoke"]
+    smoke = live_policy(base.root, version=base.live_policy_version)["smoke"]
     samples = runs[smoke["dataset"]][2]
     selected_hashes = {
         digest(c.model_dump(mode="json")) for c in runs[smoke["dataset"]][0].cases if c.case_id in smoke["cases"]
@@ -155,39 +213,22 @@ def combined_live(
     prepared = verified_runs(base, preparation_dirs, {"prepare"})
     original = verified_runs(base, original_dirs, {"live"})
     audited = verified_runs(base, audited_dirs, {"audited_live"})
-    policy = live_policy(base.root)
+    policy = live_policy(base.root, version=base.live_policy_version)
     provider_identity = None
+    smoke_identity = None
     incomplete, quality = [], []
     rows = {}
     improvement = False
     for dataset, (suite, manifest, samples, report, path) in audited.items():
         _, parent, parent_samples, _, parent_path = original[dataset]
-        review_hash = manifest.get("review_hash", "")
-        if manifest.get("parent_manifest_hash") != digest(parent) or not re.fullmatch(r"[0-9a-f]{64}", review_hash):
-            raise EvaluationError("audit_parent_or_review_mismatch")
-        expected_manifest = {
-            **parent,
-            "mode": "audited_live",
-            "parent_manifest_hash": digest(parent),
-            "review_hash": review_hash,
-        }
-        if manifest != expected_manifest:
-            raise EvaluationError("audit_changed_run_identity")
-        parents = {s.sample_id: s for s in parent_samples}
-        if len(parents) != len(parent_samples) or {s.sample_id for s in samples} != set(parents):
-            raise EvaluationError("audit_changed_sample_set")
-        for s in samples:
-            before = parents[s.sample_id]
-            if s.model_dump(exclude={"generation"}) != before.model_dump(exclude={"generation"}):
-                raise EvaluationError("audit_changed_execution_or_usage")
-            if (s.generation is None) != (before.generation is None):
-                raise EvaluationError("audit_created_or_removed_generation")
-            if s.generation and any(
-                getattr(s.generation, key) != getattr(before.generation, key)
-                for key in ("candidates", "candidate_hashes", "support", "exact_duplicates", "near_duplicates")
-            ):
-                raise EvaluationError("audit_changed_candidates_or_support")
+        verify_audit_derivation(parent, parent_samples, manifest, samples, mode="audited_live")
+        review_hash = manifest["review_hash"]
         provider = parent["provider"]
+        if base.experiment.citation_protocol:
+            proofs = {key: parent[key] for key in ("smoke_manifest_hash", "audited_smoke_manifest_hash")}
+            if smoke_identity is not None and proofs != smoke_identity:
+                raise EvaluationError("smoke_proof_mismatch")
+            smoke_identity = proofs
         identity = {k: provider[k] for k in ("provider", "model", "endpoint_hash")}
         if provider_identity is not None and provider_identity != identity:
             raise EvaluationError("provider_model_or_endpoint_mismatch")
@@ -313,6 +354,7 @@ def combined_live(
         "live_policy_sha256": base.frozen_hashes["live_policy"],
         "required_datasets": policy["required_datasets"],
         "provider": provider_identity,
+        **({"smoke_proof": smoke_identity} if base.experiment.citation_protocol else {}),
         "offline_preparation_passed": offline["offline_preparation_passed"],
         "incomplete_datasets": incomplete,
         "quality_failure_datasets": quality,
