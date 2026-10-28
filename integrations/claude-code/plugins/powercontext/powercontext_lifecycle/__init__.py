@@ -24,7 +24,8 @@ in ``src/powercontext_integration_lifecycle/`` and run ``make integration-lifecy
 that is missing or has drifted.
 
 Claude Code runs its hooks with the ``python3`` on ``PATH``, often the macOS system Python 3.9, and Hermes installs no
-dependency for its plugin. A module may therefore import only the standard library and must run on Python 3.9. A
-single-module copy cannot reach its siblings, so a module may not import them either. The package sits outside
+dependency for its plugin. A module may therefore import only the standard library and must run on Python 3.9. Only a
+module that WorkBuddy and Hermes do not ship may import its siblings, since a single-module copy cannot reach them; it
+imports them relatively, because the package copies have another name than the source. The package sits outside
 ``powercontext`` so that importing it loads nothing from the SDK.
 """

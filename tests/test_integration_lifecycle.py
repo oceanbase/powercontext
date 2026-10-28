@@ -14,9 +14,9 @@
 
 """The integration lifecycle helpers run inside plugins that are installed without the PowerContext package.
 
-Claude Code runs its hooks with the ``python3`` on ``PATH``, and Hermes installs no dependency for its plugin.
-WorkBuddy and Hermes also ship single modules, which cannot reach their siblings. A helper may therefore import only
-the standard library, and no sibling.
+Claude Code runs its hooks with the ``python3`` on ``PATH``, and Hermes installs no dependency for its plugin, so a
+helper may import only the standard library. WorkBuddy and Hermes also ship single modules, which cannot reach their
+siblings, so a module they ship may not import a sibling either.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from generate_integration_lifecycle import COPIES
 
 ROOT = Path(__file__).parents[1]
 SOURCE = ROOT / "src/powercontext_integration_lifecycle"
@@ -34,10 +35,12 @@ SOURCE = ROOT / "src/powercontext_integration_lifecycle"
 
 @pytest.mark.parametrize("module", sorted(SOURCE.glob("*.py")), ids=lambda path: path.name)
 def test_lifecycle_helper_imports_only_the_standard_library(module: Path) -> None:
+    # Claude Code and Codex ship the whole package, so a module that only they ship may import its siblings.
+    allowed = sys.stdlib_module_names if module.name in COPIES else sys.stdlib_module_names | {""}
     outside = [
         f"line {node.lineno}: {ast.unparse(node)}"
         for node in ast.walk(ast.parse(module.read_text(encoding="utf-8")))
-        if isinstance(node, (ast.Import, ast.ImportFrom)) and not _top_level_names(node) <= sys.stdlib_module_names
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and not _top_level_names(node) <= allowed
     ]
     assert not outside, f"{module.name} imports outside the standard library: {'; '.join(outside)}"
 

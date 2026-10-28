@@ -14,11 +14,18 @@
 
 """What the shared lifecycle modules need to know about Codex."""
 
+from plugin_version import PLUGIN_VERSION
 from powercontext_lifecycle.bootstrap_state import BootstrapState
 from powercontext_lifecycle.diagnostics import DiagnosticThrottle
+from powercontext_lifecycle.host_profile import HostProfile
 
-BOOTSTRAP_STATE = BootstrapState(
-    directory_variable="POWERCONTEXT_BOOTSTRAP_STATE_DIR",
-    plugin_data_variable="PLUGIN_DATA",
+CODEX = HostProfile(
+    integration="codex",
+    user_agent=f"powercontext-codex-plugin/{PLUGIN_VERSION}",
+    component="powercontext.codex",
+    diagnostics=DiagnosticThrottle(state_file="codex-diagnostics.json"),
+    bootstrap_state=BootstrapState(
+        directory_variable="POWERCONTEXT_BOOTSTRAP_STATE_DIR",
+        plugin_data_variable="PLUGIN_DATA",
+    ),
 )
-DIAGNOSTICS = DiagnosticThrottle(state_file="codex-diagnostics.json")

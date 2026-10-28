@@ -32,7 +32,7 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from codex_host import DIAGNOSTICS  # noqa: E402
+from codex_host import CODEX  # noqa: E402
 from hooks.recall import (  # noqa: E402
     _decode_error_code,
     _HttpStatusError,
@@ -41,13 +41,13 @@ from hooks.recall import (  # noqa: E402
     _ServerUnavailableError,
 )
 from plugin_version import PLUGIN_VERSION  # noqa: E402
-from scope_binding import (  # noqa: E402
+from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
-    open_bounded,
-    resolve_scope_id,
 )
+from powercontext_lifecycle.transport import open_bounded  # noqa: E402
+from scope_binding import resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _COMPONENT = "powercontext.codex.token_savings"
@@ -255,7 +255,7 @@ def _append_event(
     if outcome in emitted:
         return
     emitted.add(outcome)
-    if not DIAGNOSTICS.should_emit(outcome):
+    if not CODEX.diagnostics.should_emit(outcome):
         return
     event: dict[str, object] = {"component": _COMPONENT, "event": "status", "outcome": outcome}
     event.update(fields)

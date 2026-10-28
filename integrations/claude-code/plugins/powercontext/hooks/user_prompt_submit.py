@@ -34,16 +34,17 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from claude_code_host import BOOTSTRAP_STATE, DIAGNOSTICS  # noqa: E402
+from claude_code_host import CLAUDE_CODE  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from powercontext_lifecycle import prepared_context as _prepared_context  # noqa: E402
 from powercontext_lifecycle.prompt_privacy import scrub_secrets  # noqa: E402
-from scope_binding_errors import (  # noqa: E402
+from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
 )
-from workspace_scope import bind_response_deadline, complete_body, open_bounded, resolve_scope_id  # noqa: E402
+from powercontext_lifecycle.transport import bind_response_deadline, complete_body, open_bounded  # noqa: E402
+from workspace_scope import resolve_scope_id  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse
@@ -166,8 +167,8 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:  # noqa: C901
             )
             _write_hook_output(diagnostic_events=diagnostic_events)
             return 0
-        bootstrap_receipt_id = BOOTSTRAP_STATE.load_receipt(session_id, scope_id)
-        BOOTSTRAP_STATE.clear_receipt(session_id)
+        bootstrap_receipt_id = CLAUDE_CODE.bootstrap_state.load_receipt(session_id, scope_id)
+        CLAUDE_CODE.bootstrap_state.clear_receipt(session_id)
         safe_prompt = scrub_secrets(prompt, settings.authorization)
         query = _bounded_recall_query(safe_prompt)
         context = None
@@ -501,7 +502,7 @@ def _emit_context_event(
         if key in emitted_diagnostics:
             return
         emitted_diagnostics.add(key)
-        if not DIAGNOSTICS.should_emit(outcome):
+        if not CLAUDE_CODE.diagnostics.should_emit(outcome):
             return
     event: dict[str, object] = {
         "component": "powercontext.claude_code.recall",

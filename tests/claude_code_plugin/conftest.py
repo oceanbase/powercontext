@@ -33,8 +33,12 @@ _PLUGIN_MODULE_NAMES = (
     "powercontext_lifecycle.bootstrap_state",
     "powercontext_lifecycle.client_config",
     "powercontext_lifecycle.diagnostics",
+    "powercontext_lifecycle.host_profile",
     "powercontext_lifecycle.prepared_context",
     "powercontext_lifecycle.prompt_privacy",
+    "powercontext_lifecycle.scope_binding_errors",
+    "powercontext_lifecycle.session_start",
+    "powercontext_lifecycle.transport",
     "scripts",
     "scripts.workspace_scope",
     "workspace_scope",
@@ -95,6 +99,11 @@ def session_start_module(plugin_imports: None) -> ModuleType:
         "powercontext_claude_code_session_start",
         PLUGIN_ROOT / "hooks" / "session_start.py",
     )
+
+
+@pytest.fixture
+def session_start_flow(session_start_module: ModuleType) -> ModuleType:
+    return sys.modules[session_start_module.run_session_start.__module__]
 
 
 @pytest.fixture

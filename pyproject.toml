@@ -253,6 +253,9 @@ exclude = [
     "evaluation/memory/capture_ownership",
     "evaluation/skills",
     "evaluation/zcode_guidance",
+    # Both plugin directories are search paths, and ty resolves powercontext_lifecycle to the Claude Code copy, so it
+    # cannot resolve the relative imports of this identical generated copy.
+    "integrations/codex/plugins/powercontext/powercontext_lifecycle",
 ]
 
 [tool.ty.rules]

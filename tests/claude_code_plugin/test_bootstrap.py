@@ -23,9 +23,11 @@ from email.message import Message
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Thread
+from time import monotonic
 from types import ModuleType
 from typing import cast
 from urllib.error import HTTPError
+from urllib.request import Request
 
 import pytest
 
@@ -82,6 +84,7 @@ def _already_delivered() -> dict[str, object]:
 
 def test_session_start_marks_delivery_before_injecting_and_first_query_sends_receipt(
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     hook_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -94,7 +97,7 @@ def test_session_start_marks_delivery_before_injecting_and_first_query_sends_rec
             return {"receipt_id": "bcr_test", "state": "injected"}
         return _ready()
 
-    monkeypatch.setattr(session_start_module, "_post_json", post)
+    monkeypatch.setattr(session_start_flow, "_post_json", post)
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
     monkeypatch.setattr(
         sys,
@@ -189,12 +192,13 @@ def test_session_start_marks_delivery_before_injecting_and_first_query_sends_rec
 
 def test_repeated_injected_event_preserves_receipt_for_first_query(
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_test")
+    session_start_module.CLAUDE_CODE.bootstrap_state.save_receipt("session-1", "scope:test", "bcr_test")
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
-    monkeypatch.setattr(session_start_module, "_post_json", lambda *_args, **_kwargs: _already_delivered())
+    monkeypatch.setattr(session_start_flow, "_post_json", lambda *_args, **_kwargs: _already_delivered())
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -219,9 +223,10 @@ def test_repeated_injected_event_preserves_receipt_for_first_query(
 
 def test_terminal_retry_preserves_a_concurrently_saved_winner_receipt(
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    bootstrap_state = sys.modules[session_start_module.BOOTSTRAP_STATE.load_receipt_state.__module__]
+    bootstrap_state = sys.modules[session_start_module.CLAUDE_CODE.bootstrap_state.load_receipt_state.__module__]
     original_read = bootstrap_state._read_receipt_state
     snapshot_read = Event()
     winner_saved = Event()
@@ -237,7 +242,7 @@ def test_terminal_retry_preserves_a_concurrently_saved_winner_receipt(
 
     def save_winner() -> None:
         if snapshot_read.wait(2):
-            session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_test")
+            session_start_module.CLAUDE_CODE.bootstrap_state.save_receipt("session-1", "scope:test", "bcr_test")
         winner_saved.set()
 
     def post(*_args, **_kwargs):
@@ -249,7 +254,7 @@ def test_terminal_retry_preserves_a_concurrently_saved_winner_receipt(
 
     monkeypatch.setattr(bootstrap_state, "_read_receipt_state", synchronized_read)
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
-    monkeypatch.setattr(session_start_module, "_post_json", post)
+    monkeypatch.setattr(session_start_flow, "_post_json", post)
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -268,7 +273,10 @@ def test_terminal_retry_preserves_a_concurrently_saved_winner_receipt(
     assert winner is not None
     winner.join(timeout=2)
     assert not winner.is_alive()
-    assert session_start_module.BOOTSTRAP_STATE.load_receipt_state("session-1") == ("scope:test", "bcr_test")
+    assert session_start_module.CLAUDE_CODE.bootstrap_state.load_receipt_state("session-1") == (
+        "scope:test",
+        "bcr_test",
+    )
 
 
 def test_invalid_settings_clear_a_stale_receipt(
@@ -276,7 +284,7 @@ def test_invalid_settings_clear_a_stale_receipt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_previous")
+    session_start_module.CLAUDE_CODE.bootstrap_state.save_receipt("session-1", "scope:test", "bcr_previous")
 
     def invalid_settings():
         raise ValueError
@@ -300,7 +308,7 @@ def test_invalid_settings_clear_a_stale_receipt(
 @pytest.mark.parametrize("invalid_field", ["receipt", "artifact"])
 def test_bootstrap_response_rejects_identifiers_containing_spaces(
     invalid_field: str,
-    session_start_module: ModuleType,
+    session_start_flow: ModuleType,
 ) -> None:
     response = _ready()
     if invalid_field == "receipt":
@@ -310,20 +318,21 @@ def test_bootstrap_response_rejects_identifiers_containing_spaces(
         artifact = cast(dict[str, object], items[0]["artifact"])
         artifact["artifact_id"] = "memory id"
 
-    with pytest.raises(session_start_module.InvalidBootstrapResponse):
-        session_start_module.validate_bootstrap_context(response, max_bytes=4096)
+    with pytest.raises(session_start_flow.InvalidBootstrapResponse):
+        session_start_flow.validate_bootstrap_context(response, max_bytes=4096)
 
 
 @pytest.mark.parametrize("lifecycle", ["startup", "resume", "clear", "compact", "fork"])
 def test_session_start_preserves_distinct_lifecycle_sources(
     lifecycle: str,
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     requests: list[dict[str, object]] = []
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
     monkeypatch.setattr(
-        session_start_module,
+        session_start_flow,
         "_post_json",
         lambda _path, payload, **_kwargs: requests.append(payload) or _skipped(),
     )
@@ -343,6 +352,7 @@ def test_session_start_preserves_distinct_lifecycle_sources(
 
 def test_session_start_fails_open_and_does_not_inject_when_delivery_cannot_be_recorded(
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = 0
@@ -354,7 +364,7 @@ def test_session_start_fails_open_and_does_not_inject_when_delivery_cannot_be_re
             return _ready()
         raise OSError
 
-    monkeypatch.setattr(session_start_module, "_post_json", post)
+    monkeypatch.setattr(session_start_flow, "_post_json", post)
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
     monkeypatch.setattr(
         sys,
@@ -374,19 +384,20 @@ def test_session_start_fails_open_and_does_not_inject_when_delivery_cannot_be_re
 
 def test_concurrent_delivery_loser_preserves_the_winner_receipt(
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_previous")
+    session_start_module.CLAUDE_CODE.bootstrap_state.save_receipt("session-1", "scope:test", "bcr_previous")
 
     def post(path, payload, **_kwargs):
         if path == "/v1/context/bootstrap":
             return _ready()
         if payload["outcome"] == "injected":
-            session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_test")
+            session_start_module.CLAUDE_CODE.bootstrap_state.save_receipt("session-1", "scope:test", "bcr_test")
             raise OSError
         return {"receipt_id": "bcr_test", "state": "injected"}
 
-    monkeypatch.setattr(session_start_module, "_post_json", post)
+    monkeypatch.setattr(session_start_flow, "_post_json", post)
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
     monkeypatch.setattr(
         sys,
@@ -397,18 +408,22 @@ def test_concurrent_delivery_loser_preserves_the_winner_receipt(
     monkeypatch.setattr(sys, "stderr", io.StringIO())
 
     assert session_start_module.main(session_start_module.ClaudeCodePluginSettings(bootstrap_context=True)) == 0
-    assert session_start_module.BOOTSTRAP_STATE.load_receipt_state("session-1") == ("scope:test", "bcr_test")
+    assert session_start_module.CLAUDE_CODE.bootstrap_state.load_receipt_state("session-1") == (
+        "scope:test",
+        "bcr_test",
+    )
 
 
 def test_session_start_output_failure_clears_the_deduplication_receipt(
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     def post(path, _payload, **_kwargs):
         return {"receipt_id": "bcr_test", "state": "injected"} if path.endswith("/receipts") else _ready()
 
-    monkeypatch.setattr(session_start_module, "_post_json", post)
+    monkeypatch.setattr(session_start_flow, "_post_json", post)
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
     monkeypatch.setattr(
         sys,
@@ -427,7 +442,7 @@ def test_session_start_output_failure_clears_the_deduplication_receipt(
         output.close()
     assert not list((tmp_path / "plugin-data" / "powercontext-bootstrap").glob("*.json"))
 
-    monkeypatch.setattr(session_start_module, "_post_json", lambda *_args, **_kwargs: _already_delivered())
+    monkeypatch.setattr(session_start_flow, "_post_json", lambda *_args, **_kwargs: _already_delivered())
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -440,9 +455,10 @@ def test_session_start_output_failure_clears_the_deduplication_receipt(
 
 def test_session_start_rejects_malformed_bootstrap_without_blocking(
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(session_start_module, "_post_json", lambda *_args, **_kwargs: {"status": "ready"})
+    monkeypatch.setattr(session_start_flow, "_post_json", lambda *_args, **_kwargs: {"status": "ready"})
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
     monkeypatch.setattr(
         sys,
@@ -463,6 +479,7 @@ def test_session_start_rejects_malformed_bootstrap_without_blocking(
 def test_session_start_empty_or_timeout_fails_open(
     result: dict[str, object] | TimeoutError,
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -471,9 +488,9 @@ def test_session_start_empty_or_timeout_fails_open(
             raise result
         return result
 
-    monkeypatch.setattr(session_start_module, "_post_json", post)
+    monkeypatch.setattr(session_start_flow, "_post_json", post)
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
-    session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_previous")
+    session_start_module.CLAUDE_CODE.bootstrap_state.save_receipt("session-1", "scope:test", "bcr_previous")
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -507,6 +524,7 @@ def test_session_start_classifies_http_failures_without_blocking(
     http_status: int,
     outcome: str,
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class Response:
@@ -518,7 +536,7 @@ def test_session_start_classifies_http_failures_without_blocking(
         def __exit__(self, *_args):
             return None
 
-    monkeypatch.setattr(session_start_module, "open_bounded", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(session_start_flow, "open_bounded", lambda *_args, **_kwargs: Response())
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
     monkeypatch.setattr(
         sys,
@@ -538,8 +556,54 @@ def test_session_start_classifies_http_failures_without_blocking(
     assert "content" not in diagnostic
 
 
+def test_session_start_requests_follow_the_configured_settings(
+    session_start_module: ModuleType,
+    session_start_flow: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings_module = sys.modules[session_start_module.ClaudeCodePluginSettings.__module__]
+    budgets: list[float] = []
+    requests: list[tuple[Request, float]] = []
+
+    def resolve(_cwd, *, deadline, **_kwargs):
+        budgets.append(deadline - monotonic())
+        return "scope:test"
+
+    def open_bounded(request, *, timeout):
+        requests.append((request, timeout))
+        raise TimeoutError
+
+    monkeypatch.setattr(session_start_module, "resolve_scope_id", resolve)
+    monkeypatch.setattr(session_start_flow, "open_bounded", open_bounded)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"source": "startup", "session_id": "session-1", "cwd": "/workspace"})),
+    )
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+    settings = session_start_module.ClaudeCodePluginSettings(
+        authorization="Bearer configured-token",
+        bootstrap_context=True,
+        bootstrap_max_bytes=2048,
+        bootstrap_handoff=settings_module.BootstrapHandoff(artifact_id="handoff-1", revision=3),
+        request_timeout_seconds=0.5,
+        http_budget_seconds=5.0,
+    )
+
+    assert session_start_module.main(settings) == 0
+    ((request, timeout),) = requests
+    assert 4.0 < budgets[0] <= 5.0
+    assert 0.0 < timeout <= 0.5
+    assert request.get_header("Authorization") == "Bearer configured-token"
+    body = json.loads(cast(bytes, request.data))
+    assert body["enabled"] is True
+    assert body["max_bytes"] == 2048
+    assert body["handoff"] == {"family": "handoff", "artifact_id": "handoff-1", "revision": 3}
+
+
 def test_bootstrap_error_body_shares_the_request_deadline_with_its_headers(
     session_start_module: ModuleType,
+    session_start_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     elapsed = 0.0
@@ -562,14 +626,21 @@ def test_bootstrap_error_body_shares_the_request_deadline_with_its_headers(
         raise error
 
     # Advance only transport time so scheduler pauses cannot masquerade as deadline overruns.
-    monkeypatch.setattr(session_start_module, "monotonic", lambda: elapsed)
+    monkeypatch.setattr(session_start_flow, "monotonic", lambda: elapsed)
     monkeypatch.setattr(sys.modules[session_start_module.read_error_code.__module__], "monotonic", lambda: elapsed)
-    monkeypatch.setattr(session_start_module, "open_bounded", open_error)
-    with pytest.raises(session_start_module.ScopeBindingUnavailableError):
-        session_start_module._post_json(
+    monkeypatch.setattr(session_start_flow, "open_bounded", open_error)
+    event = session_start_flow.SessionStartEvent(
+        session_id="session-1", cwd="/workspace", lifecycle="startup", event_id=None
+    )
+    connection = session_start_module._connect(
+        event, session_start_module.ClaudeCodePluginSettings(request_timeout_seconds=1.0)
+    )
+    with pytest.raises(session_start_flow.ScopeBindingUnavailableError):
+        session_start_flow._post_json(
             "/v1/context/bootstrap",
             {},
-            settings=session_start_module.ClaudeCodePluginSettings(request_timeout_seconds=1.0),
+            host=session_start_module.CLAUDE_CODE,
+            connection=connection,
             deadline=10.0,
         )
 

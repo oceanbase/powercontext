@@ -723,7 +723,7 @@ def test_session_start_clears_the_kept_receipt_when_a_response_cannot_be_read_or
     handler: type[BaseHTTPRequestHandler],
     outcome: str,
 ) -> None:
-    session_start_module.BOOTSTRAP_STATE.save_receipt("session-a", "scope:test", "bcr_previous")
+    session_start_module.CLAUDE_CODE.bootstrap_state.save_receipt("session-a", "scope:test", "bcr_previous")
     with _serve(handler) as server_url:
         _, errors = _run_main(
             session_start_module,
@@ -733,7 +733,7 @@ def test_session_start_clears_the_kept_receipt_when_a_response_cannot_be_read_or
         )
 
     assert json.loads(errors)["outcome"] == outcome
-    assert session_start_module.BOOTSTRAP_STATE.load_receipt_state("session-a") is None
+    assert session_start_module.CLAUDE_CODE.bootstrap_state.load_receipt_state("session-a") is None
 
 
 @pytest.mark.parametrize(

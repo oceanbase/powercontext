@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -74,3 +75,8 @@ def bind_tools_module() -> ModuleType:
 @pytest.fixture
 def session_binding_module() -> ModuleType:
     return _load_module("powercontext_codex_session_binding", PLUGIN_ROOT / "hooks" / "session_binding.py")
+
+
+@pytest.fixture
+def session_start_flow(session_binding_module: ModuleType) -> ModuleType:
+    return sys.modules[session_binding_module.run_session_start.__module__]

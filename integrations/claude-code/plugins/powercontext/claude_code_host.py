@@ -16,9 +16,15 @@
 
 from powercontext_lifecycle.bootstrap_state import BootstrapState
 from powercontext_lifecycle.diagnostics import DiagnosticThrottle
+from powercontext_lifecycle.host_profile import HostProfile
 
-BOOTSTRAP_STATE = BootstrapState(
-    directory_variable="POWERCONTEXT_CLAUDE_BOOTSTRAP_STATE_DIR",
-    plugin_data_variable="CLAUDE_PLUGIN_DATA",
+CLAUDE_CODE = HostProfile(
+    integration="claude-code",
+    user_agent="powercontext-claude-code-plugin/0.1.3",
+    component="powercontext.claude_code",
+    diagnostics=DiagnosticThrottle(state_file="claude-code-diagnostics.json"),
+    bootstrap_state=BootstrapState(
+        directory_variable="POWERCONTEXT_CLAUDE_BOOTSTRAP_STATE_DIR",
+        plugin_data_variable="CLAUDE_PLUGIN_DATA",
+    ),
 )
-DIAGNOSTICS = DiagnosticThrottle(state_file="claude-code-diagnostics.json")
