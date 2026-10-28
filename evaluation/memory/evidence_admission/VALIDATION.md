@@ -158,3 +158,10 @@ at 4096 budgets; full HTTP JSON estimates are 3918 and 4243. HTTP serialization 
 Controlled outputs cover 4/4 and 2/2 atoms and exercise copy, emoji, combining characters and CRLF. Provider usage is null.
 The public [readiness bundle](results/v12-readiness) binds source/configuration identities and request-body hashes.
 [V12_PROTOCOL.zh.md](V12_PROTOCOL.zh.md) documents the separate actual-HEAD and explicit-live gates.
+
+
+The committed v12 live diagnostic issued one request after actual HEAD verification. HTTP 200 returned `length`,
+2048 reasoning tokens and empty final content; it remains `response_incomplete`, with no semantic scoring or retry.
+A recorded-response replay through the actual SDK/Pipeline reproduces the category, finish reason, usage and response hash
+with zero new provider requests. Unicode and the formal matrix remain unrun. These results do not turn mock success into
+live quality success. See [V12_RESULTS.zh.md](V12_RESULTS.zh.md) for measured usage, conditional fees and audit-field limits.

@@ -145,3 +145,7 @@ Ctrl-C 会传播取消，完整评测报告不会在取消后发布。不能由�
 [v12 小样本执行合同](V12_PROTOCOL.zh.md)提供独立真实 Pipeline 入口，先验证精确字面量，再按审批范围与审阅结果
 决定是否验证 Unicode。发送前核验实际 HEAD blob、SDK 预检和计划绑定预算；默认预检只用受控模拟响应。
 它不构成全组正式矩阵，不覆盖旧失败或授权生产修改。
+
+
+v12 提交冻结后的首个真实请求因 `length` 失败：2048 个输出 token 全用于 reasoning，最终内容为空。
+Unicode 未运行，失败与离线回放见 [真实结果](V12_RESULTS.zh.md)。总体仍为 `insufficient_evidence`。

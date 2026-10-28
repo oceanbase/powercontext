@@ -197,3 +197,8 @@ with no observed input-coverage regression. Both versions have no live command. 
 HEAD-blob verification, per-plan budget authorization and explicit output review before advancing. Its offline preflight
 uses controlled copy responses through the actual Pipeline; this does not establish live model quality or formal coverage.
 Historical v9 failures and v10/v11 results remain unchanged. No default command accesses credentials or a provider.
+
+
+The committed v12 first live request stopped with `finish_reason=length`: all 2048 output tokens were reasoning and
+final content was empty. The Unicode case was not run. See [the failed live diagnostic](V12_RESULTS.zh.md);
+`insufficient_evidence` remains the decision.
