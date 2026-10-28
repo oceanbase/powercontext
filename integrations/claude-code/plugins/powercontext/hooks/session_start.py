@@ -34,11 +34,7 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from bootstrap_state import (  # noqa: E402
-    clear_receipt_if_matches,
-    load_receipt_state,
-    save_receipt,
-)
+from claude_code_host import BOOTSTRAP_STATE  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from powercontext_lifecycle.bootstrap_context import (  # noqa: E402
     InvalidBootstrapResponse,
@@ -103,7 +99,7 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
             or source not in _LIFECYCLES
         ):
             return 0
-        previous_receipt = load_receipt_state(session_id)
+        previous_receipt = BOOTSTRAP_STATE.load_receipt_state(session_id)
         try:
             settings = ClaudeCodePluginSettings.from_environment() if settings is None else settings
         except Exception:
@@ -152,7 +148,7 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
                 )
             return 0
         try:
-            save_receipt(session_id, scope_id, receipt_id)
+            BOOTSTRAP_STATE.save_receipt(session_id, scope_id, receipt_id)
             json.dump(
                 {
                     "hookSpecificOutput": {
@@ -297,16 +293,16 @@ def _clear_stale_receipt_after_failed_claim(
     previous_receipt: tuple[str, str] | None,
 ) -> None:
     if previous_receipt is not None and previous_receipt != (scope_id, receipt_id):
-        clear_receipt_if_matches(session_id, *previous_receipt)
+        BOOTSTRAP_STATE.clear_receipt_if_matches(session_id, *previous_receipt)
 
 
 def _clear_observed_receipt(session_id: str, previous_receipt: tuple[str, str] | None) -> None:
     if previous_receipt is not None:
-        clear_receipt_if_matches(session_id, *previous_receipt)
+        BOOTSTRAP_STATE.clear_receipt_if_matches(session_id, *previous_receipt)
 
 
 def _handle_output_failure(session_id: str, scope_id: str, receipt_id: str, error: Exception) -> None:
-    clear_receipt_if_matches(session_id, scope_id, receipt_id)
+    BOOTSTRAP_STATE.clear_receipt_if_matches(session_id, scope_id, receipt_id)
     if isinstance(error, BrokenPipeError):
         try:
             stdout = sys.stdout.fileno()

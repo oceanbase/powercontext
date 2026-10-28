@@ -34,9 +34,8 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from bootstrap_state import clear_receipt, load_receipt  # noqa: E402
+from claude_code_host import BOOTSTRAP_STATE, DIAGNOSTICS  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
-from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
 from powercontext_lifecycle import prepared_context as _prepared_context  # noqa: E402
 from powercontext_lifecycle.prompt_privacy import scrub_secrets  # noqa: E402
 from scope_binding_errors import (  # noqa: E402
@@ -167,8 +166,8 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:  # noqa: C901
             )
             _write_hook_output(diagnostic_events=diagnostic_events)
             return 0
-        bootstrap_receipt_id = load_receipt(session_id, scope_id)
-        clear_receipt(session_id)
+        bootstrap_receipt_id = BOOTSTRAP_STATE.load_receipt(session_id, scope_id)
+        BOOTSTRAP_STATE.clear_receipt(session_id)
         safe_prompt = scrub_secrets(prompt, settings.authorization)
         query = _bounded_recall_query(safe_prompt)
         context = None
@@ -502,7 +501,7 @@ def _emit_context_event(
         if key in emitted_diagnostics:
             return
         emitted_diagnostics.add(key)
-        if not _should_emit_diagnostic(outcome):
+        if not DIAGNOSTICS.should_emit(outcome):
             return
     event: dict[str, object] = {
         "component": "powercontext.claude_code.recall",

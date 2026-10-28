@@ -192,7 +192,7 @@ def test_repeated_injected_event_preserves_receipt_for_first_query(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    session_start_module.save_receipt("session-1", "scope:test", "bcr_test")
+    session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_test")
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
     monkeypatch.setattr(session_start_module, "_post_json", lambda *_args, **_kwargs: _already_delivered())
     monkeypatch.setattr(
@@ -221,7 +221,7 @@ def test_terminal_retry_preserves_a_concurrently_saved_winner_receipt(
     session_start_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    bootstrap_state = sys.modules[session_start_module.load_receipt_state.__module__]
+    bootstrap_state = sys.modules[session_start_module.BOOTSTRAP_STATE.load_receipt_state.__module__]
     original_read = bootstrap_state._read_receipt_state
     snapshot_read = Event()
     winner_saved = Event()
@@ -237,7 +237,7 @@ def test_terminal_retry_preserves_a_concurrently_saved_winner_receipt(
 
     def save_winner() -> None:
         if snapshot_read.wait(2):
-            session_start_module.save_receipt("session-1", "scope:test", "bcr_test")
+            session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_test")
         winner_saved.set()
 
     def post(*_args, **_kwargs):
@@ -268,7 +268,7 @@ def test_terminal_retry_preserves_a_concurrently_saved_winner_receipt(
     assert winner is not None
     winner.join(timeout=2)
     assert not winner.is_alive()
-    assert session_start_module.load_receipt_state("session-1") == ("scope:test", "bcr_test")
+    assert session_start_module.BOOTSTRAP_STATE.load_receipt_state("session-1") == ("scope:test", "bcr_test")
 
 
 def test_invalid_settings_clear_a_stale_receipt(
@@ -276,7 +276,7 @@ def test_invalid_settings_clear_a_stale_receipt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    session_start_module.save_receipt("session-1", "scope:test", "bcr_previous")
+    session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_previous")
 
     def invalid_settings():
         raise ValueError
@@ -376,13 +376,13 @@ def test_concurrent_delivery_loser_preserves_the_winner_receipt(
     session_start_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session_start_module.save_receipt("session-1", "scope:test", "bcr_previous")
+    session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_previous")
 
     def post(path, payload, **_kwargs):
         if path == "/v1/context/bootstrap":
             return _ready()
         if payload["outcome"] == "injected":
-            session_start_module.save_receipt("session-1", "scope:test", "bcr_test")
+            session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_test")
             raise OSError
         return {"receipt_id": "bcr_test", "state": "injected"}
 
@@ -397,7 +397,7 @@ def test_concurrent_delivery_loser_preserves_the_winner_receipt(
     monkeypatch.setattr(sys, "stderr", io.StringIO())
 
     assert session_start_module.main(session_start_module.ClaudeCodePluginSettings(bootstrap_context=True)) == 0
-    assert session_start_module.load_receipt_state("session-1") == ("scope:test", "bcr_test")
+    assert session_start_module.BOOTSTRAP_STATE.load_receipt_state("session-1") == ("scope:test", "bcr_test")
 
 
 def test_session_start_output_failure_clears_the_deduplication_receipt(
@@ -473,7 +473,7 @@ def test_session_start_empty_or_timeout_fails_open(
 
     monkeypatch.setattr(session_start_module, "_post_json", post)
     monkeypatch.setattr(session_start_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
-    session_start_module.save_receipt("session-1", "scope:test", "bcr_previous")
+    session_start_module.BOOTSTRAP_STATE.save_receipt("session-1", "scope:test", "bcr_previous")
     monkeypatch.setattr(
         sys,
         "stdin",

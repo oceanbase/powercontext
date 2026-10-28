@@ -26,12 +26,13 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CLAUDE_CODE_ROOT = REPOSITORY_ROOT / "integrations" / "claude-code"
 PLUGIN_ROOT = CLAUDE_CODE_ROOT / "plugins" / "powercontext"
 _PLUGIN_MODULE_NAMES = (
-    "bootstrap_state",
+    "claude_code_host",
     "claude_code_settings",
-    "hooks",
     "powercontext_lifecycle",
     "powercontext_lifecycle.bootstrap_context",
+    "powercontext_lifecycle.bootstrap_state",
     "powercontext_lifecycle.client_config",
+    "powercontext_lifecycle.diagnostics",
     "powercontext_lifecycle.prepared_context",
     "powercontext_lifecycle.prompt_privacy",
     "scripts",
@@ -84,6 +85,8 @@ def hook_module(plugin_imports: None) -> ModuleType:
 def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("POWERCONTEXT_DIAGNOSTIC_STATE_FILE", str(tmp_path / "claude-code-diagnostics.json"))
     monkeypatch.setenv("POWERCONTEXT_CLAUDE_BOOTSTRAP_STATE_DIR", str(tmp_path / "plugin-data"))
+    # The host's plugin data directory is set as well, so the tests notice if it takes precedence over the override.
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "host-plugin-data"))
 
 
 @pytest.fixture

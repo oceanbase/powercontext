@@ -32,7 +32,7 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
+from codex_host import DIAGNOSTICS  # noqa: E402
 from hooks.recall import (  # noqa: E402
     _decode_error_code,
     _HttpStatusError,
@@ -255,7 +255,7 @@ def _append_event(
     if outcome in emitted:
         return
     emitted.add(outcome)
-    if not _should_emit_diagnostic(outcome):
+    if not DIAGNOSTICS.should_emit(outcome):
         return
     event: dict[str, object] = {"component": _COMPONENT, "event": "status", "outcome": outcome}
     event.update(fields)
