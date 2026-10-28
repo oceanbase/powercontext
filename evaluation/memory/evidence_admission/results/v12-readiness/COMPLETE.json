@@ -1,0 +1,12 @@
+{
+  "schema": "evidence-admission.v12.readiness-bundle.v1",
+  "meaning": "offline_sdk_pipeline_readiness_only",
+  "files": {
+    "sdk-preflight.json": "b49236389b37cdf596cde6062adc33ce746be52a9904eab3ca39b4d1bae2ef36",
+    "validation-summary.json": "533c5cc7d19843c6e5c6f23c4d0fa10aff89e615cd674dd8a9fea73a31e77b98"
+  },
+  "provider_requests": 0,
+  "live_authorized": false,
+  "formal_acceptance": false,
+  "production_authorized": false
+}

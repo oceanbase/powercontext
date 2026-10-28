@@ -89,7 +89,8 @@ Content adapter 没有提供可信的角色或所有权结构，文本中的角�
 [线上契约](LIVE_PROTOCOL.md)及 `live-policy-v1.json` 固定门槛；v3 的选择策略、原有标注和历史结果不变。
 `plan-live` 统计五组全部请求，`run-smoke` 使用独立范围，`compare-live` 同时绑定三个准备、三个原始及三个审计运行。
 联合门槛检查实际生成的必要事实和精确字面量，并验证父运行、输入、引用、模型/endpoint 及真实返回 usage。
-输入准备通过不能替代模型输出通过。实际线上结果尚未取得，未提交冻结仍阻止 provider 初始化。
+输入准备通过不能替代模型输出通过。已有历史 v5 线上结果和 v9 首组真实配对，尚未完成正式联合判定。
+新增协议必须完成各自的 Git 提交冻结，不能借用历史冻结授权初始化 provider。
 
 ## 线上生成与人工审计
 
@@ -97,7 +98,8 @@ Content adapter 没有提供可信的角色或所有权结构，文本中的角�
 冻结清单与评测代码必须先进入 Git；命令自身不会创建提交。默认离线命令不读取凭据、不访问 provider。
 具体命令见 [英文说明](README.md#opt-in-live-generation)。
 
-线上阶段调用真实 `AtomicMemoryGenerationPipeline.extract()`，不调用 reconciliation 或 Memory 发布。
+本节 `run-live` 调用真实 `AtomicMemoryGenerationPipeline.extract()`，不调用 reconciliation 或 Memory 发布。
+独立 v9_live 曾直接调用 SDK generator，其首组只作为协议诊断；v10 的 Pipeline 适配目前仅有本地验证。
 SDK 重试和 HTTP 重定向关闭，每次生成最多一次请求，输出 token、超时、重复次数和温度由清单固定。
 Ctrl-C 会传播取消，完整评测报告不会在取消后发布。不能由本地任务取消推断远端 provider 已停止计费。
 
@@ -129,3 +131,17 @@ Ctrl-C 会传播取消，完整评测报告不会在取消后发布。不能由�
 新 bundle 不向模型提供内部 range ID。非法引用继续失败，已返回的用量照常记录；旧实验继续使用原编码。smoke 可独立审阅为 `audited_smoke`，达到 `ready_for_formal=true` 后才能为正式运行提供证明。两种 smoke 都不能参与正式联合判定。完整步骤见 [v4 操作说明](V4_RUNBOOK.zh.md)。
 
 [实验 v5](V5_PROTOCOL.md) 将保守选择成本与模型输入编码分开：按原始 v3 实验选择，选定后移除内部 ID、使用简明引用指令并重新核算实际成本，要求五组选择范围完全保留。所有命令明确使用 `--experiment-version v5`，见 [完整步骤](V5_RUNBOOK.zh.md)。v4 的已知对照组回归保留披露，不覆盖其结果。
+
+## 当前验收状态
+
+真实生成已取得历史 v5 结果及 v9 首组两次请求；正式联合验收仍未完成。
+最新统一状态见 [验收对照](ACCEPTANCE.zh.md)，本地修复的执行与评分合同见
+[v10 协议](V10_PROTOCOL.zh.md)。[v11 协议](V11_PROTOCOL.zh.md)补齐真实 Source 数缩减的完整协议预算，
+重新执行 324 个窗口样本并按哈希复用 1296 个未变对照样本；六个历史拒绝全部恢复，未观察到输入覆盖退化。
+成本和证据边界见 [v11 结果](V11_RESULTS.zh.md)，旧失败结果保留。
+当前唯一总体决策为 `insufficient_evidence`，没有生产后续授权。
+
+
+[v12 小样本执行合同](V12_PROTOCOL.zh.md)提供独立真实 Pipeline 入口，先验证精确字面量，再按审批范围与审阅结果
+决定是否验证 Unicode。发送前核验实际 HEAD blob、SDK 预检和计划绑定预算；默认预检只用受控模拟响应。
+它不构成全组正式矩阵，不覆盖旧失败或授权生产修改。

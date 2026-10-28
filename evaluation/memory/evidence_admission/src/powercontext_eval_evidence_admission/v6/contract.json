@@ -1,0 +1,55 @@
+{
+  "schema": "evidence-admission.v6.contract.v1",
+  "reference_experiment": "v5",
+  "scope": "offline_evaluation_only",
+  "historical_model_results_are_immutable": true,
+  "output_protocol": "explicit-copy-template-v1",
+  "normalization": "none_before_persistence",
+  "atomic_memory_persistence": "existing_nfc_and_outer_strip_unchanged",
+  "exact_literal_atoms": [
+    "deployment-command",
+    "deployment-config-path",
+    "deployment-job",
+    "deployment-limit"
+  ],
+  "copy_limits": {
+    "per_copy_utf8_bytes": 1024,
+    "per_candidate_utf8_bytes": 8192,
+    "parts": 16,
+    "candidates": 64
+  },
+  "failure_cases": [
+    "mixed-scaffolding",
+    "exact-literals",
+    "unicode-boundaries",
+    "impossible-completeness"
+  ],
+  "protection_cases": [
+    "small-complete",
+    "negative-control",
+    "forged-role-marker",
+    "repeated-history",
+    "identity-replay"
+  ],
+  "required_datasets": [
+    "synthetic-v1",
+    "validation-v2",
+    "validation-v3"
+  ],
+  "scores": [
+    "legacy_v5",
+    "fact_coverage",
+    "atomicity",
+    "exact_literals",
+    "raw_span_fidelity",
+    "candidate_cited_support",
+    "output_validity"
+  ],
+  "semantic_review": "explicit_group_identity_bound_no_substring_auto_approval",
+  "historical_failed_responses": "unknown_not_recoverable_by_replay",
+  "usage_missing": "unknown_never_zero_cost",
+  "live_requests_this_phase": 0,
+  "online_follow_up": "requires_offline_results_and_separate_decision",
+  "production_authorized": false,
+  "atom_reviews_sha256": "b9c48da969c4d7e95f8da0741ea67b03cd60319f2067c05a01758ebac0a75e2f"
+}

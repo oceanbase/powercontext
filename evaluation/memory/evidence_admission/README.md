@@ -17,7 +17,7 @@ Select `--experiment-version v3` with each of `synthetic-v1`, `validation-v2` an
 The original 28 cases produce 1260 five-arm samples; eight additional preimplementation stress cases add 360 samples.
 Run `compare-preparation --run-dir PRIMARY --run-dir VALIDATION --run-dir ADDITIONAL --output-file COMPARISON.json`
 to bind all three completed runs under the same code/freeze. Missing datasets, known losses or v1/v2 identity regressions
-prevent an offline pass. The combined result still reports `insufficient_evidence` for production; live quality is unmeasured.
+prevent an offline pass. The combined result still reports `insufficient_evidence`; the formal combined live gate has not passed.
 See the [Chinese commands](README.zh.md) for a complete example and [V3 results](V3_RESULTS.zh.md) for retention, non-regression and costs. Exact duplicates are deferred, never granted support aliases.
 
 ## Install and validate
@@ -28,7 +28,7 @@ Run from the repository root:
 uv sync --project evaluation --locked
 uv run --project evaluation evidence-admission validate
 uv run --project evaluation pytest evaluation/memory/evidence_admission/tests -m "not live" -q
-uv run --project evaluation ruff check evaluation/memory/evidence_admission
+uv run --project evaluation ruff check --no-fix evaluation/memory/evidence_admission
 uv run --project evaluation ruff format --check evaluation/memory/evidence_admission
 uv run --project evaluation ty check --project evaluation evaluation/memory/evidence_admission/src
 ```
@@ -179,3 +179,21 @@ separate from synthetic results, and cannot satisfy the committed synthetic-suit
 Original smoke and `audited_smoke` are separate artifacts; both remain excluded from formal comparisons. New formal runs require matching original/reviewed smoke directories and `ready_for_formal=true`. Full commands and review constraints are in the [Chinese runbook](V4_RUNBOOK.zh.md). Neither offline retention nor smoke passing establishes issue acceptance.
 
 [Experiment v5](V5_PROTOCOL.md) separates frozen v3 selection-envelope costs from the model-facing citation encoding. It preserves original selected ranges for every arm, removes internal citation-like IDs only after selection, and uses a shorter explicit citation instruction. Actual prepared-input costs must not exceed conservative selection costs. Select `--experiment-version v5` for every command in the [runbook](V5_RUNBOOK.zh.md). Experiment v4 remains available with its disclosed v2-control regression; its artifacts are not replaced.
+
+## Current acceptance status
+
+Historical v5 live results and the two-request v9 first pair are available. The v9 candidate failed its atomicity gate;
+its executor called the SDK generator directly, so the pair does not establish the issue's real Pipeline acceptance item.
+The evaluation-only v10 adapter executes through `AtomicMemoryGenerationPipeline.extract()` in local tests, separates
+unchanged historical scoring from parent/atom diagnostics, and preserves original control-window boundaries.
+V11 adds protocol-aware Source-count reduction to the window control using the real durable repository. It reexecutes
+324 window samples and inherits 1296 unchanged, hash-verified arm samples. All six historical protocol rejections recover,
+with no observed input-coverage regression. Both versions have no live command. See the [acceptance matrix](ACCEPTANCE.zh.md),
+[v11 protocol](V11_PROTOCOL.zh.md), and [offline results](V11_RESULTS.zh.md). The overall decision remains
+`insufficient_evidence`; no production change is authorized.
+
+
+[V12 Pipeline smoke protocol](V12_PROTOCOL.zh.md) provides an isolated, opt-in two-case SDK executor, with actual
+HEAD-blob verification, per-plan budget authorization and explicit output review before advancing. Its offline preflight
+uses controlled copy responses through the actual Pipeline; this does not establish live model quality or formal coverage.
+Historical v9 failures and v10/v11 results remain unchanged. No default command accesses credentials or a provider.

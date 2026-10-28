@@ -1,0 +1,35 @@
+{
+  "schema": "evidence-admission.v10.acceptance-status.v1",
+  "date": "2026-10-28",
+  "decision": "insufficient_evidence",
+  "committed_freeze": false,
+  "new_provider_requests": 0,
+  "formal_live_coverage_complete": false,
+  "local_pipeline_integration": "real_pipeline_with_simulated_transport_passed",
+  "historical_failure_preserved": true,
+  "candidate_input_gate_passed": true,
+  "all_arms_no_regression": false,
+  "protocol_budget_failure_groups": [
+    {
+      "arm": "window-reduction-v1",
+      "case": "many-source-overflow",
+      "budget": 4096,
+      "samples": 3
+    },
+    {
+      "arm": "window-reduction-v1",
+      "case": "validation-reordered-sources",
+      "budget": 4096,
+      "samples": 3
+    }
+  ],
+  "window_control_cost_accepted_claim_loss": 48,
+  "next_required_work": [
+    "resolve_window_control_protocol_budget_contract_without_fragment_repacking",
+    "commit_new_freeze_then_regenerate_identity_bound_offline_and_sdk_artifacts",
+    "evaluate_new_protocol_model_atomicity_copy_unicode_and_support_before_formal_expansion",
+    "resolve_semantic_review_and_formal_all_arm_dataset_coverage"
+  ],
+  "live_authorized": false,
+  "production_authorized": false
+}
