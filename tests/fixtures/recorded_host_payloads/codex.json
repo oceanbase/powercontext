@@ -1,0 +1,32 @@
+{
+  "description": "SessionStart payloads that Codex 0.165.0-alpha.1.2 passed to the plugin's hook in TUI runs, one per lifecycle. The session ID, working directory, transcript path, and prompt IDs follow the characterization fixture; every other key and value is as the host sent it.",
+  "payloads": {
+    "startup": {
+      "session_id": "thread-a",
+      "transcript_path": "$CONFIG/sessions/2026/10/26/rollout-thread-a.jsonl",
+      "cwd": "$CWD",
+      "hook_event_name": "SessionStart",
+      "model": "gpt-6.1-sol",
+      "permission_mode": "bypassPermissions",
+      "source": "startup"
+    },
+    "resume": {
+      "session_id": "thread-a",
+      "transcript_path": "$CONFIG/sessions/2026/10/26/rollout-thread-a.jsonl",
+      "cwd": "$CWD",
+      "hook_event_name": "SessionStart",
+      "model": "gpt-6.1-sol",
+      "permission_mode": "bypassPermissions",
+      "source": "resume"
+    },
+    "fork": {
+      "session_id": "thread-a",
+      "transcript_path": "$CONFIG/sessions/2026/10/26/rollout-thread-a.jsonl",
+      "cwd": "$CWD",
+      "hook_event_name": "SessionStart",
+      "model": "gpt-6.1-sol",
+      "permission_mode": "bypassPermissions",
+      "source": "fork"
+    }
+  }
+}
