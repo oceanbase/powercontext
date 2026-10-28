@@ -673,6 +673,7 @@ def test_scope_binding_failures_are_classified(
 
 def test_scope_response_body_respects_the_per_request_timeout(
     scope_module: ModuleType,
+    scope_binding_client: ModuleType,
     tmp_path: Path,
 ) -> None:
     class SlowBodyHandler(BaseHTTPRequestHandler):
@@ -694,10 +695,11 @@ def test_scope_response_body_respects_the_per_request_timeout(
             pass
 
     with _serve(SlowBodyHandler) as server_url:
-        settings = _settings(scope_module, server_url, request_timeout_seconds=0.3)
+        settings = _settings(scope_module, server_url, request_timeout_seconds=0.3).scope_binding_settings()
         started = time.monotonic()
-        with pytest.raises(scope_module.ScopeBindingUnavailableError):
-            scope_module.resolve_scope_id(
+        with pytest.raises(scope_binding_client.ScopeBindingUnavailableError):
+            scope_binding_client.resolve_scope_id(
+                scope_module.CODEX,
                 str(tmp_path),
                 session_id=None,
                 settings=settings,
@@ -772,7 +774,7 @@ def test_stop_process_exits_within_the_host_deadline_against_a_slow_server(tmp_p
                 "import sys",
                 "from pathlib import Path",
                 f"root = Path({str(PLUGIN_ROOT)!r})",
-                "sys.path[:0] = [str(root), str(root / 'scripts')]",
+                "sys.path.insert(0, str(root))",
                 "import settings",
                 f"settings._MCP_CONFIGURATION_PATH = Path({str(config)!r})",
                 "from hooks.token_savings import main",

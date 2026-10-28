@@ -36,12 +36,10 @@ _PLUGIN_MODULE_NAMES = (
     "powercontext_lifecycle.host_profile",
     "powercontext_lifecycle.prepared_context",
     "powercontext_lifecycle.prompt_privacy",
+    "powercontext_lifecycle.scope_binding",
     "powercontext_lifecycle.scope_binding_errors",
     "powercontext_lifecycle.session_start",
     "powercontext_lifecycle.transport",
-    "scripts",
-    "scripts.workspace_scope",
-    "workspace_scope",
     "powercontext_claude_code_statusline",
 )
 
@@ -112,6 +110,11 @@ def scope_module(plugin_imports: None) -> ModuleType:
         "powercontext_claude_code_scope",
         PLUGIN_ROOT / "scripts" / "workspace_scope.py",
     )
+
+
+@pytest.fixture
+def scope_binding_client(scope_module: ModuleType) -> ModuleType:
+    return sys.modules[scope_module.resolve_scope_id.__module__]
 
 
 @pytest.fixture

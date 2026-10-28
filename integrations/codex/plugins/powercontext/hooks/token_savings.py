@@ -28,9 +28,7 @@ from urllib.error import HTTPError
 from urllib.request import Request
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
-sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from codex_host import CODEX  # noqa: E402
 from hooks.recall import (  # noqa: E402
@@ -41,13 +39,13 @@ from hooks.recall import (  # noqa: E402
     _ServerUnavailableError,
 )
 from plugin_version import PLUGIN_VERSION  # noqa: E402
+from powercontext_lifecycle.scope_binding import resolve_scope_id  # noqa: E402
 from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
 )
 from powercontext_lifecycle.transport import open_bounded  # noqa: E402
-from scope_binding import resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _COMPONENT = "powercontext.codex.token_savings"
@@ -300,9 +298,10 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         events: list[dict[str, object]] = []
         try:
             scope_id = resolve_scope_id(
+                CODEX,
                 cwd,
                 session_id=session_id,
-                settings=settings,
+                settings=settings.scope_binding_settings(),
                 deadline=http_deadline,
             )
             today = _load_stats(settings, scope_id, "today", deadline=http_deadline)

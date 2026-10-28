@@ -90,7 +90,7 @@ def test_session_start_without_lifecycle_still_persists_session_binding(
     resolutions: list[tuple[str, str | None, bool]] = []
     requests: list[str] = []
 
-    def resolve(cwd, *, session_id, persist_session=False, **_kwargs):
+    def resolve(_host, cwd, *, session_id, persist_session=False, **_kwargs):
         resolutions.append((cwd, session_id, persist_session))
         return "scope:test"
 
@@ -585,7 +585,7 @@ def test_session_start_requests_follow_the_configured_settings(
     budgets: list[float] = []
     requests: list[tuple[Request, float]] = []
 
-    def resolve(_cwd, *, deadline, **_kwargs):
+    def resolve(_host, _cwd, *, deadline, **_kwargs):
         budgets.append(deadline - monotonic())
         return "scope:test"
 

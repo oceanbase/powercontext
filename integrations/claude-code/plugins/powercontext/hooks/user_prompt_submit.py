@@ -30,21 +30,19 @@ from urllib.error import HTTPError
 from urllib.request import Request
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
-sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from claude_code_host import CLAUDE_CODE  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from powercontext_lifecycle import prepared_context as _prepared_context  # noqa: E402
 from powercontext_lifecycle.prompt_privacy import scrub_secrets  # noqa: E402
+from powercontext_lifecycle.scope_binding import resolve_scope_id  # noqa: E402
 from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
 )
 from powercontext_lifecycle.transport import bind_response_deadline, complete_body, open_bounded  # noqa: E402
-from workspace_scope import resolve_scope_id  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse
@@ -153,9 +151,10 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:  # noqa: C901
         session_id = _payload_identifier(payload, "session_id")
         try:
             scope_id = resolve_scope_id(
+                CLAUDE_CODE,
                 cwd,
                 session_id=session_id,
-                settings=settings,
+                settings=settings.scope_binding_settings(),
                 deadline=http_deadline,
             )
         except Exception as error:

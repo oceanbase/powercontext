@@ -198,7 +198,7 @@ def _prepare_query(
         "_prepare_context",
         lambda query, _scope, *, settings, deadline: queries.append(query) or _prepared(),
     )
-    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda _cwd, **_kwargs: "project:test")
+    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda _host, _cwd, **_kwargs: "project:test")
     monkeypatch.setattr(
         hook_module,
         "_capture_prompt",
@@ -237,7 +237,7 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     monkeypatch.setattr(
         hook_module,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "git:github.com/oceanbase/powercontext",
+        lambda _host, _cwd, **_kwargs: "git:github.com/oceanbase/powercontext",
     )
     captured: list[tuple[str, str]] = []
     monkeypatch.setattr(
@@ -313,7 +313,7 @@ def test_user_prompt_submit_captures_the_full_prompt_while_the_query_is_bounded(
     prompt = "记忆 " * 3_000
     captured: list[str] = []
     monkeypatch.setattr(hook_module, "_prepare_context", lambda *_args, **_kwargs: _prepared())
-    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda _cwd, **_kwargs: "project:test")
+    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda _host, _cwd, **_kwargs: "project:test")
     monkeypatch.setattr(
         hook_module,
         "_capture_prompt",
@@ -347,7 +347,7 @@ def test_user_prompt_submit_reads_utf8_stdin_on_windows_encodings(
     monkeypatch.setattr(
         hook_module,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "git:github.com/oceanbase/powercontext",
+        lambda _host, _cwd, **_kwargs: "git:github.com/oceanbase/powercontext",
     )
     monkeypatch.setattr(
         hook_module,
@@ -385,7 +385,7 @@ def test_user_prompt_compatibility_fallback_is_supported(
     monkeypatch.setattr(
         hook_module,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "project:test",
+        lambda _host, _cwd, **_kwargs: "project:test",
     )
     captured: list[str] = []
     monkeypatch.setattr(
@@ -419,7 +419,7 @@ def test_unexpected_recall_failure_does_not_prevent_prompt_capture(
     monkeypatch.setattr(
         hook_module,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "project:test",
+        lambda _host, _cwd, **_kwargs: "project:test",
     )
     captured: list[str] = []
     monkeypatch.setattr(
@@ -454,7 +454,7 @@ def test_capture_failure_does_not_prevent_context_injection(
     monkeypatch.setattr(
         hook_module,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "project:test",
+        lambda _host, _cwd, **_kwargs: "project:test",
     )
     monkeypatch.setattr(
         hook_module,
@@ -823,7 +823,7 @@ def test_recall_and_capture_share_one_http_deadline(
     monkeypatch.setattr(
         hook_module,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "project:test",
+        lambda _host, _cwd, **_kwargs: "project:test",
     )
 
     _run_main(
@@ -857,7 +857,7 @@ def test_prompt_capture_can_be_disabled(
     monkeypatch.setattr(
         hook_module,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "project:test",
+        lambda _host, _cwd, **_kwargs: "project:test",
     )
 
     output = io.StringIO()

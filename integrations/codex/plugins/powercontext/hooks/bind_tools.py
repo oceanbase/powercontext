@@ -24,16 +24,15 @@ from pathlib import Path
 from time import monotonic
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
-sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from codex_host import CODEX  # noqa: E402
+from powercontext_lifecycle.scope_binding import binding_keys, resolve_scope_id, session_binding_key  # noqa: E402
 from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingError,
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
 )
-from scope_binding import binding_keys, resolve_scope_id, session_binding_key  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _PREFIX = "mcp__powercontext__"
@@ -145,14 +144,14 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         operation = tool_name.removeprefix(_PREFIX)
         if operation in _CONTROL_OPERATIONS:
             updated = dict(tool_input)
-            updated["key"] = session_binding_key(session_id)
+            updated["key"] = session_binding_key(CODEX, session_id)
             _allow(updated)
             return 0
         if operation in _RESOLVE_OPERATIONS:
             settings = CodexPluginSettings() if settings is None else settings
             _allow({
                 "explicit_scope_id": settings.scope_id,
-                "binding_keys": binding_keys(cwd, session_id=session_id),
+                "binding_keys": binding_keys(CODEX, cwd, session_id=session_id),
             })
             return 0
         if operation in _HOST_OPERATIONS:
@@ -162,9 +161,10 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             return 0
         settings = CodexPluginSettings() if settings is None else settings
         scope_id = resolve_scope_id(
+            CODEX,
             cwd,
             session_id=session_id,
-            settings=settings,
+            settings=settings.scope_binding_settings(),
             deadline=monotonic() + settings.http_budget_seconds,
         )
         updated = dict(tool_input)

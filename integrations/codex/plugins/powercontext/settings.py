@@ -25,6 +25,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from powercontext_lifecycle.client_config import parse_boolean, resolve_allow_insecure_http
+from powercontext_lifecycle.scope_binding import ScopeBindingSettings
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
@@ -216,6 +217,16 @@ class CodexPluginSettings(BaseSettings):
         if value is None:
             return None
         return value.strip() or None
+
+    def scope_binding_settings(self) -> ScopeBindingSettings:
+        """Return the values that the Scope client uses, with the authorization unwrapped."""
+
+        return ScopeBindingSettings(
+            server_url=self.server_url,
+            authorization=None if self.authorization is None else self.authorization.get_secret_value(),
+            scope_id=self.scope_id,
+            request_timeout_seconds=self.request_timeout_seconds,
+        )
 
 
 def _server_url_from_mcp_configuration() -> str:

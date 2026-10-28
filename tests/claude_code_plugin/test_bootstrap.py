@@ -565,7 +565,7 @@ def test_session_start_requests_follow_the_configured_settings(
     budgets: list[float] = []
     requests: list[tuple[Request, float]] = []
 
-    def resolve(_cwd, *, deadline, **_kwargs):
+    def resolve(_host, _cwd, *, deadline, **_kwargs):
         budgets.append(deadline - monotonic())
         return "scope:test"
 
