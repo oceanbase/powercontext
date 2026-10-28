@@ -40,6 +40,7 @@ _PLUGIN_MODULE_NAMES = (
     "powercontext_lifecycle.scope_binding_errors",
     "powercontext_lifecycle.session_start",
     "powercontext_lifecycle.transport",
+    "powercontext_lifecycle.user_prompt_submit",
     "powercontext_claude_code_statusline",
 )
 
@@ -81,6 +82,11 @@ def hook_module(plugin_imports: None) -> ModuleType:
         "powercontext_claude_code_hook",
         PLUGIN_ROOT / "hooks" / "user_prompt_submit.py",
     )
+
+
+@pytest.fixture
+def prompt_flow(hook_module: ModuleType) -> ModuleType:
+    return sys.modules[hook_module.run_user_prompt_submit.__module__]
 
 
 @pytest.fixture(autouse=True)

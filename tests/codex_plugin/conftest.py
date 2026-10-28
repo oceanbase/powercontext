@@ -49,6 +49,11 @@ def recall_module() -> ModuleType:
     return _load_module("powercontext_codex_recall", PLUGIN_ROOT / "hooks" / "recall.py")
 
 
+@pytest.fixture
+def prompt_flow(recall_module: ModuleType) -> ModuleType:
+    return sys.modules[recall_module.run_user_prompt_submit.__module__]
+
+
 @pytest.fixture(autouse=True)
 def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))

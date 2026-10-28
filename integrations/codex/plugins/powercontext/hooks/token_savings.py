@@ -31,13 +31,6 @@ _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from codex_host import CODEX  # noqa: E402
-from hooks.recall import (  # noqa: E402
-    _decode_error_code,
-    _HttpStatusError,
-    _read_response,
-    _remaining_time,
-    _ServerUnavailableError,
-)
 from plugin_version import PLUGIN_VERSION  # noqa: E402
 from powercontext_lifecycle.scope_binding import resolve_scope_id  # noqa: E402
 from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
@@ -46,9 +39,16 @@ from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingUnavailableError,
 )
 from powercontext_lifecycle.transport import open_bounded  # noqa: E402
+from powercontext_lifecycle.user_prompt_submit import (  # noqa: E402
+    _decode_error_code,
+    _HttpStatusError,
+    _read_response,
+    _remaining_time,
+    _ServerUnavailableError,
+)
 from settings import CodexPluginSettings  # noqa: E402
 
-_COMPONENT = "powercontext.codex.token_savings"
+_COMPONENT = f"{CODEX.component}.token_savings"
 _USER_AGENT = f"powercontext-codex-token-savings/{PLUGIN_VERSION}"
 _REQUEST_HEADERS = {
     "Accept": "application/json",

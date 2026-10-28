@@ -22,6 +22,7 @@ CLAUDE_CODE = HostProfile(
     integration="claude-code",
     user_agent="powercontext-claude-code-plugin/0.1.3",
     component="powercontext.claude_code",
+    prompt_id_field="prompt_id",
     diagnostics=DiagnosticThrottle(state_file="claude-code-diagnostics.json"),
     bootstrap_state=BootstrapState(
         directory_variable="POWERCONTEXT_CLAUDE_BOOTSTRAP_STATE_DIR",

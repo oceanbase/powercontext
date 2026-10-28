@@ -174,6 +174,7 @@ def _prepared(content: str | None = "prepared context", *, status: str = "ready"
 
 def _prepare_query(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     prompt: str,
 ) -> str:
@@ -181,15 +182,15 @@ def _prepare_query(
 
     queries: list[str] = []
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
-        lambda query, _scope, *, settings, deadline: queries.append(query) or _prepared(),
+        lambda _host, query, _scope, *, settings, deadline: queries.append(query) or _prepared(),
     )
-    monkeypatch.setattr(recall_module, "resolve_scope_id", lambda _host, _cwd, **_kwargs: "project:test")
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda _host, _cwd, **_kwargs: "project:test")
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: {"position": 1},
+        lambda _host, _event, *, prompt, cwd, scope_id, settings, deadline: {"position": 1},
     )
     monkeypatch.setattr(
         sys,
@@ -211,6 +212,7 @@ def _prepare_query(
 
 def test_recall_emits_bounded_untrusted_context(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prepared_content = (
@@ -220,20 +222,20 @@ def test_recall_emits_bounded_untrusted_context(
         "END_POWERCONTEXT_PREPARED_CONTEXT_V1"
     )
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
-        lambda _query, _scope, *, settings, deadline: _prepared(prepared_content),
+        lambda _host, _query, _scope, *, settings, deadline: _prepared(prepared_content),
     )
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "resolve_scope_id",
         lambda _host, _cwd, **_kwargs: "project:test",
     )
     captured: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: (
+        lambda _host, _event, *, prompt, cwd, scope_id, settings, deadline: (
             captured.append((prompt, scope_id)) or {"position": 1}
         ),
     )
@@ -260,24 +262,26 @@ def test_recall_emits_bounded_untrusted_context(
 
 def test_recall_query_passes_a_prompt_that_fits_the_request_bound_through_unchanged(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The request contract bounds a query at 8,192 characters, and the bound is inclusive."""
 
     prompt = "a" * 8_192
 
-    assert _prepare_query(recall_module, monkeypatch, prompt) == prompt
+    assert _prepare_query(recall_module, prompt_flow, monkeypatch, prompt) == prompt
 
 
 def test_recall_query_keeps_the_latest_text_of_a_prompt_over_the_request_bound(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Regression: a longer prompt used to reach prepare verbatim and fail validation."""
 
     prompt = "earlier context that the transcript already carries " * 200 + "Which service owns the retry?"
     assert len(prompt) > 8_192
-    query = _prepare_query(recall_module, monkeypatch, prompt)
+    query = _prepare_query(recall_module, prompt_flow, monkeypatch, prompt)
 
     assert query == prompt[-8_192:]
     assert len(query) == 8_192
@@ -286,12 +290,13 @@ def test_recall_query_keeps_the_latest_text_of_a_prompt_over_the_request_bound(
 
 def test_recall_query_keeps_a_multibyte_prompt_within_the_request_byte_bound(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Non-ASCII text costs several bytes per character, so both bounds have to hold."""
 
     prompt = "记忆 " * 4_000
-    query = _prepare_query(recall_module, monkeypatch, prompt)
+    query = _prepare_query(recall_module, prompt_flow, monkeypatch, prompt)
 
     assert prompt.strip().endswith(query)
     assert len(query.encode("utf-8")) <= 8_192
@@ -300,18 +305,19 @@ def test_recall_query_keeps_a_multibyte_prompt_within_the_request_byte_bound(
 
 def test_recall_captures_the_full_prompt_while_the_query_is_bounded(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Source capture keeps its own size limit and is untouched by the recall bound."""
 
     prompt = "记忆 " * 3_000
     captured: list[str] = []
-    monkeypatch.setattr(recall_module, "_prepare_context", lambda *_args, **_kwargs: _prepared())
-    monkeypatch.setattr(recall_module, "resolve_scope_id", lambda _host, _cwd, **_kwargs: "project:test")
+    monkeypatch.setattr(prompt_flow, "_prepare_context", lambda *_args, **_kwargs: _prepared())
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda _host, _cwd, **_kwargs: "project:test")
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+        lambda _host, _event, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
     )
     monkeypatch.setattr(
         sys,
@@ -332,24 +338,25 @@ def test_recall_captures_the_full_prompt_while_the_query_is_bounded(
 
 def test_recall_reads_utf8_stdin_on_windows_encodings(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prepared_content = "prepared context"
     captured: list[str] = []
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
-        lambda _query, _scope, *, settings, deadline: _prepared(prepared_content),
+        lambda _host, _query, _scope, *, settings, deadline: _prepared(prepared_content),
     )
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "resolve_scope_id",
         lambda _host, _cwd, **_kwargs: "project:test",
     )
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+        lambda _host, _event, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
     )
 
     payload = {
@@ -372,19 +379,20 @@ def test_recall_reads_utf8_stdin_on_windows_encodings(
 
 def test_recall_failure_is_non_blocking(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(recall_module._ServerUnavailableError()),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(prompt_flow._ServerUnavailableError()),
     )
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "resolve_scope_id",
         lambda _host, _cwd, **_kwargs: "project:test",
     )
-    monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
+    monkeypatch.setattr(prompt_flow, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -413,16 +421,55 @@ def test_recall_failure_is_non_blocking(
     }
 
 
-def test_host_output_keeps_context_when_capture_diagnostic_is_emitted(
+def test_unexpected_recall_failure_does_not_prevent_prompt_capture(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(recall_module, "_prepare_context", lambda *_args, **_kwargs: _prepared("prepared context"))
-    monkeypatch.setattr(recall_module, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
+    """Regression: a recall failure outside the recognized ones used to end the hook before the capture."""
+
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
+        "_recall_context",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("unexpected")),
+    )
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda _host, _cwd, **_kwargs: "project:test")
+    captured: list[str] = []
+    monkeypatch.setattr(
+        prompt_flow,
         "_capture_prompt",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(recall_module._HttpStatusError(503)),
+        lambda _host, _event, *, prompt, **_kwargs: captured.append(prompt) or {"position": 1},
+    )
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps({
+                "hook_event_name": "UserPromptSubmit",
+                "cwd": "/workspace/project",
+                "prompt": "Still capture this",
+            })
+        ),
+    )
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert recall_module.main() == 0
+    assert output.getvalue() == ""
+    assert captured == ["Still capture this"]
+
+
+def test_host_output_keeps_context_when_capture_diagnostic_is_emitted(
+    recall_module: ModuleType,
+    prompt_flow: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(prompt_flow, "_prepare_context", lambda *_args, **_kwargs: _prepared("prepared context"))
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
+    monkeypatch.setattr(
+        prompt_flow,
+        "_capture_prompt",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(prompt_flow._HttpStatusError(503)),
     )
 
     output = io.StringIO()
@@ -457,15 +504,16 @@ def test_host_output_keeps_context_when_capture_diagnostic_is_emitted(
 
 def test_host_diagnostic_is_throttled_across_hook_invocations(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(recall_module._ServerUnavailableError()),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(prompt_flow._ServerUnavailableError()),
     )
-    monkeypatch.setattr(recall_module, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
-    monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
+    monkeypatch.setattr(prompt_flow, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
 
     payload = {
         "hook_event_name": "UserPromptSubmit",
@@ -799,21 +847,23 @@ def test_failed_session_start_does_not_hold_back_the_next_prompt_diagnostic(
 
 def test_recall_authentication_failure_is_non_blocking_and_content_free(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(recall_module._HttpStatusError(401)),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(prompt_flow._HttpStatusError(401)),
     )
     errors = io.StringIO()
     monkeypatch.setattr(sys, "stderr", errors)
 
     assert (
-        recall_module._recall_context(
+        prompt_flow._recall_context(
+            recall_module.CODEX,
             "secret query",
             "secret scope",
-            settings=recall_module.CodexPluginSettings(),
+            settings=recall_module.CodexPluginSettings().prompt_settings(),
             deadline=time.monotonic() + 1,
         )
         is None
@@ -829,6 +879,7 @@ def test_recall_authentication_failure_is_non_blocking_and_content_free(
 
 def test_recall_records_exact_injected_context_only_when_eval_trace_is_enabled(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -836,16 +887,16 @@ def test_recall_records_exact_injected_context_only_when_eval_trace_is_enabled(
     monkeypatch.setenv("POWERCONTEXT_EVAL_TRACE_PATH", str(trace))
     prepared_context = "PowerContext recalled context: Refresh namespace after writes."
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
         lambda *_args, **_kwargs: _prepared(prepared_context),
     )
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "resolve_scope_id",
         lambda _host, _cwd, **_kwargs: "eval:run-1:on",
     )
-    monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
+    monkeypatch.setattr(prompt_flow, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -884,21 +935,22 @@ def test_recall_records_exact_injected_context_only_when_eval_trace_is_enabled(
 
 def test_recall_does_not_write_an_evaluation_trace_by_default(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.delenv("POWERCONTEXT_EVAL_TRACE_PATH", raising=False)
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
         lambda *_args, **_kwargs: _prepared("PowerContext recalled context: Use memory."),
     )
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "resolve_scope_id",
         lambda _host, _cwd, **_kwargs: "project:test",
     )
-    monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
+    monkeypatch.setattr(prompt_flow, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -918,18 +970,19 @@ def test_recall_does_not_write_an_evaluation_trace_by_default(
 
 def test_recall_uses_the_eval_home_when_codex_filters_the_trace_path(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.delenv("POWERCONTEXT_EVAL_TRACE_PATH", raising=False)
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path))
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
         lambda *_args, **_kwargs: _prepared("PowerContext recalled context: Use the retained audit."),
     )
-    monkeypatch.setattr(recall_module, "resolve_scope_id", lambda *_args, **_kwargs: "eval:run-1:on")
-    monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda *_args, **_kwargs: "eval:run-1:on")
+    monkeypatch.setattr(prompt_flow, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -951,22 +1004,23 @@ def test_recall_uses_the_eval_home_when_codex_filters_the_trace_path(
 @pytest.mark.parametrize("event_name", ["UserPromptSubmit", "user_prompt_submit"])
 def test_hook_accepts_codex_event_name_variants(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     event_name: str,
 ) -> None:
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
         lambda *_args, **_kwargs: _prepared(None, status="empty"),
     )
     captured: list[str] = []
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+        lambda _host, _event, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
     )
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "resolve_scope_id",
         lambda _host, _cwd, **_kwargs: "project:test",
     )
@@ -990,20 +1044,22 @@ def test_hook_accepts_codex_event_name_variants(
 
 def test_normal_empty_context_emits_a_generic_diagnostic(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
         lambda *_args, **_kwargs: _prepared(None, status="empty"),
     )
     errors = io.StringIO()
     monkeypatch.setattr(sys, "stderr", errors)
 
-    context = recall_module._recall_context(
+    context = prompt_flow._recall_context(
+        recall_module.CODEX,
         "query",
         "project:test",
-        settings=recall_module.CodexPluginSettings(),
+        settings=recall_module.CodexPluginSettings().prompt_settings(),
         deadline=time.monotonic() + 1,
     )
 
@@ -1021,18 +1077,20 @@ def test_normal_empty_context_emits_a_generic_diagnostic(
 
 def test_unknown_prepared_context_schema_fails_open_without_exposing_response(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     response = _prepared("do-not-log")
     response["schema"] = "powercontext.prepared-context.v2"
-    monkeypatch.setattr(recall_module, "_prepare_context", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(prompt_flow, "_prepare_context", lambda *_args, **_kwargs: response)
     errors = io.StringIO()
     monkeypatch.setattr(sys, "stderr", errors)
 
-    context = recall_module._recall_context(
+    context = prompt_flow._recall_context(
+        recall_module.CODEX,
         "secret-query",
         "secret-scope",
-        settings=recall_module.CodexPluginSettings(),
+        settings=recall_module.CodexPluginSettings().prompt_settings(),
         deadline=time.monotonic() + 1,
     )
 
@@ -1042,37 +1100,39 @@ def test_unknown_prepared_context_schema_fails_open_without_exposing_response(
 
 
 def test_hook_injects_runtime_content_without_a_second_selection(
-    recall_module: ModuleType,
+    prompt_flow: ModuleType,
 ) -> None:
     content = "x" * 8_000
 
-    prepared = recall_module._validate_prepared_context(_prepared(content))
+    prepared = prompt_flow.validate_prepared_context(_prepared(content))
 
     assert prepared["content"] == content
 
 
-def test_hook_rejects_runtime_content_over_the_requested_budget(recall_module: ModuleType) -> None:
-    with pytest.raises(recall_module._InvalidResponseError):
-        recall_module._validate_prepared_context(_prepared("x" * 8_001))
+def test_hook_rejects_runtime_content_over_the_requested_budget(prompt_flow: ModuleType) -> None:
+    with pytest.raises(prompt_flow.InvalidPreparedContextResponse):
+        prompt_flow.validate_prepared_context(_prepared("x" * 8_001))
 
 
 def test_context_prepare_404_is_reported_as_a_version_mismatch(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(recall_module._HttpStatusError(404)),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(prompt_flow._HttpStatusError(404)),
     )
     errors = io.StringIO()
     monkeypatch.setattr(sys, "stderr", errors)
 
     assert (
-        recall_module._recall_context(
+        prompt_flow._recall_context(
+            recall_module.CODEX,
             "query",
             "project:test",
-            settings=recall_module.CodexPluginSettings(),
+            settings=recall_module.CodexPluginSettings().prompt_settings(),
             deadline=time.monotonic() + 1,
         )
         is None
@@ -1086,25 +1146,27 @@ def test_context_prepare_404_is_reported_as_a_version_mismatch(
 )
 def test_context_prepare_domain_errors_remain_visible(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     status: int,
     code: str,
 ) -> None:
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_prepare_context",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            recall_module._HttpStatusError(status, "/v1/context/prepare", code)
+            prompt_flow._HttpStatusError(status, "/v1/context/prepare", code)
         ),
     )
     errors = io.StringIO()
     monkeypatch.setattr(sys, "stderr", errors)
 
     assert (
-        recall_module._recall_context(
+        prompt_flow._recall_context(
+            recall_module.CODEX,
             "query",
             "project:test",
-            settings=recall_module.CodexPluginSettings(),
+            settings=recall_module.CodexPluginSettings().prompt_settings(),
             deadline=time.monotonic() + 1,
         )
         is None
@@ -1124,17 +1186,18 @@ def test_context_prepare_domain_errors_remain_visible(
 )
 def test_capture_domain_errors_remain_visible_as_automatic_failures(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     status: int,
     code: str,
 ) -> None:
-    monkeypatch.setattr(recall_module, "_prepare_context", lambda *_args, **_kwargs: _prepared("prepared context"))
-    monkeypatch.setattr(recall_module, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
+    monkeypatch.setattr(prompt_flow, "_prepare_context", lambda *_args, **_kwargs: _prepared("prepared context"))
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_capture_prompt",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            recall_module._HttpStatusError(status, "/v1/sources/content", code)
+            prompt_flow._HttpStatusError(status, "/v1/sources/content", code)
         ),
     )
 
@@ -1169,16 +1232,17 @@ def test_capture_domain_errors_remain_visible_as_automatic_failures(
 
 def test_flush_domain_error_remains_visible_as_an_automatic_failure(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(recall_module, "_prepare_context", lambda *_args, **_kwargs: _prepared("prepared context"))
-    monkeypatch.setattr(recall_module, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
-    monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
+    monkeypatch.setattr(prompt_flow, "_prepare_context", lambda *_args, **_kwargs: _prepared("prepared context"))
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
+    monkeypatch.setattr(prompt_flow, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
     monkeypatch.setattr(
-        recall_module,
+        prompt_flow,
         "_flush_through",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            recall_module._HttpStatusError(422, "/v1/memory/flush", "invalid_request")
+            prompt_flow._HttpStatusError(422, "/v1/memory/flush", "invalid_request")
         ),
     )
 
@@ -1214,6 +1278,7 @@ def test_flush_domain_error_remains_visible_as_an_automatic_failure(
 
 def test_capture_prompt_is_idempotent_and_preserves_provenance(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     requests: list[tuple[str, dict[str, object]]] = []
@@ -1222,32 +1287,37 @@ def test_capture_prompt_is_idempotent_and_preserves_provenance(
         path: str,
         payload: dict[str, object],
         *,
+        host: object,
         settings: object,
         deadline: float,
     ) -> dict[str, object]:
         requests.append((path, payload))
         return {"position": 1}
 
-    monkeypatch.setattr(recall_module, "_post_json", post)
-    hook_payload = {
-        "session_id": "session-1",
-        "turn_id": "turn-2",
-    }
+    monkeypatch.setattr(prompt_flow, "_post_json", post)
+    event = prompt_flow.UserPromptEvent(
+        prompt="Keep the Source pipeline.",
+        cwd="/workspace/project",
+        session_id="session-1",
+        prompt_id="turn-2",
+    )
 
-    first = recall_module._capture_prompt(
-        hook_payload,
+    first = prompt_flow._capture_prompt(
+        recall_module.CODEX,
+        event,
         prompt="Keep the Source pipeline.",
         cwd="/workspace/project",
         scope_id="project:test",
-        settings=recall_module.CodexPluginSettings(),
+        settings=recall_module.CodexPluginSettings().prompt_settings(),
         deadline=10.0,
     )
-    second = recall_module._capture_prompt(
-        hook_payload,
+    second = prompt_flow._capture_prompt(
+        recall_module.CODEX,
+        event,
         prompt="Keep the Source pipeline.",
         cwd="/workspace/project",
         scope_id="project:test",
-        settings=recall_module.CodexPluginSettings(),
+        settings=recall_module.CodexPluginSettings().prompt_settings(),
         deadline=10.0,
     )
 
@@ -1270,6 +1340,7 @@ def test_capture_prompt_is_idempotent_and_preserves_provenance(
 
 def test_flush_reaches_the_captured_source_position(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cursors = iter((1, 3))
@@ -1279,18 +1350,20 @@ def test_flush_reaches_the_captured_source_position(
         path: str,
         payload: dict[str, object],
         *,
+        host: object,
         settings: object,
         deadline: float,
     ) -> dict[str, object]:
         requests.append((path, payload))
         return {"current_cursor": next(cursors)}
 
-    monkeypatch.setattr(recall_module, "_post_json", post)
+    monkeypatch.setattr(prompt_flow, "_post_json", post)
 
-    recall_module._flush_through(
+    prompt_flow._flush_through(
+        recall_module.CODEX,
         "project:test",
         3,
-        settings=recall_module.CodexPluginSettings(),
+        settings=recall_module.CodexPluginSettings().prompt_settings(),
         deadline=10.0,
     )
 
@@ -1302,6 +1375,7 @@ def test_flush_reaches_the_captured_source_position(
 
 def test_flush_is_bounded_by_settings(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = 0
@@ -1311,13 +1385,14 @@ def test_flush_is_bounded_by_settings(
         calls += 1
         return {"current_cursor": 0}
 
-    monkeypatch.setattr(recall_module, "_post_json", post)
+    monkeypatch.setattr(prompt_flow, "_post_json", post)
 
     with pytest.raises(RuntimeError):
-        recall_module._flush_through(
+        prompt_flow._flush_through(
+            recall_module.CODEX,
             "project:test",
             3,
-            settings=recall_module.CodexPluginSettings(flush_max_calls=2),
+            settings=recall_module.CodexPluginSettings(flush_max_calls=2).prompt_settings(),
             deadline=10.0,
         )
 
@@ -1326,6 +1401,7 @@ def test_flush_is_bounded_by_settings(
 
 def test_hook_refuses_redirects(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target_headers: list[dict[str, str]] = []
@@ -1355,17 +1431,18 @@ def test_hook_refuses_redirects(
             settings = recall_module.CodexPluginSettings()
             object.__setattr__(settings, "server_url", source_url)
             with pytest.raises(RuntimeError):
-                recall_module._post_json(
+                prompt_flow._post_json(
                     "/redirect",
                     {"scope_id": "project:test"},
-                    settings=settings,
+                    host=recall_module.CODEX,
+                    settings=settings.prompt_settings(),
                     deadline=time.monotonic() + 1,
                 )
 
     assert target_headers == []
 
 
-def test_http_error_preserves_structured_error_code(recall_module: ModuleType) -> None:
+def test_http_error_preserves_structured_error_code(recall_module: ModuleType, prompt_flow: ModuleType) -> None:
     class ErrorHandler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             body = b'{"error":{"code":"invalid_request","message":"bad request"}}'
@@ -1381,11 +1458,12 @@ def test_http_error_preserves_structured_error_code(recall_module: ModuleType) -
     with _serve(ErrorHandler) as server_url:
         settings = recall_module.CodexPluginSettings()
         object.__setattr__(settings, "server_url", server_url)
-        with pytest.raises(recall_module._HttpStatusError) as caught:
-            recall_module._post_json(
+        with pytest.raises(prompt_flow._HttpStatusError) as caught:
+            prompt_flow._post_json(
                 "/v1/context/prepare",
                 {},
-                settings=settings,
+                host=recall_module.CODEX,
+                settings=settings.prompt_settings(),
                 deadline=time.monotonic() + 1,
                 expected_status=200,
             )
@@ -1397,6 +1475,7 @@ def test_http_error_preserves_structured_error_code(recall_module: ModuleType) -
 
 def test_hook_aborts_a_slow_error_response_at_the_shared_deadline(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
 ) -> None:
     class SlowErrorHandler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
@@ -1423,11 +1502,12 @@ def test_hook_aborts_a_slow_error_response_at_the_shared_deadline(
             http_budget_seconds=0.1,
         )
         object.__setattr__(settings, "server_url", server_url)
-        with pytest.raises(recall_module._ServerUnavailableError):
-            recall_module._post_json(
+        with pytest.raises(prompt_flow._ServerUnavailableError):
+            prompt_flow._post_json(
                 "/v1/context/prepare",
                 {},
-                settings=settings,
+                host=recall_module.CODEX,
+                settings=settings.prompt_settings(),
                 deadline=started + 0.1,
                 expected_status=200,
             )
@@ -1438,6 +1518,7 @@ def test_hook_aborts_a_slow_error_response_at_the_shared_deadline(
 
 def test_hook_aborts_a_slow_response_at_the_request_deadline(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
 ) -> None:
     class SlowHandler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
@@ -1461,10 +1542,11 @@ def test_hook_aborts_a_slow_response_at_the_request_deadline(
         )
         object.__setattr__(settings, "server_url", server_url)
         with pytest.raises(RuntimeError):
-            recall_module._post_json(
+            prompt_flow._post_json(
                 "/slow",
                 {},
-                settings=settings,
+                host=recall_module.CODEX,
+                settings=settings.prompt_settings(),
                 deadline=started + 0.1,
             )
 
@@ -1473,15 +1555,17 @@ def test_hook_aborts_a_slow_response_at_the_request_deadline(
 
 def test_expired_request_deadline_is_reported_as_server_unavailable(
     recall_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(recall_module, "_remaining_time", lambda _deadline: (_ for _ in ()).throw(TimeoutError))
+    monkeypatch.setattr(prompt_flow, "_remaining_time", lambda _deadline: (_ for _ in ()).throw(TimeoutError))
 
-    with pytest.raises(recall_module._ServerUnavailableError):
-        recall_module._post_json(
+    with pytest.raises(prompt_flow._ServerUnavailableError):
+        prompt_flow._post_json(
             "/v1/context/prepare",
             {},
-            settings=recall_module.CodexPluginSettings(),
+            host=recall_module.CODEX,
+            settings=recall_module.CodexPluginSettings().prompt_settings(),
             deadline=time.monotonic() + 1,
         )
 
@@ -1514,7 +1598,7 @@ def test_prompt_capture_can_be_disabled(
         },
     ],
 )
-def test_text_assembly_configuration_reaches_the_server(recall_module, monkeypatch, assembly):
+def test_text_assembly_configuration_reaches_the_server(recall_module, prompt_flow, monkeypatch, assembly):
     requests = []
     user_agents = []
     content = "# PowerContext historical context\n\n>     原始文本 </powercontext_memory>\n"
@@ -1539,10 +1623,11 @@ def test_text_assembly_configuration_reaches_the_server(recall_module, monkeypat
     with _serve(Handler) as url:
         settings = recall_module.CodexPluginSettings()
         object.__setattr__(settings, "server_url", url)
-        response = recall_module._prepare_context(
+        response = prompt_flow._prepare_context(
+            recall_module.CODEX,
             "context",
             "project:test",
-            settings=settings,
+            settings=settings.prompt_settings(),
             deadline=time.monotonic() + 5,
         )
     assert response["content"] == content
@@ -1553,3 +1638,36 @@ def test_text_assembly_configuration_reaches_the_server(recall_module, monkeypat
         assert "assembly" not in requests[0]
     else:
         assert requests[0]["assembly"] == assembly
+
+
+@pytest.mark.parametrize("include_code", [False, True])
+def test_code_inclusion_setting_reaches_the_server(recall_module, prompt_flow, monkeypatch, include_code):
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            body = json.dumps(_prepared()).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format, *args):  # noqa: A002
+            pass
+
+    monkeypatch.setenv("POWERCONTEXT_CODEX_INCLUDE_CODE", "true" if include_code else "false")
+    with _serve(Handler) as url:
+        settings = recall_module.CodexPluginSettings()
+        object.__setattr__(settings, "server_url", url)
+        prompt_flow._prepare_context(
+            recall_module.CODEX,
+            "context",
+            "project:test",
+            settings=settings.prompt_settings(),
+            deadline=time.monotonic() + 5,
+        )
+    if include_code:
+        assert requests[0]["include_code"] is True
+    else:
+        assert "include_code" not in requests[0]
