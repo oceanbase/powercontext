@@ -166,6 +166,14 @@ from powercontext.builtin.runtime._scope_cache import (
     ScopeCacheObserver,
     ScopeEvictor,
 )
+from powercontext.builtin.runtime.context_pack import (
+    CONTEXT_PACK_SCHEMA,
+    DEFAULT_CHUNK_BYTES,
+    ContextPack,
+    ContextPackDelta,
+    ContextPackError,
+)
+from powercontext.builtin.runtime.source_lifecycle import SourceLifecycleApplication
 from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.models import (
@@ -846,6 +854,31 @@ class ScopedContextApplication:
             if authorize_scopes is not None:
                 await authorize_scopes((self.scope_id, *scope.context_references))
             return await self._prepare(request, scope)
+
+    async def prepare_incremental(
+        self,
+        request: PrepareContextRequest,
+        /,
+        *,
+        base_pack: ContextPack | None = None,
+        chunk_bytes: int = DEFAULT_CHUNK_BYTES,
+        authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+    ) -> ContextPack | ContextPackDelta:
+        """Return the full pack, or a delta against ``base_pack`` when one is supplied.
+
+        The target content always comes from the regular ``prepare`` path, so a
+        receiver that applies the delta rebuilds exactly what ``prepare`` returns.
+        """
+
+        prepared = await self.prepare(request, authorize_scopes=authorize_scopes)
+        target = ContextPack.from_content(prepared.content or "", chunk_bytes=chunk_bytes)
+        if base_pack is None:
+            return target
+        if not isinstance(base_pack, ContextPack):
+            raise ContextPackError("base_pack must be a ContextPack")
+        if base_pack.schema != CONTEXT_PACK_SCHEMA:
+            raise ContextPackError(f"unsupported base pack schema {base_pack.schema!r}")
+        return ContextPackDelta.between(base_pack, target)
 
     async def _prepare(self, request: PrepareContextRequest, scope: ScopeDescriptor, /) -> PreparedContext:
         build, effort = await self._prepare_build(request, scope)
@@ -2667,6 +2700,7 @@ class ScopedTopicMemoryApplication:
                     query_embedding,
                     embedding_timeout_seconds,
                 )
+        result = await self._without_unsupported_topics(result)
         observer = self._runtime._topic_memory_search_observer
         if observer is not None:
             try:
@@ -2684,6 +2718,17 @@ class ScopedTopicMemoryApplication:
                     },
                 )
         return result
+
+    async def _without_unsupported_topics(self, result: TopicMemorySearchResult) -> TopicMemorySearchResult:
+        """Drop Topics whose evidence no longer supports them."""
+
+        suppressed = await self._runtime.lifecycle.suppressed_artifacts(self.scope_id)
+        if not suppressed:
+            return result
+        kept = tuple(hit for hit in result.hits if hit.artifact_ref.artifact_id not in suppressed)
+        if len(kept) == len(result.hits):
+            return result
+        return result.model_copy(update={"hits": kept})
 
     async def _search_with_embedding(
         self,
@@ -3077,6 +3122,7 @@ class BuiltinRuntime:
         self.decision_model = decision_model
         self.publications = publication_application
         self.scopes = scope_application
+        self.lifecycle = SourceLifecycleApplication(self)
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
         self._clock = _utc_now if clock is None else clock
         self._tracing = tracing

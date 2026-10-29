@@ -234,6 +234,7 @@ class PrepareContextRequest(_PreparedContextModel):
     max_bytes: Annotated[int, Field(ge=512, le=32768)] = 8000
     assembly: ContextAssembly | None = None
     include_code: bool = Field(default=False, strict=True)
+    evidence_selection: bool = Field(default=False, strict=True)
 
     @model_validator(mode="before")
     @classmethod

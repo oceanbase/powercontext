@@ -20,7 +20,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from itertools import chain
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceSearchHit, render_experience
@@ -41,6 +41,9 @@ from powercontext.builtin.runtime.prepared_text import (
     render_context_text,
 )
 from powercontext.builtin.runtime.recall_sufficiency import RecallBudgetView
+
+if TYPE_CHECKING:
+    from powercontext.builtin.runtime.evidence_selection import PreparedContextFragment
 
 _MIN_TRUNCATED_CONTENT_BYTES = 64
 _ELLIPSIS = "…"
@@ -106,6 +109,7 @@ class PreparedContextBuild:
     origins: tuple[PreparedContextOrigin, ...]
     omissions: PreparedContextOmissions = PreparedContextOmissions()
     code_origins: tuple[CodeEvidenceRef, ...] = ()
+    fragments: tuple[PreparedContextFragment, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -234,6 +238,26 @@ class PreparedContextBuilder:
             raise PreparedContextInvariantError("topic-memory-candidate-limit")
         if sum(len(candidates.hits) for candidates in experience_candidates) > self.experience_candidate_limit:
             raise PreparedContextInvariantError("experience-candidate-limit")
+
+        if request.evidence_selection and request.assembly is None:
+            from powercontext.builtin.runtime.evidence_selection import select_evidence
+
+            selection = select_evidence(
+                query=request.query,
+                memory_candidates=memory_candidates,
+                current_scope_id=current_scope_id,
+                max_bytes=request.max_bytes,
+            )
+            if selection is None:
+                return PreparedContextBuild(context=self.empty(), origins=())
+            content_bytes = len(selection.content.encode("utf-8"))
+            if content_bytes > request.max_bytes:
+                raise PreparedContextInvariantError("output-budget")
+            return PreparedContextBuild(
+                context=PreparedContext(status="ready", content=selection.content, content_bytes=content_bytes),
+                origins=selection.origins,
+                fragments=selection.fragments,
+            )
 
         content, origins, omissions = self._select_entries(
             request=request,
