@@ -343,5 +343,44 @@
       "search_memory"
     ],
     "evidence": "desktop/VALIDATION.md#server-d3850bf6-protocol-qualification"
+  },
+  {
+    "id": "sqlite-atomic-68491568-v1",
+    "serverCommit": "68491568359fd9f5723208bbeeec2f808fd2bcc9",
+    "contractSha256": "b89e721f9fba1c4ef4267b4420af417e5a88a7f7fbe893f639df913b77d24dc0",
+    "artifactSha256": "91c54cfd8551cc1590abcedb8bbd7bf9865ffc41667fee7b3ac015c249f8bbfb",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-68491568-protocol-qualification"
+  },
+  {
+    "id": "sqlite-atomic-0a49db9b-v1",
+    "serverCommit": "0a49db9bf640703e1067ecda67650f20612d3427",
+    "contractSha256": "bce4e0d3deec56590a29c3c06af4d853fc8cad2917d8832b23c92dd160472ccd",
+    "artifactSha256": "8e57881de55502f99f44a6076bcffee2935f3d3666a00330664f4bcb0fb92150",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_server_info",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-0a49db9b-protocol-qualification"
   }
 ]

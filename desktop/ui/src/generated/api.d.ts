@@ -1908,7 +1908,7 @@ export interface paths {
         };
         /**
          * List public Sources in one Scope
-         * @description List a snapshot-bounded page of public Content Sources in ascending journal position.
+         * @description List public Content Sources and registered Source Observations in one Scope in ascending journal position. Subsequent pages retain the Source type selection and journal upper bound recorded in the cursor.
          */
         get: operations["list_sources"];
         put?: never;
@@ -2317,6 +2317,265 @@ export interface paths {
         put?: never;
         /** List data-minimized Access audit events */
         post: operations["list_access_audit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** pc source capabilities */
+        post: operations["pc_source_capabilities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * pc source add
+         * @description Use the discovered write or collect capability and version. Collect capabilities require an explicit instance_id. Write runs in the Server using loaded Definition and Projection implementations, without an instance or management service. Write waits for Source references or an error in the original call; no durable request or status query is created. Collect establishes or reuses a persistent target and never resumes a stopped target. No mode or idempotency_key is accepted; write retries use the underlying Source identity rules.
+         */
+        post: operations["pc_source_add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * pc source status
+         * @description Query a collect target by scope_id and target_id. Result view requires scope.read and returns received Source references and submission time, not per-round completion. Control view requires scope.contribute and returns enabled and tracking without input or results.
+         */
+        post: operations["pc_source_status"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/target-set-enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop or resume a collect target
+         * @description Set collect target enabled state using scope.contribute. Repeating the current state is safe. Resume requires stopped confirmation; it does not restart an ended apply or enable a disabled instance. No revision or retry key is required.
+         */
+        post: operations["pc_source_target_set_enabled"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * pc source instances
+         * @description Discover instances with scope_id from the Server capability catalog. Control view requires instance_id and server.admin, and returns enabled, actual and availability without business configuration.
+         */
+        post: operations["pc_source_instances"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/instance-set-enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * pc source instance set enabled
+         * @description Set instance business enabled state using server.admin. Repeating the same state does not restart apply. Restarting an ended run requires disable, confirmed stopped, then enable. The Runtime process stays online.
+         */
+        post: operations["pc_source_instance_set_enabled"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/configure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** source configure */
+        post: operations["source_configure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/write/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load a trusted Server-local Source write plugin
+         * @description Requires server.admin. The Server imports the local directory or module, validates and registers its Source Definitions, and persists its entry for restart. An identical deployment is reusable; conflicting configurations fail. Existing code is replaced only through controlled Server restart.
+         */
+        post: operations["load_source_write_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/channel/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Source manager reverse channel open */
+        post: operations["source_channel_open"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/channel/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Source manager reverse channel catalog */
+        post: operations["source_channel_catalog"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/channel/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Source manager reverse channel poll */
+        post: operations["source_channel_poll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/channel/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Source manager reverse channel reply */
+        post: operations["source_channel_reply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/channel/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Source manager reverse channel close */
+        post: operations["source_channel_close"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/instances/{instance_id}/{operation}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authenticated instance control, permission checks and durable result exchange
+         * @description Served by the optional standalone Source manager. Instances initiate every exchange; this is not a Server or public MCP endpoint. The operation path chooses owner/connect/poll/reply/sync/execution/results/stopped-targets/close and the applicable fields. Source observations continue to go directly to the PC Server.
+         */
+        post: operations["source_instance_exchange"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5035,8 +5294,8 @@ export interface components {
             /** @description Server-owned identity attestation when this Source contains an enforced-mode Handoff Receipt. */
             receipt_identity?: components["schemas"]["HandoffReceiptIdentity"];
             scope_id: string;
-            /** @enum {string} */
-            source_type: "content";
+            /** @description Built-in content or a registered Source Observation type. */
+            source_type: string;
             source_id: string;
             /** @description Persisted canonical JSON content. */
             content: unknown;
@@ -5402,6 +5661,183 @@ export interface components {
         CandidateHistory: {
             /** @default [] */
             versions: components["schemas"]["Candidate"][];
+        };
+        SourceCapabilityQuery: {
+            scope_id: string;
+            capability?: string;
+            instance_id?: string;
+            input?: {
+                [key: string]: unknown;
+            };
+        };
+        SourceWritePluginLoadRequest: {
+            id: string;
+            entry: string;
+        };
+        SourceWritePluginState: {
+            id: string;
+            entry: string;
+            capabilities: {
+                [key: string]: unknown;
+            }[];
+        };
+        SourceAddRequest: {
+            scope_id: string;
+            capability: string;
+            capability_version: string;
+            instance_id?: string;
+            input: {
+                [key: string]: unknown;
+            };
+        };
+        SourceStatusRequest: {
+            scope_id: string;
+            target_id: string;
+            /**
+             * @default result
+             * @enum {string}
+             */
+            view: "result" | "control";
+        };
+        SourceInstanceSetEnabledRequest: {
+            instance_id: string;
+            enabled: boolean;
+        };
+        SourceConfigureRequest: {
+            /** @default false */
+            update: boolean;
+            registration: {
+                [key: string]: unknown;
+            };
+        };
+        SourceCapabilityResponse: {
+            capabilities: {
+                [key: string]: unknown;
+            }[];
+            /** @enum {string} */
+            management: "not-configured" | "online" | "unavailable";
+        };
+        SourceInstancesResponse: {
+            instances: {
+                [key: string]: unknown;
+            }[];
+            capabilities?: {
+                [key: string]: unknown;
+            }[];
+            /** @enum {string} */
+            management?: "not-configured" | "online" | "unavailable";
+        };
+        SourceCollectionResult: {
+            /** @enum {string} */
+            outcome: "saved" | "unchanged";
+            source_refs: components["schemas"]["SourceTypeReference"][];
+        };
+        SourceManagementReceipt: {
+            target_id?: string;
+            /** @enum {string} */
+            tracking?: "enabled" | "stopping" | "stopped";
+            result?: components["schemas"]["SourceCollectionResult"];
+            error?: string;
+            instance_id?: string;
+            capability?: string;
+            capability_version?: string;
+            /** @enum {string} */
+            availability?: "online" | "offline" | "unavailable";
+            updated_at?: string;
+            /** @enum {string} */
+            kind?: "collect" | "write";
+            enabled?: boolean;
+            /** @description Default collect status only. The single Source reference from the submission report most recently received by the manager, or empty before any report. Omitted from collect add responses; not a batch result or submission history. */
+            source_refs?: components["schemas"]["SourceTypeReference"][];
+            /** @description Default collect status only. Runtime-reported submission time paired with source_refs, or null before any report. Selection follows manager receipt order, not timestamp order. Omitted from collect add responses. */
+            last_submitted_at?: string | null;
+        };
+        SourceInstanceStatus: {
+            targets_initialized?: boolean;
+            target_id?: string;
+            instance_id: string;
+            enabled?: boolean;
+            actual?: string;
+            run_id?: string | null;
+            availability?: string;
+            reused?: boolean;
+        };
+        SourceChannelOpen: {
+            protocol: string;
+            deployment_id: string;
+            manager_id: string;
+        };
+        SourceChannelRequest: {
+            generation: string;
+            message_id?: string;
+            response?: {
+                [key: string]: unknown;
+            };
+            catalog?: {
+                [key: string]: unknown;
+            };
+        };
+        SourceChannelResponse: {
+            generation?: string;
+            protocol?: string;
+            confirmed?: boolean;
+            messages?: {
+                [key: string]: unknown;
+            }[];
+        };
+        SourceInstanceExchangeRequest: {
+            generation?: string;
+            protocol?: string;
+            message_id?: string;
+            execution_location?: string;
+            configuration_digest?: string;
+            run_id?: string;
+            execution?: string;
+            target_id?: string;
+            capabilities?: {
+                [key: string]: unknown;
+            }[];
+            response?: {
+                [key: string]: unknown;
+            };
+            owner?: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            status?: "running" | "complete" | "completed" | "pending" | "failed" | "stopped" | "cleanup-failed";
+            /** @description One confirmed Source submission reported by the Runtime; not a batch or historical reference list. */
+            source_refs?: components["schemas"]["SourceTypeReference"][];
+            error?: string;
+            targets?: {
+                [key: string]: unknown;
+            }[];
+            cursor?: string;
+            owner_exited?: boolean;
+            previous_owner?: {
+                [key: string]: unknown;
+            };
+            submitted_at?: string;
+        };
+        SourceInstanceExchangeResponse: {
+            [key: string]: unknown;
+        };
+        SourceTargetSetEnabledRequest: {
+            scope_id: string;
+            target_id: string;
+            enabled: boolean;
+        };
+        SourceInstancesQuery: {
+            scope_id?: string;
+            capability?: string;
+            instance_id?: string;
+            input?: {
+                [key: string]: unknown;
+            };
+            /**
+             * @default discovery
+             * @enum {string}
+             */
+            view: "discovery" | "control";
         };
     };
     responses: {
@@ -8780,7 +9216,7 @@ export interface operations {
             header?: never;
             path: {
                 scope_id: string;
-                source_type: "content";
+                source_type: string;
                 source_id: string;
             };
             cookie?: never;
@@ -9602,6 +10038,436 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceCapabilityQuery"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceCapabilityResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_add: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceAddRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceManagementReceipt"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceManagementReceipt"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_target_set_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceTargetSetEnabledRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceManagementReceipt"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_instances: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceInstancesQuery"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceInstancesResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_instance_set_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceInstanceSetEnabledRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceInstanceStatus"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_configure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceConfigureRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceInstanceStatus"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    load_source_write_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceWritePluginLoadRequest"];
+            };
+        };
+        responses: {
+            /** @description The Server has loaded and persisted the executable write capabilities. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceWritePluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_channel_open: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceChannelOpen"];
+            };
+        };
+        responses: {
+            /** @description Channel exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChannelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_channel_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description Channel exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChannelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_channel_poll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description Channel exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChannelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_channel_reply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description Channel exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChannelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_channel_close: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description Channel exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChannelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_instance_exchange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instance_id: string;
+                operation: "owner" | "connect" | "poll" | "reply" | "sync" | "execution" | "results" | "stopped-targets" | "close";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceInstanceExchangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Instance control exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceInstanceExchangeResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };

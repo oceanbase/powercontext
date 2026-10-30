@@ -1643,6 +1643,7 @@ wheels = [
 name = "powercontext"
 source = { editable = "../../" }
 dependencies = [
+    { name = "jsonschema" },
     { name = "pydantic" },
     { name = "rfc8785" },
     { name = "typing-extensions" },
@@ -1704,11 +1705,7 @@ requires-dist = [
     { name = "jieba", marker = "extra == 'server'", specifier = "==0.42.1" },
     { name = "jinja2", marker = "extra == 'ops'", specifier = ">=3.1.6,<4" },
     { name = "jinja2", marker = "extra == 'server'", specifier = ">=3.1.6,<4" },
-    { name = "jsonschema", marker = "extra == 'builtin'", specifier = ">=4.23,<5" },
-    { name = "jsonschema", marker = "extra == 'cli'", specifier = ">=4.23,<5" },
-    { name = "jsonschema", marker = "extra == 'ops'", specifier = ">=4.23,<5" },
-    { name = "jsonschema", marker = "extra == 'seekdb'", specifier = ">=4.23,<5" },
-    { name = "jsonschema", marker = "extra == 'server'", specifier = ">=4.23,<5" },
+    { name = "jsonschema", specifier = ">=4.23,<5" },
     { name = "markdown-it-py", marker = "extra == 'ops'", specifier = ">=4,<5" },
     { name = "markdown-it-py", marker = "extra == 'server'", specifier = ">=4,<5" },
     { name = "opentelemetry-api", marker = "extra == 'cli'", specifier = ">=1.30,<2" },
@@ -1724,6 +1721,7 @@ requires-dist = [
     { name = "packaging", marker = "extra == 'ops'", specifier = ">=24,<27" },
     { name = "packaging", marker = "extra == 'seekdb'", specifier = ">=24,<27" },
     { name = "packaging", marker = "extra == 'server'", specifier = ">=24,<27" },
+    { name = "pillow", marker = "extra == 'source-images'", specifier = ">=11,<13" },
     { name = "platformdirs", marker = "extra == 'cli'", specifier = ">=4,<5" },
     { name = "platformdirs", marker = "extra == 'ops'", specifier = ">=4,<5" },
     { name = "platformdirs", marker = "extra == 'server'", specifier = ">=4,<5" },
@@ -1792,7 +1790,7 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'ops'", specifier = ">=0.34,<1" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34,<1" },
 ]
-provides-extras = ["builtin", "cli", "client", "code", "ops", "seekdb", "server", "tracing-otlp"]
+provides-extras = ["builtin", "cli", "client", "code", "ops", "seekdb", "server", "source-images", "tracing-otlp"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1802,6 +1800,7 @@ dev = [
     { name = "langgraph", specifier = ">=1.2,<2" },
     { name = "powercontext", extras = ["cli", "server"] },
     { name = "powercontext", extras = ["code"] },
+    { name = "powercontext", extras = ["source-images"] },
     { name = "powercontext-langchain", editable = "../../integrations/langchain" },
     { name = "powercontext-langgraph", editable = "../../integrations/langgraph" },
     { name = "prek", specifier = ">=0.2.0" },

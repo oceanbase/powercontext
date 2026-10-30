@@ -37,6 +37,7 @@ from powercontext.builtin.artifacts.profile.service import ProfileGenerator
 from powercontext.builtin.artifacts.skill import ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.dream.generation import DreamGenerator
 from powercontext.builtin.inference import EmbeddingModel
+from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import BaseOperationNotSupportedError
 from powercontext.builtin.runtime import (
@@ -68,6 +69,7 @@ from powercontext.server.access import HttpAccessLogMiddleware
 from powercontext.server.app import _bind_evidence_access, access_readiness_checks, create_app
 from powercontext.server.authentication import (
     AuthenticationProvider,
+    MultiBearerAuthenticationProvider,
     StaticBearerAuthenticationProvider,
 )
 from powercontext.server.authz import (
@@ -171,6 +173,9 @@ def create_server_app(  # noqa: C901
             authentication_provider=authentication_provider,
         )
     )
+    from powercontext.source_management.deployment import prepare as prepare_source_deployment
+
+    configured_authentication, _ = prepare_source_deployment(resolved, configured_authentication)
     config = BuiltinConfig(
         code=resolved.code,
         runtime=resolved.runtime,
@@ -215,6 +220,15 @@ def create_server_app(  # noqa: C901
                     open_builtin_access_control(
                         resolved.database,
                         bootstrap_administrators=(static_principal,) if legacy_static_admin else (),
+                        server_administrators=(
+                            tuple(
+                                principal
+                                for principal in configured_authentication.principals()
+                                if f"{principal.type}:{principal.id}" in resolved.auth.administrators
+                            )
+                            if isinstance(configured_authentication, MultiBearerAuthenticationProvider)
+                            else ()
+                        ),
                         deployment_id=resolved.access.deployment_id,
                     )
                 )
@@ -289,15 +303,7 @@ def create_server_app(  # noqa: C901
                 await recovery.initialize()
                 app.state.owner_recovery = recovery
                 await resources.enter_async_context(recovery.monitor())
-            identity_repository = ServerIdentityRepository(runtime.primary_database)
-            await identity_repository.initialize()
-            server_id = await identity_repository.load_or_create()
-            if cursor_secret is not None:
-                runtime.context_binding_codec = BindingCodec(
-                    key=hmac.digest(cursor_secret, b"powercontext.context-bindings.v1", "sha256"),
-                    key_id="server-v1",
-                    deployment_id=server_id,
-                )
+            server_id = await _initialize_server_identity(runtime, cursor_secret)
             _bind_evidence_access(runtime, active_access_control, resolved.access.mode)
             if active_access_control is not None:
                 migrated, unresolved = await runtime._records().migrate_handoff_receipts(
@@ -309,6 +315,9 @@ def create_server_app(  # noqa: C901
                 )
                 await _remove_legacy_topic_owners(active_access_control)
             readiness_probe.bind(runtime)
+            gateway = await _source_gateway(runtime, resolved)
+            await resources.enter_async_context(gateway)
+            app.state.source_gateway = gateway
             app.state.application = runtime
             app.state.dashboard_runtime = runtime
             app.state.access_control = active_access_control
@@ -330,14 +339,23 @@ def create_server_app(  # noqa: C901
             app.state.capability_provider = current_capabilities
             app.state.server_info = server_info(server_id)
             await readiness_probe()
+            deployment_task = None
+            if resolved.source_plugins_dir is not None or resolved.source_management.autostart:
+                from powercontext.source_management.deployment import DeploymentCoordinator
+
+                deployment_task = asyncio.create_task(DeploymentCoordinator(resolved).startup())
             if metrics is not None:
                 await resources.enter_async_context(readiness_probe.monitor())
             try:
                 yield
             finally:
+                if deployment_task is not None:
+                    deployment_task.cancel()
+                    await asyncio.gather(deployment_task, return_exceptions=True)
                 _log_lifecycle("server.stopping", "PowerContext Server is stopping")
                 readiness_probe.unbind()
                 app.state.application = None
+                app.state.source_gateway = None
                 app.state.dashboard_runtime = None
                 app.state.capability_provider = None
                 app.state.access_control = configured_access_control
@@ -425,6 +443,31 @@ def create_server_app(  # noqa: C901
     return app
 
 
+async def _initialize_server_identity(runtime: BuiltinRuntime, cursor_secret: bytes | None) -> str:
+    identity_repository = ServerIdentityRepository(runtime.primary_database)
+    await identity_repository.initialize()
+    server_id = await identity_repository.load_or_create()
+    if cursor_secret is not None:
+        runtime.context_binding_codec = BindingCodec(
+            key=hmac.digest(cursor_secret, b"powercontext.context-bindings.v1", "sha256"),
+            key_id="server-v1",
+            deployment_id=server_id,
+        )
+    return server_id
+
+
+async def _source_gateway(runtime: BuiltinRuntime, settings: ServerSettings):
+    from powercontext.source_management.gateway import SourceGateway
+    from powercontext.source_management.write import SourceWritePlugins
+
+    records = runtime._records()
+    write_plugins = None
+    if isinstance(records, RelationalRecordService):
+        write_plugins = SourceWritePlugins(records.database, settings.workspace)
+        await write_plugins.restore()
+    return SourceGateway(settings, write_plugins)
+
+
 def _state_access_checks(app: FastAPI) -> Callable[[], Awaitable[Mapping[str, str]]]:
     async def checks() -> dict[str, str]:
         return await access_readiness_checks(app.state)
@@ -449,6 +492,9 @@ def _resolve_security_providers(
         return static_principal, None, None, False
     if authentication_provider is not None:
         return static_principal, authentication_provider, access_control, False
+    if settings.auth.identities_file is not None:
+        authentication = MultiBearerAuthenticationProvider(settings.auth.identities_file)
+        return static_principal, authentication, access_control, False
     if settings.auth.token is None:
         raise MissingAuthenticationProviderError
     authentication = StaticBearerAuthenticationProvider(

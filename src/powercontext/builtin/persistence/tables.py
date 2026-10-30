@@ -830,6 +830,13 @@ SOURCE_DEFINITION_MANIFESTS_TABLE = Table(
     UniqueConstraint("definition_name", "fingerprint", name="uq_pc_source_definition_manifest_fingerprint"),
 )
 
+SOURCE_WRITE_PLUGINS_TABLE = Table(
+    "pc_source_write_plugins",
+    SHARED_METADATA,
+    Column("plugin_id", identity_string(128), primary_key=True),
+    Column("definition", _canonical_payload_type(), nullable=False),
+)
+
 EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
     "pc_external_skill_registrations",
     SHARED_METADATA,
@@ -1085,6 +1092,7 @@ SHARED_TABLES = (
     ARTIFACT_PROCESSING_MIGRATION_RECEIPTS_TABLE,
     CONNECTOR_CHECKPOINTS_TABLE,
     SOURCE_DEFINITION_MANIFESTS_TABLE,
+    SOURCE_WRITE_PLUGINS_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
     SKILL_PACKAGES_TABLE,
     AGENT_SKILL_TARGETS_TABLE,
