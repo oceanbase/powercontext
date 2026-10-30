@@ -555,6 +555,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	check_context: {
+		method: "POST",
+		path: "/v1/context/check",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	prepare_bootstrap_context: {
 		method: "POST",
 		path: "/v1/context/bootstrap",

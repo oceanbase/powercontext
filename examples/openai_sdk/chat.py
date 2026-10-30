@@ -92,6 +92,8 @@ async def answer(
     prepared = await powercontext.prepare_context(
         PrepareContextRequest(scope_id=scope_id, query=question, max_bytes=CONTEXT_MAX_BYTES)
     )
+    if not isinstance(prepared, PreparedContext):
+        raise TypeError("ordinary context preparation returned an unexpected envelope")  # noqa: TRY003
     completion = await openai.chat.completions.create(model=model, messages=build_messages(question, prepared))
     return prepared, completion.choices[0].message.content or ""
 

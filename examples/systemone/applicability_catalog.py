@@ -35,6 +35,7 @@ from powercontext.http import (
     GetSkillRequest,
     ListManagedSkillsRequest,
     PrepareContextRequest,
+    PreparedContext,
     SkillLifecycleState,
 )
 
@@ -87,6 +88,8 @@ class ServerCandidateCatalog:
                 max_bytes=32768,
             )
         )
+        if not isinstance(prepared, PreparedContext):
+            raise TypeError("ordinary context preparation returned an unexpected envelope")  # noqa: TRY003
         if prepared.content is not None:
             # Delimiters occupy whole lines; quoted markers inside JSON evidence remain data.
             lines = prepared.content.splitlines()

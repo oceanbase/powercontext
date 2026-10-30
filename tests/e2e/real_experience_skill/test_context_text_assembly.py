@@ -52,6 +52,7 @@ from powercontext.http import (
     SearchMemoryRequest,
     UpdateScopeRequest,
 )
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.settings import McpConfig, MetricsConfig, ServerSettings
 
 from .harness import _configured_access_token, _start_configured_server, _without_scheduled_processing
@@ -257,6 +258,7 @@ async def _api_scenario(url, token, scope_ids, report, output):
                 "assembly": ASSEMBLY,
             })
         )
+        assert isinstance(pending, PreparedContext)
         assert pending.content and "## Experience" not in pending.content
         approved = await client.approve_candidate(
             ApproveCandidateRequest(
@@ -278,6 +280,7 @@ async def _api_scenario(url, token, scope_ids, report, output):
                 "assembly": ASSEMBLY,
             })
         )
+        assert isinstance(grouped, PreparedContext)
         assert grouped.content
         assert grouped.content.index("## Experience") < grouped.content.index("## Memory")
         assert current in grouped.content and shared in grouped.content
@@ -293,6 +296,7 @@ async def _api_scenario(url, token, scope_ids, report, output):
                 "assembly": {"sections": [{"family": "memory", "limit": 1}]},
             })
         )
+        assert isinstance(memory_only, PreparedContext)
         assert memory_only.content and "## Experience" not in memory_only.content
         assert memory_only.content.count("### Memory ") == 1
         for budget in [512, 1024, 2048]:
@@ -304,11 +308,13 @@ async def _api_scenario(url, token, scope_ids, report, output):
                     "assembly": ASSEMBLY,
                 })
             )
+            assert isinstance(bounded, PreparedContext)
             assert bounded.content_bytes == len((bounded.content or "").encode()) <= budget
             if bounded.content:
                 assert bounded.content.endswith("END_POWERCONTEXT_PREPARED_TEXT_V1")
         report["checks"].append("selected_family_limit_and_utf8_output_budgets")
         legacy = await client.prepare_context(PrepareContextRequest(scope_id=current, query=QUERY))
+        assert isinstance(legacy, PreparedContext)
         assert legacy.content and '"items":[' in legacy.content
         disabled = await client.prepare_context(
             PrepareContextRequest.model_validate({
@@ -317,6 +323,7 @@ async def _api_scenario(url, token, scope_ids, report, output):
                 "assembly": {"sections": []},
             })
         )
+        assert isinstance(disabled, PreparedContext)
         assert disabled.content is None and disabled.content_bytes == 0
         report["checks"].append("legacy_default_and_explicit_empty_sections")
         headers = {} if token is None else {"Authorization": f"Bearer {token}"}

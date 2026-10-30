@@ -153,6 +153,7 @@ from powercontext.builtin.inference import (
 )
 from powercontext.builtin.inference.errors import InferencePrivacyError
 from powercontext.builtin.inference.models import InferenceUsage
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTarget
 from powercontext.builtin.persistence.artifact_governance import (
@@ -191,11 +192,23 @@ from powercontext.builtin.runtime._scope_cache import (
 )
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeApplication
 from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
-from powercontext.builtin.runtime.atomic_memory import AtomicMemorySearchHit
+from powercontext.builtin.runtime.atomic_memory import (
+    AtomicMemoryDependencySelection,
+    AtomicMemoryDependencySnapshot,
+    AtomicMemorySearchHit,
+)
 from powercontext.builtin.runtime.bootstrap_context import (
     BootstrapBuild,
     BootstrapCandidate,
     build_bootstrap_context,
+)
+from powercontext.builtin.runtime.context_bindings import BindingCodec
+from powercontext.builtin.runtime.context_check import CheckContextRequest, ContextCheckResult, check_context
+from powercontext.builtin.runtime.context_reuse import (
+    ContextReuseError,
+    ValidatedContextReuse,
+    prepare_reuse,
+    validate_reuse,
 )
 from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
@@ -228,6 +241,7 @@ from powercontext.builtin.runtime.models import (
     ListExternalSkillsRequest,
     MemoryFlushResult,
     PrepareContextRequest,
+    PrepareContextResult,
     PreparedContext,
     ProposeExperienceRequest,
     ProposeSkillRequest,
@@ -1059,26 +1073,97 @@ class ScopedContextApplication:
         *,
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context: ArtifactSearchExecutionContext | None = None,
-    ) -> PreparedContext:
+        binding_identity: str = "local",
+    ) -> PrepareContextResult:
         if (
             request.assembly is not None
             and sum(section.limit for section in request.assembly.sections) > self._runtime.context_assembly_max_entries
         ):
             raise InvalidRuntimeRequestError("context-assembly-entry-limit")
         async with self._runtime._scope_operation(self.scope_id) as scope:
-            if request.assembly is not None and not request.assembly.sections and not request.include_code:
+            if (
+                request.assembly is not None
+                and not request.assembly.sections
+                and not request.include_code
+                and not request.include_reuse
+            ):
                 return PreparedContextBuilder().empty()
             if authorize_scopes is not None:
                 await authorize_scopes((self.scope_id, *scope.context_references))
+            if request.include_reuse:
+                self._require_reuse_scope(scope)
+                if request.include_code:
+                    raise ContextReuseError("context-reuse-code-unsupported")
             token = _PREPARE_ATOMIC_CONTEXT.set(atomic_context)
             try:
-                return await self._prepare(request, scope)
+                return await self._prepare(request, scope, binding_identity=binding_identity)
             finally:
                 _PREPARE_ATOMIC_CONTEXT.reset(token)
 
-    async def _prepare(  # noqa: C901 - mandatory refusals bypass otherwise advisory fallbacks
-        self, request: PrepareContextRequest, scope: ScopeDescriptor, /
-    ) -> PreparedContext:
+    def _require_reuse_scope(self, scope: ScopeDescriptor) -> None:
+        if scope.context_references:
+            raise ContextReuseError("context-reuse-cross-scope-unsupported")
+
+    async def validate_reuse(
+        self,
+        binding: str,
+        /,
+        *,
+        binding_identity: str = "local",
+        atomic_context: ArtifactSearchExecutionContext | None = None,
+        authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+    ) -> ValidatedContextReuse:
+        """Reauthorize exact retained evidence without recall or model calls."""
+        async with self._runtime._scope_operation(self.scope_id) as scope:
+            if authorize_scopes is not None:
+                await authorize_scopes((self.scope_id,))
+            self._require_reuse_scope(scope)
+            atomic = self._runtime.atomic_memory
+            return await validate_reuse(
+                None if atomic is None else atomic.for_scope(self.scope_id),
+                self.scope_id,
+                binding,
+                codec=self._runtime.context_binding_codec,
+                binding_identity=binding_identity,
+                now=self._runtime._clock(),
+                context=atomic_context,
+            )
+
+    async def check(
+        self,
+        request: CheckContextRequest,
+        /,
+        *,
+        binding_identity: str = "local",
+        atomic_context: ArtifactSearchExecutionContext | None = None,
+        authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+    ) -> ContextCheckResult:
+        """Admit final bytes without retrieving or changing the current context."""
+        async with self._runtime._scope_operation(self.scope_id):
+            if authorize_scopes is not None:
+                await authorize_scopes((self.scope_id,))
+
+            async def validate(binding: str) -> ValidatedContextReuse:
+                return await self.validate_reuse(
+                    binding,
+                    binding_identity=binding_identity,
+                    atomic_context=atomic_context,
+                    authorize_scopes=authorize_scopes,
+                )
+
+            return await check_context(
+                request,
+                scope_id=self.scope_id,
+                config=self._runtime.inference_protection,
+                codec=self._runtime.context_binding_codec,
+                binding_identity=binding_identity,
+                now=self._runtime._clock(),
+                validate_reuse=validate,
+            )
+
+    async def _prepare(
+        self, request: PrepareContextRequest, scope: ScopeDescriptor, /, *, binding_identity: str = "local"
+    ) -> PrepareContextResult:
         build, effort = await self._prepare_build(request, scope)
         if effort is not None:
             try:
@@ -1123,11 +1208,29 @@ class ScopedContextApplication:
             else:
                 if measurement is not None:
                     await self._runtime.statistics.for_scope(self.scope_id).record_recall(measurement)
+        return await self._prepared_result(request, build, binding_identity)
+
+    async def _prepared_result(
+        self, request: PrepareContextRequest, build: PreparedContextBuild, binding_identity: str
+    ) -> PrepareContextResult:
+        """Expose only explicitly requested diagnostics and current reuse proof."""
         context = build.context
         if request.explain and build.degradation is not None:
             # The reason is set here, not in the Builder: the Builder is pure and never sees a
             # failed provider, so the only layer that can name the cause is the one that ran it.
             context = context.model_copy(update={"reason": build.degradation})
+        if request.include_reuse:
+            atomic = self._runtime.atomic_memory
+            return await prepare_reuse(
+                None if atomic is None else atomic.for_scope(self.scope_id),
+                self.scope_id,
+                build,
+                context,
+                codec=self._runtime.context_binding_codec,
+                binding_identity=binding_identity,
+                now=self._runtime._clock(),
+                context=_PREPARE_ATOMIC_CONTEXT.get(),
+            )
         return context
 
     async def _prepare_build(
@@ -1258,6 +1361,7 @@ class ScopedContextApplication:
                     if hit.lineage is not None
                 ),
             )
+            build = self._bind_reuse_roots(request, build, memory_candidates)
             if recall_effort is not None:
                 recall_effort = replace(
                     recall_effort,
@@ -1288,6 +1392,43 @@ class ScopedContextApplication:
         # Round zero is the round that embeds: later expansion rounds reuse its vector when it
         # has one, so a cause observed here is the whole preparation's cause.
         return replace(build, degradation=round_zero.degradation), recall_effort
+
+    def _bind_reuse_roots(
+        self,
+        request: PrepareContextRequest,
+        build: PreparedContextBuild,
+        memory_candidates: Sequence[PreparedMemoryCandidates],
+    ) -> PreparedContextBuild:
+        """Bind final selected origins to their observed current lifecycle versions."""
+        if not request.include_reuse:
+            return build
+        # Final origins, not all recalled candidates, own the reuse proof.
+        selected_keys = {
+            (origin.scope_id, origin.artifact.family, origin.artifact.artifact_id, origin.artifact.revision)
+            if isinstance(origin, ArtifactAddress)
+            else (self.scope_id, origin.family, origin.artifact_id, origin.revision)
+            for origin in build.origins
+        }
+        return replace(
+            build,
+            reuse_roots=tuple(
+                AtomicMemoryDependencySelection(
+                    address=ArtifactAddress(scope_id=group.scope_id, artifact=hit.hit.artifact_ref),
+                    state_version=hit.hit.state_version,
+                    kind=hit.hit.kind,
+                    text_digest=sha256(hit.hit.text.encode("utf-8")).hexdigest(),
+                )
+                for group in memory_candidates
+                for hit in group.hits
+                if (
+                    group.scope_id,
+                    hit.hit.artifact_ref.family,
+                    hit.hit.artifact_ref.artifact_id,
+                    hit.hit.artifact_ref.revision,
+                )
+                in selected_keys
+            ),
+        )
 
     async def _available_atomic_candidates(
         self, candidates: list[PreparedMemoryCandidates]
@@ -3400,6 +3541,17 @@ class ScopedAtomicMemoryApplication:
         async with self._runtime._scope_operation(self.scope_id):
             return await self._scoped.state(artifact_id, context=context)
 
+    async def read_dependency_snapshot(
+        self,
+        roots: tuple[ArtifactRef, ...],
+        *,
+        selected: tuple[AtomicMemoryDependencySelection, ...] | None = None,
+        context: ArtifactSearchExecutionContext | None = None,
+    ) -> AtomicMemoryDependencySnapshot:
+        """Read bounded, authorized provenance while retaining the Scope lease."""
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._scoped.read_dependency_snapshot(roots, selected=selected, context=context)
+
     async def _filter_current_candidates(self, candidates, *, context=None):
         async with self._runtime._scope_operation(self.scope_id):
             return await self._scoped._filter_current_candidates(candidates, context=context)
@@ -3948,6 +4100,8 @@ class BuiltinRuntime:
         dream_service: DreamService | None = None,
         generation_concurrency: int = 4,
         archive_service: PortableBundleService | None = None,
+        context_binding_codec: BindingCodec | None = None,
+        inference_protection: InferenceProtectionConfig | None = None,
     ) -> None:
         if source_window_limit < 1:
             raise _RuntimeConfigurationError("source_window_limit")
@@ -3958,6 +4112,10 @@ class BuiltinRuntime:
         if scope_cache_size < 1:
             raise _RuntimeConfigurationError("scope_cache_size")
         self._provider = provider
+        self.context_binding_codec = context_binding_codec or BindingCodec()
+        self.inference_protection = (
+            InferenceProtectionConfig() if inference_protection is None else inference_protection
+        )
         self._primary_database = primary_database
         self._owner_write_transactions = owner_write_transactions
         self._handoff_committer = handoff_committer

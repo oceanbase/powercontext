@@ -31,6 +31,7 @@ from powercontext.builtin.runtime import (
     BuiltinConfig,
     BuiltinRuntime,
     PrepareContextRequest,
+    PreparedContext,
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft
@@ -44,6 +45,8 @@ _END = "END_POWERCONTEXT_PREPARED_CONTEXT_V1"
 async def _prepare(runtime: BuiltinRuntime, scope_id: str, query: str) -> dict[str, Any]:
     """Recall complete evidence and independently resolve its exact persisted citations."""
     prepared = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query=query, max_bytes=8000))
+    if not isinstance(prepared, PreparedContext):
+        raise TypeError("ordinary context preparation returned an unexpected envelope")  # noqa: TRY003
     citations: list[dict[str, Any]] = []
     if prepared.content is not None:
         payload = json.loads(prepared.content.split(_BEGIN, 1)[1].split(_END, 1)[0].strip())

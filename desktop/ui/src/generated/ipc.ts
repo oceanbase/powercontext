@@ -177,8 +177,10 @@ external_skill_registry?: boolean,
 /**
  * Whether exact evidence can be generated into an inspectable Handoff Draft.
  */
-handoff_generation: boolean, search_modes: Array<MemorySearchMode>, context_versions: Array<PreparedContextSchema>, };
+handoff_generation: boolean, search_modes: Array<MemorySearchMode>, context_versions: Array<PreparedContextSchema>, context_protection?: ContextProtectionCapabilities, };
 export type Configuration = "configured" | "unconfigured" | "unknown";
+export type ContextProtectionCapabilities = { check_versions: Array<string>, payload_versions: Array<string>, reuse_versions: Array<string>, reuse_families: Array<string>, enforcing: boolean, limits: ContextProtectionCapabilitiesLimits, };
+export type ContextProtectionCapabilitiesLimits = { payload_bytes: number, binding_bytes: number, prepared_contexts: number, dependencies: number, send_seconds: number, correlate_seconds: number, };
 export type ContractVersion = { major: number, minor: number, };
 export type DreamOperation = "refine_experience" | "derive_skill" | "revise_skill" | "revise_profile" | "revise_memory" | "revise_topic_memory" | "refresh_handoff" | "revise_prompt" | "revise_tags";
 export type Effect = "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";

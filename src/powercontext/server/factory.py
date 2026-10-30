@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext, suppress
@@ -47,11 +48,15 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime.application import ScheduledExperienceRunner, ScheduledSourceRunner
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
+from powercontext.builtin.runtime.context_bindings import BindingCodec
+from powercontext.builtin.runtime.context_check import MAX_CHECK_BODY_BYTES, RESPONSE_CORRELATION, SEND_VALIDITY
+from powercontext.builtin.runtime.context_reuse import MAX_REUSE_DEPENDENCIES
 from powercontext.builtin.runtime.processing_registry import processing_capabilities
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
 from powercontext.http import (
     ArtifactDreamingOperationCapability,
     Capabilities,
+    ContextProtectionCapabilities,
     ExtractionStatus,
     MemorySearchMode,
     PreparedContextSchema,
@@ -298,9 +303,7 @@ def create_server_app(  # noqa: C901
                 await recovery.initialize()
                 app.state.owner_recovery = recovery
                 await resources.enter_async_context(recovery.monitor())
-            identity_repository = ServerIdentityRepository(runtime.primary_database)
-            await identity_repository.initialize()
-            server_id = await identity_repository.load_or_create()
+            server_id = await _initialize_server_identity(runtime, cursor_secret)
             _bind_evidence_access(runtime, active_access_control, resolved.access.mode)
             if active_access_control is not None:
                 migrated, unresolved = await runtime._records().migrate_handoff_receipts(
@@ -438,6 +441,19 @@ def create_server_app(  # noqa: C901
     if resolved.dashboard.enabled:
         mount_dashboard(app)
     return app
+
+
+async def _initialize_server_identity(runtime: BuiltinRuntime, cursor_secret: bytes | None) -> str:
+    identity_repository = ServerIdentityRepository(runtime.primary_database)
+    await identity_repository.initialize()
+    server_id = await identity_repository.load_or_create()
+    if cursor_secret is not None:
+        runtime.context_binding_codec = BindingCodec(
+            key=hmac.digest(cursor_secret, b"powercontext.context-bindings.v1", "sha256"),
+            key_id="server-v1",
+            deployment_id=server_id,
+        )
+    return server_id
 
 
 async def _source_gateway(runtime: BuiltinRuntime, settings: ServerSettings):
@@ -828,6 +844,21 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
         handoff_generation=capabilities.handoff_generation,
         search_modes=[MemorySearchMode(mode) for mode in capabilities.memory_search_modes],
         context_versions=[PreparedContextSchema(version) for version in capabilities.context_versions],
+        context_protection=ContextProtectionCapabilities.model_validate({
+            "check_versions": ["powercontext.context-check.v1"],
+            "payload_versions": ["powercontext.model-json-payload.v1"],
+            "reuse_versions": list(capabilities.context_reuse_versions),
+            "reuse_families": list(capabilities.context_reuse_families),
+            "enforcing": runtime.inference_protection.mode == "enforcing",
+            "limits": {
+                "payload_bytes": min(runtime.inference_protection.max_payload_bytes, MAX_CHECK_BODY_BYTES),
+                "binding_bytes": runtime.context_binding_codec.max_token_bytes,
+                "prepared_contexts": 16,
+                "dependencies": MAX_REUSE_DEPENDENCIES,
+                "send_seconds": int(SEND_VALIDITY.total_seconds()),
+                "correlate_seconds": int(RESPONSE_CORRELATION.total_seconds()),
+            },
+        }),
     )
 
 

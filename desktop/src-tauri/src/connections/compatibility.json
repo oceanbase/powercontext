@@ -306,6 +306,45 @@
     "evidence": "desktop/VALIDATION.md#server-c535d816-protocol-qualification"
   },
   {
+    "id": "sqlite-atomic-0d86e94b-v1",
+    "serverCommit": "0d86e94b6803b1eeaaf91231b717d716ad9de134",
+    "contractSha256": "7442678e3a9b33600c1cb64d531cc09972a7e3996dd740ed96f969c6649f842c",
+    "artifactSha256": "a295f16eaa66c911a1ee65b5d4e0937f7a1fc9533a41e1fe678d2f4fb0ab80e8",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-0d86e94b-protocol-qualification"
+  },
+  {
+    "id": "sqlite-atomic-d3850bf6-v1",
+    "serverCommit": "d3850bf646993db5aa11cabc83d53b1e82571e6c",
+    "contractSha256": "d057f59a140211376772979f68f777295c88cf1c445bed605d85ce7b0e0c03bb",
+    "artifactSha256": "e6d606616347271946e30cd9980c248ee5d6b5c92fa91e78f06fa2bf92e7d273",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_server_info",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-d3850bf6-protocol-qualification"
+  },
+  {
     "id": "sqlite-atomic-68491568-v1",
     "serverCommit": "68491568359fd9f5723208bbeeec2f808fd2bcc9",
     "contractSha256": "b89e721f9fba1c4ef4267b4420af417e5a88a7f7fbe893f639df913b77d24dc0",
@@ -343,5 +382,25 @@
       "search_memory"
     ],
     "evidence": "desktop/VALIDATION.md#server-0a49db9b-protocol-qualification"
+  },
+  {
+    "id": "sqlite-atomic-bbd7b1d8-v1",
+    "serverCommit": "bbd7b1d8469411d23777d9c60cb0484f9f0d54b8",
+    "contractSha256": "78120757a326c02230194f5b546b33ea6b7e438544a2d94aa03a1fe4b6626cf7",
+    "artifactSha256": "07a9fffc49736a5a4d093248e8bb2bb99753e88b48076f05979d63a0137180d0",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_server_info",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-bbd7b1d8-protocol-qualification"
   }
 ]

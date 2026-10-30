@@ -206,7 +206,7 @@ def build():
         "change_atomic_memory_lifecycle",
     }
     tool_requests, tool_responses = memory_tool_schemas(schemas)
-    operations = {}
+    operations: dict[str, dict[str, Any]] = {}
     used = set()
 
     def visit(value):
@@ -243,6 +243,10 @@ def build():
                 for status, response in operation["responses"].items()
                 if str(status).startswith("2") and "application/json" in response.get("content", {})
             }
+            if operation["operationId"] == "prepare_context":
+                # This tool never requests include_reuse. Keep its workflow fields and
+                # response validation tied to the ordinary, non-executor result.
+                responses = {status: {"$ref": "#/components/schemas/PreparedContext"} for status in responses}
             operations[operation["operationId"]] = {
                 "method": method.upper(),
                 "path": path,

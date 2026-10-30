@@ -28,7 +28,7 @@ from pydantic import TypeAdapter, ValidationError
 from typing_extensions import override
 
 from powercontext.client import ClientError, ServerResponseError
-from powercontext.http import CaptureContentSourceRequest, PrepareContextRequest, PreparedContextStatus
+from powercontext.http import CaptureContentSourceRequest, PrepareContextRequest, PreparedContext, PreparedContextStatus
 
 from .client import open_client, resolve_config, resolve_server_scope
 from .scope import PowerContextScope
@@ -152,6 +152,9 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
             _LOGGER.debug("PowerContext LangChain recall skipped after an unexpected error.", exc_info=True)
             return None
 
+        if not isinstance(prepared, PreparedContext):
+            _LOGGER.debug("PowerContext LangChain recall skipped: unexpected context envelope.")
+            return None
         if prepared.status == PreparedContextStatus.EMPTY:
             return None
         return prepared.content

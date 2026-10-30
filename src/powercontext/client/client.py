@@ -59,6 +59,7 @@ from powercontext.http import (
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CaptureWorkingNoteRequest,
+    CheckContextRequest,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CodeQueryRequest,
@@ -67,6 +68,7 @@ from powercontext.http import (
     CommitHandoffRequest,
     CommittedHandoff,
     ConnectorCheckpointState,
+    ContextCheckResult,
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
     CreateArtifactRequest,
@@ -137,6 +139,7 @@ from powercontext.http import (
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
+    PreparedContextWithReuse,
     PreparedHandoff,
     PreparedWorkHandoff,
     PrepareHandoffHintRequest,
@@ -229,6 +232,7 @@ from powercontext.http._generated.operations import (
     CAPTURE_CONTENT_SOURCE,
     CAPTURE_WORKING_NOTE,
     CHECK_ACCESS,
+    CHECK_CONTEXT,
     CLEAR_SCOPE_BINDING,
     COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
@@ -1064,10 +1068,22 @@ class PowerContextClient:
         """Read bounded native code evidence for an explicitly authorized Scope."""
         return await self._request(QUERY_CODE, request, path_parameters={"scope_id": scope_id})
 
-    async def prepare_context(self, request: PrepareContextRequest) -> PreparedContext:
+    async def prepare_context(self, request: PrepareContextRequest) -> PreparedContext | PreparedContextWithReuse:
         """Prepare final bounded context for one Agent turn."""
 
-        return await self._request(PREPARE_CONTEXT, request)
+        result = await self._request(PREPARE_CONTEXT, request)
+        if isinstance(result.root, PreparedContextWithReuse) != request.include_reuse:
+            raise InvalidResponseError(PREPARE_CONTEXT.path, request_id=None)
+        return result.root
+
+    async def check_context(self, request: CheckContextRequest) -> ContextCheckResult:
+        """Check final bytes; only a complete allow permits the requested phase."""
+        result = await self._request(CHECK_CONTEXT, request)
+        if result.phase != request.root.phase or (
+            result.decision == "allow" and (not result.coverage.complete or not result.binding)
+        ):
+            raise InvalidResponseError(CHECK_CONTEXT.path, request_id=None)
+        return result
 
     async def prepare_bootstrap_context(self, request: BootstrapContextRequest) -> BootstrapContext:
         """Prepare curated bounded context for one Agent lifecycle boundary."""
@@ -1429,6 +1445,8 @@ def _prepare_request(
             # Server must not volunteer a flag whose default means "say nothing extra". ``false``
             # and absence are the same request.
             payload.pop("explain", None)
+        if operation is PREPARE_CONTEXT and not payload.get("include_reuse", False):
+            payload.pop("include_reuse", None)
         if operation.request_location == "query":
             request_query.update({key: value for key, value in payload.items() if value is not None})
         else:

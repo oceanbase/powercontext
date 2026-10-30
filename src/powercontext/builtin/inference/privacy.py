@@ -54,6 +54,7 @@ class UpstreamProfile(BaseModel):
     model: str = Field(min_length=1, max_length=256)
     protocol: PrivacyProtocol
     allow_streaming: bool = False
+    require_prepared_contexts: bool = False
     response_models: tuple[str, ...] = Field(default=(), max_length=16)
     allowed_cache_retention: tuple[Literal["provider-default", "in_memory", "24h", "5m", "1h", "30m"], ...] = ()
     context_window_tokens: int | None = Field(default=None, ge=1)

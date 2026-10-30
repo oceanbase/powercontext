@@ -69,7 +69,7 @@ from powercontext.http import (
     ListMemoryEntriesRequest,
     MemoryCapacity,
     PrepareContextRequest,
-    PreparedContext,
+    PrepareContextResult,
     PreparedHandoff,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
@@ -338,6 +338,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
         "handoff_generation",
         "search_modes",
         "context_versions",
+        "context_protection",
         "prompts",
     }
     assert "CapabilityLimit" not in schemas
@@ -526,7 +527,7 @@ def test_access_contract_uses_logical_resources_and_generic_skill_read_access() 
 def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_tools() -> None:
     assert PREPARE_CONTEXT.path == "/v1/context/prepare"
     assert PREPARE_CONTEXT.request_type is PrepareContextRequest
-    assert PREPARE_CONTEXT.response_type is PreparedContext
+    assert PREPARE_CONTEXT.response_type is PrepareContextResult
     assert PREPARE_CONTEXT.success_status == 200
 
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
@@ -538,6 +539,7 @@ def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_to
         "assembly",
         "bootstrap_receipt_id",
         "include_code",
+        "include_reuse",
         "explain",
     }
     assert set(schemas["PreparedContext"]["properties"]) == {
@@ -554,6 +556,8 @@ def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_to
     # ``explain`` is how a caller asks for it, so the default stays the four-field envelope.
     assert schemas["PrepareContextRequest"]["properties"]["explain"]["default"] is False
     assert "explain" not in schemas["PrepareContextRequest"]["required"]
+    assert schemas["PrepareContextRequest"]["properties"]["include_reuse"]["default"] is False
+    assert schemas["PrepareContextResult"]["discriminator"]["propertyName"] == "schema"
     assert not {"memory", "mode", "selection"} & set(schemas["PreparedContext"]["properties"])
 
 

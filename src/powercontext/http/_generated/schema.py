@@ -1262,10 +1262,59 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "200": {
                         "description": "Final context ready for direct injection, or a normal empty result.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedContext"}}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/PrepareContextResult"}}
+                        },
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/context/check": {
+            "post": {
+                "tags": ["context"],
+                "summary": "Check a final model request or complete raw response",
+                "description": "Read-only privacy and current "
+                "context-reuse admission. This operation "
+                "does not retrieve, rewrite, call a "
+                "model, or grant model execution "
+                "authority. Only allow with complete "
+                "coverage permits the corresponding "
+                "phase. The execution adapter must send "
+                "or release exactly the approved bytes "
+                "before their deadline.",
+                "operationId": "check_context",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CheckContextRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "A phase-specific "
+                        "allow, block, or "
+                        "withhold decision; "
+                        "HTTP success alone "
+                        "is not approval.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ContextCheckResult"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "413": {
+                        "description": "The complete payload exceeds the configured admission limit.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+                    },
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -7737,6 +7786,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "items": {"$ref": "#/components/schemas/PreparedContextSchema"},
                         "type": "array",
                     },
+                    "context_protection": {"$ref": "#/components/schemas/ContextProtectionCapabilities"},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -9315,6 +9365,262 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["schema", "status", "content", "content_bytes"],
+            },
+            "PrepareContextResult": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/PreparedContext"},
+                    {"$ref": "#/components/schemas/PreparedContextWithReuse"},
+                ],
+                "discriminator": {
+                    "propertyName": "schema",
+                    "mapping": {
+                        "powercontext.prepared-context.v1": "#/components/schemas/PreparedContext",
+                        "powercontext.prepared-context-with-reuse.v1": "#/components/schemas/PreparedContextWithReuse",
+                    },
+                },
+            },
+            "PreparedContextWithReuse": {
+                "properties": {
+                    "schema": {"type": "string", "enum": ["powercontext.prepared-context-with-reuse.v1"]},
+                    "context": {"$ref": "#/components/schemas/PreparedContext"},
+                    "reuse": {"$ref": "#/components/schemas/ContextReuse"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["schema", "context", "reuse"],
+            },
+            "ContextReuse": {
+                "properties": {
+                    "schema": {"type": "string", "enum": ["powercontext.context-reuse.v1"]},
+                    "constraints": {"$ref": "#/components/schemas/ContextReuseConstraints"},
+                    "expires_at": {"type": "string", "format": "date-time"},
+                    "binding": {"type": "string", "maxLength": 65536, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["schema", "constraints", "expires_at", "binding"],
+            },
+            "ContextReuseConstraints": {
+                "properties": {
+                    "preserve": {
+                        "items": {"type": "string", "enum": ["content", "citations", "trust", "order"]},
+                        "type": "array",
+                        "maxItems": 4,
+                        "minItems": 4,
+                        "uniqueItems": True,
+                    },
+                    "refresh_on": {
+                        "items": {
+                            "type": "string",
+                            "enum": ["permission_change", "source_ineligible", "context_boundary"],
+                        },
+                        "type": "array",
+                        "maxItems": 3,
+                        "minItems": 3,
+                        "uniqueItems": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["preserve", "refresh_on"],
+            },
+            "ModelJsonPayload": {
+                "properties": {
+                    "schema": {"type": "string", "enum": ["powercontext.model-json-payload.v1"]},
+                    "headers": {
+                        "additionalProperties": {"type": "string", "maxLength": 1024},
+                        "type": "object",
+                        "maxProperties": 16,
+                        "minProperties": 1,
+                        "description": "Content "
+                        "and "
+                        "protocol "
+                        "headers "
+                        "only; "
+                        "credentials "
+                        "and "
+                        "transport "
+                        "override "
+                        "headers "
+                        "are "
+                        "forbidden.",
+                    },
+                    "body": {
+                        "type": "string",
+                        "maxLength": 1048576,
+                        "minLength": 2,
+                        "description": "Complete "
+                        "raw UTF-8 "
+                        "JSON "
+                        "text. "
+                        "Duplicate "
+                        "keys and "
+                        "non-finite "
+                        "numbers "
+                        "are "
+                        "unsupported.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["schema", "headers", "body"],
+            },
+            "ModelJsonTextLocation": {
+                "properties": {
+                    "schema": {"type": "string", "enum": ["powercontext.model-json-text-location.v1"]},
+                    "pointer": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "start_byte": {"type": "integer", "minimum": 0.0},
+                    "end_byte": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["schema", "pointer", "start_byte", "end_byte"],
+            },
+            "PreparedContextLocation": {
+                "properties": {
+                    "binding": {"type": "string", "maxLength": 65536, "minLength": 1},
+                    "location": {"$ref": "#/components/schemas/ModelJsonTextLocation"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding", "location"],
+            },
+            "CheckContextBeforeSend": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "phase": {"type": "string", "enum": ["before_send"]},
+                    "target_profile": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "payload": {"$ref": "#/components/schemas/ModelJsonPayload"},
+                    "prepared_contexts": {
+                        "items": {"$ref": "#/components/schemas/PreparedContextLocation"},
+                        "type": "array",
+                        "maxItems": 16,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "phase", "target_profile", "payload", "prepared_contexts"],
+            },
+            "CheckContextBeforeRelease": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "phase": {"type": "string", "enum": ["before_release"]},
+                    "target_profile": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "request_binding": {"type": "string", "maxLength": 65536, "minLength": 1},
+                    "payload": {"$ref": "#/components/schemas/ModelJsonPayload"},
+                    "completion": {"type": "string", "enum": ["complete"]},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "phase", "target_profile", "request_binding", "payload", "completion"],
+            },
+            "CheckContextRequest": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/CheckContextBeforeSend"},
+                    {"$ref": "#/components/schemas/CheckContextBeforeRelease"},
+                ],
+                "discriminator": {
+                    "propertyName": "phase",
+                    "mapping": {
+                        "before_send": "#/components/schemas/CheckContextBeforeSend",
+                        "before_release": "#/components/schemas/CheckContextBeforeRelease",
+                    },
+                },
+            },
+            "ContextCheckCoverage": {
+                "properties": {
+                    "profile": {"type": "string", "enum": ["text-and-tools.v1"]},
+                    "complete": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["profile", "complete"],
+            },
+            "ContextCheckResult": {
+                "properties": {
+                    "schema": {"type": "string", "enum": ["powercontext.context-check.v1"]},
+                    "phase": {"type": "string", "enum": ["before_send", "before_release"]},
+                    "decision": {"type": "string", "enum": ["allow", "block", "withhold"]},
+                    "reason_codes": {"items": {"type": "string", "maxLength": 128}, "type": "array", "maxItems": 32},
+                    "coverage": {"$ref": "#/components/schemas/ContextCheckCoverage"},
+                    "policy_version": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "valid_until": {"type": "string", "format": "date-time"},
+                    "correlate_until": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Present only for a before_send allow; this deadline never permits a new send.",
+                    },
+                    "binding": {
+                        "type": "string",
+                        "maxLength": 65536,
+                        "minLength": 1,
+                        "description": "Present "
+                        "only "
+                        "for "
+                        "allow, "
+                        "bound "
+                        "to "
+                        "this "
+                        "phase, "
+                        "identity, "
+                        "target, "
+                        "policy, "
+                        "and "
+                        "exact "
+                        "payload.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "schema",
+                    "phase",
+                    "decision",
+                    "reason_codes",
+                    "coverage",
+                    "policy_version",
+                    "valid_until",
+                ],
+            },
+            "ContextProtectionCapabilities": {
+                "properties": {
+                    "check_versions": {"items": {"type": "string"}, "type": "array"},
+                    "payload_versions": {"items": {"type": "string"}, "type": "array"},
+                    "reuse_versions": {"items": {"type": "string"}, "type": "array"},
+                    "reuse_families": {"items": {"type": "string"}, "type": "array"},
+                    "enforcing": {"type": "boolean"},
+                    "limits": {"$ref": "#/components/schemas/ContextProtectionCapabilitiesLimits"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "check_versions",
+                    "payload_versions",
+                    "reuse_versions",
+                    "reuse_families",
+                    "enforcing",
+                    "limits",
+                ],
+            },
+            "ContextProtectionCapabilitiesLimits": {
+                "properties": {
+                    "payload_bytes": {"type": "integer", "minimum": 1.0},
+                    "binding_bytes": {"type": "integer", "minimum": 1.0},
+                    "prepared_contexts": {"type": "integer", "minimum": 1.0},
+                    "dependencies": {"type": "integer", "minimum": 1.0},
+                    "send_seconds": {"type": "integer", "minimum": 1.0},
+                    "correlate_seconds": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "payload_bytes",
+                    "binding_bytes",
+                    "prepared_contexts",
+                    "dependencies",
+                    "send_seconds",
+                    "correlate_seconds",
+                ],
             },
             "BootstrapContextItem": {
                 "properties": {
@@ -10965,6 +11271,35 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "built "
                         "during "
                         "preparation.",
+                        "default": False,
+                    },
+                    "include_reuse": {
+                        "type": "boolean",
+                        "description": "Return "
+                        "a "
+                        "versioned "
+                        "context "
+                        "and "
+                        "reuse "
+                        "envelope. "
+                        "Supported "
+                        "for "
+                        "single-Scope "
+                        "Atomic "
+                        "Memory "
+                        "with "
+                        "complete "
+                        "bounded "
+                        "dependencies; "
+                        "unsupported "
+                        "selected "
+                        "families, "
+                        "code, "
+                        "or "
+                        "references "
+                        "are "
+                        "rejected "
+                        "explicitly.",
                         "default": False,
                     },
                     "explain": {

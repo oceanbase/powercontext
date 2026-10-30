@@ -38,6 +38,7 @@ from powercontext.builtin.scope import ScopeDraft
 from powercontext.cli.env_file import environment_context
 from powercontext.client import PowerContextClient
 from powercontext.http import PrepareContextRequest, RememberMemoryRequest
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.configuration import server_settings_context
 from powercontext.server.settings import McpConfig, MetricsConfig
 
@@ -205,6 +206,7 @@ async def _history(base_url: str, token: str | None, scope_id: str, report: dict
                 "include_code": True,
             })
         )
+        assert isinstance(result, PreparedContext)
         assert result.status == "ready" and result.content
         assert "BEGIN_POWERCONTEXT_CODE_V1" in result.content
         assert "REL" in result.content
@@ -226,6 +228,7 @@ async def _code_context(base_url: str, token: str | None, scope_id: str, report:
                 "assembly": {"sections": []},
             })
         )
+        assert isinstance(result, PreparedContext)
         assert result.status == "ready" and result.content
         assert "BEGIN_POWERCONTEXT_CODE_V1" in result.content
         assert result.content_bytes <= 8000
@@ -455,6 +458,7 @@ def test_native_code_automatic_context_controlled_experiment(tmp_path, pytestcon
                                 "assembly": {},
                             })
                         )
+                        assert isinstance(prepared, PreparedContext)
                         assert prepared.content and rule in prepared.content
                         assert prepared.content_bytes <= 4000
                         assert ("BEGIN_POWERCONTEXT_CODE_V1" in prepared.content) == (arm == "B1")

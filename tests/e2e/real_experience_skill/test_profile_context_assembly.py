@@ -32,6 +32,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.composition import _embedding_models
 from powercontext.client import PowerContextClient
 from powercontext.http import CreateScopeRequest, PrepareContextRequest, RememberMemoryRequest
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.settings import McpConfig, MetricsConfig, ServerSettings
 from tests.e2e.test_context_text_assembly import _seed_topics
 
@@ -146,6 +147,7 @@ async def _scenario(url, token, scope_ids, report, settings):
             "assembly": {"sections": [{"family": "profile", "limit": 2}], "show": ["recall_rank", "confidence"]},
         })
         before = await client.prepare_context(request)
+        assert isinstance(before, PreparedContext)
         assert before.content is not None
         assert before.content.count('Artifact: family="profile"') == 1
         assert "Shared team prefers" in before.content
@@ -161,6 +163,7 @@ async def _scenario(url, token, scope_ids, report, settings):
         snapshot = head.json()["content"]["content"]
         assert snapshot.strip() and head.json()["content"]["generation"]["mode"] == "review_approved"
         prepared = await client.prepare_context(request)
+        assert isinstance(prepared, PreparedContext)
         assert prepared.content is not None
         assert prepared.content.count('Artifact: family="profile"') == 2
         assert prepared.content.index(f'Scope: "{current}"') < prepared.content.index(f'Scope: "{shared}"')
@@ -182,6 +185,7 @@ async def _scenario(url, token, scope_ids, report, settings):
                 "assembly": {"sections": [{"family": "profile", "limit": 1}, {"family": "memory", "limit": 6}]},
             })
         )
+        assert isinstance(mixed, PreparedContext)
         assert mixed.content is not None
         assert mixed.content.index("## Profile") < mixed.content.index("## Memory")
         assert remembered.records[0].artifact.artifact_id in mixed.content
@@ -191,6 +195,7 @@ async def _scenario(url, token, scope_ids, report, settings):
             if assembly is not None:
                 payload["assembly"] = assembly
             default = await client.prepare_context(PrepareContextRequest.model_validate(payload))
+            assert isinstance(default, PreparedContext)
             assert default.content is not None and 'family="profile"' not in default.content
             assert "Shared team prefers" not in default.content and snapshot.strip() not in default.content
         report["checks"].append("real_embedding_memory_profile_mix_and_default_compatibility")
@@ -206,6 +211,7 @@ async def _scenario(url, token, scope_ids, report, settings):
                 "assembly": {"sections": [{"family": "profile", "limit": 1}, {"family": "topic-memory", "limit": 8}]},
             })
         )
+        assert isinstance(topics, PreparedContext)
         assert topics.content is not None
         assert topics.content.index("## Profile") < topics.content.index("## Topic Memory")
         assert topics.content.count('family="topic-memory"') == 1
@@ -239,6 +245,7 @@ async def _scenario(url, token, scope_ids, report, settings):
                     "assembly": {"sections": [{"family": "profile", "limit": 1}]},
                 })
             )
+            assert isinstance(bounded, PreparedContext)
             assert bounded.content_bytes <= budget
             if bounded.content is not None:
                 assert bounded.content_bytes == len(bounded.content.encode("utf-8"))
@@ -255,5 +262,6 @@ async def _scenario(url, token, scope_ids, report, settings):
                 "assembly": {"sections": []},
             })
         )
+        assert isinstance(empty, PreparedContext)
         assert empty.status == "empty" and empty.content_bytes == 0
         report["checks"].append("replacement_history_utf8_budget_literal_boundaries_and_disabled_output")

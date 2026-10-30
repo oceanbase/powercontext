@@ -43,6 +43,7 @@ from powercontext.http import (
     PrepareContextRequest,
     SearchMemoryRequest,
 )
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 from tests.e2e.atomic_memory_models import independent_atomic_memory_model
@@ -322,6 +323,7 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
                         query="PowerContext composition root",
                     )
                 )
+                assert isinstance(prepared, PreparedContext)
                 entries = await sdk.list_memory_entries(
                     ListMemoryEntriesRequest(scope_id=scope_id),
                 )

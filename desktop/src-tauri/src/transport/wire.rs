@@ -700,6 +700,9 @@ pub struct Capabilities {
     pub search_modes: Vec<MemorySearchMode>,
     #[serde(rename = "context_versions")]
     pub context_versions: Vec<PreparedContextSchema>,
+    #[ts(optional)]
+    #[serde(rename = "context_protection", skip_serializing_if = "Option::is_none")]
+    pub context_protection: Option<ContextProtectionCapabilities>,
 }
 
 impl Capabilities {
@@ -726,6 +729,83 @@ impl Capabilities {
             handoff_generation,
             search_modes,
             context_versions,
+            context_protection: None,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ContextProtectionCapabilities {
+    #[serde(rename = "check_versions")]
+    pub check_versions: Vec<String>,
+    #[serde(rename = "payload_versions")]
+    pub payload_versions: Vec<String>,
+    #[serde(rename = "reuse_versions")]
+    pub reuse_versions: Vec<String>,
+    #[serde(rename = "reuse_families")]
+    pub reuse_families: Vec<String>,
+    #[serde(rename = "enforcing")]
+    pub enforcing: bool,
+    #[serde(rename = "limits")]
+    pub limits: ContextProtectionCapabilitiesLimits,
+}
+
+impl ContextProtectionCapabilities {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        check_versions: Vec<String>,
+        payload_versions: Vec<String>,
+        reuse_versions: Vec<String>,
+        reuse_families: Vec<String>,
+        enforcing: bool,
+        limits: ContextProtectionCapabilitiesLimits,
+    ) -> ContextProtectionCapabilities {
+        ContextProtectionCapabilities {
+            check_versions,
+            payload_versions,
+            reuse_versions,
+            reuse_families,
+            enforcing,
+            limits,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ContextProtectionCapabilitiesLimits {
+    #[serde(rename = "payload_bytes")]
+    pub payload_bytes: i64,
+    #[serde(rename = "binding_bytes")]
+    pub binding_bytes: i64,
+    #[serde(rename = "prepared_contexts")]
+    pub prepared_contexts: i64,
+    #[serde(rename = "dependencies")]
+    pub dependencies: i64,
+    #[serde(rename = "send_seconds")]
+    pub send_seconds: i64,
+    #[serde(rename = "correlate_seconds")]
+    pub correlate_seconds: i64,
+}
+
+impl ContextProtectionCapabilitiesLimits {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        payload_bytes: i64,
+        binding_bytes: i64,
+        prepared_contexts: i64,
+        dependencies: i64,
+        send_seconds: i64,
+        correlate_seconds: i64,
+    ) -> ContextProtectionCapabilitiesLimits {
+        ContextProtectionCapabilitiesLimits {
+            payload_bytes,
+            binding_bytes,
+            prepared_contexts,
+            dependencies,
+            send_seconds,
+            correlate_seconds,
         }
     }
 }
@@ -1561,6 +1641,8 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <BuiltinProfile as ts_rs::TS>::decl(config),
         <Capabilities as ts_rs::TS>::decl(config),
         <Configuration as ts_rs::TS>::decl(config),
+        <ContextProtectionCapabilities as ts_rs::TS>::decl(config),
+        <ContextProtectionCapabilitiesLimits as ts_rs::TS>::decl(config),
         <ContractVersion as ts_rs::TS>::decl(config),
         <DreamOperation as ts_rs::TS>::decl(config),
         <Effect as ts_rs::TS>::decl(config),

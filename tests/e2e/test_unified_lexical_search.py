@@ -21,7 +21,13 @@ import httpx
 import pytest
 
 from powercontext.builtin.records import ArtifactWrite
-from powercontext.builtin.runtime import BuiltinConfig, PrepareContextRequest, RuntimeConfig, open_builtin_runtime
+from powercontext.builtin.runtime import (
+    BuiltinConfig,
+    PrepareContextRequest,
+    PreparedContext,
+    RuntimeConfig,
+    open_builtin_runtime,
+)
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
@@ -70,6 +76,7 @@ def test_prepared_topic_recall_preserves_evidence_after_stopwords(migration_back
                     "assembly": {"sections": [{"family": "topic-memory", "limit": 8}]},
                 })
             )
+            assert isinstance(result, PreparedContext)
 
             assert result.status == "ready"
             assert result.content is not None and original.artifact_id in result.content

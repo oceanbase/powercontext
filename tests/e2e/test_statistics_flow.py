@@ -43,6 +43,7 @@ from powercontext.http import (
     ScopedStats,
     StatsPeriod,
 )
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 from tests.e2e.atomic_memory_models import independent_atomic_memory_model
@@ -217,12 +218,15 @@ def test_statistics_survive_the_authenticated_http_business_flow_and_restart(
                 prepared = await client.prepare_context(
                     PrepareContextRequest(scope_id=scope_id, query="statistics contract")
                 )
+                assert isinstance(prepared, PreparedContext)
                 manual_prepared = await client.prepare_context(
                     PrepareContextRequest(scope_id=scope_id, query="Memory kinds open")
                 )
+                assert isinstance(manual_prepared, PreparedContext)
                 empty = await client.prepare_context(
                     PrepareContextRequest(scope_id=scope_id, query="unrelated-zebra-phrase")
                 )
+                assert isinstance(empty, PreparedContext)
                 first = await client.get_stats(_stats_request(scope_id, StatsPeriod.TODAY))
 
                 unauthorized = await transport.post(
@@ -264,6 +268,7 @@ def test_statistics_survive_the_authenticated_http_business_flow_and_restart(
                 prepared_again = await client.prepare_context(
                     PrepareContextRequest(scope_id=scope_id, query="statistics contract")
                 )
+                assert isinstance(prepared_again, PreparedContext)
                 updated = await client.get_stats(_stats_request(scope_id, StatsPeriod.FIELD_7D))
 
         assert restored.inventory == first.inventory

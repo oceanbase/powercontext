@@ -293,6 +293,9 @@ from powercontext.builtin.runtime import (
     PrepareContextRequest as RuntimePrepareContextRequest,
 )
 from powercontext.builtin.runtime import (
+    PrepareContextResult as RuntimePrepareContextResult,
+)
+from powercontext.builtin.runtime import (
     PreparedContext as RuntimePreparedContext,
 )
 from powercontext.builtin.runtime import (
@@ -318,6 +321,16 @@ from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
 from powercontext.builtin.runtime.application import BuiltinRuntime, PromptApplication
+from powercontext.builtin.runtime.context_check import (
+    CHECK_CONTEXT_REQUEST,
+    ContextCheckTooLargeError,
+)
+from powercontext.builtin.runtime.context_check import (
+    CheckContextRequest as RuntimeCheckContextRequest,
+)
+from powercontext.builtin.runtime.context_check import (
+    ContextCheckResult as RuntimeContextCheckResult,
+)
 from powercontext.builtin.runtime.skill_search import search_skill_library
 from powercontext.builtin.scope import (
     ScopeApplication,
@@ -437,6 +450,7 @@ from powercontext.http import (
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CaptureWorkingNoteRequest,
+    CheckContextRequest,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CodeQueryRequest,
@@ -445,6 +459,7 @@ from powercontext.http import (
     CommitHandoffRequest,
     CommittedHandoff,
     ConnectorCheckpointState,
+    ContextCheckResult,
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
     CreateArtifactRequest,
@@ -516,6 +531,7 @@ from powercontext.http import (
     MemoryEntryAccessSelector,
     MemoryMutationResponse,
     PrepareContextRequest,
+    PrepareContextResult,
     PreparedContext,
     PreparedWorkHandoff,
     PrepareHandoffHintRequest,
@@ -688,6 +704,7 @@ from powercontext.http._generated.operations import (
     CAPTURE_CONTENT_SOURCE,
     CAPTURE_WORKING_NOTE,
     CHECK_ACCESS,
+    CHECK_CONTEXT,
     CLEAR_SCOPE_BINDING,
     COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
@@ -999,7 +1016,18 @@ class _ScopedContextApplication(Protocol):
         *,
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context=None,
-    ) -> RuntimePreparedContext: ...
+        binding_identity: str = "local",
+    ) -> RuntimePrepareContextResult: ...
+
+    async def check(
+        self,
+        request: RuntimeCheckContextRequest,
+        /,
+        *,
+        authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+        atomic_context=None,
+        binding_identity: str = "local",
+    ) -> RuntimeContextCheckResult: ...
 
 
 class _ContextApplication(Protocol):
@@ -1416,7 +1444,13 @@ def create_app(
         request: Request,
         error: RequestValidationError | PydanticValidationError,
     ) -> JSONResponse:
-        errors = _validation_error_details(error)
+        # Discriminator messages and unknown-field locations can contain raw
+        # model data. This boundary returns no caller-controlled validation text.
+        errors = (
+            [{"type": "context_check_invalid", "loc": ["body"], "msg": "Invalid context check request."}]
+            if request.url.path == CHECK_CONTEXT.path
+            else _validation_error_details(error)
+        )
         scoped_resource_syntax_error = request.url.path.startswith("/v1/scopes/") and any(
             isinstance(item, dict)
             and isinstance(item.get("loc"), (list, tuple))
@@ -1544,6 +1578,7 @@ def create_app(
     # with ``explain``, and serializing the model's defaults would add a null that every Host's
     # four-field validator rejects on an ordinary injection.
     _add_route(app, PREPARE_CONTEXT, prepare_context, response_model_exclude_unset=True)
+    _add_route(app, CHECK_CONTEXT, check_context, response_model_exclude_unset=True)
     _add_route(app, QUERY_CODE, query_code)
     _add_route(app, CREATE_WORK_CONTRACT, create_work_contract)
     _add_route(app, HANDOFF_CURRENT_WORK, handoff_current_work)
@@ -3233,15 +3268,16 @@ async def prepare_context(
     request: PrepareContextRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
-) -> PreparedContext:
+) -> PrepareContextResult:
     prepared_request = mapping.prepare_context_request(request)
     scoped = application.context.for_scope(request.scope_id)
+    reuse_arguments = {"binding_identity": _context_binding_identity()} if request.include_reuse else {}
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,
     )
     if access is None:
-        result = await scoped.prepare(prepared_request)
+        result = await scoped.prepare(prepared_request, **reuse_arguments)
     else:
 
         async def authorize_scopes(scope_ids: tuple[str, ...]) -> None:
@@ -3255,8 +3291,53 @@ async def prepare_context(
             prepared_request,
             authorize_scopes=authorize_scopes,
             atomic_context=_atomic_execution_context(http_request, PREPARE_CONTEXT.operation_id),
+            **reuse_arguments,
         )
-    return mapping.prepared_context_response(result)
+    return mapping.prepare_context_result_response(result)
+
+
+async def check_context(
+    request: CheckContextRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> ContextCheckResult:
+    value = request.root
+    checked_request = CHECK_CONTEXT_REQUEST.validate_json(value.model_dump_json(by_alias=True, exclude={"scope_id"}))
+    scoped = application.context.for_scope(value.scope_id)
+    access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+
+    async def authorize_scopes(scope_ids: tuple[str, ...]) -> None:
+        if access is not None:
+            await access.require_all(
+                _require_principal(),
+                tuple((AccessAction.SCOPE_READ, ResourceRef.scope(scope_id)) for scope_id in scope_ids),
+                context=_access_audit_context(CHECK_CONTEXT.operation_id),
+            )
+
+    result = await scoped.check(
+        checked_request,
+        binding_identity=_context_binding_identity(),
+        atomic_context=_atomic_execution_context(http_request, CHECK_CONTEXT.operation_id),
+        authorize_scopes=authorize_scopes,
+    )
+    return ContextCheckResult.model_validate_json(result.model_dump_json(by_alias=True, exclude_none=True))
+
+
+def _context_binding_identity() -> str:
+    """Partition short-lived bindings using current trusted authentication only."""
+    authentication = current_authentication()
+    principal = current_principal()
+    facts = {
+        "subject": None if principal is None else (principal.type, principal.id),
+        "actor": (
+            None
+            if authentication is None or authentication.actor is None
+            else (authentication.actor.type, authentication.actor.id)
+        ),
+        "groups": [] if authentication is None else sorted(group.id for group in authentication.subject_groups),
+        "credential_id": None if authentication is None else authentication.credential_id,
+    }
+    return sha256(json.dumps(facts, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 async def prepare_bootstrap_context(
@@ -6147,6 +6228,8 @@ def _map_context_inference_error(error: Exception) -> tuple[int, str, str, dict[
             "Model content was not admitted.",
             {"phase": error.phase, "reason_codes": list(error.reason_codes)},
         )
+    if isinstance(error, ContextCheckTooLargeError):
+        return status.HTTP_413_CONTENT_TOO_LARGE, "context_payload_too_large", str(error), None
     if isinstance(error, InferenceTimeoutError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_timeout", "Model inference timed out.", None
     if isinstance(error, InferenceUnavailableError):

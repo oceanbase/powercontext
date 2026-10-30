@@ -43,6 +43,7 @@ from powercontext.http import (
     ArtifactReference,
     BindArtifactHandleRequest,
     CaptureContentSourceRequest,
+    CheckContextRequest,
     ExactScopeSelection,
     FlushTopicMemoryRequest,
     GetHandoffReportRequest,
@@ -313,9 +314,83 @@ def test_prepare_client_omits_the_explain_flag_a_server_may_not_know() -> None:
         assert "explain" not in bodies[0]
         assert bodies[1]["explain"] is True
         assert "explain" not in bodies[2]
+        assert all("include_reuse" not in body for body in bodies)
         # The fields an older Server does understand still travel, so the omission is targeted.
         assert bodies[0]["max_bytes"] == 8000
         assert bodies[0]["include_code"] is False
+
+    asyncio.run(scenario())
+
+
+def test_prepare_client_rejects_a_silently_ignored_reuse_request() -> None:
+    async def scenario() -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            assert json.loads(request.content)["include_reuse"] is True
+            return httpx.Response(
+                200,
+                json={
+                    "schema": "powercontext.prepared-context.v1",
+                    "status": "empty",
+                    "content": None,
+                    "content_bytes": 0,
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            with pytest.raises(InvalidResponseError):
+                await client.prepare_context(PrepareContextRequest(scope_id="scope", query="task", include_reuse=True))
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {},
+        {"phase": "before_release"},
+        {"binding": None},
+        {"coverage": {"profile": "text-and-tools.v1", "complete": False}},
+    ],
+)
+def test_check_client_requires_matching_phase_and_complete_allow(change) -> None:
+    async def scenario() -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/v1/context/check"
+            return httpx.Response(
+                200,
+                json={
+                    "schema": "powercontext.context-check.v1",
+                    "phase": "before_send",
+                    "decision": "allow",
+                    "reason_codes": [],
+                    "coverage": {"profile": "text-and-tools.v1", "complete": True},
+                    "policy_version": "test",
+                    "valid_until": "2026-10-26T12:00:00Z",
+                    "binding": "opaque",
+                    **change,
+                },
+            )
+
+        request = CheckContextRequest.model_validate({
+            "scope_id": "scope",
+            "phase": "before_send",
+            "target_profile": "model",
+            "prepared_contexts": [],
+            "payload": {
+                "schema": "powercontext.model-json-payload.v1",
+                "headers": {"content-type": "application/json"},
+                "body": "{}",
+            },
+        })
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            if change:
+                with pytest.raises(InvalidResponseError):
+                    await client.check_context(request)
+            else:
+                result = await client.check_context(request)
+                assert result.decision == "allow" and result.binding == "opaque"
 
     asyncio.run(scenario())
 

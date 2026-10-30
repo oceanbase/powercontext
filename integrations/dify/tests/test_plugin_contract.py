@@ -207,6 +207,7 @@ def test_sdk_registers_exact_catalog_and_json_text_inputs(registry):
         ("pc_prepare_context", {"query": "scope"}, "scope_id", "scope-B"),
         ("pc_prepare_context", {"query": "scope"}, "max_bytes", 1),
         ("pc_prepare_context", {"query": "scope"}, "include_code", True),
+        ("pc_prepare_context", {"query": "scope"}, "include_reuse", True),
         ("pc_prepare_context", {"query": "scope"}, "assembly", {}),
         ("pc_prepare_context", {"query": "scope"}, "bootstrap_receipt_id", "receipt-1"),
         ("pc_search", {"query": "scope"}, "tag_filter", {"tags": ["private"]}),
@@ -280,6 +281,33 @@ def test_context_workflow_output_preserves_success_and_empty_content(registry, t
     assert result["ok"] is True
     assert result["status"] == ("empty" if empty else "success")
     assert result["data"] == body
+
+
+def test_context_rejects_unrequested_reuse_envelope(registry, transport):
+    body = {
+        "schema": "powercontext.prepared-context-with-reuse.v1",
+        "context": {
+            "schema": "powercontext.prepared-context.v1",
+            "status": "ready",
+            "content": "Retained context",
+            "content_bytes": len(b"Retained context"),
+        },
+        "reuse": {
+            "schema": "powercontext.context-reuse.v1",
+            "constraints": {
+                "preserve": ["content", "citations", "trust", "order"],
+                "refresh_on": ["permission_change", "source_ineligible", "context_boundary"],
+            },
+            "expires_at": "2026-10-26T12:00:00Z",
+            "binding": "opaque-binding",
+        },
+    }
+    transport(lambda _request: httpx.Response(200, json=body))
+
+    result = run(registry, "pc_prepare_context", {"query": "scope"})
+
+    assert result["status"] == "error"
+    assert result["error"]["code"] == "invalid_response"
 
 
 @pytest.mark.parametrize("body", [None, {}, [], "not-json"])

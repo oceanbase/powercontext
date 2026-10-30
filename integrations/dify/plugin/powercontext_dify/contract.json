@@ -3274,6 +3274,11 @@
             "default": false,
             "description": "Opt into current-Scope native code evidence. No index is built during preparation."
           },
+          "include_reuse": {
+            "type": "boolean",
+            "default": false,
+            "description": "Return a versioned context and reuse envelope. Supported for single-Scope Atomic Memory with complete bounded dependencies; unsupported selected families, code, or references are rejected explicitly."
+          },
           "explain": {
             "type": "boolean",
             "default": false,

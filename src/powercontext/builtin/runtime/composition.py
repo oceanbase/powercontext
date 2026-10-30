@@ -799,6 +799,7 @@ async def open_builtin_runtime(
         )
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
+                inference_protection=config.inference.protection,
                 code_service=await resources.enter_async_context(open_code_service(config.code, config.database)),
                 provider=contexts,
                 primary_database=contexts.database,

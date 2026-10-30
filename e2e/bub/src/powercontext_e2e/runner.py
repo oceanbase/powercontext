@@ -21,7 +21,7 @@ import shutil
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, cast
 from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
@@ -39,7 +39,7 @@ from harbor.models.trial.paths import TrialPaths
 from harbor.models.trial.result import StepResult
 from powercontext.client import PowerContextClient
 from powercontext.client.settings import ClientSettings
-from powercontext.http import CreateScopeRequest, ListMemoryEntriesRequest, PrepareContextRequest
+from powercontext.http import CreateScopeRequest, ListMemoryEntriesRequest, PrepareContextRequest, PreparedContext
 
 from .artifacts import write_artifacts
 from .catalog import E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec, is_paired
@@ -632,7 +632,9 @@ async def memory_snapshot(client: PowerContextClient, scope_id: str) -> MemorySn
 
 
 async def prepared_context(client: PowerContextClient, scope_id: str, query: str) -> PreparedContextSnapshot:
-    prepared = await client.prepare_context(PrepareContextRequest(scope_id=scope_id, query=query))
+    prepared = cast(
+        PreparedContext, await client.prepare_context(PrepareContextRequest(scope_id=scope_id, query=query))
+    )
     return PreparedContextSnapshot(status=prepared.status.value, content=prepared.content or "")
 
 
