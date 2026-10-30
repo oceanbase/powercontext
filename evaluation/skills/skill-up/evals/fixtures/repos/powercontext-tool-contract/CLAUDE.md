@@ -200,6 +200,36 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `content: AtomicMemoryWriteContent`, `inputs: array<AtomicMemoryInput>`, `scope_id: string`.
 - Optional: `artifact_refs: array<ArtifactReference>`, `source_refs: array<SourceReference>`.
 
+## mcp__powercontext__pc_source_add
+
+- Required: `capability: string`, `capability_version: string`, `input: object`, `scope_id: string`.
+- Optional: `instance_id: string`.
+
+## mcp__powercontext__pc_source_capabilities
+
+- Required: `scope_id: string`.
+- Optional: `capability: string`, `input: object`, `instance_id: string`.
+
+## mcp__powercontext__pc_source_instance_set_enabled
+
+- Required: `enabled: boolean`, `instance_id: string`.
+- Optional: (none).
+
+## mcp__powercontext__pc_source_instances
+
+- Required: (none).
+- Optional: `capability: string`, `input: object`, `instance_id: string`, `scope_id: string`, `view: "discovery" | "control" = "discovery"`.
+
+## mcp__powercontext__pc_source_status
+
+- Required: `scope_id: string`, `target_id: string`.
+- Optional: `view: "result" | "control" = "result"`.
+
+## mcp__powercontext__pc_source_target_set_enabled
+
+- Required: `enabled: boolean`, `scope_id: string`, `target_id: string`.
+- Optional: (none).
+
 ## mcp__powercontext__prepare_handoff_hint
 
 - Required: `scope_id: string`, `selection: "prepared" | "exact" | "latest"`.

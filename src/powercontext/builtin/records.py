@@ -42,7 +42,7 @@ class SourceRecord(_RecordModel):
     """One durable Source and its journal position."""
 
     scope_id: str
-    source_type: Literal["content"]
+    source_type: str
     source_id: str
     content: JsonValue
     position: int

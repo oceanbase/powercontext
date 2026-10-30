@@ -124,6 +124,48 @@ describe('PowerContext MCP bridge', () => {
     },
   )
 
+  it.each([
+    'pc_source_capabilities', 'pc_source_status', 'pc_source_add',
+    'pc_source_target_set_enabled', 'pc_source_instances',
+  ])('binds %s to the host Scope before allowing or asking', async operation => {
+    for (const requested of ['scope-b', undefined]) {
+      const next = vi.fn(async () => ({ kind: 'allow' as const }))
+      const result = await policyHook()({
+        name: `mcp__powercontext__${operation}`,
+        arguments: { scope_id: requested },
+        signal: new AbortController().signal,
+      }, next)
+      expect(result).toMatchObject({ kind: 'deny' })
+      expect(next).not.toHaveBeenCalled()
+    }
+    const result = await policyHook()({
+      name: `mcp__powercontext__${operation}`,
+      arguments: { scope_id: 'scope-a' },
+      signal: new AbortController().signal,
+    }, async () => ({ kind: 'allow' }))
+    expect(result).toMatchObject({ kind: MCP_OPERATIONS[operation as keyof typeof MCP_OPERATIONS].readOnly ? 'allow' : 'ask' })
+    const unresolved = await policyHook(async () => undefined)({
+      name: `mcp__powercontext__${operation}`,
+      arguments: { scope_id: 'scope-a' },
+      signal: new AbortController().signal,
+    }, async () => ({ kind: 'allow' }))
+    expect(unresolved).toMatchObject({ kind: 'deny' })
+  })
+
+  it.each([
+    ['pc_source_instances', { instance_id: 'tickets', view: 'control' }, 'allow'],
+    ['pc_source_instance_set_enabled', { instance_id: 'tickets', enabled: false }, 'ask'],
+  ])('keeps administrator operation %s independent of the host Scope', async (operation, args, kind) => {
+    const resolveScope = vi.fn(async () => undefined)
+    const result = await policyHook(resolveScope)({
+      name: `mcp__powercontext__${operation}`,
+      arguments: args,
+      signal: new AbortController().signal,
+    }, async () => ({ kind: 'allow' }))
+    expect(result).toMatchObject({ kind })
+    expect(resolveScope).not.toHaveBeenCalled()
+  })
+
   it('asks before candidate approval even when the MCP server only advertises annotations', async () => {
     const next = vi.fn(async () => ({ kind: 'allow' as const }))
     const result = await policyHook()({
@@ -137,6 +179,8 @@ describe('PowerContext MCP bridge', () => {
   })
 
   it.each([
+    ['pc_source_add', { capability: 'content.inline', input: { text: 'sk-review-fixture-only' } }],
+    ['pc_source_add', { capability: 'ticket.write', input: { metadata: { notes: ['api_key=FAKE_REVIEW_CANARY'] } } }],
     ['remember_memory', { text: 'api_key=FAKE_REVIEW_MARKER' }],
     ['replace_artifact', { content: { kind: 'decision', text: 'api_key=FAKE_REVIEW_MARKER' } }],
     ['merge_atomic_memories', { content: { kind: 'decision', text: 'api_key=FAKE_REVIEW_MARKER' } }],
