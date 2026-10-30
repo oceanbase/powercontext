@@ -120,6 +120,7 @@ def installers():
     from powercontext.cli.dsh import DshInstaller
     from powercontext.cli.hermes import HermesInstaller
     from powercontext.cli.kimi_code import KimiInstaller
+    from powercontext.cli.minimax import MiniMaxInstaller
     from powercontext.cli.openclaw import OpenClawInstaller
     from powercontext.cli.opencode import OpenCodeInstaller
     from powercontext.cli.pi import PiInstaller
@@ -133,6 +134,7 @@ def installers():
         "dsh": DshInstaller,
         "hermes": HermesInstaller,
         "kimi-code": KimiInstaller,
+        "minimax": MiniMaxInstaller,
         "openclaw": OpenClawInstaller,
         "opencode": OpenCodeInstaller,
         "pi": PiInstaller,
@@ -156,15 +158,24 @@ def setup(
 
     try:
         validate_setup_authorization(host)
+        installer = installers()[host](**options) if host == "minimax" else None
+        native = {"native_endpoint": installer.native_endpoint()} if installer is not None else {}
         connection = prepare_setup_transport(
             host,
             server_url=server_url,
             allow_insecure_http=allow_insecure_http,
             json_output=json_output,
             dsh_target=options.get("dsh_target"),
+            **native,
         )
-        installer = installers()[host](**options)
-        report = installer.install(PluginSource(source, ref))
+        if installer is None:
+            installer = installers()[host](**options)
+        source_package = PluginSource(source, ref)
+        report = (
+            installer.install(source_package, connection=connection)
+            if host == "minimax"
+            else installer.install(source_package)
+        )
         try:
             report.update(installer.configure(connection))
         except Exception as error:

@@ -18,7 +18,6 @@ schema_version = 2
 [directory_exclusions]
 cindy = "Scoped Ghost recall and will-user-message hooks plus native MCP under evaluation with Cindy 0.1.115; opt-in Codex app-server acceptance does not qualify Electron installation, credential UI, or complete Desktop harness routing. See integrations/cindy/README.md."
 agent-plugin = "Portable Agent Plugin client package, not a qualified host or framework adapter; host support is tracked by the individual host declarations. See integrations/agent-plugin/README.md."
-minimax = "Host package awaiting one-command setup and native qualification under #1840; not yet included in the supported host catalog. See integrations/minimax/README.md."
 opendal = "Independently deployed evaluation Connector worker, not a complete standard Source integration or host adapter. See integrations/opendal/README.md."
 
 # These kinds have a different documentation contract; declared evidence is still checked.
@@ -1319,3 +1318,17 @@ mode = "unsupported"
 implementation = ["integrations/kimi-code/plugins/powercontext/kimi.plugin.json", "integrations/kimi-code/plugins/powercontext/hooks/user_prompt_submit.mjs", "integrations/kimi-code/plugins/powercontext/scripts/scope.mjs", "src/powercontext/cli/kimi_code.py"]
 documentation = ["docs/en/docs/integrations/kimi-code.md", "docs/zh/docs/integrations/kimi-code.md"]
 tests = ["tests/test_cli_kimi_code.py", "integrations/kimi-code/plugins/powercontext/tests/plugin.test.mjs", "tests/e2e/test_kimi_code_host.py"]
+
+[[integrations]]
+id = "minimax"
+kind = "agent_host"
+availability = "experimental"
+capabilities = ["acknowledge", "artifact_publication", "candidate_review", "experience_read_or_generate", "external_skill", "handoff", "memory_read", "memory_write", "persistent_scope_binding", "scope_organization", "skill_read_or_generate", "source_capture", "task_outcome", "work_contract"]
+profiles = []
+toolsets = ["server-mcp"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
+[integrations.evidence]
+implementation = ["src/powercontext/cli/minimax.py", "integrations/minimax/plugins/powercontext/.minimax-plugin/plugin.json", "integrations/minimax/plugins/powercontext/powercontext.mcp.json"]
+documentation = ["docs/en/docs/integrations/minimax.md", "docs/zh/docs/integrations/minimax.md", "integrations/minimax/acceptance.md"]
+tests = ["tests/test_cli_minimax.py", "tests/e2e/test_minimax_host.py"]

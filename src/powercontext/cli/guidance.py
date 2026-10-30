@@ -109,7 +109,11 @@ HOST_GUIDANCE = {
         package_name="powercontext",
     ),
     "agent-plugin": HostGuidance("integrations/agent-plugin/powercontext"),
-    "minimax": HostGuidance("integrations/minimax/plugins/powercontext"),
+    "minimax": HostGuidance(
+        "integrations/minimax/plugins/powercontext",
+        source_files=(".minimax-plugin/plugin.json",),
+        package_name="powercontext",
+    ),
 }
 
 

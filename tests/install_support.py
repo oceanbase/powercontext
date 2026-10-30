@@ -32,8 +32,9 @@ def stub_installer(monkeypatch, host, callback):
         connection = prepare(*args, **kwargs)
         return connection
 
-    def install(self, source):
+    def install(self, source, **install_options):
         assert connection is not None
+        assert install_options == ({"connection": connection} if host == "minimax" else {})
         options = vars(self) | {
             "host": host,
             "source": source.location,

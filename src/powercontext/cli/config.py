@@ -337,14 +337,19 @@ def configure_agents(
             options["dsh_target"] = resolve_dsh_target(
                 DshProfile(profile) if profile is not None else None, dsh_command
             )
+        installer = installers()[host](**options) if host == "minimax" else None
+        native = {"native_endpoint": installer.native_endpoint()} if installer is not None else {}
         connection = prepare_setup_transport(
             host,
             server_url=server_url,
             allow_insecure_http=allow_insecure_http,
             json_output=json_output,
             dsh_target=options.get("dsh_target"),
+            **native,
         )
-        result = installers()[host](**options).configure(connection)
+        if installer is None:
+            installer = installers()[host](**options)
+        result = installer.configure(connection)
         return {"status": "configured", "result": result}
 
     report_agents(selected, configure, json_output=json_output)

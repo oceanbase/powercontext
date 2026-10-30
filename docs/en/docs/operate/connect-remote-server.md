@@ -95,7 +95,7 @@ The CLI observes the selected configuration files and its own environment, not a
 `--patch` arguments or environment; use `/pc doctor` inside that session. Doctor reports unsupported native
 composition (including unsupported JSON5/includes in other hosts) as unknown/failed rather than claiming safety.
 
-MiniMax and the generic Agent Plugin delegate MCP transport to the host and have no PowerContext setup subcommand
+MiniMax and the generic Agent Plugin delegate MCP transport to the host. MiniMax supports `powercontext setup minimax` and `doctor minimax`; setup merges its private MCP configuration. The generic Agent Plugin has no PowerContext setup subcommand
 or independent HTTP client. Their host may have its own restrictions; this flag cannot override host policy.
 LangChain, LangGraph, Pydantic AI, and the Bub evaluation adapter expose client consent without adding a host installer.
 

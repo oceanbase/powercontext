@@ -182,19 +182,38 @@ jobs:
       - name: Verify native Keychain across processes
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
       - name: Build unsigned macOS app and DMG
+        id: macos_build
+        shell: bash
         run: |
           mkdir -p .artifacts
           set -o pipefail
           pnpm tauri build --ci --verbose -- --locked 2>&1 | tee .artifacts/macos-build.log
-      - name: Upload failed macOS build diagnostics
-        if: failure()
+      - name: Collect macOS packaging diagnostics
+        if: ${{ always() && steps.macos_build.outcome == 'failure' }}
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          mkdir -p .artifacts
+          {
+            sw_vers || true
+            uname -m || true
+            df -h . "$RUNNER_TEMP" || true
+            hdiutil info || true
+            diskutil list || true
+          } > .artifacts/macos-packaging-diagnostics.log 2>&1
+      - name: Upload macOS packaging diagnostics
+        if: ${{ always() && steps.macos_build.outcome != 'skipped' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: desktop-macos-${{ matrix.runner }}-build-diagnostics
+          name: desktop-macos-${{ matrix.runner }}-packaging-diagnostics
+          include-hidden-files: true
           path: |
             desktop/.artifacts/macos-build.log
+            desktop/.artifacts/macos-packaging-diagnostics.log
             desktop/src-tauri/target/release/bundle/dmg/bundle_dmg.sh
+            desktop/src-tauri/target/release/bundle/share/create-dmg/support/
           if-no-files-found: warn
+          retention-days: 7
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: desktop-macos-${{ matrix.runner }}-internal-unsigned

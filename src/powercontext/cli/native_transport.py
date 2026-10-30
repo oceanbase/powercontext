@@ -174,6 +174,10 @@ def _selected_url(host: str, prefix: str, native_url: str | None) -> str:
 
 def configured_native_endpoint(host: str) -> str | None:
     """Read only explicitly configured native endpoints for setup conflict detection."""
+    if host == "minimax":
+        from powercontext.cli.minimax import MiniMaxInstaller
+
+        return MiniMaxInstaller().native_endpoint()
     if host == "codex":
         return _codex_url()
     if host == "zcode":
@@ -185,12 +189,22 @@ def configured_native_endpoint(host: str) -> str | None:
     return _url(native[url_key]) if url_key in native else None
 
 
-def resolve_host_transport(host: str, *, dsh_target: DshTarget | None = None) -> tuple[str, bool]:
+def resolve_host_transport(host: str, *, dsh_target: DshTarget | None = None) -> tuple[str, bool]:  # noqa: C901 - native transport precedence differs by host.
     """Resolve the effective endpoint and consent, or report an unknown native configuration.
 
     Native HTTP consent is endpoint-bound. This is a read-only diagnostic, not
     an HTTP guard; callers must label remote HTTP as degraded or blocked.
     """
+    if host == "minimax":
+        from powercontext.cli.minimax import MiniMaxInstaller
+
+        endpoint = MiniMaxInstaller().native_endpoint()
+        if endpoint is None:
+            raise ValueError("MiniMax PowerContext MCP endpoint is not configured")  # noqa: TRY003
+        from powercontext.client.transport_policy import load_client_settings
+
+        saved = load_client_settings(host)
+        return endpoint, saved.get("allow_insecure_http") is True and saved.get("server_url") == endpoint
     if host == "zcode":
         from powercontext.cli.zcode import zcode_plugin_dir
 
