@@ -26,11 +26,7 @@ from typing import cast
 import httpx
 import pytest
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.records import RecordService
-from powercontext.builtin.runtime import BuiltinRuntime, InferenceConfig, RuntimeCapabilities, RuntimeConfig
-from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessDecision,
@@ -39,7 +35,11 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
+from powercontext.builtin.authz.composition import open_builtin_access_control, open_casbin_access_control
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import RecordService
+from powercontext.builtin.runtime import BuiltinRuntime, InferenceConfig, RuntimeCapabilities, RuntimeConfig
+from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 from tests.e2e.server_storage import prepare_server_database
@@ -89,7 +89,6 @@ async def _server(tmp_path: Path, backend="builtin", *, inference: InferenceConf
             settings=settings,
             authentication_provider=_Authentication(),
             access_control=access,
-            scheduler_path=tmp_path / "scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),
@@ -789,9 +788,9 @@ def test_static_preset_initializes_only_needed_permissions_without_reviving_revo
 
 def test_static_preset_can_create_and_read_atomic_memories_in_a_cold_scope(tmp_path):
     from powercontext.artifacts.search import ArtifactSearchExecutionContext
+    from powercontext.builtin.authz import AccessControlService
+    from powercontext.builtin.authz.repository import RelationalAccessRepository
     from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
-    from powercontext.server.authz import AccessControlService
-    from powercontext.server.authz.repository import RelationalAccessRepository
 
     async def scenario():
         config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cold-preset.db'}"))
@@ -894,7 +893,7 @@ def test_missing_owner_does_not_block_explicit_reads(tmp_path, backend):
             # A preexisting identity can be missing its Owner relation.
             from sqlalchemy import delete
 
-            from powercontext.server.authz.repository import ACCESS_OWNERS_TABLE
+            from powercontext.builtin.authz.repository import ACCESS_OWNERS_TABLE
 
             async with access.relationships._database.transaction() as connection:
                 await connection.execute(
@@ -1167,7 +1166,7 @@ def test_owner_failure_rolls_back_handoff_and_publication(tmp_path, operation):
 
 
 def test_custom_relationship_writer_preserves_its_owner_failure_semantics(tmp_path):
-    from powercontext.server.authz.repository import RelationalAccessRepository
+    from powercontext.builtin.authz.repository import RelationalAccessRepository
 
     class CustomRelationships(RelationalAccessRepository):
         async def establish_artifact_owner(self, relation):

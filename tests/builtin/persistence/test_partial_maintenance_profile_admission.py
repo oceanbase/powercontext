@@ -37,7 +37,6 @@ def test_missing_configuration_cannot_admit_partial_vector_maintenance(tmp_path,
         create_server_app(
             settings=settings,
             embedding_model=ControlledEmbedding(profile),
-            scheduler_path=tmp_path / "scheduler",
         )
     ) as client:
         response = client.post(

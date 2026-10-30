@@ -173,9 +173,7 @@ async def _runtime(
         database=SQLiteConfig() if in_memory else SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
         runtime=runtime if runtime is not None else RuntimeConfig(),
     )
-    async with open_builtin_runtime(
-        config, scheduler_path=database.with_suffix(".scheduler.db"), embedding_model=embedding_model
-    ) as opened:
+    async with open_builtin_runtime(config, embedding_model=embedding_model) as opened:
         yield opened
 
 
@@ -1346,7 +1344,6 @@ def test_prepare_delivers_final_recall_effort_to_the_optional_sink(tmp_path) -> 
         )
         async with open_builtin_runtime(
             config,
-            scheduler_path=database.with_suffix(".scheduler.db"),
             recall_effort_sink=sink,
         ) as runtime:
             scope_id = await _create_scope(runtime, "sink")
@@ -1408,7 +1405,6 @@ def test_recall_effort_sink_failure_does_not_fail_prepare(tmp_path, caplog) -> N
         )
         async with open_builtin_runtime(
             config,
-            scheduler_path=database.with_suffix(".scheduler.db"),
             recall_effort_sink=sink,
         ) as runtime:
             scope_id = await _create_scope(runtime, "sink-failure")
@@ -1437,7 +1433,6 @@ def test_disabled_gate_does_not_call_recall_effort_sink(tmp_path) -> None:
         )
         async with open_builtin_runtime(
             config,
-            scheduler_path=database.with_suffix(".scheduler.db"),
             recall_effort_sink=sink,
         ) as runtime:
             scope_id = await _create_scope(runtime, "sink-disabled")

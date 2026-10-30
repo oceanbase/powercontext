@@ -79,7 +79,6 @@ def main() -> None:
         experience_generator=ExperienceGenerator(),
         skill_generator=SkillGenerator(),
         handoff_pipeline=HandoffPipeline(),
-        scheduler_path=args.database.parent / "scheduler.db",
     )
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning", access_log=False)
 

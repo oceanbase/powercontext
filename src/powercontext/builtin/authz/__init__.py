@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Server-owned authentication and authorization building blocks."""
+"""Authorization building blocks shared by the built-in Runtime and the Server."""
 
 from typing import TYPE_CHECKING
 
-from powercontext.server.authz.errors import (
+from powercontext.builtin.authz.errors import (
     AccessBindingNotFoundError,
     AccessConflictError,
     AccessControlError,
@@ -25,7 +25,7 @@ from powercontext.server.authz.errors import (
     AccessInvalidRequestError,
     AccessUnavailableError,
 )
-from powercontext.server.authz.models import (
+from powercontext.builtin.authz.models import (
     DEFAULT_DEPLOYMENT_ID,
     PUBLIC_ACCESS_ACTIONS,
     ROLE_CARDINALITIES,
@@ -47,7 +47,7 @@ from powercontext.server.authz.models import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.service import (
+from powercontext.builtin.authz.service import (
     AccessAuditContext,
     AccessAuditPage,
     AccessAuditStore,
@@ -73,18 +73,18 @@ from powercontext.server.authz.service import (
 )
 
 if TYPE_CHECKING:
-    from powercontext.server.authz.authzen import AuthZenAuthorizationProvider
-    from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+    from powercontext.builtin.authz.authzen import AuthZenAuthorizationProvider
+    from powercontext.builtin.authz.casbin import CasbinAuthorizationProvider
 
 
 def __getattr__(name: str) -> object:
     # Runtime consumers use the shared Access contract without selecting a Server provider.
     if name == "AuthZenAuthorizationProvider":
-        from powercontext.server.authz.authzen import AuthZenAuthorizationProvider
+        from powercontext.builtin.authz.authzen import AuthZenAuthorizationProvider
 
         return AuthZenAuthorizationProvider
     if name == "CasbinAuthorizationProvider":
-        from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+        from powercontext.builtin.authz.casbin import CasbinAuthorizationProvider
 
         return CasbinAuthorizationProvider
     message = f"module {__name__!r} has no attribute {name!r}"

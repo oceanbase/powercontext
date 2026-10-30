@@ -48,6 +48,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
 )
+from powercontext.builtin.authz.worker import open_worker_security
 from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
 from powercontext.builtin.persistence.atomic_memory_index import (
@@ -72,7 +73,6 @@ from powercontext.builtin.scope import ScopeDraft
 from powercontext.errors import SourceConflictError
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import OperationalContextFilter
-from powercontext.server.processing_security import open_worker_security
 from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.server.tracing import ServerTracing
 from tests.e2e.dream_support import atomic_memory_pipeline

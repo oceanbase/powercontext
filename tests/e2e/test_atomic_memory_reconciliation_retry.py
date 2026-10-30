@@ -109,7 +109,7 @@ async def _flush(provider: _Provider, monkeypatch, tmp_path):
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'retry.db'}"),
         inference=InferenceConfig(generation_model="provider:test-model"),
     )
-    async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+    async with open_builtin_runtime(config) as runtime:
         assert runtime.scopes is not None
         assert runtime.atomic_memory is not None
         scope = await runtime.scopes.create(ScopeDraft(title="Billing", summary="Decisions", idempotency_key="billing"))

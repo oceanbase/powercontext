@@ -64,7 +64,6 @@ def test_execution_constraints_preserve_fts_facts_through_codex_hook(tmp_path, r
             runtime=RuntimeConfig(artifact_processing_families=(), recall_gate_enabled=recall_gate_enabled),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
@@ -518,7 +517,6 @@ def test_codex_workspace_cli_preserves_session_and_repository_boundaries(tmp_pat
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'workspace-flow.db'}"),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "workspace-scheduler.db",
     )
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))

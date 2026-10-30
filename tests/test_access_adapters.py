@@ -24,8 +24,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessBinding,
@@ -48,9 +47,10 @@ from powercontext.server.authz import (
     ResourceRef,
     ResourceSearchRequest,
 )
-from powercontext.server.authz.composition import open_casbin_access_control
-from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
-from powercontext.server.authz.service import DecisionState
+from powercontext.builtin.authz.composition import open_casbin_access_control
+from powercontext.builtin.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.authz.service import DecisionState
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 
 ADMIN = PrincipalRef(type="service", id="admin")
 ALICE = PrincipalRef(type="user", id="alice", description="Alice")

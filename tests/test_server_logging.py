@@ -540,7 +540,6 @@ def test_server_warns_when_using_an_in_memory_database(caplog, tmp_path) -> None
             database=SQLiteConfig(),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
 
     with caplog.at_level(logging.WARNING, logger="powercontext.server.factory"), TestClient(app) as client:

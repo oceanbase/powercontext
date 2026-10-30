@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import warnings
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from datetime import timedelta
@@ -145,8 +146,6 @@ from powercontext.builtin.runtime._scope_cache import ScopeCacheObserver
 from powercontext.builtin.runtime.application import (
     BuiltinRuntime,
     RecallEffortSink,
-    ScheduledExperienceRunner,
-    ScheduledSourceRunner,
 )
 from powercontext.builtin.runtime.artifact_merge import (
     ArtifactMergeAccess,
@@ -492,10 +491,10 @@ def _artifact_merge_application(contexts: RelationalContexts, config: RuntimeCon
 
 
 @asynccontextmanager
-async def open_builtin_runtime(
+async def open_builtin_runtime(  # noqa: C901
     config: BuiltinConfig,
     *,
-    scheduler_path: str | Path = "powercontext.scheduler.db",
+    scheduler_path: str | Path | None = None,
     candidate_pipeline: CandidatePipeline | AtomicMemoryGenerationPipeline | None = None,
     experience_pipeline: ExperienceCandidatePipeline | None = None,
     experience_generator: ExperienceGenerator | None = None,
@@ -525,8 +524,6 @@ async def open_builtin_runtime(
     processing_observer: Callable[[str, str, float], None] | None = None,
     worker_initializer: Callable[[], None] | WorkerInitializerPreparation | None = None,
     worker_entrypoint_wrapper: Callable[[WorkerEntrypoint], WorkerEntrypoint] | None = None,
-    scheduled_source_runner: ScheduledSourceRunner | None = None,
-    scheduled_experience_runner: ScheduledExperienceRunner | None = None,
     scheduled_profile_runner: Any = None,
     source_registry: SourceDefinitionRegistry | None = None,
     cursor_secret: bytes | None = None,
@@ -545,7 +542,17 @@ async def open_builtin_runtime(
     a context manager yielding the picklable child bootstrap. Its resources remain
     open until spawn or cancellation cleanup finishes. Custom bindings own their
     launchers and initialization. The default does not configure process logging.
+
+    ``scheduler_path`` is deprecated and ignored.
     """
+
+    if scheduler_path is not None:
+        warnings.warn(
+            "scheduler_path is ignored and will be removed; automatic processing is scheduled by the "
+            "artifact processing supervisor",
+            DeprecationWarning,
+            stacklevel=3,
+        )
 
     async with AsyncExitStack() as resources:
         configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
@@ -820,8 +827,6 @@ async def open_builtin_runtime(
                 scope_cache_size=config.runtime.scope_cache_size,
                 scope_evictor=contexts.evict,
                 scope_cache_observer=scope_cache_observer,
-                scope_ids=contexts.scope_ids,
-                source_scope_ids=contexts.unconsumed_source_scope_ids,
                 review_service=contexts.review,
                 catalog_change_service=contexts.catalog_changes,
                 profiles=contexts.profiles,
@@ -879,8 +884,6 @@ async def open_builtin_runtime(
                     disabled_dependencies=(name for name, probe in inference_readiness if probe is None),
                 ),
                 tracing=tracing,
-                scheduled_source_runner=scheduled_source_runner,
-                scheduled_experience_runner=scheduled_experience_runner,
                 remote_ingestion=contexts,
                 archive_service=contexts.portability,
             )
@@ -2296,8 +2299,8 @@ __all__ = ["BuiltinConfigurationError", "open_builtin_contexts", "open_builtin_r
 
 async def _initialize_atomic_memory_authority(connection) -> None:
     """Create formal authority storage without importing legacy business data."""
+    from powercontext.builtin.authz.repository import ACCESS_POLICY_HEADS_TABLE, ACCESS_TABLES
     from powercontext.builtin.persistence.schema import create_tables
-    from powercontext.server.authz.repository import ACCESS_POLICY_HEADS_TABLE, ACCESS_TABLES
 
     await create_tables(connection, ACCESS_TABLES)
     if connection.dialect.name == "sqlite":

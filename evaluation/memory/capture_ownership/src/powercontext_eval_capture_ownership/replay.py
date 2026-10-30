@@ -301,7 +301,7 @@ async def run_experiment(
             extraction_instructions=definition.default_instructions,
         )
         # Real ASGI HTTP routes and application lifespan, not a mocked capture handler.
-        with TestClient(create_server_app(settings=settings, scheduler_path=private_dir / "scheduler.db")) as client:
+        with TestClient(create_server_app(settings=settings)) as client:
             response = client.post(
                 "/v1/scopes",
                 json={

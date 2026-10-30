@@ -33,6 +33,15 @@ from pydantic import SecretStr
 from sqlalchemy.engine import make_url
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.authz import AccessAction, AccessDecision, PrincipalRef
+from powercontext.builtin.authz.authzen import AuthZenAuthorizationProvider
+from powercontext.builtin.authz.composition import open_builtin_access_control, open_casbin_access_control
+from powercontext.builtin.authz.repository import RelationalAccessRepository
+from powercontext.builtin.authz.service import (
+    AccessControlService,
+    AccessProviderCapabilities,
+    BuiltinAuthorizationProvider,
+)
 from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
@@ -40,15 +49,6 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.runtime.config import DatabaseConfig, RuntimeConfig
 from powercontext.server.authentication import AuthenticationRejectedError, AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import AccessAction, AccessDecision, PrincipalRef
-from powercontext.server.authz.authzen import AuthZenAuthorizationProvider
-from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
-from powercontext.server.authz.repository import RelationalAccessRepository
-from powercontext.server.authz.service import (
-    AccessControlService,
-    AccessProviderCapabilities,
-    BuiltinAuthorizationProvider,
-)
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 from tests.e2e.server_storage import prepare_server_database
@@ -215,7 +215,6 @@ async def _server(
             access = await access_factory(access)
         app = create_server_app(
             settings=settings,
-            scheduler_path=tmp_path / "scheduler.db",
             authentication_provider=_Authentication(),
             access_control=access,
             embedding_model=embedding,

@@ -27,6 +27,7 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.sql.ddl import sort_tables
 
+from powercontext.builtin.authz.repository import ACCESS_TABLES
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime import CaptureSource
@@ -50,7 +51,6 @@ from powercontext.http import (
     ReplaceArtifactRequest,
     SearchMemoryRequest,
 )
-from powercontext.server.authz.repository import ACCESS_TABLES
 from powercontext.server.configuration import server_settings_context
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, McpConfig
@@ -162,7 +162,7 @@ async def _run_live(backend: str, env_file: Path, tmp_path: Path) -> None:
                 ),
             }
         )
-        app = create_server_app(settings=configured, scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=configured)
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(

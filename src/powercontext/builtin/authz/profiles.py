@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Server-owned Artifact Family Access Profiles."""
+"""Built-in Artifact Family Access Profiles."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
 
-from powercontext.server.authz.errors import AccessInvalidRequestError
-from powercontext.server.authz.models import (
+from powercontext.builtin.authz.errors import AccessInvalidRequestError
+from powercontext.builtin.authz.models import (
     ROLE_SUBJECT_TYPES,
     AccessAction,
     AccessResourceType,

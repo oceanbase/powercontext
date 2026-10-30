@@ -117,7 +117,7 @@ def test_managed_repair_uses_shared_plan_backup_and_lock_without_changing_author
                 pytest.fail("Incomplete projections must block runtime admission")
 
     asyncio.run(reject_runtime())
-    server = create_server_app(settings=settings, scheduler_path=path.parent / "scheduler.db")
+    server = create_server_app(settings=settings)
     with pytest.raises(MigrationError, match="projection_verification_failed"), TestClient(server):
         pytest.fail("Incomplete projections must block Server startup")
     assert path.read_bytes() == original

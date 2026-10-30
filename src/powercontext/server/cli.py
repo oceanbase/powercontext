@@ -30,6 +30,8 @@ from sqlalchemy import inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
+from powercontext.builtin.authz import PrincipalRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.persistence.bootstrap import (
     DatabaseAccessError,
     DatabaseCreationError,
@@ -54,12 +56,9 @@ from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_me
 from powercontext.builtin.runtime.composition import _embedding_models, open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
-from powercontext.cli.env_file import environment_context
-from powercontext.cli.inference_notice import write_inference_capability_notice
+from powercontext.env_file import environment_context
 from powercontext.server import database_migration
 from powercontext.server.app import access_readiness_checks
-from powercontext.server.authz import PrincipalRef
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.background_metrics import serve_background_metrics
 from powercontext.server.configuration import (
     ServerConfigurationError,
@@ -69,6 +68,7 @@ from powercontext.server.configuration import (
 from powercontext.server.database_migration import app as database_migration_app
 from powercontext.server.factory import _ServerReadinessProbe, create_background_metrics_app, create_server_app
 from powercontext.server.identity import open_server_identity_repository
+from powercontext.server.inference_notice import write_inference_capability_notice
 from powercontext.server.logging import configure_server_logging, shutdown_server_logging, worker_logging
 from powercontext.server.metrics import ServerMetrics
 from powercontext.server.processing_security import build_worker_security

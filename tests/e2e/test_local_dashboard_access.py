@@ -27,7 +27,7 @@ from typer.testing import CliRunner
 
 from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.cli.config import app as config_app
-from powercontext.cli.env_file import parse_environment
+from powercontext.env_file import parse_environment
 from powercontext.server.configuration import server_settings_context
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
@@ -64,7 +64,7 @@ def test_local_wizard_connects_dashboard_api_and_mcp(tmp_path: Path, require_aut
     base_url = values["POWERCONTEXT_CLIENT_SERVER_URL"]
     headers = {"Authorization": values["POWERCONTEXT_CODEX_AUTHORIZATION"]} if require_authentication else {}
     with server_settings_context(env_file=output) as settings:
-        app = create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=settings)
 
     def create_http_client(
         headers: dict[str, str] | None = None,
@@ -120,7 +120,7 @@ def test_dashboard_selected_note_uses_one_policy_and_content_snapshot(
 ) -> None:
     from contextvars import Context
 
-    from powercontext.server.authz import AccessAction, BuiltinAuthorizationProvider
+    from powercontext.builtin.authz import AccessAction, BuiltinAuthorizationProvider
     from powercontext.server.dashboard.routes import LABELS
 
     app = create_server_app(
@@ -132,7 +132,6 @@ def test_dashboard_selected_note_uses_one_policy_and_content_snapshot(
             auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-snapshot")),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=migration_backend.directory / "scheduler.db",
     )
 
     async def scenario() -> None:
@@ -218,7 +217,7 @@ def test_review_disclosures_follow_current_read_and_decision_grants(migration_ba
         auth=BearerAuthConfig(token=SecretStr("review-acceptance")),
         mcp=McpConfig(enabled=False),
     )
-    app = create_server_app(settings=settings, scheduler_path=migration_backend.directory / "scheduler.db")
+    app = create_server_app(settings=settings)
 
     async def scenario():
         async with (
@@ -277,7 +276,7 @@ def test_review_disclosures_follow_current_read_and_decision_grants(migration_ba
             artifact_id = artifact.json()["artifact_id"]
             tags = await client.get(f"/v1/scopes/{scope}/artifacts/experience/{artifact_id}/tags")
             assert tags.status_code == 200, tags.text
-            from powercontext.server.authz import PrincipalRef
+            from powercontext.builtin.authz import PrincipalRef
             from powercontext.server.context import bind_principal, reset_principal
 
             identity = bind_principal(PrincipalRef(type="service", id="server-token"))
@@ -365,7 +364,7 @@ def test_review_disclosures_follow_current_read_and_decision_grants(migration_ba
                 assert "Private Review evidence." not in forbidden.text
                 assert "Review a delivery" not in forbidden.text
 
-        restarted = create_server_app(settings=settings, scheduler_path=migration_backend.directory / "scheduler.db")
+        restarted = create_server_app(settings=settings)
         async with (
             restarted.router.lifespan_context(restarted),
             httpx.AsyncClient(

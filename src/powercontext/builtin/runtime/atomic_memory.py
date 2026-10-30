@@ -157,7 +157,7 @@ class AtomicMemoryAccess(ArtifactMergeAccess):
             and context.access is not None
             and context.access._deferred_decisions.get() is not None
         ):
-            from powercontext.server.authz import AccessAction, ResourceRef
+            from powercontext.builtin.authz import AccessAction, ResourceRef
 
             access = context.access.for_read(connection)
             await access.require(
@@ -336,7 +336,7 @@ class ScopedAtomicMemory:
         async with self._read(context) as connection:
             identities = tuple(dict.fromkeys(artifact_ids))
             if context is not None and context.access is not None:
-                from powercontext.server.authz import ResourceRef
+                from powercontext.builtin.authz import ResourceRef
 
                 access = context.access.for_read(connection)
                 policy = access.prefetch_point_decisions(

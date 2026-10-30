@@ -93,7 +93,7 @@ service 负责领域行为。
 `Trigger` 是基于 signal 和先前 state 的策略。它返回 `PolicyTransition`，其中包含下一状态和零个或多个 action。
 Trigger 不应打开存储、调度自身或执行它选择的 action。
 
-APScheduler 属于 Builtin runtime 的生命周期，负责决定何时评估策略。Trigger 只解释当前 signal 的含义。
+Builtin runtime 的 Artifact Processing Supervisor 负责决定何时评估策略。Trigger 只解释当前 signal 的含义。
 
 ## 职责边界
 

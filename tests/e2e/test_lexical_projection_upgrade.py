@@ -112,9 +112,7 @@ def test_upgrade_preserves_search_exact_records_and_vectors(migration_backend):
     }
 
     async def scenario():
-        async with open_builtin_runtime(
-            config, embedding_model=embedding, scheduler_path=migration_backend.directory / "scheduler"
-        ) as runtime:
+        async with open_builtin_runtime(config, embedding_model=embedding) as runtime:
             assert runtime.scopes is not None
             scope = (
                 await runtime.scopes.create(
@@ -150,9 +148,7 @@ def test_upgrade_preserves_search_exact_records_and_vectors(migration_backend):
                 .where(ARTIFACT_HEADS_TABLE.c.family.in_(("experience", "skill")))
                 .values(searchable_text="legacy stale terms")
             )
-        async with open_builtin_runtime(
-            config, embedding_model=embedding, scheduler_path=migration_backend.directory / "scheduler"
-        ) as runtime:
+        async with open_builtin_runtime(config, embedding_model=embedding) as runtime:
             application = runtime.artifacts.for_scope(scope)
             for family, original in originals.items():
                 result = await application.search(family, {"query": "请告诉我部署地址是什么", "mode": "text"})
@@ -174,9 +170,7 @@ def test_upgrade_preserves_search_exact_records_and_vectors(migration_backend):
             ].artifact_ref.artifact_id == fresh.artifact_id
             current_vectors = await runtime.atomic_memory.for_scope(scope).search(marker, mode="vector")
 
-        async with open_builtin_runtime(
-            config, embedding_model=embedding, scheduler_path=migration_backend.directory / "scheduler"
-        ) as runtime:
+        async with open_builtin_runtime(config, embedding_model=embedding) as runtime:
             for family, original in originals.items():
                 result = await runtime.artifacts.for_scope(scope).search(family, {"query": marker, "mode": "text"})
                 assert [match.artifact_ref.artifact_id for match in result.matches] == [original.artifact_id]

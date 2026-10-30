@@ -64,7 +64,7 @@ class ArtifactMergeAccess:
         action: str,
         ref: ArtifactRef | None = None,
     ) -> None:
-        from powercontext.server.authz import AccessAction, AccessDeniedError, ResourceRef
+        from powercontext.builtin.authz import AccessAction, AccessDeniedError, ResourceRef
 
         if context is None:
             return
@@ -108,7 +108,7 @@ class ArtifactMergeAccess:
     ) -> None:
         if context is None or context.access is None or not artifact_ids:
             return
-        from powercontext.server.authz import ResourceRef
+        from powercontext.builtin.authz import ResourceRef
 
         await context.access.with_connection(connection).establish_artifact_owners(
             tuple(

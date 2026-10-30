@@ -32,6 +32,18 @@ from powercontext.artifacts import ArtifactAddress, ArtifactLineage, ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.artifacts.experience import ExperienceContent, FailureRecord
 from powercontext.builtin.artifacts.merge_models import ArtifactMergeRelationError
+from powercontext.builtin.authz import (
+    AccessAuditContext,
+    AccessBinding,
+    AccessBindingState,
+    AccessControlService,
+    AccessDeniedError,
+    AccessRole,
+    BuiltinAuthorizationProvider,
+    PrincipalRef,
+    ResourceRef,
+)
+from powercontext.builtin.authz.repository import RelationalAccessRepository
 from powercontext.builtin.persistence.artifact_governance import InvalidArtifactLifecycleError
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ensure_artifact_head_searchable_text
@@ -49,18 +61,6 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.tags import ArtifactTagTarget
-from powercontext.server.authz import (
-    AccessAuditContext,
-    AccessBinding,
-    AccessBindingState,
-    AccessControlService,
-    AccessDeniedError,
-    AccessRole,
-    BuiltinAuthorizationProvider,
-    PrincipalRef,
-    ResourceRef,
-)
-from powercontext.server.authz.repository import RelationalAccessRepository
 from powercontext.sources import SourceRef
 
 OWNER = PrincipalRef(type="service", id="experience-owner")
@@ -152,9 +152,7 @@ def test_experience_management_merge_freezes_inputs_preserves_history_and_candid
     database, tmp_path
 ) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(
-            BuiltinConfig(database=database), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             records = runtime.records.for_scope(scope)
@@ -255,9 +253,7 @@ def test_experience_management_merge_freezes_inputs_preserves_history_and_candid
 
 def test_registered_families_keep_same_result_identity_and_projections_separate(database, tmp_path) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(
-            BuiltinConfig(database=database), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             assert runtime.atomic_memory is not None
@@ -326,7 +322,7 @@ def test_experience_nested_restore_republishes_the_selected_group(database, tmp_
             database=database,
             runtime=RuntimeConfig(atomic_memory_preview_signing_secret=SecretStr("x" * 32)),
         )
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             merge = runtime.artifact_merge.for_scope(scope, "experience")
@@ -408,9 +404,7 @@ def test_experience_nested_restore_republishes_the_selected_group(database, tmp_
 
 def test_experience_merge_preserves_explicit_caller_identity_and_denies_foreign_inputs(database, tmp_path) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(
-            BuiltinConfig(database=database), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             merge = runtime.artifact_merge.for_scope(scope, "experience")
@@ -462,8 +456,7 @@ def test_experience_merge_preserves_explicit_caller_identity_and_denies_foreign_
 def test_restoration_outcome_survives_reopen_and_requires_group_read_access(database, tmp_path) -> None:
     async def scenario() -> None:
         config = BuiltinConfig(database=database)
-        scheduler_path = tmp_path / "scheduler.db"
-        async with open_builtin_runtime(config, scheduler_path=scheduler_path) as runtime:
+        async with open_builtin_runtime(config) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             merge = runtime.artifact_merge.for_scope(scope, "experience")
@@ -518,7 +511,7 @@ def test_restoration_outcome_survives_reopen_and_requires_group_read_access(data
             assert (await merge.get(a.ref.artifact_id, revision=2, context=context)).ref == restored.primary.ref
             with pytest.raises(AccessDeniedError):
                 await merge.restoration_outcome(a.ref.artifact_id, revision=2, context=context)
-        async with open_builtin_runtime(config, scheduler_path=scheduler_path) as reopened:
+        async with open_builtin_runtime(config) as reopened:
             assert reopened.artifact_merge is not None
             merge = reopened.artifact_merge.for_scope(scope, "experience")
             recovered = await merge.restoration_outcome(a.ref.artifact_id, revision=2)
@@ -599,9 +592,7 @@ def test_existing_shared_tables_upgrade_preserves_exact_rows_and_defaults(databa
 
 def test_experience_merge_rejects_unsupported_lineage_before_writing(database, tmp_path) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(
-            BuiltinConfig(database=database), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             merge = runtime.artifact_merge.for_scope(scope, "experience")

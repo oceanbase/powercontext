@@ -1721,12 +1721,13 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
     import httpx
     from starlette.middleware import Middleware
 
+    from powercontext.builtin.authz import AccessRole, PrincipalRef, ResourceRef
+    from powercontext.builtin.authz.composition import open_builtin_access_control
+    from powercontext.builtin.authz.dream import principal_identity
+    from powercontext.builtin.authz.service import AccessAuditContext, CreateBinding
     from powercontext.server.app import create_app
     from powercontext.server.authentication import StaticBearerAuthenticationProvider
-    from powercontext.server.authz import AccessRole, PrincipalRef, ResourceRef
-    from powercontext.server.authz.composition import open_builtin_access_control
-    from powercontext.server.authz.service import AccessAuditContext, CreateBinding
-    from powercontext.server.dream_access import DreamAccess, principal_identity
+    from powercontext.server.dream_access import DreamAccess
     from powercontext.server.middleware import AuthenticationMiddleware
 
     admin = PrincipalRef(type="service", id="dream-admin")
@@ -1888,10 +1889,11 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
 
 
 def test_dream_candidate_attestation_preserves_configured_casbin_denial(tmp_path: Path) -> None:
-    from powercontext.server.authz import AccessAction, AccessControlService, AccessRole, PrincipalRef, ResourceRef
-    from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
-    from powercontext.server.authz.service import AccessAuditContext, CreateBinding
-    from powercontext.server.dream_access import DreamAccess, principal_identity
+    from powercontext.builtin.authz import AccessAction, AccessControlService, AccessRole, PrincipalRef, ResourceRef
+    from powercontext.builtin.authz.composition import open_builtin_access_control, open_casbin_access_control
+    from powercontext.builtin.authz.dream import principal_identity
+    from powercontext.builtin.authz.service import AccessAuditContext, CreateBinding
+    from powercontext.server.dream_access import DreamAccess
 
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'dream.db'}")
     decision_database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'decisions.db'}")
@@ -3121,9 +3123,9 @@ def test_memory_approval_replays_across_servers(  # noqa: C901 - keep race barri
     import httpx
 
     from powercontext.builtin.artifacts.atomic_memory.service import AtomicMemoryService
+    from powercontext.builtin.authz.errors import AccessDeniedError
     from powercontext.builtin.review.service import ReviewService
     from powercontext.server.app import create_app
-    from powercontext.server.authz.errors import AccessDeniedError
 
     delayed = ContextVar("delayed_memory_approval", default=False)
 

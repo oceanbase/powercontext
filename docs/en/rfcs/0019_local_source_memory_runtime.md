@@ -4,6 +4,10 @@
 
 > **Note:** PowerContext now uses bundled sqlite-vec for SQLite vector search. Statements about Vec1 in this RFC no
 > longer apply and remain only as a record of the original design.
+>
+> **Note:** Automatic processing runs under the Artifact Processing Supervisor
+> ([RFC 1515](1515_artifact_processing_supervisor.md)). The APScheduler interval job, its SQLite sidecar, and
+> `ScheduledSourceProcessor` described in this RFC no longer exist and remain only as a record of the original design.
 
 # Summary
 

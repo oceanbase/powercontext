@@ -31,6 +31,8 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionOutput,
 )
 from powercontext.builtin.artifacts.handoff import HandoffDraft, HandoffGenerationRequest, HandoffStatement
+from powercontext.builtin.authz import AccessControlService, PrincipalRef, ResourceRef
+from powercontext.builtin.authz.composition import open_builtin_access_control, open_casbin_access_control
 from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
@@ -59,8 +61,6 @@ from powercontext.http import (
     RevokeAccessBindingRequest,
 )
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
-from powercontext.server.authz import AccessControlService, PrincipalRef, ResourceRef
-from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     AccessControlConfig,
@@ -118,7 +118,7 @@ def test_logical_handoff_grant_and_revoke_cross_the_public_server_boundary(tmp_p
             deployment_id=DEPLOYMENT_ID,
         ) as access_control:
             async with _client(
-                _app(database, access_control, ADMIN, "admin-token", tmp_path / "admin-scheduler.db"),
+                _app(database, access_control, ADMIN, "admin-token"),
                 "admin-token",
             ) as admin:
                 scope = await admin.create_scope(
@@ -180,7 +180,7 @@ def test_logical_handoff_grant_and_revoke_cross_the_public_server_boundary(tmp_p
                 assert committed.reference.revision == first_committed.reference.revision + 1
 
             async with _client(
-                _app(database, access_control, RECEIVER, "receiver-token", tmp_path / "receiver-scheduler.db"),
+                _app(database, access_control, RECEIVER, "receiver-token"),
                 "receiver-token",
             ) as receiver:
                 exact = await receiver.continue_handoff(
@@ -238,7 +238,7 @@ def test_logical_handoff_grant_and_revoke_cross_the_public_server_boundary(tmp_p
                 assert visible.items[0].model_dump(mode="json") == resource
 
             async with _client(
-                _app(database, access_control, ADMIN, "admin-token", tmp_path / "revoke-scheduler.db"),
+                _app(database, access_control, ADMIN, "admin-token"),
                 "admin-token",
             ) as admin:
                 revoked = await admin.revoke_access_binding(
@@ -251,7 +251,7 @@ def test_logical_handoff_grant_and_revoke_cross_the_public_server_boundary(tmp_p
                 assert revoked.state == "revoked"
 
             async with _client(
-                _app(database, access_control, RECEIVER, "receiver-token", tmp_path / "denied-scheduler.db"),
+                _app(database, access_control, RECEIVER, "receiver-token"),
                 "receiver-token",
             ) as receiver:
                 with pytest.raises(ForbiddenResponseError):
@@ -285,7 +285,7 @@ def test_base_source_and_artifact_routes_preserve_access_boundaries(tmp_path: Pa
             deployment_id=DEPLOYMENT_ID,
         ) as access_control:
             async with _client(
-                _app(database, access_control, ADMIN, "admin-token", tmp_path / "base-admin-scheduler.db"),
+                _app(database, access_control, ADMIN, "admin-token"),
                 "admin-token",
             ) as admin:
                 scope = await admin.create_scope(
@@ -305,7 +305,7 @@ def test_base_source_and_artifact_routes_preserve_access_boundaries(tmp_path: Pa
                 )
 
             async with _client(
-                _app(database, access_control, RECEIVER, "receiver-token", tmp_path / "base-owner-scheduler.db"),
+                _app(database, access_control, RECEIVER, "receiver-token"),
                 "receiver-token",
             ) as owner:
                 source = await owner.create_source(
@@ -380,7 +380,7 @@ def test_base_source_and_artifact_routes_preserve_access_boundaries(tmp_path: Pa
                 assert relation.owner == RECEIVER
 
             async with _client(
-                _app(database, access_control, ADMIN, "admin-token", tmp_path / "base-share-scheduler.db"),
+                _app(database, access_control, ADMIN, "admin-token"),
                 "admin-token",
             ) as admin:
                 await admin.create_access_binding(
@@ -398,7 +398,7 @@ def test_base_source_and_artifact_routes_preserve_access_boundaries(tmp_path: Pa
                 )
 
             async with _client(
-                _app(database, access_control, VIEWER, "viewer-token", tmp_path / "base-viewer-scheduler.db"),
+                _app(database, access_control, VIEWER, "viewer-token"),
                 "viewer-token",
             ) as viewer:
                 head = await viewer.get_artifact(scope.scope_id, "experience", created.artifact_id)
@@ -443,7 +443,7 @@ def test_query_parameters_cannot_override_path_authorization(tmp_path: Path) -> 
             deployment_id=DEPLOYMENT_ID,
         ) as access_control:
             async with _client(
-                _app(database, access_control, ADMIN, "admin-token", tmp_path / "query-admin.db"),
+                _app(database, access_control, ADMIN, "admin-token"),
                 "admin-token",
             ) as admin:
                 allowed = await admin.create_scope(
@@ -469,7 +469,7 @@ def test_query_parameters_cannot_override_path_authorization(tmp_path: Path) -> 
                     })
                 )
 
-            app = _app(database, access_control, VIEWER, "viewer-token", tmp_path / "query-viewer.db")
+            app = _app(database, access_control, VIEWER, "viewer-token")
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
@@ -517,9 +517,9 @@ def test_query_parameters_cannot_override_path_authorization(tmp_path: Path) -> 
 
 
 def _scheduled_content_memory_worker(spec, assignment):
+    from powercontext.builtin.authz.worker import open_worker_security
     from powercontext.builtin.runtime.composition import open_builtin_contexts
     from powercontext.builtin.runtime.family_processing import process_family_invocation
-    from powercontext.server.processing_security import open_worker_security
 
     async def run():
         async with (
@@ -649,7 +649,6 @@ def test_scheduled_memory_processing_uses_the_static_service_principal_as_owner(
                 metrics=MetricsConfig(enabled=False),
                 mcp=McpConfig(enabled=False),
             ),
-            scheduler_path=tmp_path / "scheduled-access.db",
         )
         async with _client(app, token) as client:
             scope = await client.create_scope(
@@ -704,7 +703,7 @@ def test_resource_discovery_includes_base_artifacts_under_scope_grants(
             database, bootstrap_administrators=(ADMIN,), deployment_id=DEPLOYMENT_ID
         ) as access_control:
             async with _client(
-                _app(database, access_control, ADMIN, "admin-token", tmp_path / "admin-scheduler.db"),
+                _app(database, access_control, ADMIN, "admin-token"),
                 "admin-token",
             ) as admin:
                 scopes = [
@@ -764,7 +763,7 @@ def test_resource_discovery_includes_base_artifacts_under_scope_grants(
                 limit=1,
             )
             async with _client(
-                _app(database, access_control, VIEWER, "viewer-token", tmp_path / "viewer-scheduler.db"),
+                _app(database, access_control, VIEWER, "viewer-token"),
                 "viewer-token",
             ) as viewer:
                 assert await viewer.get_artifact(scopes[0].scope_id, family, artifacts[1].artifact_id) is not None
@@ -783,7 +782,7 @@ def test_resource_discovery_includes_base_artifacts_under_scope_grants(
                     await viewer.get_artifact(scopes[1].scope_id, family, artifacts[2].artifact_id)
 
             async with _client(
-                _app(database, access_control, RECEIVER, "receiver-token", tmp_path / "receiver-scheduler.db"),
+                _app(database, access_control, RECEIVER, "receiver-token"),
                 "receiver-token",
             ) as receiver:
                 direct = await receiver.list_access_resources(query)
@@ -805,7 +804,7 @@ def test_server_administrators_discover_managed_resources_without_content_access
             database, bootstrap_administrators=(ADMIN,), deployment_id=DEPLOYMENT_ID
         ) as access_control:
             async with _client(
-                _app(database, access_control, ADMIN, "admin-token", tmp_path / "admin-scheduler.db"),
+                _app(database, access_control, ADMIN, "admin-token"),
                 "admin-token",
             ) as admin:
                 scope = await admin.create_scope(
@@ -846,7 +845,7 @@ def test_server_administrators_discover_managed_resources_without_content_access
                 action=AccessAction.SCOPE_ADMIN, resource_type=AccessResourceType.SCOPE, limit=1
             )
             async with _client(
-                _app(database, access_control, RECEIVER, "receiver-token", tmp_path / "receiver-scheduler.db"),
+                _app(database, access_control, RECEIVER, "receiver-token"),
                 "receiver-token",
             ) as receiver:
                 discovered: list[str] = []
@@ -882,7 +881,7 @@ def test_server_administrators_discover_managed_resources_without_content_access
                     await receiver.get_artifact(scope.scope_id, "experience", artifact.artifact_id)
 
             async with _client(
-                _app(database, access_control, VIEWER, "viewer-token", tmp_path / "viewer-scheduler.db"),
+                _app(database, access_control, VIEWER, "viewer-token"),
                 "viewer-token",
             ) as viewer:
                 direct = await viewer.list_access_resources(query.model_copy(update={"cursor": None}))
@@ -900,9 +899,7 @@ def test_tag_owners_and_exact_viewers_preserve_scope_boundaries(tmp_path: Path, 
         async with open_builtin_access_control(
             database, bootstrap_administrators=(ADMIN,), deployment_id=DEPLOYMENT_ID
         ) as access:
-            async with _client(
-                _app(database, access, ADMIN, "admin-token", tmp_path / "admin.db"), "admin-token"
-            ) as admin:
+            async with _client(_app(database, access, ADMIN, "admin-token"), "admin-token") as admin:
                 scope = await admin.create_scope(
                     CreateScopeRequest(title="Private tags", summary="Scoped tag access", idempotency_key="tags")
                 )
@@ -914,9 +911,7 @@ def test_tag_owners_and_exact_viewers_preserve_scope_boundaries(tmp_path: Path, 
                         "idempotency_key": "tag-owner",
                     })
                 )
-            async with _client(
-                _app(database, access, RECEIVER, "owner-token", tmp_path / "owner.db"), "owner-token"
-            ) as owner:
+            async with _client(_app(database, access, RECEIVER, "owner-token"), "owner-token") as owner:
                 source = await owner.create_source(scope.scope_id, CreateSourceRequest(content="Tag access evidence"))
                 content = {
                     "profile": {"content": "# Profile\n\nTest before release."},
@@ -985,9 +980,7 @@ def test_tag_owners_and_exact_viewers_preserve_scope_boundaries(tmp_path: Path, 
                         "idempotency_key": "tag-viewer",
                     })
                 )
-            async with _client(
-                _app(database, access, VIEWER, "viewer-token", tmp_path / "viewer.db"), "viewer-token"
-            ) as viewer:
+            async with _client(_app(database, access, VIEWER, "viewer-token"), "viewer-token") as viewer:
                 visible = await read_tags(viewer)
                 assert visible is not None and visible.tag_set.tags == saved.tag_set.tags
                 with pytest.raises(ForbiddenResponseError):
@@ -996,17 +989,13 @@ def test_tag_owners_and_exact_viewers_preserve_scope_boundaries(tmp_path: Path, 
                     await viewer.query_artifact_tags(
                         scope.scope_id, QueryArtifactTagsRequest.model_validate({"tags": ["release"]})
                     )
-            async with _client(
-                _app(database, access, ADMIN, "admin-token", tmp_path / "admin.db"), "admin-token"
-            ) as admin:
+            async with _client(_app(database, access, ADMIN, "admin-token"), "admin-token") as admin:
                 await admin.revoke_access_binding(
                     RevokeAccessBindingRequest(
                         binding_id=binding.binding_id, expected_version=binding.version, idempotency_key="revoke-tags"
                     )
                 )
-            async with _client(
-                _app(database, access, VIEWER, "viewer-token", tmp_path / "viewer.db"), "viewer-token"
-            ) as viewer:
+            async with _client(_app(database, access, VIEWER, "viewer-token"), "viewer-token") as viewer:
                 with pytest.raises(ForbiddenResponseError):
                     await read_tags(viewer)
 
@@ -1018,7 +1007,6 @@ def _app(
     access_control: AccessControlService,
     principal: PrincipalRef,
     token: str,
-    scheduler_path: Path,
 ):
     authentication = StaticBearerAuthenticationProvider(token, principal)
     return create_server_app(
@@ -1031,7 +1019,6 @@ def _app(
             metrics=MetricsConfig(enabled=False),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=scheduler_path,
         handoff_pipeline=_DeterministicHandoffPipeline(),
         access_control=access_control,
         authentication_provider=authentication,

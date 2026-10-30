@@ -861,7 +861,6 @@ def run_e1(  # noqa: C901
             )
             app = create_server_app(
                 settings=settings,
-                scheduler_path=temp_root / "scheduler.db",
                 middleware=(
                     Middleware(AccessTimelineMiddleware, timeline=timeline),
                     Middleware(PreparedContextAuditMiddleware, audit=prepared_audit),
@@ -1128,7 +1127,6 @@ def run_e2(  # noqa: C901
         )
         app = create_server_app(
             settings=settings,
-            scheduler_path=runtime_directory / "scheduler.db",
             middleware=(Middleware(AccessTimelineMiddleware, timeline=timeline),),
         )
         server = start_loopback_server(app, startup_timeout=60)
@@ -1658,7 +1656,6 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
         server = start_loopback_server(
             create_server_app(
                 settings=settings,
-                scheduler_path=runtime_directory / "scheduler.db",
                 middleware=(Middleware(AccessTimelineMiddleware, timeline=timeline),),
             ),
             startup_timeout=90,

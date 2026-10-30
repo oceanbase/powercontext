@@ -168,7 +168,7 @@ from powercontext.builtin.persistence.supervision import (
     ArtifactProcessingBindingStateRepository,
     ArtifactProcessingLeaseRepository,
 )
-from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
 from powercontext.builtin.persistence.tags import RelationalTagService
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
@@ -1072,7 +1072,7 @@ class RelationalContexts:
         scope = validate_scope_id(scope_id)
         access = None if execution_context is None else execution_context.access
         if execution_context is not None and access is None and not execution_context.trusted_local:
-            from powercontext.server.authz import AccessDeniedError
+            from powercontext.builtin.authz import AccessDeniedError
 
             raise AccessDeniedError
         audit = nullcontext() if access is None else access.defer_decision_audit()
@@ -1387,23 +1387,6 @@ class RelationalContexts:
             reason=reason,
             on_commit=on_commit,
         )
-
-    async def scope_ids(self) -> tuple[str, ...]:
-        """Return scopes with a Source journal, in deterministic order."""
-
-        async with self.database.transaction() as connection:
-            values = (
-                await connection.execute(
-                    select(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id).order_by(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id)
-                )
-            ).scalars()
-            return tuple(str(value) for value in values)
-
-    async def unconsumed_source_scope_ids(self) -> tuple[str, ...]:
-        """Return built-in Source windows that still have journal input."""
-
-        async with self.database.transaction() as connection:
-            return await self.repositories.cursors.unconsumed_scope_ids(connection, SOURCE_WINDOW_TRIGGER_NAME)
 
     async def handoff_scope_ids(self) -> tuple[str, ...]:
         """Return scopes with a committed Handoff head, in deterministic order."""

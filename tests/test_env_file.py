@@ -20,7 +20,7 @@ import time
 
 import pytest
 
-from powercontext.cli.env_file import (
+from powercontext.env_file import (
     EnvironmentFileError,
     environment_context,
     parse_environment,

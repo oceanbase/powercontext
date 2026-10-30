@@ -119,7 +119,7 @@ def test_http_worker_rejects_placeholder_then_publishes_grounded_revision(tmp_pa
         mcp=McpConfig(enabled=False),
     )
     try:
-        with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")) as client:
+        with TestClient(create_server_app(settings=settings)) as client:
             created = client.post(
                 "/v1/scopes", json={"title": "Admission", "summary": "Admission", "idempotency_key": "admission"}
             )

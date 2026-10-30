@@ -86,7 +86,6 @@ def cindy_server(tmp_path: Path, cindy_provider: Path) -> Iterator[tuple[str, st
             access=AccessControlConfig(mode="enforced"),
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{storage / 'cindy.db'}"),
         ),
-        scheduler_path=storage / "scheduler.db",
     )
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))

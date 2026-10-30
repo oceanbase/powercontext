@@ -56,7 +56,6 @@ def _lexical_app(backend: MigrationBackend):
             access=AccessControlConfig(mode="disabled"),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=backend.directory / "lexical-scheduler.db",
     )
 
 

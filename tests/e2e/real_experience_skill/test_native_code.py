@@ -35,8 +35,8 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBas
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_runtime
 from powercontext.builtin.scope import ScopeDraft
-from powercontext.cli.env_file import environment_context
 from powercontext.client import PowerContextClient
+from powercontext.env_file import environment_context
 from powercontext.http import PrepareContextRequest, RememberMemoryRequest
 from powercontext.server.configuration import server_settings_context
 from powercontext.server.settings import McpConfig, MetricsConfig
@@ -99,7 +99,6 @@ async def _database(config, name: str, *, drop: bool = False) -> None:
 async def _scope(settings, root: Path) -> str:
     async with open_builtin_runtime(
         BuiltinConfig(database=settings.database, inference=settings.inference, runtime=settings.runtime),
-        scheduler_path=root / "scheduler.db",
     ) as runtime:
         assert runtime.scopes is not None
         result = await runtime.scopes.create(
@@ -373,7 +372,7 @@ def _real_code_acceptance(tmp_path, pytestconfig, backend, *, include_history):
             CodeService(code).index(scope_id)
             settings = settings.model_copy(update={"code": code})
             token = _configured_access_token(settings)
-            server = _start_configured_server(settings, tmp_path / "server-scheduler.db")
+            server = _start_configured_server(settings)
             if include_history:
                 asyncio.run(_history(server.base_url, token, scope_id, report))
             else:
@@ -480,7 +479,7 @@ def test_native_code_automatic_context_controlled_experiment(tmp_path, pytestcon
                         row["passed"] = True
 
         try:
-            server = _start_configured_server(settings, tmp_path / "server-scheduler.db")
+            server = _start_configured_server(settings)
             asyncio.run(experiment())
             report["status"] = "passed"
         finally:

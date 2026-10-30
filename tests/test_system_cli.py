@@ -34,7 +34,6 @@ from powercontext.cli.app import create_cli
 from powercontext.cli.installation import PluginSource
 from powercontext.cli.installation import setup as install_plugin
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError, doctor_app, setup_app
-from powercontext.paths import default_scheduler_path
 from powercontext.server.settings import ServerSettings
 from powercontext.service.model import (
     DefinitionState,
@@ -101,7 +100,6 @@ def test_server_defaults_to_persistent_user_storage(
     assert settings.database.kind == "sqlite"
     database_path = (data_dir / "powercontext.db").as_posix()
     assert settings.database.url == f"sqlite+aiosqlite:///{database_path}"
-    assert default_scheduler_path() == data_dir / "scheduler.db"
 
 
 @pytest.mark.parametrize("already_disabled", [False, True])

@@ -55,9 +55,9 @@ from powercontext.server.authentication import (
     AuthenticationResult,
     ProviderReadiness,
 )
-from powercontext.server.authz import AccessBinding, AccessBindingState, AccessRole, ResourceRef
-from powercontext.server.authz.models import PrincipalRef
-from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.authz import AccessBinding, AccessBindingState, AccessRole, ResourceRef
+from powercontext.builtin.authz.models import PrincipalRef
+from powercontext.builtin.authz.repository import ACCESS_TABLES, RelationalAccessRepository
 from powercontext.server.context import is_internal_bridge
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, ServerSettings

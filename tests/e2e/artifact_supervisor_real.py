@@ -38,6 +38,9 @@ from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_
 from powercontext.builtin.artifacts.prompt import PromptKey
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+from powercontext.builtin.authz import PrincipalRef
+from powercontext.builtin.authz.repository import ACCESS_OWNERS_TABLE, ACCESS_TABLES
+from powercontext.builtin.authz.worker import WorkerSecuritySpec
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
@@ -62,10 +65,7 @@ from powercontext.builtin.runtime.models import SearchTopicMemoryRequest
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
-from powercontext.server.authz import PrincipalRef
-from powercontext.server.authz.repository import ACCESS_OWNERS_TABLE, ACCESS_TABLES
 from powercontext.server.configuration import server_settings_context
-from powercontext.server.processing_security import WorkerSecuritySpec
 from powercontext.server.settings import ServerSettings
 
 # This acceptance covers Source-driven processors; Dream has its own explicit-request acceptance.

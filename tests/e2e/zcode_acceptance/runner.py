@@ -461,7 +461,7 @@ class AcceptanceRun:
         )
 
         def create_observed_server():
-            app = create_server_app(settings=server_settings, scheduler_path=self.root / "scheduler")
+            app = create_server_app(settings=server_settings)
             self.observer = ObserveServer(app, self.wire)
             return self.observer
 

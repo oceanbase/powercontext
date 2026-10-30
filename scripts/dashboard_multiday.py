@@ -131,7 +131,7 @@ def replay(arguments: argparse.Namespace) -> None:
         }
         # Restart the Server each day to verify persistence across process lifecycles.
         with time_machine.travel(date, tick=True):
-            app = create_server_app(settings=settings, scheduler_path=output / "scheduler.db")
+            app = create_server_app(settings=settings)
             with TestClient(app, raise_server_exceptions=False) as client:
                 client.headers["Authorization"] = f"Bearer {token}"
                 default = call(client, directory, "server-default", "GET", "/v1/scopes/default")

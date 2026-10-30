@@ -236,9 +236,9 @@ selector retains that selector, and Experience incubation uses its independent c
 ## Scheduled Experience incubation
 
 An integration can capture a completed task as a Content Source with metadata `"kind": "task-outcome"`. When the
-Experience schedule is configured, APScheduler scans bounded Source windows and asks the configured schema-bound
-pipeline for reusable situation, action, outcome, and lesson proposals. Each proposal cites exact Sources and enters
-the Review Inbox as a pending Experience Candidate.
+Experience schedule is configured, the Artifact Processing Supervisor scans bounded Source windows and asks the
+configured schema-bound pipeline for reusable situation, action, outcome, and lesson proposals. Each proposal cites
+exact Sources and enters the Review Inbox as a pending Experience Candidate.
 
 Experience incubation has its own persisted Source cursor, independent from Memory extraction. Candidate writes and
 cursor advancement commit together; a generation or write failure leaves the window available for retry. Ordinary

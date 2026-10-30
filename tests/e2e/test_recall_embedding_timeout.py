@@ -104,9 +104,7 @@ async def _runtime(database: Path, budget: float, embedding: Any) -> AsyncIterat
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
         runtime=RuntimeConfig(recall_embedding_timeout_seconds=budget),
     )
-    async with open_builtin_runtime(
-        config, scheduler_path=database.with_suffix(".scheduler.db"), embedding_model=embedding
-    ) as runtime:
+    async with open_builtin_runtime(config, embedding_model=embedding) as runtime:
         yield runtime
 
 
@@ -321,9 +319,7 @@ def test_a_deployment_without_an_embedding_model_is_not_reported_as_degraded(tmp
 
     async def scenario() -> Any:
         config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'lexical.db'}"))
-        async with open_builtin_runtime(
-            config, scheduler_path=tmp_path.with_suffix(".scheduler.db"), embedding_model=None
-        ) as runtime:
+        async with open_builtin_runtime(config, embedding_model=None) as runtime:
             scope_id = await _scope_with_memory(runtime, "lexical")
             return await runtime.context.for_scope(scope_id).prepare(_request())
 

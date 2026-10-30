@@ -136,7 +136,7 @@ def test_supported_mode_cannot_succeed_with_an_empty_matrix(release):
     "relative",
     [
         "src/powercontext/server/identity.py",
-        "src/powercontext/server/authz/repository.py",
+        "src/powercontext/builtin/authz/repository.py",
         "src/powercontext/builtin/code/seekdb.py",
         "src/powercontext/limits.py",
     ],
@@ -720,7 +720,7 @@ def test_seekdb_diagnostics_share_one_budget_with_maintenance_evidence(tmp_path)
         "src/powercontext/builtin/persistence/tables.py",
         "src/powercontext/builtin/persistence/revision.sql",
         "src/powercontext/builtin/code/layout.json",
-        "src/powercontext/server/authz/repository.py",
+        "src/powercontext/builtin/authz/repository.py",
         "src/powercontext/server/identity.py",
         "src/powercontext/limits.py",
     ],

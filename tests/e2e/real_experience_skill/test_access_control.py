@@ -26,11 +26,7 @@ import pytest
 from dotenv import load_dotenv
 from sqlalchemy import delete, func, or_, select
 
-from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
-from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
-from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.runtime import DatabaseConfig
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessBinding,
@@ -46,15 +42,19 @@ from powercontext.server.authz import (
     ReplaceBinding,
     ResourceRef,
 )
-from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
-from powercontext.server.authz.models import HandoffReceiptIdentity
-from powercontext.server.authz.repository import (
+from powercontext.builtin.authz.composition import open_builtin_access_control, open_casbin_access_control
+from powercontext.builtin.authz.models import HandoffReceiptIdentity
+from powercontext.builtin.authz.repository import (
     ACCESS_AUDIT_EVENTS_TABLE,
     ACCESS_BINDINGS_TABLE,
     ACCESS_IDEMPOTENCY_TABLE,
     ACCESS_OWNERS_TABLE,
     RelationalAccessRepository,
 )
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
+from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.runtime import DatabaseConfig
 from powercontext.server.settings import ServerSettings
 
 pytestmark = pytest.mark.real_e2e

@@ -80,7 +80,7 @@ def test_configured_profile_generation_review_and_context_delivery(tmp_path, pyt
                 update={"database": SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile.db'}")}
             )
         print("Starting configured Profile generation and context acceptance", flush=True)
-        server = _start_configured_server(settings, tmp_path / "scheduler.db")
+        server = _start_configured_server(settings)
         asyncio.run(_scenario(server.base_url, _configured_access_token(settings), scope_ids, report, settings))
     finally:
         if server is not None:

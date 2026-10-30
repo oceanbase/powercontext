@@ -123,7 +123,7 @@ async def _run_live(backend: str, env_file: Path, tmp_path: Path) -> None:
                 ),
             }
         )
-        app = create_server_app(settings=configured, scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=configured)
         async with (
             AsyncExitStack() as resources,
             app.router.lifespan_context(app),

@@ -392,8 +392,8 @@ class AtomicMemorySourceWindowProcessor:
                     _conflict("Source generation eligibility changed during preparation")
                 local_policy = False
                 if context is not None and context.access is not None:
-                    from powercontext.server.authz import BuiltinAuthorizationProvider
-                    from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+                    from powercontext.builtin.authz import BuiltinAuthorizationProvider
+                    from powercontext.builtin.authz.casbin import CasbinAuthorizationProvider
 
                     local_policy = (
                         type(context.access.provider) in {BuiltinAuthorizationProvider, CasbinAuthorizationProvider}
@@ -559,7 +559,7 @@ class AtomicMemorySourceWindowProcessor:
         return workset, tuple(artifacts.values())
 
     async def _load_related_items(self, connection, scope_id, hits, context, workset, artifacts, *, joined_heads):
-        from powercontext.server.authz import AccessDeniedError
+        from powercontext.builtin.authz import AccessDeniedError
 
         allowed = []
         for hit in hits:
@@ -728,7 +728,7 @@ class AtomicMemorySourceWindowProcessor:
         sources = tuple({(item.ref.source_type, item.ref.source_id): item for item in generation_sources}.values())
         policy = literal(None)
         if include_policy:
-            from powercontext.server.authz.repository import ACCESS_POLICY_HEADS_TABLE
+            from powercontext.builtin.authz.repository import ACCESS_POLICY_HEADS_TABLE
 
             policy = func.coalesce(
                 select(ACCESS_POLICY_HEADS_TABLE.c.revision)
@@ -788,7 +788,7 @@ class AtomicMemorySourceWindowProcessor:
         if context is None or context.access is None or (not refs and not include_scope):
             yield True
             return
-        from powercontext.server.authz import ResourceRef
+        from powercontext.builtin.authz import ResourceRef
 
         access = context.access.for_read(connection)
         resources = tuple(
@@ -815,7 +815,7 @@ class AtomicMemorySourceWindowProcessor:
             access = None if context is None else context.access
             pins_with_policy = access is not None and access.supports_read_snapshot(connection.engine)
             if pins_with_policy and write_policy_first:
-                from powercontext.server.authz import BuiltinAuthorizationProvider
+                from powercontext.builtin.authz import BuiltinAuthorizationProvider
 
                 # Read-side Casbin binds to the business transaction; its write
                 # path does not. Builtin policy binds both when relationships

@@ -61,7 +61,7 @@ def test_qwen_thinking_disabled_reaches_scheduled_worker_and_publication(tmp_pat
             ),
             mcp=McpConfig(enabled=False),
         )
-        with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")) as client:
+        with TestClient(create_server_app(settings=settings)) as client:
             created = client.post(
                 "/v1/scopes", json={"title": "Qwen", "summary": "Qwen settings", "idempotency_key": "qwen"}
             )

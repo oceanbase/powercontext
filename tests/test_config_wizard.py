@@ -27,7 +27,7 @@ from powercontext.cli.config_wizard import CLIENT, Wizard
 from powercontext.cli.config_wizard_agents import AGENT_SPEC_BY_ID
 from powercontext.cli.config_wizard_seekdb import SeekDBDependency, SeekDBInstallPlan, SeekDBInstallResult
 from powercontext.cli.config_wizard_ui import WizardUI
-from powercontext.cli.env_file import parse_environment
+from powercontext.env_file import parse_environment
 from powercontext.server.configuration import server_settings_context
 
 

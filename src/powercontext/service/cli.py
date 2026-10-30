@@ -23,9 +23,9 @@ from typing import Annotated
 
 import typer
 
-from powercontext.cli.inference_notice import write_inference_capability_notice
 from powercontext.server import cli as _server_role_dependency
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
+from powercontext.server.inference_notice import write_inference_capability_notice
 from powercontext.service.controller import ServiceController
 from powercontext.service.model import ManagerState, ServiceError, ServiceStatus
 

@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from powercontext.cli.env_file import parse_environment
+from powercontext.env_file import parse_environment
 from powercontext.ops.local_policy import (
     classify_database,
     default_data_dir,

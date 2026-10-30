@@ -47,16 +47,8 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE, AsyncDatabase
-from powercontext.builtin.persistence.tables import identity_string
-from powercontext.limits import (
-    MAX_ARTIFACT_FAMILY_LENGTH,
-    MAX_ARTIFACT_ID_LENGTH,
-    MAX_POLICY_REVISION_LENGTH,
-    MAX_SCOPE_ID_LENGTH,
-)
-from powercontext.server.authz.errors import AccessConflictError, AccessInvalidRequestError, AccessUnavailableError
-from powercontext.server.authz.models import (
+from powercontext.builtin.authz.errors import AccessConflictError, AccessInvalidRequestError, AccessUnavailableError
+from powercontext.builtin.authz.models import (
     ROLE_CARDINALITIES,
     AccessAction,
     AccessAuditEvent,
@@ -74,11 +66,19 @@ from powercontext.server.authz.models import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.service import (
+from powercontext.builtin.authz.service import (
     BindingReplacement,
     BindingSearchRequest,
     DecisionState,
     ReplaceBinding,
+)
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE, AsyncDatabase
+from powercontext.builtin.persistence.tables import identity_string
+from powercontext.limits import (
+    MAX_ARTIFACT_FAMILY_LENGTH,
+    MAX_ARTIFACT_ID_LENGTH,
+    MAX_POLICY_REVISION_LENGTH,
+    MAX_SCOPE_ID_LENGTH,
 )
 
 ACCESS_METADATA = MetaData()

@@ -26,6 +26,7 @@ from powercontext.builtin.artifacts.experience import (
     ExperienceCandidateInput,
     ExperienceContent,
 )
+from powercontext.builtin.authz.worker import open_worker_security
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
@@ -53,7 +54,6 @@ from powercontext.http import (
     PrepareContextRequest,
 )
 from powercontext.server.factory import create_server_app
-from powercontext.server.processing_security import open_worker_security
 from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.sources import Source, SourceRef
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend
@@ -141,7 +141,7 @@ def _experience_worker(spec, assignment):
     return asyncio.run(run())
 
 
-def _app(database: Path, scheduler: Path):
+def _app(database: Path):
     return create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
@@ -149,7 +149,6 @@ def _app(database: Path, scheduler: Path):
             inference=InferenceConfig(generation_model="test"),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=scheduler,
     )
 
 
@@ -196,8 +195,7 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(
 
     async def scenario() -> None:
         database = tmp_path / "powercontext.db"
-        scheduler = tmp_path / "scheduler.db"
-        app = _app(database, scheduler)
+        app = _app(database)
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(
@@ -229,7 +227,7 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(
             assert candidates[0].result_artifact is None
             assert prepared.status == "empty"
 
-        restored = _app(database, scheduler)
+        restored = _app(database)
         async with (
             restored.router.lifespan_context(restored),
             httpx.AsyncClient(
@@ -248,6 +246,5 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(
             await _wait_for_handled(restored, scope_id, handled_generation + 1)
             candidates = await _pending_experience(client, scope_id)
             assert len(candidates) == 1
-        assert not scheduler.exists()
 
     asyncio.run(scenario())

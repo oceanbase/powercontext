@@ -22,8 +22,13 @@ from dataclasses import replace
 import pytest
 
 from powercontext.artifacts.search import ArtifactSearchExecutionContext
-from powercontext.server.authz import AccessControlService, AccessDeniedError, AccessIdentityRequiredError, PrincipalRef
-from powercontext.server.authz.repository import RelationalAccessRepository
+from powercontext.builtin.authz import (
+    AccessControlService,
+    AccessDeniedError,
+    AccessIdentityRequiredError,
+    PrincipalRef,
+)
+from powercontext.builtin.authz.repository import RelationalAccessRepository
 from tests.e2e.test_access_control_regressions import AUDIT, _grant, _resource, _scope, _server
 
 

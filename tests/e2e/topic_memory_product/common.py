@@ -670,7 +670,6 @@ def run_e0(directory: Path) -> dict[str, object]:
         )
         app = create_server_app(
             settings=settings,
-            scheduler_path=runtime_directory / "scheduler.db",
             middleware=(Middleware(AccessTimelineMiddleware, timeline=timeline),),
         )
         powercontext_server = start_loopback_server(app, startup_timeout=60)

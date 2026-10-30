@@ -19,14 +19,14 @@ import asyncio
 import httpx
 import pytest
 
+from powercontext.builtin.authz import PrincipalRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import GetMemoryCapacityRequest, ListMemoryEntriesRequest, RememberMemoryRequest
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
-from powercontext.server.authz import PrincipalRef
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 from tests.e2e.server_storage import prepare_server_database

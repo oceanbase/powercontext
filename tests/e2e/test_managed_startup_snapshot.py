@@ -38,7 +38,7 @@ def test_healthy_concurrent_update_does_not_block_managed_startup(tmp_path, monk
         access=AccessControlConfig(mode="disabled"),
         auth=BearerAuthConfig(enabled=False),
     )
-    app = create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db", embedding_model=embedding)
+    app = create_server_app(settings=settings, embedding_model=embedding)
     with TestClient(app) as client:
         scope_response = client.post(
             "/v1/scopes",
@@ -87,11 +87,7 @@ def test_healthy_concurrent_update_does_not_block_managed_startup(tmp_path, monk
             if entry == "sdk":
                 asyncio.run(start())
             else:
-                with TestClient(
-                    create_server_app(
-                        settings=settings, embedding_model=embedding, scheduler_path=tmp_path / "second-scheduler.db"
-                    )
-                ):
+                with TestClient(create_server_app(settings=settings, embedding_model=embedding)):
                     pass
         finally:
             monkeypatch.setattr(atomic_memory_rebuild, "_record", original)

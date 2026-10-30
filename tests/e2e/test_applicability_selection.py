@@ -41,6 +41,8 @@ from examples.systemone.applicability_fixture import seed_fixture, skill_archive
 from examples.systemone.applicability_host import run_codex_host
 from powercontext.builtin.artifacts.skill import capture_skill_archive
 from powercontext.builtin.artifacts.skill.external import AgentEnvironmentProfile, AgentSkillTarget
+from powercontext.builtin.authz import PrincipalRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
@@ -67,8 +69,6 @@ from powercontext.http import (
     UpdateSkillLifecycleRequest,
 )
 from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import PrincipalRef
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 from tests.e2e.server_storage import prepare_server_database
@@ -104,7 +104,6 @@ async def server(directory: Path) -> AsyncIterator[tuple[PowerContextClient, htt
             settings=settings,
             authentication_provider=Authentication(),
             access_control=access,
-            scheduler_path=directory / "scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),

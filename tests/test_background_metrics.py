@@ -24,11 +24,11 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 
+from powercontext.builtin.authz import AccessAction
+from powercontext.builtin.authz.errors import AccessDeniedError, AccessUnavailableError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import RuntimeConfig
-from powercontext.server.authz import AccessAction
-from powercontext.server.authz.errors import AccessDeniedError, AccessUnavailableError
 from powercontext.server.background_metrics import create_background_metrics_app, serve_background_metrics
 from powercontext.server.metrics import ServerMetrics
 from powercontext.server.settings import (

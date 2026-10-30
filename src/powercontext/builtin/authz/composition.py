@@ -21,13 +21,8 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
-from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
-from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.runtime.composition import BuiltinConfigurationError
-from powercontext.builtin.runtime.config import DatabaseConfig
-from powercontext.server.authz.casbin import CasbinAuthorizationProvider
-from powercontext.server.authz.models import (
+from powercontext.builtin.authz.casbin import CasbinAuthorizationProvider
+from powercontext.builtin.authz.models import (
     DEFAULT_DEPLOYMENT_ID,
     AccessBinding,
     AccessBindingState,
@@ -35,12 +30,17 @@ from powercontext.server.authz.models import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
-from powercontext.server.authz.service import (
+from powercontext.builtin.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.authz.service import (
     AccessControlService,
     AccessProviderCapabilities,
     BuiltinAuthorizationProvider,
 )
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
+from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.runtime.composition import BuiltinConfigurationError
+from powercontext.builtin.runtime.config import DatabaseConfig
 
 
 @asynccontextmanager

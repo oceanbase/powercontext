@@ -27,7 +27,6 @@ from pathlib import Path
 from shutil import which
 from typing import Literal, Protocol, cast
 
-from powercontext.client.capture import redact_known_secrets
 from powercontext.client.errors import ClientError, ServerResponseError
 from powercontext.http import (
     CaptureContentSourceRequest,
@@ -36,6 +35,7 @@ from powercontext.http import (
     ScopeBindingKey,
     ScopeDescriptor,
 )
+from powercontext.redaction import redact_known_secrets
 
 SUPPORTED_SESSION_IMPORT_HOSTS = ("codex",)
 _MAX_CONTENT_LENGTH = 200_000

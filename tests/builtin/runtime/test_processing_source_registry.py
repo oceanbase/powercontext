@@ -60,9 +60,7 @@ def test_runtime_rejects_custom_sources_before_bootstrap_and_allows_corrected_re
         )
         # Schedules are disabled, but explicit requests would still spawn children.
         with pytest.raises(BuiltinConfigurationError, match="built-in Source definitions"):
-            async with open_builtin_runtime(
-                config, source_registry=_custom_registry(), scheduler_path=tmp_path / "scheduler.db"
-            ):
+            async with open_builtin_runtime(config, source_registry=_custom_registry()):
                 pytest.fail("unsupported child Source capabilities must fail before accepting work")
         launcher.assert_not_called()
         # A configuration rejection must not freeze a completed deployment
@@ -71,9 +69,7 @@ def test_runtime_rejects_custom_sources_before_bootstrap_and_allows_corrected_re
         corrected = config.model_copy(
             update={"runtime": RuntimeConfig(artifact_processing_families=(), artifact_processing_supervisor_mode=mode)}
         )
-        async with open_builtin_runtime(
-            corrected, source_registry=_custom_registry(), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(corrected, source_registry=_custom_registry()) as runtime:
             context = await runtime._provider.get("project")
             resolved = await context.sources.resolve(CustomCapture(source_id="custom", value="corrected startup"))
             stored = await context.sources.add(resolved)
@@ -93,9 +89,7 @@ def test_runtime_preserves_custom_source_persistence_with_builtin_families_disab
             runtime=RuntimeConfig(artifact_processing_families=()),
         )
         registry = _custom_registry()
-        async with open_builtin_runtime(
-            config, source_registry=registry, scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(config, source_registry=registry) as runtime:
             context = await runtime._provider.get("project")
             resolved = await context.sources.resolve(CustomCapture(source_id="custom", value="retained typed value"))
             stored = await context.sources.add(resolved)

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Stable failures owned by the Server Access Control boundary."""
+"""Stable failures owned by the Access Control boundary."""
 
 from powercontext.errors import PowerContextError
 

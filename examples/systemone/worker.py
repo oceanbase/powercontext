@@ -68,7 +68,7 @@ async def execute(request: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("The run directory must be an absolute path")  # noqa: TRY003
     await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=True)
     config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{directory / 'runtime.db'}"))
-    async with open_builtin_runtime(config, scheduler_path=directory / "scheduler.db") as runtime:
+    async with open_builtin_runtime(config) as runtime:
         memory = runtime.atomic_memory
         if memory is None:
             raise RuntimeError("Atomic Memory is unavailable")  # noqa: TRY003

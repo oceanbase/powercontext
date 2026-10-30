@@ -153,7 +153,6 @@ def test_release140_four_sqlite_configurations_preserve_candidates_and_serve(tmp
     app = create_server_app(
         settings=settings,
         embedding_model=ControlledEmbedding(embedding) if embedding is not None else None,
-        scheduler_path=tmp_path / "scheduler",
     )
     with TestClient(app) as client:
         assert client.get("/health/ready").status_code == 200

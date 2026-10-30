@@ -254,7 +254,7 @@ def test_code_with_separate_cache_upgrades_and_reopens_server(source, tmp_path):
     assert runner.plan().source_revision == "s1300"
     apply(runner)
     assert runner.verify().readiness_scope == "server"
-    app = create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")
+    app = create_server_app(settings=settings)
     with TestClient(app) as client:
         assert client.get("/health/ready").status_code == 200
         response = client.get("/v1/scopes")

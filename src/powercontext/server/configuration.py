@@ -27,7 +27,7 @@ from pydantic import ValidationError
 from pydantic_settings import BaseSettings, EnvSettingsSource, PydanticBaseSettingsSource, SettingsError
 from typing_extensions import override
 
-from powercontext.cli.env_file import EnvironmentFileError, environment_context, read_environment_file
+from powercontext.env_file import EnvironmentFileError, environment_context, read_environment_file
 from powercontext.paths import POWERCONTEXT_HOME_ENV
 from powercontext.server.settings import ServerSettings
 

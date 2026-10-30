@@ -97,8 +97,8 @@ conflicts and persistence; the family service is responsible for its domain beha
 A `Trigger` is a policy over a signal and prior state. It returns a `PolicyTransition` containing the next state and
 zero or more actions. A Trigger should not open storage, schedule itself, or perform the action it selects.
 
-APScheduler belongs to the Builtin runtime lifecycle. It decides when to evaluate a policy. The Trigger decides what
-the observed signal means.
+The Builtin runtime's Artifact Processing Supervisor decides when to evaluate a policy. The Trigger decides what the
+observed signal means.
 
 ## Ownership boundaries
 

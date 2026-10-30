@@ -153,7 +153,6 @@ def test_builtin_reconciliation_drops_only_candidates_it_compares(tmp_path, monk
                 database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'builtin.db'}"),
                 inference=InferenceConfig(generation_model="test"),
             ),
-            scheduler_path=tmp_path / "scheduler.db",
         ) as runtime:
             assert runtime.scopes is not None
             assert runtime.atomic_memory is not None

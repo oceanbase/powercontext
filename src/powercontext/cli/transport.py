@@ -163,7 +163,7 @@ def _setup_consent(host: str, endpoint: str, requested: bool | None, native: dic
 
 def setup_environment() -> dict[str, str]:
     """Read setup configuration without executing shell code or changing the process."""
-    from powercontext.cli.env_file import read_environment_file
+    from powercontext.env_file import read_environment_file
 
     explicit = setup_environment_file.get()
     path = explicit.expanduser() if explicit is not None else Path.cwd() / ".env"

@@ -117,10 +117,23 @@ def test_fresh_sqlite_bootstraps_and_reopens_after_business_data_is_written(tmp_
             assert marker["phase"] == "complete"
             assert marker["migration_id"] == "fresh"
             await connection.execute(insert(SOURCE_JOURNAL_HEADS_TABLE).values(scope_id="project", position=1))
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.artifact_processing_supervisor is None
 
     asyncio.run(scenario())
+
+
+def test_runtime_ignores_deprecated_scheduler_path(tmp_path: Path) -> None:
+    sidecar = tmp_path / "scheduler.db"
+
+    async def scenario() -> None:
+        config = BuiltinConfig(database=_sqlite(tmp_path / "runtime.db"))
+        with pytest.warns(DeprecationWarning, match="scheduler_path is ignored"):
+            async with open_builtin_runtime(config, scheduler_path=sidecar) as runtime:
+                assert runtime.artifact_processing_supervisor is None
+
+    asyncio.run(scenario())
+    assert not sidecar.exists()
 
 
 def test_startup_rejects_legacy_dream_manifest_without_rewriting_it(tmp_path: Path) -> None:
@@ -163,7 +176,7 @@ def test_nonempty_legacy_sqlite_is_rejected_without_importing_or_discarding_work
                 )
             )
         with pytest.raises(ProcessingSchemaNotReadyError, match="offline processing migration"):
-            async with open_builtin_runtime(BuiltinConfig(database=database), scheduler_path=tmp_path / "scheduler.db"):
+            async with open_builtin_runtime(BuiltinConfig(database=database)):
                 pytest.fail("legacy work must not be accepted as a fresh database")
         async with (
             SQLiteProfile.open(database, tables=SHARED_TABLES) as profile,
@@ -195,7 +208,7 @@ def test_partial_migration_refuses_split_role_startup(
         monkeypatch.setattr(composition.OceanBaseProfile, "open", local_profile)
         config = BuiltinConfig(database=_OCEANBASE, runtime=RuntimeConfig(artifact_processing_role=role))
         with pytest.raises(ProcessingSchemaNotReadyError, match="not ready"):
-            async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db"):
+            async with open_builtin_runtime(config):
                 pytest.fail("split-role startup must reject a partial migration")
 
     asyncio.run(scenario())
@@ -229,7 +242,7 @@ def test_startup_rejects_a_different_completed_deployment_manifest(tmp_path: Pat
         )
         changed = config.model_copy(update={"runtime": settings})
         with pytest.raises(ProcessingSchemaNotReadyError, match="completed maintenance manifest"):
-            async with open_builtin_runtime(changed, scheduler_path=tmp_path / "scheduler.db"):
+            async with open_builtin_runtime(changed):
                 pytest.fail("ownership identity changes require explicit maintenance")
 
     asyncio.run(scenario())
@@ -342,7 +355,7 @@ def test_composition_opens_one_global_or_four_dedicated_controllers(
             inference=InferenceConfig(generation_model="test"),
             runtime=RuntimeConfig(artifact_processing_supervisor_mode=mode),
         )
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             group = runtime.artifact_processing_supervisor
             assert group is not None
             assert group.status == ArtifactProcessingSupervisorStatus.LEADER
