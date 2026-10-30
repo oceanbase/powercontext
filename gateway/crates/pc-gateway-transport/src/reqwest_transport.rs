@@ -109,59 +109,43 @@ impl Transport for ReqwestTransport {
                 .unwrap_or("application/json")
                 .to_string();
 
-            if send.stream {
-                // 流式接收：逐块累积 + TTFT 计量 + 字节上限。
-                let start = Instant::now();
-                let mut body: Vec<u8> = Vec::with_capacity(16 * 1024);
-                let mut ttft: Option<u64> = None;
-                let mut stream = resp.bytes_stream();
-                loop {
-                    match next_chunk(&mut stream).await {
-                        None => break,
-                        Some(Err(_)) => {
+            // 两种接收模式共用逐块累积 + 字节上限（review P2：非流式路径
+            // 此前用 resp.bytes() 一次性收集，max_buffer_bytes 完全不生效）。
+            // 区别仅在计量：流式记录 TTFT。
+            let start = Instant::now();
+            let mut body: Vec<u8> = Vec::with_capacity(16 * 1024);
+            let mut ttft: Option<u64> = None;
+            let mut stream = resp.bytes_stream();
+            loop {
+                match next_chunk(&mut stream).await {
+                    None => break,
+                    Some(Err(_)) => {
+                        return SendOutcome::Indeterminate(
+                            SendIndeterminateReason::LostAfterHandoff,
+                        )
+                    }
+                    Some(Ok(chunk)) => {
+                        if send.stream && ttft.is_none() {
+                            ttft = Some(start.elapsed().as_millis() as u64);
+                        }
+                        if body.len() + chunk.len() > self.max_buffer_bytes {
+                            // 已送达且部分计费：不重发，向上标记不确定。
                             return SendOutcome::Indeterminate(
-                                SendIndeterminateReason::LostAfterHandoff,
-                            )
+                                SendIndeterminateReason::BufferLimitExceeded,
+                            );
                         }
-                        Some(Ok(chunk)) => {
-                            if ttft.is_none() {
-                                ttft = Some(start.elapsed().as_millis() as u64);
-                            }
-                            if body.len() + chunk.len() > self.max_buffer_bytes {
-                                // 已送达且部分计费：不重发，向上标记不确定。
-                                return SendOutcome::Indeterminate(
-                                    SendIndeterminateReason::BufferLimitExceeded,
-                                );
-                            }
-                            body.extend_from_slice(&chunk);
-                        }
-                    }
-                }
-                let usage = extract_usage(&body);
-                SendOutcome::Delivered(RawResponse {
-                    status,
-                    body: Bytes::from(body),
-                    content_type,
-                    ttft_ms: ttft,
-                    usage,
-                })
-            } else {
-                match resp.bytes().await {
-                    Err(_) => {
-                        SendOutcome::Indeterminate(SendIndeterminateReason::LostAfterHandoff)
-                    }
-                    Ok(body) => {
-                        let usage = extract_usage(&body);
-                        SendOutcome::Delivered(RawResponse {
-                            status,
-                            body,
-                            content_type,
-                            ttft_ms: None,
-                            usage,
-                        })
+                        body.extend_from_slice(&chunk);
                     }
                 }
             }
+            let usage = extract_usage(&body);
+            SendOutcome::Delivered(RawResponse {
+                status,
+                body: Bytes::from(body),
+                content_type,
+                ttft_ms: ttft,
+                usage,
+            })
         })
     }
 
