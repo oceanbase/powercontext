@@ -19,7 +19,8 @@ from __future__ import annotations
 import asyncio
 import json
 import signal
-from contextlib import AsyncExitStack, nullcontext
+from collections.abc import Callable, Iterator
+from contextlib import AsyncExitStack, ExitStack, contextmanager, nullcontext
 from pathlib import Path
 from sqlite3 import SQLITE_CANTOPEN
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Never
@@ -29,6 +30,7 @@ from pydantic import ValidationError
 from sqlalchemy import inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
+from typing_extensions import override
 
 from powercontext.builtin.persistence.bootstrap import (
     DatabaseAccessError,
@@ -82,6 +84,8 @@ from powercontext.server.tracing import configure_server_tracing
 from powercontext.server.worker_tracing import WorkerTracing
 
 if TYPE_CHECKING:
+    from socket import socket
+
     from powercontext.builtin.persistence.migrations.atomic_memory_references import CandidateDecision
     from powercontext.builtin.persistence.migrations.atomic_memory_v1 import OwnerDecision
 
@@ -699,6 +703,9 @@ async def _atomic_memory_maintenance(
 def run(
     host: Annotated[str | None, typer.Option(help="Address to bind.")] = None,
     port: Annotated[int | None, typer.Option(min=1, max=65535, help="Port to bind.")] = None,
+    uds: Annotated[
+        Path | None, typer.Option(help="Listen only on this absolute Unix socket path (Linux/macOS).")
+    ] = None,
     env_file: Annotated[
         Path | None,
         typer.Option(help="Load Server and provider settings from this environment file."),
@@ -731,6 +738,7 @@ def run(
             server_settings_context(
                 host=host,
                 port=port,
+                uds=uds,
                 env_file=selected_env_file,
                 process_environment_overrides=True,
             ) as settings,
@@ -767,8 +775,24 @@ def _run_configured_server(settings: ServerSettings) -> None:
             if settings.runtime.artifact_processing_role == "background":
                 _run_background(settings, tracing)
                 return
-            application = create_server_app(settings=settings, tracing=tracing)
-            _run_server(application, host=settings.http.host, port=settings.http.port)
+            if settings.http.uds is None:
+                application = create_server_app(settings=settings, tracing=tracing)
+                _run_server(application, host=settings.http.host, port=settings.http.port)
+            else:
+                from powercontext.server.uds import UnixSocketError, UnixSocketExternalScheme, unix_socket_listener
+
+                try:
+                    with ExitStack() as resources:
+                        listener = resources.enter_context(unix_socket_listener(settings.http.uds))
+                        application = create_server_app(settings=settings, tracing=tracing)
+                        uds_application = (
+                            UnixSocketExternalScheme(application, settings.http.uds_external_scheme)
+                            if settings.http.uds_external_scheme is not None
+                            else application
+                        )
+                        _run_unix_server(uds_application, listener=listener, cleanup=resources.close)
+                except UnixSocketError as error:
+                    raise typer.BadParameter(str(error), param_hint="--uds / POWERCONTEXT_SERVER_HTTP_UDS") from error
         finally:
             tracing.shutdown()
     finally:
@@ -798,6 +822,27 @@ def _run_server(application: Any, *, host: str, port: int) -> None:
     import uvicorn
 
     uvicorn.run(application, host=host, port=port, access_log=False, log_config=None)
+
+
+def _run_unix_server(application: Any, *, listener: socket, cleanup: Callable[[], None]) -> None:
+    import uvicorn
+
+    class UnixServer(uvicorn.Server):
+        @contextmanager
+        @override
+        def capture_signals(self) -> Iterator[None]:
+            with super().capture_signals():
+                try:
+                    yield
+                finally:
+                    # Uvicorn replays SIGTERM after draining the app. Release the
+                    # socket and lock before that signal can terminate the process.
+                    cleanup()
+
+    server = UnixServer(uvicorn.Config(application, access_log=False, log_config=None, proxy_headers=False))
+    server.run(sockets=[listener])
+    if not server.started:
+        raise typer.Exit(code=3)
 
 
 def _run_background(settings: ServerSettings, tracing: Any) -> None:

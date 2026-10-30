@@ -236,15 +236,17 @@ def resolve_setup_endpoint(
     values = loaded | dict(os.environ)
     if public_url := values.get("POWERCONTEXT_SERVER_PUBLIC_URL"):
         return normalize_client_url(public_url).removesuffix("/mcp").rstrip("/")
-    if "POWERCONTEXT_SERVER_HTTP_PORT" not in values:
+    from powercontext.server.configuration import resolve_http_configuration
+
+    listener = resolve_http_configuration(loaded, os.environ)
+    if listener.uds is not None:
+        raise ValueError(  # noqa: TRY003
+            "The configured Server uses UDS and has no TCP endpoint. "
+            "Set --server-url or POWERCONTEXT_SERVER_PUBLIC_URL to an HTTP(S) proxy endpoint for Agent setup."
+        )
+    if "port" not in listener.model_fields_set:
         return default
-    try:
-        port = int(values["POWERCONTEXT_SERVER_HTTP_PORT"])
-    except ValueError:
-        port = 0
-    if not 1 <= port <= 65535:
-        raise ValueError("POWERCONTEXT_SERVER_HTTP_PORT must be an integer between 1 and 65535")  # noqa: TRY003
-    return f"http://127.0.0.1:{port}"
+    return f"http://127.0.0.1:{listener.port}"
 
 
 def existing_native_endpoint(host: str) -> str | None:

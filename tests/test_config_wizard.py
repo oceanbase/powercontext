@@ -15,6 +15,7 @@
 """User-visible file generation flows for the bilingual configuration wizard."""
 
 import json
+import shlex
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -35,6 +36,26 @@ from powercontext.server.configuration import server_settings_context
 def available_listener(monkeypatch) -> None:
     """Keep prompt-flow tests independent of services running on the test machine."""
     monkeypatch.setattr(config_wizard, "_listener_port_available", lambda host, port: True)
+
+
+@pytest.mark.parametrize(
+    "setting", ["POWERCONTEXT_SERVER_HTTP_UDS", "powercontext_server_http_uds", "POWERCONTEXT_SERVER_HTTP"]
+)
+def test_wizard_rejects_uds_configuration_before_prompts_or_writes(tmp_path: Path, setting: str) -> None:
+    output = tmp_path / "server.env"
+    value = '{"uds":"/run/powercontext/core.sock"}' if setting.endswith("HTTP") else "/run/powercontext/core.sock"
+    content = f"{setting}={shlex.quote(value)}\nPOWERCONTEXT_SERVER_HTTP_PORT=18000\n"
+    output.write_text(content, encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["init", "--output", str(output)], input="")
+
+    assert result.exit_code == 2
+    assert "edit UDS configuration directly" in result.output
+    assert "Where should the data live?" not in result.output
+    assert "PowerContext configuration wizard" not in result.output
+    assert "/run/powercontext/core.sock" not in result.output
+    assert output.read_text(encoding="utf-8") == content
+    assert list(tmp_path.iterdir()) == [output]
 
 
 @pytest.mark.parametrize("stored_port", [None, "8000", "19000"])

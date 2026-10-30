@@ -89,6 +89,26 @@ def test_preflight_is_readonly_and_unknown_protocol_has_no_record(fixture: tuple
     assert adapter.definition is None
 
 
+@pytest.mark.skipif(os.name == "nt", reason="UDS listeners are supported on Unix platforms")
+@pytest.mark.parametrize("action", ["config_validate", "preflight"])
+def test_uds_configuration_is_rejected_before_managed_operations(fixture: tuple[Ops, FakeAdapter], action: str) -> None:
+    ops, adapter = fixture
+    environment = Path(ops.target.env_file)
+    content = b"POWERCONTEXT_SERVER_HTTP_UDS=/run/powercontext/core.sock\n"
+    write_protected_file(environment, content)
+    fields = {"operation": "register", "options": {}} if action == "preflight" else {}
+
+    result = ops.handle(_request(action, **fields))
+
+    assert result["outcome"] == "rejected"
+    assert result["error"]["code"] == "configuration_transport_unsupported"
+    assert "plan" not in result
+    assert adapter.definition is None
+    assert adapter.events == []
+    assert not ops.store.directory.exists()
+    assert environment.read_bytes() == content
+
+
 def test_duplicate_apply_returns_original_result_after_native_state_changes(fixture: tuple[Ops, FakeAdapter]) -> None:
     ops, adapter = fixture
     request = _apply_request(_plan(ops, "register"))

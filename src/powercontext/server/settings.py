@@ -116,8 +116,25 @@ class HttpConfig(BaseModel):
 
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
+    uds: Path | None = None
+    uds_external_scheme: Literal["http", "https"] | None = None
     max_request_body_bytes: int = Field(default=16 * 1024 * 1024, gt=0)
     max_concurrent_requests: int = Field(default=64, gt=0)
+
+    @field_validator("uds", mode="before")
+    @classmethod
+    def validate_uds(cls, value: object) -> object:
+        if value is None:
+            return None
+        from powercontext.server.uds import validate_socket_path
+
+        return validate_socket_path(value)
+
+    @model_validator(mode="after")
+    def require_uds_for_external_scheme(self) -> HttpConfig:
+        if self.uds_external_scheme is not None and self.uds is None:
+            raise ValueError("HTTP_UDS_EXTERNAL_SCHEME requires HTTP_UDS")  # noqa: TRY003
+        return self
 
 
 class McpConfig(BaseModel):
@@ -361,6 +378,8 @@ class ServerSettings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_unauthenticated_non_loopback_bind(self) -> ServerSettings:  # noqa: C901 - coupled deployment constraints
+        if self.http.uds is not None and self.runtime.artifact_processing_role == "background":
+            raise ValueError("HTTP_UDS requires an API listener; role=background is not supported")  # noqa: TRY003
         if self.access.background_principal_description is not None and self.access.background_principal_id is None:
             raise ValueError("ACCESS_BACKGROUND_PRINCIPAL_DESCRIPTION requires BACKGROUND_PRINCIPAL_ID")  # noqa: TRY003
         if self.auth.enabled:
@@ -383,11 +402,13 @@ class ServerSettings(BaseSettings):
         if self.access.mode == "disabled" and self.access.background_principal_id is not None:
             raise ValueError("ACCESS_MODE=disabled cannot configure a background Principal")  # noqa: TRY003
         if (
-            self.runtime.artifact_processing_role != "background" or self.metrics.enabled
-        ) and is_unauthenticated_non_loopback_bind(
-            host=self.http.host,
-            auth_enabled=self.access.mode != "disabled",
-            allow_unauthenticated_non_loopback=self.allow_unauthenticated_non_loopback,
+            self.http.uds is None
+            and (self.runtime.artifact_processing_role != "background" or self.metrics.enabled)
+            and is_unauthenticated_non_loopback_bind(
+                host=self.http.host,
+                auth_enabled=self.access.mode != "disabled",
+                allow_unauthenticated_non_loopback=self.allow_unauthenticated_non_loopback,
+            )
         ):
             raise UnauthenticatedNonLoopbackBindError(_UNSAFE_BIND_MESSAGE)
         if not isinstance(self.database, OceanBaseConfig) and self.runtime.artifact_processing_role != "all":

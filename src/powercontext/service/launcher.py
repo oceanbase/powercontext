@@ -74,6 +74,12 @@ def main(arguments: list[str] | None = None) -> int:
                 identity = _environment_identity(options)
                 environment = load_protected_environment_file(options.env_file, expected=identity).values
             with server_settings_context(environment=environment, data_dir=options.data_dir) as settings:
+                if settings.http.uds is not None:
+                    raise ServerConfigurationError(  # noqa: TRY301
+                        ValueError(
+                            "personal services require a TCP Server listener; use 'powercontext server run' for UDS"
+                        )
+                    )
                 expected = _endpoint(settings.http.host, settings.http.port)
                 if expected != options.endpoint or not is_loopback_host(settings.http.host):
                     logger.error(

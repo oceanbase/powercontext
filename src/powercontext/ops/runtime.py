@@ -205,6 +205,8 @@ class Ops:
         loaded = load_protected_environment_file(path)
         try:
             with server_settings_context(environment=loaded.values) as settings:
+                if settings.http.uds is not None:
+                    raise OpsError("configuration_transport_unsupported")
                 if not is_loopback_host(settings.http.host):
                     raise OpsError("configuration_invalid")
         except (ServerConfigurationError, ArgumentError) as error:

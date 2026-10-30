@@ -104,6 +104,20 @@ def test_existing_configuration_uses_registered_data_root_without_rewriting_file
     assert path.read_bytes() == b"POWERCONTEXT_SERVER_HTTP_PORT=8992\n"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="UDS listeners are supported on Unix platforms")
+def test_existing_uds_configuration_is_rejected_without_inventing_tcp_endpoint(tmp_path: Path) -> None:
+    path = tmp_path / "config" / "server.env"
+    content = b"POWERCONTEXT_SERVER_HTTP_UDS=/run/powercontext/core.sock\n"
+    write_protected_file(path, content)
+    root = tmp_path / "data"
+
+    with pytest.raises(OpsError, match="configuration_transport_unsupported"):
+        inspect_existing_configuration(path, data_dir=root)
+
+    assert path.read_bytes() == content
+    assert not root.exists()
+
+
 def test_malformed_database_url_returns_stable_configuration_error(tmp_path: Path) -> None:
     path = tmp_path / "config" / "server.env"
     content = b"POWERCONTEXT_SERVER_DATABASE_URL=bad\n"

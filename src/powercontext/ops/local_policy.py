@@ -141,6 +141,8 @@ def _configuration_summary(
             environment_context({}, clear=_ambient_configuration_names()),
             server_settings_context(environment=values, data_dir=root) as settings,
         ):
+            if settings.http.uds is not None:
+                raise OpsError("configuration_transport_unsupported")
             if settings.database.kind != "sqlite":
                 raise OpsError("database_backend_unsupported")
             url = make_url(settings.database.url)
