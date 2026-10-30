@@ -150,6 +150,8 @@ def run_selector(repository: Path, event: str, base: str = "", head: str = "") -
         ("evaluation/memory/locomo/dataset.py", {"tests", "evaluation"}),
         ("evaluation/memory/locomo_plus/metrics.py", {"tests", "evaluation"}),
         ("evaluation/memory/write_gate/runner.py", {"tests", "evaluation"}),
+        ("evaluation/performance/input_encoding/semantics.py", {"tests", "evaluation"}),
+        ("evaluation/performance/input_encoding/semantic_cases.json", {"tests", "evaluation"}),
         ("integrations/pi/plugins/powercontext/package.json", {"tests", "pi", "zcode"}),
         ("tests/e2e/test_cross_host_work_continuity.py", {"tests", "zcode"}),
         ("tests/e2e/cross_host_work_continuity/pi.py", {"tests", "zcode"}),

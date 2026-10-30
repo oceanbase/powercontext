@@ -1,0 +1,436 @@
+[
+  {
+    "id": "directory-roles",
+    "category": "project_and_scratch_directories",
+    "requires_encoding": true,
+    "input": {
+      "document": {
+        "locations": [
+          {
+            "label": "opaque-coral",
+            "role": "project_root",
+            "visible_path": "/home/{{USERNAME_abcdefgh}}/checkout"
+          },
+          {
+            "label": "opaque-cedar",
+            "role": "scratch_root",
+            "visible_path": "/data/codex-tmp/synthetic-run"
+          }
+        ],
+        "observations": [
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. The project directory contains the durable checkout; scratch files are disposable."
+        ]
+      },
+      "questions": [
+        {
+          "id": "project_label",
+          "text": "Which label denotes the project root?"
+        },
+        {
+          "id": "scratch_label",
+          "text": "Which label denotes the scratch root?"
+        },
+        {
+          "id": "project_path",
+          "text": "What is the visible project path, exactly?"
+        },
+        {
+          "id": "scratch_path",
+          "text": "What is the visible scratch path, exactly?"
+        },
+        {
+          "id": "same_location",
+          "text": "Do these two records describe the same location? Return a boolean."
+        }
+      ]
+    },
+    "expected": {
+      "project_label": "opaque-coral",
+      "scratch_label": "opaque-cedar",
+      "project_path": "/home/{{USERNAME_abcdefgh}}/checkout",
+      "scratch_path": "/data/codex-tmp/synthetic-run",
+      "same_location": false
+    }
+  },
+  {
+    "id": "opaque-substitutions",
+    "category": "unknown_originals_and_authorized_actions",
+    "requires_encoding": true,
+    "input": {
+      "document": {
+        "values": [
+          {
+            "label": "{{USERNAME_abcdefgh}}",
+            "meaning": "substituted home path",
+            "original_available": false
+          },
+          {
+            "label": "{{TOKEN_abcdefgh}}",
+            "meaning": "substituted access token",
+            "original_available": false
+          }
+        ],
+        "authorized_next_action": "continue_with_visible_aliases",
+        "may_search_originals": false,
+        "may_request_secrets": false,
+        "observations": [
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. These aliases contain no original values or reversible mapping to original values."
+        ],
+        "environment_reference": "${API_KEY}"
+      },
+      "questions": [
+        {
+          "id": "original_home_path",
+          "text": "What was the original home path? Return null if the document does not establish it."
+        },
+        {
+          "id": "original_access_token",
+          "text": "What was the original access token? Return null if the document does not establish it."
+        },
+        {
+          "id": "next_action",
+          "text": "What is the authorized next action?"
+        },
+        {
+          "id": "may_search_originals",
+          "text": "Is searching files or external systems for the originals authorized? Return a boolean."
+        },
+        {
+          "id": "may_request_secrets",
+          "text": "Is requesting secret values authorized? Return a boolean."
+        },
+        {
+          "id": "visible_home_marker",
+          "text": "Return the visible home-path label exactly, without replacing any characters."
+        },
+        {
+          "id": "visible_token_marker",
+          "text": "Return the visible access-token label exactly, without replacing any characters."
+        },
+        {
+          "id": "environment_marker",
+          "text": "Return environment_reference exactly as visible text, without substitution."
+        }
+      ]
+    },
+    "expected": {
+      "original_home_path": null,
+      "original_access_token": null,
+      "next_action": "continue_with_visible_aliases",
+      "may_search_originals": false,
+      "may_request_secrets": false,
+      "visible_home_marker": "{{USERNAME_abcdefgh}}",
+      "visible_token_marker": "{{TOKEN_abcdefgh}}",
+      "environment_marker": "${API_KEY}"
+    }
+  },
+  {
+    "id": "source-identity",
+    "category": "source_identity_and_scope_ownership",
+    "requires_encoding": true,
+    "input": {
+      "document": {
+        "sources": [
+          {
+            "source_id": "source-A",
+            "scope_id": "scope-red",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. Observed action: preserve the exact Source identity and its recorded Scope."
+          },
+          {
+            "source_id": "source-B",
+            "scope_id": "scope-blue",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. Observed action: preserve the exact Source identity and its recorded Scope."
+          },
+          {
+            "source_id": "source-C",
+            "scope_id": "scope-red",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. Observed action: preserve the exact Source identity and its recorded Scope."
+          }
+        ]
+      },
+      "questions": [
+        {
+          "id": "source_ids",
+          "text": "List all Source IDs in their original order, including Sources with equal content."
+        },
+        {
+          "id": "source_b_owner",
+          "text": "Which Scope owns source-B?"
+        },
+        {
+          "id": "red_sources",
+          "text": "List the Source IDs owned by scope-red, in original order."
+        },
+        {
+          "id": "same_identity",
+          "text": "Do source-A and source-B have the same identity because their content is equal? Return a boolean."
+        }
+      ]
+    },
+    "expected": {
+      "source_ids": [
+        "source-A",
+        "source-B",
+        "source-C"
+      ],
+      "source_b_owner": "scope-blue",
+      "red_sources": [
+        "source-A",
+        "source-C"
+      ],
+      "same_identity": false
+    }
+  },
+  {
+    "id": "repeated-occurrences",
+    "category": "occurrence_count_and_order",
+    "requires_encoding": true,
+    "input": {
+      "document": {
+        "events": [
+          {
+            "event": "A",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "B",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "A",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "A",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "B",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "A",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "A",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "B",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "A",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "A",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "B",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          },
+          {
+            "event": "A",
+            "content": "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This event occurrence must remain in its original position."
+          }
+        ]
+      },
+      "questions": [
+        {
+          "id": "event_count",
+          "text": "How many event occurrences are present? Return an integer."
+        },
+        {
+          "id": "a_count",
+          "text": "How many occurrences have event A? Return an integer."
+        },
+        {
+          "id": "event_order",
+          "text": "Return every event label in original order, preserving repeated occurrences."
+        }
+      ]
+    },
+    "expected": {
+      "event_count": 12,
+      "a_count": 8,
+      "event_order": [
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A"
+      ]
+    }
+  },
+  {
+    "id": "object-and-json-string",
+    "category": "object_and_serialized_json_types",
+    "requires_encoding": true,
+    "input": {
+      "document": {
+        "object_value": {
+          "enabled": true,
+          "count": 1,
+          "owner": "scope-red",
+          "memo": "Visible memo: preserve the original source identity, recorded ownership, visible string characters, Unicode, and repeated occurrences across the representation."
+        },
+        "string_value": "{\"enabled\":true,\"count\":1,\"owner\":\"scope-red\",\"memo\":\"Visible memo: preserve the original source identity, recorded ownership, visible string characters, Unicode, and repeated occurrences across the representation.\"}",
+        "observations": [
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types.",
+          "This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. An object and a string containing JSON text remain different types."
+        ]
+      },
+      "questions": [
+        {
+          "id": "object_type",
+          "text": "What JSON type is object_value: object or string?"
+        },
+        {
+          "id": "string_type",
+          "text": "What JSON type is string_value: object or string?"
+        },
+        {
+          "id": "string_exact",
+          "text": "Return string_value itself, as a string, without parsing or changing its characters."
+        },
+        {
+          "id": "enabled",
+          "text": "Return the enabled field of object_value, preserving its JSON type."
+        },
+        {
+          "id": "count",
+          "text": "Return the count field of object_value, preserving its JSON type."
+        }
+      ]
+    },
+    "expected": {
+      "object_type": "object",
+      "string_type": "string",
+      "string_exact": "{\"enabled\":true,\"count\":1,\"owner\":\"scope-red\",\"memo\":\"Visible memo: preserve the original source identity, recorded ownership, visible string characters, Unicode, and repeated occurrences across the representation.\"}",
+      "enabled": true,
+      "count": 1
+    },
+    "required_v2_nodes": [
+      {
+        "path": [
+          "document",
+          "string_value"
+        ],
+        "tag": "j"
+      }
+    ]
+  },
+  {
+    "id": "newlines-and-whitespace",
+    "category": "literal_newlines_and_whitespace",
+    "requires_encoding": true,
+    "input": {
+      "document": {
+        "records": [
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. ",
+          "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\nThis synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. This synthetic observation records the same visible evidence again. Each occurrence remains a separate observation; it neither creates a new identity nor changes the declared owner or directory role. "
+        ],
+        "text": "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\n"
+      },
+      "questions": [
+        {
+          "id": "text_exact",
+          "text": "Return text exactly, preserving blank lines, leading spaces, Unicode, the literal backslash and final newline."
+        },
+        {
+          "id": "newline_count",
+          "text": "How many actual newline characters does text contain? Do not count a backslash followed by n."
+        },
+        {
+          "id": "ends_with_newline",
+          "text": "Does text end with an actual newline? Return a boolean."
+        }
+      ]
+    },
+    "expected": {
+      "text_exact": "alpha\n\n  中文 beta\nliteral \\n stays literal\nomega\n",
+      "newline_count": 5,
+      "ends_with_newline": true
+    },
+    "required_v2_nodes": [
+      {
+        "path": [
+          "document",
+          "text"
+        ],
+        "tag": "s"
+      }
+    ]
+  },
+  {
+    "id": "short-control",
+    "category": "ineligible_short_input",
+    "requires_encoding": false,
+    "input": {
+      "document": {
+        "visible": 7
+      },
+      "questions": [
+        {
+          "id": "visible",
+          "text": "Return the visible value, preserving its JSON type."
+        }
+      ]
+    },
+    "expected": {
+      "visible": 7
+    }
+  }
+]

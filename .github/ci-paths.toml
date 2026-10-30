@@ -25,6 +25,7 @@ tests = [
   "scripts/ci_role_smoke.py",
   # These evaluator suites still live under the root tests/ directory.
   "evaluation/memory/locomo/**", "evaluation/memory/locomo_plus/**", "evaluation/memory/write_gate/**",
+  "evaluation/performance/input_encoding/**",
 ]
 evaluation = ["evaluation/**"]
 database = [

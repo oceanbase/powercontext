@@ -9,7 +9,7 @@ Python environment and build configuration.
 | [`agent_tool_recovery/`](agent_tool_recovery/README.md) | Agent recovery after failed PowerContext MCP calls | [Agent tool recovery](agent_tool_recovery/README.md) |
 | [`coding/`](coding/README.md) | Coding-task completion and continuation quality | [SWE-bench Pro](coding/swebench_pro/README.md), [Work continuity](coding/work_continuity/README.md) |
 | [`memory/`](memory/README.md) | Memory extraction, retrieval, answer quality, and write-gate evidence | [Atomic extraction](memory/atomic_extraction/README.md), [LoCoMo](memory/locomo/README.md), [LoCoMo-Plus](memory/locomo_plus/README.md), [LongMemEval-V2](memory/longmemeval_v2/README.md), [Memory write gate](memory/write_gate/README.md), [Capture ownership](memory/capture_ownership/README.md) |
-| [`performance/`](performance/README.md) | Load, latency, storage growth, and capacity limits | None yet |
+| [`performance/`](performance/README.md) | Load, latency, storage growth, and capacity limits | [Experience input encoding](performance/input_encoding/README.md) |
 | [`skills/`](skills/README.md) | Agent instruction routing and authorization regressions | [Claude Code skill-up](skills/skill-up/README.md), [ZCode native CLI](zcode_guidance/README.md) |
 | [`artifact_evolution/`](artifact_evolution/README.md) | Evaluation-owned Dream recording and faithful replay | [Artifact evolution](artifact_evolution/README.md) |
 
