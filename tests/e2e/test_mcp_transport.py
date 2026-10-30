@@ -216,6 +216,12 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
     tools = asyncio.run(exercise_tools())
 
     assert tools == {
+        "pc_source_add",
+        "pc_source_capabilities",
+        "pc_source_instance_set_enabled",
+        "pc_source_instances",
+        "pc_source_status",
+        "pc_source_target_set_enabled",
         "generate_experience",
         "get_experience",
         "propose_experience",

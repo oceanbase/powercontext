@@ -101,7 +101,7 @@ All relative config paths start at this project root, not at `evals/`.
 
 Both arms receive the same `evals/fixtures/repos/powercontext-tool-contract/CLAUDE.md`: required/optional top-level
 argument names, types and defaults derived from OpenAPI and its MCP specialization, including content CAS headers.
-The mock catalog contains the Server's complete declared MCP tool subset (55 operations), verified against
+The mock catalog contains the Server's complete declared MCP tool subset, verified against
 `src/powercontext/server/mcp.py` and the generated operation IDs. The successful save reply contains Atomic
 `records`; empty search returns the current `text` mode and an empty `hits` list.
 This fills the generic mock schemas' parameter information gap
