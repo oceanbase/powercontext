@@ -51,7 +51,7 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The bundled API contract does not yet have an independently qualified Server record; ordinary builds keep business operations unavailable until a matching record is added after protocol qualification. Historical records retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The bundled contract matches `sqlite-atomic-bbd7b1d8-v1`, which qualifies the eleven protocol operations recorded below. Recall manifest, context checking and Source plugin operations are outside this record’s qualified operation set. Historical records retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit.
 
@@ -60,6 +60,38 @@ Selecting a compatibility profile does not attest the remote binary identity. Ex
 <a id="current-server-protocol-qualification"></a>
 
 ### Server protocol qualification records
+
+#### Server bbd7b1d8 protocol qualification
+
+`sqlite-atomic-bbd7b1d8-v1` qualifies Server sources at
+`bbd7b1d8469411d23777d9c60cb0484f9f0d54b8` for OpenAPI digest
+`78120757a326c02230194f5b546b33ea6b7e438544a2d94aa03a1fe4b6626cf7`.
+The wheel is `powercontext-1.4.2.dev102+gbbd7b1d84-py3-none-any.whl`, SHA-256
+`07a9fffc49736a5a4d093248e8bb2bb99753e88b48076f05979d63a0137180d0`, built from that clean commit.
+All 654 packaged runtime files match its sources byte for byte. The sorted runtime manifest digest is
+`d44bb964bdc53b7a2d509baea103a21a7d10b8d62efb81514cf2a4c60f62ce7d`
+(one `wheel/path sha256` line per file, with a final newline). This development wheel does not establish a published release.
+
+On 2026-10-31, Linux x86_64 ran the unchanged `desktop/tests/real_server.py` against the extracted wheel and
+independent SQLite Servers. All four modes passed: anonymous loopback, static Bearer, HTTPS with an explicit
+CA/base path, and injected-provider/enforced access. The eleven recorded operations include Server discovery,
+Atomic Memory save/search/exact revision reads, and Scope selection. The probes verified identity changes,
+same-identity revocation, Scope pagination, committed writes with lost responses without replay, and Server
+survival after client exit. All four Servers exited normally without forced termination. The report records
+`desktopWorkingTreeDirty=false`. Recall manifest, context checking and Source plugin operations are outside
+this record’s qualified operation set. Inference protection was disabled; no active input encoding was applied.
+
+The standalone native client used 13 unchanged product source/support files: eleven Rust sources, including
+the existing `server_probe.rs` and session observations, plus two JSON files. All 307 resolved dependency
+versions and checksums match the product Cargo lock. It was compiled with Rust 1.95.0; the probe binary
+SHA-256 is `330929a954666108489a1595108f188de539c344a932c1f6695c34c3029b45fa`. The Tauri GUI shell was excluded because
+the local WebKit development dependency was unavailable. This record qualifies the recorded SQLite protocol
+behavior; Windows/macOS packaging, native vault persistence, installed UI, signing, IME and screen-reader
+behavior require separate platform checks.
+
+本记录绑定上述精确源码、契约和 wheel；654 个运行时文件逐一核对一致，四种真实 SQLite／HTTP 模式均通过。
+11 项已验证操作包括 Server 发现，不包括 Recall manifest、context/check 或 Source 插件操作。
+推理保护未启用，也未使用主动输入编码；该记录不替代 Windows／macOS 安装包、GUI 或原生凭据库验收。
 
 #### Server d3850bf6 protocol qualification
 
