@@ -46,6 +46,7 @@ fn renders_responses_wire_format() {
     assert_eq!(v["max_output_tokens"], 16);
     assert_eq!(v["stream"], false);
     assert_eq!(v["input"][0]["role"], "user");
+    assert_eq!(v["input"][0]["content"], "hi", "单字符串 content 必须保持 string（review P2：不得变 [\"hi\"]）");
     assert!(v.get("messages").is_none(), "不得混入 chat 字段");
     assert!(v.get("max_tokens").is_none());
 }
@@ -95,4 +96,33 @@ fn merges_only_approved_cache_plan_fields() {
     let v: serde_json::Value = serde_json::from_slice(&p.bytes).unwrap();
     assert_eq!(v["prompt_cache_key"], "scope-1");
     assert_eq!(v["model"], "m", "基础字段不被计划覆盖");
+}
+
+#[test]
+fn typed_content_parts_pass_through_as_array() {
+    // 多部件（typed parts）content 原样透传为数组；与单字符串形态并存不冲突。
+    let req = CanonicalRequest {
+        model: "m".into(),
+        messages: vec![CanonicalMessage {
+            role: Role::User,
+            content: vec![
+                serde_json::json!({"type": "input_text", "text": "看这张图"}),
+                serde_json::json!({"type": "input_image", "image_url": "data:image/png;base64,xxx"}),
+            ],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+        }],
+        tools: vec![],
+        instructions: None,
+        native_cache_fields: None,
+        output_limits: OutputLimits { max_output_tokens: 16 },
+        stream: false,
+    };
+    let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&p.bytes).unwrap();
+    let content = v["input"][0]["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2);
+    assert_eq!(content[0]["type"], "input_text");
+    assert_eq!(content[1]["type"], "input_image");
 }

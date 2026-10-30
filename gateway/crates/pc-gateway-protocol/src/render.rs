@@ -215,11 +215,22 @@ impl WireRenderer for OpenAiResponsesRenderer {
                 input.push(msg.content[0].clone());
                 continue;
             }
-            let content: serde_json::Value = serde_json::to_value(&msg.content)
-                .map_err(|e| RenderError::UnsupportedField {
-                    renderer: self.name(),
-                    field: e.to_string(),
-                })?;
+            // Responses 线格式的 message.content 只能是 string 或 typed parts 数组；
+            // 裸字符串数组（["hello"]）是非法形态。单字符串保持 string，
+            // 多元素（typed parts / Responses 专有 item 外的数组）原样透传。
+            let content: serde_json::Value = if msg.content_null {
+                serde_json::Value::Null
+            } else {
+                match msg.content.as_slice() {
+                    [serde_json::Value::String(s)] => serde_json::Value::String(s.clone()),
+                    other => serde_json::to_value(other).map_err(|e| {
+                        RenderError::UnsupportedField {
+                            renderer: self.name(),
+                            field: e.to_string(),
+                        }
+                    })?,
+                }
+            };
             input.push(serde_json::json!({
                 "role": msg.role,
                 "content": content,
