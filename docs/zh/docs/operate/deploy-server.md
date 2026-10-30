@@ -182,6 +182,12 @@ asyncio.run(main())
 配置。Core 使用 UDS 时，Agent 宿主接入需要显式提供代理的 HTTP(S) URL。远端 Skill Receiver endpoint 仍要求 HTTPS
 或 loopback peer；直接 UDS 连接没有 loopback peer，不会豁免该检查。
 
+Server 使用 UDS 时，通过 `POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR` 或
+`POWERCONTEXT_SERVER_SOURCE_MANAGEMENT_AUTOSTART` 启用 Source 自动部署，还需将
+`POWERCONTEXT_SERVER_PUBLIC_URL` 配置为代理地址。collect manager 和 runtime 通过该 URL 连接；未配置时会在创建
+部署凭据或进程前拒绝启动。`source load --kind write` 使用同一配置，也可显式传入 `--server-url`。UDS 模式下，
+这些命令不会根据 `HTTP_PORT` 推断 TCP 地址。
+
 这一监听入口提供 [Rust 网关设计（RFC #2199）](https://github.com/oceanbase/powercontext/pull/2199)所需的 Core 传输能力。
 Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私有路由和网关状态表仍需单独实现。设计中的网关负责原有
 公开 TCP 端口，并携带通道认证与用户认证通过 UDS 调用 Core。

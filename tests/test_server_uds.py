@@ -215,3 +215,103 @@ def test_cli_checks_started_when_uvicorn_returns_normally(short_tmp_path, monkey
     result = CliRunner().invoke(create_cli([app]), ["server", "run", "--no-env-file", "--uds", str(path)])
     assert result.exit_code == (0 if started else 3), result.output
     assert not path.exists()
+
+
+@_UNIX
+@pytest.mark.parametrize("deployment", ["none", "directory", "autostart"])
+@pytest.mark.parametrize("public_url", [None, "https://proxy.example"])
+def test_uds_source_deployment_requires_proxy_before_creating_state(tmp_path, short_tmp_path, deployment, public_url):
+    from powercontext.server.factory import create_server_app
+    from powercontext.server.settings import BearerAuthConfig, SourceManagementConfig
+    from powercontext.source_management.models import ManagementError
+
+    state = tmp_path / "deployment"
+    settings = ServerSettings(
+        http=HttpConfig(uds=short_tmp_path / "core.sock"),
+        auth=BearerAuthConfig(enabled=True, token=SecretStr("uds-source-test-token")),
+        source_plugins_dir=tmp_path / "plugins" if deployment == "directory" else None,
+        source_management=SourceManagementConfig(autostart=deployment == "autostart", state_dir=state),
+        public_url=public_url,
+    )
+    if deployment != "none" and public_url is None:
+        with pytest.raises(ManagementError, match="POWERCONTEXT_SERVER_PUBLIC_URL"):
+            create_server_app(settings=settings)
+        assert not state.exists()
+    else:
+        assert create_server_app(settings=settings) is not None
+
+
+@_UNIX
+def test_uds_collect_load_requires_proxy_before_creating_state(tmp_path, short_tmp_path, monkeypatch):
+    from powercontext.source_management.cli import source_app
+
+    state = tmp_path / "deployment"
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_UDS", str(short_tmp_path / "core.sock"))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_SOURCE_MANAGEMENT_AUTOSTART", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_SOURCE_MANAGEMENT_STATE_DIR", str(state))
+    config = tmp_path / "collect.yml"
+    config.write_text("id: uds-collect\nplugin: unused.module\n", encoding="utf-8")
+
+    result = CliRunner().invoke(source_app, ["load", "--config", str(config)])
+
+    assert result.exit_code == 1, result.output
+    assert "server-url-required" in result.output
+    assert "POWERCONTEXT_SERVER_PUBLIC_URL" in result.output
+    assert not state.exists()
+
+
+@_UNIX
+@pytest.mark.parametrize("endpoint", ["missing", "public_url", "argument"])
+def test_uds_write_load_uses_only_explicit_proxy(tmp_path, short_tmp_path, monkeypatch, endpoint):
+    import json
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    from powercontext.source_management.cli import source_app
+
+    requests = []
+
+    class Proxy(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append((self.path, body))
+            payload = json.dumps({"id": body["id"]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format, *args):  # noqa: A002 - match the stdlib signature.
+            pass
+
+    config = tmp_path / "write.yml"
+    config.write_text("id: uds-write\nentry: unused.module\n", encoding="utf-8")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_UDS", str(short_tmp_path / "core.sock"))
+    # This server setting must not prevent a write-only command from selecting its own proxy.
+    monkeypatch.setenv("POWERCONTEXT_SERVER_SOURCE_MANAGEMENT_AUTOSTART", "true")
+    with ThreadingHTTPServer(("127.0.0.1", 0), Proxy) as proxy:
+        url = f"http://127.0.0.1:{proxy.server_port}"
+        monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", str(proxy.server_port))
+        arguments = ["load", "--kind", "write", "--config", str(config)]
+        if endpoint == "public_url":
+            monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", url)
+        elif endpoint == "argument":
+            arguments.extend(["--server-url", url])
+        thread = Thread(target=proxy.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = CliRunner().invoke(source_app, arguments)
+        finally:
+            proxy.shutdown()
+            thread.join(timeout=5)
+
+    if endpoint == "missing":
+        assert result.exit_code == 1, result.output
+        assert "server-url-required" in result.output
+        assert "--server-url or POWERCONTEXT_SERVER_PUBLIC_URL" in result.output
+        assert requests == []
+    else:
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == {"id": "uds-write"}
+        assert requests == [("/v1/source-management/write/load", {"id": "uds-write", "entry": "unused.module"})]
