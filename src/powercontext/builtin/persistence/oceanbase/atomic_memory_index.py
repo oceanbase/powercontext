@@ -41,6 +41,7 @@ from powercontext.builtin.persistence.atomic_memory_index_schema import (
     ATOMIC_MEMORY_PROJECTION_FORMAT,
     atomic_memory_current_table,
 )
+from powercontext.builtin.persistence.oceanbase.schema import create_vector_index
 from powercontext.builtin.persistence.schema import create_tables
 
 _FTS_INDEX_NAME = "ix_pc_atomic_memory_current_fts"
@@ -100,9 +101,12 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         await create_tables(connection, self.tables)
         await self.require_current_schema(connection)
         try:
+            # Existing deployments may use a DML-only runtime account. Even
+            # IF NOT EXISTS requires CREATE privileges on OceanBase.
             if not await connection.scalar(_INDEX_EXISTS, {"index_name": _FTS_INDEX_NAME}):
                 await connection.exec_driver_sql(
-                    f"CREATE FULLTEXT INDEX {_FTS_INDEX_NAME} ON pc_atomic_memory_current (searchable_text) WITH PARSER SPACE"
+                    f"CREATE FULLTEXT INDEX IF NOT EXISTS {_FTS_INDEX_NAME} "
+                    "ON pc_atomic_memory_current (searchable_text) WITH PARSER SPACE"
                 )
             await connection.exec_driver_sql(
                 "SELECT artifact_id FROM pc_atomic_memory_current "
@@ -127,12 +131,10 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
                 f"Atomic Memory uses {column_type!r}; expected {expected}. "
                 "Reconfigure the current vector column offline and rebuild vectors before vector search.",
             )
-        if self._vector_index is not None and not await connection.scalar(
-            _INDEX_EXISTS, {"index_name": _VECTOR_INDEX_NAME}
-        ):
+        if self._vector_index is not None:
             vector_index = self._vector_index
             try:
-                await connection.run_sync(lambda sync: vector_index.create(sync, checkfirst=False))
+                await create_vector_index(connection, vector_index)
             except SQLAlchemyError as error:
                 raise AtomicMemoryIndexError(
                     "oceanbase-vector", "OceanBase native Atomic Memory vector index is unavailable"

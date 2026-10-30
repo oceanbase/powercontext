@@ -71,6 +71,9 @@ def _create_mysql_tables(connection: Connection, tables: Sequence[Table]) -> Non
                 continue
             connection.execute(CreateTable(table, if_not_exists=True))
             for index in sorted(table.indexes, key=lambda item: str(item.name)):
+                # Specialized VECTOR DDL belongs to its native initializer.
+                if index.__visit_name__ != "index":
+                    continue
                 try:
                     index.create(connection, checkfirst=True)
                 except DBAPIError as error:
