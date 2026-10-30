@@ -39,6 +39,16 @@ pub struct CanonicalRequest {
 pub struct CanonicalMessage {
     pub role: Role,
     pub content: Vec<serde_json::Value>,
+    /// 原始 content 为 JSON null（assistant 发起工具调用时的规范形态）。
+    /// 渲染时必须还原为 null 而非空数组，否则上游校验拒绝。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub content_null: bool,
+    /// assistant 消息的工具调用声明（chat 线格式），原样透传不解释。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<serde_json::Value>>,
+    /// tool 消息的结果配对 id，原样透传（丢失即破坏工具循环）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

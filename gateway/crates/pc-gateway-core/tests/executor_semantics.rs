@@ -191,6 +191,9 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
             messages: vec![CanonicalMessage {
                 role: Role::User,
                 content: vec![serde_json::json!("hello")],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
             }],
             tools: vec![],
             instructions: None,

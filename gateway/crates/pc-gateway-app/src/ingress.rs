@@ -43,6 +43,10 @@ struct OpenAiMessage {
     role: String,
     #[serde(default)]
     content: serde_json::Value,
+    #[serde(default)]
+    tool_calls: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    tool_call_id: Option<String>,
 }
 
 /// Responses API 入口请求（同格式进出，不与 chat 互转）。
@@ -204,13 +208,20 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
             "tool" => Role::Tool,
             other => return Err(format!("unsupported role: {other}")),
         };
+        let content_null = m.content.is_null();
         let content = match m.content {
             serde_json::Value::String(s) => vec![serde_json::Value::String(s)],
             serde_json::Value::Array(a) => a,
             serde_json::Value::Null => vec![],
             other => return Err(format!("unsupported content type: {other}")),
         };
-        messages.push(CanonicalMessage { role, content });
+        messages.push(CanonicalMessage {
+            role,
+            content,
+            content_null,
+            tool_calls: m.tool_calls,
+            tool_call_id: m.tool_call_id,
+        });
     }
     Ok(CanonicalRequest {
         model: chat.model,
@@ -245,6 +256,9 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
             messages.push(CanonicalMessage {
                 role: Role::Tool,
                 content: vec![item],
+                content_null: false,
+                tool_calls: None,
+                tool_call_id: None,
             });
             continue;
         }
@@ -253,7 +267,13 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
             Some(serde_json::Value::Array(a)) => a.clone(),
             _ => vec![],
         };
-        messages.push(CanonicalMessage { role, content });
+        messages.push(CanonicalMessage {
+            role,
+            content,
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+        });
     }
     Ok(CanonicalRequest {
         model: r.model,
@@ -327,3 +347,41 @@ fn respond(outcome: ManagedOutcome) -> Response {
 // 抑制未使用导入警告（Bytes 用于类型别名文档场景）。
 #[allow(dead_code)]
 fn _unused(_: Option<Bytes>) {}
+
+#[cfg(test)]
+mod tests {
+    //! PR #2307 review P2：chat 工具元数据经入口 canonical 化的保真测试。
+    use super::*;
+
+    #[test]
+    fn chat_ingress_preserves_tool_fields_and_null_content() {
+        let body = r#"{
+            "model": "m",
+            "messages": [
+                {"role": "assistant", "content": null,
+                 "tool_calls": [{"id": "call_1", "type": "function",
+                                  "function": {"name": "get_weather", "arguments": "{}"}}]},
+                {"role": "tool", "tool_call_id": "call_1", "content": "sunny"}
+            ],
+            "max_tokens": 8
+        }"#;
+        let chat: OpenAiChatRequest = serde_json::from_str(body).unwrap();
+        let canonical = to_canonical_chat(chat).unwrap();
+        let a = &canonical.messages[0];
+        assert!(a.content_null, "content:null 必须被记录");
+        assert!(a.content.is_empty());
+        assert_eq!(a.tool_calls.as_deref().map(|t| t.len()), Some(1));
+        let t = &canonical.messages[1];
+        assert_eq!(t.tool_call_id.as_deref(), Some("call_1"));
+        assert_eq!(t.content[0], serde_json::json!("sunny"));
+    }
+
+    #[test]
+    fn chat_ingress_null_content_without_tool_calls_also_preserved() {
+        let body = r#"{"model":"m","messages":[{"role":"assistant","content":null}],"max_tokens":8}"#;
+        let chat: OpenAiChatRequest = serde_json::from_str(body).unwrap();
+        let canonical = to_canonical_chat(chat).unwrap();
+        assert!(canonical.messages[0].content_null);
+        assert!(canonical.messages[0].tool_calls.is_none());
+    }
+}

@@ -23,6 +23,9 @@ fn request() -> CanonicalRequest {
         messages: vec![CanonicalMessage {
             role: Role::User,
             content: vec![serde_json::json!("hi")],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
         }],
         tools: vec![],
         instructions: Some("be terse".into()),
@@ -58,11 +61,17 @@ fn responses_items_pass_through_verbatim() {
             CanonicalMessage {
                 role: Role::User,
                 content: vec![serde_json::json!("hi")],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
             },
             // 无 role 的顶层 item：原样封进 content，渲染时作为顶层 item 透出
             CanonicalMessage {
                 role: Role::Tool,
                 content: vec![fc.clone()],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
             },
         ],
         tools: vec![],

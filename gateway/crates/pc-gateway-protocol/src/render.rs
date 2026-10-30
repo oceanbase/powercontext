@@ -59,17 +59,31 @@ impl WireRenderer for OpenAiChatRenderer {
         // 无 type 的部件数组）；多部件 content 按原样透传。
         let mut messages = Vec::with_capacity(request.messages.len());
         for m in &request.messages {
-            let content: serde_json::Value = match m.content.as_slice() {
-                [serde_json::Value::String(s)] => serde_json::Value::String(s.clone()),
-                other => serde_json::to_value(other).map_err(|e| RenderError::UnsupportedField {
-                    renderer: self.name(),
-                    field: e.to_string(),
-                })?,
+            let content: serde_json::Value = if m.content_null {
+                serde_json::Value::Null
+            } else {
+                match m.content.as_slice() {
+                    [serde_json::Value::String(s)] => serde_json::Value::String(s.clone()),
+                    other => serde_json::to_value(other).map_err(|e| {
+                        RenderError::UnsupportedField {
+                            renderer: self.name(),
+                            field: e.to_string(),
+                        }
+                    })?,
+                }
             };
-            messages.push(serde_json::json!({
+            let mut message = serde_json::json!({
                 "role": m.role,
                 "content": content,
-            }));
+            });
+            // 工具调用元数据原样透传：配对 id 与调用声明缺一不可。
+            if let Some(tool_calls) = &m.tool_calls {
+                message["tool_calls"] = serde_json::json!(tool_calls);
+            }
+            if let Some(tool_call_id) = &m.tool_call_id {
+                message["tool_call_id"] = serde_json::json!(tool_call_id);
+            }
+            messages.push(message);
         }
 
         // 只写入确定性的结构字段；不写请求 ID/时间戳（缓存前缀保真）。

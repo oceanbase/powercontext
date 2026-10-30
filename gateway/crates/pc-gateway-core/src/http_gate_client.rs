@@ -38,7 +38,11 @@ impl HttpGateClient {
     pub fn with_token(base_url: impl Into<String>, token: Option<String>) -> Self {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
-            client: reqwest::Client::new(),
+            // 同一原则：获准目的地 = 实际目的地；3xx 原样上抛，不自动跟随。
+            client: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("reqwest client build"),
             token: token.filter(|t| !t.is_empty()),
         }
     }
