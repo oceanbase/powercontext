@@ -1,0 +1,52 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "v1_4_1_006": {
+      "statements": [
+        "CREATE TABLE pc_source_write_plugins (\n\tplugin_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tdefinition MEDIUMBLOB NOT NULL, \n\tPRIMARY KEY (plugin_id)\n)"
+      ],
+      "changes": [
+        {
+          "pc_source_write_plugins": {
+            "columns": {
+              "plugin_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "definition": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "plugin_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {},
+            "indexes": {}
+          }
+        }
+      ]
+    }
+  }
+}

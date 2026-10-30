@@ -101,6 +101,11 @@ class ServerVectorProfile:
                         row[3] = connection.execute(
                             "SELECT sql FROM sqlite_schema WHERE name='pc_atomic_memory_current'"
                         ).fetchone()[0]
+        if "v1_4_1_006" in manifest["revision_resources"]:
+            plugin = json.loads((directory / "schemas/sqlite-v1_4_1_006.json").read_text(encoding="utf-8"))["create"]
+            layouts["v1_4_1_006"] = layouts["v1_4_1_005"] + [
+                ["table", "pc_source_write_plugins", "pc_source_write_plugins", plugin]
+            ]
         for entries in layouts.values():
             entries.sort(key=lambda row: (row[0], row[1]))
         return layouts

@@ -51,7 +51,7 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The bundled contract digest matches `sqlite-atomic-cc5980f0-v1`, which records the ten protocol operations qualified below. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The bundled contract matches `sqlite-atomic-0a49db9b-v1`, which qualifies the eleven protocol operations recorded below. Existing records retain their exact source and contract identities. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit.
 
@@ -60,6 +60,44 @@ Selecting a compatibility profile does not attest the remote binary identity. Ex
 <a id="current-server-protocol-qualification"></a>
 
 ### Server protocol qualification records
+
+#### Server 0a49db9b protocol qualification
+
+`sqlite-atomic-0a49db9b-v1` qualifies Server sources at `0a49db9bf640703e1067ecda67650f20612d3427`
+for OpenAPI digest `bce4e0d3deec56590a29c3c06af4d853fc8cad2917d8832b23c92dd160472ccd`.
+The wheel `powercontext-1.4.1.dev0+g0a49db9b-py3-none-any.whl` has SHA-256
+`8e57881de55502f99f44a6076bcffee2935f3d3666a00330664f4bcb0fb92150`. It was built from `git archive` of that commit with
+`SETUPTOOLS_SCM_PRETEND_VERSION=1.4.1.dev0+g0a49db9b uv build --wheel`.
+All 649 packaged runtime files match the archived sources byte for byte;
+the sorted runtime path/content-digest manifest has SHA-256
+`da9bf44eb0b21cfa72cef3cc863e87322a4c1d98af3dd7409d94d0e9ba57d9a6`.
+
+On 2026-10-30, Linux x86_64, Python 3.12.12 and Rust 1.95.0 ran
+`desktop/tests/real_server.py` against that wheel in independent SQLite Server processes.
+Anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and
+injected-provider/enforced access all passed. The eleven recorded operations include
+Server discovery, health/readiness, principal/capabilities, Scope listing/detail/default,
+Atomic Memory save/search and exact Artifact revision reads. The native context owner
+also passed identity changes, same-identity revocation, committed writes with lost
+responses without replay, Scope pagination and independent Server survival after client exit.
+
+The native probe compiled the unchanged product `connections`, `credentials`, `error`,
+`session_observations` and `transport` modules and `server_probe.rs` in a standalone library.
+Resolved dependency versions and checksums match the product Cargo lock. The standalone
+library excludes the Tauri GUI shell; it links the host's installed D-Bus library.
+This qualifies the stated SQLite protocol behavior, not Windows/macOS execution,
+native credential persistence, installed GUI workflows, signing or release readiness.
+Historical records retain their original identities and evidence.
+
+Reproduce using the archived wheel, native `server_probe` build,
+`fixture_qualification.py --server-commit 0a49db9bf640703e1067ecda67650f20612d3427`, and
+`real_server.py` as described below. Ignored evidence is retained in
+`desktop/.artifacts/real-server.json` and `desktop/.artifacts/qualification-wheel-identity.json`.
+
+本记录绑定上述准确源码、契约和 wheel；649 个运行时文件逐一核对一致。
+四种真实 SQLite／HTTP 连接模式均已通过，覆盖包括 Server discovery 在内的十一项协议操作。
+原生探针使用未修改的产品协议模块及产品锁文件中的依赖版本。
+本次验收不覆盖 Windows／macOS 执行、原生凭据持久化、安装后 GUI 或发布验收。
 
 #### Server cc5980f0 protocol qualification
 
@@ -150,6 +188,40 @@ original source, contract and wheel identities.
 2026-10-26，使用上述提交的归档源码构建独立 wheel，并逐文件核对 553 个运行时文件。
 原生探针通过匿名回环、Bearer、显式 CA／路径前缀 HTTPS 及强制访问控制四种真实 SQLite
 协议验收。该记录仅覆盖所列十项操作，不包含 manifest 摘要、Windows、安装包或原生凭据库验收。
+
+#### Server 68491568 protocol qualification
+
+`sqlite-atomic-68491568-v1` qualifies Server sources at `68491568359fd9f5723208bbeeec2f808fd2bcc9`
+for OpenAPI digest `b89e721f9fba1c4ef4267b4420af417e5a88a7f7fbe893f639df913b77d24dc0`.
+The wheel is `powercontext-1.4.1.dev188+g684915683-py3-none-any.whl`,
+SHA-256 `91c54cfd8551cc1590abcedb8bbd7bf9865ffc41667fee7b3ac015c249f8bbfb`. All 634 packaged runtime files
+match the clean source commit byte for byte; the sorted runtime manifest digest is
+`13a9fac57efe09f5f336f2bb5dcb82b07d2e161dcb31c267f3ef60247a6e805b`
+(one `wheel/path sha256` line per file, with a final newline).
+
+On 2026-10-26, Linux x86_64, Python 3.12.12 and Rust 1.95.0 ran the existing
+`desktop/tests/real_server.py` harness against this wheel and independent SQLite Servers.
+All four modes passed: anonymous loopback, static Bearer, HTTPS with an explicit CA/base path,
+and an injected provider with enforced access. The ten recorded operations cover Atomic Memory
+save/search/exact reads, Scope selection and pagination, identity changes and revocation,
+committed writes with lost responses without replay, and Server survival after client exit.
+
+The native client compiled the unchanged product `connections`, `credentials`, `error` and
+`transport` modules and existing `server_probe.rs` in a standalone library, excluding the Tauri GUI
+shell. Every resolved dependency version and checksum matches the product Cargo lock.
+This qualifies the stated SQLite protocol behavior, not Windows/macOS execution, native credential
+persistence, installed GUI workflows, signing or release readiness. Historical records retain their
+original identities and evidence.
+
+Reproduce from the recorded source using the wheel build, native `server_probe` build,
+`fixture_qualification.py --server-commit 68491568359fd9f5723208bbeeec2f808fd2bcc9`, and
+`real_server.py` commands described below for Linux protocol-only qualification.
+Ignored evidence is retained in `desktop/.artifacts/real-server.json` and
+`desktop/.artifacts/qualification-wheel-identity.json`.
+
+本记录绑定上述精确源码、契约和 wheel；四种真实 SQLite／HTTP 连接模式均已通过。
+原生客户端使用未修改的产品协议模块，依赖版本及校验和与产品 Cargo 锁文件一致。
+本次验收不覆盖 Windows／macOS 执行、原生凭据库、安装后 GUI 或发布验收。
 
 #### Server 4ffdf4e9 protocol qualification
 

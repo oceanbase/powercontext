@@ -3552,6 +3552,273 @@ class CatalogTagResult(BaseModel):
     etag: Annotated[StrictStr, Field(min_length=1)]
 
 
+class SourceCapabilityQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    input: dict[str, Any] | None = None
+
+
+class SourceWritePluginLoadRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")]
+    entry: Annotated[StrictStr, Field(max_length=4096, min_length=1)]
+
+
+class SourceWritePluginState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: StrictStr
+    entry: StrictStr
+    capabilities: list[dict[str, Any]]
+
+
+class SourceAddRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    capability: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    capability_version: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    input: dict[str, Any]
+
+
+class View(StrEnum):
+    RESULT = "result"
+    CONTROL = "control"
+
+
+class SourceStatusRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    target_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    view: View = View.RESULT
+
+
+class SourceInstanceSetEnabledRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    enabled: StrictBool
+
+
+class SourceConfigureRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    update: StrictBool = False
+    registration: dict[str, Any]
+
+
+class Management(StrEnum):
+    NOT_CONFIGURED = "not-configured"
+    ONLINE = "online"
+    UNAVAILABLE = "unavailable"
+
+
+class SourceCapabilityResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    capabilities: list[dict[str, Any]]
+    management: Management
+
+
+class SourceInstancesResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instances: list[dict[str, Any]]
+    capabilities: list[dict[str, Any]] | None = None
+    management: Management | None = None
+
+
+class Outcome2(StrEnum):
+    SAVED = "saved"
+    UNCHANGED = "unchanged"
+
+
+class SourceCollectionResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    outcome: Outcome2
+    source_refs: list[SourceTypeReference]
+
+
+class Tracking(StrEnum):
+    ENABLED = "enabled"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+
+
+class Availability(StrEnum):
+    ONLINE = "online"
+    OFFLINE = "offline"
+    UNAVAILABLE = "unavailable"
+
+
+class Kind10(StrEnum):
+    COLLECT = "collect"
+    WRITE = "write"
+
+
+class SourceManagementReceipt(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    target_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    tracking: Tracking | None = None
+    result: SourceCollectionResult | None = None
+    error: StrictStr | None = None
+    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    capability_version: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    availability: Availability | None = None
+    updated_at: StrictStr | None = None
+    kind: Kind10 | None = None
+    enabled: StrictBool | None = None
+    source_refs: Annotated[
+        list[SourceTypeReference] | None,
+        Field(
+            description="Default collect status only. The single Source reference from the submission report most recently received by the manager, or empty before any report. Omitted from collect add responses; not a batch result or submission history.",
+            max_length=1,
+        ),
+    ] = None
+    last_submitted_at: Annotated[
+        StrictStr | None,
+        Field(
+            description="Default collect status only. Runtime-reported submission time paired with source_refs, or null before any report. Selection follows manager receipt order, not timestamp order. Omitted from collect add responses."
+        ),
+    ] = None
+
+
+class SourceInstanceStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    targets_initialized: StrictBool | None = None
+    target_id: StrictStr | None = None
+    instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    enabled: StrictBool | None = None
+    actual: StrictStr | None = None
+    run_id: StrictStr | None = None
+    availability: StrictStr | None = None
+    reused: StrictBool | None = None
+
+
+class SourceChannelOpen(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    protocol: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    deployment_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    manager_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class SourceChannelRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    generation: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    message_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    response: dict[str, Any] | None = None
+    catalog: dict[str, Any] | None = None
+
+
+class SourceChannelResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    generation: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    protocol: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    confirmed: StrictBool | None = None
+    messages: list[dict[str, Any]] | None = None
+
+
+class Status6(StrEnum):
+    RUNNING = "running"
+    COMPLETE = "complete"
+    COMPLETED = "completed"
+    PENDING = "pending"
+    FAILED = "failed"
+    STOPPED = "stopped"
+    CLEANUP_FAILED = "cleanup-failed"
+
+
+class SourceInstanceExchangeRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    generation: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    protocol: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    message_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    execution_location: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    configuration_digest: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    run_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    execution: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    target_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    capabilities: Annotated[list[dict[str, Any]] | None, Field(max_length=64)] = None
+    response: dict[str, Any] | None = None
+    owner: dict[str, Any] | None = None
+    status: Status6 | None = None
+    source_refs: Annotated[
+        list[SourceTypeReference] | None,
+        Field(
+            description="One confirmed Source submission reported by the Runtime; not a batch or historical reference list.",
+            max_length=1,
+            min_length=1,
+        ),
+    ] = None
+    error: Annotated[StrictStr | None, Field(max_length=1024)] = None
+    targets: Annotated[list[dict[str, Any]] | None, Field(max_length=256)] = None
+    cursor: Annotated[StrictStr | None, Field(max_length=256)] = None
+    owner_exited: StrictBool | None = None
+    previous_owner: dict[str, Any] | None = None
+    submitted_at: StrictStr | None = None
+
+
+class SourceInstanceExchangeResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class SourceTargetSetEnabledRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    target_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    enabled: StrictBool
+
+
+class View1(StrEnum):
+    DISCOVERY = "discovery"
+    CONTROL = "control"
+
+
+class SourceInstancesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    input: dict[str, Any] | None = None
+    view: View1 = View1.DISCOVERY
+
+
 class RecallManifestRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4752,7 +5019,10 @@ class SourceRecord(BaseModel):
         ),
     ] = None
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    source_type: SourceType
+    source_type: Annotated[
+        StrictStr,
+        Field(description="Built-in content or a registered Source Observation type.", max_length=128, min_length=1),
+    ]
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     content: Annotated[Any, Field(description="Persisted canonical JSON content.")]
     position: Annotated[StrictInt, Field(ge=1)]
