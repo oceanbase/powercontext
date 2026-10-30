@@ -843,7 +843,8 @@ class AtomicMemorySourceWindowProcessor:
             if prompt is None
             else prompt.compiled_instructions
         )
-        return pipeline.estimator.estimate(f"{instructions}\n{value.model_dump_json()}")
+        payload = value.model_dump_json() if pipeline.input_renderer is None else pipeline.input_renderer(value)
+        return pipeline.estimator.estimate(f"{instructions}\n{payload}")
 
     def _fits(self, pipeline, value, key):
         return self._estimate(pipeline, value, key) <= self.config.input_tokens_limit

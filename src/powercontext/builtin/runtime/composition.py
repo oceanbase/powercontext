@@ -95,7 +95,8 @@ from powercontext.builtin.evidence.resolver import AuthorizationContext
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
-from powercontext.builtin.inference.privacy import InferenceProtectionConfig
+from powercontext.builtin.inference.input_encoding import INPUT_ENCODING_SCHEMA_V2
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig, PrivacyPolicy
 from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
     UsageReportingStructuredGenerator,
@@ -161,6 +162,7 @@ from powercontext.builtin.runtime.artifact_processing import (
     SpawnArtifactProcessingWorkerLauncher,
 )
 from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
+from powercontext.builtin.runtime.atomic_memory_input import render_atomic_memory_input
 from powercontext.builtin.runtime.atomic_memory_processing import AtomicMemoryProcessingConfig
 from powercontext.builtin.runtime.atomic_memory_search import AtomicArtifactSearcher
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
@@ -182,6 +184,7 @@ from powercontext.builtin.runtime.decision_projection import (
 from powercontext.builtin.runtime.experience_search import ExperienceArtifactSearcher
 from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
+from powercontext.builtin.runtime.input_preparation import render_input
 from powercontext.builtin.runtime.memory_write_gate import build_memory_write_gate
 from powercontext.builtin.runtime.models import DreamOperationCapability, MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.processing_contracts import (
@@ -1603,6 +1606,22 @@ async def _generation_pipelines(
                 )
             )
         )
+        memory_estimator = character_token_estimator()
+        input_policy = PrivacyPolicy(settings.protection)
+        memory_modes = {
+            stage: settings.input_encoding_mode(stage) for stage in ("atomic_memory.extract", "atomic_memory.reconcile")
+        }
+        memory_input_renderer = (
+            None
+            if all(mode == "off" for mode in memory_modes.values())
+            else partial(
+                render_atomic_memory_input,
+                modes=memory_modes,
+                estimator=memory_estimator,
+                policy=input_policy,
+            )
+        )
+        memory_send_renderer = None if memory_input_renderer is None else partial(memory_input_renderer, observe=True)
         memory_generator = PydanticAIStructuredGenerator(
             model=generation_model,
             instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
@@ -1612,6 +1631,7 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="atomic_memory_extraction",
             prompt_key="atomic_memory.extract",
+            input_renderer=memory_send_renderer,
         )
         memory_reconciler = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1623,6 +1643,7 @@ async def _generation_pipelines(
             name="atomic_memory_reconciliation",
             prompt_key="atomic_memory.reconcile",
             output_check=validate_reconciliation_decision,
+            input_renderer=memory_send_renderer,
         )
         experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1633,6 +1654,19 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="experience_incubation",
             prompt_key="experience.incubate",
+            input_renderer=(
+                partial(
+                    render_input,
+                    stage="experience.incubate",
+                    schema=INPUT_ENCODING_SCHEMA_V2,
+                    mode=settings.input_encoding_mode("experience.incubate"),
+                    estimator=memory_estimator,
+                    policy=input_policy,
+                    observe=True,
+                )
+                if settings.input_encoding_mode("experience.incubate") != "off"
+                else None
+            ),
         )
         explicit_experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1643,6 +1677,19 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="experience_generation",
             prompt_key="experience.generate",
+            input_renderer=(
+                partial(
+                    render_input,
+                    stage="experience.generate",
+                    schema=INPUT_ENCODING_SCHEMA_V2,
+                    mode=settings.input_encoding_mode("experience.generate"),
+                    estimator=memory_estimator,
+                    policy=input_policy,
+                    observe=True,
+                )
+                if settings.input_encoding_mode("experience.generate") != "off"
+                else None
+            ),
         )
         skill_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1667,8 +1714,9 @@ async def _generation_pipelines(
         generated_memory = AtomicMemoryGenerationPipeline(
             extractor=UsageReportingStructuredGenerator(memory_generator),
             reconciler=UsageReportingStructuredGenerator(memory_reconciler),
-            estimator=character_token_estimator(),
+            estimator=memory_estimator,
             extraction_instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
+            input_renderer=memory_input_renderer,
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))

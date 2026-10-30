@@ -24,9 +24,11 @@ from typing import Generic, TypeVar
 
 from powercontext.builtin.inference.errors import InferenceError
 from powercontext.builtin.inference.models import (
+    MAX_INPUT_ENCODINGS,
     EmbeddingResult,
     GenerationResult,
     InferenceUsage,
+    InputEncodingReport,
     combine_inference_usage,
 )
 from powercontext.builtin.inference.protocols import EmbeddingModel, StructuredGenerator, embed_query
@@ -52,6 +54,10 @@ class _UsageBinding:
 _BINDING: ContextVar[_UsageBinding | None] = ContextVar("powercontext_usage_binding", default=None)
 
 _APPROVED_USAGE: ContextVar[list[InferenceUsage] | None] = ContextVar("protected_approved_usage", default=None)
+_INPUT_ENCODINGS: ContextVar[list[InputEncodingReport] | None] = ContextVar("inference_input_encodings", default=None)
+_CALL_INPUT_ENCODINGS: ContextVar[list[InputEncodingReport] | None] = ContextVar(
+    "inference_call_input_encodings", default=None
+)
 
 
 @contextmanager
@@ -79,6 +85,38 @@ def approved_usage(values: list[InferenceUsage]) -> InferenceUsage:
     for value in values:
         result = combine_inference_usage(result, value)
     return result
+
+
+@contextmanager
+def collect_input_encodings() -> Iterator[list[InputEncodingReport]]:
+    """Observe at most 128 actual preparations without logging or persistence.
+
+    Nested observers are independent. Child tasks inherit an observer unless
+    they establish their own. The usage wrapper also associates preparations
+    with its individual call, independently of this explicit diagnostic scope.
+    Encoding and budget probes never record automatically.
+    """
+
+    reports: list[InputEncodingReport] = []
+    token = _INPUT_ENCODINGS.set(reports)
+    try:
+        yield reports
+    finally:
+        _INPUT_ENCODINGS.reset(token)
+
+
+def record_input_encoding(report: InputEncodingReport) -> None:
+    """Record one actual adapter preparation in the observer and owning call."""
+
+    for reports in (_INPUT_ENCODINGS.get(), _CALL_INPUT_ENCODINGS.get()):
+        if reports is not None and len(reports) < MAX_INPUT_ENCODINGS:
+            reports.append(report)
+
+
+def _with_input_encodings(usage: InferenceUsage, reports: list[InputEncodingReport]) -> InferenceUsage:
+    if not reports:
+        return usage
+    return usage.model_copy(update={"input_encodings": (usage.input_encodings + tuple(reports))[:MAX_INPUT_ENCODINGS]})
 
 
 @contextmanager
@@ -121,16 +159,24 @@ class UsageReportingStructuredGenerator(Generic[InputT, OutputT]):
         self._delegate = delegate._delegate if type(delegate) is UsageReportingStructuredGenerator else delegate
 
     async def generate(self, value: InputT, /) -> GenerationResult[OutputT]:
+        reports: list[InputEncodingReport] = []
+        token = _CALL_INPUT_ENCODINGS.set(reports)
         try:
-            result = await self._delegate.generate(value)
-        except InferenceError as error:
-            # No usage means unknown; do not fabricate a zero-request billing event.
-            if error.usage is not None:
-                with suppress(Exception):
-                    await _report(ModelUsageOperation.GENERATION, error.usage)
-            raise
-        await _report(ModelUsageOperation.GENERATION, result.usage)
-        return result
+            try:
+                result = await self._delegate.generate(value)
+            except InferenceError as error:
+                # No usage means unknown, even for a before-send rejection after
+                # an earlier attempt. Never fabricate a zero-request event.
+                if error.usage is not None:
+                    error.usage = _with_input_encodings(error.usage, reports)
+                    with suppress(Exception):
+                        await _report(ModelUsageOperation.GENERATION, error.usage)
+                raise
+            usage = _with_input_encodings(result.usage, reports)
+            await _report(ModelUsageOperation.GENERATION, usage)
+            return result.model_copy(update={"usage": usage}) if reports else result
+        finally:
+            _CALL_INPUT_ENCODINGS.reset(token)
 
 
 class UsageReportingEmbeddingModel:
@@ -169,5 +215,7 @@ __all__ = [
     "approved_usage",
     "bind_usage_reporter",
     "collect_approved_usage",
+    "collect_input_encodings",
     "record_approved_usage",
+    "record_input_encoding",
 ]

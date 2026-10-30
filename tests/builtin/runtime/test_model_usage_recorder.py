@@ -34,6 +34,7 @@ from sqlalchemy.pool import QueuePool
 from sqlalchemy.util import await_only
 
 from powercontext.builtin.inference import InferenceUsage
+from powercontext.builtin.inference.models import InputEncodingReport
 from powercontext.builtin.persistence.database import AsyncDatabase, ModelUsageAttemptExpired
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.statistics import StatisticsRepository, StoredModelUsage
@@ -97,7 +98,27 @@ def test_flush_persists_copied_usage_with_unknown_tokens_and_original_date(tmp_p
         async with _database(config) as database:
             recorder = _ModelUsageRecorder(database, StatisticsRepository())
             try:
-                usage = InferenceUsage(requests=2, input_tokens=None, output_tokens=4)
+                usage = InferenceUsage(
+                    requests=2,
+                    input_tokens=None,
+                    output_tokens=4,
+                    input_encodings=(
+                        InputEncodingReport(
+                            mode="active",
+                            stage="atomic_memory.extract",
+                            codec="shared-json-v1",
+                            reason="selected",
+                            original_bytes=400_000,
+                            original_estimated_tokens=100_000,
+                            candidate_bytes=200_000,
+                            candidate_estimated_tokens=50_000,
+                            selected_bytes=200_000,
+                            selected_estimated_tokens=50_000,
+                            estimator_id="fixture",
+                            estimator_version="1",
+                        ),
+                    ),
+                )
                 _offer(recorder, usage)
                 usage.requests = 900
                 usage.output_tokens = 900

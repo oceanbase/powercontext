@@ -44,6 +44,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
 from powercontext.builtin.code.models import CodeConfig
 from powercontext.builtin.dream.models import DreamBudget
 from powercontext.builtin.inference import character_token_estimator
+from powercontext.builtin.inference.input_encoding import InputEncodingMode
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
@@ -52,6 +53,9 @@ from powercontext.builtin.runtime._scope_cache import DEFAULT_SCOPE_CACHE_SIZE
 from powercontext.builtin.runtime.decision_policy import DecisionPolicyMode, DecisionPrivacyBoundary
 
 _HTTP_FIELD_NAME_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+InputEncodingOperation = Literal[
+    "atomic_memory.extract", "atomic_memory.reconcile", "experience.generate", "experience.incubate"
+]
 _RECALL_GATE_BASE_MIN_SEMANTIC_SIMILARITY = 0.3
 _RECALL_GATE_ROUND1_ORDER_ERROR = (
     "recall_gate_round1_min_semantic_similarity must be less than or equal to the round-zero floor"
@@ -311,6 +315,8 @@ class InferenceConfig(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     protection: InferenceProtectionConfig = Field(default_factory=InferenceProtectionConfig)
+    atomic_memory_input_encoding: InputEncodingMode = "off"
+    input_encoding: dict[InputEncodingOperation, InputEncodingMode] = Field(default_factory=dict)
 
     generation_model: str | None = None
     generation_base_url: AnyHttpUrl | None = None
@@ -343,6 +349,14 @@ class InferenceConfig(BaseModel):
     decision_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     decision_timeout_seconds: float | None = Field(default=None, gt=0)
     decision_max_requests: int | None = Field(default=None, ge=1)
+
+    def input_encoding_mode(self, operation: InputEncodingOperation) -> InputEncodingMode:
+        """Explicit stage settings override the legacy Atomic Memory default."""
+        if operation in self.input_encoding:
+            return self.input_encoding[operation]
+        if operation in {"atomic_memory.extract", "atomic_memory.reconcile"}:
+            return self.atomic_memory_input_encoding
+        return "off"
 
     @field_validator("generation_model", "embedding_model", "embedding_profile_id", "rerank_model", "decision_model")
     @classmethod
