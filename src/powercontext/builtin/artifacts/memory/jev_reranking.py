@@ -33,10 +33,13 @@ from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.inference.errors import (
     InferenceConfigurationError,
     InferenceError,
+    InferencePrivacyError,
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
 )
+from powercontext.builtin.inference.models import combine_inference_usage
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 
 JEV_MEMORY_RERANK_POLICY = "powercontext.memory.rerank.jev.noul.v1"
 _QUESTION = {
@@ -117,21 +120,65 @@ def _http_failure(error: httpx.HTTPStatusError, timeout_seconds: float) -> Infer
     return InferenceConfigurationError(f"Jev rejected rerank request (HTTP {status})")
 
 
+async def _settle_scores(
+    tasks: list[asyncio.Task[float]], usages: list[_JevUsage], failure: InferencePrivacyError | None
+) -> None:
+    """Stop sibling sends before returning a failure and preserve completed usage."""
+
+    for task in tasks:
+        if not task.done() and not task.cancelling():
+            task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    if failure is not None:
+        prior = InferenceUsage(
+            requests=len(usages),
+            input_tokens=sum(item.input_tokens for item in usages),
+            output_tokens=sum(item.output_tokens for item in usages),
+            incomplete=any(task.cancelled() for task in tasks),
+        )
+        failure.usage = prior if failure.usage is None else combine_inference_usage(prior, failure.usage)
+
+
 class JevMemoryReranker:
     """Score candidates independently and expose provider failures to callers.
 
-    The caller owns the HTTP client. The adapter adds no retries and bounds all
+    An injected HTTP client stays caller-owned; protection requires an owned
+    transport. The adapter adds no retries and bounds all
     requests, pool waits, and transport retries by one total deadline. Concurrency
     is shared across simultaneous rerank operations on this adapter.
     """
 
     supports_atomic_memory = True
 
-    def __init__(self, config: JevRerankConfig, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        config: JevRerankConfig,
+        client: httpx.AsyncClient | None = None,
+        *,
+        protection: InferenceProtectionConfig | None = None,
+    ) -> None:
         self._config = config
-        self._client = client
+        self._owns_client = client is None
+        if protection is not None and protection.mode != "disabled":
+            from powercontext.builtin.inference.protected_transport import ProtectedAsyncTransport
+
+            if client is not None:
+                raise InferenceConfigurationError("protected Jev reranking requires an owned HTTP transport")  # noqa: TRY003
+            self._client = httpx.AsyncClient(
+                transport=ProtectedAsyncTransport(protection),
+                follow_redirects=False,
+                headers={"Accept-Encoding": "identity"},
+            )
+        else:
+            self._client = client if client is not None else httpx.AsyncClient(follow_redirects=False)
         self._semaphore = asyncio.Semaphore(config.max_concurrency)
         self.policy_id = f"{JEV_MEMORY_RERANK_POLICY}:{config.model}"
+
+    async def aclose(self) -> None:
+        """Close an internally created client; injected clients remain caller-owned."""
+
+        if self._owns_client:
+            await self._client.aclose()
 
     async def rerank(self, query: str, candidates: tuple[MemoryRerankText, ...], limit: int, /) -> MemoryRerankDecision:
         """Return unique original ranks only after every response is validated."""
@@ -170,11 +217,15 @@ class JevMemoryReranker:
                 return result.answers["useful"].noul
 
         tasks: list[asyncio.Task[float]] = []
+        privacy_failure: InferencePrivacyError | None = None
         try:
             async with asyncio.timeout(self._config.timeout_seconds):
                 tasks = [asyncio.create_task(score(candidate)) for candidate in candidates]
                 scores = await asyncio.gather(*tasks)
             ranks = tuple(sorted(range(1, len(candidates) + 1), key=lambda rank: (-scores[rank - 1], rank))[:limit])
+        except InferencePrivacyError as error:
+            privacy_failure = error
+            raise
         except (TimeoutError, httpx.TimeoutException) as error:
             raise InferenceTimeoutError("memory.rerank", self._config.timeout_seconds) from error
         except httpx.HTTPStatusError as error:
@@ -184,10 +235,7 @@ class JevMemoryReranker:
         except (ValueError, KeyError, TypeError) as error:
             raise InvalidInferenceOutputError("memory.rerank", "Jev did not return a valid result") from error
         finally:
-            for task in tasks:
-                if not task.done() and not task.cancelling():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await _settle_scores(tasks, usages, privacy_failure)
         return MemoryRerankDecision(
             selected_ranks=ranks,
             usage=InferenceUsage(

@@ -55,6 +55,7 @@ from powercontext.builtin.artifacts.prompt.errors import PromptError
 from powercontext.builtin.artifacts.prompt.service import PromptService, current_prompt
 from powercontext.builtin.decision_observations import DecisionObservation
 from powercontext.builtin.inference import (
+    InferencePrivacyError,
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
@@ -890,6 +891,8 @@ class AtomicMemorySourceWindowProcessor:
         )
         try:
             decision = await gate.assess(request)
+        except InferencePrivacyError:
+            raise
         except Exception:
             return None, None
         return decision, collector.observation

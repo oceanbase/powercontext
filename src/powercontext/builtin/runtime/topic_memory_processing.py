@@ -1774,6 +1774,7 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             disable_provider_retries=True,
             streaming=inference.generation_streaming,
             stream_idle_timeout_seconds=inference.generation_stream_idle_timeout_seconds,
+            protection=inference.protection,
         )
         raw_embedding, _ = await _embedding_models(inference, resources, instrumentation, disable_provider_retries=True)
         embedding = None if raw_embedding is None else UsageReportingEmbeddingModel(raw_embedding)

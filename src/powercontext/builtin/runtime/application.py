@@ -151,6 +151,7 @@ from powercontext.builtin.evidence.resolver import (
 from powercontext.builtin.inference import (
     EmbeddingModel,
 )
+from powercontext.builtin.inference.errors import InferencePrivacyError
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTarget
@@ -1075,7 +1076,9 @@ class ScopedContextApplication:
             finally:
                 _PREPARE_ATOMIC_CONTEXT.reset(token)
 
-    async def _prepare(self, request: PrepareContextRequest, scope: ScopeDescriptor, /) -> PreparedContext:
+    async def _prepare(  # noqa: C901 - mandatory refusals bypass otherwise advisory fallbacks
+        self, request: PrepareContextRequest, scope: ScopeDescriptor, /
+    ) -> PreparedContext:
         build, effort = await self._prepare_build(request, scope)
         if effort is not None:
             try:
@@ -1103,6 +1106,8 @@ class ScopedContextApplication:
         if self._runtime._recall_token_estimator is not None:
             try:
                 measurement = await self._runtime._recall_token_estimator(self.scope_id, build)
+            except InferencePrivacyError:
+                raise
             except Exception as error:
                 log_safely(
                     logger,
@@ -1539,6 +1544,8 @@ class ScopedContextApplication:
             ):
                 assessment = replace(assessment, reason=REASON_AT_MAX_ROUNDS)
             reason = assessment.reason
+        except InferencePrivacyError:
+            raise
         except Exception as error:
             log_safely(
                 logger,

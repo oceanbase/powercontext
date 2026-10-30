@@ -30,6 +30,34 @@ class InferenceUsage(BaseModel):
     requests: int
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    target_model: str | None = None
+    incomplete: bool = False
+
+
+def combine_inference_usage(left: InferenceUsage, right: InferenceUsage) -> InferenceUsage:
+    """Combine disjoint attempts without treating an unknown count as zero."""
+
+    def total(name: str) -> int | None:
+        a, b = getattr(left, name), getattr(right, name)
+        return None if a is None or b is None else a + b
+
+    if left.requests == 0:
+        return right.model_copy(update={"incomplete": left.incomplete or right.incomplete})
+    if right.requests == 0:
+        return left.model_copy(update={"incomplete": left.incomplete or right.incomplete})
+    return InferenceUsage(
+        requests=left.requests + right.requests,
+        input_tokens=total("input_tokens"),
+        output_tokens=total("output_tokens"),
+        cache_read_tokens=total("cache_read_tokens"),
+        cache_write_tokens=total("cache_write_tokens"),
+        reasoning_tokens=total("reasoning_tokens"),
+        target_model=right.target_model if left.target_model in (None, right.target_model) else None,
+        incomplete=left.incomplete or right.incomplete,
+    )
 
 
 class GenerationResult(BaseModel, Generic[OutputT]):

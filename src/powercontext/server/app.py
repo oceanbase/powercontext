@@ -158,7 +158,11 @@ from powercontext.builtin.handoff_report import (
     HandoffReportInconsistentError,
     HandoffReportTooLargeError,
 )
-from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
+from powercontext.builtin.inference.errors import (
+    InferencePrivacyError,
+    InferenceTimeoutError,
+    InferenceUnavailableError,
+)
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTarget
 from powercontext.builtin.persistence.artifact_governance import (
     ArtifactGovernance,
@@ -5521,6 +5525,7 @@ def _sensitive_operation_error(error: Exception) -> bool:
     return isinstance(
         error,
         (
+            InferencePrivacyError,
             AccessControlError,
             RemoteSkillDistributionError,
         ),
@@ -6127,11 +6132,26 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
             "The request is invalid.",
             _invalid_request_details(error),
         )
+    inference_error = _map_context_inference_error(error)
+    if inference_error is not None:
+        return inference_error
+    return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
+
+
+def _map_context_inference_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, InferencePrivacyError):
+        code = 403 if error.decision == "block" else 503
+        return (
+            code,
+            f"inference_privacy_{error.decision}",
+            "Model content was not admitted.",
+            {"phase": error.phase, "reason_codes": list(error.reason_codes)},
+        )
     if isinstance(error, InferenceTimeoutError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_timeout", "Model inference timed out.", None
     if isinstance(error, InferenceUnavailableError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Model inference is unavailable.", None
-    return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
+    return None
 
 
 def _map_memory_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:

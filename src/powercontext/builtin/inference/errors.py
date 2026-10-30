@@ -16,11 +16,53 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Literal
+
 from powercontext.errors import PowerContextError
+
+if TYPE_CHECKING:
+    from powercontext.builtin.inference.models import InferenceUsage
 
 
 class InferenceError(PowerContextError):
     """Base exception for stable PowerContext inference failures."""
+
+    usage: InferenceUsage | None = None
+
+
+class InferencePrivacyError(InferenceError):
+    """A required check prevented sending or releasing model content.
+
+    This is intentionally neither an unavailable-provider error nor a validation
+    error: advisory fallbacks and smaller-window retries cannot consume it.
+    """
+
+    def __init__(
+        self,
+        phase: Literal["before_send", "before_release"],
+        decision: Literal["block", "withhold"],
+        reason_codes: tuple[str, ...],
+        *,
+        usage: InferenceUsage | None = None,
+    ) -> None:
+        self.phase = phase
+        self.decision = decision
+        self.reason_codes = reason_codes
+        self.usage = usage
+        super().__init__(f"inference privacy {decision} at {phase}")
+
+
+def find_privacy_error(error: BaseException) -> InferencePrivacyError | None:
+    """Recover a protected-transport rejection wrapped by an upstream SDK."""
+
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        if isinstance(current, InferencePrivacyError):
+            return current
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return None
 
 
 class InferenceConfigurationError(InferenceError, RuntimeError):

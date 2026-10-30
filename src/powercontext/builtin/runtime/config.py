@@ -44,6 +44,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
 from powercontext.builtin.code.models import CodeConfig
 from powercontext.builtin.dream.models import DreamBudget
 from powercontext.builtin.inference import character_token_estimator
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -308,6 +309,8 @@ class InferenceConfig(BaseModel):
     """Optional generation, embedding, and LLM reranking configuration."""
 
     model_config = ConfigDict(hide_input_in_errors=True)
+
+    protection: InferenceProtectionConfig = Field(default_factory=InferenceProtectionConfig)
 
     generation_model: str | None = None
     generation_base_url: AnyHttpUrl | None = None

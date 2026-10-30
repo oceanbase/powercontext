@@ -36,11 +36,13 @@ from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
 from powercontext.builtin.inference.errors import (
     InferenceConfigurationError,
+    InferencePrivacyError,
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
 )
-from powercontext.builtin.inference.models import EmbeddingResult, InferenceUsage
+from powercontext.builtin.inference.models import EmbeddingResult, InferenceUsage, combine_inference_usage
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
     ProcessingFailureReason,
@@ -65,6 +67,7 @@ class MiniMaxEmbeddingModel:
         batch_size: int = 10,
         timeout_seconds: float = 30.0,
         http_client: httpx.AsyncClient | None = None,
+        protection: InferenceProtectionConfig | None = None,
     ) -> None:
         if not model or not model.strip():
             raise InferenceConfigurationError("embedding-model-empty")
@@ -83,7 +86,19 @@ class MiniMaxEmbeddingModel:
         if headers:
             request_headers.update(headers)
         self._headers = request_headers
-        self._client = http_client or httpx.AsyncClient(timeout=timeout_seconds)
+        if protection is not None and protection.mode != "disabled":
+            from powercontext.builtin.inference.protected_transport import ProtectedAsyncTransport
+
+            if http_client is not None:
+                raise InferenceConfigurationError("protected MiniMax embedding requires an owned HTTP transport")  # noqa: TRY003
+            self._client = httpx.AsyncClient(
+                timeout=timeout_seconds,
+                transport=ProtectedAsyncTransport(protection),
+                follow_redirects=False,
+                headers={"Accept-Encoding": "identity"},
+            )
+        else:
+            self._client = http_client or httpx.AsyncClient(timeout=timeout_seconds)
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client (registered with the runtime stack)."""
@@ -168,19 +183,31 @@ class MiniMaxEmbeddingModel:
     async def _embed_batches(self, texts: tuple[str, ...], *, embedding_type: str) -> EmbeddingResult:
         vectors: list[tuple[float, ...]] = []
         requests = 0
-        input_tokens = 0
+        input_tokens: int | None = 0
         for start in range(0, len(texts), self._batch_size):
             batch = texts[start : start + self._batch_size]
-            rows, tokens = await self._embed_one(batch, embedding_type=embedding_type)
+            try:
+                rows, tokens = await self._embed_one(batch, embedding_type=embedding_type)
+            except InferencePrivacyError as error:
+                if requests:
+                    prior = InferenceUsage(requests=requests, input_tokens=input_tokens)
+                    error.usage = prior if error.usage is None else combine_inference_usage(prior, error.usage)
+                raise
             vectors.extend(self._validated_vectors(batch, rows))
             requests += 1
-            input_tokens += tokens
+            input_tokens = input_tokens + tokens if input_tokens is not None and tokens is not None else None
         return EmbeddingResult(
             vectors=tuple(vectors),
-            usage=InferenceUsage(requests=requests, input_tokens=input_tokens, output_tokens=None),
+            usage=InferenceUsage(
+                requests=requests,
+                input_tokens=input_tokens,
+                output_tokens=None,
+                target_model=self._model,
+                incomplete=input_tokens is None,
+            ),
         )
 
-    async def _embed_one(self, batch: Sequence[str], *, embedding_type: str) -> tuple[list[list[float]], int]:
+    async def _embed_one(self, batch: Sequence[str], *, embedding_type: str) -> tuple[list[list[float]], int | None]:
         payload = {"model": self._model, "texts": list(batch), "type": embedding_type}
         response = await self._client.post(self._endpoint, json=payload, headers=self._headers)
         # MiniMax returns HTTP 200 with a non-zero base_resp.status_code on error;
@@ -205,7 +232,11 @@ class MiniMaxEmbeddingModel:
         if not isinstance(vectors, list) or len(vectors) != len(batch):
             raise InvalidInferenceOutputError("embed", "provider returned no vectors or the wrong vector count")
         total_tokens = data.get("total_tokens")
-        tokens = int(total_tokens) if isinstance(total_tokens, int) else 0
+        tokens = (
+            total_tokens
+            if isinstance(total_tokens, int) and not isinstance(total_tokens, bool) and total_tokens >= 0
+            else None
+        )
         return vectors, tokens
 
     def _validated_vectors(

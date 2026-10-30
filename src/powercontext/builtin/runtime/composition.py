@@ -95,6 +95,7 @@ from powercontext.builtin.evidence.resolver import AuthorizationContext
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
     UsageReportingStructuredGenerator,
@@ -243,6 +244,9 @@ class BuiltinConfigurationError(RuntimeError):
                 "custom inference endpoints require an OpenAI- or Anthropic-compatible model identifier"
             ),
             "inference-profile": "validated inference profile is incomplete",
+            "inference-protection-injected-provider": (
+                "enforcing inference protection requires owned provider transports; custom inference injection is unsupported"
+            ),
             "memory-reranker": "Memory reranking requires a configured generation or rerank model, or injected reranker",
             "scheduled-experience-pipeline": "scheduled Experience incubation requires a candidate pipeline",
             "scheduled-pipeline": "scheduled Source processing requires a candidate pipeline",
@@ -491,6 +495,11 @@ def _artifact_merge_application(contexts: RelationalContexts, config: RuntimeCon
     )
 
 
+def _validate_protected_inference(protection: InferenceProtectionConfig, *dependencies: object) -> None:
+    if protection.mode == "enforcing" and any(dependency is not None for dependency in dependencies):
+        raise BuiltinConfigurationError("inference-protection-injected-provider")
+
+
 @asynccontextmanager
 async def open_builtin_runtime(
     config: BuiltinConfig,
@@ -548,6 +557,20 @@ async def open_builtin_runtime(
     """
 
     async with AsyncExitStack() as resources:
+        _validate_protected_inference(
+            config.inference.protection,
+            candidate_pipeline,
+            experience_pipeline,
+            experience_generator,
+            profile_generator,
+            skill_generator,
+            dream_generator,
+            handoff_pipeline,
+            embedding_model,
+            memory_reranker,
+            decision_model,
+            memory_write_gate,
+        )
         configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         resolved_decision_request_sanitizer = decision_request_sanitizer
         _validate_processing_source_registry(config, artifact_processing_bindings, configured_source_registry)
@@ -1418,6 +1441,7 @@ async def _dream_generator(
         disable_provider_retries=True,
         streaming=settings.generation_streaming,
         stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+        protection=settings.protection,
     )
     model_settings = cast(ModelSettings, dict(settings.generation_model_settings))
     model_settings["max_tokens"] = min(int(model_settings.get("max_tokens") or 4096), budget.max_output_tokens)
@@ -1539,6 +1563,7 @@ async def _generation_pipelines(
             instrumentation=instrumentation,
             streaming=settings.generation_streaming,
             stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+            protection=settings.protection,
         )
         generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings)) or None
         generation_limits = InferenceLimits(
@@ -1689,6 +1714,7 @@ async def _generation_pipelines(
                 instrumentation=instrumentation,
                 streaming=settings.generation_streaming,
                 stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+                protection=settings.protection,
             )
         if rerank_provider_model is not None and rerank_model is not None:
             rerank_values = (
@@ -1812,6 +1838,7 @@ async def _generation_decision(
             instrumentation=instrumentation,
             streaming=settings.generation_streaming,
             stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+            protection=settings.protection,
         )
     if decision_provider_model is None or decision_model is None:
         return None, None
@@ -1916,6 +1943,7 @@ async def _open_pydantic_ai_model(
     disable_provider_retries: bool = False,
     streaming: Literal["auto", "disabled"] = "disabled",
     stream_idle_timeout_seconds: float = 60.0,
+    protection: InferenceProtectionConfig | None = None,
 ) -> tuple[Model, Model]:
     from pydantic_ai.models import infer_model
     from pydantic_ai.models.instrumented import InstrumentedModel
@@ -1924,7 +1952,10 @@ async def _open_pydantic_ai_model(
         raise BuiltinConfigurationError("inference-endpoint-provider")
     inferred_model = (
         infer_model(model_name)
-        if base_url is None and not headers and not disable_provider_retries
+        if base_url is None
+        and not headers
+        and not disable_provider_retries
+        and (protection is None or protection.mode == "disabled")
         else infer_model(
             model_name,
             provider_factory=_provider_factory(
@@ -1933,6 +1964,7 @@ async def _open_pydantic_ai_model(
                 workload="generation",
                 resources=resources,
                 disable_retries=disable_provider_retries,
+                protection=protection,
             ),
         )
     )
@@ -1971,7 +2003,12 @@ def _provider_factory(
     workload: Literal["generation", "embedding"],
     resources: AsyncExitStack,
     disable_retries: bool = False,
+    protection: InferenceProtectionConfig | None = None,
 ) -> Callable[[str], Provider[Any]]:
+    if protection is not None and protection.mode != "disabled":
+        return _protected_provider_factory(
+            base_url, headers, workload=workload, resources=resources, protection=protection
+        )
     create = _unbounded_provider_factory(base_url, headers, workload=workload, resources=resources)
     if not disable_retries:
         return create
@@ -1989,6 +2026,63 @@ def _provider_factory(
         return provider
 
     return bounded
+
+
+def _protected_provider_factory(
+    base_url: AnyHttpUrl | None,
+    headers: Mapping[str, SecretStr],
+    *,
+    workload: Literal["generation", "embedding"],
+    resources: AsyncExitStack,
+    protection: InferenceProtectionConfig,
+) -> Callable[[str], Provider[Any]]:
+    """Own the final transport, including SDK defaults and auxiliary models."""
+
+    import httpx
+
+    from powercontext.builtin.inference.protected_transport import ProtectedAsyncTransport
+
+    def create(provider_name: str) -> Provider[Any]:
+        # Explicit client injection avoids SDK cached clients, redirect behavior,
+        # hidden transport retries and provider-side request inspection bypasses.
+        client = httpx.AsyncClient(
+            transport=ProtectedAsyncTransport(protection),
+            follow_redirects=False,
+            headers={"Accept-Encoding": "identity"},
+        )
+        resources.push_async_callback(client.aclose)
+        if provider_name in {"openai", "openai-chat", "openai-responses"}:
+            from openai import AsyncOpenAI
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            sdk = AsyncOpenAI(
+                base_url=None if base_url is None else str(base_url),
+                api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
+                default_headers=_resolve_headers(headers),
+                http_client=client,
+                max_retries=0,
+            )
+            resources.push_async_callback(sdk.close)
+            return OpenAIProvider(openai_client=sdk)
+        if provider_name == "anthropic" and workload == "generation":
+            from anthropic import AsyncAnthropic
+            from pydantic_ai.providers.anthropic import AnthropicProvider
+
+            resolved = _resolve_headers(headers)
+            api_key = _pop_header(resolved, "x-api-key") or os.getenv("ANTHROPIC_API_KEY")
+            has_authorization = any(name.casefold() == "authorization" for name in resolved)
+            sdk = AsyncAnthropic(
+                base_url=None if base_url is None else str(base_url),
+                api_key=api_key or (None if has_authorization else "api-key-not-set"),
+                default_headers=resolved,
+                http_client=client,
+                max_retries=0,
+            )
+            resources.push_async_callback(sdk.close)
+            return AnthropicProvider(anthropic_client=sdk)
+        raise BuiltinConfigurationError("inference-endpoint-provider")
+
+    return create
 
 
 def _unbounded_provider_factory(
@@ -2178,6 +2272,7 @@ async def _embedding_models(
         workload="embedding",
         resources=resources,
         disable_retries=disable_provider_retries,
+        protection=settings.protection,
     )
 
     def provider_factory(provider_name: str) -> Provider[Any]:
@@ -2248,6 +2343,7 @@ def _minimax_embedding_models(
             profile=profile,
             batch_size=settings.embedding_batch_size,
             timeout_seconds=settings.embedding_timeout_seconds,
+            protection=settings.protection,
         )
         resources.push_async_callback(model.aclose)
         return model
