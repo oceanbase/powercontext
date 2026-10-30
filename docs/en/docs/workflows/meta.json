@@ -7,6 +7,7 @@
     "scopes-and-access",
     "---Sources and evidence---",
     "sources",
+    "source-plugins",
     "ingest-text-files-with-opendal",
     "---Artifacts and knowledge---",
     "artifacts",

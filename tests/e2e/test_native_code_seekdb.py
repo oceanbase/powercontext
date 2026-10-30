@@ -294,8 +294,8 @@ if checkpoint == "descriptor":
     seekdb.write_private = interrupted_write
 else:
     create = seekdb.SeekDBGraphStore.create
-    def interrupted_create(self, *args):
-        result = create(self, *args)
+    def interrupted_create(self, *args, **kwargs):
+        result = create(self, *args, **kwargs)
         pause()
         return result
     seekdb.SeekDBGraphStore.create = interrupted_create
@@ -338,6 +338,24 @@ CodeService(CodeConfig.model_validate(config), store=store).index("scope", full=
                 "ON generations.id = rows_.generation_id WHERE generations.id IS NULL"
             )
             assert cursor.fetchone()[0] == 0
+
+
+def test_a_record_names_the_row_the_commit_wrote(repository):
+    """The journal key has to be the identifier the rows were committed under.
+
+    Recall deletes by name. If the store ignored the name it was given and minted
+    its own, the delete would match no rows and raise nothing, so the leak would be
+    back with every other test here still passing.
+    """
+
+    _, service = repository
+    directory = next(service.config.cache_dir.iterdir())
+    cache = GenerationCache(directory, service.store)
+    pointer = cache.pointer()
+    assert pointer is not None
+    manifest = json.loads((directory / pointer["current"]["directory"] / "manifest.json").read_text())
+
+    assert manifest["graph"]["id"] in cache.publications()
 
 
 @pytest.mark.parametrize("content", (b"", b'{"backend":'))

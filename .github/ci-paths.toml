@@ -16,6 +16,7 @@ ignore = [
 ]
 
 [suites]
+helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
 tests = [
   "tests/**", "integrations/**", "examples/**", "scripts/generate_js_operations.py",
   "scripts/sync_dsh_plugin_tree.py", "scripts/generate_integration_manifest_docs.py",

@@ -268,3 +268,24 @@ def test_connector_records_a_typed_submission_rejection_without_committing_a_che
         assert events == []
 
     asyncio.run(scenario())
+
+
+def test_connector_can_mutate_its_checkpoint_without_losing_the_previous_cas_value() -> None:
+    class MutableCursorConnector(ContentConnector):
+        async def run(self, session: ConnectorRunSession, /) -> ConnectorRunCompletion:
+            assert isinstance(session.checkpoint, dict)
+            session.checkpoint["cursor"] = 2
+            await session.submit(self.capture.source_id, CONTENT_SOURCE_NAME, self.capture)
+            return ConnectorRunCompletion(status=ConnectorRunStatus.COMPLETE, checkpoint=session.checkpoint)
+
+    async def scenario() -> None:
+        checkpoints = MemoryCheckpointStore([])
+        checkpoints.values[_binding().binding_id] = {"cursor": 1}
+        result = await ConnectorLifecycle(sink=AcceptingSourceSink([]), checkpoints=checkpoints).run(
+            MutableCursorConnector(ContentCapture(source_id="note-1", content="A changed cursor")), _binding()
+        )
+        assert result.previous_checkpoint == {"cursor": 1}
+        assert result.committed_checkpoint == {"cursor": 2}
+        assert checkpoints.values[_binding().binding_id] == {"cursor": 2}
+
+    asyncio.run(scenario())
