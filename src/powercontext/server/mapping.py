@@ -193,6 +193,7 @@ from powercontext.http import (
     CommittedHandoff,
     ConnectorCheckpointState,
     CreateWorkContractRequest,
+    DreamSourceReference,
     EntryChange,
     EntryChangeOperation,
     ExperienceArtifact,
@@ -515,7 +516,7 @@ def _runtime_task_check(value: TaskCheck) -> RuntimeTaskCheck:
 def capture_response(value: SourceReceipt) -> CaptureContentSourceResponse:
     return CaptureContentSourceResponse(
         status=CaptureStatus.ACCEPTED,
-        source=SourceReference(name=value.source_ref.source_type, source_id=value.source_ref.source_id),
+        source=source_reference(value.source_ref),
         position=value.sequence,
     )
 
@@ -692,9 +693,7 @@ def revise_candidate_request(value: ReviseCandidateRequest) -> RuntimeReviseCand
         sources = (
             (None if "source_refs" not in value.model_fields_set else sources)
             if value.sources is None
-            else tuple(
-                SourceRef(source_type=source.source_type, source_id=source.source_id) for source in value.sources
-            )
+            else tuple(runtime_source_type_reference(source) for source in value.sources)
         )
         artifacts = (
             (None if "artifact_refs" not in value.model_fields_set else artifacts)
@@ -1212,19 +1211,27 @@ def runtime_artifact_reference(value: ArtifactReference) -> ArtifactRef:
 
 
 def source_reference(value: SourceRef) -> SourceReference:
-    return SourceReference(name=value.source_type, source_id=value.source_id)
+    return SourceReference.model_validate({
+        "name": value.source_type,
+        "source_id": value.source_id,
+        "locator": None if value.locator is None else value.locator.model_dump(mode="json"),
+    })
 
 
 def runtime_source_reference(value: SourceReference) -> SourceRef:
-    return SourceRef(source_type=value.name, source_id=value.source_id)
+    return SourceRef.model_validate({
+        "source_type": value.name,
+        "source_id": value.source_id,
+        "locator": None if value.locator is None else value.locator.model_dump(mode="json"),
+    })
 
 
 def source_type_reference(value: SourceRef) -> SourceTypeReference:
-    return SourceTypeReference(source_type=value.source_type, source_id=value.source_id)
+    return SourceTypeReference.model_validate(value.model_dump(mode="json"))
 
 
-def runtime_source_type_reference(value: SourceTypeReference) -> SourceRef:
-    return SourceRef(source_type=value.source_type, source_id=value.source_id)
+def runtime_source_type_reference(value: SourceTypeReference | DreamSourceReference) -> SourceRef:
+    return SourceRef.model_validate(value.model_dump(mode="json"))
 
 
 def runtime_handoff_citation(value: TransportHandoffCitation) -> RuntimeHandoffCitation:

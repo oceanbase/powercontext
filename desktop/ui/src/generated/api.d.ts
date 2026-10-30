@@ -2831,6 +2831,7 @@ export interface components {
         DreamSourceReference: {
             source_type: string;
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         ListDreamRunsRequest: {
             status?: components["schemas"]["DreamStatus"];
@@ -4908,16 +4909,40 @@ export interface components {
             items: components["schemas"]["SourceRecord"][];
             next_cursor: string | null;
         };
+        /** @description Position of this exact Source in its scope journal; zero is distinct from absence. */
+        SourceSequenceLocator: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sequence";
+            sequence: number;
+        };
+        /** @description Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect. */
+        SourceLineRangeLocator: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line_range";
+            start_line: number;
+            end_line: number;
+            /** @description Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes. */
+            heading_path?: string | null;
+        };
+        SourceLocator: components["schemas"]["SourceSequenceLocator"] | components["schemas"]["SourceLineRangeLocator"];
         SourceTypeReference: {
             /** @description Stable Source type, including dynamically registered Source names. */
             source_type: string;
             /** @description Source identity as accepted at ingestion, including Unicode and interior spaces. */
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         SourceReference: {
             /** @description Stable Source type. */
             name: string;
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         /** @enum {string} */
         CaptureStatus: "accepted";

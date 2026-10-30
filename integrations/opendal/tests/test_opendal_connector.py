@@ -299,8 +299,53 @@ def test_remote_opendal_worker_completes_the_source_to_memory_loop(tmp_path: Pat
         assert memory[0].content["schema"] == "powercontext.atomic-memory.v1"
         accepted_ref = result.items[0].source_ref
         assert accepted_ref is not None
-        assert [item.model_dump() for item in memory[0].sources] == [accepted_ref.model_dump()]
+        assert [item.model_dump() for item in memory[0].sources] == [
+            accepted_ref.model_dump() | {"locator": {"kind": "sequence", "sequence": 1}}
+        ]
         assert accepted_ref.source_type == "text-file-snapshot"
+
+    asyncio.run(scenario())
+
+
+def test_remote_opendal_worker_reuses_registered_pre_locator_definition(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        database = tmp_path / "powercontext.db"
+        app = _app(database)
+        historical = HttpSourceDefinitionManifest.model_validate_json(
+            (Path(__file__).parent / "fixtures/text_file_manifest_before_locators.json").read_text()
+        )
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            assert (
+                await client.register_source_definition(RegisterSourceDefinitionRequest(manifest=historical))
+                == historical
+            )
+
+        filesystem = MemoryFileSystem()
+        filesystem.pipe_file("decision.md", "保留历史文件定义。".encode())
+        connector = OpenDALTextFileConnector(filesystem, source_namespace="workspace-a")
+        result, memory = await _run(_app(database, memory=True), connector, flush_memory=True)
+
+        assert result.status is ConnectorRunStatus.COMPLETE
+        assert result.items[0].status is ConnectorSubmissionStatus.ACCEPTED
+        assert memory is not None
+        assert [item.content["text"] for item in memory] == ["保留历史文件定义。"]
+        accepted_ref = result.items[0].source_ref
+        assert accepted_ref is not None
+        assert memory[0].sources[0].model_dump() == (
+            accepted_ref.model_dump() | {"locator": {"kind": "sequence", "sequence": 1}}
+        )
+        assert manifest_for_definition(TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION).model_dump(mode="json", by_alias=True) == (
+            historical.model_dump(mode="json", by_alias=True)
+        )
+
+        unchanged, _ = await _run(_app(database), connector)
+        assert unchanged.status is ConnectorRunStatus.COMPLETE
+        assert unchanged.previous_checkpoint == result.committed_checkpoint
+        assert unchanged.items == ()
 
     asyncio.run(scenario())
 

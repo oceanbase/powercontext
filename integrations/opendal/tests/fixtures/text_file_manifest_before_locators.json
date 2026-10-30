@@ -1,0 +1,166 @@
+{
+  "name": "text-file-snapshot",
+  "version": "1",
+  "fingerprint": "sha256:83bd78af6a83b9d24ef5761cf5827a770c1edbb352b574d783869b5b338c299a",
+  "source_schema": {
+    "$defs": {
+      "SourceMaterialization": {
+        "description": "Describe where the value read for a Source comes from.",
+        "enum": [
+          "captured",
+          "referenced"
+        ],
+        "title": "SourceMaterialization",
+        "type": "string"
+      }
+    },
+    "description": "Captured text-file bytes with explicit filesystem provenance.",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "definition_version": {
+        "default": "1",
+        "title": "Definition Version",
+        "type": "string"
+      },
+      "materialization": {
+        "$ref": "#/$defs/SourceMaterialization"
+      },
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "namespace": {
+        "title": "Namespace",
+        "type": "string"
+      },
+      "path": {
+        "title": "Path",
+        "type": "string"
+      },
+      "content": {
+        "title": "Content",
+        "type": "string"
+      },
+      "media_type": {
+        "title": "Media Type",
+        "type": "string"
+      },
+      "encoding": {
+        "const": "utf-8",
+        "title": "Encoding",
+        "type": "string"
+      },
+      "content_digest": {
+        "title": "Content Digest",
+        "type": "string"
+      },
+      "size": {
+        "title": "Size",
+        "type": "integer"
+      },
+      "etag": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Etag"
+      },
+      "provider_version": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Provider Version"
+      },
+      "modified_at": {
+        "anyOf": [
+          {
+            "format": "date-time",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Modified At"
+      }
+    },
+    "required": [
+      "name",
+      "materialization",
+      "namespace",
+      "path",
+      "content",
+      "media_type",
+      "encoding",
+      "content_digest",
+      "size"
+    ],
+    "title": "TextFileSnapshotSource",
+    "type": "object"
+  },
+  "projections": [
+    {
+      "key": {
+        "name": "powercontext.text-evidence",
+        "version": "1"
+      },
+      "schema": {
+        "$defs": {
+          "JsonValue": {}
+        },
+        "description": "Canonical JSON shape consumed as textual Artifact evidence.",
+        "properties": {
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "title": "Metadata",
+            "type": "object"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "content"
+        ],
+        "title": "TextEvidence",
+        "type": "object"
+      }
+    }
+  ]
+}

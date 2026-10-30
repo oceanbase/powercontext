@@ -1,0 +1,141 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "v1_4_1_006": {
+      "statements": [
+        "CREATE TABLE pc_artifact_source_locators (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tfamily VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tartifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trevision INTEGER NOT NULL, \n\tordinal INTEGER NOT NULL, \n\tlocator MEDIUMBLOB NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision, ordinal), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision, ordinal) REFERENCES pc_artifact_lineage_sources (scope_id, family, artifact_id, revision, ordinal) ON DELETE CASCADE\n)"
+      ],
+      "changes": [
+        {
+          "pc_artifact_source_locators": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "family": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "revision": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "ordinal": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "locator": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "family",
+                null,
+                "asc"
+              ],
+              [
+                "artifact_id",
+                null,
+                "asc"
+              ],
+              [
+                "revision",
+                null,
+                "asc"
+              ],
+              [
+                "ordinal",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [
+              {
+                "columns": [
+                  "scope_id",
+                  "family",
+                  "artifact_id",
+                  "revision",
+                  "ordinal"
+                ],
+                "referred_schema": null,
+                "referred_table": "pc_artifact_lineage_sources",
+                "referred_columns": [
+                  "scope_id",
+                  "family",
+                  "artifact_id",
+                  "revision",
+                  "ordinal"
+                ],
+                "ondelete": "cascade",
+                "onupdate": "restrict"
+              }
+            ],
+            "checks": {},
+            "indexes": {}
+          }
+        }
+      ]
+    }
+  }
+}

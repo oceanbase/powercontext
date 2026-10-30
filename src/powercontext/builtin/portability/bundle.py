@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import (
     BigInteger,
     DateTime,
@@ -89,6 +89,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACT_PUBLICATIONS_TABLE,
+    ARTIFACT_SOURCE_LOCATORS_TABLE,
     ARTIFACT_TAGS_TABLE,
     ARTIFACTS_TABLE,
     CANDIDATE_HEADS_TABLE,
@@ -117,7 +118,7 @@ from powercontext.builtin.sources.observation_validation import (
 )
 from powercontext.builtin.tags import normalize_tags
 from powercontext.errors import SourceError
-from powercontext.sources import SourceDefinitionManifest, SourceObservation
+from powercontext.sources import SourceDefinitionManifest, SourceLocator, SourceObservation, SourceRef
 
 FORMAT_VERSION = 1
 _RECORDS_NAME = "records.ndjson"
@@ -173,6 +174,7 @@ RecordType = Literal[
     "artifact_revision",
     "artifact_handle",
     "artifact_lineage_source",
+    "artifact_source_locator",
     "artifact_lineage_artifact",
     "artifact_publication",
     "artifact_head",
@@ -339,6 +341,11 @@ _SPECS: dict[RecordType, _RecordSpec] = {
         ARTIFACT_LINEAGE_SOURCES_TABLE,
         ("scope_id", "family", "artifact_id", "revision", "ordinal"),
         ("source_type", "source_id"),
+    ),
+    "artifact_source_locator": _RecordSpec(
+        ARTIFACT_SOURCE_LOCATORS_TABLE,
+        ("scope_id", "family", "artifact_id", "revision", "ordinal"),
+        ("locator",),
     ),
     "artifact_lineage_artifact": _RecordSpec(
         ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
@@ -1525,6 +1532,12 @@ def _validate_record_values(record: _Record, /) -> None:  # noqa: C901 - one ver
             raise BundleFormatError("artifact handle is invalid") from error
     elif kind == "artifact_lineage_source":
         strings("source_type", "source_id")
+    elif kind == "artifact_source_locator":
+        bytes_values("locator")
+        try:
+            TypeAdapter(SourceLocator).validate_python(_decoded_bytes_json(payload["locator"], "Source locator"))
+        except ValidationError as error:
+            raise BundleFormatError("Source locator has invalid domain values") from error
     elif kind == "artifact_lineage_artifact":
         strings("upstream_family", "upstream_artifact_id")
         integers("upstream_revision", positive=True)
@@ -2083,6 +2096,9 @@ def _validate_record_dependencies(  # noqa: C901 - logical record kinds have dis
             {"scope_id": scope, "memory_artifact_id": identity["artifact_id"], "entry_id": identity["target_id"]},
         ):
             raise BundleFormatError("artifact tag references missing memory entry")
+    elif record.record_type == "artifact_source_locator":
+        if not contains("artifact_lineage_source", identity):
+            raise BundleFormatError("Source locator references missing lineage")
     elif record.record_type == "artifact_lineage_source":
         if not contains(
             "artifact_revision",
@@ -2495,6 +2511,15 @@ def _reference_items(value: object, kind: Literal["source", "artifact"], /) -> t
     fields = {"source_type", "source_id"} if kind == "source" else {"family", "artifact_id", "revision"}
     references: list[Mapping[str, object]] = []
     for item in decoded:
+        if kind == "source":
+            if not isinstance(item, dict) or set(item) not in (fields, fields | {"locator"}):
+                raise BundleFormatError("source reference has invalid fields")
+            try:
+                SourceRef.model_validate(item, strict=True)
+            except ValidationError as error:
+                raise BundleFormatError("source reference has invalid domain values") from error
+            references.append(cast(Mapping[str, object], item))
+            continue
         if (
             not isinstance(item, dict)
             or set(item) != fields
@@ -2514,6 +2539,7 @@ def _required_artifact_families(records: Iterable[_Record]) -> set[str]:
             "artifact_revision",
             "artifact_handle",
             "artifact_lineage_source",
+            "artifact_source_locator",
             "artifact_lineage_artifact",
             "artifact_head",
             "topic_memory_publication",

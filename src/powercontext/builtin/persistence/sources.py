@@ -43,9 +43,16 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, SOURCES_TABLE
 from powercontext.builtin.sources.content import ContentSource
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
-from powercontext.errors import SourceDefinitionNotFoundError
+from powercontext.errors import InvalidSourceReferenceError, SourceDefinitionNotFoundError
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
-from powercontext.sources import Source, SourceAdapter, SourceDefinitionRegistry, SourceObservation, SourceRef
+from powercontext.sources import (
+    Source,
+    SourceAdapter,
+    SourceDefinitionRegistry,
+    SourceObservation,
+    SourceRef,
+    SourceSequenceLocator,
+)
 
 _AnySourceAdapter = SourceAdapter[Any, Any, Any]
 _JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
@@ -72,6 +79,12 @@ class StoredSource(BaseModel):
     ref: SourceRef
     value: Source
     journal_position: int
+
+    def validate_locator(self, ref: SourceRef, /) -> None:
+        """Reject a position that names another journal entry instead of redirecting."""
+
+        if isinstance(ref.locator, SourceSequenceLocator) and ref.locator.sequence != self.journal_position:
+            raise InvalidSourceReferenceError("locator.sequence", "does not match the cited Source journal position")
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,7 +239,9 @@ class SourceRepository:
         row = await self._find_row(connection, scope_id, ref)
         if row is None:
             raise RepositoryNotFoundError("source", (scope_id, ref))
-        return self.decode_source(row)
+        stored = self.decode_source(row)
+        stored.validate_locator(ref)
+        return stored
 
     async def get_many(
         self,
@@ -252,6 +267,8 @@ class SourceRepository:
         for ref in ordered:
             if (ref.source_type, ref.source_id) not in decoded:
                 raise RepositoryNotFoundError("source", (scope_id, ref))
+        for ref in refs:
+            decoded[(ref.source_type, ref.source_id)].validate_locator(ref)
         return tuple(decoded[(ref.source_type, ref.source_id)] for ref in ordered)
 
     async def _existing_many(

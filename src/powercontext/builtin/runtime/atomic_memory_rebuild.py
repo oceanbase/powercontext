@@ -26,7 +26,12 @@ from sqlalchemy import and_, exists, func, inspect, literal, select, tuple_
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemory, AtomicMemoryRecord, AtomicMemoryStateValue
+from powercontext.builtin.artifacts.atomic_memory.models import (
+    AtomicMemory,
+    AtomicMemoryContent,
+    AtomicMemoryRecord,
+    AtomicMemoryStateValue,
+)
 from powercontext.builtin.artifacts.memory.canonical import canonical_json
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import EmbeddingModel
@@ -128,9 +133,41 @@ async def _record(
     state = await state_repository.get(connection, scope_id, artifact_id)
     if for_update:
         await state_repository.require_summary(connection, scope_id, artifact_id, state)
-    artifact = await artifacts.latest(connection, scope_id, AtomicMemory.family, artifact_id)
-    if not isinstance(artifact, AtomicMemory):
-        raise AtomicMemoryIndexError("authority-content", "Atomic Memory has an unsupported authoritative content type")
+    # Projection repair needs only exact content and authoritative state. Historical
+    # migration checkpoints must not depend on lineage tables added by later steps.
+    heads, bodies = ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE
+    row = (
+        (
+            await connection.execute(
+                select(heads.c.artifact_id, heads.c.family, heads.c.revision, bodies.c.content)
+                .select_from(
+                    heads.outerjoin(
+                        bodies,
+                        and_(
+                            *(
+                                heads.c[name] == bodies.c[name]
+                                for name in ("scope_id", "family", "artifact_id", "revision")
+                            )
+                        ),
+                    )
+                )
+                .where(
+                    heads.c.scope_id == scope_id,
+                    heads.c.family == AtomicMemory.family,
+                    heads.c.artifact_id == artifact_id,
+                )
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None or row["content"] is None:
+        raise AtomicMemoryIndexError("authority-content", "Atomic Memory head has no authoritative content")
+    artifact = AtomicMemory(
+        artifact_id=str(row["artifact_id"]),
+        revision=int(row["revision"]),
+        content=AtomicMemoryContent.model_validate(artifacts.decode_content(row)),
+    )
     return AtomicMemoryRecord(artifact=artifact, state=state)
 
 

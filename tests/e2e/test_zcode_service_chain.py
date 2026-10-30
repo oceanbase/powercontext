@@ -253,7 +253,13 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
                 f"/revisions/{reference['revision']}"
             )
             revision.raise_for_status()
-            assert revision.json()["sources"] == [{"source_type": "content", "source_id": captured[0]["source_id"]}]
+            assert revision.json()["sources"] == [
+                {
+                    "source_type": "content",
+                    "source_id": captured[0]["source_id"],
+                    "locator": {"kind": "sequence", "sequence": captured[0]["position"]},
+                }
+            ]
 
             second = _invoke_hook(
                 node=node,

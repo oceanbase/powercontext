@@ -109,3 +109,27 @@ def test_remote_schema_references_are_rejected_without_network_access(monkeypatc
             fingerprint=f"sha256:{'0' * 64}",
             source_schema={"$dynamicRef": "https://example.invalid/schema"},
         )
+
+
+def test_pre_locator_text_evidence_manifest_retains_its_fingerprint() -> None:
+    import json
+    from pathlib import Path
+
+    from powercontext.builtin.sources.observation_validation import (
+        validate_source_definition_manifest,
+        validate_source_observation,
+    )
+
+    payload = json.loads((Path(__file__).parent / "fixtures/text_evidence_manifest_before_locators.json").read_text())
+    manifest = SourceDefinitionManifest.model_validate(payload)
+    validate_source_definition_manifest(manifest)
+    assert manifest.model_dump(mode="json", by_alias=True) == payload
+    assert manifest_for_definition(CONTENT_SOURCE_DEFINITION) == manifest
+
+    async def scenario() -> None:
+        registry = SourceDefinitionRegistry((CONTENT_SOURCE_DEFINITION,))
+        source = await registry.resolve(ContentCapture(source_id="legacy", content="原始证据"))
+        observation = project_source_for_transport(registry, source)
+        validate_source_observation(observation, manifest)
+
+    asyncio.run(scenario())

@@ -84,7 +84,7 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import ContentSource
 from powercontext.server.app import ServerApplication
-from powercontext.sources import Source, SourceRef
+from powercontext.sources import Source, SourceRef, SourceSequenceLocator
 from tests.e2e.dream_support import atomic_memory_pipeline, process_pending
 from tests.e2e.dream_support import open_dream_runtime as open_builtin_runtime
 
@@ -1234,7 +1234,11 @@ async def seed(runtime: BuiltinRuntime):
     ))
     entries = await runtime.atomic_memory.for_scope(scope.scope_id).list()
     citation = next(item.ref for item in entries.items if item.artifact.content.kind == "working_note")
-    return scope.scope_id, captured.source_ref, citation
+    return (
+        scope.scope_id,
+        captured.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=captured.sequence)}),
+        citation,
+    )
 
 
 async def forget_memory(runtime: BuiltinRuntime, scope_id: str, ref):
@@ -2528,7 +2532,7 @@ def test_multiple_entries_and_experience_reusing_a_source_keep_one_root(database
             result = await runtime.review.for_scope(scope).get(
                 GetCandidateRequest(candidate_id=run.candidate.candidate_id)
             )
-            assert result.sources == (root,)
+            assert result.sources == (root.model_copy(update={"locator": SourceSequenceLocator(sequence=1)}),)
             assert {ref.model_dump_json() for ref in result.artifacts} == {
                 ref.model_dump_json() for ref in (approved.result_artifact, *citations)
             }
@@ -2802,7 +2806,15 @@ def test_ordinary_experience_revisions_do_not_inherit_dream_depth_budget(
                 target = approved.result_artifact
                 assert target is not None and target.revision == revision
                 stored = await runtime.experience.for_scope(scope).get(GetExperienceRequest(artifact=target))
-                assert stored.lineage.sources == (source.source_ref,)
+                assert stored.lineage.sources == (
+                    (
+                        source.source_ref.model_copy(
+                            update={"locator": SourceSequenceLocator(sequence=source.sequence)}
+                        )
+                        if with_memory and revision == 1
+                        else source.source_ref
+                    ),
+                )
                 assert stored.lineage.artifacts == (*refs, *(citations if revision == 1 else ()))
             with pytest.raises(EvidenceResolutionError, match="evidence_limit_exceeded"):
                 await runtime.dream.for_scope(scope).create(
@@ -3250,5 +3262,37 @@ def test_memory_approval_replays_across_servers(  # noqa: C901 - keep race barri
                     "/v1/candidates/approve", json={**payload, "expected_version": candidate.version + 1}
                 )
                 assert wrong_version.status_code == 409, wrong_version.text
+
+    asyncio.run(scenario())
+
+
+def test_source_positions_share_one_root_without_losing_their_locations(database: DatabaseConfig) -> None:
+    async def scenario() -> None:
+        generator = Generator()
+        async with open_builtin_runtime(
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
+        ) as runtime:
+            scope, root, citation = await seed(runtime)
+            refs = tuple(
+                SourceRef.model_validate({
+                    **root.model_dump(),
+                    "locator": {"kind": "line_range", "start_line": line, "end_line": line},
+                })
+                for line in (1, 2)
+            )
+            accepted = await runtime.dream.for_scope(scope).create(
+                CreateDreamRunRequest(
+                    operation="refine_experience",
+                    sources=refs,
+                    artifacts=(citation,),
+                    idempotency_key="positioned-root",
+                )
+            )
+            await process_pending(runtime)
+            run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
+            assert run.input_manifest is not None
+            assert len(run.input_manifest.root_groups) == 1
+            assert all(ref in run.input_manifest.root_groups[0].sources for ref in refs)
+            assert run.input_manifest.root_groups[0].independence == "unknown"
 
     asyncio.run(scenario())

@@ -158,6 +158,7 @@ def _generate_models(
     evidence_models = _candidate_evidence_models(transport_contract.components.schemas)
     source = _with_nested_model_defaults(f"{result.rstrip()}\n")
     source = _with_code_validation(source, transport_contract.components.schemas)
+    source = _with_source_locator_validation(source, transport_contract.components.schemas)
     source = _with_exclusive_fields(source, exclusive_schemas)
     source = _with_artifact_search_validation(source, transport_contract.components.schemas)
     return _with_candidate_evidence_limits(source, evidence_models)
@@ -276,6 +277,67 @@ def _with_code_validation(source: str, schemas: dict[str, Schema | Reference]) -
         return self
 """
         source = f"{source[:insert_at].rstrip()}\n{validator.rstrip()}\n\n{source[insert_at:].lstrip()}"
+    return source
+
+
+def _with_source_locator_validation(source: str, schemas: dict[str, Schema | Reference]) -> str:
+    """Keep Source positions bounded and absent locators byte-compatible with old references."""
+
+    for name, schema in schemas.items():
+        if not isinstance(schema, Schema):
+            continue
+        is_range = (schema.model_extra or {}).get("x-powercontext-source-line-range")
+        field = "heading_path" if is_range else "locator"
+        if not is_range and name not in {"SourceReference", "SourceTypeReference", "DreamSourceReference"}:
+            continue
+        header = f"class {name}(BaseModel):"
+        start = source.find(header)
+        if start < 0:
+            raise ContractGenerationError("generated model class", name)  # noqa: TRY003
+        next_class = source.find("\nclass ", start + len(header))
+        end = next_class if next_class >= 0 else len(source.rstrip())
+        block = source[start:end]
+        lines = block.splitlines(keepends=True)
+        tree = ast.parse(block)
+        model = next(node for node in tree.body if isinstance(node, ast.ClassDef))
+        declaration = next(
+            node
+            for node in model.body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == field
+        )
+        # The generator may wrap a field in Annotated/Field for its description or bounds.
+        # Only replace its default, retaining all generated constraints.
+        if declaration.value is None:
+            raise ContractGenerationError("generated model default", field)  # noqa: TRY003
+        line = declaration.value.lineno - 1
+        old = lines[line]
+        lines[line] = (
+            old[: declaration.value.col_offset]
+            + "Field(default=None, exclude_if=lambda value: value is None)"
+            + old[declaration.value.end_col_offset :]
+        )
+        block = "".join(lines)
+        if is_range:
+            source = _with_model_validator_import(source)
+            # Import insertion changes offsets; locate the same class again.
+            start = source.index(header)
+            next_class = source.find("\nclass ", start + len(header))
+            end = next_class if next_class >= 0 else len(source.rstrip())
+            block = (
+                block.rstrip()
+                + """
+
+    @model_validator(mode="after")
+    def _validate_source_line_range(self):
+        from powercontext.sources import SourceLineRangeLocator
+
+        SourceLineRangeLocator.model_validate(self.model_dump(mode="json"))
+        return self
+
+
+"""
+            )
+        source = source[:start] + block + source[end:]
     return source
 
 

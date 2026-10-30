@@ -69,8 +69,10 @@ def managed(tmp_path, monkeypatch):
     monkeypatch.setattr(migration, "mysql_inventory", lambda _connection: copy.deepcopy(inventory))
     monkeypatch.setattr(mysql_schema, "mysql_inventory", lambda _connection: copy.deepcopy(inventory))
 
-    def run(operation, *, writable=False):
+    def run(operation, *, writable=False, allow_missing_database=False):
         assert not writable, "Admission must fail before requesting a write connection"
+        # This fixture always supplies an existing database, so the policy for
+        # missing databases does not change the connection passed to admission.
         engine = create_engine(f"sqlite:///{database}")
         try:
             with engine.connect() as connection:

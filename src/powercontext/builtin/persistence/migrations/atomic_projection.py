@@ -30,6 +30,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
+    ARTIFACT_SOURCE_LOCATORS_TABLE,
     ARTIFACT_TAGS_TABLE,
     ARTIFACTS_TABLE,
 )
@@ -120,6 +121,7 @@ class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
             ARTIFACT_HEADS_TABLE,
             ARTIFACT_TAGS_TABLE,
             ARTIFACT_LINEAGE_SOURCES_TABLE,
+            ARTIFACT_SOURCE_LOCATORS_TABLE,
             ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
             current,
         ):

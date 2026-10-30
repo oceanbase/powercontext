@@ -252,7 +252,7 @@ collation，但不会包含数据库 URL 或凭据。
    源数据库早于三张 Skill 生命周期表（`pc_skill_packages`、`pc_agent_skill_targets` 和
    `pc_skill_publications`）、Profile 表、`pc_topic_memory_work_budgets`、`pc_topic_memory_work_blocks`、
    `pc_recall_effort_daily`、`pc_receipt_migration_review`、`pc_context_bootstrap_receipts` 或
-   `pc_decision_observations` 时，应从对应层删除缺失的表。
+   `pc_decision_observations` 或 `pc_artifact_source_locators` 时，应从对应层删除缺失的表。
    如果存在 work-budget 表，必须与 Cursor 一起恢复，保留已消耗的失败额度，避免迁移后重置累计成本。
    work-attempt 表也应一起恢复，保留阻塞身份、诊断信息与已接受的重试回执。
 
@@ -276,7 +276,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
+      --table 'pc_artifact_source_locators,pc_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
      -f <export-directory>
    ```
 

@@ -35,6 +35,13 @@ def previous_bundle(directory, embedding):
     shutil.copytree(current.directory, directory, ignore=shutil.ignore_patterns("__pycache__"))
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
+    locator_resources = manifest["revision_resources"].pop("v1_4_1_006")
+    for resource in (*locator_resources, "versions/v1_4_1_006_source_locators.py", "mysql/versions/v1_4_1_006.py"):
+        (directory / resource).unlink()
+    del manifest["sqlite_fingerprints"]["v1_4_1_006"]
+    del manifest["domain_readiness"]["v1_4_1_006"]
+    manifest["mysql_state_layouts"].remove("schemas/mysql-v1_4_1_006.json")
+    manifest["affected_objects"].remove("pc_artifact_source_locators")
     description = manifest["revision_resources"].pop("v1_4_1_005")
     for resource in (*description, "versions/v1_4_1_005_atomic_memory_description.py", "mysql/versions/v1_4_1_005.py"):
         (directory / resource).unlink()
@@ -99,8 +106,8 @@ def test_registered_s1401_upgrade_preserves_completed_evidence_and_matches_fresh
     upgraded = SQLiteMigrationRunner(database, bundle, configuration=config)
     plan = upgraded.plan()
     assert plan.source_revision == "s1401"
-    assert plan.revisions == ("s1402", "v1_4_1_004", "v1_4_1_005")
-    assert apply(upgraded).revision == "v1_4_1_005"
+    assert plan.revisions == ("s1402", "v1_4_1_004", "v1_4_1_005", "v1_4_1_006")
+    assert apply(upgraded).revision == "v1_4_1_006"
     assert upgraded.verify().state == "ready"
     assert not apply(upgraded).changed
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", bundle, configuration=config)

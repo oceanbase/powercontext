@@ -476,7 +476,7 @@ class EvidenceResolver:
         identity = evidence_id(ref)
         if eligible:
             attested = None if self.root_identity is None else self.root_identity(ref, source)
-            group_key = reference_key(ref) if attested is None else attested
+            group_key = ref.model_dump_json(exclude={"locator"}) if attested is None else attested
             state.groups[identity] = ("root_" + content_digest(group_key.encode())[7:31], attested is not None)
         return (
             EvidenceNode(

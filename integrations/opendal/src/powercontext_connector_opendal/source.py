@@ -26,7 +26,7 @@ from powercontext.sources import (
     Source,
     SourceMaterialization,
     SourceProjection,
-    TextEvidence,
+    TextEvidenceV1,
 )
 from pydantic import BaseModel, JsonValue, field_validator
 
@@ -136,9 +136,9 @@ class TextFileEvidenceProjection:
     name = TEXT_EVIDENCE_PROJECTION_KEY.name
     version = TEXT_EVIDENCE_PROJECTION_KEY.version
     source_class = TextFileSnapshotSource
-    output_class: type[BaseModel] = TextEvidence
+    output_class: type[BaseModel] = TextEvidenceV1
 
-    def project(self, source: TextFileSnapshotSource, /) -> TextEvidence:
+    def project(self, source: TextFileSnapshotSource, /) -> TextEvidenceV1:
         metadata: dict[str, JsonValue] = {
             "namespace": source.namespace,
             "path": source.path,
@@ -153,7 +153,7 @@ class TextFileEvidenceProjection:
             metadata["provider_version"] = source.provider_version
         if source.modified_at is not None:
             metadata["modified_at"] = source.modified_at.isoformat()
-        return TextEvidence(
+        return TextEvidenceV1(
             source_type=TEXT_FILE_SNAPSHOT_SOURCE_NAME,
             source_id=source.name,
             content=source.content,

@@ -51,7 +51,7 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The bundled contract digest matches `sqlite-atomic-cc5980f0-v1`, which records the ten protocol operations qualified below. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The bundled contract combines Source locators and Atomic Memory descriptions and has no matching product qualification record. `sqlite-atomic-cc5980f0-v1` retains its original ten-operation qualification below. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit.
 
@@ -60,6 +60,56 @@ Selecting a compatibility profile does not attest the remote binary identity. Ex
 <a id="current-server-protocol-qualification"></a>
 
 ### Server protocol qualification records
+
+#### Server d9686bba protocol qualification
+
+`sqlite-atomic-d9686bba-v1` qualifies Server sources at
+`d9686bba60560ea292269cd814619c44764da60a` for OpenAPI digest
+`8f04516fa14119300005366b7de26a42f5fa0a43119209b7e4654987b611aaf9`.
+The wheel is `powercontext-0.1.dev1223+gd9686bba6-py3-none-any.whl`, SHA-256
+`9b0f2234c43079c7883bb6bfa4bc3156c5209cf13f230dae34418a096b21aada`.
+All 622 packaged runtime files in `powercontext/` and `powercontext_service_bootstrap/`
+match that commit byte for byte. The sorted runtime manifest digest is
+`66b62e9527500b694fd55444176783ee3e9546bd23d23d0487283eb2d6bde53b`
+(one `wheel/path sha256` line per file, with a final newline).
+The OpenAPI contract, project configuration and lock also match the commit.
+
+On 2026-10-30, macOS 26.6.2 ARM64 with Python 3.13.12 and Rust 1.95.0 ran the existing
+`desktop/tests/real_server.py` harness against this extracted wheel and independent SQLite Server
+processes. All four modes passed: anonymous loopback, static Bearer, HTTPS with an explicit CA/base path,
+and an injected provider with enforced access. The native `server_probe` was built from the product
+modules and locked dependencies. All eleven catalogued operations, including `get_server_info`, were
+exercised through discovery, explicit Scope selection, Memory save/search/exact revision reads,
+identity changes, same-identity revocation, committed writes with lost responses without replay,
+51 same-title Scopes across two pages, and Server survival after client exit.
+
+The harness ran from a temporary working directory with an isolated Python environment and explicit
+fixture settings, avoiding checkout-local dotenv configuration and model inference. The report records
+`desktopWorkingTreeDirty=false`; wheel identity and run evidence are retained under ignored
+`desktop/.artifacts/qualification-wheel-identity.json` and `desktop/.artifacts/real-server.json`.
+Reproduce from the source commit with an empty wheel output directory:
+
+```sh
+uv sync --frozen --python 3.13
+uv build --wheel --out-dir desktop/.artifacts/server-wheel
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --locked python desktop/tests/fixture_qualification.py --server-commit d9686bba60560ea292269cd814619c44764da60a
+qualification_checkout="$PWD"
+qualification_python="$PWD/.venv/bin/python"
+qualification_workdir="$(mktemp -d)"
+(cd "$qualification_workdir" && "$qualification_python" "$qualification_checkout/desktop/tests/real_server.py")
+```
+
+This qualifies the recorded SQLite protocol behavior. It does not qualify installed GUI workflows,
+native credential persistence, Windows/Intel execution, signing, or release readiness. Historical records
+retain their original evidence. The generated Rust locator decoder also has real serialization regressions
+for both tagged variants, exactly one serialized tag, sequence zero, Unicode headings, and rejection of
+unknown, missing or mismatched tags.
+
+本记录对应上述精确源码、OpenAPI 契约和 wheel；622 个运行时文件与提交逐字节一致。
+在 macOS ARM64 上，四种独立真实 SQLite／HTTP 连接模式均通过，覆盖发现接口及记录中的十一项操作。
+测试隔离本地 dotenv 配置且未调用模型推理；结果不替代安装后 GUI、原生凭据库、Windows／Intel、签名或正式发布验收。
+历史记录保留原有身份和证据。
 
 #### Server cc5980f0 protocol qualification
 

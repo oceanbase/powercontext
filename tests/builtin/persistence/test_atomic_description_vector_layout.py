@@ -42,7 +42,7 @@ def test_managed_sqlite_vector_schema_includes_registered_nullable_description(t
     database = tmp_path / "vector.db"
     runner = SQLiteMigrationRunner(database, bundle, configuration=configuration)
     result = runner.apply(plan_id=runner.plan().plan_id, accepted=True, maintenance_confirmed=True)
-    assert result.revision == "v1_4_1_005"
+    assert result.revision == "v1_4_1_006"
     with closing(sqlite3.connect(database)) as connection:
         columns = {row[1]: row for row in connection.execute("PRAGMA table_info(pc_atomic_memory_current)")}
         assert columns["description"][2:4] == ("VARCHAR(200)", 0)
@@ -56,6 +56,8 @@ def test_mysql_vector_admission_retains_description_and_exact_previous_revision(
     assert vector.vector_profile is not None
     inventory = {"tables": {}, "views": [], "triggers": []}
     for resource in json.loads((plain.directory / "manifest.json").read_text())["mysql_state_layouts"]:
+        if resource == "schemas/mysql-v1_4_1_006.json":
+            continue
         for entry in json.loads((plain.directory / resource).read_text())["revisions"].values():
             for change in entry["changes"]:
                 for name, table in change.items():
@@ -99,6 +101,13 @@ def test_description_upgrade_preserves_registered_owner_recovery_and_evidence(tm
     shutil.copytree(current.snapshot_directory, directory, ignore=shutil.ignore_patterns("__pycache__"))
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    locator = manifest["revision_resources"].pop("v1_4_1_006")
+    for resource in (*locator, "versions/v1_4_1_006_source_locators.py", "mysql/versions/v1_4_1_006.py"):
+        (directory / resource).unlink()
+    del manifest["sqlite_fingerprints"]["v1_4_1_006"]
+    del manifest["domain_readiness"]["v1_4_1_006"]
+    manifest["mysql_state_layouts"].remove("schemas/mysql-v1_4_1_006.json")
+    manifest["affected_objects"].remove("pc_artifact_source_locators")
     resources = manifest["revision_resources"].pop("v1_4_1_005")
     for resource in (*resources, "versions/v1_4_1_005_atomic_memory_description.py", "mysql/versions/v1_4_1_005.py"):
         (directory / resource).unlink()
@@ -122,8 +131,8 @@ def test_description_upgrade_preserves_registered_owner_recovery_and_evidence(tm
     original_evidence = json.loads(old.evidence_path.read_text(encoding="utf-8"))
     upgraded = SQLiteMigrationRunner(database, current, configuration=configuration)
     plan = upgraded.plan()
-    assert plan.source_revision == "v1_4_1_004" and plan.revisions == ("v1_4_1_005",)
-    assert upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).revision == "v1_4_1_005"
+    assert plan.source_revision == "v1_4_1_004" and plan.revisions == ("v1_4_1_005", "v1_4_1_006")
+    assert upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).revision == "v1_4_1_006"
     assert upgraded.verify().state == "ready"
     evidence = json.loads(upgraded.evidence_path.read_text(encoding="utf-8"))
     for revision, checksum in original_evidence["release_checksums"].items():

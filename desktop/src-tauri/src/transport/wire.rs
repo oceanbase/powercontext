@@ -1478,6 +1478,94 @@ pub enum Product {
     Powercontext,
 }
 
+/// SourceLineRangeLocator : Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SourceLineRangeLocator {
+    #[serde(rename = "kind")]
+    pub kind: SourceLineRangeLocatorKind,
+    #[serde(rename = "start_line")]
+    pub start_line: i64,
+    #[serde(rename = "end_line")]
+    pub end_line: i64,
+    /// Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "heading_path",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub heading_path: Option<Option<String>>,
+}
+
+impl SourceLineRangeLocator {
+    /// Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        kind: SourceLineRangeLocatorKind,
+        start_line: i64,
+        end_line: i64,
+    ) -> SourceLineRangeLocator {
+        SourceLineRangeLocator {
+            kind,
+            start_line,
+            end_line,
+            heading_path: None,
+        }
+    }
+}
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum SourceLineRangeLocatorKind {
+    #[serde(rename = "line_range")]
+    #[default]
+    LineRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum SourceLocator {
+    #[serde(rename = "sequence")]
+    Sequence(SourceSequenceLocator),
+    #[serde(rename = "line_range")]
+    LineRange(SourceLineRangeLocator),
+}
+
+impl Default for SourceLocator {
+    fn default() -> Self {
+        Self::Sequence(Default::default())
+    }
+}
+
+/// SourceSequenceLocator : Position of this exact Source in its scope journal; zero is distinct from absence.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SourceSequenceLocator {
+    #[serde(rename = "kind")]
+    pub kind: SourceSequenceLocatorKind,
+    #[serde(rename = "sequence")]
+    pub sequence: i64,
+}
+
+impl SourceSequenceLocator {
+    /// Position of this exact Source in its scope journal; zero is distinct from absence.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(kind: SourceSequenceLocatorKind, sequence: i64) -> SourceSequenceLocator {
+        SourceSequenceLocator { kind, sequence }
+    }
+}
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum SourceSequenceLocatorKind {
+    #[serde(rename = "sequence")]
+    #[default]
+    Sequence,
+}
+
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct SourceTypeReference {
@@ -1487,6 +1575,9 @@ pub struct SourceTypeReference {
     /// Source identity as accepted at ingestion, including Unicode and interior spaces.
     #[serde(rename = "source_id")]
     pub source_id: String,
+    #[ts(optional)]
+    #[serde(rename = "locator", skip_serializing_if = "Option::is_none")]
+    pub locator: Option<SourceLocator>,
 }
 
 impl SourceTypeReference {
@@ -1495,6 +1586,7 @@ impl SourceTypeReference {
         SourceTypeReference {
             source_type,
             source_id,
+            locator: None,
         }
     }
 }
@@ -1593,6 +1685,11 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <SearchMemoryResponse as ts_rs::TS>::decl(config),
         <ServerInfo as ts_rs::TS>::decl(config),
         <ShareUnit as ts_rs::TS>::decl(config),
+        <SourceLineRangeLocator as ts_rs::TS>::decl(config),
+        <SourceLineRangeLocatorKind as ts_rs::TS>::decl(config),
+        <SourceLocator as ts_rs::TS>::decl(config),
+        <SourceSequenceLocator as ts_rs::TS>::decl(config),
+        <SourceSequenceLocatorKind as ts_rs::TS>::decl(config),
         <SourceTypeReference as ts_rs::TS>::decl(config),
         <Stage as ts_rs::TS>::decl(config),
         <State as ts_rs::TS>::decl(config),

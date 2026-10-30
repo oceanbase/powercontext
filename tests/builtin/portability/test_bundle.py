@@ -38,7 +38,9 @@ from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
+    ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACT_PUBLICATIONS_TABLE,
+    ARTIFACT_SOURCE_LOCATORS_TABLE,
     ARTIFACT_TAGS_TABLE,
     ARTIFACTS_TABLE,
     BUILTIN_TABLES,
@@ -570,10 +572,30 @@ def test_bundle_round_trips_authoritative_scope_data_and_excludes_projections(tm
                         searchable_text="not portable",
                     )
                 )
+                edge = {
+                    "scope_id": "project:one",
+                    "family": "handoff",
+                    "artifact_id": "handoff",
+                    "revision": 1,
+                    "ordinal": 0,
+                }
+                await connection.execute(
+                    insert(ARTIFACT_LINEAGE_SOURCES_TABLE).values(
+                        **edge,
+                        source_type="content",
+                        source_id="source-1",
+                    )
+                )
+                await connection.execute(
+                    insert(ARTIFACT_SOURCE_LOCATORS_TABLE).values(
+                        **edge,
+                        locator=b'{"kind":"line_range","start_line":1,"end_line":1}',
+                    )
+                )
             receipt = await PortableBundleService(source.database).export(
                 ["project:one"], archive, authorize=_authorize_export
             )
-            assert receipt.record_count == 5
+            assert receipt.record_count == 7
 
         async with SQLiteProfile.open(
             SQLiteConfig(url=f"sqlite+aiosqlite:///{target_path}"), tables=BUILTIN_TABLES
@@ -582,11 +604,14 @@ def test_bundle_round_trips_authoritative_scope_data_and_excludes_projections(tm
             inspection = await service.validate(archive, supported_source_types=("content",))
             assert inspection.scopes == ("project:one",)
             restored = await service.restore(archive, supported_source_types=("content",))
-            assert restored.inserted == 5
+            assert restored.inserted == 7
             repeated = await service.restore(archive, supported_source_types=("content",))
-            assert repeated.already_present == 5
+            assert repeated.already_present == 7
             async with target.database.transaction() as connection:
                 assert await connection.scalar(select(ARTIFACT_HEADS_TABLE.c.searchable_text)) is None
+                locator = await connection.scalar(select(ARTIFACT_SOURCE_LOCATORS_TABLE.c.locator))
+                assert isinstance(locator, bytes)
+                assert json.loads(locator) == {"kind": "line_range", "start_line": 1, "end_line": 1}
 
     asyncio.run(scenario())
 

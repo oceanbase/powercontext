@@ -22,6 +22,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryCandidate,
     AtomicMemoryExtractionInput,
     AtomicMemoryExtractionOutput,
 )
@@ -36,6 +37,7 @@ from powercontext.sources import (
     AdapterSourceDefinition,
     Source,
     SourceDefinitionRegistry,
+    SourceLineRangeLocator,
     SourceMaterialization,
     TextEvidence,
 )
@@ -160,3 +162,62 @@ def test_sqlite_observation_duplicate_wire_stays_within_input_budget(tmp_path) -
     serialized = extractor.requests[0].model_dump_json()
     assert serialized.count(BULK_BODY) == 1
     assert character_token_estimator().estimate(serialized) < 24_000
+
+
+def test_adapter_text_position_survives_memory_generation_and_reopen(tmp_path) -> None:
+    locator = SourceLineRangeLocator(start_line=40, end_line=55, heading_path="部署 / 约束")
+
+    class LocatedProjection(_TextProjection):
+        def project(self, source: _WireSource) -> TextEvidence:
+            return TextEvidence(source_type="wire-note", source_id=source.name, content=source.content, locator=locator)
+
+    class Extractor:
+        async def generate(self, request: AtomicMemoryExtractionInput, /):
+            assert request.evidence[0].source_ref.locator == locator
+            return GenerationResult(
+                output=AtomicMemoryExtractionOutput(
+                    candidates=(
+                        AtomicMemoryCandidate(
+                            kind="fact",
+                            text=BODY,
+                            description="Preserve the wire note fact.",
+                            evidence_ids=(request.evidence[0].evidence_id,),
+                        ),
+                    )
+                )
+            )
+
+    async def scenario() -> None:
+        registry = SourceDefinitionRegistry((
+            *BUILTIN_SOURCE_REGISTRY.definitions,
+            AdapterSourceDefinition(_WireAdapter(), projections=(LocatedProjection(),)),
+        ))
+        observation = project_source_for_transport(
+            registry,
+            _WireSource(
+                name="located",
+                materialization=SourceMaterialization.CAPTURED,
+                content=BODY,
+                wire_content=BODY,
+            ),
+        )
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'located-memory.db'}"))
+        async with open_builtin_contexts(config, candidate_pipeline=atomic_memory_pipeline(Extractor())) as contexts:
+            await contexts.register_source_definition(
+                manifest_for_definition(registry.definition_for_name("wire-note"))
+            )
+            await contexts.submit_source_observation(
+                SubmitSourceObservation(scope_id="scope-a", observation=observation)
+            )
+            await contexts.process_memory("scope-a", 1)
+            (record,) = (await contexts.atomic_memory.for_scope("scope-a").list()).items
+            reference = record.ref
+            assert record.artifact.lineage.sources[0].locator == locator
+        async with open_builtin_contexts(config) as contexts:
+            loaded = await contexts.atomic_memory.for_scope("scope-a").get(
+                reference.artifact_id, revision=reference.revision
+            )
+            assert loaded.artifact == record.artifact
+            assert loaded.artifact.lineage.sources[0].locator == locator
+
+    asyncio.run(scenario())

@@ -255,7 +255,7 @@ class AtomicMemoryWindowWorkset:
         selected = tuple(evidence_by_id[identifier] for identifier in dict.fromkeys(output.evidence_ids))
         sources = tuple(
             {
-                (item.source_ref.source_type, item.source_ref.source_id): item.source_ref
+                item.source_ref.model_dump_json(): item.source_ref
                 for item in selected
                 if isinstance(item, AtomicMemoryEvidence) and item.via_artifact is None
             }.values()

@@ -279,6 +279,15 @@ api_contract_version: ContractVersion,
  */
 feature_contracts: { [key in string]: FeatureContract }, };
 export type ShareUnit = "artifact" | "memory_entry";
+export type SourceLineRangeLocator = { kind: SourceLineRangeLocatorKind, start_line: number, end_line: number,
+/**
+ * Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes.
+ */
+heading_path?: string | null, };
+export type SourceLineRangeLocatorKind = "line_range";
+export type SourceLocator = SourceSequenceLocator | SourceLineRangeLocator;
+export type SourceSequenceLocator = { kind: SourceSequenceLocatorKind, sequence: number, };
+export type SourceSequenceLocatorKind = "sequence";
 export type SourceTypeReference = {
 /**
  * Stable Source type, including dynamically registered Source names.
@@ -287,7 +296,7 @@ source_type: string,
 /**
  * Source identity as accepted at ingestion, including Unicode and interior spaces.
  */
-source_id: string, };
+source_id: string, locator?: SourceLocator, };
 export type Stage = "inference" | "flush" | "worker" | "supervisor" | "lease_renewal" | "scope_discovery";
 export type State = "running" | "degraded" | "stopped" | "unknown";
 export type TagFilter = { tags: Array<string>, match?: TagMatch, };

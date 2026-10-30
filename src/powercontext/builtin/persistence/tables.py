@@ -293,6 +293,29 @@ ARTIFACT_LINEAGE_SOURCES_TABLE = Table(
     ),
 )
 
+ARTIFACT_SOURCE_LOCATORS_TABLE = Table(
+    "pc_artifact_source_locators",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("revision", Integer, primary_key=True),
+    Column("ordinal", Integer, primary_key=True),
+    Column("locator", _canonical_payload_type(), nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "artifact_id", "revision", "ordinal"),
+        (
+            "pc_artifact_lineage_sources.scope_id",
+            "pc_artifact_lineage_sources.family",
+            "pc_artifact_lineage_sources.artifact_id",
+            "pc_artifact_lineage_sources.revision",
+            "pc_artifact_lineage_sources.ordinal",
+        ),
+        ondelete="CASCADE",
+    ),
+)
+
+
 ARTIFACT_LINEAGE_ARTIFACTS_TABLE = Table(
     "pc_artifact_lineage_artifacts",
     SHARED_METADATA,
@@ -1064,6 +1087,7 @@ SHARED_TABLES = (
     ARTIFACT_HANDLES_TABLE,
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
+    ARTIFACT_SOURCE_LOCATORS_TABLE,
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_PUBLICATIONS_TABLE,
     CANDIDATE_VERSIONS_TABLE,

@@ -39,6 +39,13 @@ def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checks
     shutil.copytree(current.directory, directory, ignore=shutil.ignore_patterns("__pycache__"))
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    locator_resources = manifest["revision_resources"].pop("v1_4_1_006")
+    for resource in (*locator_resources, "versions/v1_4_1_006_source_locators.py", "mysql/versions/v1_4_1_006.py"):
+        (directory / resource).unlink()
+    del manifest["sqlite_fingerprints"]["v1_4_1_006"]
+    del manifest["domain_readiness"]["v1_4_1_006"]
+    manifest["mysql_state_layouts"].remove("schemas/mysql-v1_4_1_006.json")
+    manifest["affected_objects"].remove("pc_artifact_source_locators")
     description = manifest["revision_resources"].pop("v1_4_1_005")
     for resource in (*description, "versions/v1_4_1_005_atomic_memory_description.py", "mysql/versions/v1_4_1_005.py"):
         (directory / resource).unlink()
@@ -65,8 +72,8 @@ def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checks
     original_evidence = json.loads(old.evidence_path.read_text(encoding="utf-8"))
     upgraded = SQLiteMigrationRunner(database, current, configuration=configuration(embedding))
     plan = upgraded.plan()
-    assert plan.source_revision == "s1402" and plan.revisions == ("v1_4_1_004", "v1_4_1_005")
-    assert apply(upgraded).revision == "v1_4_1_005"
+    assert plan.source_revision == "s1402" and plan.revisions == ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006")
+    assert apply(upgraded).revision == "v1_4_1_006"
     assert upgraded.verify().state == "ready"
     assert not apply(upgraded).changed
     evidence = json.loads(upgraded.evidence_path.read_text(encoding="utf-8"))

@@ -6720,6 +6720,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "source_type": {"type": "string", "maxLength": 128, "minLength": 1},
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "locator": {"$ref": "#/components/schemas/SourceLocator", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -12104,6 +12105,61 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["items", "next_cursor"],
             },
+            "SourceSequenceLocator": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["sequence"]},
+                    "sequence": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "sequence"],
+                "description": "Position of this exact Source in its scope journal; zero is distinct from absence.",
+            },
+            "SourceLineRangeLocator": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["line_range"]},
+                    "start_line": {"type": "integer", "minimum": 1.0},
+                    "end_line": {"type": "integer", "minimum": 1.0},
+                    "heading_path": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "description": "Optional "
+                        "adapter-supplied "
+                        "heading "
+                        "path, "
+                        "bounded "
+                        "in "
+                        "Unicode "
+                        "characters "
+                        "rather "
+                        "than "
+                        "UTF-8 "
+                        "bytes.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "start_line", "end_line"],
+                "description": "Inclusive one-based lines "
+                "in adapter-supplied text, "
+                "at most 200 lines. Never a "
+                "revision redirect.",
+                "x-powercontext-source-line-range": True,
+            },
+            "SourceLocator": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/SourceSequenceLocator"},
+                    {"$ref": "#/components/schemas/SourceLineRangeLocator"},
+                ],
+                "discriminator": {
+                    "propertyName": "kind",
+                    "mapping": {
+                        "sequence": "#/components/schemas/SourceSequenceLocator",
+                        "line_range": "#/components/schemas/SourceLineRangeLocator",
+                    },
+                },
+            },
             "SourceTypeReference": {
                 "properties": {
                     "source_type": {
@@ -12126,6 +12182,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "interior "
                         "spaces.",
                     },
+                    "locator": {"$ref": "#/components/schemas/SourceLocator", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -12135,6 +12192,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "name": {"type": "string", "description": "Stable Source type."},
                     "source_id": {"type": "string"},
+                    "locator": {"$ref": "#/components/schemas/SourceLocator", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",

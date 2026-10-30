@@ -6762,6 +6762,9 @@ components:
           type: string
           minLength: 1
           maxLength: 256
+        locator:
+          $ref: "#/components/schemas/SourceLocator"
+          nullable: true
     ListDreamRunsRequest:
       type: object
       additionalProperties: false
@@ -12124,6 +12127,48 @@ components:
         next_cursor:
           type: string
           nullable: true
+    SourceSequenceLocator:
+      type: object
+      additionalProperties: false
+      required: [kind, sequence]
+      description: Position of this exact Source in its scope journal; zero is distinct from absence.
+      properties:
+        kind:
+          type: string
+          enum: [sequence]
+        sequence:
+          type: integer
+          minimum: 0
+    SourceLineRangeLocator:
+      type: object
+      additionalProperties: false
+      required: [kind, start_line, end_line]
+      description: Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect.
+      x-powercontext-source-line-range: true
+      properties:
+        kind:
+          type: string
+          enum: [line_range]
+        start_line:
+          type: integer
+          minimum: 1
+        end_line:
+          type: integer
+          minimum: 1
+        heading_path:
+          type: string
+          nullable: true
+          maxLength: 1024
+          description: Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes.
+    SourceLocator:
+      oneOf:
+        - $ref: "#/components/schemas/SourceSequenceLocator"
+        - $ref: "#/components/schemas/SourceLineRangeLocator"
+      discriminator:
+        propertyName: kind
+        mapping:
+          sequence: "#/components/schemas/SourceSequenceLocator"
+          line_range: "#/components/schemas/SourceLineRangeLocator"
     SourceTypeReference:
       type: object
       additionalProperties: false
@@ -12137,6 +12182,9 @@ components:
           minLength: 1
           maxLength: 256
           description: Source identity as accepted at ingestion, including Unicode and interior spaces.
+        locator:
+          $ref: "#/components/schemas/SourceLocator"
+          nullable: true
     SourceReference:
       type: object
       additionalProperties: false
@@ -12147,6 +12195,9 @@ components:
           description: Stable Source type.
         source_id:
           type: string
+        locator:
+          $ref: "#/components/schemas/SourceLocator"
+          nullable: true
     CaptureStatus:
       type: string
       enum: [accepted]

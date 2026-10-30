@@ -1014,3 +1014,34 @@ def test_failed_candidate_status_update_rolls_back_artifact_commit(monkeypatch: 
             )
 
     asyncio.run(scenario())
+
+
+def test_candidate_preserves_distinct_positions_from_one_source() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            scope = await _create_scope(runtime)
+            captured = await runtime.sources.for_scope(scope).capture(
+                CaptureSource(source_id="positioned", content="Two independent observations.", metadata={})
+            )
+            refs = tuple(
+                SourceRef.model_validate({
+                    **captured.source_ref.model_dump(),
+                    "locator": {"kind": "line_range", "start_line": line, "end_line": line},
+                })
+                for line in (1, 2)
+            )
+            candidate = await runtime.experience.for_scope(scope).propose(
+                ProposeExperienceRequest(proposal=_proposal(), sources=refs)
+            )
+            loaded = await runtime.review.for_scope(scope).get(GetCandidateRequest(candidate_id=candidate.candidate_id))
+            assert loaded.sources == refs
+            approved = await runtime.review.for_scope(scope).approve(
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+            )
+            assert approved.result_artifact is not None
+            result = await runtime.experience.for_scope(scope).get(
+                GetExperienceRequest(artifact=approved.result_artifact)
+            )
+            assert result.lineage.sources == refs
+
+    asyncio.run(scenario())

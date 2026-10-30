@@ -561,14 +561,6 @@ class DreamEvidenceIndependence(StrEnum):
     UNKNOWN = "unknown"
 
 
-class DreamSourceReference(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    source_type: Annotated[StrictStr, Field(max_length=128, min_length=1)]
-    source_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-
-
 class ListDreamRunsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -622,28 +614,6 @@ class DreamEvidenceEdge(BaseModel):
     )
     derived_id: StrictStr
     upstream_id: StrictStr
-
-
-class DreamEvidenceNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    evidence_id: StrictStr
-    kind: DreamEvidenceKind
-    digest: StrictStr
-    source: DreamSourceReference | None = None
-    artifact: ArtifactReference | None = None
-    role: DreamEvidenceRole
-    historical: StrictBool = False
-
-
-class DreamRootEvidenceGroup(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    group_id: StrictStr
-    sources: list[DreamSourceReference]
-    independence: DreamEvidenceIndependence = DreamEvidenceIndependence.UNKNOWN
 
 
 class CandidateKind(StrEnum):
@@ -2876,6 +2846,49 @@ class ReplaceMemoryArtifactEntry(BaseModel):
     text: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
 
 
+class Kind10(StrEnum):
+    SEQUENCE = "sequence"
+
+
+class SourceSequenceLocator(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["sequence"]
+    sequence: Annotated[StrictInt, Field(ge=0)]
+
+
+class Kind11(StrEnum):
+    LINE_RANGE = "line_range"
+
+
+class SourceLineRangeLocator(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["line_range"]
+    start_line: Annotated[StrictInt, Field(ge=1)]
+    end_line: Annotated[StrictInt, Field(ge=1)]
+    heading_path: Annotated[
+        StrictStr | None,
+        Field(
+            description="Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes.",
+            max_length=1024,
+        ),
+    ] = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def _validate_source_line_range(self):
+        from powercontext.sources import SourceLineRangeLocator
+
+        SourceLineRangeLocator.model_validate(self.model_dump(mode="json"))
+        return self
+
+
+class SourceLocator(RootModel[SourceSequenceLocator | SourceLineRangeLocator]):
+    root: Annotated[SourceSequenceLocator | SourceLineRangeLocator, Field(discriminator="kind")]
+
+
 class SourceTypeReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2891,6 +2904,7 @@ class SourceTypeReference(BaseModel):
             min_length=1,
         ),
     ]
+    locator: SourceLocator | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class SourceReference(BaseModel):
@@ -2899,6 +2913,7 @@ class SourceReference(BaseModel):
     )
     name: Annotated[StrictStr, Field(description="Stable Source type.")]
     source_id: StrictStr
+    locator: SourceLocator | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class CaptureStatus(StrEnum):
@@ -3908,6 +3923,15 @@ class HandoffReceiptIdentity(BaseModel):
     receiver_identity_matches: StrictBool
 
 
+class DreamSourceReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source_type: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    source_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    locator: SourceLocator | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
 class CreateDreamRunRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3920,59 +3944,26 @@ class CreateDreamRunRequest(BaseModel):
     idempotency_key: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^\\S(?:[\\s\\S]*\\S)?$")]
 
 
-class DreamInputManifest(BaseModel):
+class DreamEvidenceNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    transform_version: StrictStr = "powercontext.dream.evidence.v1"
-    artifacts: Annotated[list[ArtifactReference], Field(validate_default=True)] = []
-    sources: Annotated[list[DreamSourceReference], Field(validate_default=True)] = []
-    nodes: Annotated[list[DreamEvidenceNode], Field(validate_default=True)] = []
-    edges: Annotated[list[DreamEvidenceEdge], Field(validate_default=True)] = []
-    root_groups: Annotated[list[DreamRootEvidenceGroup], Field(validate_default=True)] = []
-    projection_digest: StrictStr
-    projection_bytes: StrictInt
-    incomplete: StrictBool = False
+    evidence_id: StrictStr
+    kind: DreamEvidenceKind
+    digest: StrictStr
+    source: DreamSourceReference | None = None
+    artifact: ArtifactReference | None = None
+    role: DreamEvidenceRole
+    historical: StrictBool = False
 
 
-class DreamRun(BaseModel):
+class DreamRootEvidenceGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tag_target: TagDreamTarget | None = None
-    reused: StrictBool = False
-    scope_id: StrictStr
-    run_id: StrictStr
-    operation: DreamOperation
-    status: DreamStatus = DreamStatus.QUEUED
-    outcome: DreamOutcome | None = None
-    target: ArtifactReference | None = None
-    candidate: DreamCandidateRef | None = None
-    reason: StrictStr | None = None
-    error: StrictStr | None = None
-    accepted_at: AwareDatetime
-    started_at: AwareDatetime | None = None
-    completed_at: AwareDatetime | None = None
-    attempt_count: StrictInt = 0
-    input_manifest: DreamInputManifest | None = None
-    usage: DreamUsage | None = None
-    budget: DreamBudget | None = None
-    prompt_version: StrictStr = "powercontext.dream.v1.4"
-    model_config_id: Annotated[StrictStr | None, Field(...)]
-    historical_data: Annotated[
-        dict[str, Any] | None,
-        Field(
-            description="Original request and input manifest of a terminal run migrated from the legacy Memory format. Present only on such runs; never accepted as evidence."
-        ),
-    ] = None
-
-
-class DreamRunPage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    runs: list[DreamRun]
-    next_cursor: StrictStr | None = None
+    group_id: StrictStr
+    sources: list[DreamSourceReference]
+    independence: DreamEvidenceIndependence = DreamEvidenceIndependence.UNKNOWN
 
 
 class ExtractionObservation(BaseModel):
@@ -4810,6 +4801,61 @@ class CreateSubjectSourceResponse(BaseModel):
     subject_type: SubjectType
     subject_scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     sources: Annotated[list[SourceRecord], Field(max_length=2, min_length=2)]
+
+
+class DreamInputManifest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    transform_version: StrictStr = "powercontext.dream.evidence.v1"
+    artifacts: Annotated[list[ArtifactReference], Field(validate_default=True)] = []
+    sources: Annotated[list[DreamSourceReference], Field(validate_default=True)] = []
+    nodes: Annotated[list[DreamEvidenceNode], Field(validate_default=True)] = []
+    edges: Annotated[list[DreamEvidenceEdge], Field(validate_default=True)] = []
+    root_groups: Annotated[list[DreamRootEvidenceGroup], Field(validate_default=True)] = []
+    projection_digest: StrictStr
+    projection_bytes: StrictInt
+    incomplete: StrictBool = False
+
+
+class DreamRun(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tag_target: TagDreamTarget | None = None
+    reused: StrictBool = False
+    scope_id: StrictStr
+    run_id: StrictStr
+    operation: DreamOperation
+    status: DreamStatus = DreamStatus.QUEUED
+    outcome: DreamOutcome | None = None
+    target: ArtifactReference | None = None
+    candidate: DreamCandidateRef | None = None
+    reason: StrictStr | None = None
+    error: StrictStr | None = None
+    accepted_at: AwareDatetime
+    started_at: AwareDatetime | None = None
+    completed_at: AwareDatetime | None = None
+    attempt_count: StrictInt = 0
+    input_manifest: DreamInputManifest | None = None
+    usage: DreamUsage | None = None
+    budget: DreamBudget | None = None
+    prompt_version: StrictStr = "powercontext.dream.v1.4"
+    model_config_id: Annotated[StrictStr | None, Field(...)]
+    historical_data: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description="Original request and input manifest of a terminal run migrated from the legacy Memory format. Present only on such runs; never accepted as evidence."
+        ),
+    ] = None
+
+
+class DreamRunPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    runs: list[DreamRun]
+    next_cursor: StrictStr | None = None
 
 
 class ExtractionStatus(BaseModel):

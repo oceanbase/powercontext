@@ -16,8 +16,8 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 
 The full Server framework registers two installed-release sources for the PowerContext 1.4.1 target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
@@ -52,6 +52,8 @@ maintenance for existing managed storage. Runtime startup does not add the recei
 Revision `v1_4_1_004` registers `pc_access_owner_recovery` for durable Artifact and Candidate ownership intents. Both installed-release source paths and vector profiles include this table. Existing managed databases require explicit maintenance; fresh databases create the registered empty table. Pending intents retain their original deployment, principal and idempotency identity across Server restarts. Earlier revision resources and checksums remain unchanged. Unregistered database layouts are rejected rather than adopted from a table name alone. This registration does not establish installed-release or external-Provider upgrade acceptance.
 
 Revision `v1_4_1_005` adds nullable `pc_atomic_memory_current.description` metadata for text and vector profiles. Existing managed databases require explicit migration; startup does not alter this column. The additive revision leaves historical Artifact bytes unchanged and existing descriptions null until a new write or explicit projection rebuild copies authoritative metadata.
+
+Revision `v1_4_1_006` registers `pc_artifact_source_locators`, an optional relation keyed by the existing Artifact Revision and Source-edge ordinal. Existing managed databases require explicit migration before Server startup. The migration preserves existing lineage rows, exact identities and historical payloads without rewriting them or backfilling locators. Atomic Memory embeddings remain unchanged; no re-embedding is required. See [Source citation locators](../workflows/sources.md) for locator behavior.
 
 An interrupted [portable restore](portable-archive.md) keeps normal startup and workers blocked until its projections
 are complete. Retry `powercontext archive restore <bundle> --yes` with the same validated bundle. Only this explicit
@@ -101,12 +103,13 @@ Sequence `000` identifies a registered historical baseline; upgrade steps start 
 | `v1_4_1_003` | 1.4.1 | 3 | `s1402` | Portable restore receipts and timestamp adaptation |
 | `v1_4_1_004` | 1.4.1 | 4 | `v1_4_1_004` | Durable owner recovery intents |
 | `v1_4_1_005` | 1.4.1 | 5 | `v1_4_1_005` | Nullable Atomic Memory description projection |
+| `v1_4_1_006` | 1.4.1 | 6 | `v1_4_1_006` | Optional Source citation position locators |
 
-Both registered source paths reach `v1_4_1_005`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `v1_4_1_006`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`
@@ -114,7 +117,7 @@ before the existing machine fields. `apply` and `verify` show `migration`. Each 
 contains `name`, `software_version`, `sequence` and the compatible `revision` ID. For example:
 
 ```json
-{"revision":"v1_4_1_005","name":"v1_4_1_005","software_version":"1.4.1","sequence":5}
+{"revision":"v1_4_1_006","name":"v1_4_1_006","software_version":"1.4.1","sequence":6}
 ```
 
 The software version describes the registered database state, not the currently running binary
@@ -128,7 +131,7 @@ existing plans and original backups usable. Partial prototype bundles keep their
 
 For a new Server migration, use the release-based name directly as its Alembic `revision` and
 register its schema, domain steps and recovery checkpoints as usual. `down_revision` must reference
-the actual preceding ID (`v1_4_1_005` when appending directly to the current head), even if that ID has
+the actual preceding ID (`v1_4_1_006` when appending directly to the current head), even if that ID has
 a display alias. The framework follows this registered chain, not lexical name ordering. Already
 registered names and release assignments stay immutable; a version bump must not rename history.
 

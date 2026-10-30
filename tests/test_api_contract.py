@@ -808,7 +808,7 @@ def test_source_reference_keeps_name_as_the_source_type() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     properties = contract["components"]["schemas"]["SourceReference"]["properties"]
 
-    assert set(properties) == {"name", "source_id"}
+    assert set(properties) == {"name", "source_id", "locator"}
 
 
 def test_memory_transport_has_no_legacy_citation_shape() -> None:
@@ -1034,8 +1034,8 @@ def test_base_access_uses_a_dedicated_source_type_reference() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]
 
-    assert set(schemas["SourceReference"]["properties"]) == {"name", "source_id"}
-    assert set(schemas["SourceTypeReference"]["properties"]) == {"source_type", "source_id"}
+    assert set(schemas["SourceReference"]["properties"]) == {"name", "source_id", "locator"}
+    assert set(schemas["SourceTypeReference"]["properties"]) == {"source_type", "source_id", "locator"}
     assert schemas["SourcePage"]["required"] == ["items", "next_cursor"]
     assert schemas["SourcePage"]["properties"]["items"]["items"] == {"$ref": "#/components/schemas/SourceRecord"}
     for schema_name in ("ArtifactCreated", "ArtifactRevision", "ArtifactCollectionItem"):

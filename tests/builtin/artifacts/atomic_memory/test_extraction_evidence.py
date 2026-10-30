@@ -296,3 +296,16 @@ def test_another_projection_keeps_its_keys_but_not_a_repeated_body() -> None:
             "value": {"database": "OceanBase", "shards": 12},
         }
     ]
+
+
+def test_extraction_cites_the_recorded_journal_position() -> None:
+    evidence = asyncio.run(_evidence(_native_source()))
+    assert evidence.source_ref.model_dump(mode="json")["locator"] == {"kind": "sequence", "sequence": 1}
+
+
+def test_extraction_preserves_adapter_reported_text_position() -> None:
+    projection = _text_projection().model_dump(mode="json")
+    locator = {"kind": "line_range", "start_line": 40, "end_line": 55, "heading_path": "部署 / 决策"}
+    projection["value"]["locator"] = locator
+    evidence = asyncio.run(_evidence(_observation((SourceProjectionValue.model_validate(projection),))))
+    assert evidence.source_ref.model_dump(mode="json")["locator"] == locator

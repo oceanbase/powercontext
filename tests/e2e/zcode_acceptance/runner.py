@@ -123,6 +123,8 @@ class RestartableServer:
 
     def start(self) -> None:
         listener = socket.socket()
+        if os.name != "nt":
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind(("127.0.0.1", self.port))
         self.port = listener.getsockname()[1]
         self.server = uvicorn.Server(
@@ -627,7 +629,19 @@ class AcceptanceRun:
                     assert published["scope_id"] == self.scope_id
                     assert {key: published[key] for key in reference} == reference
                     assert published["content"]["text"] == generated["text"]
-                    if {"source_type": "content", "source_id": source["source_id"]} in published["sources"]:
+                    published_source = next(
+                        (
+                            item
+                            for item in published["sources"]
+                            if item["source_type"] == "content" and item["source_id"] == source["source_id"]
+                        ),
+                        None,
+                    )
+                    if published_source:
+                        assert published_source.get("locator") == {
+                            "kind": "sequence",
+                            "sequence": source["position"],
+                        }, "automatic_memory_source_position_mismatch"
                         break
                     generated = None
                 time.sleep(0.1)

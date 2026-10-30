@@ -147,6 +147,9 @@ output_schema:
               source_id:
                 $ref: '#/definitions/Result/properties/source_refs/items/properties/source_id'
                 type: string
+              locator:
+                $ref: '#/definitions/Result/properties/source_refs/items/properties/locator'
+                type: object
           description: Exact Source evidence. Counted with artifact_refs toward a
             combined maximum of 32 references.
         artifact_refs:
@@ -739,6 +742,59 @@ output_schema:
                                   description: Stable Source type.
                                 source_id:
                                   type: string
+                                locator:
+                                  anyOf:
+                                  - oneOf:
+                                    - type: object
+                                      additionalProperties: false
+                                      required:
+                                      - kind
+                                      - sequence
+                                      description: Position of this exact Source in
+                                        its scope journal; zero is distinct from absence.
+                                      properties:
+                                        kind:
+                                          type: string
+                                          enum:
+                                          - sequence
+                                        sequence:
+                                          type: integer
+                                          minimum: 0
+                                    - type: object
+                                      additionalProperties: false
+                                      required:
+                                      - kind
+                                      - start_line
+                                      - end_line
+                                      description: Inclusive one-based lines in adapter-supplied
+                                        text, at most 200 lines. Never a revision
+                                        redirect.
+                                      x-powercontext-source-line-range: true
+                                      properties:
+                                        kind:
+                                          type: string
+                                          enum:
+                                          - line_range
+                                        start_line:
+                                          type: integer
+                                          minimum: 1
+                                        end_line:
+                                          type: integer
+                                          minimum: 1
+                                        heading_path:
+                                          anyOf:
+                                          - type: string
+                                            maxLength: 1024
+                                            description: Optional adapter-supplied
+                                              heading path, bounded in Unicode characters
+                                              rather than UTF-8 bytes.
+                                          - type: 'null'
+                                    discriminator:
+                                      propertyName: kind
+                                      mapping:
+                                        sequence: '#/components/schemas/SourceSequenceLocator'
+                                        line_range: '#/components/schemas/SourceLineRangeLocator'
+                                  - type: 'null'
                         - type: object
                           additionalProperties: false
                           required:
@@ -822,6 +878,59 @@ output_schema:
                                   description: Stable Source type.
                                 source_id:
                                   type: string
+                                locator:
+                                  anyOf:
+                                  - oneOf:
+                                    - type: object
+                                      additionalProperties: false
+                                      required:
+                                      - kind
+                                      - sequence
+                                      description: Position of this exact Source in
+                                        its scope journal; zero is distinct from absence.
+                                      properties:
+                                        kind:
+                                          type: string
+                                          enum:
+                                          - sequence
+                                        sequence:
+                                          type: integer
+                                          minimum: 0
+                                    - type: object
+                                      additionalProperties: false
+                                      required:
+                                      - kind
+                                      - start_line
+                                      - end_line
+                                      description: Inclusive one-based lines in adapter-supplied
+                                        text, at most 200 lines. Never a revision
+                                        redirect.
+                                      x-powercontext-source-line-range: true
+                                      properties:
+                                        kind:
+                                          type: string
+                                          enum:
+                                          - line_range
+                                        start_line:
+                                          type: integer
+                                          minimum: 1
+                                        end_line:
+                                          type: integer
+                                          minimum: 1
+                                        heading_path:
+                                          anyOf:
+                                          - type: string
+                                            maxLength: 1024
+                                            description: Optional adapter-supplied
+                                              heading path, bounded in Unicode characters
+                                              rather than UTF-8 bytes.
+                                          - type: 'null'
+                                    discriminator:
+                                      propertyName: kind
+                                      mapping:
+                                        sequence: '#/components/schemas/SourceSequenceLocator'
+                                        line_range: '#/components/schemas/SourceLineRangeLocator'
+                                  - type: 'null'
                         - type: object
                           additionalProperties: false
                           required:
@@ -899,6 +1008,59 @@ output_schema:
                                   description: Stable Source type.
                                 source_id:
                                   type: string
+                                locator:
+                                  anyOf:
+                                  - oneOf:
+                                    - type: object
+                                      additionalProperties: false
+                                      required:
+                                      - kind
+                                      - sequence
+                                      description: Position of this exact Source in
+                                        its scope journal; zero is distinct from absence.
+                                      properties:
+                                        kind:
+                                          type: string
+                                          enum:
+                                          - sequence
+                                        sequence:
+                                          type: integer
+                                          minimum: 0
+                                    - type: object
+                                      additionalProperties: false
+                                      required:
+                                      - kind
+                                      - start_line
+                                      - end_line
+                                      description: Inclusive one-based lines in adapter-supplied
+                                        text, at most 200 lines. Never a revision
+                                        redirect.
+                                      x-powercontext-source-line-range: true
+                                      properties:
+                                        kind:
+                                          type: string
+                                          enum:
+                                          - line_range
+                                        start_line:
+                                          type: integer
+                                          minimum: 1
+                                        end_line:
+                                          type: integer
+                                          minimum: 1
+                                        heading_path:
+                                          anyOf:
+                                          - type: string
+                                            maxLength: 1024
+                                            description: Optional adapter-supplied
+                                              heading path, bounded in Unicode characters
+                                              rather than UTF-8 bytes.
+                                          - type: 'null'
+                                    discriminator:
+                                      propertyName: kind
+                                      mapping:
+                                        sequence: '#/components/schemas/SourceSequenceLocator'
+                                        line_range: '#/components/schemas/SourceLineRangeLocator'
+                                  - type: 'null'
                         - type: object
                           additionalProperties: false
                           required:
@@ -1100,6 +1262,57 @@ output_schema:
                 description: Stable Source type.
               source_id:
                 type: string
+              locator:
+                anyOf:
+                - oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required:
+                    - kind
+                    - sequence
+                    description: Position of this exact Source in its scope journal;
+                      zero is distinct from absence.
+                    properties:
+                      kind:
+                        type: string
+                        enum:
+                        - sequence
+                      sequence:
+                        type: integer
+                        minimum: 0
+                  - type: object
+                    additionalProperties: false
+                    required:
+                    - kind
+                    - start_line
+                    - end_line
+                    description: Inclusive one-based lines in adapter-supplied text,
+                      at most 200 lines. Never a revision redirect.
+                    x-powercontext-source-line-range: true
+                    properties:
+                      kind:
+                        type: string
+                        enum:
+                        - line_range
+                      start_line:
+                        type: integer
+                        minimum: 1
+                      end_line:
+                        type: integer
+                        minimum: 1
+                      heading_path:
+                        anyOf:
+                        - type: string
+                          maxLength: 1024
+                          description: Optional adapter-supplied heading path, bounded
+                            in Unicode characters rather than UTF-8 bytes.
+                        - type: 'null'
+                  discriminator:
+                    propertyName: kind
+                    mapping:
+                      sequence: '#/components/schemas/SourceSequenceLocator'
+                      line_range: '#/components/schemas/SourceLineRangeLocator'
+                - type: 'null'
         artifact_refs:
           type: array
           maxItems: 32

@@ -40,7 +40,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, RuntimeConfig, open_builtin_contexts
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.scope import ScopeDraft
-from powercontext.sources import SourceRef
+from powercontext.sources import SourceRef, SourceSequenceLocator
 from tests.e2e.dream_support import memory_source_text
 
 SCOPE = "project"
@@ -203,7 +203,9 @@ def test_public_flush_derives_merge_creation_from_model_owned_content(tmp_path: 
             assert merged.ref.revision == 1
             assert len(merged.artifact.lineage.artifacts) == len(originals)
             assert all(original.ref in merged.artifact.lineage.artifacts for original in originals)
-            assert merged.artifact.lineage.sources == (receipt.source_ref,)
+            assert merged.artifact.lineage.sources == (
+                receipt.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=receipt.sequence)}),
+            )
             for original in originals:
                 current = await memory.get(original.ref.artifact_id)
                 assert current.state.state == "merged"
@@ -246,7 +248,11 @@ def test_repeated_source_evolution_keeps_flush_bounded_and_exact_history_readabl
                 assert record.ref.revision == position
                 assert record.artifact.content.text == fact
                 assert record.artifact.lineage.sources == (
-                    SourceRef(source_type="content", source_id=source.source_id),
+                    SourceRef(
+                        source_type="content",
+                        source_id=source.source_id,
+                        locator=SourceSequenceLocator(sequence=source.position),
+                    ),
                 )
                 if originals:
                     assert record.ref.artifact_id == originals[0].ref.artifact_id
@@ -270,7 +276,11 @@ def test_repeated_source_evolution_keeps_flush_bounded_and_exact_history_readabl
             for request in reconciler.requests:
                 (new_source,) = tuple(item for item in request.evidence if isinstance(item, AtomicMemoryEvidence))
                 source, raw = sources[new_source.journal_position - 1]
-                assert new_source.source_ref == SourceRef(source_type="content", source_id=source.source_id)
+                assert new_source.source_ref == SourceRef(
+                    source_type="content",
+                    source_id=source.source_id,
+                    locator=SourceSequenceLocator(sequence=source.position),
+                )
                 assert memory_source_text(new_source) == raw
                 assert request.proposal.evidence_ids == (new_source.evidence_id,)
                 assert tuple(
@@ -333,11 +343,21 @@ def test_batched_reconciliation_keeps_published_evidence_fixed_when_working_cont
                     assert evidence.content.text == original.artifact.content.text
                     assert evidence.content.text != continued.proposal.text
                 else:
-                    assert evidence.source_ref == SourceRef(source_type="content", source_id=source.source_id)
+                    assert evidence.source_ref == SourceRef(
+                        source_type="content",
+                        source_id=source.source_id,
+                        locator=SourceSequenceLocator(sequence=source.position),
+                    )
                     assert memory_source_text(evidence) == latest
             (merged,) = (await memory.list()).items
             assert merged.artifact.content.text == latest
-            assert merged.artifact.lineage.sources == (SourceRef(source_type="content", source_id=source.source_id),)
+            assert merged.artifact.lineage.sources == (
+                SourceRef(
+                    source_type="content",
+                    source_id=source.source_id,
+                    locator=SourceSequenceLocator(sequence=source.position),
+                ),
+            )
             assert len(merged.artifact.lineage.artifacts) == len(published)
             assert all(record.ref in merged.artifact.lineage.artifacts for record in published.values())
             for original in originals:
@@ -388,7 +408,13 @@ def test_batched_create_can_cite_existing_artifacts_without_consuming_their_iden
                 record for record in (await memory.list()).items if record.artifact.content.text == latest
             )
             assert created.ref.artifact_id not in {original.ref.artifact_id for original in originals}
-            assert created.artifact.lineage.sources == (SourceRef(source_type="content", source_id=source.source_id),)
+            assert created.artifact.lineage.sources == (
+                SourceRef(
+                    source_type="content",
+                    source_id=source.source_id,
+                    locator=SourceSequenceLocator(sequence=source.position),
+                ),
+            )
             assert len(created.artifact.lineage.artifacts) == len(originals)
             for original in originals:
                 assert original.ref in created.artifact.lineage.artifacts
@@ -420,12 +446,20 @@ def test_source_flush_automatically_merges_existing_memories_and_preserves_histo
                 assert flush.current_cursor == position
                 original = next(item for item in (await memory.list()).items if item.artifact.content.text == text)
                 assert original.state.state == "active"
-                assert original.artifact.lineage.sources == (SourceRef(source_type="content", source_id=source_id),)
+                assert original.artifact.lineage.sources == (
+                    SourceRef(
+                        source_type="content", source_id=source_id, locator=SourceSequenceLocator(sequence=position)
+                    ),
+                )
                 originals.append(original)
             assert len((await memory.list()).items) == 2
 
             source = await contexts.records.capture_source(SCOPE, "content", "consolidate-rules", CONSOLIDATION, {})
-            source_ref = SourceRef(source_type="content", source_id=source.source_id)
+            source_ref = SourceRef(
+                source_type="content",
+                source_id=source.source_id,
+                locator=SourceSequenceLocator(sequence=source.position),
+            )
             result = await context.triggers.flush(limit=1)
             assert result.previous_cursor == 2
             assert result.current_cursor == result.high_watermark == source.position == 3
@@ -541,7 +575,11 @@ def test_failed_merge_projection_rolls_back_entire_source_window_and_recomputes(
             assert retry.previous_cursor == 2 and retry.current_cursor == 3
             (result,) = (await memory.list()).items
             assert result.artifact.content.text == POLICY
-            assert result.artifact.lineage.sources == (SourceRef(source_type="content", source_id="consolidate-rules"),)
+            assert result.artifact.lineage.sources == (
+                SourceRef(
+                    source_type="content", source_id="consolidate-rules", locator=SourceSequenceLocator(sequence=3)
+                ),
+            )
             for original in originals:
                 frozen = await memory.get(original.ref.artifact_id)
                 assert frozen.state.merged_into_id == result.ref.artifact_id
