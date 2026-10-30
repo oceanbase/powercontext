@@ -23,8 +23,9 @@ pub struct BoundedRetry<T> {
     max_attempts: NonZeroU32,
 }
 
-/// 重试的结果：`Ok` 携带原始 `SendOutcome`；
-/// `Err` 表示全部尝试都确定性未送达。
+/// 重试的结果：`Done` 携带原始 `SendOutcome`；
+/// `AllNotSent` 表示全部尝试都确定性未送达。
+#[derive(Debug)]
 pub enum RetryOutcome {
     Done(SendOutcome),
     AllNotSent { attempts: u32 },

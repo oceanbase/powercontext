@@ -76,16 +76,24 @@ impl Transport for ReqwestTransport {
             }
             let resp = match req.body(send.payload.to_vec()).send().await {
                 Err(e) => {
+                    // NotSent 仅限于「可证明发生在传输之前」的失败：
+                    // - is_connect()：TCP/TLS 握手未完成，body 必然未发出；
+                    // - is_builder()：请求构造阶段，早于一切网络动作。
+                    // 其余（is_request/is_timeout/is_body/is_decode）都无法排除
+                    // body 已完整送达上游的可能——reqwest 的 is_request() 尤其
+                    // 涵盖「对端读完全部 body 后关闭/超时」，按未送达重试会
+                    // 重复计费。一律归 Indeterminate，不重试。
                     return if e.is_connect() {
                         SendOutcome::NotSent(NotSentReason::ConnectRefused)
-                    } else if e.is_builder() || e.is_request() {
+                    } else if e.is_builder() {
                         SendOutcome::NotSent(NotSentReason::RejectedLocally)
                     } else if e.is_timeout() {
-                        // 请求可能已被上游接收：不能当作未送达重试。
-                        SendOutcome::Indeterminate(SendIndeterminateReason::TimeoutAwaitingResponse)
+                        SendOutcome::Indeterminate(
+                            SendIndeterminateReason::TimeoutAwaitingResponse,
+                        )
                     } else {
                         SendOutcome::Indeterminate(SendIndeterminateReason::LostAfterHandoff)
-                    }
+                    };
                 }
                 Ok(resp) => resp,
             };
