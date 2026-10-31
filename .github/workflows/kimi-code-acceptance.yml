@@ -1,17 +1,20 @@
 name: Kimi Code acceptance
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches: [master]
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: kimi-code-acceptance-${{ github.event.pull_request.number || github.ref }}
+  group: kimi-code-acceptance-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -21,11 +24,14 @@ env:
 
 jobs:
   changes:
+    if: ${{ inputs.suites == '' }}
     uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: kimi-code-acceptance.yml
 
   controlled-cli:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').kimi) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').kimi) }}
     name: controlled-cli (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15

@@ -499,6 +499,319 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
             }
         },
+        "/v1/admin/artifact-plugins": {
+            "get": {
+                "tags": ["artifact-plugins"],
+                "summary": "List Artifact plugin registrations",
+                "operationId": "list_artifact_plugins",
+                "responses": {
+                    "200": {
+                        "description": "Durable registration states.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginPage"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+            }
+        },
+        "/v1/admin/artifact-plugins/{binding_name}": {
+            "get": {
+                "tags": ["artifact-plugins"],
+                "summary": "Get an Artifact plugin registration",
+                "operationId": "get_artifact_plugin",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "binding_name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Durable registration state without plugin configuration secrets.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/admin/artifact-plugins/enable-all": {
+            "post": {
+                "tags": ["artifact-plugins"],
+                "summary": "Enable the currently disabled Artifact plugins",
+                "description": "Captures "
+                "registrations and "
+                "generations at "
+                "request start, then "
+                "accepts each "
+                "eligible enable "
+                "independently. "
+                "Enabled, unloaded, "
+                "failed and "
+                "transitioning "
+                "plugins are skipped. "
+                "Concurrent changes "
+                "and validation "
+                "failures are "
+                "reported per plugin "
+                "without rolling back "
+                "successes. Does not "
+                "discover or reload "
+                "plugins; poll each "
+                "status URL for the "
+                "asynchronous "
+                "outcome.",
+                "operationId": "enable_all_artifact_plugins",
+                "responses": {
+                    "200": {
+                        "description": "Per-plugin acceptance, skip or failure results.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/EnableAllArtifactPluginsResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+            }
+        },
+        "/v1/admin/artifact-plugins/{binding_name}/reload": {
+            "post": {
+                "tags": ["artifact-plugins"],
+                "summary": "Load or update a Worker-loaded Artifact plugin",
+                "description": "Reads the "
+                "binding's "
+                "direct "
+                "child "
+                "entry "
+                "under "
+                "POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR "
+                "and fixes "
+                "its "
+                "resolved "
+                "immutable "
+                "directory. "
+                "The "
+                "manifest "
+                "binding_name "
+                "must "
+                "match the "
+                "directory "
+                "entry and "
+                "request "
+                "path. "
+                "Saves "
+                "validated "
+                "configuration "
+                "and "
+                "declarations "
+                "without "
+                "creating "
+                "a "
+                "pipeline. "
+                "Existing "
+                "enabled "
+                "or "
+                "disabled "
+                "plugins "
+                "keep "
+                "their "
+                "state; "
+                "initial, "
+                "unloaded "
+                "or failed "
+                "registrations "
+                "become "
+                "disabled. "
+                "This "
+                "initial "
+                "path "
+                "supports "
+                "the "
+                "global "
+                "SQLite "
+                "Supervisor. "
+                "Plugin "
+                "code is "
+                "loaded "
+                "only in "
+                "child "
+                "processes.",
+                "operationId": "reload_artifact_plugin",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "binding_name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ReloadArtifactPluginRequest"}}
+                    },
+                },
+                "responses": {
+                    "202": {
+                        "description": "Definition saved; poll its registration state until transition completes.",
+                        "headers": {
+                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
+                        },
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
+                        },
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/admin/artifact-plugins/{binding_name}/enable": {
+            "post": {
+                "tags": ["artifact-plugins"],
+                "summary": "Enable an Artifact plugin",
+                "operationId": "enable_artifact_plugin",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "binding_name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/ChangeArtifactPluginStateRequest"}
+                        }
+                    },
+                },
+                "responses": {
+                    "202": {
+                        "description": "Target saved; poll its registration state until transition completes.",
+                        "headers": {
+                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
+                        },
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
+                        },
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/admin/artifact-plugins/{binding_name}/disable": {
+            "post": {
+                "tags": ["artifact-plugins"],
+                "summary": "Disable an Artifact plugin",
+                "operationId": "disable_artifact_plugin",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "binding_name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/ChangeArtifactPluginStateRequest"}
+                        }
+                    },
+                },
+                "responses": {
+                    "202": {
+                        "description": "Target saved; poll its registration state until transition completes.",
+                        "headers": {
+                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
+                        },
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
+                        },
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/admin/artifact-plugins/{binding_name}/unload": {
+            "post": {
+                "tags": ["artifact-plugins"],
+                "summary": "Unload an Artifact plugin",
+                "operationId": "unload_artifact_plugin",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "binding_name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/ChangeArtifactPluginStateRequest"}
+                        }
+                    },
+                },
+                "responses": {
+                    "202": {
+                        "description": "Target saved; poll its registration state until transition completes.",
+                        "headers": {
+                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
+                        },
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
+                        },
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
         "/v1/capabilities": {
             "get": {
                 "tags": ["capabilities"],
@@ -6845,6 +7158,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "family": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "schema_version": {
+                        "type": "string",
+                        "description": "Persisted schema version for a custom Artifact family.",
+                        "nullable": True,
+                    },
                     "revision": {"type": "integer", "minimum": 1.0},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
                     "artifacts": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
@@ -6913,6 +7231,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "family": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "schema_version": {
+                        "type": "string",
+                        "description": "Persisted schema version for a custom Artifact family.",
+                        "nullable": True,
+                    },
                     "revision": {"type": "integer", "minimum": 1.0},
                     "content": {"additionalProperties": True, "type": "object"},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
@@ -7645,8 +7968,106 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["operation", "output_kind", "effect"],
             },
+            "CustomArtifactFamilySchema": {
+                "properties": {
+                    "family": {"type": "string"},
+                    "schema_version": {"type": "string"},
+                    "content_schema": {"additionalProperties": True, "type": "object"},
+                    "search_fields": {
+                        "items": {"type": "string"},
+                        "type": "array",
+                        "description": "Legacy persisted text fields; new plugins use search.",
+                    },
+                    "search": {
+                        "additionalProperties": True,
+                        "type": "object",
+                        "description": "Persistent declarative indexes and supported search modes.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "schema_version", "content_schema", "search_fields"],
+            },
+            "ReloadArtifactPluginRequest": {
+                "properties": {"expected_generation": {"type": "integer", "minimum": 0.0}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["expected_generation"],
+            },
+            "ChangeArtifactPluginStateRequest": {
+                "properties": {"expected_generation": {"type": "integer", "minimum": 1.0}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["expected_generation"],
+            },
+            "ArtifactPluginState": {
+                "properties": {
+                    "binding_name": {"type": "string"},
+                    "plugin_id": {"type": "string"},
+                    "family": {"type": "string"},
+                    "binding_generation": {"type": "integer", "minimum": 1.0},
+                    "desired_state": {"type": "string", "enum": ["enabled", "disabled", "unloaded"]},
+                    "phase": {
+                        "type": "string",
+                        "enum": ["activating", "enabled", "stopping", "disabled", "unloading", "unloaded", "failed"],
+                    },
+                    "last_error": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "binding_name",
+                    "plugin_id",
+                    "family",
+                    "binding_generation",
+                    "desired_state",
+                    "phase",
+                    "last_error",
+                ],
+            },
+            "ArtifactPluginPage": {
+                "properties": {
+                    "items": {"items": {"$ref": "#/components/schemas/ArtifactPluginState"}, "type": "array"}
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items"],
+            },
+            "EnableArtifactPluginResult": {
+                "properties": {
+                    "binding_name": {"type": "string"},
+                    "outcome": {"type": "string", "enum": ["accepted", "skipped", "failed"]},
+                    "status_url": {
+                        "type": "string",
+                        "description": "Registration status URL for the asynchronous result.",
+                    },
+                    "state": {"$ref": "#/components/schemas/ArtifactPluginState"},
+                    "error": {
+                        "type": "string",
+                        "enum": ["conflict", "invalid_plugin", "unavailable", None],
+                        "description": "Safe per-plugin failure code; null for accepted or skipped entries.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding_name", "outcome", "status_url", "state", "error"],
+            },
+            "EnableAllArtifactPluginsResponse": {
+                "properties": {
+                    "items": {"items": {"$ref": "#/components/schemas/EnableArtifactPluginResult"}, "type": "array"}
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items"],
+            },
             "Capabilities": {
                 "properties": {
+                    "custom_artifact_schemas": {
+                        "items": {"$ref": "#/components/schemas/CustomArtifactFamilySchema"},
+                        "type": "array",
+                        "default": [],
+                    },
                     "prompts": {
                         "additionalProperties": {"$ref": "#/components/schemas/PromptCapability"},
                         "type": "object",
@@ -11722,9 +12143,51 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["method"],
                 "x-powercontext-artifact-search-validation": "fusion",
             },
+            "EmbeddingProfile": {
+                "properties": {
+                    "profile_id": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+                    "model": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+                    "dimension": {"type": "integer", "minimum": 1.0},
+                    "distance": {"type": "string", "enum": ["l2"], "default": "l2"},
+                    "normalization": {"type": "string", "enum": ["none", "unit"], "default": "unit"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["profile_id", "model", "dimension"],
+                "description": "Existing embedding space identity "
+                "shared with Memory; no additional "
+                "modality or version fields.",
+            },
             "SearchArtifactsRequest": {
                 "properties": {
                     "query": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "query_vector": {
+                        "properties": {
+                            "profile": {"$ref": "#/components/schemas/EmbeddingProfile"},
+                            "vector": {"items": {"type": "number"}, "type": "array", "minItems": 1},
+                        },
+                        "additionalProperties": False,
+                        "type": "object",
+                        "required": ["profile", "vector"],
+                    },
+                    "indexes": {
+                        "properties": {
+                            "text": {
+                                "items": {"type": "string", "minLength": 1},
+                                "type": "array",
+                                "minItems": 1,
+                                "uniqueItems": True,
+                            },
+                            "vector": {
+                                "items": {"type": "string", "minLength": 1},
+                                "type": "array",
+                                "minItems": 1,
+                                "uniqueItems": True,
+                            },
+                        },
+                        "additionalProperties": False,
+                        "type": "object",
+                    },
                     "limit": {"type": "integer", "maximum": 200.0, "minimum": 1.0, "default": 10},
                     "mode": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
                     "filters": {"additionalProperties": True, "type": "object"},
@@ -11736,7 +12199,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["query"],
                 "x-powercontext-artifact-search-validation": "request",
             },
             "ArtifactChannelScore": {
@@ -12736,19 +13198,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "topic-memory",
                 ],
             },
-            "ArtifactReadFamily": {
-                "type": "string",
-                "enum": [
-                    "memory",
-                    "atomic-memory",
-                    "experience",
-                    "skill",
-                    "handoff",
-                    "profile",
-                    "prompt",
-                    "topic-memory",
-                ],
-            },
+            "ArtifactReadFamily": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[a-z][a-z0-9-]*$"},
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
             "CandidateFamily": {
                 "type": "string",

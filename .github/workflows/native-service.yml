@@ -1,27 +1,32 @@
 name: Native personal service
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: native-service-${{ github.event.pull_request.number || github.ref }}
+  group: native-service-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
   changes:
+    if: ${{ inputs.suites == '' }}
     uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: native-service.yml
 
   linux-systemd-user:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').native) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').native) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -84,7 +89,7 @@ jobs:
 
   macos-launchagent:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').native) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').native) }}
     runs-on: macos-latest
     timeout-minutes: 30
     env:
@@ -140,7 +145,7 @@ jobs:
 
   windows-task-scheduler:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').native) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').native) }}
     runs-on: windows-latest
     timeout-minutes: 30
     env:

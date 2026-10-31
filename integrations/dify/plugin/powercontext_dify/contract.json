@@ -912,16 +912,9 @@
       },
       "ArtifactReadFamily": {
         "type": "string",
-        "enum": [
-          "memory",
-          "atomic-memory",
-          "experience",
-          "skill",
-          "handoff",
-          "profile",
-          "prompt",
-          "topic-memory"
-        ]
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9-]*$"
       },
       "ArtifactReference": {
         "type": "object",
@@ -977,6 +970,17 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[\\x21-\\x7E]+$"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Persisted schema version for a custom Artifact family."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "revision": {
             "type": "integer",

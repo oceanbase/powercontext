@@ -36,6 +36,7 @@ def previous_bundle(directory, embedding, *, include_portable=False, include_own
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     later_revisions = [
+        ("v1_5_0_001", "artifact_storage", None),
         ("v1_4_1_006", "source_write_plugins", "pc_source_write_plugins"),
         ("v1_4_1_005", "atomic_memory_description", None),
     ]
@@ -53,6 +54,8 @@ def previous_bundle(directory, embedding, *, include_portable=False, include_own
         manifest["mysql_state_layouts"].remove(f"schemas/mysql-{later}.json")
         if table is not None:
             manifest["affected_objects"].remove(table)
+    manifest["domain_steps"] = [step for step in manifest["domain_steps"] if step["revision"] != "v1_5_0_001"]
+    (directory / "artifact_storage_readiness.py").unlink()
     if not include_portable:
         removed = manifest["revision_resources"].pop("s1402")
         for resource in (
@@ -110,8 +113,8 @@ def test_registered_s1401_upgrade_preserves_completed_evidence_and_matches_fresh
     upgraded = SQLiteMigrationRunner(database, bundle, configuration=config)
     plan = upgraded.plan()
     assert plan.source_revision == "s1401"
-    assert plan.revisions == ("s1402", "v1_4_1_004", "v1_4_1_005", "v1_4_1_006")
-    assert apply(upgraded).revision == "v1_4_1_006"
+    assert plan.revisions == ("s1402", "v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001")
+    assert apply(upgraded).revision == "v1_5_0_001"
     assert upgraded.verify().state == "ready"
     assert not apply(upgraded).changed
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", bundle, configuration=config)
@@ -170,9 +173,11 @@ def test_source_write_plugin_upgrade_preserves_data_and_registration(tmp_path, v
     bundle = server_bundle(embedding_profile=embedding)
     upgraded = SQLiteMigrationRunner(database, bundle, configuration=config)
     assert upgraded.plan().revisions == (
-        ("v1_4_1_005", "v1_4_1_006") if include_owner else ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006")
+        ("v1_4_1_005", "v1_4_1_006", "v1_5_0_001")
+        if include_owner
+        else ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001")
     )
-    assert apply(upgraded).revision == "v1_4_1_006"
+    assert apply(upgraded).revision == "v1_5_0_001"
     definition = b'{"configuration":{"id":"tickets","entry":"tickets"}}'
     with closing(sqlite3.connect(database)) as connection, connection:
         assert connection.execute("SELECT title FROM pc_scopes").fetchall() == [("preserved",)]

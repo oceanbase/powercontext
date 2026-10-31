@@ -19,7 +19,7 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.artifacts.search import analyze_text
+from powercontext.builtin.artifacts.search import TEXT_ANALYZER_VERSION, analyze_text
 from powercontext.builtin.persistence.tables import (
     LEXICAL_PROJECTION_VERSIONS_TABLE,
     TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
@@ -27,7 +27,7 @@ from powercontext.builtin.persistence.tables import (
 )
 
 # Bump when document segmentation or token encoding changes; query stopwords do not affect projections.
-LEXICAL_ANALYZER_VERSION = "jieba-0.42.1-words-v1"
+LEXICAL_ANALYZER_VERSION = TEXT_ANALYZER_VERSION
 
 
 async def refresh_lexical_projections(connection: AsyncConnection, atomic_table: Table | None) -> None:

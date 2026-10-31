@@ -1404,6 +1404,7 @@ class AccessControlService:
         expected_version: int,
         idempotency_key: str,
         context: AccessAuditContext,
+        prepare_resource: Callable[[ResourceRef], Awaitable[None]] | None = None,
     ) -> AccessBinding:
         _validate_idempotency_key(idempotency_key)
         actor = _required_principal(principal)
@@ -1414,6 +1415,8 @@ class AccessControlService:
             if decision.allowed:
                 raise AccessBindingNotFoundError
             raise AccessDeniedError
+        if prepare_resource is not None:
+            await prepare_resource(binding.resource)
         await self.require_any(
             actor,
             _administrative_checks(binding.resource, deployment_id=self.deployment_id),
@@ -1444,6 +1447,7 @@ class AccessControlService:
         request: ReplaceBinding,
         *,
         context: AccessAuditContext,
+        prepare_resource: Callable[[ResourceRef], Awaitable[None]] | None = None,
     ) -> BindingReplacement:
         actor = _required_principal(principal)
         current = await _access_call(self._relationship_reader().get_binding(request.binding_id))
@@ -1457,6 +1461,8 @@ class AccessControlService:
             if decision.allowed:
                 raise AccessBindingNotFoundError
             raise AccessDeniedError
+        if prepare_resource is not None:
+            await prepare_resource(current.resource)
         validate_binding_subject(current.resource, current.role, request.subject.type)
         if isinstance(request.subject, GroupRef) and not self.provider_capabilities.group_subjects:
             raise AccessInvalidRequestError("group-subjects-unavailable")

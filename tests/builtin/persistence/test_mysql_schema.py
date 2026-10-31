@@ -195,7 +195,9 @@ def test_documented_obloader_restore_layers_are_parent_first() -> None:
     assert len(set(restore_plans)) == 1
 
     restore_layers = restore_plans[0]
-    _assert_restore_layers_are_parent_first(restore_layers, BUILTIN_TABLES)
+    _assert_restore_layers_are_parent_first(
+        restore_layers, tuple(table for table in BUILTIN_TABLES if table.name != "pc_artifact_vectors")
+    )
 
 
 def test_every_mysql_utf8mb4_key_stays_below_the_innodb_limit() -> None:

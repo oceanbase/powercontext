@@ -1,19 +1,20 @@
 name: ZCode acceptance
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches: [master]
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
   workflow_dispatch:
-  schedule:
-    - cron: '23 3 * * 0'
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: zcode-acceptance-${{ github.event.pull_request.number || github.ref }}
+  group: zcode-acceptance-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -25,11 +26,14 @@ env:
 
 jobs:
   changes:
+    if: ${{ inputs.suites == '' }}
     uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: zcode-acceptance.yml
 
   controlled-cli:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').zcode) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').zcode) }}
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:

@@ -27,9 +27,9 @@ import rfc8785
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.records import ArtifactReadFamily, BaseAccessError, InvalidBaseAccessRequestError
+from powercontext.builtin.records import BaseAccessError, BaseArtifactFamily, InvalidBaseAccessRequestError
 
-TaggableArtifactFamily = ArtifactReadFamily
+TaggableArtifactFamily = BaseArtifactFamily
 TagMatch = Literal["all", "any"]
 TagTargetType = Literal["artifact"]
 
