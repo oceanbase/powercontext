@@ -1,0 +1,2 @@
+<input type="hidden" name="processing_period" value="{{ processing_period }}">
+{% if processing_period == 'custom' %}<input type="hidden" name="processing_start" value="{{ processing_start }}"><input type="hidden" name="processing_end" value="{{ processing_end }}">{% endif %}

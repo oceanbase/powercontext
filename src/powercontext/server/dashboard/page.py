@@ -23,12 +23,19 @@ from powercontext.server.dashboard.content import (
     RECORDS,
     load_content,
     load_note_history,
+    note_sources,
     present_search,
     validate_note_selection,
 )
 from powercontext.server.dashboard.errors import ReadError
 from powercontext.server.dashboard.pagination import PAGE_SIZE, cursor_links
-from powercontext.server.dashboard.presenters import memory_view, set_scope, usage_view
+from powercontext.server.dashboard.presenters import (
+    artifact_destination,
+    memory_view,
+    processing_summary,
+    set_scope,
+    usage_view,
+)
 
 
 @asynccontextmanager
@@ -127,7 +134,50 @@ async def _load_usage(snapshot, ctx):
             set_scope(ctx, await snapshot.scope())
 
 
-async def _select_note(snapshot, rows, ctx):
+async def _load_activity(snapshot, ctx, execution):
+    try:
+        values = await snapshot.activity(context=execution)
+        latest_sources = {}
+        for value in values:
+            latest_sources.setdefault(value["source_id"], value)
+        ctx["home_activity"] = [
+            {
+                **value,
+                "state": value["label"],
+                "subtitle": ctx["t"]["processing_batch_notice"].format(count=value["batch_size"])
+                if value["batch_size"] > 1
+                else "",
+                "url": ctx["link"]("processing", source_id=value["source_id"], record_type="sources"),
+            }
+            for item in list(latest_sources.values())[:3]
+            for value in [processing_summary(ctx, item)]
+        ]
+    except Exception as error:
+        ctx["errors"]["activity"] = ReadError.from_exception(error)
+    try:
+        ctx["home_changes"] = [
+            {
+                **value,
+                "url": None if value.get("unreadable") else artifact_destination(ctx, value),
+                "family_label": ctx["t"].get(
+                    {"atomic-memory": "notes", "topic-memory": "topic_memory"}.get(value["family"], value["family"]),
+                    value["family"],
+                ),
+            }
+            for value in await snapshot.recent_changes(limit=3, context=execution)
+        ]
+    except Exception as error:
+        ctx["errors"]["changes"] = ReadError.from_exception(error)
+
+
+async def _load_inventory(snapshot, ctx):
+    try:
+        ctx["inventory"] = (await snapshot.inventory()).model_dump(mode="json")
+    except Exception as error:
+        ctx["errors"]["inventory"] = ReadError.from_exception(error)
+
+
+async def _select_note(snapshot, rows, ctx, execution):
     selected = ctx.get("note_selection") or next(iter(ctx["data"]["notes"]), None)
     if selected is not None:
         row = next(
@@ -148,6 +198,29 @@ async def _select_note(snapshot, rows, ctx):
         }
         if "matched_by" in selected:
             ctx["selected_note"].update(matched_by=selected["matched_by"], score=selected["score"])
+        try:
+            from powercontext.artifacts import ArtifactRef
+
+            ctx["note_processing"] = await snapshot.memory_processing(
+                artifact=ArtifactRef(
+                    family="atomic-memory", artifact_id=selected["artifact_id"], revision=selected["revision"]
+                ),
+                limit=3,
+                context=execution,
+            )
+        except Exception as error:
+            ctx["errors"]["note_processing"] = ReadError.from_exception(error)
+        try:
+            from powercontext.artifacts import ArtifactRef
+
+            ctx["note_usage"] = await snapshot.artifact_usage(
+                ArtifactRef(family="atomic-memory", artifact_id=selected["artifact_id"], revision=selected["revision"]),
+                period=ctx["period"],
+                context=execution,
+            )
+        except Exception as error:
+            ctx["errors"]["note_usage"] = ReadError.from_exception(error)
+    note_sources(ctx)
 
 
 async def _load_content(snapshot, request, ctx, execution):
@@ -158,6 +231,8 @@ async def _load_content(snapshot, request, ctx, execution):
     try:
         rows, notes, cursor, descriptor = await snapshot.content(
             state=ctx["note_state"],
+            sort_by=ctx["note_sort"] if not home and not searching else "identity",
+            period=ctx["period"],
             limit=3 if home else PAGE_SIZE,
             cursor=None if home else request.query_params.get("notes_cursor"),
             selected=selection,
@@ -191,7 +266,7 @@ async def _load_content(snapshot, request, ctx, execution):
         return
     if not searching:
         ctx["notes_pager"] = cursor_links(request, ctx, "notes", cursor)
-    await _select_note(snapshot, rows, ctx)
+    await _select_note(snapshot, rows, ctx, execution)
 
 
 async def _resolve_default(api, request, ctx):
@@ -255,17 +330,62 @@ async def load_builtin_page(api, request, ctx) -> bool:  # noqa: C901 - Keep the
     if default_scope and not await _resolve_default(api, request, ctx):
         return True
     if ctx["page"] not in {"home", "notes", "usage"}:
+        if ctx["page"] == "processing":
+            from powercontext.server.dashboard.processing import load_processing
+
+            await load_processing(api, request, ctx)
         async with _snapshot(runtime, request, ctx, default_scope=default_scope) as (snapshot, _execution):
             if not ctx["record_only"]:
                 set_scope(ctx, await snapshot.scope())
+            if ctx["page"] == "processing" and ctx.get("processing_recent_sources"):
+                try:
+                    values = await snapshot.activity(
+                        sources=[item["source_id"] for item in ctx["processing_recent_sources"]], context=_execution
+                    )
+                    ctx["processing_summaries"] = {item["source_id"]: processing_summary(ctx, item) for item in values}
+                except Exception as error:
+                    ctx["errors"]["processing_summaries"] = ReadError.from_exception(error)
+            if ctx["page"] == "processing" and ctx["processing_kind"] == "sources" and not ctx["processing_source"]:
+                try:
+                    values = await snapshot.activity(
+                        sources=[item["source_id"] for item in ctx["processing_items"]], context=_execution
+                    )
+                    ctx["processing_summaries"] = {item["source_id"]: processing_summary(ctx, item) for item in values}
+                except Exception as error:
+                    ctx["errors"]["processing_summaries"] = ReadError.from_exception(error)
+            if ctx["page"] == "processing" and ctx["processing_source"]:
+                try:
+                    ctx["source_artifacts"] = await snapshot.source_artifacts(ctx["processing_source"]["source_id"])
+                except Exception as error:
+                    ctx["errors"]["source_artifacts"] = ReadError.from_exception(error)
         # Each detail, history and mutation keeps its own current authorization.
         # Finish the metadata snapshot before a transport adapter can make reads.
+        if ctx["page"] == "processing":
+            if ctx["processing_source"]:
+                from powercontext.server.dashboard.processing import load_memory_previews
+
+                await load_memory_previews(api, ctx)
+            return True
         if ctx["page"] == "review":
             from powercontext.server.dashboard.review import load_review
 
             await load_review(api, request, ctx)
         else:
             await load_content(api, request, ctx)
+            if ctx["page"] == "handoff-detail" and ctx["data"]["handoff"]:
+                from powercontext.artifacts import ArtifactRef
+
+                record = ctx["data"]["handoff"]
+                try:
+                    ctx["work_followup"] = await api.project(
+                        ctx["scope"],
+                        "work_followup",
+                        artifact=ArtifactRef(
+                            family="handoff", artifact_id=record["artifact_id"], revision=record["revision"]
+                        ),
+                    )
+                except ReadError as error:
+                    ctx["errors"]["work_followup"] = error
         return True
     if ctx["page"] == "notes" and ctx["search_query"]:
         await _search_notes(api, request, ctx, default_scope=default_scope)
@@ -276,6 +396,20 @@ async def load_builtin_page(api, request, ctx) -> bool:  # noqa: C901 - Keep the
             await load_note_history(api, request, ctx, snapshot=snapshot)
         if ctx["page"] in {"home", "usage"}:
             await _load_usage(snapshot, ctx)
+        if ctx["page"] == "home":
+            await _load_inventory(snapshot, ctx)
+            await _load_activity(snapshot, ctx, execution)
+            try:
+                records = await snapshot.context_usage(
+                    period=ctx["period"], limit=3, record_kind="preparation", context=execution
+                )
+                ctx["home_usage_records"] = records["items"]
+            except Exception as error:
+                ctx["errors"]["home_usage_records"] = ReadError.from_exception(error)
+        if ctx["page"] == "usage" and ctx["usage_tab"] == "records":
+            from powercontext.server.dashboard.usage import load_usage_records
+
+            await load_usage_records(snapshot, request, ctx, execution)
         if ctx["errors"] and not ctx["scope_descriptor"] and not ctx["record_only"]:
             raise next(iter(ctx["errors"].values()))
     return True

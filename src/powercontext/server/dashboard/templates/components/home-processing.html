@@ -1,0 +1,11 @@
+<div class="home-period-summary" id="home-processing-summary">
+  {% if errors.get('processing_overview') %}{{ read_error(errors.processing_overview,t.processing) }}
+  {% elif processing_overview %}{% set o = processing_overview %}
+    {% if o.attempts %}<div class="home-metric-grid home-processing-metrics">
+      {% for name,label,value in [('processed','processing_overview_step_processed',o.inputs_completed),('changes','processing_overview_step_memories',o.created + o.updated),('failed','home_processing_failed',o.inputs_failed),('unconfirmed','home_processing_unconfirmed',o.inputs_pending)] %}
+      <div class="home-metric-cell"><span>{{ t[label] }}</span><strong class="home-metric-value" data-summary="{{ name }}">{{ value }}</strong><small class="home-metric-detail">{% if name == 'processed' %}{{ t.processing_account_attempts.format(count=o.attempts) }} · {{ t.processing_summary_no_changes.format(count=o.empty_attempts) }}{% elif name == 'changes' %}{{ t.processing_overview_step_memories_detail.format(created=o.created,updated=o.updated) }}{% elif name == 'failed' %}{{ t.processing_summary_failed_runs.format(count=o.failed_attempts) }}{% endif %}</small></div>
+      {% endfor %}
+    </div>
+    {% else %}<p class="text-secondary">{{ t.home_processing_history_unknown }}</p>{% endif %}
+  {% endif %}
+</div>

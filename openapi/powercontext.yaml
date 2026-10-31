@@ -22,6 +22,7 @@ x-powercontext-feature-contracts:
   access.principal: {major: 1, minor: 0}
   scope.selection: {major: 1, minor: 0}
   memory.explicit: {major: 1, minor: 0}
+  memory.processing: {major: 1, minor: 0}
 security:
   - BearerAuth: []
   - {}
@@ -4208,6 +4209,236 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/processing/summary:
+    get:
+      tags: [sources]
+      summary: Count recorded memory processing in a time window
+      operationId: get_scope_memory_processing_summary
+      x-powercontext-feature-contracts: [memory.processing]
+      x-powercontext-access: {resolver: path_scope_read_access}
+      description: >-
+        Count durable Atomic Memory processing attempts and their published changes in one bounded window.
+        Counts describe recorded history only; missing history is unknown, not zero. This read does not
+        trigger processing or retry failed work.
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: since
+          in: query
+          description: Inclusive lower bound on the attempt start time; defaults to seven days before `until`.
+          schema: {type: string, format: date-time}
+        - name: until
+          in: query
+          description: Exclusive upper bound on the attempt start time; defaults to now. The range is at most 92 days.
+          schema: {type: string, format: date-time}
+      responses:
+        "200":
+          description: Counts for the recorded window.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryProcessingSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/processing:
+    get:
+      tags: [sources]
+      summary: List recorded memory processing in a Scope
+      operationId: list_scope_memory_processing
+      x-powercontext-feature-contracts: [memory.processing]
+      x-powercontext-access: {resolver: path_scope_read_access}
+      description: >-
+        Read durable Atomic Memory Source-window attempts in reverse start order, optionally bounded by status and
+        start time. An empty page means no recorded history. It does not establish whether legacy processing
+        occurred. Scope access and access to all disclosed evidence and results are required. Model explanations
+        are untrusted historical material. This read does not trigger processing or retry failed work.
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 20, default: 10}
+        - name: cursor
+          in: query
+          schema: {type: string, minLength: 1, maxLength: 4096}
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [started, succeeded, failed, cancelled, conflict]
+        - name: since
+          in: query
+          description: Inclusive lower bound on the attempt start time.
+          schema: {type: string, format: date-time}
+        - name: until
+          in: query
+          description: Exclusive upper bound on the attempt start time.
+          schema: {type: string, format: date-time}
+      responses:
+        "200":
+          description: A page of recorded attempts. Started means completion is unconfirmed, not that a worker is alive.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryProcessingPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/sources/{source_type}/{source_id}/processing:
+    get:
+      tags: [sources]
+      summary: List recorded memory processing for a Source
+      operationId: list_source_memory_processing
+      x-powercontext-access: {resolver: path_scope_read_access}
+      description: >-
+        Read durable Atomic Memory Source-window attempts, model explanations and exact publication results.
+        An empty page means no recorded history. It does not establish whether legacy processing occurred.
+        Scope access and access to all disclosed evidence and results are required. Model explanations are
+        untrusted historical material. This read does not trigger processing or retry failed work.
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: source_type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [content]
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 20, default: 10}
+        - name: cursor
+          in: query
+          schema: {type: string, minLength: 1, maxLength: 4096}
+      responses:
+        "200":
+          description: A page of recorded attempts. Started means completion is unconfirmed, not that a worker is alive.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryProcessingPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/revisions/{revision}/processing:
+    get:
+      tags: [sources]
+      summary: List memory processing related to an exact memory revision
+      operationId: list_memory_revision_processing
+      x-powercontext-access: {resolver: path_scope_read_access}
+      description: >-
+        Read durable Atomic Memory Source-window attempts, model explanations and exact publication results.
+        An empty page means no recorded history. It does not establish whether legacy processing occurred.
+        Scope access and access to all disclosed evidence and results are required. Model explanations are
+        untrusted historical material. This read does not trigger processing or retry failed work.
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: revision
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 20, default: 10}
+        - name: cursor
+          in: query
+          schema: {type: string, minLength: 1, maxLength: 4096}
+      responses:
+        "200":
+          description: A page of recorded attempts. Started means completion is unconfirmed, not that a worker is alive.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryProcessingPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/scopes/{scope_id}/sources/{source_type}/{source_id}:
     get:
       tags: [sources]
@@ -6432,6 +6663,25 @@ components:
           maxItems: 16
         tag_match:
           $ref: '#/components/schemas/TagMatch'
+        artifact_ids:
+          type: array
+          nullable: true
+          minItems: 1
+          maxItems: 100
+          description: Restrict this page to these Atomic Memory identities before ordering and pagination.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[\x21-\x7E]+$'
+        sort_by:
+          type: string
+          enum: [identity, recall_count]
+          default: identity
+          description: Order current memories by identity or readable context preparations across all revisions.
+        period:
+          $ref: '#/components/schemas/StatsPeriod'
+          default: 7d
         limit:
           type: integer
           minimum: 1
@@ -6455,6 +6705,13 @@ components:
         next_cursor:
           type: string
           nullable: true
+        recall_counts:
+          type: object
+          nullable: true
+          description: Per-memory preparation counts for this page when sorting by recall_count.
+          additionalProperties:
+            type: integer
+            minimum: 0
     SearchAtomicMemoryRequest:
       type: object
       additionalProperties: false
@@ -13554,6 +13811,141 @@ components:
           minLength: 1
           maxLength: 1024
           pattern: '.*\S.*'
+          nullable: true
+    ListScopeMemoryProcessingRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 20, default: 10}
+        cursor: {type: string, nullable: true, minLength: 1, maxLength: 4096}
+        status:
+          type: string
+          nullable: true
+          enum: [started, succeeded, failed, cancelled, conflict]
+        since: {type: string, format: date-time, nullable: true}
+        until: {type: string, format: date-time, nullable: true}
+    ListSourceMemoryProcessingRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 20, default: 10}
+        cursor: {type: string, nullable: true, minLength: 1, maxLength: 4096}
+    ListMemoryRevisionProcessingRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 20, default: 10}
+        cursor: {type: string, nullable: true, minLength: 1, maxLength: 4096}
+    MemoryProcessingDecision:
+      type: object
+      additionalProperties: false
+      required: [proposal_id, action, target_ids, source_refs, reason, reason_truncated]
+      properties:
+        proposal_id: {type: string}
+        action: {type: string, enum: [create, revise, merge, noop]}
+        target_ids: {type: array, items: {type: string}}
+        source_refs: {type: array, items: {$ref: "#/components/schemas/SourceTypeReference"}}
+        reason: {type: string}
+        reason_truncated: {type: boolean}
+    MemoryProcessingResult:
+      type: object
+      additionalProperties: false
+      required: [action, artifact, source_refs]
+      properties:
+        action: {type: string, enum: [create, revise, merge]}
+        artifact: {$ref: "#/components/schemas/ArtifactReference"}
+        source_refs: {type: array, items: {$ref: "#/components/schemas/SourceTypeReference"}}
+    MemoryProcessingRecord:
+      type: object
+      additionalProperties: false
+      required: [attempt_id, scope_id, previous_attempt_id, source_after, source_through, sources, eligible_sources, started_at, completed_at, status, outcome, stage, error_code, decisions, decisions_truncated, results, retained_artifacts]
+      properties:
+        attempt_id: {type: string}
+        scope_id: {type: string}
+        previous_attempt_id: {type: string, nullable: true}
+        source_after: {type: integer, minimum: 0}
+        source_through: {type: integer, minimum: 1}
+        sources: {type: array, items: {$ref: "#/components/schemas/SourceTypeReference"}}
+        eligible_sources: {type: array, items: {$ref: "#/components/schemas/SourceTypeReference"}}
+        started_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time, nullable: true}
+        status: {type: string, enum: [started, succeeded, failed, cancelled, conflict]}
+        outcome: {type: string, enum: [changed, no_change, no_candidates, held, ineligible], nullable: true}
+        stage: {type: string}
+        error_code: {type: string, nullable: true}
+        decisions: {type: array, items: {$ref: "#/components/schemas/MemoryProcessingDecision"}}
+        decisions_truncated: {type: boolean}
+        results: {type: array, items: {$ref: "#/components/schemas/MemoryProcessingResult"}}
+        retained_artifacts: {type: array, items: {$ref: "#/components/schemas/ArtifactReference"}}
+    MemoryProcessingSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - since
+        - until
+        - attempts
+        - changed_attempts
+        - created
+        - updated
+        - empty_attempts
+        - failed_attempts
+        - failed_by_stage
+        - inputs_total
+        - inputs_completed
+        - inputs_pending
+        - inputs_failed
+        - inputs_waiting
+        - inputs_waiting_is_lower_bound
+        - deliveries
+        - adopted
+        - unreported
+      properties:
+        since: {type: string, format: date-time}
+        until: {type: string, format: date-time}
+        attempts: {type: integer, minimum: 0}
+        changed_attempts: {type: integer, minimum: 0}
+        created: {type: integer, minimum: 0}
+        updated: {type: integer, minimum: 0}
+        empty_attempts: {type: integer, minimum: 0}
+        failed_attempts: {type: integer, minimum: 0}
+        failed_by_stage:
+          type: object
+          description: Failed attempt counts keyed by the recorded stage name.
+          additionalProperties: {type: integer, minimum: 0}
+        inputs_total: {type: integer, minimum: 0}
+        inputs_completed: {type: integer, minimum: 0}
+        inputs_pending: {type: integer, minimum: 0}
+        inputs_failed: {type: integer, minimum: 0}
+        inputs_waiting:
+          type: integer
+          minimum: 0
+          description: >-
+            Eligible unconsumed Sources after the processing cursor not represented by an attempt in the window.
+            This is current state, including never-attempted inputs and older failed or unconfirmed attempts.
+            Inputs already named by an attempt inside the window belong to that attempt's status instead.
+        inputs_waiting_is_lower_bound:
+          type: boolean
+          description: True when the waiting count stopped at the scan cap and the real count may be larger.
+        deliveries: {type: integer, minimum: 0}
+        adopted: {type: integer, minimum: 0}
+        unreported: {type: integer, minimum: 0}
+    GetScopeMemoryProcessingSummaryRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        since: {type: string, format: date-time, nullable: true}
+        until: {type: string, format: date-time, nullable: true}
+    MemoryProcessingPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, source_mode, direct_artifact, consumption_state]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/MemoryProcessingRecord"}}
+        next_cursor: {type: string, nullable: true}
+        source_mode: {type: string, enum: [ordinary, internal, working_note], nullable: true}
+        consumption_state: {type: string, enum: [consumed, unconsumed, not_applicable], nullable: true}
+        direct_artifact:
+          $ref: "#/components/schemas/ArtifactReference"
           nullable: true
     SourceRecord:
       type: object

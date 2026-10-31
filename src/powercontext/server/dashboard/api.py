@@ -61,9 +61,20 @@ class DashboardAPI:
             headers=headers,
         )
 
-    async def atomic_memory_list(self, scope, *, state, limit, cursor):
+    async def atomic_memory_list(
+        self, scope, *, state, limit, cursor, sort_by="identity", period="7d", artifact_ids=None, states=None
+    ):
         return await self.read(
-            "/v1/atomic-memory/list", {"scope_id": scope, "states": [state], "limit": limit, "cursor": cursor}
+            "/v1/atomic-memory/list",
+            {
+                "scope_id": scope,
+                "states": states if states is not None else [state],
+                **({"artifact_ids": artifact_ids} if artifact_ids is not None else {}),
+                "limit": limit,
+                "cursor": cursor,
+                "sort_by": sort_by,
+                "period": period,
+            },
         )
 
     async def read(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -145,11 +156,25 @@ class DashboardAPI:
         except Exception as error:
             raise ReadError.from_exception(error) from error
 
+    async def project(self, scope, operation, **params):
+        """Finish the same authorization and audit lifecycle for bounded built-in projections."""
+        from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit
+        from powercontext.server.app import _atomic_execution_context
+
+        if self.builtin is None:
+            raise ReadError(503, "operation_not_supported")
+        context = _atomic_execution_context(self.request, "dashboard_" + operation)
+        try:
+            async with deferred_decision_audit(context), self.builtin.read_snapshot(scope) as reader:
+                return await getattr(reader, operation)(context=context, **params)
+        except Exception as error:
+            raise ReadError.from_exception(error) from error
+
     async def candidates(self, payload):
         if self.builtin is None:
             return await self.read("/v1/candidates/list", payload)
         from powercontext.builtin.runtime.models import ListCandidatesRequest
-        from powercontext.server.app import _access_audit_context
+        from powercontext.server.app import _access_audit_context, _atomic_execution_context
 
         scope = payload["scope_id"]
         access = access_control_for_mode(self.app.state.access_control, mode=self.app.state.access_mode)
@@ -171,6 +196,13 @@ class DashboardAPI:
                     connection=reader.connection,
                 )
                 result = page.model_dump(mode="json")
+                titles = await reader.candidate_titles(
+                    [(item.candidate_id, item.version) for item in page.candidates],
+                    context=_atomic_execution_context(self.request, "dashboard_review_titles"),
+                )
+                for item in result["candidates"]:
+                    item["catalog_title"] = titles.get(item["candidate_id"])
+
         except Exception as error:
             raise ReadError.from_exception(error) from error
         else:
@@ -350,12 +382,11 @@ class DashboardAPI:
                 results.append(error)
         return results
 
-    async def usage(self, scope: str, period: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    async def statistics(self, scope: str, period: str) -> dict[str, Any]:
         try:
-            result = await self.read(
+            return await self.read(
                 "/v1/stats", {"selection": {"mode": "exact", "scope_ids": [scope]}, "period": period}
             )
-            return result["usage"], result["recall"]
         except Exception as error:
             raise ReadError.from_exception(error) from error
 

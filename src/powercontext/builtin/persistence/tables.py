@@ -1299,6 +1299,59 @@ DECISION_OBSERVATIONS_TABLE = Table(
 
 DECISION_OBSERVATION_TABLES = (DECISION_OBSERVATIONS_TABLE,)
 
+MEMORY_PROCESSING_RECORDS_TABLE = Table(
+    "pc_memory_processing_records",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("attempt_id", identity_string(32), primary_key=True),
+    Column("started_at", DateTime(timezone=True).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
+    Column("payload", _canonical_payload_type(), nullable=False),
+    Index("ix_pc_memory_processing_started", "scope_id", "started_at", "attempt_id"),
+)
+MEMORY_PROCESSING_SOURCES_TABLE = Table(
+    "pc_memory_processing_sources",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_type", identity_string(MAX_SOURCE_TYPE_LENGTH), primary_key=True),
+    Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
+    Column("attempt_id", identity_string(32), primary_key=True),
+)
+MEMORY_PROCESSING_ARTIFACTS_TABLE = Table(
+    "pc_memory_processing_artifacts",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("revision", Integer, primary_key=True),
+    Column("attempt_id", identity_string(32), primary_key=True),
+)
+MEMORY_PROCESSING_TABLES = (
+    MEMORY_PROCESSING_RECORDS_TABLE,
+    MEMORY_PROCESSING_SOURCES_TABLE,
+    MEMORY_PROCESSING_ARTIFACTS_TABLE,
+)
+
+CONTEXT_USAGE_RECORDS_TABLE = Table(
+    "pc_context_usage_records",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("usage_id", identity_string(32), primary_key=True),
+    Column("created_at", DateTime(timezone=True).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
+    Column("payload", _canonical_payload_type(), nullable=False),
+    Index("ix_pc_context_usage_created", "scope_id", "created_at", "usage_id"),
+)
+CONTEXT_USAGE_FEEDBACK_TABLE = Table(
+    "pc_context_usage_feedback",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("feedback_id", identity_string(32), primary_key=True),
+    Column("record_kind", identity_string(16), nullable=False),
+    Column("record_id", identity_string(64), nullable=False),
+    Column("created_at", DateTime(timezone=True).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
+    Column("payload", _canonical_payload_type(), nullable=False),
+    Index("ix_pc_context_feedback_record", "scope_id", "record_kind", "record_id", "created_at", "feedback_id"),
+)
+CONTEXT_USAGE_TABLES = (CONTEXT_USAGE_RECORDS_TABLE, CONTEXT_USAGE_FEEDBACK_TABLE)
+
 DREAM_RUNS_TABLE = Table(
     "pc_dream_runs",
     SHARED_METADATA,
@@ -1463,6 +1516,8 @@ BUILTIN_TABLES = (
     + MEMORY_TABLES
     + STATISTICS_TABLES
     + DECISION_OBSERVATION_TABLES
+    + MEMORY_PROCESSING_TABLES
+    + CONTEXT_USAGE_TABLES
     + RECURRENCE_TABLES
     + (
         ARTIFACT_TAGS_TABLE,

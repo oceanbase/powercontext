@@ -1,0 +1,13 @@
+<section>
+  <h2>{{ t.work_followup }}</h2>
+  {% if errors.get('work_followup') %}{{ read_error(errors.work_followup,t.work_followup) }}
+  {% elif work_followup %}<div class="record-list">
+    {% for event in work_followup %}<article class="record-row">
+      <div class="document-meta mb-2">{{ t.get('work_kind_' ~ event.kind,event.kind) }} · {{ t.get('work_status_' ~ event.status,event.status) }}{% if event.get('actor') %} · {{ event.actor }}{% endif %}</div>
+      <p>{{ event.summary or t.usage_unknown }}</p>
+      {% for check in event.get('checks',[]) %}<p class="small">{{ check.name }} · {{ t.get('work_status_' ~ check.status,check.status) }}</p>{% endfor %}
+      {% for text in event.get('remaining_work',[]) %}<p>{{ text }}</p>{% endfor %}
+      <a class="small" href="{{ link('processing',source_id=event.source_id,record_type='sources') }}">{{ t.source_original }} →</a>
+    </article>{% endfor %}
+  </div>{% else %}<p class="text-secondary">{{ t.work_followup_empty }}</p>{% endif %}
+</section>

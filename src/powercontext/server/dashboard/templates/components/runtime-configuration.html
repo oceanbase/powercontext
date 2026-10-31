@@ -1,0 +1,21 @@
+<section class="card mt-3" aria-labelledby="runtime-configuration-heading">
+  <div class="card-header"><h2 class="card-title" id="runtime-configuration-heading">{{ t.runtime_configuration_title }}</h2></div>
+  <div class="card-body">
+  {% if runtime_configuration %}{% set c = runtime_configuration %}
+    <p class="text-secondary small">{{ t.runtime_configuration_source }}</p>
+    <div class="d-flex flex-wrap gap-3 mb-3"><span>{{ t.runtime_configuration_role }} <strong>{{ t['runtime_role_' ~ c.role] }}</strong></span><span>{{ t.runtime_configuration_generation }} <strong>{{ t.runtime_configured if c.generation_configured else t.runtime_not_configured }}</strong></span></div>
+    <div class="table-responsive"><table class="table table-vcenter mb-0 runtime-configuration-table"><thead><tr><th>{{ t.runtime_configuration_task }}</th><th>{{ t.runtime_configuration_switch }}</th><th>{{ t.runtime_configuration_schedule }}</th></tr></thead><tbody>
+      <tr data-runtime-config="dream"><td>{{ t.runtime_configuration_dream }}</td><td><span class="badge {{ 'bg-blue-lt' if c.dream_enabled else 'bg-secondary-lt' }}">{{ t.runtime_enabled if c.dream_enabled else t.runtime_disabled }}</span></td><td>{{ t.runtime_configuration_explicit }}</td></tr>
+      {% for task in c.schedules %}<tr data-runtime-config="{{ task.family }}"><td>{{ t['runtime_schedule_' ~ task.family] }}</td><td><span class="badge {{ 'bg-blue-lt' if task.enabled else 'bg-secondary-lt' }}">{{ t.runtime_enabled if task.enabled else t.runtime_disabled }}</span></td><td>{{ t['runtime_every_' ~ task.unit ~ ('_one' if task.count == 1 else '')].format(count='%g'|format(task.count)) if task.enabled else t.runtime_not_configured }}</td></tr>{% endfor %}
+      <tr data-runtime-config="profile"><td>{{ t.runtime_schedule_profile }}</td><td><span class="badge {{ 'bg-blue-lt' if c.profile_enabled else 'bg-secondary-lt' }}">{{ t.runtime_enabled if c.profile_enabled else t.runtime_disabled }}</span></td><td>{% if c.profile_daily_time %}<span title="{{ c.profile_cron }}">{{ t.runtime_daily_time.format(time=c.profile_daily_time) }}</span>{% else %}<code>{{ c.profile_cron }}</code>{% endif %}<span class="text-secondary ms-2">{{ c.profile_timezone }}</span></td></tr>
+      <tr data-runtime-config="skill"><td>{{ t.runtime_schedule_skill }}</td><td><span class="text-secondary">{{ t.runtime_configuration_no_schedule }}</span></td><td>{{ t.runtime_configuration_explicit }}</td></tr>
+    </tbody></table></div>
+    <dl class="runtime-config-limits mt-4 mb-0">
+      <div><dt>{{ t.runtime_config_generation_concurrency }}</dt><dd>{{ c.generation_concurrency }}</dd></div>
+      <div><dt>{{ t.runtime_config_generation_timeout }}</dt><dd>{{ '%g'|format(c.generation_timeout_seconds) }} {{ t.runtime_config_seconds }}</dd></div>
+      <div><dt>{{ t.runtime_config_max_workers }}</dt><dd>{{ c.max_workers }}</dd></div>
+      <div><dt>{{ t.runtime_config_worker_timeout }}</dt><dd>{{ '%g'|format(c.worker_timeout_seconds) }} {{ t.runtime_config_seconds }}</dd></div>
+    </dl>
+  {% else %}<p class="text-secondary mb-0">{{ t.runtime_configuration_unavailable }}</p>{% endif %}
+  </div>
+</section>

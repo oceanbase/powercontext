@@ -87,6 +87,15 @@ class AtomicMemoryTarget(BaseModel):
     revision: Annotated[StrictInt | None, Field(ge=1)] = None
 
 
+class ArtifactId(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+
+
+class SortBy(StrEnum):
+    IDENTITY = "identity"
+    RECALL_COUNT = "recall_count"
+
+
 class MatchedByEnum(StrEnum):
     TEXT = "text"
     VECTOR = "vector"
@@ -3452,6 +3461,115 @@ class SourceLineRangeLocator(BaseModel):
 
 class SourceLocator(RootModel[SourceSequenceLocator | SourceLineRangeLocator]):
     root: Annotated[SourceSequenceLocator | SourceLineRangeLocator, Field(discriminator="kind")]
+class Status6(StrEnum):
+    STARTED = "started"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    CONFLICT = "conflict"
+
+
+class ListScopeMemoryProcessingRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    limit: Annotated[StrictInt, Field(ge=1, le=20)] = 10
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+    status: Status6 | None = None
+    since: AwareDatetime | None = None
+    until: AwareDatetime | None = None
+
+
+class ListSourceMemoryProcessingRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    limit: Annotated[StrictInt, Field(ge=1, le=20)] = 10
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ListMemoryRevisionProcessingRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    limit: Annotated[StrictInt, Field(ge=1, le=20)] = 10
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class Action(StrEnum):
+    CREATE = "create"
+    REVISE = "revise"
+    MERGE = "merge"
+    NOOP = "noop"
+
+
+class Action1(StrEnum):
+    CREATE = "create"
+    REVISE = "revise"
+    MERGE = "merge"
+
+
+class Outcome6(StrEnum):
+    CHANGED = "changed"
+    NO_CHANGE = "no_change"
+    NO_CANDIDATES = "no_candidates"
+    HELD = "held"
+    INELIGIBLE = "ineligible"
+
+
+class MemoryProcessingSummary(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    since: AwareDatetime
+    until: AwareDatetime
+    attempts: Annotated[StrictInt, Field(ge=0)]
+    changed_attempts: Annotated[StrictInt, Field(ge=0)]
+    created: Annotated[StrictInt, Field(ge=0)]
+    updated: Annotated[StrictInt, Field(ge=0)]
+    empty_attempts: Annotated[StrictInt, Field(ge=0)]
+    failed_attempts: Annotated[StrictInt, Field(ge=0)]
+    failed_by_stage: Annotated[
+        dict[str, StrictInt], Field(description="Failed attempt counts keyed by the recorded stage name.")
+    ]
+    inputs_total: Annotated[StrictInt, Field(ge=0)]
+    inputs_completed: Annotated[StrictInt, Field(ge=0)]
+    inputs_pending: Annotated[StrictInt, Field(ge=0)]
+    inputs_failed: Annotated[StrictInt, Field(ge=0)]
+    inputs_waiting: Annotated[
+        StrictInt,
+        Field(
+            description="Eligible unconsumed Sources after the processing cursor not represented by an attempt in the window. This is current state, including never-attempted inputs and older failed or unconfirmed attempts. Inputs already named by an attempt inside the window belong to that attempt's status instead.",
+            ge=0,
+        ),
+    ]
+    inputs_waiting_is_lower_bound: Annotated[
+        StrictBool,
+        Field(description="True when the waiting count stopped at the scan cap and the real count may be larger."),
+    ]
+    deliveries: Annotated[StrictInt, Field(ge=0)]
+    adopted: Annotated[StrictInt, Field(ge=0)]
+    unreported: Annotated[StrictInt, Field(ge=0)]
+
+
+class GetScopeMemoryProcessingSummaryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    since: AwareDatetime | None = None
+    until: AwareDatetime | None = None
+
+
+class SourceMode(StrEnum):
+    ORDINARY = "ordinary"
+    INTERNAL = "internal"
+    WORKING_NOTE = "working_note"
+
+
+class ConsumptionState(StrEnum):
+    CONSUMED = "consumed"
+    UNCONSUMED = "unconsumed"
+    NOT_APPLICABLE = "not_applicable"
 
 
 class SourceTypeReference(BaseModel):
@@ -4226,7 +4344,7 @@ class SourceInstancesResponse(BaseModel):
     management: Management | None = None
 
 
-class Outcome6(StrEnum):
+class Outcome7(StrEnum):
     SAVED = "saved"
     UNCHANGED = "unchanged"
 
@@ -4235,7 +4353,7 @@ class SourceCollectionResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    outcome: Outcome6
+    outcome: Outcome7
     source_refs: list[SourceTypeReference]
 
 
@@ -4329,7 +4447,7 @@ class SourceChannelResponse(BaseModel):
     messages: list[dict[str, Any]] | None = None
 
 
-class Status6(StrEnum):
+class Status8(StrEnum):
     RUNNING = "running"
     COMPLETE = "complete"
     COMPLETED = "completed"
@@ -4354,7 +4472,7 @@ class SourceInstanceExchangeRequest(BaseModel):
     capabilities: Annotated[list[dict[str, Any]] | None, Field(max_length=64)] = None
     response: dict[str, Any] | None = None
     owner: dict[str, Any] | None = None
-    status: Status6 | None = None
+    status: Status8 | None = None
     source_refs: Annotated[
         list[SourceTypeReference] | None,
         Field(
@@ -4645,6 +4763,19 @@ class ListAtomicMemoryRequest(BaseModel):
     kind: Annotated[StrictStr | None, Field(min_length=1)] = None
     tags: Annotated[list[Tag] | None, Field(max_length=16)] = None
     tag_match: TagMatch | None = None
+    artifact_ids: Annotated[
+        list[ArtifactId] | None,
+        Field(
+            description="Restrict this page to these Atomic Memory identities before ordering and pagination.",
+            max_length=100,
+            min_length=1,
+        ),
+    ] = None
+    sort_by: Annotated[
+        SortBy,
+        Field(description="Order current memories by identity or readable context preparations across all revisions."),
+    ] = SortBy.IDENTITY
+    period: StatsPeriod = StatsPeriod.FIELD_7D
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
     cursor: Annotated[StrictStr | None, Field(max_length=4096)] = None
 
@@ -4655,6 +4786,10 @@ class ListAtomicMemoryResponse(BaseModel):
     )
     items: list[AtomicMemoryRecord]
     next_cursor: Annotated[StrictStr | None, Field(...)]
+    recall_counts: Annotated[
+        dict[str, StrictInt] | None,
+        Field(description="Per-memory preparation counts for this page when sorting by recall_count."),
+    ] = None
 
 
 class SearchAtomicMemoryRequest(BaseModel):
@@ -5747,6 +5882,61 @@ class ReplaceSkillArtifactRequest(BaseModel):
     content: SkillProposal
     restored_from_revision: Annotated[StrictInt | None, Field(ge=1)] = None
     reason: Annotated[StrictStr | None, Field(max_length=1024, min_length=1, pattern=".*\\S.*")] = None
+
+
+class MemoryProcessingDecision(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    proposal_id: StrictStr
+    action: Action
+    target_ids: list[StrictStr]
+    source_refs: list[SourceTypeReference]
+    reason: StrictStr
+    reason_truncated: StrictBool
+
+
+class MemoryProcessingResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Action1
+    artifact: ArtifactReference
+    source_refs: list[SourceTypeReference]
+
+
+class MemoryProcessingRecord(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attempt_id: StrictStr
+    scope_id: StrictStr
+    previous_attempt_id: Annotated[StrictStr | None, Field(...)]
+    source_after: Annotated[StrictInt, Field(ge=0)]
+    source_through: Annotated[StrictInt, Field(ge=1)]
+    sources: list[SourceTypeReference]
+    eligible_sources: list[SourceTypeReference]
+    started_at: AwareDatetime
+    completed_at: Annotated[AwareDatetime | None, Field(...)]
+    status: Status6
+    outcome: Annotated[Outcome6 | None, Field(...)]
+    stage: StrictStr
+    error_code: Annotated[StrictStr | None, Field(...)]
+    decisions: list[MemoryProcessingDecision]
+    decisions_truncated: StrictBool
+    results: list[MemoryProcessingResult]
+    retained_artifacts: list[ArtifactReference]
+
+
+class MemoryProcessingPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[MemoryProcessingRecord]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
+    source_mode: Annotated[SourceMode | None, Field(...)]
+    consumption_state: Annotated[ConsumptionState | None, Field(...)]
+    direct_artifact: Annotated[ArtifactReference | None, Field(...)]
 
 
 class SourceRecord(BaseModel):

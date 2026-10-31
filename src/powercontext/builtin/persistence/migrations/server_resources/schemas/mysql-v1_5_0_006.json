@@ -1,0 +1,233 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "v1_5_0_006": {
+      "statements": [
+        "CREATE TABLE pc_context_usage_records (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tusage_id VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcreated_at DATETIME(6) NOT NULL, \n\tpayload MEDIUMBLOB NOT NULL, \n\tPRIMARY KEY (scope_id, usage_id),\n\tKEY ix_pc_context_usage_created (scope_id, created_at, usage_id)\n)",
+        "CREATE TABLE pc_context_usage_feedback (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tfeedback_id VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trecord_kind VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trecord_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcreated_at DATETIME(6) NOT NULL, \n\tpayload MEDIUMBLOB NOT NULL, \n\tPRIMARY KEY (scope_id, feedback_id),\n\tKEY ix_pc_context_feedback_record (scope_id, record_kind, record_id, created_at, feedback_id)\n)"
+      ],
+      "changes": [
+        {
+          "pc_context_usage_records": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "usage_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "32"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "created_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "payload": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "usage_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {},
+            "indexes": {
+              "ix_pc_context_usage_created": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "created_at",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "usage_id",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": false
+              }
+            }
+          }
+        },
+        {
+          "pc_context_usage_feedback": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "feedback_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "32"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "record_kind": {
+                "type": [
+                  "varchar",
+                  [
+                    "16"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "record_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "created_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "payload": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "feedback_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {},
+            "indexes": {
+              "ix_pc_context_feedback_record": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "record_kind",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "record_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "created_at",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "feedback_id",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": false
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

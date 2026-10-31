@@ -1,0 +1,15 @@
+{% if errors.get('processing_coverage') %}{{ read_error(errors.processing_coverage, t.observation_existing) }}
+{% elif processing_coverage %}{% set c = processing_coverage %}
+<section class="card mb-3" aria-labelledby="observation-existing-heading">
+  <div class="card-header"><h2 class="card-title" id="observation-existing-heading">{{ t.observation_existing }}</h2></div>
+  <div class="card-body">
+    <div class="observation-existing-grid">
+      <a href="{{ link(record_type='sources', source_id=none, run_id=none, run_status=none) }}"><span>{{ t.home_saved_sources }}</span><strong data-summary="observation-sources">{{ c.sources }}</strong><small>{{ t.home_sources_basis }}</small></a>
+      <a href="{{ link('notes') }}"><span>{{ t.home_active_memories }}</span><strong data-summary="observation-memories">{{ c.memories }}</strong><small>{{ t.home_memory_basis }}</small></a>
+      <div><span>{{ t.observation_preparations }}</span><strong data-summary="observation-preparations">{{ c.preparations if c.preparations is not none else t.home_unknown }}</strong><small>{{ t.observation_preparations_basis if c.preparations is not none else t.observation_preparations_unavailable }}</small></div>
+    </div>
+    <p class="text-secondary small mt-3 mb-0">{{ t.observation_existing_note }}</p>
+    {% if c.days %}<details class="supporting-details mt-3 pb-0"><summary>{{ t.observation_daily_preparations }}</summary><div class="table-responsive"><table class="table table-sm mb-0"><caption>{{ t.observation_preparations }} · UTC</caption><thead><tr><th scope="col">{{ t.date }}</th><th scope="col" class="text-end">{{ t.observation_preparations }}</th></tr></thead><tbody>{% for day in c.days %}<tr><td>{{ day.date }}</td><td class="text-end">{{ day.preparations }}</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
+  </div>
+</section>
+{% endif %}

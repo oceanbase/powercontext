@@ -291,6 +291,20 @@ class StatisticsRepository:
             raise InvalidRepositoryArgumentError("dialect", f"unsupported database dialect: {dialect}")
         await connection.execute(statement)
 
+    async def preparation_days(self, connection, scope_id, start_date, end_date):
+        """Read preparation counts across estimator versions, without estimating token savings."""
+        scope = validate_scope_id(scope_id)
+        if not 0 <= (end_date - start_date).days < 92:
+            raise InvalidRepositoryArgumentError("period", "requires an inclusive range of at most 92 days")
+        table = RECALL_TOKEN_DAILY_TABLE
+        rows = await connection.execute(
+            select(table.c.usage_date, func.sum(table.c.preparations).label("preparations"))
+            .where(table.c.scope_id == scope, table.c.usage_date >= start_date, table.c.usage_date <= end_date)
+            .group_by(table.c.usage_date)
+            .order_by(table.c.usage_date)
+        )
+        return tuple((row.usage_date, int(row.preparations)) for row in rows)
+
     async def daily_usage_many(
         self,
         connection: AsyncConnection,

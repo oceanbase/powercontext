@@ -43,11 +43,34 @@ def memory_view(response: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
             **item,
+            **(
+                {"recall_count": response["recall_counts"].get(item["artifact"]["artifact_id"], 0)}
+                if response.get("recall_counts") is not None
+                else {}
+            ),
             **item["artifact"],
             "note_key": f"atomic-memory/{item['artifact']['artifact_id']}@{item['artifact']['revision']}",
         }
         for item in response["items"]
     ]
+
+
+def artifact_destination(ctx, ref, *, scope=None, return_to=None):
+    """Link an immutable Artifact reference to its existing family reader."""
+    family = ref["family"]
+    params = {"scope": scope or ctx["scope"], "lang": ctx["language"]}
+    if return_to:
+        params["return_to"] = return_to
+    if family == "topic-memory":
+        return ctx["link"]("topics", topic_artifact=ref["artifact_id"], topic_revision=ref["revision"], **params)
+    if family == "profile":
+        return ctx["link"]("profile", revision=ref["revision"], **params)
+    if family == "prompt":
+        return ctx["link"]("prompts", prompt_key=ref["artifact_id"], prompt_revision=ref["revision"], **params)
+    page = {"atomic-memory": "notes", "experience": "experience", "skill": "skill", "handoff": "handoff-detail"}.get(
+        family
+    )
+    return ctx["link"](page, artifact=ref["artifact_id"], revision=ref["revision"], **params) if page else None
 
 
 def usage_view(usage: dict[str, Any], recall: dict[str, Any]) -> dict[str, Any]:
@@ -82,4 +105,18 @@ def usage_view(usage: dict[str, Any], recall: dict[str, Any]) -> dict[str, Any]:
         "start": usage["period"]["start_date"],
         "end": usage["period"]["end_date"],
         "days": len(daily),
+    }
+
+
+def processing_summary(ctx, value):
+    state = value["state"]
+    label = ctx["t"]["processing_summary_" + state]
+    return {
+        **value,
+        "label": label,
+        "badge": "bg-red-lt"
+        if state == "failed"
+        else "bg-yellow-lt"
+        if state in {"unknown", "unconfirmed", "error"}
+        else "bg-secondary-lt",
     }

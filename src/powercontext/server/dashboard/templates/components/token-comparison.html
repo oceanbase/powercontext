@@ -1,0 +1,31 @@
+{% from 'macros.html' import comparison_chart, number, coverage_notice with context %}
+<div class="token-comparison">
+<style>
+  me .usage-summary { border-inline-end: 1px solid var(--tblr-border-color); }
+  me .comparison-values div { display: flex; justify-content: space-between; gap: var(--tblr-spacer-3); }
+  me .bar-chart { min-width: 0; }
+  @media (max-width: 1199.98px) { me .usage-summary { border-inline-end: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: var(--tblr-spacer-3); } }
+</style>
+    <div class="row row-cards">
+      <div class="col-xl-4 usage-summary">
+        <h2>{{ t.comparison }}{% if stats.percent is not none %}<br>{{ t.increased if stats.token_reduction < 0 else t.reduced }}{% endif %}</h2>
+        {% if not stats.estimator_available %}<h3 class="my-4">{{ t.no_estimates }}</h3><p class="text-secondary">{{ t.no_estimates_body }}</p>
+        {% elif stats.empty %}<h3 class="my-4">{{ t.usage_empty }}</h3>
+        {% elif stats.percent is not none %}
+        <div class="big-number h1 my-3 {{ 'text-body' if stats.token_reduction < 0 else 'text-primary' }}">{{ stats.percent }}<span>%</span><small class="fs-1 ms-2">{{ '↑' if stats.token_reduction < 0 else '↓' }}</small></div>
+        <p>{{ t.more_tokens if stats.token_reduction < 0 else t.fewer_tokens }} {{ number(stats.token_reduction|abs) }} tokens</p>
+        {% else %}<h3 class="my-4">{{ t.no_comparison }}</h3>{% endif %}
+        {% if stats.estimator_available %}<dl class="comparison-values my-4">
+          <div><dt class="fw-normal">{{ t.baseline }}</dt><dd class="mb-2">{{ number(stats.baseline_tokens) }}</dd></div>
+          <div><dt class="fw-normal">{{ t.recalled }}</dt><dd class="mb-2">{{ number(stats.recalled_tokens) }}</dd></div>
+        </dl>{% endif %}
+        {% if stats.comparable_preparations > 0 %}<p class="text-secondary">{{ coverage_notice() }}</p>{% endif %}
+      </div>
+      <div class="col-xl-8">
+        <div class="section-heading d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3"><h3>{{ t.daily_title }}</h3><span class="text-secondary small">tokens</span></div>
+        <div class="bar-chart">{{ comparison_chart() }}</div>
+      </div>
+    </div>
+    {% if stats.estimator_available %}<div class="usage-caption border-top mt-3 pt-3 text-secondary">{{ t.estimate_notice }}</div>{% endif %}
+    {% if stats.token_reduction < 0 %}<p class="mt-3">{{ t.negative_notice }}</p>{% endif %}
+</div>

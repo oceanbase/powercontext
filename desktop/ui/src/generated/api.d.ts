@@ -2048,6 +2048,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/scopes/{scope_id}/processing/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count recorded memory processing in a time window
+         * @description Count durable Atomic Memory processing attempts and their published changes in one bounded window. Counts describe recorded history only; missing history is unknown, not zero. This read does not trigger processing or retry failed work.
+         */
+        get: operations["get_scope_memory_processing_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/processing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List recorded memory processing in a Scope
+         * @description Read durable Atomic Memory Source-window attempts in reverse start order, optionally bounded by status and start time. An empty page means no recorded history. It does not establish whether legacy processing occurred. Scope access and access to all disclosed evidence and results are required. Model explanations are untrusted historical material. This read does not trigger processing or retry failed work.
+         */
+        get: operations["list_scope_memory_processing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/sources/{source_type}/{source_id}/processing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List recorded memory processing for a Source
+         * @description Read durable Atomic Memory Source-window attempts, model explanations and exact publication results. An empty page means no recorded history. It does not establish whether legacy processing occurred. Scope access and access to all disclosed evidence and results are required. Model explanations are untrusted historical material. This read does not trigger processing or retry failed work.
+         */
+        get: operations["list_source_memory_processing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/revisions/{revision}/processing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List memory processing related to an exact memory revision
+         * @description Read durable Atomic Memory Source-window attempts, model explanations and exact publication results. An empty page means no recorded history. It does not establish whether legacy processing occurred. Scope access and access to all disclosed evidence and results are required. Model explanations are untrusted historical material. This read does not trigger processing or retry failed work.
+         */
+        get: operations["list_memory_revision_processing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/scopes/{scope_id}/sources/{source_type}/{source_id}": {
         parameters: {
             query?: never;
@@ -2878,6 +2958,16 @@ export interface components {
             kind?: string | null;
             tags?: string[];
             tag_match?: components["schemas"]["TagMatch"];
+            /** @description Restrict this page to these Atomic Memory identities before ordering and pagination. */
+            artifact_ids?: string[] | null;
+            /**
+             * @description Order current memories by identity or readable context preparations across all revisions.
+             * @default identity
+             * @enum {string}
+             */
+            sort_by: "identity" | "recall_count";
+            /** @default 7d */
+            period: components["schemas"]["StatsPeriod"];
             /** @default 50 */
             limit: number;
             cursor?: string | null;
@@ -2885,6 +2975,10 @@ export interface components {
         ListAtomicMemoryResponse: {
             items: components["schemas"]["AtomicMemoryRecord"][];
             next_cursor: string | null;
+            /** @description Per-memory preparation counts for this page when sorting by recall_count. */
+            recall_counts?: {
+                [key: string]: number;
+            } | null;
         };
         SearchAtomicMemoryRequest: {
             scope_id: string;
@@ -5756,6 +5850,107 @@ export interface components {
             content: components["schemas"]["HandoffContent"];
             restored_from_revision?: number | null;
             reason?: string | null;
+        };
+        ListScopeMemoryProcessingRequest: {
+            /** @default 10 */
+            limit: number;
+            cursor?: string | null;
+            /** @enum {string|null} */
+            status?: "started" | "succeeded" | "failed" | "cancelled" | "conflict" | null;
+            /** Format: date-time */
+            since?: string | null;
+            /** Format: date-time */
+            until?: string | null;
+        };
+        ListSourceMemoryProcessingRequest: {
+            /** @default 10 */
+            limit: number;
+            cursor?: string | null;
+        };
+        ListMemoryRevisionProcessingRequest: {
+            /** @default 10 */
+            limit: number;
+            cursor?: string | null;
+        };
+        MemoryProcessingDecision: {
+            proposal_id: string;
+            /** @enum {string} */
+            action: "create" | "revise" | "merge" | "noop";
+            target_ids: string[];
+            source_refs: components["schemas"]["SourceTypeReference"][];
+            reason: string;
+            reason_truncated: boolean;
+        };
+        MemoryProcessingResult: {
+            /** @enum {string} */
+            action: "create" | "revise" | "merge";
+            artifact: components["schemas"]["ArtifactReference"];
+            source_refs: components["schemas"]["SourceTypeReference"][];
+        };
+        MemoryProcessingRecord: {
+            attempt_id: string;
+            scope_id: string;
+            previous_attempt_id: string | null;
+            source_after: number;
+            source_through: number;
+            sources: components["schemas"]["SourceTypeReference"][];
+            eligible_sources: components["schemas"]["SourceTypeReference"][];
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** @enum {string} */
+            status: "started" | "succeeded" | "failed" | "cancelled" | "conflict";
+            /** @enum {string|null} */
+            outcome: "changed" | "no_change" | "no_candidates" | "held" | "ineligible" | null;
+            stage: string;
+            error_code: string | null;
+            decisions: components["schemas"]["MemoryProcessingDecision"][];
+            decisions_truncated: boolean;
+            results: components["schemas"]["MemoryProcessingResult"][];
+            retained_artifacts: components["schemas"]["ArtifactReference"][];
+        };
+        MemoryProcessingSummary: {
+            /** Format: date-time */
+            since: string;
+            /** Format: date-time */
+            until: string;
+            attempts: number;
+            changed_attempts: number;
+            created: number;
+            updated: number;
+            empty_attempts: number;
+            failed_attempts: number;
+            /** @description Failed attempt counts keyed by the recorded stage name. */
+            failed_by_stage: {
+                [key: string]: number;
+            };
+            inputs_total: number;
+            inputs_completed: number;
+            inputs_pending: number;
+            inputs_failed: number;
+            /** @description Eligible unconsumed Sources after the processing cursor not represented by an attempt in the window. This is current state, including never-attempted inputs and older failed or unconfirmed attempts. Inputs already named by an attempt inside the window belong to that attempt's status instead. */
+            inputs_waiting: number;
+            /** @description True when the waiting count stopped at the scan cap and the real count may be larger. */
+            inputs_waiting_is_lower_bound: boolean;
+            deliveries: number;
+            adopted: number;
+            unreported: number;
+        };
+        GetScopeMemoryProcessingSummaryRequest: {
+            /** Format: date-time */
+            since?: string | null;
+            /** Format: date-time */
+            until?: string | null;
+        };
+        MemoryProcessingPage: {
+            items: components["schemas"]["MemoryProcessingRecord"][];
+            next_cursor: string | null;
+            /** @enum {string|null} */
+            source_mode: "ordinary" | "internal" | "working_note" | null;
+            /** @enum {string|null} */
+            consumption_state: "consumed" | "unconsumed" | "not_applicable" | null;
+            direct_artifact: components["schemas"]["ArtifactReference"];
         };
         SourceRecord: {
             /** @description Server-owned identity attestation when this Source contains an enforced-mode Handoff Receipt. */
@@ -9959,6 +10154,145 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_scope_memory_processing_summary: {
+        parameters: {
+            query?: {
+                /** @description Inclusive lower bound on the attempt start time; defaults to seven days before `until`. */
+                since?: string;
+                /** @description Exclusive upper bound on the attempt start time; defaults to now. The range is at most 92 days. */
+                until?: string;
+            };
+            header?: never;
+            path: {
+                scope_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Counts for the recorded window. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryProcessingSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_scope_memory_processing: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                status?: "started" | "succeeded" | "failed" | "cancelled" | "conflict";
+                /** @description Inclusive lower bound on the attempt start time. */
+                since?: string;
+                /** @description Exclusive upper bound on the attempt start time. */
+                until?: string;
+            };
+            header?: never;
+            path: {
+                scope_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of recorded attempts. Started means completion is unconfirmed, not that a worker is alive. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryProcessingPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_source_memory_processing: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                scope_id: string;
+                source_type: "content";
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of recorded attempts. Started means completion is unconfirmed, not that a worker is alive. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryProcessingPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_memory_revision_processing: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                scope_id: string;
+                artifact_id: string;
+                revision: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of recorded attempts. Started means completion is unconfirmed, not that a worker is alive. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryProcessingPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["InvalidRequest"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];

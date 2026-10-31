@@ -917,6 +917,11 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
         ("/v1/scopes/{scope_id}/sources", "post"): "create_source",
         ("/v1/scopes/{scope_id}/sources", "get"): "list_sources",
         ("/v1/scopes/{scope_id}/sources/{source_type}/{source_id}", "get"): "get_source",
+        ("/v1/scopes/{scope_id}/sources/{source_type}/{source_id}/processing", "get"): "list_source_memory_processing",
+        (
+            "/v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/revisions/{revision}/processing",
+            "get",
+        ): "list_memory_revision_processing",
         ("/v1/scopes/{scope_id}/artifacts", "post"): "create_artifact",
         ("/v1/scopes/{scope_id}/artifact-handles/{family}/{key}", "get"): "resolve_artifact_handle",
         ("/v1/scopes/{scope_id}/artifact-handles/{family}/{key}", "put"): "bind_artifact_handle",

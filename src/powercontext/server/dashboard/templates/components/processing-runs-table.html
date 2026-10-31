@@ -1,0 +1,45 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<div class="table-responsive" role="region" aria-label="{{ t.processing_runs }}" tabindex="0">
+<table class="processing-runs-table">
+  <thead><tr><th scope="col">{{ t.home_activity_time }}</th><th scope="col">{{ t.processing_table_kind }}</th><th scope="col">{{ t.processing_table_inputs }}</th><th scope="col">{{ t.processing_filter_status }}</th><th scope="col">{{ t.processing_attempt_result_heading }}</th><th scope="col">{{ t.home_record_action }}</th></tr></thead>
+  <tbody>{% for item in processing_items %}
+    {% set badge = {'queued':'secondary','running':'blue','succeeded':'green','failed':'red'}.get(item.status, 'secondary') %}
+    {% set manifest = item.input_manifest %}
+    {% set artifacts = manifest.artifacts if manifest else [] %}
+    {% set sources = manifest.sources if manifest else [] %}
+    <tr class="processing-run-row">
+      <td><time>{{ item.accepted_at|display_time }}</time></td>
+      <td><span>{{ t.get('processing_operation_' ~ item.operation, item.operation) }}</span>{% if item.target %}{% set destination = artifact_destination(item.target) %}<div class="small text-secondary mt-2">{% if destination %}<a href="{{ destination }}">{{ t.get(item.target.family, item.target.family) }} · {{ t.revision }} {{ item.target.revision }}</a>{% else %}{{ t.get(item.target.family, item.target.family) }} · {{ t.revision }} {{ item.target.revision }}{% endif %}</div>{% endif %}</td>
+      <td>
+        {% if manifest %}
+          {% for ref in artifacts %}{% if loop.index <= 3 %}{% set key = ref.family ~ '/' ~ ref.artifact_id ~ '@' ~ ref.revision %}{% set preview = processing_memory_previews.get(key) %}
+          <div class="processing-table-input {{ 'mt-2' if not loop.first else '' }}">{% if preview and preview.title %}<strong>{{ preview.title|truncate(100,true) }}</strong>{% elif preview and preview.text %}{{ preview.text|truncate(140,true) }}{% else %}<span class="text-secondary">{{ t.get(ref.family, ref.family) }} · {{ t.revision }} {{ ref.revision }}</span>{% endif %}</div>
+          {% endif %}{% endfor %}
+          {% for source in sources %}{% if loop.index <= 2 %}
+          <div class="processing-table-input mt-2"><span class="text-secondary small">{{ t.source_label }} · {{ source.source_id|truncate(48,true) }}</span>{% if source.source_type == 'content' %} <a class="small" href="{{ link(record_type='sources', source_id=source.source_id, run_id=none) }}">{{ t.source_original }} →</a>{% endif %}</div>
+          {% endif %}{% endfor %}
+          {% set shown = [artifacts|length, 3]|min + [sources|length, 2]|min %}
+          {% if artifacts|length + sources|length > shown %}<p class="small text-secondary mt-2 mb-0">{{ t.processing_attempt_more_inputs.format(count=artifacts|length + sources|length - shown) }}</p>{% endif %}
+          {% if manifest.incomplete %}<p class="small text-warning mt-2 mb-0">{{ t.processing_inputs_incomplete }}</p>{% endif %}
+        {% else %}<span class="text-secondary">{{ t.processing_inputs_unknown }}</span>{% endif %}
+      </td>
+      <td><span class="badge bg-{{ badge }}-lt">{{ t['processing_status_' ~ item.status] }}</span></td>
+      <td><p class="mb-1">{{ t.get('processing_outcome_' ~ item.outcome, t.processing_outcome_unrecorded) if item.outcome else t.processing_outcome_unrecorded }}</p>{% if item.error %}<p class="small text-danger mb-0">{{ item.error|truncate(160,true) }}</p>{% elif item.reason %}<p class="small text-secondary mb-0">{{ item.reason|truncate(160,true) }}</p>{% endif %}{% if item.candidate %}<a class="small" href="{{ link('review', candidate_id=item.candidate.candidate_id, candidate_kind=item.candidate.kind, review_status=none, resource_type='all') }}">{{ t.processing_open_candidate }} →</a>{% endif %}</td>
+      <td><a class="btn btn-sm btn-primary" href="{{ link(run_id=item.run_id) }}">{{ t.home_record_details }}</a></td>
+    </tr>
+  {% endfor %}</tbody>
+</table></div>

@@ -1,0 +1,33 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<section id="home-summary" class="home-inventory" aria-label="{{ t.home_inventory_now }}">
+  {% if inventory %}
+  <div class="home-inventory-links home-metric-grid">
+    <a href="{{ link('processing',record_type='sources') }}"><span>{{ t.home_saved_sources }}</span><strong data-summary="sources">{{ inventory.sources.total }}</strong></a>
+    <div class="home-product-cell"><div class="home-product-counts">
+      <a href="{{ link('notes',note_state='active') }}"><span>{{ t.home_active_memories }}</span><strong data-summary="memories">{{ inventory.memory.entries.active }}</strong></a>
+      {% for family,destination,label in [('topic-memory','topics','topic_memory'),('experience','methods','experience'),('skill','methods','skill'),('handoff','handoff','handoff'),('profile','profile','profile')] %}
+        {% set count = inventory.artifacts.by_family|selectattr('family','equalto',family)|map(attribute='total')|sum %}
+        <a href="{{ link(destination,kind=family) if destination == 'methods' else link(destination) }}"><span>{{ t[label] }}</span><strong data-summary="{{ family }}">{{ count }}</strong></a>
+      {% endfor %}
+    </div></div>
+    <a href="{{ link('review',resource_type='all',review_status='pending') }}"><span>{{ t.home_pending_candidates }}</span><strong data-summary="pending">{{ inventory.candidates.pending }}</strong></a>
+    <a href="{{ link('usage',view='records') }}"><span>{{ t.home_context_preparations }}</span><strong>{{ stats.preparations if stats else t.home_unknown }}</strong><span class="small">{{ t[period] }}</span></a>
+  </div>
+  {% if inventory.sources.total == 0 and inventory.artifacts.total == 0 %}<p class="text-secondary small mt-3 mb-0">{{ t.home_overview_empty }}</p>{% endif %}
+  {% else %}<p class="text-secondary">{{ t.home_inventory_unavailable }}</p><div class="home-inventory-links home-metric-grid">{% for name,label in [('sources','home_saved_sources'),('memories','home_active_memories'),('pending','home_pending_candidates')] %}<span><span>{{ t[label] }}</span><strong data-summary="{{ name }}">{{ t.home_unknown }}</strong></span>{% endfor %}</div>{% if errors.get('inventory') %}{{ read_error(errors.inventory,t.home_inventory_now) }}{% endif %}{% endif %}
+</section>

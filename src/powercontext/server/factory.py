@@ -385,6 +385,8 @@ def create_server_app(  # noqa: C901
             app.state.source_gateway = gateway
             app.state.application = runtime
             app.state.dashboard_runtime = runtime
+            if runtime.context_usage is not None:
+                runtime.context_usage.recording_enabled = resolved.dashboard.enabled
             app.state.access_control = active_access_control
             app.state.authentication_provider = configured_authentication
             readiness_probe.set_access_checks(_state_access_checks(app))
@@ -508,6 +510,9 @@ def create_server_app(  # noqa: C901
             tracing=resolved_tracing,
         )
     if resolved.dashboard.enabled:
+        from powercontext.server.dashboard.runtime import runtime_configuration
+
+        app.state.dashboard_runtime_configuration = runtime_configuration(config)
         mount_dashboard(app)
     return app
 

@@ -1,0 +1,88 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% macro memory_result(ref, action=none) %}
+  {% set preview = processing_memory_previews.get(ref.family ~ '/' ~ ref.artifact_id ~ '@' ~ ref.revision) %}
+  {% set destination = artifact_destination(ref) %}
+  <div class="processing-memory-result">
+    {% if action %}<span class="processing-result-action">{{ t['processing_action_' ~ action] }}</span>{% endif %}
+    {% if preview and preview.text %}
+      <p class="processing-memory-body">{{ preview.text|truncate(900, true) }}</p>
+      {% if preview.text|length > 900 %}<p class="processing-caption">{{ t.processing_reading_excerpt }}</p>{% endif %}
+    {% elif preview and preview.error %}{{ read_error(preview.error, t.processing_reading_memory) }}
+    {% else %}<p class="processing-body">{{ t.get(ref.family, ref.family) }} · {{ t.revision }} {{ ref.revision }}</p>{% endif %}
+    <div class="processing-result-link">
+      {% if destination %}<a class="btn btn-outline-primary" href="{{ destination }}">{{ t.processing_reading_open_memory if ref.family == 'atomic-memory' else t.processing_open_saved_result }} →</a>{% endif %}
+      <span class="processing-caption">{{ t.revision }} {{ ref.revision }}</span>
+    </div>
+  </div>
+{% endmacro %}
+
+{% macro processing_attempt(record, primary=false, show_results=true) %}
+{% set heading_tag = 'h3' if processing_steps|default(false) or not primary else 'h1' %}
+{% set section_tag = 'h4' if heading_tag == 'h3' else 'h2' %}
+<article class="{{ 'processing-outcome' if primary else 'processing-past-attempt' }}" {% if primary and not processing_steps|default(false) %}aria-labelledby="processing-result-title"{% endif %}>
+  <div class="processing-result-header">
+    <span class="processing-eyebrow">{{ t.processing_reading_result }}</span>
+    <span class="badge bg-{{ 'green' if record.status == 'succeeded' else 'red' if record.status == 'failed' else 'secondary' }}-lt">{{ t['processing_attempt_' ~ record.status] }}</span>
+  </div>
+  {% set heading = t.get('processing_reading_' ~ (record.outcome if record.outcome else record.status), t.processing_reading_unknown) %}
+  {% if record.outcome == 'changed' %}{% set heading = heading.format(count=record.results|length) %}{% endif %}
+  {% if not processing_steps|default(false) %}<{{ heading_tag }} class="{{ 'processing-verdict' if primary else 'processing-attempt-title' }}" {% if primary %}id="processing-result-title"{% endif %}>{{ heading }}</{{ heading_tag }}>{% if not primary %}<p class="processing-caption">{{ record.started_at|display_time }}</p>{% endif %}{% endif %}
+  {% if source.source_id not in record.eligible_sources|map(attribute='source_id')|list %}<p class="processing-body">{{ t.processing_source_excluded }}</p>{% endif %}
+  {% if record.sources|length > 1 and not processing_steps|default(false) %}<p class="processing-caption processing-batch-note">{{ t.processing_reading_batch.format(count=record.sources|length) }}</p>{% endif %}
+
+  <section class="processing-answer-section">
+    {% if not processing_steps|default(false) %}<{{ section_tag }} class="processing-section-title">{{ t.processing_reading_reason }}</{{ section_tag }}>{% endif %}
+    {% if record.error_code %}<p class="processing-body">{{ t.get('processing_error_' ~ record.error_code, record.error_code) }}</p>
+    {% elif record.decisions %}
+      {% for decision in record.decisions[:3] %}<p class="processing-body">{{ decision.reason }}{% if decision.reason_truncated %} <span class="processing-caption">{{ t.processing_explanation_truncated }}</span>{% endif %}</p>{% endfor %}
+      {% if record.decisions|length > 3 %}<details class="processing-more"><summary>{{ t.processing_more_decisions }}</summary>{% for decision in record.decisions[3:] %}<p class="processing-body">{{ decision.reason }}{% if decision.reason_truncated %} <span class="processing-caption">{{ t.processing_explanation_truncated }}</span>{% endif %}</p>{% endfor %}</details>{% endif %}
+    {% else %}<p class="processing-body">{{ t.processing_reason_not_recorded if processing_steps|default(false) and record.outcome == 'no_candidates' else t.get('processing_reading_reason_' ~ (record.outcome if record.outcome else record.status), t.processing_reading_reason_unknown) }}</p>{% endif %}
+    {% if record.decisions_truncated %}<p class="processing-caption">{{ t.processing_explanation_limit }}</p>{% endif %}
+  </section>
+
+  {% if show_results and record.results %}<section class="processing-answer-section">
+    <{{ section_tag }} class="processing-section-title">{{ t.processing_reading_saved_memories.format(count=record.results|length) }}</{{ section_tag }}>
+    {% for result in record.results %}{{ memory_result(result.artifact, result.action) }}{% endfor %}
+  </section>{% endif %}
+  {% if show_results and record.retained_artifacts %}<section class="processing-answer-section">
+    <{{ section_tag }} class="processing-section-title">{{ t.processing_reading_retained_memories }}</{{ section_tag }}>
+    {% for ref in record.retained_artifacts %}{{ memory_result(ref) }}{% endfor %}
+  </section>{% endif %}
+
+  {% if not processing_steps|default(false) %}{{ processing_record_details(record) }}{% endif %}
+</article>
+{% endmacro %}
+
+{% macro processing_record_details(record) %}
+  <details class="processing-record-details">
+    <summary>{{ t.processing_reading_attempt_details }}</summary>
+    <div class="processing-details-body">
+      <dl class="processing-facts">
+        <dt>{{ t.processing_started }}</dt><dd>{{ record.started_at }}</dd>
+        <dt>{{ t.processing_completed }}</dt><dd>{{ record.completed_at or t.unknown_value }}</dd>
+        <dt>{{ t.processing_attempt_identity }}</dt><dd>{{ record.attempt_id }}</dd>
+        {% if record.previous_attempt_id %}<dt>{{ t.processing_previous_attempt }}</dt><dd>{{ record.previous_attempt_id }}</dd>{% endif %}
+        {% if record.error_code %}<dt>{{ t.processing_failure_stage }}</dt><dd>{{ t.get('processing_stage_' ~ record.stage, record.stage) }} · {{ record.error_code }}</dd>{% endif %}
+      </dl>
+      <h4 class="processing-detail-label">{{ t.processing_run_inputs }}</h4>
+      <ul class="processing-reference-list">{% for ref in record.sources %}<li>{{ ref.source_type }}/{{ ref.source_id }}</li>{% endfor %}</ul>
+      {% for result in record.results %}<p class="processing-reference">{{ t['processing_action_' ~ result.action] }} · {{ result.artifact.artifact_id }}@{{ result.artifact.revision }}</p>{% endfor %}
+      {% for ref in record.retained_artifacts %}<p class="processing-reference">{{ ref.artifact_id }}@{{ ref.revision }}</p>{% endfor %}
+      {% if record.decisions %}<p>{{ t.processing_decision_scope }}</p>{% endif %}
+    </div>
+  </details>
+{% endmacro %}

@@ -1,0 +1,6 @@
+{% if topic and topic.block and topic.block.block_id is defined and not topic.block.retried_at|default(none) %}
+<form class="mt-3" action="{{ link('processing/retry',lang=language) }}" method="post" hx-boost="false" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent=this.dataset.pending" data-pending="{{ t.processing_retry_submitting }}">
+  <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="block_id" value="{{ topic.block.block_id }}">
+  <button type="submit" class="btn btn-primary">{{ t.processing_retry_action }}</button>
+</form>
+{% endif %}

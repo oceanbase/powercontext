@@ -73,7 +73,7 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
 
     runner = deployment_runner(_settings(database))
     plan = runner.plan()
-    assert plan.revisions == ("v1_5_0_004",)
+    assert plan.revisions == ("v1_5_0_004", "v1_5_0_005", "v1_5_0_006")
     runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
 
     locators = [

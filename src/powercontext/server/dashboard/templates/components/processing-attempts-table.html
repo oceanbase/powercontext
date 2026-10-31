@@ -1,0 +1,66 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<div class="table-responsive" role="region" aria-label="{{ t.processing_attempts_tab }}" tabindex="0">
+<table class="processing-attempts-table">
+  <thead><tr><th scope="col">{{ t.home_activity_time }}</th><th scope="col">{{ t.processing_table_type }}</th><th scope="col">{{ t.processing_table_original }}</th><th scope="col">{{ t.processing_attempt_result_heading }}</th><th scope="col">{{ t.home_record_action }}</th></tr></thead>
+  <tbody>{% for item in processing_items %}
+    {% set badge = {'started':'blue','succeeded':'green','failed':'red','cancelled':'yellow','conflict':'orange'}.get(item.status, 'secondary') %}
+    <tr class="processing-attempt-row">
+      <td><time>{{ item.started_at|display_time }}</time></td>
+      <td><span class="badge bg-secondary-lt">{{ t.processing_table_memory_type }}</span>{% if item.previous_attempt_id %}<span class="d-block text-secondary small mt-2">{{ t.processing_table_retry }}</span>{% endif %}</td>
+      <td>{% for source in item.source_previews %}<div class="processing-table-input {{ 'mt-2' if not loop.first else '' }}">{% if source.preview is not none %}{{ source.preview|truncate(180,true) }}{% else %}<span class="text-secondary">{{ t.processing_attempt_source_unavailable }}</span>{% endif %}</div>{% else %}<span class="text-secondary">{{ t.processing_inputs_unknown }}</span>{% endfor %}{% if item.sources|length > 3 %}<p class="small text-secondary mt-2 mb-0">{{ t.processing_attempt_more_inputs.format(count=item.sources|length - 3) }}</p>{% endif %}</td>
+      <td><span class="badge bg-{{ badge }}-lt">{{ t.get('processing_attempt_status_' ~ item.status, item.status) }}</span><p class="mt-2 mb-1">{{ t.get('processing_attempt_outcome_' ~ item.outcome, t.processing_attempt_outcome_unrecorded) if item.outcome else t.processing_attempt_outcome_unrecorded }}</p>{% if item.error_code %}<p class="small text-danger mb-0">{{ t.get('processing_error_' ~ item.error_code,item.error_code) }}</p>{% elif item.decisions %}<p class="small text-secondary mb-0">{{ item.decisions[0].reason|truncate(120,true) }}</p>{% endif %}</td>
+      <td><button class="btn btn-sm btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#attempt-{{ item.attempt_id }}" aria-controls="attempt-{{ item.attempt_id }}" aria-expanded="false">{{ t.home_record_details }}</button></td>
+    </tr>
+    <tr class="processing-attempt-detail-row"><td colspan="5"><div class="collapse" id="attempt-{{ item.attempt_id }}"><div class="processing-attempt-details">
+      {% set attempt_failed = item.status in ['failed', 'cancelled', 'conflict'] %}
+      {% set attempt_heading = t.processing_attempt_failed if item.status == 'failed' else t.get('processing_attempt_status_' ~ item.status, item.status) %}
+      <div class="processing-history-flow">
+        <section class="processing-history-row">
+          <h4 class="processing-history-label"><span class="processing-step-number">1</span>{{ t.processing_history_input }}</h4>
+          <div class="processing-history-content">
+            {% for source in item.source_previews %}<div class="mb-3">{% if source.preview is not none %}<p class="processing-input-body">{{ source.preview|truncate(200,true) }}</p>{% else %}<p class="text-secondary">{{ t.processing_attempt_source_unavailable }}</p>{% endif %}{% if source.source_type == 'content' %}<a href="{{ link(record_type='sources',source_id=source.source_id,processing_attempts_cursor=none) }}">{{ t.processing_attempt_source_detail }} →</a>{% endif %}</div>{% else %}<p class="text-secondary mb-0">{{ t.processing_inputs_unknown }}</p>{% endfor %}
+          </div>
+        </section>
+        <section class="processing-history-row">
+          <h4 class="processing-history-label"><span class="processing-step-number">2</span>{{ t.processing_history_process }}</h4>
+          <div class="processing-history-content">
+            {% if attempt_failed %}
+            <div class="processing-failure-reason">
+              <p class="processing-failure-reason-title">{{ attempt_heading }}</p>
+              {% if item.error_code %}<p class="processing-history-text">{{ t.get('processing_error_' ~ item.error_code,item.error_code) }}</p>{% elif item.decisions %}{% for decision in item.decisions %}<p class="processing-history-text">{{ decision.reason }}{% if decision.reason_truncated %} <span class="processing-caption">{{ t.processing_explanation_truncated }}</span>{% endif %}</p>{% endfor %}{% else %}<p class="processing-history-text">{{ t.get('processing_reading_reason_' ~ (item.outcome if item.outcome else item.status), t.processing_reading_reason_unknown) }}</p>{% endif %}
+              {% if item.stage or item.error_code %}<p class="processing-failure-meta">{{ t.processing_attempt_failed_at }}{% if item.stage %}: {{ t.get('processing_stage_' ~ item.stage, item.stage) }} · <code>{{ item.stage }}</code>{% endif %}{% if item.error_code %} · <code>{{ item.error_code }}</code>{% endif %}</p>{% endif %}
+            </div>
+            {% else %}
+            {% if item.status == 'succeeded' %}<p class="mb-2"><span class="badge bg-green-lt">{{ t.processing_attempt_succeeded }}</span></p>{% endif %}
+            {% if item.error_code %}<p class="processing-history-text">{{ t.get('processing_error_' ~ item.error_code,item.error_code) }}</p>{% elif item.decisions %}{% for decision in item.decisions %}<p class="processing-history-text">{{ decision.reason }}{% if decision.reason_truncated %} <span class="processing-caption">{{ t.processing_explanation_truncated }}</span>{% endif %}</p>{% endfor %}{% else %}<p class="processing-history-text">{{ t.get('processing_reading_reason_' ~ (item.outcome if item.outcome else item.status), t.processing_reading_reason_unknown) }}</p>{% endif %}
+            {% endif %}
+            {% if item.decisions_truncated %}<p class="processing-caption">{{ t.processing_explanation_limit }}</p>{% endif %}
+          </div>
+        </section>
+        <section class="processing-history-row">
+          <h4 class="processing-history-label"><span class="processing-step-number">3</span>{{ t.processing_history_output }}</h4>
+          <div class="processing-history-content">
+            {% if item.results %}<ul class="list-unstyled mb-0">{% for result in item.results %}<li class="mb-2">{{ t['processing_action_' ~ result.action] }} · {% set destination=artifact_destination(result.artifact) %}{% if destination %}<a href="{{ destination }}">{{ t.processing_open_saved_result }} →</a>{% endif %}<span class="text-secondary small ms-2">{{ t.revision }} {{ result.artifact.revision }}</span></li>{% endfor %}</ul>{% else %}<p class="processing-history-text">{{ t.processing_history_no_outputs }}</p>{% endif %}
+          </div>
+        </section>
+      </div>
+      <div class="document-meta"><span>{{ t.processing_started }} {{ item.started_at|display_time }}</span>{% if item.completed_at %}<span>{{ t.processing_completed }} {{ item.completed_at|display_time }}</span>{% endif %}</div>
+      <p class="text-secondary small mt-2">{{ t.processing_attempt_window }} #{{ item.source_after }} → #{{ item.source_through }} · {{ t.processing_attempt_inputs.format(count=item.sources|length) }}</p>
+      <p class="text-secondary small mb-0">{{ t.processing_attempt_identity }} <code>{{ item.attempt_id }}</code>{% if item.previous_attempt_id %} · {{ t.processing_previous_attempt }} <code>{{ item.previous_attempt_id }}</code>{% endif %}</p>
+    </div></div></td></tr>
+  {% endfor %}</tbody>
+</table></div>

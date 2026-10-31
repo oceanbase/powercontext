@@ -16,13 +16,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from base64 import urlsafe_b64encode
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import TYPE_CHECKING, Literal, NoReturn, cast
+from uuid import uuid4
 
 from sqlalchemy import func, literal, select, true, tuple_, update
 from sqlalchemy.exc import OperationalError
@@ -63,6 +66,7 @@ from powercontext.builtin.inference import (
     InvalidInferenceOutputError,
     embed_query,
 )
+from powercontext.builtin.memory_processing import MemoryProcessingRecord, MemoryProcessingResult
 from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryIndexError,
     AtomicMemoryIndexFilter,
@@ -75,6 +79,7 @@ from powercontext.builtin.persistence.errors import (
     GenerationConflictError,
     RepositoryNotFoundError,
 )
+from powercontext.builtin.persistence.memory_processing import MemoryProcessingRepository
 from powercontext.builtin.persistence.memory_windows import MemorySourceWindowRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import (
@@ -161,6 +166,7 @@ class AtomicMemorySourceWindowProcessor:
         self.decision_observation_retention_days = decision_observation_retention_days
         self.windows = MemorySourceWindowRepository()
         self.tracing = tracing
+        self.history = MemoryProcessingRepository()
 
     async def flush(
         self,
@@ -187,11 +193,37 @@ class AtomicMemorySourceWindowProcessor:
                 return await self._retry_window(scope_id, limit, processing, selected_context, span)
 
     async def _retry_window(self, scope_id, limit, processing, context, span) -> MemoryFlushResult:
+        previous = None
         for attempt in range(3):
+            trace = _ProcessingAttempt(previous_attempt_id=previous)
             try:
-                result = await self._flush_once(scope_id, limit, processing, context, span)
-            except (AtomicMemoryConflictError, GenerationConflictError, RevisionConflictError):
-                if attempt == 2:
+                result = await self._flush_once(scope_id, limit, processing, context, span, trace)
+            except BaseException as error:
+                conflict = isinstance(
+                    error, (AtomicMemoryConflictError, GenerationConflictError, RevisionConflictError)
+                )
+                if trace.record is not None:
+                    previous = trace.record.attempt_id
+                    terminal = trace.record.model_copy(
+                        update={
+                            "status": "conflict"
+                            if conflict
+                            else "cancelled"
+                            if isinstance(error, asyncio.CancelledError)
+                            else "failed",
+                            "completed_at": datetime.now(UTC),
+                            "stage": trace.stage,
+                            "error_code": _processing_error_code(error),
+                        }
+                    )
+                    # A failed business transaction has closed. Preserve its attempt
+                    # independently; failed storage leaves an explicitly unconfirmed start.
+                    try:
+                        async with self.application.database.transaction() as connection:
+                            await self.history.finish(connection, terminal)
+                    except Exception:
+                        error.add_note("The processing history completion could not be saved.")
+                if not conflict or attempt == 2:
                     raise
             else:
                 if span is not None:
@@ -200,7 +232,7 @@ class AtomicMemorySourceWindowProcessor:
                 return result
         raise AssertionError("unreachable")
 
-    async def _flush_once(self, scope_id, limit, processing, context, span) -> MemoryFlushResult:
+    async def _flush_once(self, scope_id, limit, processing, context, span, trace) -> MemoryFlushResult:
         application = self.application
         trigger = SourceWindowTrigger()
         async with application.database.transaction() as connection:
@@ -226,6 +258,18 @@ class AtomicMemorySourceWindowProcessor:
             await application.security.authorize_sources(
                 connection, scope_id, context, tuple(item.ref for item in eligible)
             )
+            trace.record = MemoryProcessingRecord(
+                scope_id=scope_id,
+                attempt_id=uuid4().hex,
+                previous_attempt_id=trace.previous_attempt_id,
+                source_after=action.after,
+                source_through=action.through,
+                sources=tuple(item.ref for item in window),
+                eligible_sources=tuple(item.ref for item in eligible),
+                started_at=datetime.now(UTC),
+            )
+            trace.record = await self.history.start(connection, trace.record)
+        trace.stage = "extract_compare"
         if eligible and self.pipeline is None:
             raise InferenceUnavailableError(
                 "atomic-memory-generation", "Source extraction and reconciliation are not configured"
@@ -248,6 +292,7 @@ class AtomicMemorySourceWindowProcessor:
                 await self._reduce_window(scope_id, context, processing, cursor, state, action, high_watermark)
             raise
         try:
+            trace.stage = "commit"
             finalized = await self._publish(
                 scope_id,
                 context,
@@ -263,6 +308,7 @@ class AtomicMemorySourceWindowProcessor:
                 decision,
                 observation,
                 high_watermark,
+                trace,
             )
         except Exception:
             self._emit_failed_observation(observation)
@@ -358,6 +404,7 @@ class AtomicMemorySourceWindowProcessor:
         decision,
         observation,
         high_watermark,
+        trace,
     ):
         application = self.application
         writes = tuple(write for item in prepared for write in item.plan.writes)
@@ -456,7 +503,57 @@ class AtomicMemorySourceWindowProcessor:
                 await self.windows.clear_consumed(connection, scope_id, action.through)
                 if processing is not None:
                     await processing.complete(connection, remaining_work=action.through < high_watermark)
+                await self._record_history(
+                    connection,
+                    trace,
+                    workset,
+                    prepared,
+                    results,
+                    decision,
+                    eligible,
+                    consulted_artifacts,
+                )
         return finalized
+
+    async def _record_history(
+        self, connection, trace, workset, prepared, results, decision, eligible, consulted_artifacts
+    ):
+        held = decision is not None and decision.verdict is MemoryWriteVerdict.HOLD
+        published = tuple(
+            MemoryProcessingResult(
+                action="merge" if item.plan.operation == "merge" else "revise" if item.plan.reads else "create",
+                artifact=result.primary.ref,
+                source_refs=result.primary.artifact.lineage.sources,
+            )
+            for item, result in zip(prepared, results, strict=not held)
+            if result.changed
+        )
+        retained = _retained_artifacts(workset)
+        outcome = (
+            "held"
+            if held
+            else "changed"
+            if published
+            else "ineligible"
+            if not eligible
+            else ("no_change" if workset.extracted_count else "no_candidates")
+        )
+        await self.history.finish(
+            connection,
+            trace.record.model_copy(
+                update={
+                    "status": "succeeded",
+                    "outcome": outcome,
+                    "stage": "complete",
+                    "completed_at": datetime.now(UTC),
+                    "decisions": tuple(workset.decisions),
+                    "decisions_truncated": workset.decision_count > len(workset.decisions),
+                    "results": published,
+                    "retained_artifacts": retained,
+                    "read_artifacts": consulted_artifacts,
+                }
+            ),
+        )
 
     async def _prepare(self, scope_id, eligible, pipeline, context):  # noqa: C901 - keep recovery in the authorized window
         workset = AtomicMemoryWindowWorkset()
@@ -485,6 +582,7 @@ class AtomicMemorySourceWindowProcessor:
             prompt_refs,
         )
         candidates = await pipeline.extract(extraction_input)
+        workset.extracted_count = len(candidates)
         await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
         admitted_prompts = {(ref.family, ref.artifact_id, ref.revision) for ref in prompt_refs}
         for ref in prompt_refs:
@@ -1040,6 +1138,12 @@ def related_window_match(
         return math.dist(request.query_vector, vector) <= request.max_distance
     return False
 
+@dataclass(slots=True)
+class _ProcessingAttempt:
+    previous_attempt_id: str | None = None
+    record: MemoryProcessingRecord | None = None
+    stage: str = "select"
+
 
 def _gate_evidence_text(value) -> str:
     if isinstance(value, AtomicMemoryEvidence):
@@ -1078,3 +1182,26 @@ def _input_item_count(value: object) -> int | None:
     if isinstance(evidence, (tuple, list)):
         return len(evidence)
     return None
+
+
+def _retained_artifacts(workset):
+    retained = {}
+    for key in workset.retained_keys:
+        target = workset.items.get(workset.resolve(key))
+        if target is not None and target.retain and not target.changed:
+            for read in target.origins:
+                retained[(read.ref.artifact_id, read.ref.revision)] = read.ref
+    return tuple(retained.values())
+
+
+def _processing_error_code(error):
+    """Persist a bounded failure category, never a provider exception message."""
+    categories = (
+        ((AtomicMemoryConflictError, GenerationConflictError, RevisionConflictError), "concurrent_change"),
+        ((asyncio.CancelledError,), "cancelled"),
+        ((InferenceUnavailableError,), "generation_unavailable"),
+        ((InferenceTimeoutError,), "model_timeout"),
+        ((InvalidInferenceOutputError,), "invalid_model_output"),
+        ((AtomicMemoryIndexError,), "memory_index_unavailable"),
+    )
+    return next((code for types, code in categories if isinstance(error, types)), "processing_failed")

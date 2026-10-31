@@ -1,0 +1,13 @@
+{% set topic = processing_topic_status|default(none) %}
+{% if request.query_params.get('retry_result') == 'accepted' %}<p class="alert alert-info" role="status" {% if not topic or topic.state != 'blocked' %}id="processing-status-heading"{% endif %}>{{ t.processing_retry_accepted }}</p>{% endif %}
+{% if topic and topic.state == 'blocked' %}
+<section class="card border-warning mb-4" aria-labelledby="processing-status-heading">
+  <div class="card-header"><h2 class="card-title" id="processing-status-heading">{{ t.home_topic_blocked }}</h2><span class="badge bg-red-lt ms-auto">{{ t.processing_topic_blocked }}</span></div>
+  <div class="card-body">
+    {% include 'components/topic-diagnosis.html' %}
+    {% if not topic.block %}<p>{{ t.home_issue_reason_unknown }}</p>{% endif %}
+    <p class="text-secondary small mt-3 mb-0">{{ t.processing_topic_positions.format(cursor=topic.source_cursor, head=topic.source_head) }}</p>
+    <a class="d-inline-block mt-3" href="{{ link('runtime') }}">{{ t.runtime }} →</a>
+  </div>
+</section>
+{% elif errors.get('processing_topic_status') %}{{ read_error(errors.processing_topic_status,t.topic_memory) }}{% endif %}

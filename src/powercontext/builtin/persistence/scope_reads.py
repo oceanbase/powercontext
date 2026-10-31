@@ -131,6 +131,23 @@ async def content_rows(connection, scope, *, browse=None, families=(), selected=
     return rows, descriptor
 
 
+async def source_artifacts(connection, scope, source_id, *, limit):
+    """Read bounded exact revision identities that directly cite one Content Source."""
+    sources = ARTIFACT_LINEAGE_SOURCES_TABLE
+    statement = (
+        select(sources.c.family, sources.c.artifact_id, sources.c.revision)
+        .where(
+            sources.c.scope_id == scope,
+            sources.c.source_type == "content",
+            sources.c.source_id == source_id,
+        )
+        .distinct()
+        .order_by(sources.c.family, sources.c.artifact_id, sources.c.revision.desc())
+        .limit(limit)
+    )
+    return [dict(row) for row in (await connection.execute(statement)).mappings()]
+
+
 async def usage_rows(connection, scope, period, estimator, *, include_scope=False):
     statement = daily_usage_statement(
         (scope,),

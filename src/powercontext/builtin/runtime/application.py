@@ -1112,6 +1112,10 @@ class ScopedContextApplication:
                 and not request.include_reuse
             ):
                 empty = PreparedContextBuilder().empty()
+                if self._runtime.context_usage is not None and self._runtime.context_usage.recording_enabled:
+                    await self._runtime.context_usage.record_preparation(
+                        self.scope_id, PreparedContextBuild(context=empty, origins=())
+                    )
                 return (
                     self._attach_receipt(request, PreparedContextBuild(context=empty, origins=()), ReceiptEvidence())
                     if request.include_receipt
@@ -1251,6 +1255,8 @@ class ScopedContextApplication:
         evidence: ReceiptEvidence | None,
     ) -> PrepareContextResult:
         """Expose only explicitly requested diagnostics and current reuse proof."""
+        if self._runtime.context_usage is not None and self._runtime.context_usage.recording_enabled:
+            await self._runtime.context_usage.record_preparation(self.scope_id, build)
         context = self._attach_receipt(request, build, evidence)
         if request.include_reuse:
             atomic = self._runtime.atomic_memory
@@ -3796,9 +3802,25 @@ class ScopedAtomicMemoryApplication:
         async with self._runtime._scope_operation(self.scope_id):
             return await self._scoped.manifest(**kwargs)
 
-    async def list(self, **kwargs):
+    async def list(self, *, sort_by="identity", period="7d", **kwargs):
+        from powercontext.builtin.records import BaseOperationNotSupportedError, InvalidBaseAccessRequestError
+        from powercontext.builtin.runtime.atomic_memory import AtomicMemoryPage
+
+        if sort_by not in {"identity", "recall_count"}:
+            raise InvalidBaseAccessRequestError("sort_by", "must be identity or recall_count")
         async with self._runtime._scope_operation(self.scope_id):
-            return await self._scoped.list(**kwargs)
+            if sort_by == "identity":
+                return await self._scoped.list(**kwargs)
+            usage = self._runtime.context_usage
+            if usage is None:
+                raise BaseOperationNotSupportedError("artifact_family", "atomic-memory", "recall ranking")
+            async with self._scoped._read(kwargs.get("context")) as connection:
+                statement, counts, cursor = await usage.memory_list_query(
+                    connection, self.scope_id, self._scoped, period=period, **kwargs
+                )
+                rows = (await connection.execute(statement)).mappings().all()
+                items = await self._scoped.application.service.read_many(connection, self.scope_id, rows)
+            return AtomicMemoryPage(items, cursor, counts)
 
     async def search(self, query: str, *, _trace: bool = True, **kwargs):
         async with self._runtime._scoped_operation(
@@ -4425,6 +4447,15 @@ class BuiltinRuntime:
         self._scope_operations: dict[tuple[asyncio.Task[Any] | None, str], ScopeDescriptor] = {}
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
         self._clock = _utc_now if clock is None else clock
+        from powercontext.builtin.runtime.context_usage import ContextUsageService
+
+        self.context_usage = (
+            ContextUsageService(
+                primary_database, atomic_memory_application.security, atomic_memory_application.cursor, self._clock
+            )
+            if primary_database is not None and atomic_memory_application is not None
+            else None
+        )
         self._tracing = tracing
         self._scheduled_source_runner = scheduled_source_runner
         self._scheduled_experience_runner = scheduled_experience_runner
@@ -4517,6 +4548,7 @@ class BuiltinRuntime:
                         statistics,
                         self._clock(),
                         self._records(),
+                        self.context_usage,
                     )
 
     async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> None:

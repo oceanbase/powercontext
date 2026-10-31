@@ -17,9 +17,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -27,8 +29,8 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoes
 from pydantic import ValidationError
 
 from powercontext.server.dashboard.api import DashboardAPI, ReadError, segment
-from powercontext.server.dashboard.content import RECORDS, load_content, load_profile, load_record
-from powercontext.server.dashboard.markdown import handoff_markdown
+from powercontext.server.dashboard.content import RECORDS, load_content, load_profile, load_record, select_note
+from powercontext.server.dashboard.markdown import handoff_markdown, profile_html
 from powercontext.server.dashboard.navigation import (
     collection_return,
     directory_context,
@@ -57,6 +59,8 @@ PAGES = {
     "handoff-download",
     "usage",
     "review",
+    "processing",
+    "runtime",
     "entry",
     *RECORDS,
 }
@@ -64,6 +68,30 @@ ENV = Environment(
     loader=FileSystemLoader(ROOT / "templates"), autoescape=select_autoescape(), undefined=StrictUndefined
 )
 ENV.policies["json.dumps_kwargs"] = {"sort_keys": True, "ensure_ascii": False}
+ENV.filters["markdown"] = profile_html
+
+
+def display_time(value):
+    try:
+        timestamp = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    except ValueError:
+        return str(value)
+    return (
+        timestamp.replace(tzinfo=UTC).strftime("%Y-%m-%d %H:%M UTC")
+        if timestamp.tzinfo is None
+        else timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    )
+
+
+ENV.filters["display_time"] = display_time
+
+
+def plural(t, key, count):
+    """Pick a singular label when the translation provides one, then format the count."""
+    label = t[key] if count != 1 else t.get(f"{key}_one", t[key])
+    return label.format(count=count)
+
+
 router = APIRouter()
 
 
@@ -73,8 +101,18 @@ def render(
     partial = (
         request.headers.get("HX-Request") == "true" and request.headers.get("HX-History-Restore-Request") != "true"
     )
+    title_key = ctx["page"]
+    if title_key == "processing":
+        title_key = {
+            "sources": "processing_sources_title",
+            "attempts": "processing_sources_title",
+            "dreams": "processing_dream_tab",
+        }.get(ctx["processing_kind"], "processing")
+    elif title_key == "usage":
+        title_key = "usage_resources" if ctx["usage_tab"] == "resources" else "observation_usage"
+    ctx["document_title"] = f"{ctx['t'][title_key]} · PowerContext"
     response = HTMLResponse(
-        ENV.get_template(fragment if partial else full).render(**ctx),
+        ENV.get_template(fragment if partial else full).render(plural=plural, **ctx),
         status_code=ctx["status"],
         headers={
             "Cache-Control": "no-store",
@@ -110,6 +148,11 @@ def links(request: Request, ctx: dict[str, Any]):
                     "skill_revision_cursor",
                     "handoff_revision_cursor",
                     "kind",
+                    "generate",
+                    "generation_mode",
+                    "evidence_type",
+                    "generation_cursor",
+                    "generation_history",
                     "cursor",
                     "experience_cursor",
                     "skill_cursor",
@@ -130,6 +173,7 @@ def links(request: Request, ctx: dict[str, Any]):
                     "notes_revision_cursor",
                     "notes_history",
                     "note_state",
+                    "note_sort",
                     "skill_page",
                     "experience_page",
                     "experience_history",
@@ -140,6 +184,24 @@ def links(request: Request, ctx: dict[str, Any]):
                     "candidate_kind",
                     "evidence",
                     "artifact_cursor",
+                    "record_type",
+                    "source_id",
+                    "run_id",
+                    "run_status",
+                    "processing_sources_cursor",
+                    "processing_sources_history",
+                    "processing_runs_cursor",
+                    "processing_attempts_cursor",
+                    "processing_attempts_history",
+                    "processing_runs_history",
+                    "processing_day",
+                    "processing_period",
+                    "processing_start",
+                    "processing_end",
+                    "usage_cursor",
+                    "usage_history",
+                    "usage_id",
+                    "usage_kind",
                 }
             })
         if destination == "methods" and ctx["page"] in {"experience", "skill"}:
@@ -161,7 +223,7 @@ def links(request: Request, ctx: dict[str, Any]):
             query = {"scope": params["scope"], "period": ctx["period"]}
         else:
             _drop_foreign_revision_cursors(query, params, request.query_params)
-            query.update(params)
+        query.update(params)
         if destination.startswith("evidence/"):
             destination = "evidence/" + segment(destination.removeprefix("evidence/"))
         return (
@@ -202,7 +264,13 @@ def _drop_foreign_revision_cursors(query: dict[str, Any], params: dict[str, Any]
 def reading_link_context(
     request: Request, ctx: dict[str, Any], destination: str, params: dict[str, Any], query: dict[str, Any]
 ) -> None:
-    if destination.startswith("evidence/") and ctx["page"] in {"profile", "handoff-detail"} and ctx.get("return_to"):
+    if destination.startswith("evidence/") and ctx["page"] == "notes":
+        query["lang"] = ctx["language"]
+    if (
+        destination.startswith("evidence/")
+        and ctx["page"] in {"profile", "handoff-detail", "notes"}
+        and ctx.get("return_to")
+    ):
         query["return_to"] = ctx["return_to"]
     if destination in {"handoff-detail", "handoff-download"}:
         source_return = (
@@ -226,11 +294,18 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
     return_page = "profile" if page == "profile" else "methods" if page in {"experience", "skill"} else "handoff"
     ctx: dict[str, Any] = {
         **presentation(request),
+        "request": request,
         "page": page,
         "parent_page": PARENTS.get(page),
         "scope": request.query_params.get("scope"),
         "period": request.query_params.get("period", "7d"),
         "method_kind": method_kind,
+        "generation_open": request.query_params.get("generate") == "1",
+        "generation_mode": request.query_params.get("generation_mode", "dream"),
+        "generation_idempotency_key": str(uuid4()),
+        "generation_evidence_type": "source",
+        "generation_options": [],
+        "generation_pager": None,
         "search_query": request.query_params.get("q", "").strip() or None,
         "search_mode": request.query_params.get("mode", "auto"),
         "search_used_mode": None,
@@ -240,6 +315,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "topic_cursor": request.query_params.get("topic_cursor"),
         "search_limited": False,
         "note_state": request.query_params.get("note_state", "active"),
+        "note_sort": request.query_params.get("note_sort", "recall_count"),
         "data": {
             "title": "PowerContext",
             "summary": "",
@@ -261,6 +337,18 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "page_error": None,
         "status": 200,
         "stats": None,
+        "inventory": None,
+        "home_activity": [],
+        "home_changes": [],
+        "usage_records": [],
+        "home_usage_records": [],
+        "usage_selected": None,
+        "usage_pager": None,
+        "usage_can_feedback": False,
+        "usage_feedback_id": "",
+        "usage_tab": request.query_params.get("view", "resources"),
+        "work_followup": [],
+        "processing_summaries": {},
         "selected_note": None,
         "requested_note": request.query_params.get("artifact") if page == "notes" else None,
         "notes_pager": None,
@@ -270,6 +358,33 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "related_sources": [],
         "source_record": None,
         "source": None,
+        "processing_kind": "overview",
+        "processing_overview": None,
+        "processing_coverage": None,
+        "runtime_health": {},
+        "runtime_configuration": None,
+        "runtime_checked_at": None,
+        "processing_status": None,
+        "processing_day": None,
+        "processing_period": request.query_params.get("processing_period", request.query_params.get("period", "7d")),
+        "processing_start": request.query_params.get("processing_start", ""),
+        "processing_end": request.query_params.get("processing_end", ""),
+        "processing_bounds": None,
+        "processing_order": "oldest",
+        "processing_source": None,
+        "processing_run": None,
+        "processing_run_sources": [],
+        "processing_items": [],
+        "processing_pager": None,
+        "processing_summary": None,
+        "processing_summary_window": "7d",
+        "source_artifacts": None,
+        "processing_history": None,
+        "processing_memory_previews": {},
+        "processing_results": {},
+        "processing_attempts_pager": {},
+        "note_processing": None,
+        "note_usage": None,
         "topic_memory_pager": None,
         "request_revision": request.query_params.get("revision"),
         "profile_history_view": request.query_params.get("view") == "history",
@@ -288,6 +403,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
     }
     if ctx["return_to"]:
         ctx["return_to"] = with_language(ctx["return_to"], ctx["language"])
+    ctx["return_to_usage"] = bool(ctx["return_to"] and ctx["return_to"].startswith("/dashboard/usage?"))
     ctx["link"] = links(request, ctx)
     return ctx
 
@@ -379,6 +495,7 @@ def validate_selection(page: str, ctx: dict[str, Any]) -> None:
         ctx["period"] not in {"today", "7d", "30d"}
         or ctx["method_kind"] not in {"experience", "skill"}
         or len(ctx["search_query"] or "") > (8192 if page == "notes" else 2000)
+        or ctx["note_sort"] not in {"identity", "recall_count"}
         or ctx["note_state"] not in {"active", "forgotten", "merged", "retired"}
     ):
         raise ReadError(422, "invalid_request")
@@ -393,7 +510,7 @@ async def index(request: Request) -> RedirectResponse:
 @router.get("/evidence/{source_id:path}")
 async def evidence(request: Request, source_id: str) -> HTMLResponse:
     origin = request.query_params.get("origin", "experience")
-    ctx = initial_context(request, origin if origin in RECORDS or origin == "profile" else "experience")
+    ctx = initial_context(request, origin if origin in RECORDS or origin in {"profile", "notes"} else "experience")
     api = DashboardAPI(request)
     ctx.update(source_id=source_id, origin=ctx["page"], source_type=request.query_params.get("source_type", ""))
     try:
@@ -401,6 +518,13 @@ async def evidence(request: Request, source_id: str) -> HTMLResponse:
         await scope_context(api, ctx, descriptor)
         if ctx["page"] == "profile":
             await load_profile(api, request, ctx, include_history=False)
+        elif ctx["page"] == "notes":
+            from powercontext.server.dashboard.content import validate_note_selection
+
+            validate_note_selection(request, ctx)
+            if not ctx.get("note_selection"):
+                raise ReadError(422, "invalid_request")  # noqa: TRY301
+            await select_note(api, ctx)
         else:
             await load_record(api, request, ctx, include_history=False)
         if not any(
@@ -587,9 +711,151 @@ async def review_decision(request: Request) -> Response:
     ctx = initial_context(request, "review")
     api = DashboardAPI(request)
     try:
-        scope, kind, candidate_id = await submit_review(api, request)
+        scope, kind, candidate_id, status = await submit_review(api, request)
         return RedirectResponse(
-            "/dashboard/review?" + urlencode({"scope": scope, "candidate_kind": kind, "candidate_id": candidate_id}),
+            "/dashboard/review?"
+            + urlencode({
+                "scope": scope,
+                "candidate_kind": kind,
+                "candidate_id": candidate_id,
+                "review_status": status,
+                "lang": ctx["language"],
+                "period": ctx["period"],
+            }),
+            status_code=303,
+        )
+    except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
+        ctx.update(page_error=error, status=error.status)
+        return render(request, ctx)
+    finally:
+        await api.client.aclose()
+
+
+@router.post("/profile/generate")
+async def profile_generation(request: Request) -> Response:
+    from powercontext.server.dashboard.generation import submit_profile_generation
+
+    ctx = initial_context(request, "profile")
+    api = DashboardAPI(request)
+    try:
+        scope, result = await submit_profile_generation(api, request)
+        params = {"scope": scope, "period": ctx["period"], "lang": ctx["language"]}
+        if result.candidate_id is not None:
+            params.update(candidate_id=result.candidate_id, candidate_kind="artifact", review_status="pending")
+            destination = "/dashboard/review"
+        else:
+            params["profile_generation_result"] = result.status.value
+            destination = "/dashboard/profile"
+        return RedirectResponse(destination + "?" + urlencode(params), status_code=303)
+    except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
+        ctx.update(page_error=error, status=error.status)
+        return render(request, ctx)
+    finally:
+        await api.client.aclose()
+
+
+@router.post("/methods/dream")
+async def method_dream_generation(request: Request) -> Response:
+    from powercontext.server.dashboard.generation import submit_dream_generation
+
+    ctx = initial_context(request, "methods")
+    api = DashboardAPI(request)
+    try:
+        scope, result = await submit_dream_generation(api, request)
+        params = {
+            "scope": scope,
+            "period": ctx["period"],
+            "lang": ctx["language"],
+            "record_type": "dreams",
+            "run_id": result.run_id,
+        }
+        return RedirectResponse("/dashboard/processing?" + urlencode(params), status_code=303)
+    except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
+        ctx.update(page_error=error, status=error.status)
+        return render(request, ctx)
+    finally:
+        await api.client.aclose()
+
+
+@router.post("/processing/retry")
+async def processing_retry(request: Request) -> Response:
+    from powercontext.server.dashboard.recovery import submit_topic_retry
+
+    ctx = initial_context(request, "processing")
+    api = DashboardAPI(request)
+    try:
+        scope = await submit_topic_retry(api, request)
+        params = {
+            "scope": scope,
+            "period": ctx["period"],
+            "lang": ctx["language"],
+            "record_type": "attempts",
+            "retry_result": "accepted",
+        }
+        return RedirectResponse(
+            "/dashboard/processing?" + urlencode(params) + "#processing-status-heading", status_code=303
+        )
+    except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
+        ctx.update(page_error=error, status=error.status)
+        return render(request, ctx)
+    finally:
+        await api.client.aclose()
+
+
+@router.post("/methods/generate")
+async def method_generation(request: Request) -> Response:
+    from powercontext.server.dashboard.generation import submit_generation
+
+    ctx = initial_context(request, "methods")
+    api = DashboardAPI(request)
+    try:
+        scope, family, result = await submit_generation(api, request)
+        params = {"scope": scope, "period": ctx["period"], "lang": ctx["language"]}
+        if result.candidate is not None:
+            params.update(
+                candidate_id=result.candidate.candidate_id, candidate_kind="artifact", review_status="pending"
+            )
+            destination = "/dashboard/review"
+        else:
+            params.update(kind=family, generation_result="no_op")
+            destination = "/dashboard/methods"
+        return RedirectResponse(destination + "?" + urlencode(params), status_code=303)
+    except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
+        ctx.update(page_error=error, status=error.status)
+        return render(request, ctx)
+    finally:
+        await api.client.aclose()
+
+
+@router.post("/usage/feedback")
+async def usage_feedback(request: Request) -> Response:
+    from powercontext.server.dashboard.usage import submit_feedback
+
+    ctx = initial_context(request, "usage")
+    api = DashboardAPI(request)
+    try:
+        scope, payload = await submit_feedback(api, request)
+        return RedirectResponse(
+            "/dashboard/usage?"
+            + urlencode({
+                "scope": scope,
+                "period": ctx["period"],
+                "lang": ctx["language"],
+                "view": "records",
+                "usage_id": payload.record_id,
+                "usage_kind": payload.record_kind,
+                "feedback_saved": "1",
+            }),
             status_code=303,
         )
     except ReadError as error:
@@ -602,13 +868,17 @@ async def review_decision(request: Request) -> Response:
 
 
 @router.get("/{page}")
-async def screen(request: Request, page: str) -> HTMLResponse:
+async def screen(request: Request, page: str) -> HTMLResponse:  # noqa: C901 -- Keep page loading, recovery and final rendering explicit.
     ctx = initial_context(request, page if page in PAGES else "home")
     api = DashboardAPI(request)
     try:
         validate_selection(page, ctx)
         if page == "entry":
             await load_entry_scopes(api, request, ctx)
+        elif page == "runtime":
+            from powercontext.server.dashboard.runtime import load_runtime
+
+            await load_runtime(api, ctx)
         elif not await load_builtin_page(api, request, ctx):
             descriptor = await default_scope(api, ctx)
             if ctx["scope"]:
@@ -619,7 +889,23 @@ async def screen(request: Request, page: str) -> HTMLResponse:
                 await load_content(api, request, ctx)
             if ctx["errors"] and not ctx["scope_descriptor"] and not ctx["record_only"]:
                 raise next(iter(ctx["errors"].values()))
-        if page != "entry" and not ctx["scope_descriptor"] and not ctx["record_only"]:
+        if page == "notes" and ctx["data"]["notes"]:
+            from powercontext.server.dashboard.content import load_note_counts
+
+            await load_note_counts(api, ctx)
+        if page == "home" and ctx["scope_descriptor"]:
+            from powercontext.server.dashboard.processing import load_home_processing
+
+            await load_home_processing(api, ctx)
+        if page == "methods" and ctx["scope_descriptor"]:
+            from powercontext.server.dashboard.generation import load_generation
+
+            await load_generation(api, request, ctx)
+        if page == "usage":
+            from powercontext.server.dashboard.usage import finish_usage
+
+            await finish_usage(api, request, ctx)
+        if page not in {"entry", "runtime"} and not ctx["scope_descriptor"] and not ctx["record_only"]:
             await load_entry_scopes(api, request, ctx)
     except ReadError as error:
         if error.status == 401:

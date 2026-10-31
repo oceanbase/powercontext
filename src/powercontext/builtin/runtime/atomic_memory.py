@@ -258,6 +258,7 @@ def deferred_decision_audit(context: ArtifactSearchExecutionContext | None):
 class AtomicMemoryPage:
     items: tuple[AtomicMemoryRecord, ...]
     next_cursor: str | None = None
+    recall_counts: dict[str, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -677,16 +678,18 @@ class ScopedAtomicMemory:
             next_cursor=self.application.cursor.encode(bound, items[-1].ref.artifact_id) if len(rows) > limit else None,
         )
 
-    def list_query(
+    def list_query(  # noqa: C901 - Keep lifecycle, identity and cursor filters in one canonical query.
         self,
         connection: AsyncConnection,
         *,
         states: tuple[str, ...] = ("active",),
         kind: str | None = None,
+        artifact_ids: tuple[str, ...] | None = None,
         tag_filter: TagFilter | None = None,
         limit: int = 50,
         cursor: str | None = None,
         context=None,
+        paginate: bool = True,
     ):
         """Build the canonical browse window; the caller owns its read transaction and PEP."""
         _validate_limit(limit)
@@ -709,6 +712,16 @@ class ScopedAtomicMemory:
             "tags": None if tag_filter is None else list(tag_filter.keys),
             "tag_match": None if tag_filter is None else tag_filter.match,
         }
+        if artifact_ids is not None:
+            if not 1 <= len(artifact_ids) <= 100:
+                raise InvalidBaseAccessRequestError("artifact_ids", "must contain from 1 to 100 identities")
+            artifact_ids = tuple(
+                sorted({
+                    ArtifactRef(family="atomic-memory", artifact_id=value, revision=1).artifact_id
+                    for value in artifact_ids
+                })
+            )
+            bound["artifact_ids"] = list(artifact_ids)
         after = self.application.cursor.after_text(cursor, bound)
         table = ARTIFACT_HEADS_TABLE
         statement = (
@@ -723,8 +736,10 @@ class ScopedAtomicMemory:
                 ),
             )
             .order_by(table.c.artifact_id)
-            .limit(limit + 1)
+            .limit(limit + 1 if paginate else None)
         )
+        if artifact_ids is not None:
+            statement = statement.where(table.c.artifact_id.in_(artifact_ids))
         if states == ("active",):
             from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
             from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
@@ -794,6 +809,7 @@ class ScopedAtomicMemory:
         *,
         states: tuple[str, ...] = ("active",),
         kind: str | None = None,
+        artifact_ids: tuple[str, ...] | None = None,
         tag_filter: TagFilter | None = None,
         limit: int = 50,
         cursor: str | None = None,
@@ -804,6 +820,7 @@ class ScopedAtomicMemory:
                 connection,
                 states=states,
                 kind=kind,
+                artifact_ids=artifact_ids,
                 tag_filter=tag_filter,
                 limit=limit,
                 cursor=cursor,

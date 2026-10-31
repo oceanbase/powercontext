@@ -16,51 +16,59 @@ limitations under the License.
 
 <div class="usage-view">
 <style>
+  me .usage-record-table { width: 100%; table-layout: fixed; font-size: .875rem; }
+  me .usage-record-table th, me .usage-record-table td { padding: 1rem 1rem 1rem 0; border-bottom: 1px solid var(--tblr-border-color); text-align: start; vertical-align: top; }
+  me .usage-record-table th { font-size: .8125rem; color: var(--tblr-secondary-color); font-weight: 500; }
+  me .usage-record-table th:first-child { width: 11rem; }
+  me .usage-record-table th:nth-child(3) { width: 8rem; }
+  me .usage-record-table th:nth-child(4) { width: 5rem; }
+  me .usage-record-time { color: var(--tblr-secondary-color); font-size: .8125rem; font-variant-numeric: tabular-nums; }
+  @media (max-width: 767.98px) { me .usage-record-table { min-width: 40rem; } }
+  me .usage-content-table { width: 100%; min-width: 56rem; table-layout: fixed; font-size: .875rem; }
+  me .usage-content-table th, me .usage-content-table td { padding: 1rem .75rem; border-bottom: 1px solid var(--tblr-border-color); vertical-align: top; text-align: start; }
+  me .usage-content-table th { color: var(--tblr-secondary-color); font-weight: 500; font-size: .8125rem; }
+  me .usage-content-table th:first-child { width: 3.5rem; }
+  me .usage-content-table th:nth-child(3) { width: 7rem; }
+  me .usage-content-table th:nth-child(4) { width: 4rem; }
+  me .usage-content-table th:nth-child(5) { width: 11rem; }
+  me .usage-content-table time { color: var(--tblr-secondary-color); font-size: .8125rem; }
+  me .usage-content-text { color: var(--tblr-body-color); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+  me .usage-content-link { display: inline-block; margin-top: .5rem; font-size: .8125rem; }
+  me .usage-content-expand { margin-top: .5rem; }
+  me .usage-content-expand > summary { cursor: pointer; color: var(--tblr-secondary-color); font-size: .8125rem; }
   me .usage-summary { border-inline-end: 1px solid var(--tblr-border-color); }
   me .comparison-values div { display: flex; justify-content: space-between; gap: var(--tblr-spacer-3); }
   me .table tfoot th { white-space: normal; }
+  me .usage-record-detail { max-width: 72rem; }
+  me .usage-detail-back { display: inline-block; margin-bottom: 1.5rem; }
+  me .usage-detail-heading h1 { margin: 0; font-size: 1.5rem; line-height: 1.5; }
+  me .usage-result { padding: 1.25rem 1.5rem; margin-top: 1rem; border-radius: .5rem; background: var(--tblr-bg-surface-secondary); border-inline-start: 3px solid var(--tblr-border-color); }
+  me .usage-result-warning { border-inline-start-color: var(--tblr-warning); }
+  me .usage-result h2 { font-size: 1.125rem; line-height: 1.5; margin: 0; }
+  me .usage-result p { line-height: 1.7; margin: .5rem 0 0; }
+  me .usage-detail-content { margin-top: 2rem; }
+  me .usage-content-empty { padding: 1rem 0; margin: 0; color: var(--tblr-secondary-color); }
+  me .usage-detail-feedback { border-top: 1px solid var(--tblr-border-color); padding-top: 1.5rem; margin-top: 1.5rem; }
+  me .usage-feedback-editor > summary, me .usage-detail-technical > summary { cursor: pointer; }
+  me .usage-feedback-editor > summary { color: var(--tblr-primary); }
+  me .usage-feedback-editor form { padding: 1rem 1.25rem; margin-top: 1rem; background: var(--tblr-bg-surface-secondary); border-radius: .5rem; }
+  me .usage-detail-technical { margin-top: 1.5rem; border-top: 1px solid var(--tblr-border-color); padding-top: 1rem; color: var(--tblr-secondary-color); font-size: .8125rem; }
+  me .usage-detail-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .5rem 1.25rem; }
+  me .usage-detail-facts dt { font-weight: 400; }
+  me .usage-detail-facts dd { margin: 0; overflow-wrap: anywhere; }
+  @media (max-width: 575px) { me .usage-result { padding: 1rem; } me .usage-detail-facts { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 1199.98px) { me .usage-summary { border-inline-end: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: var(--tblr-spacer-3); } }
 </style>
 {% from 'macros.html' import comparison_chart, number, disclosure, coverage_notice with context %}
 {% from 'components/page-heading.html' import page_heading %}
-{% call page_heading(t.usage, t.usage_subtitle) %}
-  <div class="period-control text-md-end">
-    <div class="dropdown">
-      <button class="btn dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">{{ t[period] }}</button>
-      <div class="dropdown-menu dropdown-menu-end w-100">
-      {% for value in ['today', '7d', '30d'] %}
-      <a class="dropdown-item {% if period == value %}active{% endif %}" href="{{ link('usage', period=value) }}" {% if period == value %}aria-current="true"{% endif %}>{{ t[value] }}</a>
-      {% endfor %}
-      </div>
-    </div>
-    {% if stats %}<small class="d-block mt-2">{{ stats.start }} / {{ stats.end }} · UTC</small>{% endif %}
-  </div>
-{% endcall %}
+{% if not usage_selected %}
+{% include 'components/observation-header.html' %}
+{% endif %}
+{% if usage_tab == 'records' %}{% include 'components/usage-records.html' %}{% else %}
 {% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% else %}
 <section class="card usage-sheet">
   <div class="card-body">
-    <div class="row row-cards">
-      <div class="col-xl-4 usage-summary">
-        <h2>{{ t.comparison }}{% if stats.percent is not none %}<br>{{ t.increased if stats.token_reduction < 0 else t.reduced }}{% endif %}</h2>
-        {% if not stats.estimator_available %}<h3 class="my-4">{{ t.no_estimates }}</h3><p class="text-secondary">{{ t.no_estimates_body }}</p>
-        {% elif stats.empty %}<h3 class="my-4">{{ t.usage_empty }}</h3>
-        {% elif stats.percent is not none %}
-        <div class="big-number display-3 my-3 {{ 'text-body' if stats.token_reduction < 0 else 'text-primary' }}">{{ stats.percent }}<span>%</span><small class="fs-1 ms-2">{{ '↑' if stats.token_reduction < 0 else '↓' }}</small></div>
-        <p>{{ t.more_tokens if stats.token_reduction < 0 else t.fewer_tokens }} {{ number(stats.token_reduction|abs) }} tokens</p>
-        {% else %}<h3 class="my-4">{{ t.no_comparison }}</h3>{% endif %}
-        {% if stats.estimator_available %}<dl class="comparison-values my-4">
-          <div><dt class="fw-normal">{{ t.baseline }}</dt><dd class="mb-2">{{ number(stats.baseline_tokens) }}</dd></div>
-          <div><dt class="fw-normal">{{ t.recalled }}</dt><dd class="mb-2">{{ number(stats.recalled_tokens) }}</dd></div>
-        </dl>{% endif %}
-        {% if stats.comparable_preparations > 0 %}<p class="text-secondary">{{ coverage_notice() }}</p>{% endif %}
-      </div>
-      <div class="col-xl-8">
-        <div class="section-heading d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3"><h3>{{ t.daily_title }}</h3><span class="text-secondary small">tokens</span></div>
-        <div class="bar-chart">{{ comparison_chart() }}</div>
-      </div>
-    </div>
-    {% if stats.estimator_available %}<div class="usage-caption border-top mt-3 pt-3 text-secondary">{{ t.estimate_notice }}</div>{% endif %}
-    {% if stats.token_reduction < 0 %}<p class="mt-3">{{ t.negative_notice }}</p>{% endif %}
+    {% include 'components/token-comparison.html' %}
   </div>
 </section>
 <section class="mt-4">
@@ -87,4 +95,5 @@ limitations under the License.
 {% endif %}
 {% endif %}
 
+{% endif %}
 </div>
