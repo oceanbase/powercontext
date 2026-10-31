@@ -334,10 +334,10 @@ class RunningServer:
     def stop(self) -> None:
         try:
             self.server.should_exit = True
-            self.thread.join(timeout=15)
+            # Startup and shutdown may still own database work. Do not release
+            # their listener or inference resources until that work has finished.
+            self.thread.join()
             self.listener.close()
-            if self.thread.is_alive():
-                _fail("PowerContext Server did not stop")
         finally:
             if self.resources is not None:
                 self.resources.close()
@@ -2076,6 +2076,8 @@ def _start_server(database: Path, scheduler: Path) -> RunningServer:
         while not server.started and thread.is_alive() and time.monotonic() < deadline:
             time.sleep(0.05)
         if not server.started:
+            server.should_exit = True
+            thread.join()
             _fail("PowerContext Server did not start")
         return RunningServer(
             server=server,
@@ -2100,6 +2102,9 @@ def _start_configured_server(settings: ServerSettings, scheduler_path: Path) -> 
     while not server.started and thread.is_alive() and time.monotonic() < deadline:
         time.sleep(0.05)
     if not server.started:
+        # The startup budget determines failure, not how long safe cleanup takes.
+        server.should_exit = True
+        thread.join()
         listener.close()
         _fail("configured PowerContext Server did not start")
     return RunningServer(server=server, thread=thread, listener=listener, base_url=f"http://127.0.0.1:{port}")
