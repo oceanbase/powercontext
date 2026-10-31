@@ -74,10 +74,10 @@ async fn main() {
         fixture.token.take(),
     )
     .unwrap();
-    assert!(matches!(
-        api.server_info().await.unwrap(),
-        DiscoveryDocument::Server(_)
-    ));
+    let DiscoveryDocument::Server(server) = api.server_info().await.unwrap() else {
+        panic!("expected PowerContext discovery");
+    };
+    let server_id = server.server_id;
     if args
         .get(2)
         .is_some_and(|argument| argument == "discovery-only")
@@ -175,6 +175,10 @@ async fn main() {
     let expected = format!("{keyword} 中文 café\nSecond line.");
     let saved = manager.remember(generation, &submitted).await.unwrap();
     assert_eq!(saved.record.status, WriteStatus::Succeeded);
+    assert_eq!(
+        saved.record.context.server_id.as_deref(),
+        Some(server_id.as_str())
+    );
     let result = saved.result.unwrap();
     assert_eq!(
         saved.record.references,

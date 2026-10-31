@@ -250,6 +250,7 @@ def exercise_memory(client: httpx.Client, prefix: str) -> dict[str, object]:
             "rawUtf8BudgetBoundary": True,
             "emptyAndCappedSearchPresentation": True,
             "committedLostResponseUnknownWithoutReplay": True,
+            "unknownDraftNavigationDiscardConfirmed": True,
             "lateSavePreservesNewScopeDraft": True,
         }
 
@@ -352,6 +353,16 @@ def exercise_unknown_write(page: InstalledPage) -> None:
             if len(hits) != 1 or search_reference(hits[0]) != reference or counter.read_text(encoding="utf-8") != "1":
                 raise HarnessFailure("installed_unknown_write_replayed_or_missing")
             page.clear_note()
+            # Clearing the editable form does not discard the retained submitted
+            # input. Finish recovery explicitly before the next Server scenario.
+            page.button("连接")
+            page.confirm("丢弃尚未保存的输入？", accept=False)  # noqa: RUF001 - exact localized UI
+            page.element("//main//h1[normalize-space(.)='记忆']")
+            page.button("连接")
+            page.confirm("丢弃尚未保存的输入？", accept=True)  # noqa: RUF001 - exact localized UI
+            page.field("连接名称")
+            if counter.read_text(encoding="utf-8") != "1":
+                raise HarnessFailure("installed_unknown_navigation_replayed_write")
 
 
 def exercise_late_save(page: InstalledPage) -> None:
