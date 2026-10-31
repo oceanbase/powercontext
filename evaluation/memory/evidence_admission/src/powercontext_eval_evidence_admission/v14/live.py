@@ -43,18 +43,25 @@ def bind(value, supports) -> BoundRequest:
 
 
 class Extractor:
-    """Sends the cell-encoded payload to the model; restores cells and aliases on the way out."""
+    """Sends the cell-encoded payload to the model; restores cells and aliases on the way out.
+
+    The raw structured template and its usage are retained for replayable audit.
+    """
 
     def __init__(self, request, generator):
         self.request, self.generator = request, generator
+        self.raw_template = None
+        self.raw_usage = None
 
     async def generate(self, value, /):
         request = self.request
         if value != request.encoded.value:
             raise EvaluationError("v14_request_value_mismatch")
         generated = await self.generator.generate(request.encoded.payload)
+        self.raw_template = TemplateOutput.model_validate(generated.output)
+        self.raw_usage = generated.usage
         output = render(
-            TemplateOutput.model_validate(generated.output),
+            self.raw_template,
             request.encoded.cells,
             request.encoded.aliases,
             request_hash=cell_binding(request.encoded.cells),

@@ -33,8 +33,8 @@ from ..manifests import EvaluationError, load_suite
 from ..models import canonical, digest
 from ..runner import run_sample
 from ..v6.workflow import InputProbe
-from .codec import INSTRUCTIONS, TemplateOutput, cell_binding, render
-from .live import bind
+from .codec import INSTRUCTIONS, TemplateOutput
+from .live import Extractor, bind
 
 BASE_URL = "https://api.deepseek.com"
 MODEL = "deepseek-v4-flash"
@@ -118,13 +118,15 @@ async def run_once(output_dir: Path) -> dict[str, Any]:
             ),
             model_settings={"temperature": 0, "extra_body": {"thinking": {"type": "disabled"}}},
         )
-        raw = await generator.generate(request.encoded.payload)
-        template = TemplateOutput.model_validate(raw.output)
-        result["provider_usage"] = raw.usage.model_dump(mode="json")
+        extractor = Extractor(request, generator)
+        rendered = await extractor.generate(request.encoded.value)
+        template = extractor.raw_template
+        usage = extractor.raw_usage
+        if template is None or usage is None:
+            raise EvaluationError("v14_extractor_did_not_capture_output")
+        result["provider_usage"] = usage.model_dump(mode="json")
         result["raw_template_hash"] = digest(template.model_dump(mode="json"))
-        rendered = render(
-            template, request.encoded.cells, request.encoded.aliases, request_hash=cell_binding(request.encoded.cells)
-        )
+        result["raw_template"] = template.model_dump(mode="json")
     result["score"] = score_literals(case, rendered)
     result["rendered_candidates"] = [c.text for c in rendered.candidates]
     output_dir.mkdir(parents=True)
