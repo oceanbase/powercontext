@@ -74,8 +74,8 @@ async def _server(tmp_path):
         )
 
 
-async def _seed_topics(database, scope_ids, embedding_model=None):
-    async with open_builtin_contexts(BuiltinConfig(database=database), embedding_model=embedding_model) as contexts:
+async def _seed_topics(config: BuiltinConfig, scope_ids, embedding_model=None):
+    async with open_builtin_contexts(config, embedding_model=embedding_model) as contexts:
         for scope_id in scope_ids:
             content = TopicMemoryContent(
                 title=f"OpenAPI client topic in {scope_id}",
@@ -169,7 +169,9 @@ def test_client_assembles_approved_evidence_and_preserves_exact_memory_versions(
                 )
             )
             scope_id = scope.scope_id
-            await _seed_topics(SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'assembly.db'}"), [scope_id])
+            await _seed_topics(
+                BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'assembly.db'}")), [scope_id]
+            )
             profile = await transport.post(
                 f"/v1/scopes/{scope_id}/artifacts",
                 json={"family": "profile", "content": {"content": "Prefers concise Chinese explanations."}},
@@ -311,7 +313,7 @@ def test_topic_only_assembly_searches_current_scope_and_skips_other_families(tmp
                 )
             )
             await _seed_topics(
-                SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'assembly.db'}"),
+                BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'assembly.db'}")),
                 [shared.scope_id, current.scope_id],
             )
 

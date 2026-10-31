@@ -60,7 +60,7 @@ class ServerVectorProfile:
             "profile": profile.model_dump(mode="json"),
         })
 
-    def sqlite_layouts(self, directory: Path) -> dict[str, list[list[Any]]]:
+    def sqlite_layouts(self, directory: Path) -> dict[str, list[list[Any]]]:  # noqa: C901 - Compose the registered revision layouts in chain order.
         core = json.loads((directory / "schemas/sqlite.json").read_text(encoding="utf-8"))
         archive = json.loads((directory / "schemas/sqlite-s1401.json").read_text(encoding="utf-8"))["create"]
         layouts = {
@@ -101,6 +101,20 @@ class ServerVectorProfile:
                         row[3] = connection.execute(
                             "SELECT sql FROM sqlite_schema WHERE name='pc_atomic_memory_current'"
                         ).fetchone()[0]
+        if "v1_4_1_006" in manifest["revision_resources"]:
+            plugin = json.loads((directory / "schemas/sqlite-v1_4_1_006.json").read_text(encoding="utf-8"))["create"]
+            layouts["v1_4_1_006"] = layouts["v1_4_1_005"] + [
+                ["table", "pc_source_write_plugins", "pc_source_write_plugins", plugin]
+            ]
+        artifact_revision = "v1_5_0_001"
+        if artifact_revision in manifest["revision_resources"]:
+            artifact = json.loads((directory / f"schemas/sqlite-{artifact_revision}.json").read_text())["layout"]
+            previous = {(row[0], row[1]): row for row in layouts["v1_4_1_006"]}
+            for row in artifact:
+                key = (row[0], row[1])
+                if key not in previous or row[1] == "pc_artifact_processing_binding_states":
+                    previous[key] = row
+            layouts[artifact_revision] = list(previous.values())
         for entries in layouts.values():
             entries.sort(key=lambda row: (row[0], row[1]))
         return layouts

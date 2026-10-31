@@ -104,6 +104,24 @@ capabilities = ["memory_write"]
 id = "capture_content_source"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
+id = "pc_source_capabilities"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_add"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_status"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_target_set_enabled"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instances"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instance_set_enabled"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
 id = "capture_working_note"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
@@ -317,6 +335,24 @@ id = "mcp__powercontext__restore_atomic_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
 id = "mcp__powercontext__capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_capabilities"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_add"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_status"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_target_set_enabled"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_instances"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_instance_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "mcp__powercontext__capture_working_note"
@@ -1149,6 +1185,24 @@ id = "restore_atomic_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
 id = "capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_capabilities"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_add"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_status"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_target_set_enabled"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instances"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instance_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "capture_working_note"

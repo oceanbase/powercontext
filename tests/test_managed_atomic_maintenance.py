@@ -76,7 +76,7 @@ def test_atomic_alias_upgrades_complete_historical_server_with_shared_plan_and_b
     assert inspected.exit_code == 0, inspected.output
     plan = json.loads(inspected.output)
     assert plan["source_revision"] == "s1300"
-    assert plan["target_revision"] == "v1_4_1_005"
+    assert plan["target_revision"] == "v1_5_0_001"
     assert plan["readiness_scope"] == "server"
     assert historical.read_bytes() == original
 
@@ -103,7 +103,7 @@ def test_atomic_alias_upgrades_complete_historical_server_with_shared_plan_and_b
     with closing(sqlite3.connect(result["backup_ref"])) as connection:
         assert tuple(connection.iterdump()) == original_dump
     with closing(sqlite3.connect(historical)) as connection:
-        assert connection.execute("SELECT version_num FROM pc_schema_revision").fetchall() == [("v1_4_1_005",)]
+        assert connection.execute("SELECT version_num FROM pc_schema_revision").fetchall() == [("v1_5_0_001",)]
         assert connection.execute("SELECT content FROM pc_artifacts").fetchall() == [(b'{"history":"unchanged"}',)]
     verified = CliRunner().invoke(cli, [*arguments, "--action", "verify"])
     assert verified.exit_code == 0, verified.output

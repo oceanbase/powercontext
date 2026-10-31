@@ -85,7 +85,7 @@ def test_nonempty_released_memory_upgrades_without_rewriting_history(tmp_path, r
             )
 
     result = _apply(runner)
-    assert result.state == "ready" and result.readiness_scope == "server" and result.revision == "v1_4_1_005"
+    assert result.state == "ready" and result.readiness_scope == "server" and result.revision == "v1_5_0_001"
     verified = runner.verify()
     assert verified.state == "ready" and verified.readiness_scope == "server"
     assert not _apply(runner).changed

@@ -48,12 +48,15 @@ async def open_builtin_access_control(
     database: DatabaseConfig,
     *,
     bootstrap_administrators: Sequence[PrincipalRef] = (),
+    server_administrators: Sequence[PrincipalRef] = (),
     deployment_id: str = DEFAULT_DEPLOYMENT_ID,
 ) -> AsyncIterator[AccessControlService]:
-    """Open a Server-owned Access schema without coupling it to Runtime domains."""
+    """Open Access; only legacy bootstrap administrators receive the static Scope preset."""
 
     async with _open_access_repository(database) as repository:
-        await _bootstrap_server_roles(repository, bootstrap_administrators, deployment_id=deployment_id)
+        await _bootstrap_server_roles(
+            repository, (*bootstrap_administrators, *server_administrators), deployment_id=deployment_id
+        )
         provider = BuiltinAuthorizationProvider(
             repository,
             deployment_id=deployment_id,

@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "deploy-server",
+    "kubernetes",
     "local-server-ops",
     "managed-local-server",
     "connect-remote-server",

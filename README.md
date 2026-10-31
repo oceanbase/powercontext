@@ -43,6 +43,8 @@ Scope
 └── Topic Memory      # extracted in the background from eligible Sources
 ```
 
+For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
+
 *The Dashboard screenshots below use synthetic demonstration records.*
 
 ### Memory — decisions and constraints that outlive a session

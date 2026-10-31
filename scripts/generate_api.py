@@ -127,6 +127,16 @@ def _generate_models(
     transport_contract.paths = {}
     if transport_contract.components is None or transport_contract.components.schemas is None:
         raise ContractGenerationError("components.schemas", None)
+    # Read-family values remain strings in the SDK, including custom family names.
+    # A referenced scalar otherwise becomes a RootModel and breaks identity comparisons.
+    family_schema = transport_contract.components.schemas["ArtifactReadFamily"]
+    if not isinstance(family_schema, Schema):
+        raise ContractGenerationError("ArtifactReadFamily schema", family_schema)  # noqa: TRY003
+    for name in ("ArtifactCollectionItem", "ArtifactRevision"):
+        schema = transport_contract.components.schemas[name]
+        if not isinstance(schema, Schema) or schema.properties is None:
+            raise ContractGenerationError("Artifact read schema", name)  # noqa: TRY003
+        schema.properties["family"] = family_schema.model_copy(deep=True)
     exclusive_schemas = {
         name: schema
         for name, schema in transport_contract.components.schemas.items()

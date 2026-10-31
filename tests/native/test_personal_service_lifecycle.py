@@ -401,7 +401,7 @@ def test_native_public_migration_switches_an_installed_130_service(
                 if failure in {"startup", "switch"}:
                     assert applied.exit_code == 1, applied.output
                     assert result["error"] == "service_start_failed"
-                    assert result["database_state"] == "ready" and result["revision"] == "v1_4_1_005"
+                    assert result["database_state"] == "ready" and result["revision"] == "v1_5_0_001"
                     assert adapter.manager_state() in {ManagerState.INACTIVE, ManagerState.FAILED}
                     phase = "switching" if failure == "switch" else "start_failed"
                     assert json.loads(controller.maintenance_path.read_text())["phase"] == phase

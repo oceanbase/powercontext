@@ -1,0 +1,3 @@
+{
+  "create": "CREATE TABLE pc_source_write_plugins (\n\tplugin_id VARCHAR(128) NOT NULL, \n\tdefinition BLOB NOT NULL, \n\tPRIMARY KEY (plugin_id)\n)"
+}

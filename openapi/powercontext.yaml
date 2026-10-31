@@ -572,6 +572,167 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/admin/artifact-plugins:
+    get:
+      tags: [artifact-plugins]
+      summary: List Artifact plugin registrations
+      operationId: list_artifact_plugins
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
+      responses:
+        "200":
+          description: Durable registration states.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactPluginPage'}
+        "401": {$ref: '#/components/responses/Unauthorized'}
+        "403": {$ref: '#/components/responses/Forbidden'}
+        "503": {$ref: '#/components/responses/Unavailable'}
+  /v1/admin/artifact-plugins/{binding_name}:
+    get:
+      tags: [artifact-plugins]
+      summary: Get an Artifact plugin registration
+      operationId: get_artifact_plugin
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
+      parameters:
+        - {name: binding_name, in: path, required: true, schema: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-z][a-z0-9-]*$'}}
+      responses:
+        "200":
+          description: Durable registration state without plugin configuration secrets.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactPluginState'}
+        "401": {$ref: '#/components/responses/Unauthorized'}
+        "403": {$ref: '#/components/responses/Forbidden'}
+        "404": {$ref: '#/components/responses/NotFound'}
+        "503": {$ref: '#/components/responses/Unavailable'}
+  /v1/admin/artifact-plugins/enable-all:
+    post:
+      tags: [artifact-plugins]
+      summary: Enable the currently disabled Artifact plugins
+      description: Captures registrations and generations at request start, then accepts each eligible enable independently. Enabled, unloaded, failed and transitioning plugins are skipped. Concurrent changes and validation failures are reported per plugin without rolling back successes. Does not discover or reload plugins; poll each status URL for the asynchronous outcome.
+      operationId: enable_all_artifact_plugins
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
+      responses:
+        "200":
+          description: Per-plugin acceptance, skip or failure results.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EnableAllArtifactPluginsResponse'}
+        "401": {$ref: '#/components/responses/Unauthorized'}
+        "403": {$ref: '#/components/responses/Forbidden'}
+        "503": {$ref: '#/components/responses/Unavailable'}
+  /v1/admin/artifact-plugins/{binding_name}/reload:
+    post:
+      tags: [artifact-plugins]
+      summary: Load or update a Worker-loaded Artifact plugin
+      description: Reads the binding's direct child entry under POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR and fixes its resolved immutable directory. The manifest binding_name must match the directory entry and request path. Saves validated configuration and declarations without creating a pipeline. Existing enabled or disabled plugins keep their state; initial, unloaded or failed registrations become disabled. This initial path supports the global SQLite Supervisor. Plugin code is loaded only in child processes.
+      operationId: reload_artifact_plugin
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
+      parameters:
+        - {name: binding_name, in: path, required: true, schema: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-z][a-z0-9-]*$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReloadArtifactPluginRequest'}
+      responses:
+        "202":
+          description: Definition saved; poll its registration state until transition completes.
+          headers:
+            Location: {schema: {type: string}, description: Registration status URL.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactPluginState'}
+        "400": {$ref: '#/components/responses/BadRequest'}
+        "401": {$ref: '#/components/responses/Unauthorized'}
+        "403": {$ref: '#/components/responses/Forbidden'}
+        "409": {$ref: '#/components/responses/Conflict'}
+        "422": {$ref: '#/components/responses/InvalidRequest'}
+        "503": {$ref: '#/components/responses/Unavailable'}
+  /v1/admin/artifact-plugins/{binding_name}/enable:
+    post:
+      tags: [artifact-plugins]
+      summary: Enable an Artifact plugin
+      operationId: enable_artifact_plugin
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
+      parameters:
+        - {name: binding_name, in: path, required: true, schema: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-z][a-z0-9-]*$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangeArtifactPluginStateRequest'}
+      responses:
+        "202":
+          description: Target saved; poll its registration state until transition completes.
+          headers:
+            Location: {schema: {type: string}, description: Registration status URL.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactPluginState'}
+        "400": {$ref: '#/components/responses/BadRequest'}
+        "401": {$ref: '#/components/responses/Unauthorized'}
+        "403": {$ref: '#/components/responses/Forbidden'}
+        "404": {$ref: '#/components/responses/NotFound'}
+        "409": {$ref: '#/components/responses/Conflict'}
+        "422": {$ref: '#/components/responses/InvalidRequest'}
+        "503": {$ref: '#/components/responses/Unavailable'}
+  /v1/admin/artifact-plugins/{binding_name}/disable:
+    post:
+      tags: [artifact-plugins]
+      summary: Disable an Artifact plugin
+      operationId: disable_artifact_plugin
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
+      parameters:
+        - {name: binding_name, in: path, required: true, schema: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-z][a-z0-9-]*$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangeArtifactPluginStateRequest'}
+      responses:
+        "202":
+          description: Target saved; poll its registration state until transition completes.
+          headers:
+            Location: {schema: {type: string}, description: Registration status URL.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactPluginState'}
+        "400": {$ref: '#/components/responses/BadRequest'}
+        "401": {$ref: '#/components/responses/Unauthorized'}
+        "403": {$ref: '#/components/responses/Forbidden'}
+        "404": {$ref: '#/components/responses/NotFound'}
+        "409": {$ref: '#/components/responses/Conflict'}
+        "422": {$ref: '#/components/responses/InvalidRequest'}
+        "503": {$ref: '#/components/responses/Unavailable'}
+  /v1/admin/artifact-plugins/{binding_name}/unload:
+    post:
+      tags: [artifact-plugins]
+      summary: Unload an Artifact plugin
+      operationId: unload_artifact_plugin
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
+      parameters:
+        - {name: binding_name, in: path, required: true, schema: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-z][a-z0-9-]*$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangeArtifactPluginStateRequest'}
+      responses:
+        "202":
+          description: Target saved; poll its registration state until transition completes.
+          headers:
+            Location: {schema: {type: string}, description: Registration status URL.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactPluginState'}
+        "400": {$ref: '#/components/responses/BadRequest'}
+        "401": {$ref: '#/components/responses/Unauthorized'}
+        "403": {$ref: '#/components/responses/Forbidden'}
+        "404": {$ref: '#/components/responses/NotFound'}
+        "409": {$ref: '#/components/responses/Conflict'}
+        "422": {$ref: '#/components/responses/InvalidRequest'}
+        "503": {$ref: '#/components/responses/Unavailable'}
   /v1/capabilities:
     get:
       tags: [capabilities]
@@ -3903,7 +4064,9 @@ paths:
     get:
       tags: [sources]
       summary: List public Sources in one Scope
-      description: List a snapshot-bounded page of public Content Sources in ascending journal position.
+      description: >-
+        List public Content Sources and registered Source Observations in one Scope in ascending journal position.
+        Subsequent pages retain the Source type selection and journal upper bound recorded in the cursor.
       operationId: list_sources
       x-powercontext-access: {resolver: path_scope_read_access}
       parameters:
@@ -4021,7 +4184,9 @@ paths:
           required: true
           schema:
             type: string
-            enum: [content]
+            minLength: 1
+            maxLength: 128
+            pattern: '.*\S.*'
         - name: source_id
           in: path
           required: true
@@ -5109,6 +5274,551 @@ paths:
           $ref: "#/components/responses/InvalidRequest"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/source-management/capabilities:
+    post:
+      tags:
+      - source-management
+      summary: pc source capabilities
+      operationId: pc_source_capabilities
+      x-powercontext-scope-mode: none
+      x-powercontext-access:
+        action: scope.read
+        resource:
+          type: scope
+          scope-id-from: scope_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceCapabilityQuery'
+      responses:
+        '200':
+          description: Confirmed Source management result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceCapabilityResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/add:
+    post:
+      tags:
+      - source-management
+      summary: pc source add
+      operationId: pc_source_add
+      description: >-
+        Use the discovered write or collect capability and version. Collect capabilities require an explicit instance_id. Write runs in the Server using loaded Definition and Projection implementations, without an instance or management service. Write waits for Source references or an error in the original call; no durable request or status query is created. Collect establishes or reuses a persistent target and never resumes a stopped target. No mode or idempotency_key is accepted; write retries use the underlying Source identity rules.
+      x-powercontext-scope-mode: none
+      x-powercontext-access:
+        action: scope.contribute
+        resource:
+          type: scope
+          scope-id-from: scope_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceAddRequest'
+      responses:
+        '200':
+          description: Confirmed Source management result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceManagementReceipt'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/status:
+    post:
+      tags:
+      - source-management
+      summary: pc source status
+      operationId: pc_source_status
+      description: >-
+        Query a collect target by scope_id and target_id. Result view requires scope.read and returns received Source references and submission time, not per-round completion. Control view requires scope.contribute and returns enabled and tracking without input or results.
+      x-powercontext-scope-mode: none
+      x-powercontext-access:
+        resolver: source_status_access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceStatusRequest'
+      responses:
+        '200':
+          description: Confirmed Source management result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceManagementReceipt'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/target-set-enabled:
+    post:
+      tags:
+      - source-management
+      summary: Stop or resume a collect target
+      operationId: pc_source_target_set_enabled
+      description: >-
+        Set collect target enabled state using scope.contribute. Repeating the current state is safe. Resume requires stopped confirmation; it does not restart an ended apply or enable a disabled instance. No revision or retry key is required.
+      x-powercontext-scope-mode: none
+      x-powercontext-access:
+        action: scope.contribute
+        resource:
+          type: scope
+          scope-id-from: scope_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceTargetSetEnabledRequest'
+      responses:
+        '200':
+          description: Confirmed Source management result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceManagementReceipt'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/instances:
+    post:
+      tags:
+      - source-management
+      summary: pc source instances
+      operationId: pc_source_instances
+      description: >-
+        Discover instances with scope_id from the Server capability catalog. Control view requires instance_id and server.admin, and returns enabled, actual and availability without business configuration.
+      x-powercontext-scope-mode: none
+      x-powercontext-access:
+        resolver: source_instances_access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceInstancesQuery'
+      responses:
+        '200':
+          description: Confirmed Source management result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceInstancesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/instance-set-enabled:
+    post:
+      tags:
+      - source-management
+      summary: pc source instance set enabled
+      operationId: pc_source_instance_set_enabled
+      description: >-
+        Set instance business enabled state using server.admin. Repeating the same state does not restart apply. Restarting an ended run requires disable, confirmed stopped, then enable. The Runtime process stays online.
+      x-powercontext-scope-mode: none
+      x-powercontext-access:
+        action: server.admin
+        resource: {type: server}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceInstanceSetEnabledRequest'
+      responses:
+        '200':
+          description: Confirmed Source management result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceInstanceStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/configure:
+    post:
+      tags:
+      - source-management
+      summary: source configure
+      operationId: source_configure
+      x-powercontext-scope-mode: none
+      x-powercontext-access:
+        action: server.admin
+        resource: {type: server}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceConfigureRequest'
+      responses:
+        '200':
+          description: Confirmed Source management result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceInstanceStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/write/load:
+    post:
+      tags: [source-management]
+      summary: Load a trusted Server-local Source write plugin
+      operationId: load_source_write_plugin
+      description: >-
+        Requires server.admin. The Server imports the local directory or module, validates and registers its
+        Source Definitions, and persists its entry for restart. An identical deployment is reusable;
+        conflicting configurations fail. Existing code is replaced only through controlled Server restart.
+      x-powercontext-scope-mode: none
+      x-powercontext-access:
+        action: server.admin
+        resource: {type: server}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceWritePluginLoadRequest'
+      responses:
+        '200':
+          description: The Server has loaded and persisted the executable write capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceWritePluginState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/channel/open:
+    post:
+      tags:
+      - source-management-channel
+      summary: Source manager reverse channel open
+      operationId: source_channel_open
+      x-powercontext-access:
+        resolver: source_management_channel_access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceChannelOpen'
+      responses:
+        '200':
+          description: Channel exchange.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceChannelResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/channel/catalog:
+    post:
+      tags:
+      - source-management-channel
+      summary: Source manager reverse channel catalog
+      operationId: source_channel_catalog
+      x-powercontext-access:
+        resolver: source_management_channel_access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceChannelRequest'
+      responses:
+        '200':
+          description: Channel exchange.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceChannelResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/channel/poll:
+    post:
+      tags:
+      - source-management-channel
+      summary: Source manager reverse channel poll
+      operationId: source_channel_poll
+      x-powercontext-access:
+        resolver: source_management_channel_access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceChannelRequest'
+      responses:
+        '200':
+          description: Channel exchange.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceChannelResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/channel/reply:
+    post:
+      tags:
+      - source-management-channel
+      summary: Source manager reverse channel reply
+      operationId: source_channel_reply
+      x-powercontext-access:
+        resolver: source_management_channel_access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceChannelRequest'
+      responses:
+        '200':
+          description: Channel exchange.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceChannelResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/channel/close:
+    post:
+      tags:
+      - source-management-channel
+      summary: Source manager reverse channel close
+      operationId: source_channel_close
+      x-powercontext-access:
+        resolver: source_management_channel_access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceChannelRequest'
+      responses:
+        '200':
+          description: Channel exchange.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceChannelResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/source-management/instances/{instance_id}/{operation}:
+    post:
+      tags:
+      - source-management-instance
+      summary: Authenticated instance control, permission checks and durable result
+        exchange
+      description: Served by the optional standalone Source manager. Instances initiate
+        every exchange; this is not a Server or public MCP endpoint. The operation path
+        chooses owner/connect/poll/reply/sync/execution/results/stopped-targets/close and
+        the applicable fields. Source observations continue to go directly to the PC
+        Server.
+      operationId: source_instance_exchange
+      servers:
+      - url: http://127.0.0.1:8010
+        description: Replace with the configured Source manager instance endpoint; use
+          HTTPS off loopback.
+      x-powercontext-access:
+        resolver: source_instance_channel_access
+      x-powercontext-role: source-manager
+      x-powercontext-scope-mode: none
+      parameters:
+      - name: instance_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: ^[A-Za-z0-9_.-]+$
+      - name: operation
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - owner
+          - connect
+          - poll
+          - reply
+          - sync
+          - execution
+          - results
+          - stopped-targets
+          - close
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceInstanceExchangeRequest'
+      responses:
+        '200':
+          description: Instance control exchange.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceInstanceExchangeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
   /v1/access/ownership/plan:
     post:
       tags: [access]
@@ -6229,6 +6939,10 @@ components:
           minLength: 1
           maxLength: 128
           pattern: '^[\x21-\x7E]+$'
+        schema_version:
+          type: string
+          nullable: true
+          description: Persisted schema version for a custom Artifact family.
         revision:
           type: integer
           minimum: 1
@@ -6343,6 +7057,10 @@ components:
           minLength: 1
           maxLength: 128
           pattern: '^[\x21-\x7E]+$'
+        schema_version:
+          type: string
+          nullable: true
+          description: Persisted schema version for a custom Artifact family.
         revision:
           type: integer
           minimum: 1
@@ -7279,12 +7997,76 @@ components:
         effect:
           type: string
           enum: [review_then_publish, review_then_publish_configuration, review_then_replace_tags]
+    CustomArtifactFamilySchema:
+      type: object
+      additionalProperties: false
+      required: [family, schema_version, content_schema, search_fields]
+      properties:
+        family: {type: string}
+        schema_version: {type: string}
+        content_schema: {type: object, additionalProperties: true}
+        search_fields: {type: array, items: {type: string}, description: Legacy persisted text fields; new plugins use search.}
+        search: {type: object, additionalProperties: true, description: Persistent declarative indexes and supported search modes.}
+    ReloadArtifactPluginRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_generation]
+      properties:
+        expected_generation: {type: integer, minimum: 0}
+    ChangeArtifactPluginStateRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_generation]
+      properties:
+        expected_generation: {type: integer, minimum: 1}
+    ArtifactPluginState:
+      type: object
+      additionalProperties: false
+      required: [binding_name, plugin_id, family, binding_generation, desired_state, phase, last_error]
+      properties:
+        binding_name: {type: string}
+        plugin_id: {type: string}
+        family: {type: string}
+        binding_generation: {type: integer, minimum: 1}
+        desired_state: {type: string, enum: [enabled, disabled, unloaded]}
+        phase: {type: string, enum: [activating, enabled, stopping, disabled, unloading, unloaded, failed]}
+        last_error: {type: string, nullable: true}
+    ArtifactPluginPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/ArtifactPluginState'}}
+    EnableArtifactPluginResult:
+      type: object
+      additionalProperties: false
+      required: [binding_name, outcome, status_url, state, error]
+      properties:
+        binding_name: {type: string}
+        outcome: {type: string, enum: [accepted, skipped, failed]}
+        status_url: {type: string, description: Registration status URL for the asynchronous result.}
+        state: {$ref: '#/components/schemas/ArtifactPluginState'}
+        error:
+          type: string
+          nullable: true
+          enum: [conflict, invalid_plugin, unavailable, null]
+          description: Safe per-plugin failure code; null for accepted or skipped entries.
+    EnableAllArtifactPluginsResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/EnableArtifactPluginResult'}}
     Capabilities:
       type: object
       additionalProperties: false
       required:
         [source_types, artifact_families, memory_extraction, handoff_generation, search_modes, context_versions]
       properties:
+        custom_artifact_schemas:
+          type: array
+          default: []
+          items: {$ref: '#/components/schemas/CustomArtifactFamilySchema'}
         prompts:
           type: object
           default: {}
@@ -11320,13 +12102,36 @@ components:
       properties:
         method: {type: string, minLength: 1, pattern: '.*\S.*'}
         params: {type: object, additionalProperties: true, default: {}}
+    EmbeddingProfile:
+      type: object
+      additionalProperties: false
+      required: [profile_id, model, dimension]
+      description: Existing embedding space identity shared with Memory; no additional modality or version fields.
+      properties:
+        profile_id: {type: string, minLength: 1, pattern: '.*\S.*'}
+        model: {type: string, minLength: 1, pattern: '.*\S.*'}
+        dimension: {type: integer, minimum: 1}
+        distance: {type: string, enum: [l2], default: l2}
+        normalization: {type: string, enum: [none, unit], default: unit}
     SearchArtifactsRequest:
       type: object
       additionalProperties: false
       x-powercontext-artifact-search-validation: request
-      required: [query]
       properties:
         query: {type: string, minLength: 1, maxLength: 8192, pattern: '.*\S.*'}
+        query_vector:
+          type: object
+          additionalProperties: false
+          required: [profile, vector]
+          properties:
+            profile: {$ref: '#/components/schemas/EmbeddingProfile'}
+            vector: {type: array, minItems: 1, items: {type: number}}
+        indexes:
+          type: object
+          additionalProperties: false
+          properties:
+            text: {type: array, minItems: 1, uniqueItems: true, items: {type: string, minLength: 1}}
+            vector: {type: array, minItems: 1, uniqueItems: true, items: {type: string, minLength: 1}}
         limit: {type: integer, minimum: 1, maximum: 200, default: 10}
         mode: {type: string, minLength: 1, pattern: '.*\S.*'}
         filters: {type: object, additionalProperties: true}
@@ -12169,7 +12974,9 @@ components:
           pattern: '.*\S.*'
         source_type:
           type: string
-          enum: [content]
+          minLength: 1
+          maxLength: 128
+          description: Built-in content or a registered Source Observation type.
         source_id:
           type: string
           minLength: 1
@@ -12226,7 +13033,9 @@ components:
       enum: [memory, atomic-memory, experience, skill, handoff, profile, prompt, topic-memory]
     ArtifactReadFamily:
       type: string
-      enum: [memory, atomic-memory, experience, skill, handoff, profile, prompt, topic-memory]
+      minLength: 1
+      maxLength: 128
+      pattern: '^[a-z][a-z0-9-]*$'
     StatsPeriod:
       type: string
       enum: [today, 7d, 30d]
@@ -12328,105 +13137,6 @@ components:
         type: {type: string, enum: [user, service]}
         id: {type: string, minLength: 1, maxLength: 255}
         description: {type: string, minLength: 1, maxLength: 255, nullable: true}
-    PlanAccessOwnershipRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        scope_ids:
-          type: array
-          minItems: 1
-          items: {type: string, minLength: 1, maxLength: 256}
-          description: Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments.
-        background_principal:
-          allOf:
-            - $ref: "#/components/schemas/AccessPrincipal"
-          nullable: true
-          description: >-
-            Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each
-            selected Scope is checked for scope.contribute and write permission on an existing Profile,
-            including after all ownership gaps have been filled. An available Access store is required.
-    OwnershipGapKind:
-      type: string
-      enum: [artifact_owner, candidate_attestation]
-    OwnershipGapItem:
-      type: object
-      additionalProperties: false
-      required: [kind, scope_id, family]
-      properties:
-        kind:
-          $ref: "#/components/schemas/OwnershipGapKind"
-        scope_id: {type: string, minLength: 1, maxLength: 256}
-        family: {type: string, minLength: 1, maxLength: 128}
-        artifact_id: {type: string, maxLength: 256, nullable: true}
-        entry_id: {type: string, maxLength: 256, nullable: true}
-        candidate_id: {type: string, maxLength: 128, nullable: true}
-        version: {type: integer, minimum: 1, nullable: true}
-        conflict_code: {type: string, maxLength: 64, nullable: true}
-    AccessOwnershipScopePlan:
-      type: object
-      additionalProperties: false
-      required: [scope_id, artifact_gaps, candidate_gaps]
-      properties:
-        scope_id: {type: string, minLength: 1, maxLength: 256}
-        artifact_gaps:
-          type: array
-          items:
-            $ref: "#/components/schemas/OwnershipGapItem"
-        candidate_gaps:
-          type: array
-          items:
-            $ref: "#/components/schemas/OwnershipGapItem"
-    BackgroundPermissionGap:
-      type: object
-      additionalProperties: false
-      required: [scope_id, principal_id, allowed, reason_code]
-      properties:
-        scope_id: {type: string, minLength: 1, maxLength: 256}
-        principal_id: {type: string, minLength: 1, maxLength: 255}
-        allowed: {type: boolean, enum: [false]}
-        reason_code: {type: string, maxLength: 64, nullable: true}
-    AccessOwnershipPlan:
-      type: object
-      additionalProperties: false
-      required: [mode, scopes, background]
-      properties:
-        mode:
-          $ref: "#/components/schemas/AccessControlMode"
-        scopes:
-          type: array
-          items:
-            $ref: "#/components/schemas/AccessOwnershipScopePlan"
-        background:
-          type: array
-          items:
-            $ref: "#/components/schemas/BackgroundPermissionGap"
-    ApplyAccessOwnershipRequest:
-      type: object
-      additionalProperties: false
-      required: [owner]
-      properties:
-        owner:
-          $ref: "#/components/schemas/AccessPrincipal"
-        scope_ids:
-          type: array
-          minItems: 1
-          items: {type: string, minLength: 1, maxLength: 256}
-          description: Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments.
-        dry_run: {type: boolean, default: false}
-    AccessOwnershipApplyResult:
-      type: object
-      additionalProperties: false
-      required: [dry_run, applied, conflicts]
-      properties:
-        dry_run: {type: boolean}
-        applied:
-          type: array
-          items:
-            $ref: "#/components/schemas/OwnershipGapItem"
-        conflicts:
-          type: array
-          items:
-            $ref: "#/components/schemas/OwnershipGapItem"
     AccessGroup:
       type: object
       additionalProperties: false
@@ -13028,3 +13738,498 @@ components:
           items:
             $ref: '#/components/schemas/Candidate'
           default: []
+    SourceCapabilityQuery:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        capability:
+          type: string
+          minLength: 1
+          maxLength: 256
+        instance_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        input: &source_mgmt_001
+          type: object
+          additionalProperties: true
+    SourceWritePluginLoadRequest:
+      type: object
+      additionalProperties: false
+      required: [id, entry]
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$'}
+        entry: {type: string, minLength: 1, maxLength: 4096}
+    SourceWritePluginState:
+      type: object
+      additionalProperties: false
+      required: [id, entry, capabilities]
+      properties:
+        id: {type: string}
+        entry: {type: string}
+        capabilities:
+          type: array
+          items: {type: object, additionalProperties: true}
+    SourceAddRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - capability
+      - capability_version
+      - input
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        capability:
+          type: string
+          minLength: 1
+          maxLength: 256
+        capability_version:
+          type: string
+          minLength: 1
+          maxLength: 256
+        instance_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        input:
+          type: object
+          additionalProperties: true
+    SourceStatusRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - target_id
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        view:
+          type: string
+          enum:
+          - result
+          - control
+          default: result
+    SourceInstanceSetEnabledRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - instance_id
+      - enabled
+      properties:
+        instance_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        enabled:
+          type: boolean
+    SourceConfigureRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - registration
+      properties:
+        update:
+          type: boolean
+          default: false
+        registration: *source_mgmt_001
+    SourceCapabilityResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - capabilities
+      - management
+      properties:
+        capabilities:
+          type: array
+          items: *source_mgmt_001
+        management:
+          type: string
+          enum:
+          - not-configured
+          - online
+          - unavailable
+    SourceInstancesResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - instances
+      properties:
+        instances:
+          type: array
+          items: *source_mgmt_001
+        capabilities:
+          type: array
+          items: *source_mgmt_001
+        management:
+          type: string
+          enum:
+          - not-configured
+          - online
+          - unavailable
+    SourceCollectionResult:
+      type: object
+      additionalProperties: false
+      required:
+      - outcome
+      - source_refs
+      properties:
+        outcome:
+          type: string
+          enum:
+          - saved
+          - unchanged
+        source_refs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceTypeReference'
+    SourceManagementReceipt:
+      type: object
+      additionalProperties: false
+      properties:
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        tracking:
+          type: string
+          enum:
+          - enabled
+          - stopping
+          - stopped
+        result:
+          $ref: '#/components/schemas/SourceCollectionResult'
+        error:
+          type: string
+        instance_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        capability:
+          type: string
+          minLength: 1
+          maxLength: 256
+        capability_version:
+          type: string
+          minLength: 1
+          maxLength: 256
+        availability:
+          type: string
+          enum:
+          - online
+          - offline
+          - unavailable
+        updated_at:
+          type: string
+        kind:
+          type: string
+          enum:
+          - collect
+          - write
+        enabled:
+          type: boolean
+        source_refs:
+          description: Default collect status only. The single Source reference from the submission report most recently received by the manager, or empty before any report. Omitted from collect add responses; not a batch result or submission history.
+          type: array
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/SourceTypeReference'
+        last_submitted_at:
+          type: string
+          nullable: true
+          description: Default collect status only. Runtime-reported submission time paired with source_refs, or null before any report. Selection follows manager receipt order, not timestamp order. Omitted from collect add responses.
+    SourceInstanceStatus:
+      type: object
+      additionalProperties: false
+      required:
+      - instance_id
+      properties:
+        targets_initialized:
+          type: boolean
+        target_id:
+          type: string
+        instance_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        enabled:
+          type: boolean
+        actual:
+          type: string
+        run_id:
+          type: string
+          nullable: true
+        availability:
+          type: string
+        reused:
+          type: boolean
+    SourceChannelOpen:
+      type: object
+      additionalProperties: false
+      required:
+      - protocol
+      - deployment_id
+      - manager_id
+      properties:
+        protocol:
+          type: string
+          minLength: 1
+          maxLength: 256
+        deployment_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        manager_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+    SourceChannelRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - generation
+      properties:
+        generation:
+          type: string
+          minLength: 1
+          maxLength: 256
+        message_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        response: *source_mgmt_001
+        catalog: *source_mgmt_001
+    SourceChannelResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        generation:
+          type: string
+          minLength: 1
+          maxLength: 256
+        protocol:
+          type: string
+          minLength: 1
+          maxLength: 256
+        confirmed:
+          type: boolean
+        messages:
+          type: array
+          items: *source_mgmt_001
+    SourceInstanceExchangeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        generation: &source_mgmt_002
+          type: string
+          minLength: 1
+          maxLength: 256
+        protocol: *source_mgmt_002
+        message_id: *source_mgmt_002
+        execution_location: *source_mgmt_002
+        configuration_digest: *source_mgmt_002
+        run_id: *source_mgmt_002
+        execution: *source_mgmt_002
+        target_id: *source_mgmt_002
+        capabilities:
+          type: array
+          maxItems: 64
+          items: &source_mgmt_003
+            type: object
+            additionalProperties: true
+        response: *source_mgmt_003
+        owner: *source_mgmt_003
+        status:
+          type: string
+          enum:
+          - running
+          - complete
+          - completed
+          - pending
+          - failed
+          - stopped
+          - cleanup-failed
+        source_refs:
+          type: array
+          description: One confirmed Source submission reported by the Runtime; not a batch or historical reference list.
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/SourceTypeReference'
+        error:
+          type: string
+          maxLength: 1024
+        targets:
+          type: array
+          maxItems: 256
+          items: *source_mgmt_003
+        cursor:
+          type: string
+          maxLength: 256
+        owner_exited:
+          type: boolean
+        previous_owner:
+          type: object
+          additionalProperties: true
+        submitted_at:
+          type: string
+    SourceInstanceExchangeResponse:
+      type: object
+      additionalProperties: true
+    SourceTargetSetEnabledRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - target_id
+      - enabled
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        enabled:
+          type: boolean
+    SourceInstancesQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        capability:
+          type: string
+          minLength: 1
+          maxLength: 256
+        instance_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        input:
+          type: object
+          additionalProperties: true
+        view:
+          type: string
+          enum:
+          - discovery
+          - control
+          default: discovery
+    PlanAccessOwnershipRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scope_ids:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1, maxLength: 256}
+          description: Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments.
+        background_principal:
+          allOf:
+            - $ref: "#/components/schemas/AccessPrincipal"
+          nullable: true
+          description: >-
+            Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each
+            selected Scope is checked for scope.contribute and write permission on an existing Profile,
+            including after all ownership gaps have been filled. An available Access store is required.
+    OwnershipGapKind:
+      type: string
+      enum: [artifact_owner, candidate_attestation]
+    OwnershipGapItem:
+      type: object
+      additionalProperties: false
+      required: [kind, scope_id, family]
+      properties:
+        kind:
+          $ref: "#/components/schemas/OwnershipGapKind"
+        scope_id: {type: string, minLength: 1, maxLength: 256}
+        family: {type: string, minLength: 1, maxLength: 128}
+        artifact_id: {type: string, maxLength: 256, nullable: true}
+        entry_id: {type: string, maxLength: 256, nullable: true}
+        candidate_id: {type: string, maxLength: 128, nullable: true}
+        version: {type: integer, minimum: 1, nullable: true}
+        conflict_code: {type: string, maxLength: 64, nullable: true}
+    AccessOwnershipScopePlan:
+      type: object
+      additionalProperties: false
+      required: [scope_id, artifact_gaps, candidate_gaps]
+      properties:
+        scope_id: {type: string, minLength: 1, maxLength: 256}
+        artifact_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"
+        candidate_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"
+    BackgroundPermissionGap:
+      type: object
+      additionalProperties: false
+      required: [scope_id, principal_id, allowed, reason_code]
+      properties:
+        scope_id: {type: string, minLength: 1, maxLength: 256}
+        principal_id: {type: string, minLength: 1, maxLength: 255}
+        allowed: {type: boolean, enum: [false]}
+        reason_code: {type: string, maxLength: 64, nullable: true}
+    AccessOwnershipPlan:
+      type: object
+      additionalProperties: false
+      required: [mode, scopes, background]
+      properties:
+        mode:
+          $ref: "#/components/schemas/AccessControlMode"
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessOwnershipScopePlan"
+        background:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackgroundPermissionGap"
+    ApplyAccessOwnershipRequest:
+      type: object
+      additionalProperties: false
+      required: [owner]
+      properties:
+        owner:
+          $ref: "#/components/schemas/AccessPrincipal"
+        scope_ids:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1, maxLength: 256}
+          description: Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments.
+        dry_run: {type: boolean, default: false}
+    AccessOwnershipApplyResult:
+      type: object
+      additionalProperties: false
+      required: [dry_run, applied, conflicts]
+      properties:
+        dry_run: {type: boolean}
+        applied:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"
+        conflicts:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"
