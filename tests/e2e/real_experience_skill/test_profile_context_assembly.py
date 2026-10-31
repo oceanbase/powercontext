@@ -29,6 +29,7 @@ from sqlalchemy.engine import make_url
 
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime import BuiltinConfig
 from powercontext.builtin.runtime.composition import _embedding_models
 from powercontext.client import PowerContextClient
 from powercontext.http import CreateScopeRequest, PrepareContextRequest, RememberMemoryRequest
@@ -198,7 +199,18 @@ async def _scenario(url, token, scope_ids, report, settings):
         async with AsyncExitStack() as resources:
             embedding, _ = await _embedding_models(settings.inference, resources, None)
             assert embedding is not None
-            await _seed_topics(settings.database, scope_ids, embedding)
+            await _seed_topics(
+                BuiltinConfig(
+                    database=settings.database,
+                    runtime=settings.runtime,
+                    inference=settings.inference,
+                    code=settings.code,
+                    handoff_report=settings.handoff_report,
+                    external_skills=settings.external_skills,
+                ),
+                scope_ids,
+                embedding,
+            )
         topics = await client.prepare_context(
             PrepareContextRequest.model_validate({
                 "scope_id": current,
