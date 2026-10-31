@@ -48,8 +48,10 @@ OBJECTS = Table("test_domain_objects", METADATA, Column("identity", String(128),
 
 @asynccontextmanager
 async def _stores(tmp_path):
-    primary = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'primary.db'}")
-    external = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'external.db'}")
+    # These concurrent-replay tests assert durable identity and idempotency,
+    # not the production five-second busy deadline under shared CI CPU/I/O load.
+    primary = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'primary.db'}", busy_timeout_ms=30_000)
+    external = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'external.db'}", busy_timeout_ms=30_000)
     async with (
         SQLiteProfile.open(primary, tables=(OBJECTS,)) as profile,
         open_builtin_access_control(external, deployment_id="recovery-test") as access,
