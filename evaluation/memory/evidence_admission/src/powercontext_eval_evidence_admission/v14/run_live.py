@@ -62,7 +62,7 @@ def score_literals(case, rendered) -> dict[str, Any]:
     }
 
 
-async def run_once(output_dir: Path) -> dict[str, Any]:
+async def run_once(output_dir: Path, case_id: str = "exact-literals") -> dict[str, Any]:
     if output_dir.exists():
         raise EvaluationError("output_exists")
     api_key = os.environ.get("DEEPSEEK_API_KEY")
@@ -70,7 +70,7 @@ async def run_once(output_dir: Path) -> dict[str, Any]:
         raise EvaluationError("configured_api_key_unavailable")
     suite = load_suite(experiment_version="v5", dataset="synthetic-v1")
     cases = {c.case_id: c for c in suite.cases}
-    case = cases["exact-literals"]
+    case = cases[case_id]
     probe = InputProbe()
     sample = await run_sample(suite, case, "bounded-fragments-v3", 4096, 0, generator=probe)
     if not probe.inputs:
@@ -80,7 +80,7 @@ async def run_once(output_dir: Path) -> dict[str, Any]:
     result: dict[str, Any] = {
         "schema": "evidence-admission.v14.live-probe.v1",
         "sample_id": sample.sample_id,
-        "case": "exact-literals",
+        "case": case_id,
         "arm": "bounded-fragments-v3",
         "budget": 4096,
         "repetition": 0,
@@ -138,7 +138,8 @@ def main():
     import sys
 
     output_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".artifacts/evidence-admission/v14-live-probe")
-    result = asyncio.run(run_once(output_dir))
+    case_id = sys.argv[2] if len(sys.argv) > 2 else "exact-literals"
+    result = asyncio.run(run_once(output_dir, case_id))
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
