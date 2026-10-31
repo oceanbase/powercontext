@@ -33,6 +33,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionOutput,
     AtomicMemoryGenerationPipeline,
     atomic_memory_extraction_instructions,
+    validate_extraction_output,
 )
 from powercontext.builtin.artifacts.atomic_memory.models import (
     AtomicMemoryContent,
@@ -131,6 +132,7 @@ async def _exercise(profile: MemoryExtractionProfile, env_file: Path) -> None:
                 output_type=AtomicMemoryExtractionOutput,
                 limits=limits,
                 model_settings=model_settings,
+                output_check=validate_extraction_output,
             )
             reconciler = PydanticAIStructuredGenerator(
                 model=model,

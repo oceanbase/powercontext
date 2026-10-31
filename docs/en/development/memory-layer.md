@@ -55,6 +55,22 @@ memories are authorized as they enter the comparison set. A permission change du
 but inputs already admitted to that window can finish its comparisons. A retry must obtain fresh authorization.
 Changed Source or Artifact dependencies are rechecked before the cursor advances.
 
+Generated text must retain explicit temporal evidence. For a structured single-statement Source with `statement`,
+optional `subject`, and ISO `effective_at`, `event_at`, or `recorded_at` fields, extraction checks that the selected
+fact keeps its effective/event time, or the Source's recording time when neither is supplied. Native JSON text carriers
+receive the same check. Arbitrary nested metadata and objects containing other fact fields do not establish this
+single-statement association. Reconciliation checks the explicitly selected `evidence_ids`: it retains these Source
+qualifiers and ISO date/time literals from selected Artifact facts. It does not classify every date as an effective
+time or choose the largest date. A complete newer correction may cite only its new Source; the consumed predecessor
+still remains in exact Artifact lineage, without copying all earlier dates into each new text.
+
+Omitted time qualifiers are returned to the model within the configured request budget. If correction fails, neither
+publication nor cursor advancement occurs. Equivalent ISO instants are accepted; midnight UTC may use its ISO date,
+while other time precision must remain. Values finer than microseconds or outside the supported UTC year range must
+retain their exact literal representation. The check uses the current comparison inputs and does not expand historical
+Source chains. Existing undated memories are not silently backfilled. Temporal interpretation, other date formats,
+and deciding which facts remain applicable still require model judgment.
+
 Successful publication makes the new memories and their direct Source lineage readable together. If an Artifact ID
 collides or a dependency changes, the window does not publish partial results or advance its cursor. A multi-create
 call returns the created memories with their current content, state, and lineage; each returned memory remains subject
