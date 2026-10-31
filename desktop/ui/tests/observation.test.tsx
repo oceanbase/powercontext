@@ -23,6 +23,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { emptySessionSummary } from "./session-fixture";
 import { answerConfirmation } from "./confirmation";
 import { App } from "../src/app/App";
 import { Observation } from "../src/app/Observation";
@@ -32,6 +33,7 @@ import type { DesktopState } from "../src/generated/ipc";
 vi.mock("../src/shared/ipc", () => ({
   getFoundationInfo: vi.fn().mockResolvedValue(null),
   desktopApi: {
+    sessionSummary: vi.fn(),
     state: vi.fn(),
     check: vi.fn(),
     cancelMemory: vi.fn().mockResolvedValue(undefined),
@@ -49,6 +51,7 @@ const disconnected: DesktopState = {
 };
 beforeEach(() => {
   vi.mocked(desktopApi.state).mockResolvedValue(disconnected);
+  vi.mocked(desktopApi.sessionSummary).mockResolvedValue(emptySessionSummary());
 });
 afterEach(() => {
   cleanup();
@@ -83,7 +86,7 @@ test("Overview remains the initial page and all original entries remain reachabl
   ).toBeTruthy();
 });
 
-test("Observation tabs support the keyboard and stay unavailable without starting checks", async () => {
+test("Observation tabs support the keyboard and read only local session observations", async () => {
   const user = userEvent.setup();
   render(<App />);
   await user.click(screen.getByRole("button", { name: "观察" }));
@@ -109,7 +112,7 @@ test("Observation tabs support the keyboard and stay unavailable without startin
     screen.getByRole("tab", { name: "本次会话" }),
   );
   expect(
-    screen.getByRole("heading", { name: "此观察视图尚未可用" }),
+    await screen.findByRole("heading", { name: "尚无已完成的观察" }),
   ).toBeTruthy();
   expect(desktopApi.check).not.toHaveBeenCalled();
   expect(desktopApi.diagnostics).not.toHaveBeenCalled();
@@ -129,8 +132,8 @@ test("Observation follows the existing language setting and retains its selected
       .getAttribute("aria-selected"),
   ).toBe("true");
   expect(
-    screen.getByRole("heading", {
-      name: "This observation view is not available yet",
+    await screen.findByRole("heading", {
+      name: "No completed observations yet",
     }),
   ).toBeTruthy();
   expect(screen.getByRole("button", { name: "Overview" })).toBeTruthy();
@@ -205,4 +208,17 @@ test("each observation panel accepts content supplied by its owning feature", ()
   expect(
     screen.queryByText("This observation view is not available yet"),
   ).toBeNull();
+});
+
+test("session observation is available when Desktop connection state cannot be loaded", async () => {
+  const user = userEvent.setup();
+  vi.mocked(desktopApi.state).mockRejectedValue({ code: "storage" });
+  render(<App />);
+  await user.click(screen.getByRole("button", { name: "观察" }));
+  await user.click(screen.getByRole("tab", { name: "本次会话" }));
+  expect(
+    await screen.findByRole("heading", { name: "尚无已完成的观察" }),
+  ).toBeTruthy();
+  expect(desktopApi.check).not.toHaveBeenCalled();
+  expect(desktopApi.diagnostics).not.toHaveBeenCalled();
 });

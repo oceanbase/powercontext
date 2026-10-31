@@ -30,7 +30,7 @@ invalid decoded receipts, reset during an in-flight write, bounded retention, sa
 contention/poisoning. Mock Tauri IPC checks exercise the actual capability configuration and reject untrusted
 windows and origins; session commands also work without connection state.
 
-Desktop lint, TypeScript checking, all 98 UI tests and the frontend production build pass. The Desktop OpenAPI
+Desktop lint, TypeScript checking, all 111 UI tests and the frontend production build pass. The Desktop OpenAPI
 contract checks pass without contract changes. Website lint and link validation pass, including both locale
 versions of the [session observation contract](../docs/en/development/desktop-session-observations.md).
 `uv lock --locked` and `uv run --locked pytest tests/test_desktop_contract.py -q` pass.
@@ -38,8 +38,45 @@ versions of the [session observation contract](../docs/en/development/desktop-se
 Repository hooks pass except `ty check` on Windows, which reports POSIX-only attributes in unchanged Python files
 under `src/powercontext/builtin/code/` and `tests/builtin/test_native_code.py`. The explicit Linux-target check,
 `uv run --locked ty check --python-platform linux`, passes. The native tests do not qualify an actual Server,
-installed application, clipboard interaction or macOS execution. The This session UI and installed copy flow
-remain separate delivery work; native collection does not make the placeholder page operational.
+installed application, clipboard interaction or macOS execution. The This session UI and installed copy flow have their own checks below; native tests alone do not establish platform acceptance.
+
+## This session view and clipboard checks
+
+The This session page is integrated with native summary, reset and preview IPC. Node 24.14.1 and pnpm 11.13.1
+pass lint, TypeScript checking, all 147 UI tests and the frontend production build. The focused session/navigation
+checks cover both languages, localized Server discovery rows and coverage, loading/empty/failure/unsupported states,
+request/action outcomes and milliseconds,
+retention/loss coverage, explicit preview and exact text copying, clipboard failure/manual recovery, modal focus,
+reset cancellation/failure and stale asynchronous results. The installed harness additions pass Ruff and targeted
+Windows/Linux type checks. Contract/fixture regression checks pass without HTTP or native contract changes.
+
+Repository-wide type checks report existing POSIX-only attribute diagnostics on Windows and missing `database`
+arguments in three SeekDB publication tests on both Windows and the explicit Linux target. These files match
+master commit `176b3f92`; the focused Desktop harness type checks and all other repository hooks pass.
+
+Headless Edge 155.0.4283.62 with synthetic IPC and clipboard exercised 24 combinations of English/Chinese,
+light/dark/system and CSS viewports 1180×800, 800×600, 400×400 and 400×300. Checks found no page-level horizontal
+overflow, and exercised preview text equality, explicit copying, Escape/focus restoration and clipboard failure in
+forced colors. The 400×300 case uses device scale factor 2; this is browser layout evidence, not installed WebView
+zoom or screen-reader acceptance. Screenshots and reports are under ignored `.artifacts/desktop-session-view/`.
+
+A local Windows x64 check installed an unsigned debug NSIS bundle with the isolated identifier
+`com.powercontext.desktop.sessionchecks`, packaged `http://tauri.localhost/` resources and actual WebView2
+155.0.4283.62. It used a preconfigured synthetic connection because profile saving is outside this local check.
+Against a separate no-model SQLite Server process, the installed app saved, searched and read an exact Memory,
+then exercised both session tables, the native safe preview, and complete clipboard-text equality by pasting into
+its Memory editor. Both Chinese and English copy flows passed. Reset cancellation/confirmation, native window
+clearing, retained session start/lifetime loss and independent exact Memory readback after reset passed.
+An 800×600 native window also displayed the preview without horizontal page overflow.
+
+The installed executable SHA-256 is
+`d86cac5f22d8aebd8a400cf1e0e4bd6172ab924416a57eee00fc138e841e0b45`.
+The CI-fixture Server source is `2066de01dbd27d08eb01a192b5b22be01c688235`; its built-wheel SHA-256 is
+`f87da56c813fe0e994ba60c29e8ba99eb48567dc561ac9f19ac2979e0599c1a6`, with contract digest
+`5878999ce9e239d6642e4da858074b281ed465629432c578b3584eec47cbce6c`. These are local functional checks, not a
+normal product-build qualification record, clean-machine installation/signing acceptance, macOS execution, native
+200% zoom, IME or assistive-technology qualification. `installed_session.py` is included in the hosted Windows
+installed-app harness so the same preview/copy/reset assertions also run against its installed artifact.
 
 ## Native discovery acceptance
 

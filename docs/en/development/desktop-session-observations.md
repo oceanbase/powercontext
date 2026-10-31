@@ -9,8 +9,7 @@ Desktop owns an in-memory observation window under [#2107](https://github.com/oc
 Collection starts with the native host and does not depend on opening Observation. The typed native commands
 `session_summary`, `reset_session_observations`, and `preview_session_diagnostics` require the trusted main window
 and its capability. They remain available without an active connection or usable profile storage. They do not issue
-HTTP requests, probe readiness, launch diagnostics, write the clipboard, or upload anything. The This session page
-and explicit preview/copy interaction belong to the separate UI delivery; the page remains unavailable until integrated.
+HTTP requests, probe readiness, launch diagnostics, write the clipboard, or upload anything. Observation → This session reads these native projections and offers an explicit preview/copy interaction.
 
 ## Measurement units and coverage
 
@@ -105,3 +104,36 @@ metrics, spans or telemetry backend.
 Native regression checks use synthetic loopback HTTP fixtures and mocked Tauri IPC. They protect bounded retention,
 reset with in-flight writes, request/action counting, readiness and write outcomes, cancellation, sensitive-value
 exclusion, permissions and collector failure isolation. They do not qualify a real Server or installed clipboard.
+
+## This session view and explicit copying
+
+The view works without an active connection and even when connection-state loading fails. Entering the tab reads
+one native summary; there is no polling or Server/CLI probe. Refresh reads a new native snapshot on explicit request.
+HTTP and native user-operation sample totals, outcome counts and minimum/mean/maximum milliseconds are shown
+separately. Empty observations describe the current terminal-record window, not Server inactivity. A failed read has
+an explicit retry and does not replace unknown data with zeros. Unsupported summary versions are unavailable.
+
+UTC session/window/snapshot timestamps, retained count, capacity, evictions and lifetime collection loss are visible.
+Eviction or loss produces an incomplete-coverage warning. Included operations can be expanded. Local setup/Ops
+coverage remains explicitly unavailable; the page does not invent phase/results or scrape a journal.
+
+Reset requires an application confirmation explaining that Memory and running operations are unaffected and that
+lifetime loss remains. After native reset, the page reads the new window. An unconfirmed reset asks the user to refresh
+and inspect before retrying; it does not optimistically erase the visible snapshot or repeat the reset automatically.
+
+Preview is a separate explicit action. Its dialog requests `preview_session_diagnostics` and shows the returned text
+in a read-only, selectable field. Generating, failed and retry states are distinct. Copy writes that exact text to the
+system clipboard, without refetching, reconstructing, redacting or trimming it. It reports progress, success or failure;
+on failure, the original text remains available for manual selection/copy. Opening or closing a preview never copies
+or uploads it. A pending copy cannot be submitted again, and late preview/copy feedback cannot populate a new dialog.
+
+The shared modal provides Escape, Tab/Shift+Tab containment and focus restoration. Leaving the view or changing the
+native context generation/pending state unmounts the view, closes its preview and invalidates late read responses.
+The process-wide native collector continues independently. English/Chinese, existing themes, keyboard focus,
+scrollable labelled tables and a bounded preview region support small windows and enlarged display scales.
+
+`desktop/tests/installed_session.py` is part of the installed Windows harness. After real Memory workflows, it
+checks both measurement tables, previews the native projection, copies it, pastes through the actual clipboard and
+compares the complete text. It also exercises reset cancellation/confirmation and checks the new native window.
+Unit clipboard mocks and browser layout fixtures do not establish installed clipboard or macOS qualification;
+platform execution evidence is recorded in the Desktop validation guide.
