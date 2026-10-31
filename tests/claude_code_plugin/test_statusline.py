@@ -238,12 +238,13 @@ def test_render_fails_open_without_writing_diagnostics(statusline_module: Module
 
 
 @pytest.mark.parametrize(
-    ("status", "expected"),
+    ("status", "body", "expected"),
     [
-        (401, "PC auth failed"),
-        (404, "PC version mismatch"),
-        (503, "PC offline · run powercontext doctor"),
-        (500, "PC invalid response"),
+        (401, {"error": {"code": "failure"}}, "PC auth failed"),
+        (404, {"detail": "Not Found"}, "PC version mismatch"),
+        (404, {"error": {"code": "scope_not_found"}}, "PC invalid response"),
+        (503, {"error": {"code": "failure"}}, "PC offline · run powercontext doctor"),
+        (500, {"error": {"code": "failure"}}, "PC invalid response"),
     ],
 )
 def test_render_classifies_scope_failures(
@@ -251,18 +252,19 @@ def test_render_classifies_scope_failures(
     monkeypatch,
     tmp_path: Path,
     status: int,
+    body: dict[str, object],
     expected: str,
 ) -> None:
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
-            body = json.dumps({"error": {"code": "failure"}}).encode()
+            encoded = json.dumps(body).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(encoded)
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             pass

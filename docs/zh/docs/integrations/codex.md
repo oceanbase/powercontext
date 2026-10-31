@@ -252,12 +252,14 @@ header 的进程启动。
 鉴权，但有效凭据缺失或错误，Hook 会正常降级并写出 `authentication_failed` 诊断；MCP tools 不可用，但
 不会阻塞 Codex 会话。
 
-Server 不可用时，Hook 的恢复和采集会正常降级，不会阻塞 Codex。显式 Memory 工具会报告服务不可用。
+Server 不可用时，Hook 的召回和采集会正常降级，不会阻塞 Codex。显式 Memory 工具会报告服务不可用。
+召回和采集都依赖当前 Scope，因此 Scope 解析失败时 Hook 两者都不执行，并以 `scope_resolve` 事件报告该失败。
 
 正常空结果或召回失败时，Hook 会输出不含正文的 JSON 诊断。故障 outcome 通过成功 stdout Hook 响应顶层的
 `systemMessage` 返回；`empty` 仍只作为本地诊断。outcome 包括 `empty`、`authentication_failed`、
-`version_mismatch`、`server_unavailable` 和 `invalid_response`；事件不会包含 query、scope、prepared content、
-`citation`、response body 或 authorization value。
+`version_mismatch`、`server_unavailable` 和 `invalid_response`。`invalid_response` 可能带有 Server 的
+`error_code`，例如配置的 Scope 不存在或没有可解析的绑定时为 `scope_not_found`。事件不会包含 query、scope、
+prepared content、`citation`、response body 或 authorization value。
 
 ## 使用生成的环境文件
 

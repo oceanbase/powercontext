@@ -20,8 +20,9 @@ import sys
 import threading
 import time
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -39,6 +40,122 @@ def _serve(handler: type[BaseHTTPRequestHandler]) -> Generator[str, None, None]:
         server.shutdown()
         thread.join(timeout=1)
         server.server_close()
+
+
+_RESOLUTION_FAILURES = [
+    pytest.param(
+        None, b"", {"outcome": "server_unavailable", "recovery": "powercontext doctor"}, id="dropped-connection"
+    ),
+    pytest.param(
+        503,
+        b'{"error":{"code":"server_unavailable","message":"unavailable"}}',
+        {"outcome": "server_unavailable", "http_status": 503, "recovery": "powercontext doctor"},
+        id="unavailable",
+    ),
+    pytest.param(
+        401,
+        b'{"error":{"code":"authentication_required","message":"missing credential"}}',
+        {"outcome": "authentication_failed", "http_status": 401},
+        id="rejected-credential",
+    ),
+    pytest.param(
+        404, b'{"detail":"Not Found"}', {"outcome": "version_mismatch", "http_status": 404}, id="missing-route"
+    ),
+    pytest.param(
+        404,
+        b'{"error":{"code":"scope_not_found","message":"no such Scope"}}',
+        {"outcome": "invalid_response", "http_status": 404, "error_code": "scope_not_found"},
+        id="unknown-scope",
+    ),
+    pytest.param(
+        409,
+        b'{"error":{"code":"scope_binding_target_missing","message":"binding target missing"}}',
+        {"outcome": "invalid_response", "http_status": 409, "error_code": "scope_binding_target_missing"},
+        id="missing-binding-target",
+    ),
+    pytest.param(
+        404,
+        b'{"error":{"code":"scope_not_found","message":"' + b"x" * 1_048_576 + b'"}}',
+        {"outcome": "invalid_response"},
+        id="oversized-error-body",
+    ),
+    pytest.param(200, b"<html><body>maintenance</body></html>", {"outcome": "invalid_response"}, id="non-json"),
+]
+
+
+_RESOLUTION_PATH = "/v1/scope-bindings/resolve"
+_BOOTSTRAP_PATH = "/v1/context/bootstrap"
+_PREPARE_PATH = "/v1/context/prepare"
+
+
+def _failure_handler(
+    status: int | None,
+    body: bytes,
+    paths: list[str] | None = None,
+    *,
+    path: str = _RESOLUTION_PATH,
+    truncated: str | None = None,
+) -> type[BaseHTTPRequestHandler]:
+    """Answer requests to path with one response, and resolve the Scope for every other request.
+
+    A status of None closes the connection without a response. A truncated response closes the connection inside its
+    body: with "chunked" framing inside a chunk longer than its data, with "content-length" framing before the
+    announced length.
+    """
+
+    class FailureHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            if paths is not None:
+                paths.append(self.path)
+            self.rfile.read(int(self.headers["Content-Length"]))
+            if self.path != path:
+                self._send(200, b'{"scope_id":"scope:test"}')
+            elif status is not None and truncated is not None:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                if truncated == "chunked":
+                    self.send_header("Transfer-Encoding", "chunked")
+                    self.end_headers()
+                    self.wfile.write(b"%x\r\n" % (len(body) + 32) + body)
+                else:
+                    self.send_header("Content-Length", str(len(body) + 32))
+                    self.end_headers()
+                    self.wfile.write(body)
+            elif status is not None:
+                self._send(status, body)
+
+        def _send(self, response_status: int, content: bytes) -> None:
+            self.send_response(response_status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            with suppress(BrokenPipeError, ConnectionResetError):
+                self.wfile.write(content)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    return FailureHandler
+
+
+class _SlowResolutionErrorHandler(BaseHTTPRequestHandler):
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers["Content-Length"]))
+        body = b'{"error":{"code":"scope_not_found","message":"a slowly sent error body"}}'
+        self.send_response(404)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        for byte in body:
+            try:
+                self.wfile.write(bytes((byte,)))
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            time.sleep(0.02)
+
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+        pass
 
 
 def _prepared(content: str | None = "prepared context", *, status: str = "ready") -> dict[str, object]:
@@ -388,6 +505,302 @@ def test_host_diagnostic_is_throttled_across_hook_invocations(
 
     assert json.loads(outputs[0])["systemMessage"]
     assert outputs[1] == ""
+
+
+@pytest.mark.parametrize(("status", "body", "diagnostic"), _RESOLUTION_FAILURES)
+def test_scope_resolution_failure_is_reported_and_nothing_else_is_sent(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    status: int | None,
+    body: bytes,
+    diagnostic: dict[str, object],
+) -> None:
+    paths: list[str] = []
+    with _serve(_failure_handler(status, body, paths)) as server_url:
+        output, errors = _run_main(
+            hook_module,
+            monkeypatch,
+            {"hook_event_name": "UserPromptSubmit", "cwd": str(tmp_path), "prompt": "Recall context"},
+            # Reading the oversized body byte by byte can take seconds on a busy runner; let it reach the size bound.
+            settings=hook_module.ClaudeCodePluginSettings(
+                server_url=server_url, request_timeout_seconds=10.0, http_budget_seconds=10.0
+            ),
+        )
+
+    assert paths == ["/v1/scope-bindings/resolve"]
+    assert errors == ""
+    assert json.loads(json.loads(output)["systemMessage"]) == {
+        "component": "powercontext.claude_code.recall",
+        "event": "scope_resolve",
+        **diagnostic,
+    }
+
+
+def test_scope_resolution_error_body_that_outlasts_the_budget_reports_an_unavailable_server(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    with _serve(_SlowResolutionErrorHandler) as server_url:
+        output, errors = _run_main(
+            hook_module,
+            monkeypatch,
+            {"hook_event_name": "UserPromptSubmit", "cwd": str(tmp_path), "prompt": "Recall context"},
+            settings=hook_module.ClaudeCodePluginSettings(
+                server_url=server_url,
+                request_timeout_seconds=1.0,
+                http_budget_seconds=0.5,
+            ),
+        )
+
+    assert errors == ""
+    assert json.loads(json.loads(output)["systemMessage"]) == {
+        "component": "powercontext.claude_code.recall",
+        "event": "scope_resolve",
+        "outcome": "server_unavailable",
+        "recovery": "powercontext doctor",
+    }
+
+
+@pytest.mark.parametrize("framing", ["chunked", "content-length"])
+@pytest.mark.parametrize("status", [pytest.param(404, id="error-body"), pytest.param(200, id="success-body")])
+def test_truncated_scope_resolution_response_reports_an_unavailable_server(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    status: int,
+    framing: str,
+) -> None:
+    with _serve(_failure_handler(status, b'{"error":{"code":', truncated=framing)) as server_url:
+        output, errors = _run_main(
+            hook_module,
+            monkeypatch,
+            {"hook_event_name": "UserPromptSubmit", "cwd": str(tmp_path), "prompt": "Recall context"},
+            settings=hook_module.ClaudeCodePluginSettings(server_url=server_url),
+        )
+
+    assert errors == ""
+    assert json.loads(json.loads(output)["systemMessage"]) == {
+        "component": "powercontext.claude_code.recall",
+        "event": "scope_resolve",
+        "outcome": "server_unavailable",
+        "recovery": "powercontext doctor",
+    }
+
+
+@pytest.mark.parametrize(
+    ("handler", "diagnostic"),
+    [
+        pytest.param(
+            _failure_handler(200, b'{"schema":', path=_PREPARE_PATH, truncated="chunked"),
+            {"outcome": "server_unavailable", "recovery": "powercontext doctor"},
+            id="truncated-chunked-body",
+        ),
+        pytest.param(
+            _failure_handler(200, b'{"schema":', path=_PREPARE_PATH, truncated="content-length"),
+            {"outcome": "server_unavailable", "recovery": "powercontext doctor"},
+            id="truncated-content-length-body",
+        ),
+        pytest.param(
+            _failure_handler(422, b'{"error":{"code":', path=_PREPARE_PATH, truncated="chunked"),
+            {"outcome": "server_unavailable", "recovery": "powercontext doctor"},
+            id="truncated-chunked-error-body",
+        ),
+        pytest.param(
+            _failure_handler(422, b'{"error":{"code":', path=_PREPARE_PATH, truncated="content-length"),
+            {"outcome": "server_unavailable", "recovery": "powercontext doctor"},
+            id="truncated-content-length-error-body",
+        ),
+        pytest.param(
+            _failure_handler(200, b"[" * 100_000, path=_PREPARE_PATH),
+            {"outcome": "invalid_response"},
+            id="deeply-nested-body",
+        ),
+        pytest.param(
+            _failure_handler(422, b"[" * 100_000, path=_PREPARE_PATH),
+            {"outcome": "invalid_response", "http_status": 422},
+            id="deeply-nested-error-body",
+        ),
+        pytest.param(
+            _failure_handler(422, b"1" * 5_000, path=_PREPARE_PATH),
+            {"outcome": "invalid_response", "http_status": 422},
+            id="long-number-error-body",
+        ),
+        pytest.param(
+            _failure_handler(422, b"x" * 1_048_577, path=_PREPARE_PATH),
+            {"outcome": "invalid_response"},
+            id="oversized-error-body",
+        ),
+    ],
+)
+def test_prepared_context_response_that_cannot_be_read_or_decoded_is_reported(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    handler: type[BaseHTTPRequestHandler],
+    diagnostic: dict[str, object],
+) -> None:
+    with _serve(handler) as server_url:
+        output, errors = _run_main(
+            hook_module,
+            monkeypatch,
+            {"hook_event_name": "UserPromptSubmit", "cwd": str(tmp_path), "prompt": "Recall context"},
+            # Reading the oversized body byte by byte can take seconds on a busy runner; let it reach the size bound.
+            settings=hook_module.ClaudeCodePluginSettings(
+                server_url=server_url,
+                capture_prompts=False,
+                request_timeout_seconds=10.0,
+                http_budget_seconds=10.0,
+            ),
+        )
+
+    assert errors == ""
+    assert json.loads(json.loads(output)["systemMessage"]) == {
+        "component": "powercontext.claude_code.recall",
+        "event": "context_prepare",
+        **diagnostic,
+    }
+
+
+@pytest.mark.parametrize(
+    ("handler", "outcome"),
+    [
+        pytest.param(
+            _failure_handler(404, b'{"error":{"code":', truncated="chunked"),
+            "server_unavailable",
+            id="truncated-chunked-resolution-error-body",
+        ),
+        pytest.param(
+            _failure_handler(404, b'{"error":{"code":', truncated="content-length"),
+            "server_unavailable",
+            id="truncated-content-length-resolution-error-body",
+        ),
+        pytest.param(
+            _failure_handler(404, b"[" * 100_000), "version_mismatch", id="deeply-nested-resolution-error-body"
+        ),
+        pytest.param(_failure_handler(404, b"1" * 5_000), "version_mismatch", id="long-number-resolution-error-body"),
+        pytest.param(_failure_handler(200, b"[" * 100_000), "invalid_response", id="deeply-nested-resolution-body"),
+        pytest.param(_failure_handler(200, b"1" * 5_000), "invalid_response", id="long-number-resolution-body"),
+        pytest.param(
+            _failure_handler(404, b'{"error":{"code":', path=_BOOTSTRAP_PATH, truncated="chunked"),
+            "server_unavailable",
+            id="truncated-chunked-bootstrap-error-body",
+        ),
+        pytest.param(
+            _failure_handler(404, b'{"error":{"code":', path=_BOOTSTRAP_PATH, truncated="content-length"),
+            "server_unavailable",
+            id="truncated-content-length-bootstrap-error-body",
+        ),
+        pytest.param(
+            _failure_handler(200, b'{"schema":', path=_BOOTSTRAP_PATH, truncated="chunked"),
+            "server_unavailable",
+            id="truncated-chunked-bootstrap-body",
+        ),
+        pytest.param(
+            _failure_handler(200, b'{"schema":', path=_BOOTSTRAP_PATH, truncated="content-length"),
+            "server_unavailable",
+            id="truncated-content-length-bootstrap-body",
+        ),
+        pytest.param(
+            _failure_handler(200, b"[" * 100_000, path=_BOOTSTRAP_PATH),
+            "invalid_response",
+            id="deeply-nested-bootstrap-body",
+        ),
+        pytest.param(
+            _failure_handler(200, b"1" * 5_000, path=_BOOTSTRAP_PATH),
+            "invalid_response",
+            id="long-number-bootstrap-body",
+        ),
+    ],
+)
+def test_session_start_clears_the_kept_receipt_when_a_response_cannot_be_read_or_decoded(
+    session_start_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    handler: type[BaseHTTPRequestHandler],
+    outcome: str,
+) -> None:
+    session_start_module.save_receipt("session-a", "scope:test", "bcr_previous")
+    with _serve(handler) as server_url:
+        _, errors = _run_main(
+            session_start_module,
+            monkeypatch,
+            {"hook_event_name": "SessionStart", "session_id": "session-a", "cwd": str(tmp_path), "source": "compact"},
+            settings=session_start_module.ClaudeCodePluginSettings(server_url=server_url),
+        )
+
+    assert json.loads(errors)["outcome"] == outcome
+    assert session_start_module.load_receipt_state("session-a") is None
+
+
+@pytest.mark.parametrize(
+    ("body", "diagnostic"),
+    [
+        pytest.param(
+            b'{"detail":"Not Found"}', {"outcome": "version_mismatch", "http_status": 404}, id="missing-route"
+        ),
+        pytest.param(
+            b'{"error":{"code":"scope_not_found","message":"no such Scope"}}',
+            {"outcome": "invalid_response", "http_status": 404, "error_code": "scope_not_found"},
+            id="unknown-scope",
+        ),
+    ],
+)
+@pytest.mark.parametrize("path", [_RESOLUTION_PATH, _BOOTSTRAP_PATH], ids=["resolution", "bootstrap"])
+def test_session_start_classifies_a_404_by_its_error_code(
+    session_start_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    path: str,
+    body: bytes,
+    diagnostic: dict[str, object],
+) -> None:
+    with _serve(_failure_handler(404, body, path=path)) as server_url:
+        _, errors = _run_main(
+            session_start_module,
+            monkeypatch,
+            {"hook_event_name": "SessionStart", "session_id": "session-a", "cwd": str(tmp_path), "source": "startup"},
+            settings=session_start_module.ClaudeCodePluginSettings(server_url=server_url),
+        )
+
+    assert json.loads(errors) == {
+        "component": "powercontext.claude_code.bootstrap",
+        "event": "context_bootstrap",
+        "profile": "powercontext.scope-bootstrap.v1",
+        **diagnostic,
+    }
+
+
+def test_failed_session_start_does_not_hold_back_the_next_prompt_diagnostic(
+    hook_module: ModuleType,
+    session_start_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    unavailable = b'{"error":{"code":"server_unavailable","message":"unavailable"}}'
+    with _serve(_failure_handler(503, unavailable)) as server_url:
+        settings = hook_module.ClaudeCodePluginSettings(server_url=server_url)
+        _, session_errors = _run_main(
+            session_start_module,
+            monkeypatch,
+            {"hook_event_name": "SessionStart", "session_id": "session-a", "cwd": str(tmp_path), "source": "startup"},
+            settings=settings,
+        )
+        output, _ = _run_main(
+            hook_module,
+            monkeypatch,
+            {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "session-a",
+                "cwd": str(tmp_path),
+                "prompt": "Recall context",
+            },
+            settings=settings,
+        )
+
+    assert json.loads(session_errors)["outcome"] == "server_unavailable"
+    assert json.loads(json.loads(output)["systemMessage"])["outcome"] == "server_unavailable"
 
 
 def test_recall_and_capture_share_one_http_deadline(

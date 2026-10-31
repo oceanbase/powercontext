@@ -22,6 +22,7 @@ import os
 import sys
 from collections.abc import Mapping
 from contextlib import suppress
+from http.client import HTTPException
 from pathlib import Path
 from time import monotonic
 from typing import Any, Protocol, cast
@@ -43,7 +44,6 @@ from hooks.bootstrap_context import (  # noqa: E402
     validate_bootstrap_context,
     validate_delivery_receipt,
 )
-from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
 from plugin_version import PLUGIN_VERSION  # noqa: E402
 from scope_binding import (  # noqa: E402
     ScopeBindingError,
@@ -51,7 +51,9 @@ from scope_binding import (  # noqa: E402
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
     bind_response_deadline,
+    complete_body,
     open_bounded,
+    read_error_code,
     resolve_scope_id,
 )
 from settings import CodexPluginSettings  # noqa: E402
@@ -60,14 +62,6 @@ _LIFECYCLES = frozenset({"startup", "resume", "clear", "compact", "restore", "fo
 _MAX_RESPONSE_BYTES = 1_048_576
 _READ_CHUNK_BYTES = 65_536
 _BOOTSTRAP_PROFILE = "powercontext.scope-bootstrap.v1"
-_FAILURE_OUTCOMES = frozenset({
-    "authentication_failed",
-    "authorization_denied",
-    "delivery_failed",
-    "invalid_response",
-    "server_unavailable",
-    "version_mismatch",
-})
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
@@ -86,9 +80,10 @@ class _ReadableResponse(Protocol):
 
 
 class _HttpStatusError(RuntimeError):
-    def __init__(self, status: int, path: str) -> None:
+    def __init__(self, status: int, path: str, code: str | None = None) -> None:
         self.status = status
         self.path = path
+        self.code = code
         super().__init__(f"PowerContext returned HTTP {status}")
 
 
@@ -216,11 +211,12 @@ def _resolve_and_prepare(
         )
     except ScopeBindingRejectedError:
         _emit_bootstrap_event("authentication_failed")
-    except (ScopeBindingUnavailableError, OSError, TimeoutError):
+    except (ScopeBindingUnavailableError, OSError, TimeoutError, HTTPException):
+        # http.client reports a truncated or malformed response as HTTPException, not OSError.
         _emit_bootstrap_event("server_unavailable", recovery="powercontext doctor")
     except (ScopeBindingStatusError, _HttpStatusError) as error:
-        _emit_http_failure(error.status)
-    except (ScopeBindingError, InvalidBootstrapResponse, UnicodeDecodeError, json.JSONDecodeError):
+        _emit_http_failure(error.status, error.code)
+    except (ScopeBindingError, InvalidBootstrapResponse):
         _emit_bootstrap_event("invalid_response")
     else:
         return scope_id, response
@@ -256,9 +252,15 @@ def _post_json(
         with open_bounded(request, timeout=timeout) as response:
             if response.status != 200:
                 raise _HttpStatusError(response.status, path)
-            value = json.loads(_read_response(response, deadline=min(deadline, monotonic() + timeout)))
+            raw = _read_response(response, deadline=min(deadline, monotonic() + timeout))
     except HTTPError as error:
-        raise _HttpStatusError(error.code, path) from error
+        code = read_error_code(error, deadline=min(deadline, monotonic() + timeout))
+        raise _HttpStatusError(error.code, path, code) from error
+    try:
+        value = json.loads(raw)
+    except (ValueError, RecursionError) as error:
+        # Besides JSONDecodeError, json raises ValueError for an over-long integer and RecursionError for deep nesting.
+        raise InvalidBootstrapResponse from error
     if not isinstance(value, dict):
         raise InvalidBootstrapResponse
     return cast(dict[str, object], value)
@@ -271,7 +273,7 @@ def _read_response(response: _ReadableResponse, *, deadline: float) -> bytes:
         remaining = _MAX_RESPONSE_BYTES + 1 - len(content)
         chunk = response.read(min(_READ_CHUNK_BYTES, remaining))
         if not chunk:
-            return bytes(content)
+            return complete_body(response, bytes(content))
         content.extend(chunk)
         if len(content) > _MAX_RESPONSE_BYTES:
             raise InvalidBootstrapResponse
@@ -339,12 +341,12 @@ def _synchronize_non_ready_receipt(
     return receipt
 
 
-def _emit_http_failure(status: int) -> None:
+def _emit_http_failure(status: int, code: str | None = None) -> None:
     if status == 401:
         outcome = "authentication_failed"
     elif status == 403:
         outcome = "authorization_denied"
-    elif status == 404:
+    elif status == 404 and code is None:
         outcome = "version_mismatch"
     elif status == 503:
         outcome = "server_unavailable"
@@ -353,6 +355,7 @@ def _emit_http_failure(status: int) -> None:
     _emit_bootstrap_event(
         outcome,
         http_status=status,
+        error_code=code,
         recovery="powercontext doctor" if outcome == "server_unavailable" else None,
     )
 
@@ -361,14 +364,13 @@ def _emit_bootstrap_event(
     outcome: str,
     *,
     http_status: int | None = None,
+    error_code: str | None = None,
     context_status: str | None = None,
     content_bytes: int | None = None,
     truncated: bool | None = None,
     receipt_state: str | None = None,
     recovery: str | None = None,
 ) -> None:
-    if outcome in _FAILURE_OUTCOMES and not _should_emit_diagnostic(outcome):
-        return
     event: dict[str, object] = {
         "component": "powercontext.codex.bootstrap",
         "event": "context_bootstrap",
@@ -377,6 +379,8 @@ def _emit_bootstrap_event(
     }
     if http_status is not None:
         event["http_status"] = http_status
+    if error_code is not None:
+        event["error_code"] = error_code
     if context_status is not None:
         event["context_status"] = context_status
     if content_bytes is not None:

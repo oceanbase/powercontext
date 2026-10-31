@@ -201,18 +201,20 @@ Hook 会直接读取该进程环境变量，MCP 配置则把它展开到 `Author
 ## 理解失败行为
 
 召回与采集彼此独立，并且都会 fail open。召回失败不会阻止 prompt 采集，采集失败也不会移除有效的召回上下文。
+两者都依赖当前 Scope：Scope 解析失败时，Hook 既不召回也不采集，并以 `scope_resolve` 事件报告该失败。
 无论哪种情况，Claude Code 都会继续处理当前 prompt。
 
 | 条件 | Hook 行为 |
 | --- | --- |
 | Prepared Context 为空 | 不注入内容，并记录 `empty` outcome |
 | HTTP 401 | 不注入内容，并记录 `authentication_failed` |
-| HTTP 404 | 不注入内容，并记录 `version_mismatch` |
+| 必需路由返回不带错误码的 HTTP 404 | 不注入内容，并记录 `version_mismatch` |
 | HTTP 503 或 Server 不可用 | 不注入内容，并记录 `server_unavailable` |
+| 其他 HTTP 错误，包括 `scope_not_found` 这类带错误码的 404 | 不注入内容，并记录带状态码和错误码（如有）的 `invalid_response` |
 | 未知 schema、错误 JSON 或超大响应 | 不注入内容，并记录 `invalid_response` |
 
-诊断只包含 outcome 和安全的数字 metadata，不包含 prompt、scope、Prepared Context 正文、Authorization 值或
-响应正文。插件会拒绝重定向，并限制响应大小和 wall-clock 时间。
+诊断只包含 outcome、安全的数字 metadata 和 Server 返回的错误码（如有），不包含 prompt、scope、Prepared Context 正文、
+Authorization 值或响应正文。插件会拒绝重定向，并限制响应大小和 wall-clock 时间。
 
 ## 诊断或回滚
 

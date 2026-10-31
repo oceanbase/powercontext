@@ -24,6 +24,7 @@ from collections.abc import Mapping
 from contextlib import suppress
 from datetime import UTC, datetime
 from hashlib import sha256
+from http.client import HTTPException
 from pathlib import Path
 from time import monotonic
 from typing import Any, Protocol, cast
@@ -40,7 +41,15 @@ from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
 from hooks.prompt_privacy import scrub_secrets  # noqa: E402
 from plugin_version import PLUGIN_VERSION  # noqa: E402
-from scope_binding import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
+from scope_binding import (  # noqa: E402
+    ScopeBindingRejectedError,
+    ScopeBindingStatusError,
+    ScopeBindingUnavailableError,
+    bind_response_deadline,
+    complete_body,
+    open_bounded,
+    resolve_scope_id,
+)
 from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
@@ -88,8 +97,10 @@ _COMPATIBILITY_OR_AVAILABILITY_PATHS = frozenset({
     "/health/ready",
     "/v1/capabilities",
     "/v1/context/prepare",
+    "/v1/scope-bindings/resolve",
 })
 _AUTOMATIC_OPERATION_PATHS = {
+    "scope_resolve": "/v1/scope-bindings/resolve",
     "context_prepare": "/v1/context/prepare",
     "capture_source": "/v1/sources/content",
     "flush_memory": "/v1/memory/flush",
@@ -111,7 +122,8 @@ def _http_failure_outcome(error: _HttpStatusError, *, operation: str) -> str | N
 def _decode_error_code(raw: bytes) -> str | None:
     try:
         decoded = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (ValueError, RecursionError):
+        # Besides JSONDecodeError, json raises ValueError for an over-long integer and RecursionError for deep nesting.
         return None
     if not isinstance(decoded, dict):
         return None
@@ -144,12 +156,22 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             _write_hook_output(diagnostic_events=diagnostic_events)
             return 0
         session_id = _payload_identifier(payload, "session_id", "conversation_id", "thread_id")
-        scope_id = resolve_scope_id(
-            cwd,
-            session_id=session_id,
-            settings=settings,
-            deadline=http_deadline,
-        )
+        try:
+            scope_id = resolve_scope_id(
+                cwd,
+                session_id=session_id,
+                settings=settings,
+                deadline=http_deadline,
+            )
+        except Exception as error:
+            _emit_failure_event(
+                "scope_resolve",
+                _scope_resolution_failure(error),
+                emitted_diagnostics=emitted_diagnostics,
+                diagnostic_events=diagnostic_events,
+            )
+            _write_hook_output(diagnostic_events=diagnostic_events)
+            return 0
         bootstrap_receipt_id = load_receipt(session_id, scope_id)
         clear_receipt(session_id)
         authorization = settings.authorization.get_secret_value() if settings.authorization is not None else None
@@ -360,16 +382,16 @@ def _post_json(
     except HTTPError as error:
         try:
             error_body = _read_response(error, deadline=request_deadline, chunk_bytes=1)
-        except TimeoutError as timeout:
-            raise _ServerUnavailableError from timeout
-        except OSError:
-            error_body = b""
+        except (OSError, HTTPException) as failure:
+            # A stalled, reset, or truncated body is a transport failure, as it is for a successful response.
+            raise _ServerUnavailableError from failure
+        except ValueError as failure:
+            raise _InvalidResponseError from failure
         raise _HttpStatusError(error.code, path, _decode_error_code(error_body)) from error
-    except TimeoutError as error:
+    except (OSError, HTTPException) as error:
+        # http.client reports a truncated or malformed response as HTTPException, not OSError.
         raise _ServerUnavailableError from error
-    except OSError as error:
-        raise _ServerUnavailableError from error
-    except ValueError as error:
+    except (ValueError, RecursionError) as error:
         raise _InvalidResponseError from error
     if not isinstance(result, dict):
         raise _InvalidResponseError
@@ -398,7 +420,7 @@ def _read_response(
         remaining_bytes = _MAX_RESPONSE_BYTES + 1 - len(content)
         chunk = response.read(min(chunk_bytes, remaining_bytes))
         if not chunk:
-            return bytes(content)
+            return complete_body(response, bytes(content))
         content.extend(chunk)
         if len(content) > _MAX_RESPONSE_BYTES:
             raise ValueError("PowerContext response exceeds the hook limit")  # noqa: TRY003
@@ -610,6 +632,21 @@ def _emit_failure_event(
             emitted_diagnostics=emitted_diagnostics,
             diagnostic_events=diagnostic_events,
         )
+
+
+def _scope_resolution_failure(error: Exception) -> Exception:
+    """Restate a Scope client failure as the error that this hook's own requests raise for the same response."""
+
+    path = _AUTOMATIC_OPERATION_PATHS["scope_resolve"]
+    if isinstance(error, ScopeBindingRejectedError):
+        return _HttpStatusError(401, path)
+    if isinstance(error, ScopeBindingUnavailableError):
+        return _ServerUnavailableError() if error.status is None else _HttpStatusError(error.status, path)
+    if isinstance(error, ScopeBindingStatusError):
+        return _HttpStatusError(error.status, error.path, error.code)
+    if isinstance(error, OSError):
+        return _ServerUnavailableError()
+    return error
 
 
 def _write_hook_output(

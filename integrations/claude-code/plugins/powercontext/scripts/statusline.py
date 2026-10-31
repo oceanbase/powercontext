@@ -248,7 +248,7 @@ def failure_outcome(error: BaseException) -> str:
     if isinstance(error, ScopeBindingStatusError):
         return (
             "version_mismatch"
-            if error.status == 404 and error.path == "/v1/scope-bindings/resolve"
+            if error.status == 404 and error.path == "/v1/scope-bindings/resolve" and error.code is None
             else "invalid_response"
         )
     if isinstance(error, HTTPError):

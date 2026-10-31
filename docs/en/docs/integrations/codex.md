@@ -289,13 +289,15 @@ incorrect, the Hook fails open and emits an `authentication_failed` diagnostic; 
 blocking the Codex session.
 
 If the Server is unavailable, hook recall and capture fail open. Codex work continues, and explicit Memory tools
-report that the service is unavailable.
+report that the service is unavailable. Recall and capture both need the current Scope, so when Scope resolution
+fails the Hook does neither and reports the failure as a `scope_resolve` event.
 
 For a normal empty result or recall failure, the Hook emits a content-free JSON diagnostic. Failure outcomes are
 returned through the top-level `systemMessage` in the successful stdout hook response; `empty` remains a local
 diagnostic. Outcomes include `empty`, `authentication_failed`, `version_mismatch`, `server_unavailable`, and
-`invalid_response`. The event never contains the query, scope, prepared content, citation, response body, or
-authorization value.
+`invalid_response`. An `invalid_response` can carry the Server's `error_code`, such as `scope_not_found` when the
+configured Scope does not exist or no binding resolves. The event never contains the query, scope, prepared content,
+citation, response body, or authorization value.
 
 ## Use a generated environment file
 

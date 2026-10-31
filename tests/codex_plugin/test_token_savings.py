@@ -580,31 +580,35 @@ def test_slow_scope_response_respects_the_absolute_budget(
 
 
 @pytest.mark.parametrize(
-    ("status", "outcome"),
+    ("status", "body", "outcome", "http_status", "error_code"),
     [
-        (401, "authentication_failed"),
-        (404, "version_mismatch"),
-        (500, "invalid_response"),
-        (503, "server_unavailable"),
+        (401, {"error": {"code": "failure"}}, "authentication_failed", None, None),
+        (404, {"detail": "Not Found"}, "version_mismatch", 404, None),
+        (404, {"error": {"code": "scope_not_found"}}, "invalid_response", 404, "scope_not_found"),
+        (500, {"error": {"code": "failure"}}, "invalid_response", 500, "failure"),
+        (503, {"error": {"code": "failure"}}, "server_unavailable", 503, None),
     ],
 )
 def test_scope_binding_failures_are_classified(
     token_savings_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     status: int,
+    body: dict[str, object],
     outcome: str,
+    http_status: int | None,
+    error_code: str | None,
 ) -> None:
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
             assert self.path == "/v1/scope-bindings/resolve"
-            body = json.dumps({"error": {"code": "failure"}}).encode()
+            encoded = json.dumps(body).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(encoded)
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             pass
@@ -614,6 +618,8 @@ def test_scope_binding_failures_are_classified(
 
     events = _diagnostics(output)
     assert [event["outcome"] for event in events] == [outcome]
+    assert events[0].get("http_status") == http_status
+    assert events[0].get("error_code") == error_code
 
 
 def test_scope_response_body_respects_the_per_request_timeout(
