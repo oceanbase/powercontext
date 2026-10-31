@@ -72,7 +72,9 @@ WORKBUDDY_HOOKS_DIR="${WORKBUDDY_HOOKS_DIR:-$HOME/.workbuddy/hooks}"
 mkdir -p "$WORKBUDDY_HOOKS_DIR"
 cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/workbuddy_settings.py \
+   "$PLUGIN"/hooks/powercontext_client_config.py \
    "$PLUGIN"/hooks/prepared_context.py \
+   "$PLUGIN"/hooks/prompt_privacy.py \
    "$WORKBUDDY_HOOKS_DIR"/
 cp "$PLUGIN/scripts/workspace_scope.py" \
    "$WORKBUDDY_HOOKS_DIR/powercontext_scope_binding.py"

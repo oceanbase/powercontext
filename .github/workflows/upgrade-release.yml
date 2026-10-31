@@ -4,16 +4,31 @@ on:
   workflow_call:
     inputs:
       selection:
-        description: full, automatic, or seekdb-code; manual Code cases do not gate publication
+        description: full or automatic runs all 12 cases; seekdb-code is a diagnostic subset without publication
         type: string
         default: full
       release:
         description: Enforce release metadata and expose accepted publication artifacts
         type: boolean
         default: false
+      source_ref:
+        description: Pinned release commit; empty uses the calling workflow checkout
+        type: string
+        default: ''
+      release_tag:
+        description: Published Release tag selected by the release workflow
+        type: string
+        default: ''
+      skip_upgrade_acceptance:
+        description: Explicit manual publication for new databases without upgrade acceptance
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+env:
+  PC_UPGRADE_SOURCE_SHA: ${{ inputs.source_ref || github.sha }}
 
 jobs:
   prepare:
@@ -26,16 +41,34 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.source_ref }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Require an explicit manual release for the upgrade bypass
+        env:
+          SKIP_UPGRADE_ACCEPTANCE: ${{ inputs.skip_upgrade_acceptance }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          if [ "$SKIP_UPGRADE_ACCEPTANCE" = true ]; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$RELEASE" = true
+          fi
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
+      - name: Download the frozen Release metadata
+        if: inputs.release
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-metadata
+          path: ${{ runner.temp }}/release-metadata/
+
       - name: Verify package version from Release tag
         if: inputs.release
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           python - <<'PY'
           import os
@@ -65,7 +98,7 @@ jobs:
 
       - name: Set up website tools
         if: inputs.release
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
 
       - name: Cache website dependencies
         if: inputs.release
@@ -77,13 +110,14 @@ jobs:
       - name: Verify synchronized release references and release notes
         if: inputs.release
         env:
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ inputs.release_tag }}
         run: make release-check
 
-      - name: Verify upgrade policy and gate regressions
-        run: |
-          make upgrade-policy-check
-          uv run pytest -q tests/test_upgrade_release_gate.py tests/test_upgrade_publication.py
+      - name: Run upgrade gate regressions
+        run: uv run pytest -q tests/test_upgrade_release_gate.py tests/test_upgrade_publication.py tests/test_upgrade_schema_equivalence.py
+
+      - name: Verify upgrade policy
+        run: make upgrade-policy-check
 
       - name: Build release distributions
         run: |
@@ -91,6 +125,7 @@ jobs:
           uvx --from twine twine check dist/*
 
       - name: Freeze distributions and resolve the source matrix once
+        if: ${{ !inputs.skip_upgrade_acceptance }}
         id: prepare
         env:
           RELEASE: ${{ inputs.release }}
@@ -98,12 +133,13 @@ jobs:
         run: |
           args=()
           if [ "$RELEASE" = true ]; then
-            args+=(--release --release-event "$GITHUB_EVENT_PATH")
+            args+=(--release --release-event "$RUNNER_TEMP/release-metadata/event.json")
           fi
           uv run python scripts/parallel_upgrade_release_gate.py prepare \
             --output "$RUNNER_TEMP/upgrade-prepared" --selection "$SELECTION" "${args[@]}"
 
       - name: Share the exact prepared inputs
+        if: ${{ !inputs.skip_upgrade_acceptance }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: upgrade-prepared
@@ -115,12 +151,103 @@ jobs:
           overwrite: true
           retention-days: 30
 
+      - name: Validate distributions without claiming upgrade acceptance
+        if: inputs.skip_upgrade_acceptance
+        env:
+          PYTHONPATH: scripts
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          from run_upgrade_release_gate import stage_distributions
+          from upgrade_release_gate import ROOT, load_policy, require, sha256, wheel_version
+
+          policy = load_policy(ROOT)
+          require(policy["mode"] == "upgrade-required", "The bypass must not declare supported upgrades")
+          output = Path(os.environ["RUNNER_TEMP"]) / "release-without-upgrades"
+          output.mkdir()
+          wheel, files = stage_distributions(Path("dist"), output / "validated-dist", release=True)
+          require(wheel_version(wheel) == policy["target_version"], "Wheel version differs from release policy")
+          evidence = {
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+              "actor": os.environ["GITHUB_ACTOR"],
+              "upgrade_acceptance": "skipped",
+              "supported_use": "new-databases-only",
+              "artifacts": {path.name: sha256(path) for path in files},
+          }
+          (output / "publication.json").write_text(json.dumps(evidence, indent=2) + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("## Upgrade acceptance skipped\n\n")
+              summary.write("Published use is limited to new databases. Existing database upgrades are unsupported.\n")
+              summary.write(f"\nTag: `{evidence['release_tag']}`; source: `{evidence['source_sha']}`.\n")
+          PY
+
+      - name: Verify a clean installation and new-database Server, MCP and Memory behavior
+        if: inputs.skip_upgrade_acceptance
+        run: |
+          verification="$RUNNER_TEMP/release-fresh-install"
+          uv venv "$verification"
+          wheels=("$RUNNER_TEMP"/release-without-upgrades/validated-dist/*.whl)
+          uv pip install --python "$verification/bin/python" "${wheels[0]}[cli,server]"
+          uv pip check --python "$verification/bin/python"
+          version="$("$verification/bin/python" -c 'from importlib.metadata import version; print(version("powercontext"))')"
+          "$verification/bin/python" scripts/ci_release_smoke.py --version "$version"
+
+      - name: Bind successful fresh-install verification to the uploaded bytes
+        if: inputs.skip_upgrade_acceptance
+        env:
+          PYTHONPATH: scripts
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from upgrade_release_gate import require, sha256
+
+          output = Path(os.environ["RUNNER_TEMP"]) / "release-without-upgrades"
+          record = output / "publication.json"
+          evidence = json.loads(record.read_text())
+          actual = {path.name: sha256(path) for path in (output / "validated-dist").iterdir()}
+          require(actual == evidence["artifacts"], "Distributions changed during fresh-install verification")
+          evidence["fresh_install_smoke"] = "passed"
+          record.write_text(json.dumps(evidence, indent=2) + "\n")
+          PY
+
+      - name: Preserve the explicit upgrade bypass record
+        if: always() && inputs.skip_upgrade_acceptance
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-without-upgrades
+          path: |
+            ${{ runner.temp }}/release-without-upgrades/publication.json
+            ${{ runner.temp }}/release-without-upgrades/sdist-build.log
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 30
+
+      - name: Upload distributions after fresh-install verification only
+        if: success() && inputs.skip_upgrade_acceptance
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-dists
+          path: ${{ runner.temp }}/release-without-upgrades/validated-dist/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
   cases:
     name: Upgrade ${{ matrix.source_version }} / ${{ matrix.backend }} / ${{ matrix.configuration }}
     needs: prepare
+    if: ${{ !inputs.skip_upgrade_acceptance }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
+      max-parallel: 3
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
@@ -130,6 +257,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.source_ref }}
           persist-credentials: false
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
@@ -170,13 +298,14 @@ jobs:
   collect:
     name: Verify the selected upgrade matrix
     needs: [prepare, cases]
-    if: always() && needs.prepare.result == 'success'
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && !inputs.skip_upgrade_acceptance }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.source_ref }}
           persist-credentials: false
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env

@@ -15,13 +15,17 @@
 """Embedded seekdb async relational profile."""
 
 from powercontext.builtin.persistence.seekdb.profile import (
+    LegacySeekDBDatabaseError,
     SeekDBConfig,
+    SeekDBInspectionError,
     SeekDBProfile,
     SeekDBUnavailableError,
 )
 
 __all__ = (
+    "LegacySeekDBDatabaseError",
     "SeekDBConfig",
+    "SeekDBInspectionError",
     "SeekDBProfile",
     "SeekDBUnavailableError",
 )

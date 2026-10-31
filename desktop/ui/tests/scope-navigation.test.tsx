@@ -69,7 +69,13 @@ const report = {
   capabilities: fact,
   compatibilityVerified: true,
   anonymousAccess: true,
-  supportedOperations: [],
+  supportedOperations: [
+    "remember_memory",
+    "search_memory",
+    "get_artifact_revision",
+    "list_scopes",
+    "get_scope",
+  ],
 };
 const scopeA = {
   scope_id: "scope-a",
@@ -122,6 +128,48 @@ async function chooseProfile(
   await user.click(screen.getByRole("button", { name: /当前连接:/ }));
   await user.click(screen.getByRole("menuitem", { name: new RegExp(name) }));
 }
+
+test("global Scope selection stays on the current page and restores selector focus", async () => {
+  const user = userEvent.setup();
+  vi.mocked(desktopApi.selectScope).mockResolvedValueOnce(selected);
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "观察" }));
+  await user.click(screen.getByRole("button", { name: /Scope A scope-a/ }));
+  await user.click(screen.getByRole("button", { name: "查找范围" }));
+  await user.click(screen.getByRole("button", { name: "Scope B" }));
+  expect(screen.getByRole("heading", { level: 1, name: "观察" })).toBeTruthy();
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: /Scope B scope-b/ }),
+  );
+});
+
+test("global Scope confirmation preserves a cancelled connection draft and discards it only after success", async () => {
+  const user = userEvent.setup();
+  vi.mocked(desktopApi.selectScope).mockResolvedValueOnce(selected);
+  render(<App />);
+  await screen.findByRole("button", { name: /当前连接: First/ });
+  await chooseProfile(user, "Second");
+  await user.type(screen.getByLabelText("连接名称"), " draft");
+  await user.click(screen.getByRole("button", { name: /Scope A scope-a/ }));
+  await user.click(screen.getByRole("button", { name: "查找范围" }));
+  await user.click(screen.getByRole("button", { name: "Scope B" }));
+  await answerConfirmation(user, false);
+  expect((screen.getByLabelText("连接名称") as HTMLInputElement).value).toBe(
+    "Second draft",
+  );
+  expect(desktopApi.selectScope).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Scope B" }));
+  await answerConfirmation(user, true);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await waitFor(() =>
+    expect((screen.getByLabelText("连接名称") as HTMLInputElement).value).toBe(
+      "Second",
+    ),
+  );
+  expect(desktopApi.save).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "观察" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
 
 test.each(["Escape", "close button", "backdrop"])(
   "pending Scope selection protects Memory after closing with %s",

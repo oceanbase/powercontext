@@ -16,7 +16,12 @@ run setup:
 ```bash
 powercontext --version
 claude --version
+python3 --version
 ```
+
+Claude Code runs the plugin's Hooks and status line with the `python3` found on `PATH`, not with the PowerContext
+installation's Python. They need Python 3.9 or newer and use only the standard library, so the macOS system Python
+works.
 
 Use the same PowerContext repository ref for the Python package and plugin. The Hook validates a versioned Prepared
 Context contract, so mixing an older Server with a newer plugin can disable recall without blocking Claude Code.

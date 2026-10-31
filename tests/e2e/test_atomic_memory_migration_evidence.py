@@ -323,11 +323,12 @@ def test_merge_keeps_migrated_input_history_without_unrelated_collection_sources
             memory = contexts.atomic_memory.for_scope(SCOPE)
             alpha = await memory.get(_atomic("alpha", 2).artifact_id)
             (created,) = await contexts.records.create_atomic_memories(
-                SCOPE, ({"kind": "fact", "text": "Another standalone fact."},)
+                SCOPE, ({"kind": "fact", "text": "Another standalone fact.", "description": "Explicit fixture memory"},)
             )
             other = await memory.get(created.artifact_id)
             merged = await memory.merge(
-                (alpha.as_read(), other.as_read()), AtomicMemoryContent(kind="fact", text="Merged task evidence.")
+                (alpha.as_read(), other.as_read()),
+                AtomicMemoryContent(kind="fact", text="Merged task evidence.", description="Explicit fixture memory"),
             )
             async with contexts.database.transaction() as connection:
                 resolved = await _resolver(contexts).resolve(connection, artifacts=(merged.primary.ref,))
@@ -417,7 +418,8 @@ def test_undo_merge_preserves_each_migrated_entry_evidence(migrated) -> None:
             alpha = await memory.get(_atomic("alpha", 2).artifact_id)
             beta = await memory.get(_atomic("beta", 1).artifact_id)
             merged = await memory.merge(
-                (alpha.as_read(), beta.as_read()), AtomicMemoryContent(kind="fact", text="Both task facts.")
+                (alpha.as_read(), beta.as_read()),
+                AtomicMemoryContent(kind="fact", text="Both task facts.", description="Explicit fixture memory"),
             )
             await memory.restore(merged.primary.ref.artifact_id, operation="undo_merge")
             async with contexts.database.transaction() as connection:
@@ -654,7 +656,10 @@ class _TriggerExtractor:
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
                     AtomicMemoryCandidate(
-                        kind="fact", text="Tasks A and C were completed.", evidence_ids=(item.evidence_id,)
+                        kind="fact",
+                        text="Tasks A and C were completed.",
+                        evidence_ids=(item.evidence_id,),
+                        description="Extracted fixture fact",
                     )
                     for item in request.evidence
                     if item.source_ref.source_id == "migration-trigger"
@@ -683,7 +688,9 @@ class _CaptureReconciler:
                 compared_ids=tuple(item.item_id for item in request.related),
                 target_ids=() if related is None else (related.item_id,),
                 content=(
-                    AtomicMemoryReconciliationContent(kind="fact", text=request.proposal.text)
+                    AtomicMemoryReconciliationContent(
+                        kind="fact", text=request.proposal.text, description="Reconciled fixture fact"
+                    )
                     if related is None
                     else None
                 ),

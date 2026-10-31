@@ -469,6 +469,22 @@ def _degradation(current: str | None, observed: str | None) -> str | None:
     return _TIMEOUT_REASON if observed == _TIMEOUT_REASON else (current or observed)
 
 
+@dataclass
+class _EmbeddingBudget:
+    """What is left of one context preparation's budget for waiting on query embeddings.
+
+    Only the waits are charged, so database reads, Experience recall and reranking between two searches do not take a
+    later search's share. A spent budget is reached only through an embedding that timed out, which already recorded
+    the preparation's degradation cause, so a later search can skip its embedding without losing that cause. A spent
+    budget stops new embedding requests only: a query vector an earlier search obtained needs no wait and stays usable.
+    """
+
+    remaining: float
+
+    def spend(self, seconds: float) -> None:
+        self.remaining = max(self.remaining - seconds, 0.0)
+
+
 @dataclass(frozen=True)
 class _RecallRoundOutcome:
     """All observable results produced by one bounded recall pass."""
@@ -724,7 +740,13 @@ class ScopedRecordApplication:
         execution_context: Any = None,
         on_commit: Callable[[Any, ArtifactCreated], Awaitable[None]] | None = None,
     ) -> ArtifactCreated:
-        async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
+        async with (
+            self._runtime._scoped_operation(
+                self.scope_id,
+                embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING if family == "atomic-memory" else None,
+            ),
+            self._runtime._locked(self.scope_id),
+        ):
             return await self._runtime._records().create_artifact(
                 self.scope_id,
                 family,
@@ -830,7 +852,13 @@ class ScopedRecordApplication:
         actor_id: str | None = None,
         execution_context: Any = None,
     ) -> ArtifactRecord:
-        async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
+        async with (
+            self._runtime._scoped_operation(
+                self.scope_id,
+                embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING if family == "atomic-memory" else None,
+            ),
+            self._runtime._locked(self.scope_id),
+        ):
             return await self._runtime._records().replace_artifact(
                 self.scope_id,
                 family,
@@ -1140,6 +1168,9 @@ class ScopedContextApplication:
                 request.bootstrap_receipt_id,
             )
 
+        # One budget covers every query embedding this preparation waits for. Each search gets what the earlier ones
+        # left, so the waits cannot add up past it however many Scopes and families are searched.
+        embedding_budget = _EmbeddingBudget(self._runtime.recall_embedding_timeout_seconds)
         round_zero = await self._recall_round(
             request,
             scope_ids,
@@ -1148,6 +1179,7 @@ class ScopedContextApplication:
             admission=None,
             reuse=reuse,
             topic_reuse=topic_reuse,
+            embedding_budget=embedding_budget,
             excluded_memory=injected_memory_keys,
         )
         memory_candidates = list(round_zero.memory)
@@ -1182,6 +1214,7 @@ class ScopedContextApplication:
                 profile_candidates=profile_candidates,
                 reuse=reuse,
                 topic_reuse=topic_reuse,
+                embedding_budget=embedding_budget,
                 round_zero=round_zero,
                 excluded_memory=injected_memory_keys,
             )
@@ -1310,6 +1343,7 @@ class ScopedContextApplication:
         profile_candidates: Sequence[PreparedProfileCandidate],
         reuse: dict[str, MemoryQueryEmbedding | None],
         topic_reuse: dict[str, MemoryQueryEmbedding | None],
+        embedding_budget: _EmbeddingBudget,
         round_zero: _RecallRoundOutcome,
         excluded_memory: frozenset[tuple[object, ...]],
     ) -> tuple[
@@ -1397,6 +1431,7 @@ class ScopedContextApplication:
                     admission=plan.admission,
                     reuse=reuse,
                     topic_reuse=topic_reuse,
+                    embedding_budget=embedding_budget,
                     excluded_memory=excluded_memory,
                 )
                 memory_ranks: dict[Any, int] = {}
@@ -1543,6 +1578,7 @@ class ScopedContextApplication:
         admission: AdmissionFloor | None,
         reuse: dict[str, MemoryQueryEmbedding | None],
         topic_reuse: dict[str, MemoryQueryEmbedding | None],
+        embedding_budget: _EmbeddingBudget,
         excluded_memory: frozenset[tuple[object, ...]],
     ) -> _RecallRoundOutcome:
         memory_candidates: list[PreparedMemoryCandidates] = []
@@ -1567,6 +1603,7 @@ class ScopedContextApplication:
                 admission=admission,
                 reuse=reuse.get(scope_id, shared_embedding),
                 allow_embedding=scope_id not in reuse or reuse[scope_id] is not None,
+                embedding_budget=embedding_budget,
             )
             memory_recoverable |= outcome.memory_recoverable
             degradation = _degradation(degradation, outcome.memory_embedding_fallback)
@@ -1612,6 +1649,7 @@ class ScopedContextApplication:
                 admission=admission,
                 reuse=topic_embedding,
                 allow_embedding=self.scope_id not in topic_reuse or topic_reuse[self.scope_id] is not None,
+                embedding_budget=embedding_budget,
             )
             if TOPIC_MEMORY_FAMILY in families
             else TopicMemoryRecallOutcome()
@@ -1639,6 +1677,7 @@ class ScopedContextApplication:
         admission: AdmissionFloor | None,
         reuse: MemoryQueryEmbedding | None,
         allow_embedding: bool = True,
+        embedding_budget: _EmbeddingBudget,
     ) -> _ScopeRecallOutcome:
         async with self._runtime._scoped_operation(scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_RECALL):
             with self._runtime._stage(
@@ -1661,12 +1700,13 @@ class ScopedContextApplication:
                         mode="auto",
                         admission=admission,
                         query_embedding=reuse,
-                        embedding_timeout_seconds=self._runtime.recall_embedding_timeout_seconds,
-                        allow_embedding=allow_embedding,
+                        embedding_timeout_seconds=embedding_budget.remaining,
+                        allow_embedding=allow_embedding and embedding_budget.remaining > 0,
                         recovery_admission=None if policy is None else policy.round2_admission,
                         context=_PREPARE_ATOMIC_CONTEXT.get(),
                         _trace=False,
                     )
+                    embedding_budget.spend(result.embedding_wait_seconds)
                     memory_hits = result.hits
                     memory_admission = result.admission
                     memory_recoverable = result.recoverable
@@ -1734,6 +1774,7 @@ class ScopedContextApplication:
         admission: AdmissionFloor | None,
         reuse: MemoryQueryEmbedding | None,
         allow_embedding: bool,
+        embedding_budget: _EmbeddingBudget,
     ) -> TopicMemoryRecallOutcome:
         configured = self._runtime._topic_memory_search is not None
         bounded_query = bounded_topic_memory_query(query)
@@ -1752,11 +1793,12 @@ class ScopedContextApplication:
                         SearchTopicMemoryRequest(query=bounded_query, limit=limit),
                         admission=admission,
                         query_embedding=reuse,
-                        embedding_timeout_seconds=self._runtime.recall_embedding_timeout_seconds,
-                        allow_embedding=allow_embedding,
+                        embedding_timeout_seconds=embedding_budget.remaining,
+                        allow_embedding=allow_embedding and embedding_budget.remaining > 0,
                     )
                 )
             )
+            embedding_budget.spend(result.embedding_wait_seconds)
             if span is not None:
                 span.set_attributes({"powercontext.topic_memory.search.result_count": len(result.hits)})
             return TopicMemoryRecallOutcome(
@@ -3355,6 +3397,10 @@ class ScopedAtomicMemoryApplication:
         async with self._runtime._scope_operation(self.scope_id):
             return await self._scoped._filter_current_candidates(candidates, context=context)
 
+    async def manifest(self, **kwargs):
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._scoped.manifest(**kwargs)
+
     async def list(self, **kwargs):
         async with self._runtime._scope_operation(self.scope_id):
             return await self._scoped.list(**kwargs)
@@ -3392,7 +3438,10 @@ class ScopedAtomicMemoryApplication:
     async def create(self, contents: Sequence[AtomicMemoryContent], /, *, context=None) -> AtomicMemoryMutationResult:
         """Create explicit Atomic Memories in one all-or-nothing batch."""
         values = tuple(content.model_dump(mode="json", by_alias=True, exclude_none=True) for content in contents)
-        async with self._runtime._scoped_operation(self.scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING):
+        async with self._runtime._scoped_operation(
+            self.scope_id,
+            embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
+        ):
             created = await self._runtime._records().create_atomic_memories(
                 self.scope_id, values, execution_context=context
             )
@@ -3410,7 +3459,10 @@ class ScopedAtomicMemoryApplication:
             return await runtime_context.triggers.cursor()
 
     async def merge(self, inputs, content, **kwargs):
-        async with self._runtime._scoped_operation(self.scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING):
+        async with self._runtime._scoped_operation(
+            self.scope_id,
+            embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
+        ):
             return await self._scoped.merge(inputs, content, **kwargs)
 
     async def forget(self, artifact_id: str, **kwargs):
@@ -3422,7 +3474,10 @@ class ScopedAtomicMemoryApplication:
             return await self._scoped.preview_restoration(artifact_id, **kwargs)
 
     async def restore(self, artifact_id: str, **kwargs):
-        async with self._runtime._scoped_operation(self.scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING):
+        async with self._runtime._scoped_operation(
+            self.scope_id,
+            embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
+        ):
             return await self._scoped.restore(artifact_id, **kwargs)
 
 
@@ -3830,7 +3885,7 @@ class BuiltinRuntime:
         source_window_limit: int = 100,
         context_assembly_max_entries: int = 8,
         recall_sufficiency_policy: RecallSufficiencyPolicy | None = None,
-        recall_embedding_timeout_seconds: float = 0.25,
+        recall_embedding_timeout_seconds: float = 0.5,
         scope_cache_size: int = DEFAULT_SCOPE_CACHE_SIZE,
         scope_evictor: ScopeEvictor | None = None,
         scope_cache_observer: ScopeCacheObserver | None = None,

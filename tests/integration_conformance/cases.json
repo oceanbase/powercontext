@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "cursor_catches_up",
+      "modes": [
+        "best_effort",
+        "required_capable"
+      ],
+      "description": "A cursor behind target position is retried until it reaches the target.",
+      "input": {
+        "target_position": 1,
+        "flush_cursors": [
+          0,
+          1
+        ],
+        "remaining_work": [
+          true,
+          false
+        ]
+      },
+      "expected": {
+        "acknowledged": true,
+        "flush_calls": 2,
+        "pending_scopes": 0
+      }
+    },
+    {
+      "id": "malformed_acknowledgement",
+      "modes": [
+        "best_effort",
+        "required_capable"
+      ],
+      "description": "A successful HTTP response without a valid current_cursor is not an acknowledgement.",
+      "input": {
+        "target_position": 1,
+        "invalid_cursor_variants": [
+          "missing",
+          "wrong_type"
+        ]
+      },
+      "expected": {
+        "acknowledged": false,
+        "pending_scopes": 1
+      }
+    },
+    {
+      "id": "flush_failure",
+      "modes": [
+        "best_effort",
+        "required_capable"
+      ],
+      "description": "An accepted Source remains pending after a flush timeout or failure.",
+      "input": {
+        "target_position": 1,
+        "failure": "timeout"
+      },
+      "expected": {
+        "pending_after_failure": true,
+        "later_retry_acknowledged": true
+      }
+    },
+    {
+      "id": "duplicate_delivery",
+      "modes": [
+        "best_effort",
+        "required_capable"
+      ],
+      "description": "Duplicate delivery of one host event reuses its Source identity.",
+      "input": {
+        "duplicate_event": [
+          {
+            "role": "user",
+            "content": "continue"
+          },
+          {
+            "role": "assistant",
+            "content": "first"
+          }
+        ],
+        "later_event": [
+          {
+            "role": "user",
+            "content": "continue"
+          },
+          {
+            "role": "assistant",
+            "content": "second"
+          }
+        ]
+      },
+      "expected": {
+        "duplicate_same_id": true,
+        "later_distinct_id": true
+      }
+    },
+    {
+      "id": "scope_isolation",
+      "modes": [
+        "best_effort",
+        "required_capable"
+      ],
+      "description": "A cursor from one Scope cannot acknowledge a position from another Scope.",
+      "input": {
+        "scopes": [
+          {
+            "id": "scope-a",
+            "target_position": 1,
+            "cursor": 1
+          },
+          {
+            "id": "scope-b",
+            "target_position": 2,
+            "cursor": 1
+          }
+        ]
+      },
+      "expected": {
+        "pending_scopes": 1
+      }
+    },
+    {
+      "id": "closing_boundaries",
+      "modes": [
+        "best_effort",
+        "required_capable"
+      ],
+      "description": "Session switch and shutdown flush only already accepted pending positions.",
+      "input": {
+        "events_by_host": {
+          "openclaw": [
+            "session_end",
+            "gateway_stop"
+          ],
+          "pi": [
+            "session_before_switch",
+            "session_shutdown"
+          ]
+        },
+        "target_position": 1
+      },
+      "expected": {
+        "uncaptured_flush_calls": 0,
+        "captured_flush_calls": 2
+      }
+    },
+    {
+      "id": "cancellation_boundaries",
+      "modes": [
+        "best_effort",
+        "required_capable"
+      ],
+      "description": "Cancellation before acknowledgement retains pending work and cancellation after acknowledgement does not revoke it.",
+      "input": {
+        "target_position": 1,
+        "phases": [
+          "before_acknowledgement",
+          "after_acknowledgement"
+        ]
+      },
+      "expected": {
+        "pending_before": 1,
+        "pending_after": 0
+      }
+    },
+    {
+      "id": "best_effort_fail_open",
+      "modes": [
+        "best_effort"
+      ],
+      "description": "Checkpoint failure does not prevent host compaction in best-effort mode.",
+      "input": {
+        "handler_outcome": "throw"
+      },
+      "expected": {
+        "host_continues": true
+      }
+    },
+    {
+      "id": "required_mode_fail_closed",
+      "modes": [
+        "required_capable"
+      ],
+      "description": "Checkpoint failure prevents compaction through the real host contract in required mode.",
+      "input": {
+        "handler_outcome": "checkpoint_failure"
+      },
+      "expected": {
+        "host_continues": false
+      }
+    },
+    {
+      "id": "extraction_unavailable",
+      "modes": [
+        "best_effort",
+        "required_capable"
+      ],
+      "description": "An accepted Source remains durable when extraction is unavailable.",
+      "input": {
+        "memory_extraction": false,
+        "target_position": 1
+      },
+      "expected": {
+        "capture_accepted": true,
+        "flush_calls_by_host": {
+          "openclaw": 0,
+          "pi": 1
+        },
+        "pending_scopes": 1
+      }
+    }
+  ]
+}

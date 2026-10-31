@@ -47,12 +47,20 @@ tempfile = "=3.27.0"
 tauri-plugin-single-instance = "=2.4.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_Storage_FileSystem"] }
 keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "=3.6.3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Use the desktop Secret Service (GNOME Keyring/KWallet) as the native vault.
+# Keep this synchronous because the Vault trait is synchronous; callers must not
+# invoke it from an async runtime thread without a blocking boundary.
+keyring = { version = "=3.6.3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
 
 [dev-dependencies]
 tauri = { version = "=2.11.0", features = ["test"] }

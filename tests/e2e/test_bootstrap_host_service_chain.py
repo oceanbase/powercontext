@@ -45,10 +45,33 @@ PLUGIN_ROOTS = {
     "claude-code": PROJECT_ROOT / "integrations" / "claude-code" / "plugins" / "powercontext",
 }
 BOOTSTRAP_TEXT = "HOST-REAL-BOOTSTRAP: use the exact packaged startup context chain."
+# Codex 0.165.0-alpha.1.2 sent this payload to the plugin's SessionStart hook for a forked session. The session ID,
+# working directory, and transcript path take this test's values; every other key and value is as Codex sent it.
+CODEX_RECORDED_FORK = {
+    "session_id": "",
+    "transcript_path": "",
+    "cwd": "",
+    "hook_event_name": "SessionStart",
+    "model": "gpt-6.1-sol",
+    "permission_mode": "bypassPermissions",
+    "source": "fork",
+}
 
 
-@pytest.mark.parametrize("host", ["codex", "claude-code"])
-def test_packaged_host_hooks_complete_the_live_bootstrap_chain(tmp_path: Path, host: str) -> None:
+@pytest.mark.parametrize(
+    ("host", "session_start"),
+    [
+        ("codex", {"hook_event_name": "SessionStart", "source": "startup"}),
+        ("claude-code", {"hook_event_name": "SessionStart", "source": "startup"}),
+        ("codex", CODEX_RECORDED_FORK),
+    ],
+    ids=["codex", "claude-code", "codex-recorded-fork"],
+)
+def test_packaged_host_hooks_complete_the_live_bootstrap_chain(
+    tmp_path: Path,
+    host: str,
+    session_start: dict[str, str],
+) -> None:
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / f'{host}.db'}"),
@@ -70,17 +93,10 @@ def test_packaged_host_hooks_complete_the_live_bootstrap_chain(tmp_path: Path, h
         environment = _hook_environment(tmp_path, host, base_url, scope_id)
         session_id = f"{host}-bootstrap-session"
 
-        started = _run_hook(
-            plugin,
-            _session_start_script(host),
-            environment,
-            {
-                "hook_event_name": "SessionStart",
-                "source": "startup",
-                "session_id": session_id,
-                "cwd": str(PROJECT_ROOT),
-            },
-        )
+        payload = {**session_start, "session_id": session_id, "cwd": str(PROJECT_ROOT)}
+        if "transcript_path" in payload:
+            payload["transcript_path"] = str(tmp_path / f"{session_id}.jsonl")
+        started = _run_hook(plugin, _session_start_script(host), environment, payload)
         bootstrap = json.loads(started.stdout)["hookSpecificOutput"]
         assert bootstrap["hookEventName"] == "SessionStart"
         assert BOOTSTRAP_TEXT in bootstrap["additionalContext"]

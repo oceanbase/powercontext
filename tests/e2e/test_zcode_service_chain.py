@@ -49,7 +49,12 @@ class DeterministicSourcePipeline:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="fact",
+                        text=text,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
                     for evidence in request.evidence
                     if (text := memory_source_text(evidence)) is not None
                 )

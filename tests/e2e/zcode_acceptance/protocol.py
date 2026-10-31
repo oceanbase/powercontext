@@ -314,7 +314,13 @@ class HostModelFixture:
                 "action": "noop" if duplicate else "create",
                 "compared_ids": [item["item_id"] for item in related],
                 "target_ids": [duplicate["item_id"]] if duplicate else [],
-                "content": None if duplicate else {"kind": proposal["kind"], "text": proposal["text"]},
+                "content": None
+                if duplicate
+                else {
+                    "kind": proposal["kind"],
+                    "text": proposal["text"],
+                    "description": "Synthetic project verification color",
+                },
                 "evidence_ids": [] if duplicate else proposal["evidence_ids"],
                 "reason": "Already represented" if duplicate else "Independent synthetic source evidence",
             }
@@ -326,7 +332,12 @@ class HostModelFixture:
                     "\n".join(strings(item["content"])),
                 )
                 if match:
-                    candidates.append({"kind": "fact", "text": match[0], "evidence_ids": [item["evidence_id"]]})
+                    candidates.append({
+                        "kind": "fact",
+                        "text": match[0],
+                        "description": f"{match[1]} project verification color",
+                        "evidence_ids": [item["evidence_id"]],
+                    })
             value = {"candidates": candidates}
         output = json.dumps(value)
         tools = body.get("tools", [])

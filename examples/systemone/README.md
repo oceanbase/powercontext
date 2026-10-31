@@ -8,7 +8,7 @@ The runnable experiment makes this concrete. The same generation model writes an
 
 For read-time Experience and Skill selection, see the reusable opt-in
 [applicability selector and paired evaluation](applicability.README.md) ([中文](applicability.zh.md)),
-which reuses this adapter for [#1647](https://github.com/oceanbase/powercontext/issues/1647).
+which reuses this adapter for [#1941](https://github.com/oceanbase/powercontext/issues/1941).
 
 ## Architecture
 

@@ -23,7 +23,7 @@ from typing import Any, cast
 
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 64 * 1024
-OPERATIONS = {"register", "start", "stop", "restart", "remove_registration", "config_apply"}
+OPERATIONS = {"register", "start", "stop", "restart", "remove_registration", "config_apply", "install", "repair"}
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 _REQUEST_FIELDS = {
     "inspect": set(),
@@ -115,6 +115,8 @@ def options(operation: object, value: object) -> dict[str, Any]:
     allowed = {"start_on_login"} if operation == "register" else set()
     if operation == "config_apply":
         allowed = {"http_port", "dashboard_enabled", "start_on_login", "restart"}
+    elif operation == "install":
+        allowed = {"http_port", "start_on_login"}
     if not set(value) <= allowed:
         raise OpsError("invalid_request")
     for name, item in value.items():
@@ -127,6 +129,7 @@ def options(operation: object, value: object) -> dict[str, Any]:
 
 
 def plan(value: object) -> dict[str, Any]:
+    installation = isinstance(value, dict) and value.get("operation") in ("install", "repair")
     result = object_fields(
         value,
         {
@@ -139,7 +142,8 @@ def plan(value: object) -> dict[str, Any]:
             "effects",
             "target_summary",
             "plan_id",
-        },
+        }
+        | ({"installation"} if installation else set()),
     )
     if type(result["protocol_version"]) is not int or result["protocol_version"] != PROTOCOL_VERSION:
         raise OpsError("unsupported_protocol")
@@ -152,9 +156,58 @@ def plan(value: object) -> dict[str, Any]:
     if type(effects["may_start"]) is not bool or effects["preserves_data"] is not True:
         raise OpsError("invalid_request")
     _validate_target_summary(result["target_summary"])
+    if installation:
+        _validate_installation_plan(result["installation"])
     if result["plan_id"] != digest({key: item for key, item in result.items() if key != "plan_id"}):
         raise OpsError("plan_invalid")
     return result
+
+
+def _validate_installation_plan(value: object) -> None:
+    facts = object_fields(
+        value,
+        {
+            "catalog_sha256",
+            "resource",
+            "layout",
+            "installation_id",
+            "classification",
+            "resources",
+            "resource_identity",
+            "configuration",
+            "database",
+            "service_before",
+            "space_required",
+            "verify_running",
+            "preserve_stopped",
+            "repair_owner",
+            "registration_present",
+        }
+        | ({"registration_removal"} if isinstance(value, dict) and "registration_removal" in value else set()),
+    )
+    for field in ("catalog_sha256", "service_before"):
+        if not isinstance(facts[field], str) or re.fullmatch(r"[a-f0-9]{64}", facts[field]) is None:
+            raise OpsError("invalid_request")
+    for field in ("repair_owner", "installation_id", "registration_removal"):
+        if facts.get(field) is not None:
+            identifier(facts[field])
+    if facts["classification"] not in ("missing", "owned_current", "owned_repairable", "pending_operation") or facts[
+        "resources"
+    ] not in ("missing", "damaged", "verified"):
+        raise OpsError("invalid_request")
+    if (
+        type(facts["space_required"]) is not int
+        or facts["space_required"] < 0
+        or type(facts["verify_running"]) is not bool
+        or type(facts["preserve_stopped"]) is not bool
+        or type(facts["registration_present"]) is not bool
+    ):
+        raise OpsError("invalid_request")
+    for field in ("resource", "layout", "configuration", "database"):
+        if not isinstance(facts[field], dict):
+            raise OpsError("invalid_request")
+    if facts["resource_identity"] is not None and not isinstance(facts["resource_identity"], dict):
+        raise OpsError("invalid_request")
 
 
 def _validate_target_summary(value: object) -> None:

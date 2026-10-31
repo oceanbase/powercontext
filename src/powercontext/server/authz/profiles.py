@@ -140,6 +140,23 @@ ARTIFACT_FAMILY_PROFILES: dict[str, ArtifactFamilyAccessProfile] = {
 }
 
 
+def register_custom_artifact_access_family(family: str) -> None:
+    """Use framework-owned read/write semantics for a persisted custom family."""
+
+    if family not in ARTIFACT_FAMILY_PROFILES:
+        ARTIFACT_FAMILY_PROFILES[family] = ArtifactFamilyAccessProfile(
+            family=family,
+            enabled=True,
+            share_unit="artifact",
+            shareable_states=frozenset(),
+            base_action=AccessAction.ARTIFACT_READ,
+            additional_actions=frozenset(),
+            grantable_roles=frozenset(),
+            selector="forbidden",
+            mutation_semantics=frozenset({AccessAction.ARTIFACT_WRITE}),
+        )
+
+
 def artifact_family_profile(resource: ResourceRef) -> ArtifactFamilyAccessProfile:
     """Validate an exact Artifact resource and return its enabled profile."""
 

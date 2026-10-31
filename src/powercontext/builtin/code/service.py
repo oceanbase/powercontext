@@ -90,6 +90,9 @@ class CodeService:
                 if abandoned.is_dir() and not abandoned.is_symlink():
                     self.store.remove(abandoned, deadline)
                     shutil.rmtree(abandoned)
+            # A staged build is not the only way to lose a directory: reclaim what the
+            # records still name, so a wiped generation does not keep paying for rows.
+            cache.recover(deadline)
             try:
                 result = self._build(repository, cache, binding, deadline, full=full)
                 result.update(status="ready", elapsed_seconds=time.monotonic() - started, finished_at=_now())
@@ -153,7 +156,8 @@ class CodeService:
                     attributes.update(edge_count=len(edges), diagnostic_count=sum(map(len, diagnostics.values())))
                 nodes = [node for fact in facts for node in fact["nodes"]]
                 with stage("store"):
-                    storage = self.store.create(staging, nodes, edges, deadline)
+                    publication = cache.begin_publication(staging, deadline)
+                    storage = self.store.create(staging, nodes, edges, deadline, generation_id=publication)
                 for path, issues in diagnostics.items():
                     key = entries[path]["extraction_key"]
                     content = json_bytes({"items": issues})
@@ -169,7 +173,9 @@ class CodeService:
                 manifest.update(storage)
                 manifest["previous_fingerprint"] = previous.fingerprint if previous else None
                 with stage("publish") as attributes:
-                    generation = cache.publish(staging, manifest, deadline, self.config.limits.max_cache_bytes)
+                    generation = cache.publish(
+                        staging, manifest, deadline, self.config.limits.max_cache_bytes, attempt=publication
+                    )
                     attributes.update(manifest["coverage"])
                     attributes.update(extracted_files=extracted, reused_files=len(entries) - extracted)
                 return {

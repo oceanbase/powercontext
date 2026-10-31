@@ -16,17 +16,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
-from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.handoff import Handoff
 from powercontext.builtin.scope.models import ScopeDescriptor, ScopeSelection
 
 
 class HandoffReadAdapter(Protocol):
-    async def latest(self, scope_id: str, /) -> Handoff | None: ...
-
-    async def get(self, scope_id: str, reference: ArtifactRef, /) -> Handoff: ...
+    async def latest_many(self, scope_ids: Sequence[str], /) -> dict[str, Handoff | None]: ...
 
 
 class ScopeSelectionResolver(Protocol):

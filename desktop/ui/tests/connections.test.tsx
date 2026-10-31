@@ -28,7 +28,11 @@ import { answerConfirmation } from "./confirmation";
 import { App } from "../src/app/App";
 import { Connections } from "../src/app/Connections";
 import { desktopApi } from "../src/shared/ipc";
-import type { DesktopState, ProfileView } from "../src/generated/ipc";
+import type {
+  DesktopState,
+  DiscoveryResult,
+  ProfileView,
+} from "../src/generated/ipc";
 import { contractSha256 } from "../src/generated/operations";
 import qualifications from "../../src-tauri/src/connections/compatibility.json";
 vi.mock("../src/shared/ipc", () => ({
@@ -91,12 +95,149 @@ function qualifiedState(p = profile): DesktopState {
     compatibilityProfiles: [historicalCompatibility, currentCompatibility],
   };
 }
+function discoveryState(discovery: DiscoveryResult): DesktopState {
+  const next = qualifiedState({
+    ...profile,
+    compatibility: currentCompatibility.id,
+  });
+  next.reports = [
+    {
+      connectionId: profile.id,
+      revision: 1,
+      checkedAt: 1,
+      liveness: { value: null, error: null },
+      readiness: { value: null, error: null },
+      identity: { value: null, error: null },
+      capabilities: { value: null, error: null },
+      compatibilityVerified: discovery.status === "supported",
+      supportedOperations:
+        discovery.status === "supported" ? ["list_scopes"] : [],
+      anonymousAccess: false,
+      discovery,
+    },
+  ];
+  return next;
+}
 beforeEach(() => {
   vi.clearAllMocks();
 });
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+const discoveryCases: Array<{
+  language: "en" | "zh";
+  status: DiscoveryResult["status"];
+  reason: DiscoveryResult["reason"];
+  expected: string;
+}> = [
+  {
+    language: "en",
+    status: "supported",
+    reason: null,
+    expected: "The discovery contract is supported",
+  },
+  {
+    language: "en",
+    status: "missing",
+    reason: "discovery_missing",
+    expected: "The Server has no discovery endpoint",
+  },
+  {
+    language: "en",
+    status: "denied",
+    reason: "discovery_denied",
+    expected: "Server discovery access was denied",
+  },
+  {
+    language: "en",
+    status: "unavailable",
+    reason: "discovery_unavailable",
+    expected: "Server discovery is temporarily unavailable",
+  },
+  {
+    language: "en",
+    status: "invalid",
+    reason: "invalid_discovery",
+    expected: "The Server discovery response is invalid",
+  },
+  {
+    language: "en",
+    status: "incompatible",
+    reason: "api_version",
+    expected: "The Server API major version is unsupported",
+  },
+  {
+    language: "zh",
+    status: "unavailable",
+    reason: "discovery_unavailable",
+    expected: "Server 发现暂时不可用。请检查服务和网络，然后重新检查连接",
+  },
+  {
+    language: "zh",
+    status: "denied",
+    reason: "discovery_denied",
+    expected: "Server 拒绝访问发现接口。请核对凭据与访问权限",
+  },
+];
+test.each(discoveryCases)(
+  "discovery $status has a distinct diagnostic in $language",
+  ({ language, status, reason, expected }) => {
+    render(
+      <Connections
+        state={discoveryState({
+          status,
+          reason,
+          error: null,
+          server: null,
+          operations: {},
+        })}
+        language={language}
+        onState={vi.fn()}
+        onDirty={vi.fn()}
+        initialProfileId={profile.id}
+      />,
+    );
+    expect(screen.getByText(expected, { exact: false })).toBeTruthy();
+  },
+);
+test("a successful recheck replaces the temporary discovery failure diagnostic", async () => {
+  const user = userEvent.setup();
+  const unavailable = discoveryState({
+    status: "unavailable",
+    reason: "discovery_unavailable",
+    error: { code: "timeout", requestId: null, dispatched: true },
+    server: null,
+    operations: {},
+  });
+  const recovered = discoveryState({
+    status: "supported",
+    reason: null,
+    error: null,
+    server: null,
+    operations: {},
+  });
+  const onState = vi.fn();
+  const props = {
+    language: "en" as const,
+    onState,
+    onDirty: vi.fn(),
+    initialProfileId: profile.id,
+  };
+  vi.mocked(desktopApi.check).mockResolvedValue(recovered);
+  const view = render(<Connections {...props} state={unavailable} />);
+  expect(
+    screen.getByText(/Server discovery is temporarily unavailable/).textContent,
+  ).toContain("The request timed out.");
+  await user.click(screen.getByRole("button", { name: "Check connection" }));
+  expect(desktopApi.check).toHaveBeenCalledWith(profile.id, false);
+  expect(onState).toHaveBeenCalledWith(recovered);
+  view.rerender(<Connections {...props} state={recovered} />);
+  expect(
+    screen.queryByText(/Server discovery is temporarily unavailable/),
+  ).toBeNull();
+  expect(screen.getByText(/The discovery contract is supported/)).toBeTruthy();
+  expect(screen.getByText("Verified")).toBeTruthy();
 });
 test("new connections offer only current-contract profiles and keep no selection by default", async () => {
   const user = userEvent.setup();

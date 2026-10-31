@@ -34,6 +34,9 @@ from powercontext.artifacts.search import ChannelScore
 if TYPE_CHECKING:
     import jieba
 
+# Bump when document segmentation or token encoding changes; query stopwords do not affect projections.
+TEXT_ANALYZER_VERSION = "jieba-0.42.1-words-v1"
+
 _FTS_MIN_QUERY_COVERAGE = 0.25
 _FTS_MIN_MATCHED_TERMS = 2
 _FTS_SHORT_QUERY_MAX_TERMS = 2
@@ -418,6 +421,7 @@ def admits_fts_projection(query: str, projection: str, /, *, floor: AdmissionFlo
 
 __all__ = [
     "DEFAULT_ADMISSION_FLOOR",
+    "TEXT_ANALYZER_VERSION",
     "AdmissionCounts",
     "AdmissionFloor",
     "EmptyFilters",

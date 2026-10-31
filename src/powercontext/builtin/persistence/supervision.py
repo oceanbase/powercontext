@@ -291,9 +291,15 @@ class ArtifactProcessingBindingStateRepository:
                 .where(ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.binding_name == binding_name)
                 .values(scan_generation=ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.scan_generation)
             )
-        statement = select(ARTIFACT_PROCESSING_BINDING_STATES_TABLE).where(
-            ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.binding_name == binding_name
-        )
+        table = ARTIFACT_PROCESSING_BINDING_STATES_TABLE
+        statement = select(
+            table.c.binding_name,
+            table.c.last_auto_wave_completed_at,
+            table.c.last_schedule_checkpoint_at,
+            table.c.scan_generation,
+            table.c.scan_in_progress,
+            table.c.scan_upper_pending_sequence,
+        ).where(table.c.binding_name == binding_name)
         if for_update:
             statement = statement.with_for_update()
         row = (await connection.execute(statement)).mappings().one_or_none()

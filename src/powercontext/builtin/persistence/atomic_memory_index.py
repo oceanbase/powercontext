@@ -116,6 +116,7 @@ class PreparedAtomicMemoryProjection:
     text: str
     searchable_text: str
     content_hash: str
+    description: str | None = None
     embedding: tuple[float, ...] | None = None
     embedding_profile: EmbeddingProfile | None = None
     profile_fingerprint: str | None = None
@@ -260,6 +261,7 @@ class AtomicMemoryProjectionPublisher:
         return PreparedAtomicMemoryProjection(
             kind=kind,
             text=body,
+            description=payload.get("description"),
             searchable_text=analyze_text(input_text),
             content_hash=sha256(canonical_json(payload)).hexdigest(),
             embedding=vector,
@@ -593,6 +595,12 @@ class RelationalAtomicMemoryIndex:
         return vector
 
     async def require_current_schema(self, connection: AsyncConnection) -> None:
+        # Add only the new nullable projection metadata. Never read bodies or call inference at startup.
+        columns = await _projection_columns(connection, self.table)
+        if columns and "description" not in columns:
+            await connection.exec_driver_sql(
+                "ALTER TABLE pc_atomic_memory_current ADD COLUMN description VARCHAR(200) NULL"
+            )
         if await _projection_columns(connection, self.table) & _OBSOLETE_PROJECTION_COLUMNS:
             raise AtomicMemoryIndexError(
                 "current-schema",
@@ -659,6 +667,7 @@ class RelationalAtomicMemoryIndex:
             "projection_format": ATOMIC_MEMORY_PROJECTION_FORMAT,
             "kind": prepared.kind,
             "text": prepared.text,
+            "description": prepared.description,
             "searchable_text": prepared.searchable_text,
             "tag_keys": json.dumps(sorted(set(projection.tag_keys)), ensure_ascii=False),
             "embedding": embedding,

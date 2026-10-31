@@ -15,10 +15,12 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
-from sqlalchemy import func, insert, select
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy import event, func, insert, select, update
+from sqlalchemy.engine import Engine
+from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
@@ -29,11 +31,12 @@ from powercontext.builtin.artifacts.experience import (
     FailureSignature,
     FailureVerification,
 )
+from powercontext.builtin.artifacts.handoff import HandoffArtifactCitation, HandoffSourceCitation
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillPackageSnapshot
 from powercontext.builtin.artifacts.topic_memory import TopicMemoryContent
 from powercontext.builtin.inference import EmbeddingResult
-from powercontext.builtin.persistence.errors import RepositoryNotFoundError
+from powercontext.builtin.persistence.errors import InvalidStoredPayloadError, RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import NoExperienceIndex
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE, BUILTIN_TABLES
@@ -66,6 +69,7 @@ from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.source_eligibility import SourceNotEligibleError
 from powercontext.builtin.sources import ContentCapture
+from powercontext.builtin.work.models import TaskCheck, TaskOutcome, WorkClaim
 from powercontext.sources import SourceRef
 
 
@@ -190,102 +194,241 @@ def test_failure_proposal_requires_cited_failed_task_outcome_evidence() -> None:
     asyncio.run(scenario())
 
 
-def test_failure_proposal_requires_failure_evidence_to_match_its_recall_cue() -> None:
+@pytest.mark.parametrize(
+    "name, accepted", (("the contract test failed", True), ("the database migration failed", False))
+)
+def test_failure_proposal_requires_failure_evidence_to_match_its_recall_cue(name: str, accepted: bool) -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
             scope_id = await _create_scope(runtime)
-            source = await runtime.sources.for_scope(scope_id).capture(
-                CaptureSource(
-                    source_id="failed-outcome",
-                    content=__import__("json").dumps({
-                        "schema": "powercontext.task-outcome.v1",
-                        "trust": "untrusted_observation",
-                        "objective": "run checks",
-                        "status": "failed",
-                        "summary": "the check failed",
-                        "observations": [{"text": "unrelated failure", "basis": "declared", "evidence": []}],
-                        "checks": [
-                            {
-                                "name": "the database migration failed",
-                                "status": "failed",
-                                "basis": "verified",
-                                "evidence": [{"source_type": "content", "source_id": "plain-source"}],
-                            }
-                        ],
-                    }),
-                    metadata={"kind": "task-outcome"},
-                )
+            proof = await runtime.sources.for_scope(scope_id).capture(
+                CaptureSource(source_id="plain-source", content="Verified failure output.", metadata={})
             )
-            proposal = _proposal().model_copy(
-                update={
-                    "failure": FailureRecord(
-                        signature=FailureSignature(recall_cue="the contract test failed"),
-                        repair_surface="experience_content",
-                        verification=FailureVerification(
-                            condition="the contract file was edited",
-                            check_subject="generated code matches the contract",
-                        ),
-                    )
-                }
-            )
-            with pytest.raises(InvalidCandidateError, match="failed Task Outcome"):
-                await runtime.experience.for_scope(scope_id).propose(
-                    ProposeExperienceRequest(proposal=proposal, sources=(source.source_ref,))
-                )
+            check = _failure_check(HandoffSourceCitation(source_ref=proof.source_ref)).model_copy(update={"name": name})
+            request = await _failure_request(runtime, scope_id, (check,))
+            if accepted:
+                candidate = await runtime.experience.for_scope(scope_id).propose(request)
+                await _assert_failure_candidate(runtime, scope_id, candidate, request)
+            else:
+                with pytest.raises(InvalidCandidateError, match="failed Task Outcome"):
+                    await runtime.experience.for_scope(scope_id).propose(request)
 
     asyncio.run(scenario())
 
 
-def test_failure_proposal_rejects_missing_nested_task_outcome_evidence() -> None:
+@pytest.mark.parametrize(
+    "citation",
+    (
+        HandoffSourceCitation(source_ref=SourceRef(source_type="content", source_id="never-existed")),
+        HandoffArtifactCitation(artifact_ref=ArtifactRef(family="experience", artifact_id="never-existed", revision=1)),
+    ),
+)
+def test_failure_proposal_rejects_missing_nested_task_outcome_evidence(citation) -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
             scope_id = await _create_scope(runtime)
-            source = await runtime.sources.for_scope(scope_id).capture(
-                CaptureSource(
-                    source_id="failed-outcome-with-missing-evidence",
-                    content=__import__("json").dumps({
-                        "schema": "powercontext.task-outcome.v1",
-                        "trust": "untrusted_observation",
-                        "objective": "run checks",
-                        "status": "failed",
-                        "summary": "the check failed",
-                        "observations": [{"text": "unrelated failure", "basis": "declared", "evidence": []}],
-                        "checks": [
-                            {
-                                "name": "the contract test failed",
-                                "status": "failed",
-                                "basis": "verified",
-                                "evidence": [
-                                    {
-                                        "kind": "source",
-                                        "source_ref": {"source_type": "content", "source_id": "never-existed"},
-                                    }
-                                ],
-                            }
-                        ],
-                    }),
-                    metadata={"kind": "task-outcome"},
-                )
-            )
-            proposal = _proposal().model_copy(
-                update={
-                    "failure": FailureRecord(
-                        signature=FailureSignature(recall_cue="the contract test failed"),
-                        repair_surface="experience_content",
-                        verification=FailureVerification(
-                            condition="the contract file was edited",
-                            check_subject="generated code matches the contract",
-                        ),
-                    )
-                }
-            )
-
+            request = await _failure_request(runtime, scope_id, (_failure_check(citation),))
             with pytest.raises(InvalidCandidateError, match="failed Task Outcome"):
-                await runtime.experience.for_scope(scope_id).propose(
-                    ProposeExperienceRequest(proposal=proposal, sources=(source.source_ref,))
-                )
+                await runtime.experience.for_scope(scope_id).propose(request)
+            assert (await runtime.review.for_scope(scope_id).list(ListCandidatesRequest())).candidates == ()
 
     asyncio.run(scenario())
+
+
+_FAILURE_CUE = "the contract test failed"
+
+
+def _failure_check(*citations: HandoffArtifactCitation | HandoffSourceCitation) -> TaskCheck:
+    return TaskCheck(name=_FAILURE_CUE, status="failed", basis="verified", evidence=citations)
+
+
+async def _failure_request(
+    runtime: BuiltinRuntime,
+    scope_id: str,
+    checks: tuple[TaskCheck, ...],
+) -> ProposeExperienceRequest:
+    outcome = TaskOutcome(
+        objective="Run contract tests.",
+        status="failed",
+        summary="The contract check failed.",
+        observations=(WorkClaim(text="The runner reported a failure."),),
+        checks=checks,
+    )
+    source = await runtime.sources.for_scope(scope_id).capture(
+        CaptureSource(
+            source_id="failed-task",
+            content=outcome.model_dump_json(by_alias=True),
+            metadata={"kind": "task-outcome"},
+        )
+    )
+    proposal = _proposal().model_copy(
+        update={
+            "failure": FailureRecord(
+                signature=FailureSignature(recall_cue=_FAILURE_CUE),
+                repair_surface="experience_content",
+                verification=FailureVerification(
+                    condition="the contract file was edited", check_subject="generated code matches the contract"
+                ),
+            )
+        }
+    )
+    return ProposeExperienceRequest(proposal=proposal, sources=(source.source_ref,))
+
+
+async def _assert_failure_candidate(runtime, scope_id, candidate, request) -> None:
+    stored = await runtime.review.for_scope(scope_id).get(GetCandidateRequest(candidate_id=candidate.candidate_id))
+    assert stored.proposal == candidate.proposal == request.proposal
+    assert stored.sources == candidate.sources == request.sources
+    assert stored.artifacts == candidate.artifacts == request.artifacts
+    assert stored.target == candidate.target == request.target
+    assert stored.status == candidate.status == CandidateStatus.PENDING
+
+
+async def _corrupt_artifact(config: SQLiteConfig, scope_id: str, ref: ArtifactRef) -> None:
+    engine = create_async_engine(config.url)
+    try:
+        async with engine.begin() as connection:
+            changed = await connection.execute(
+                update(ARTIFACTS_TABLE)
+                .where(
+                    ARTIFACTS_TABLE.c.scope_id == scope_id,
+                    ARTIFACTS_TABLE.c.family == ref.family,
+                    ARTIFACTS_TABLE.c.artifact_id == ref.artifact_id,
+                    ARTIFACTS_TABLE.c.revision == ref.revision,
+                )
+                .values(content=b"{}")
+            )
+            assert changed.rowcount == 1
+    finally:
+        await engine.dispose()
+
+
+def test_failure_proposal_uses_exact_evidence_and_stops_after_a_match(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'selection.db'}")
+        async with open_builtin_runtime(BuiltinConfig(database=config)) as runtime:
+            scope_id = await _create_scope(runtime)
+            records = runtime.records.for_scope(scope_id)
+            created = await records.create_artifact(
+                "experience", ArtifactWrite(content=_proposal().model_dump(mode="json"))
+            )
+            historical = ArtifactRef(family="experience", artifact_id=created.artifact_id, revision=1)
+            await records.replace_artifact(
+                "experience",
+                created.artifact_id,
+                '"revision:1"',
+                ArtifactWrite(content=_proposal().model_dump(mode="json")),
+            )
+            current = historical.model_copy(update={"revision": 2})
+            await _corrupt_artifact(config, scope_id, current)
+            missing = ArtifactRef(family="experience", artifact_id="absent", revision=1)
+            historical_citation = HandoffArtifactCitation(artifact_ref=historical)
+            request = await _failure_request(
+                runtime,
+                scope_id,
+                (
+                    _failure_check(HandoffArtifactCitation(artifact_ref=missing)),
+                    _failure_check(historical_citation, historical_citation),
+                    _failure_check(HandoffArtifactCitation(artifact_ref=current)),
+                ),
+            )
+            candidate = await runtime.experience.for_scope(scope_id).propose(request)
+            await _assert_failure_candidate(runtime, scope_id, candidate, request)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "other_family",
+    (
+        pytest.param("experience", id="missing-after"),
+        pytest.param("not-registered", id="unsupported-after"),
+        pytest.param("atomic-memory", id="atomic-after"),
+    ),
+)
+def test_failure_proposal_preserves_nested_evidence_error_precedence(tmp_path: Path, other_family: str) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'errors.db'}")
+        async with open_builtin_runtime(BuiltinConfig(database=config)) as runtime:
+            scope_id = await _create_scope(runtime)
+            records = runtime.records.for_scope(scope_id)
+            corrupt = await records.create_artifact(
+                "experience", ArtifactWrite(content=_proposal().model_dump(mode="json"))
+            )
+            corrupt_ref = ArtifactRef(family="experience", artifact_id=corrupt.artifact_id, revision=1)
+            await _corrupt_artifact(config, scope_id, corrupt_ref)
+            other = ArtifactRef(family=other_family, artifact_id="absent", revision=1)
+            if other_family == "atomic-memory":
+                atomic = await records.create_artifact(
+                    "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": "Proof."})
+                )
+                other = ArtifactRef(family="atomic-memory", artifact_id=atomic.artifact_id, revision=1)
+                await _corrupt_artifact(config, scope_id, other)
+            request = await _failure_request(
+                runtime,
+                scope_id,
+                (
+                    _failure_check(
+                        HandoffArtifactCitation(artifact_ref=corrupt_ref), HandoffArtifactCitation(artifact_ref=other)
+                    ),
+                ),
+            )
+            with pytest.raises(InvalidStoredPayloadError) as error:
+                await runtime.experience.for_scope(scope_id).propose(request)
+            assert str(error.value) == str(
+                InvalidStoredPayloadError("artifact", "experience", "payload does not match the model")
+            )
+            assert (await runtime.review.for_scope(scope_id).list(ListCandidatesRequest())).candidates == ()
+
+    asyncio.run(scenario())
+
+
+# Measured at seven statements for a complete SQLite proposal; allow one statement of slack.
+_FAILURE_EVIDENCE_STATEMENT_CEILING = 8
+
+
+def test_failure_proposal_statement_count_does_not_grow_with_artifact_evidence(record_property) -> None:
+    async def counted(evidence_count: int) -> list[int]:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            scope_id = await _create_scope(runtime)
+            citations = []
+            for _ in range(evidence_count):
+                created = await runtime.records.for_scope(scope_id).create_artifact(
+                    "experience", ArtifactWrite(content=_proposal().model_dump(mode="json"))
+                )
+                citations.append(
+                    HandoffArtifactCitation(
+                        artifact_ref=ArtifactRef(family="experience", artifact_id=created.artifact_id, revision=1)
+                    )
+                )
+            request = await _failure_request(runtime, scope_id, (_failure_check(*citations),))
+            await runtime.experience.for_scope(scope_id).propose(request)
+            counts = []
+            candidate_ids = set()
+            statements = []
+
+            def record(_conn, _cursor, statement, *_args) -> None:
+                statements.append(statement)
+
+            for _ in range(3):
+                statements.clear()
+                event.listen(Engine, "before_cursor_execute", record)
+                try:
+                    candidate = await runtime.experience.for_scope(scope_id).propose(request)
+                finally:
+                    event.remove(Engine, "before_cursor_execute", record)
+                counts.append(len(statements))
+                candidate_ids.add(candidate.candidate_id)
+                await _assert_failure_candidate(runtime, scope_id, candidate, request)
+            assert len(candidate_ids) == 3
+            return counts
+
+    small = asyncio.run(counted(4))
+    large = asyncio.run(counted(32))
+    record_property("failure_evidence_statements", {4: small, 32: large})
+    assert small == large
+    assert len(set(small)) == 1
+    assert max(large) <= _FAILURE_EVIDENCE_STATEMENT_CEILING
 
 
 def _skill_proposal(

@@ -10,6 +10,9 @@ description: 使用稳定字段、正确的 correlation 和 failure isolation �
 [operational field contract](../docs/operate/observability.md)。
 [RFC 0046](../rfcs/0046_observability_foundations.md) 定义 privacy 与 signal ownership。
 
+Desktop 宿主的进程内测量与原生安全导出遵循独立的 [Desktop 会话观察契约](desktop-session-observations.md)，
+不会配置 Server 日志或 tracing。
+
 ## 新增 operational event
 
 使用 module logger 和 `powercontext._logging.log_safely`。Message 使用固定文本，批准的诊断值放入 structured fields。
@@ -75,6 +78,8 @@ JSON formatter 会忽略未登记的 extras。确需新增字段时：
 4. 更新中英文 operational field contract，并补充针对可观察输出的 regression test。
    重命名或删除已发布字段、event name 前，必须检查 compatibility。
 
+共享失败词汇与各 Family 覆盖矩阵见 [处理失败诊断](processing-failures.md)。
+
 Service identity 来自 `src/powercontext/server/telemetry.py`，logs 和 traces 共用同一 resource identity。
 Error classification 来自 `powercontext._logging.error_category`；`blocked` 等 domain-owned category
 由所属 boundary 明确设置。各 adapter 不应自行定义不同词汇。
@@ -135,9 +140,13 @@ uv run --locked --extra tracing-otlp pytest tests/e2e/test_worker_otlp.py \
 这些证据证明本地 reception，不能代替外部 backend 的存储与查询验收。
 
 Background CLI listener 生命周期测试需要可丢弃的 OceanBase 实例及
-`POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL`。`E2E harness` workflow 的 `atomic-memory-clean-oceanbase` job
-通过 clean migration acceptance runner 执行 `tests/e2e/test_background_metrics.py`，不允许测试 skip。
-该测试先初始化新建数据库，再启动真实 background CLI，检查 listener 启动、metrics 授权、business routes
-不可用，以及 SIGTERM 后正常退出。Listener 启动预算不包含首次建表与索引创建。
-CI 在 migration reports 中保留 `background-metrics/background.log`；启动失败时输出 child return code
-和有界 log tail。此步骤通过后，才能认定 backend 验收通过。未设置 backend 变量时，默认测试会跳过此用例。
+`POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL`。`E2E harness` workflow 的
+`atomic-memory-clean-oceanbase-shards` 矩阵在三个 runner 上通过 clean migration
+acceptance runner 执行 `tests/e2e/test_background_metrics.py`，不允许测试 skip。
+沿用旧名称的 `atomic-memory-clean-oceanbase` job 只负责下载三个分片的 artifact，
+并校验完整且恰好一次的覆盖。该测试先初始化新建数据库，再启动真实 background CLI，
+检查 listener 启动、metrics 授权、business routes 不可用，以及 SIGTERM 后正常退出。
+Listener 启动预算不包含首次建表与索引创建。CI 在分片 artifact 的
+`background-metrics/background.log` 中保留日志；该组只有一个 node，因此日志位于
+shard `0`。启动失败时输出 child return code 和有界 log tail。此步骤通过后，才能认定
+backend 验收通过。未设置 backend 变量时，默认测试会跳过此用例。

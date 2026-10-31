@@ -89,6 +89,9 @@ export const MCP_OPERATIONS = {
   "get_memory_entry": {
     "readOnly": true
   },
+  "get_recall_manifest": {
+    "readOnly": true
+  },
   "get_scope": {
     "readOnly": true
   },
@@ -126,6 +129,24 @@ export const MCP_OPERATIONS = {
     "readOnly": true
   },
   "merge_atomic_memories": {
+    "readOnly": false
+  },
+  "pc_source_add": {
+    "readOnly": false
+  },
+  "pc_source_capabilities": {
+    "readOnly": true
+  },
+  "pc_source_instance_set_enabled": {
+    "readOnly": false
+  },
+  "pc_source_instances": {
+    "readOnly": true
+  },
+  "pc_source_status": {
+    "readOnly": true
+  },
+  "pc_source_target_set_enabled": {
     "readOnly": false
   },
   "prepare_handoff_hint": {

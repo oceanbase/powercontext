@@ -77,6 +77,16 @@ source id, so repeated captures are idempotent. Group, channel, and incognito se
 synchronizes the complete OpenClaw transcript. Recall, capture, and boundary flushing fail open: an unavailable
 Server, timeout, redirect, or invalid response leaves the prompt unchanged and never blocks ordinary work.
 
+The public `before_compaction` hook provides best-effort checkpointing. Capture and flush use one resolved Scope,
+the deterministic Source ID uses the public `runId` for `agent_end` and a streaming canonical hash of the complete
+JSON-shaped payload for the less frequent `before_compaction` event, and acknowledgement requires a
+valid `current_cursor` at or beyond the captured Source position. Cursor lag and `remaining_work` are retried up to
+`flushMaxCalls` (default `4`, range `1`–`16`) within a one-second boundary budget that starts when the flush is queued, with `timeoutMs` retained as the
+per-request ceiling. Unacknowledged accepted positions remain pending for `session_end`, `gateway_stop`, or Server
+scheduling. Closing work skips ahead of queued pre-compaction work, while queue waiting counts against each event's
+boundary budget. A queued boundary that exhausts its budget emits a content-free `deadline_exceeded` diagnostic and
+retains pending positions. OpenClaw continues compaction after hook failures, so this is not a required checkpoint mode.
+
 The plugin exposes five tools: `powercontext_memory_search`, `powercontext_memory_get`,
 `powercontext_memory_store`, `powercontext_memory_revise`, and `powercontext_memory_retire`. Mutating tools
 (`store`, `revise`, `retire`) are marked side-effecting in the plugin manifest.

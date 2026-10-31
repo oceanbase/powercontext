@@ -141,7 +141,8 @@ impl Default for {{classname}} {
 {{^discriminator}}
 {{#vendorExtensions.x-rust-has-byte-array}}#[serde_as]
 {{/vendorExtensions.x-rust-has-byte-array}}{{#oneOf.isEmpty}}#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(deny_unknown_fields)]
+{{^vendorExtensions.x-rust-allow-unknown-fields}}#[serde(deny_unknown_fields)]
+{{/vendorExtensions.x-rust-allow-unknown-fields}}
 pub struct {{{classname}}} {
 {{#vars}}
     {{#description}}

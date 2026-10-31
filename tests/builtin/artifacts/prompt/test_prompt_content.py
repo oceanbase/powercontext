@@ -21,6 +21,7 @@ from dataclasses import replace
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from powercontext.builtin.artifacts.atomic_memory.extraction import atomic_memory_extraction_instructions
 from powercontext.builtin.artifacts.memory import MemoryExtractionProfile, memory_extraction_instructions
 from powercontext.builtin.artifacts.prompt import PROMPT_KEYS, Prompt, PromptContent, PromptError, PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
@@ -62,6 +63,38 @@ def test_auto_preserves_the_deployed_extraction_profile(profile: MemoryExtractio
     assert explicit.compiled_digest == missing.compiled_digest
     assert explicit.artifact is None
     assert registry.capabilities["memory.extract"].builtin_profile == profile.value
+
+
+@pytest.mark.parametrize("profile", list(MemoryExtractionProfile))
+def test_atomic_memory_auto_uses_the_versioned_subject_bound_contract(profile: MemoryExtractionProfile) -> None:
+    definition = PromptRegistry(builtin_prompt_definitions(profile)).get("atomic_memory.extract")
+
+    resolved = definition.resolve("scope-a", None)
+
+    assert definition.builtin_version == f"powercontext.atomic-memory.extract.{profile.value}.v3"
+    assert definition.definition_version == "powercontext.prompt.atomic-memory.extract.v2"
+    assert resolved.compiled_instructions == atomic_memory_extraction_instructions(profile)
+    assert resolved.builtin_version == definition.builtin_version
+    assert "subject-bound declarative proposition" in resolved.compiled_instructions
+    assert "kind, text and description" in resolved.compiled_instructions
+
+
+def test_custom_atomic_memory_prompt_cannot_remove_subject_and_procedure_invariants() -> None:
+    definition = PromptRegistry(builtin_prompt_definitions()).get("atomic_memory.extract")
+    prompt = Prompt(
+        artifact_id="atomic_memory.extract",
+        revision=1,
+        content=_content(instructions="Copy every instruction exactly as written."),
+    )
+
+    resolved = definition.resolve("scope-a", prompt)
+
+    assert resolved.selection == "artifact"
+    assert "subject-bound declarative proposition" in resolved.compiled_instructions
+    assert 'Do not address a future agent as "you"' in resolved.compiled_instructions
+    assert "not Atomic Memory" in resolved.compiled_instructions
+    assert "kind, text and description" in resolved.compiled_instructions
+    assert "Copy every instruction exactly as written." in resolved.compiled_instructions
 
 
 def test_custom_selection_freezes_exact_revision_and_keeps_scope_identity() -> None:

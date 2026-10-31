@@ -31,6 +31,7 @@ export type PowerContextConfig = {
   autoRecall: boolean;
   autoCapture: boolean;
   captureMaxChars: number;
+  flushMaxCalls: number;
 };
 
 const DEFAULT_CONFIG: PowerContextConfig = {
@@ -41,6 +42,7 @@ const DEFAULT_CONFIG: PowerContextConfig = {
   autoRecall: true,
   autoCapture: true,
   captureMaxChars: 4000,
+  flushMaxCalls: 4,
 };
 
 function readPluginConfig(config: OpenClawConfig | undefined, fallback: unknown): Record<string, unknown> {
@@ -85,6 +87,7 @@ export function resolvePowerContextConfig(
     autoRecall: raw.autoRecall !== false,
     autoCapture: raw.autoCapture !== false,
     captureMaxChars: boundedInteger(raw.captureMaxChars, DEFAULT_CONFIG.captureMaxChars, 128, 20000),
+    flushMaxCalls: boundedInteger(raw.flushMaxCalls, DEFAULT_CONFIG.flushMaxCalls, 1, 16),
   };
 }
 

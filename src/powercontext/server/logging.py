@@ -68,6 +68,16 @@ _PROCESSING_FIELDS = (
     "attempts",
     "requests",
     "tokens",
+    "processing_stage",
+    "failure_reason",
+    "input_item_count",
+    "estimated_input_tokens",
+    "token_estimator_id",
+    "effective_budget",
+    "provider_request_id",
+    "finish_reason",
+    "failure_location",
+    "cause_exception_type",
 )
 _OPERATIONAL_FIELDS = (
     "event",

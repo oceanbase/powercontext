@@ -20,7 +20,6 @@ from datetime import UTC, datetime
 
 from powercontext.artifacts import ArtifactAddress
 from powercontext.builtin.handoff_report.canonical import finalize_digests
-from powercontext.builtin.handoff_report.errors import HandoffReportInconsistentError
 from powercontext.builtin.handoff_report.protocols import HandoffReadAdapter, ScopeSelectionResolver
 from powercontext.builtin.handoff_report.report import HandoffReport, HandoffReportSummary, ScopeHandoffReport
 from powercontext.builtin.scope.models import ScopeSelection
@@ -43,23 +42,21 @@ class HandoffReportApplication:
         """Resolve one common selection and freeze each Scope at an exact Handoff revision."""
 
         scopes = await self._scopes.resolve_selection(selection)
+        latest = await self._handoffs.latest_many(tuple(scope.scope_id for scope in scopes))
         projected: list[ScopeHandoffReport] = []
         for scope in scopes:
-            latest = await self._handoffs.latest(scope.scope_id)
-            if latest is None:
+            handoff = latest.get(scope.scope_id)
+            if handoff is None:
                 projected.append(ScopeHandoffReport(scope=scope, status="no_handoff"))
                 continue
 
-            reference = latest.as_ref()
-            frozen = await self._handoffs.get(scope.scope_id, reference)
-            if frozen.as_ref() != reference:
-                raise HandoffReportInconsistentError(scope.scope_id)
+            reference = handoff.as_ref()
             projected.append(
                 ScopeHandoffReport(
                     scope=scope,
-                    status=frozen.content.disposition,
+                    status=handoff.content.disposition,
                     handoff=ArtifactAddress(scope_id=scope.scope_id, artifact=reference),
-                    content=frozen.content,
+                    content=handoff.content,
                 )
             )
 

@@ -14,11 +14,19 @@
  * limitations under the License.
  */
 
-import { readFile, writeFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import {
+  access,
+  readFile,
+  writeFile,
+  mkdir,
+  mkdtemp,
+  rm,
+} from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import openapiTS, { astToString } from "openapi-typescript";
@@ -28,6 +36,7 @@ const contractUrl = new URL("../openapi/powercontext.yaml", root);
 const raw = await readFile(contractUrl, "utf8");
 const contract = YAML.parse(raw);
 const wanted = [
+  "get_server_info",
   "get_liveness",
   "get_readiness",
   "get_capabilities",
@@ -40,16 +49,24 @@ const wanted = [
   "get_artifact_revision",
 ];
 const operations = {};
+const operationFeatures = {};
 for (const [path, item] of Object.entries(contract.paths)) {
   for (const [method, op] of Object.entries(item)) {
     if (wanted.includes(op?.operationId)) {
       if (operations[op.operationId]) throw new Error("Duplicate operation");
       operations[op.operationId] = { method: method.toUpperCase(), path };
+      operationFeatures[op.operationId] =
+        op["x-powercontext-feature-contracts"] ?? [];
     }
   }
 }
 if (Object.keys(operations).length !== wanted.length)
   throw new Error("Missing public operation");
+const discovery = {
+  apiMajor: Number(contract.info.version.split(".")[0]),
+  features: contract["x-powercontext-feature-contracts"],
+  operationFeatures,
+};
 const digest = createHash("sha256")
   .update(raw.replaceAll("\r\n", "\n"))
   .digest("hex");
@@ -74,6 +91,13 @@ function collectSchemas(value) {
 for (const item of Object.values(contract.paths))
   for (const op of Object.values(item))
     if (wanted.includes(op?.operationId)) collectSchemas(op);
+// OpenAPI Generator inlines plain string aliases instead of emitting model files.
+const stringAliases = new Set(
+  [...schemaNames].filter((name) => {
+    const schema = contract.components.schemas[name];
+    return schema.type === "string" && !schema.enum;
+  }),
+);
 function snakeCase(name) {
   return name
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
@@ -82,14 +106,7 @@ function snakeCase(name) {
 }
 function run(command, args, cwd) {
   return new Promise((resolve, reject) => {
-    const useWindowsCmd = process.platform === "win32" && command === "pnpm";
-    const executable = useWindowsCmd
-      ? (process.env.ComSpec ?? "cmd.exe")
-      : command;
-    const executableArgs = useWindowsCmd
-      ? ["/d", "/s", "/c", command, ...args]
-      : args;
-    const child = spawn(executable, executableArgs, {
+    const child = spawn(command, args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -114,17 +131,45 @@ async function generateRustModels() {
     join(tmpdir(), "powercontext-desktop-openapi-"),
   );
   const output = join(temporary, "generated");
-  const modelNames = [...schemaNames].sort();
-  const pnpm = "pnpm";
+  const modelNames = [...schemaNames]
+    .filter((name) => !stringAliases.has(name))
+    .sort();
+  const generatorCli = createRequire(import.meta.url).resolve(
+    "@openapitools/openapi-generator-cli/main.js",
+  );
   try {
+    const generatorConfig = JSON.parse(
+      await readFile(new URL("openapitools.json", root), "utf8"),
+    );
+    const jar = join(
+      dirname(generatorCli),
+      "versions",
+      `${generatorConfig["generator-cli"].version}.jar`,
+    );
+    try {
+      await access(jar);
+    } catch {
+      await run(
+        process.execPath,
+        [generatorCli, "version"],
+        fileURLToPath(root),
+      );
+    }
+    // Discovery minor versions may add optional fields, including in nested contracts.
+    const input = structuredClone(contract);
+    for (const name of ["ServerInfo", "ContractVersion", "FeatureContract"]) {
+      input.components.schemas[name]["x-rust-allow-unknown-fields"] = true;
+    }
+    const inputPath = join(temporary, "openapi.yaml");
+    await writeFile(inputPath, YAML.stringify(input));
     await run(
-      pnpm,
+      "java",
       [
-        "exec",
-        "openapi-generator-cli",
+        "-jar",
+        jar,
         "generate",
         "-i",
-        fileURLToPath(contractUrl),
+        inputPath,
         "-g",
         "rust",
         "-t",
@@ -202,7 +247,11 @@ const rustDeclarations = `\n#[rustfmt::skip]\npub fn declarations(config: &ts_rs
   ...new Set([...schemaNames, ...rustModelNames]),
 ]
   .sort()
-  .map((name) => `        <${name} as ts_rs::TS>::decl(config),`)
+  .map((name) =>
+    stringAliases.has(name)
+      ? `        format!("type ${name} = {};", <String as ts_rs::TS>::name(config)),`
+      : `        <${name} as ts_rs::TS>::decl(config),`,
+  )
   .join("\n")}\n    ]\n}\n`;
 const outputs = {
   "src-tauri/src/transport/wire.rs":
@@ -219,7 +268,8 @@ const outputs = {
     JSON.stringify(operations, null, 2) +
     " as const;\n",
   "src-tauri/src/transport/operations.json":
-    JSON.stringify({ contractSha256: digest, operations }, null, 2) + "\n",
+    JSON.stringify({ contractSha256: digest, operations, discovery }, null, 2) +
+    "\n",
 };
 for (const [name, text] of Object.entries(outputs)) {
   const target = new URL(name, root);

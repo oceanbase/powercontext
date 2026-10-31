@@ -14,6 +14,10 @@
 
 """Stable public exports for PowerContext clients."""
 
+from importlib import import_module
+from types import ModuleType
+from typing import TYPE_CHECKING
+
 from powercontext.artifacts import (
     Artifact,
     ArtifactAddress,
@@ -113,4 +117,17 @@ __all__ = [
     "SourceStore",
     "Sources",
     "Trigger",
+    "artifact_plugins",
 ]
+
+
+if TYPE_CHECKING:
+    from powercontext import artifact_plugins
+
+
+def __getattr__(name: str) -> ModuleType:
+    if name == "artifact_plugins":
+        module = import_module("powercontext.artifact_plugins")
+        globals()[name] = module
+        return module
+    raise AttributeError(name)

@@ -21,10 +21,12 @@ import shlex
 import subprocess
 import sys
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+from sqlalchemy.exc import ArgumentError
 
 from powercontext.ops import protocol
 from powercontext.ops.protocol import OpsError
@@ -41,6 +43,9 @@ from powercontext.service.model import EnvironmentFileIdentity, ServiceDefinitio
 from powercontext.service.native_command import native_process_exited, observe_native_commands
 from powercontext.transport import is_loopback_host
 
+if TYPE_CHECKING:
+    from powercontext.ops.installer import ManagedInstaller
+
 
 @dataclass(frozen=True)
 class TargetBinding:
@@ -51,20 +56,33 @@ class TargetBinding:
     package_version: str
     env_file: str
     configuration_owned: bool = False
+    isolated_runtime: bool = False
 
     def __post_init__(self) -> None:
         protocol.identifier(self.target_id)
         if not Path(self.python_executable).is_absolute() or not Path(self.env_file).is_absolute():
             raise OpsError("target_invalid")
-        if not self.package_version or type(self.configuration_owned) is not bool:
+        if (
+            not self.package_version
+            or type(self.configuration_owned) is not bool
+            or type(self.isolated_runtime) is not bool
+        ):
             raise OpsError("target_invalid")
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        if not self.isolated_runtime:
+            payload.pop("isolated_runtime")
+        return payload
 
     @classmethod
     def read(cls, path: Path) -> TargetBinding:
         value = protocol.decode(read_protected_file(path).content)
+        optional = {"isolated_runtime"} if isinstance(value, dict) and "isolated_runtime" in value else set()
         payload = protocol.object_fields(
             value,
-            {"format_version", "target_id", "python_executable", "package_version", "env_file", "configuration_owned"},
+            {"format_version", "target_id", "python_executable", "package_version", "env_file", "configuration_owned"}
+            | optional,
         )
         if type(payload["format_version"]) is not int or payload["format_version"] != 1:
             raise OpsError("target_unsupported")
@@ -84,11 +102,23 @@ class Ops:
     shown to the user; this same-user process is not a privilege boundary.
     """
 
-    def __init__(self, target: TargetBinding, state_dir: Path, *, controller: ServiceController | None = None) -> None:
+    def __init__(
+        self,
+        target: TargetBinding,
+        state_dir: Path,
+        *,
+        controller: ServiceController | None = None,
+        installer: ManagedInstaller | None = None,
+    ) -> None:
         self.target = target
+        self.installer = installer
+        if installer is not None and (target != installer.target() or Path(state_dir) != installer.layout.state):
+            raise OpsError("target_conflict")
         self.store = OperationStore(state_dir)
         self.controller = controller or ServiceController(
-            target=ServiceTarget(target.python_executable, target.package_version),
+            target=ServiceTarget(
+                target.python_executable, target.package_version, isolated_runtime=target.isolated_runtime
+            ),
         )
 
     def handle(self, value: object, *, emit: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
@@ -145,7 +175,7 @@ class Ops:
             configuration = "valid"
         except (OSError, ValueError):
             configuration = "missing_or_invalid"
-        return {
+        components: dict[str, Any] = {
             "support": status.support.value,
             "registration": status.registration.value,
             "definition": status.definition.value,
@@ -153,10 +183,17 @@ class Ops:
             "manager": status.manager.value,
             "liveness": status.server_liveness.value,
             "readiness": "not_probed",
+            "endpoint": status.endpoint,
             "maintenance": maintenance.get("phase") if isinstance(maintenance, dict) else None,
             "resources": "present" if Path(self.target.python_executable).is_file() else "missing_executable",
             "configuration": configuration,
         }
+        if self.installer is not None:
+            try:
+                components.update(self.installer.inspect(self, snapshot))
+            except (OSError, ValueError, ServiceError, KeyError, TypeError):
+                components["installation_observation"] = "unknown"
+        return components
 
     def _configuration_path(self, snapshot: dict[str, Any]) -> Path:
         definition = snapshot["registration"].get("definition")
@@ -170,7 +207,7 @@ class Ops:
             with server_settings_context(environment=loaded.values) as settings:
                 if not is_loopback_host(settings.http.host):
                     raise OpsError("configuration_invalid")
-        except ServerConfigurationError as error:
+        except (ServerConfigurationError, ArgumentError) as error:
             raise OpsError("configuration_invalid") from error
         return loaded.values
 
@@ -183,13 +220,21 @@ class Ops:
             if definition is not None and (
                 os.path.normcase(definition["python_executable"]) != os.path.normcase(self.target.python_executable)
                 or definition["package_version"] != self.target.package_version
+                or definition.get("isolated_runtime", False) != self.target.isolated_runtime
             ):
                 raise OpsError("ownership_conflict")
-        if operation not in {"register", "remove_registration"} and registration["state"] != "installed":
+        if (
+            operation not in {"register", "remove_registration", "install", "repair"}
+            and registration["state"] != "installed"
+        ):
             raise OpsError("registration_missing")
 
-    def preflight(self, operation: object, options: object) -> dict[str, Any]:
+    def preflight(self, operation: object, options: object) -> dict[str, Any]:  # noqa: C901
         selected = protocol.options(operation, options)
+        if operation in {"install", "repair"}:
+            if self.installer is None:
+                raise OpsError("managed_installation_unavailable")
+            return self.installer.preflight(self, str(operation), selected)
         snapshot = self.controller.operation_snapshot()
         self._assert_target(snapshot, str(operation))
         identity = None
@@ -215,13 +260,29 @@ class Ops:
             may_start = (
                 selected.get("restart", False) and snapshot["manager"] == "active" and not stopped and not switching
             )
+        database = None
+        if self.installer is not None and may_start:
+            from powercontext.ops.local_policy import classify_database
+
+            configuration = self.installer._configuration(self, snapshot, {})
+            database = classify_database(configuration, self.target.package_version)
+            if not database.allowed_to_start:
+                raise OpsError(
+                    "database_incompatible"
+                    if database.classification == "incompatible"
+                    else "database_compatibility_unknown"
+                )
         result = {
             "protocol_version": 1,
             "target_id": self.target.target_id,
-            "binding_id": protocol.digest(asdict(self.target)),
+            "binding_id": protocol.digest(self.target.as_dict()),
             "operation": operation,
             "options": selected,
-            "before": protocol.digest({"service": snapshot, "configuration": identity}),
+            "before": protocol.digest({
+                "service": snapshot,
+                "configuration": identity,
+                **({"database": database.as_dict()} if database else {}),
+            }),
             "effects": {"may_start": may_start, "preserves_data": True},
             "target_summary": self._target_summary(snapshot, str(operation), selected),
         }
@@ -249,7 +310,7 @@ class Ops:
         record = self.store.operation(operation_id)
         if record is None:
             raise OpsError("operation_missing")
-        if record.get("binding_id") != protocol.digest(asdict(self.target)):
+        if record.get("binding_id") != protocol.digest(self.target.as_dict()):
             raise OpsError("target_conflict")
         return record
 
@@ -317,12 +378,13 @@ class Ops:
     def _apply(self, request: dict[str, Any], emit: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
         plan = protocol.plan(request["plan"])
         protocol.authorize(request["authorization"], plan)
-        if plan["binding_id"] != protocol.digest(asdict(self.target)) or plan["target_id"] != self.target.target_id:
+        if plan["binding_id"] != protocol.digest(self.target.as_dict()) or plan["target_id"] != self.target.target_id:
             raise OpsError("target_conflict")
         duplicate = self._duplicate(request, plan)
         if duplicate is not None:
             return duplicate
-        with self.store.mutation(), self.controller.mutation(timeout=0):
+        managed = plan["operation"] in {"install", "repair"}
+        with self.store.mutation(), nullcontext() if managed else self.controller.mutation(timeout=0):
             duplicate = self._duplicate(request, plan)
             if duplicate is not None:
                 return duplicate
@@ -363,10 +425,11 @@ class Ops:
             self._execute(record, emit)
             return self._status(record)
 
-    def _new_attempt(self, request: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    def _new_attempt(self, request: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
         operation_id = request["operation_id"]
         recovery = None
         revision = None
+        previous = None
         latest = self.store.read("_latest.json")
         latest_id = protocol.identifier(latest.get("operation_id")) if latest is not None else None
         latest_attempt = self._record(latest_id)["attempts"][-1]["attempt"] if latest_id is not None else None
@@ -393,8 +456,10 @@ class Ops:
                 raise OpsError("operation_conflict")
             if previous["result"] is not None and previous["result"]["outcome"] == "succeeded":
                 raise OpsError("operation_completed")
-            if previous["phase"] == "executing" and (
-                previous["result"] is None or previous["result"]["outcome"] == "uncertain"
+            if (
+                plan["operation"] not in {"install", "repair"}
+                and previous["phase"] == "executing"
+                and (previous["result"] is None or previous["result"]["outcome"] == "uncertain")
             ):
                 recovery = self._reconcile(previous, plan)
             revision = previous.get("configuration_revision")
@@ -415,6 +480,10 @@ class Ops:
         })
         if revision is not None:
             record["attempts"][-1]["configuration_revision"] = revision
+        if plan["operation"] in {"install", "repair"}:
+            if self.installer is None:
+                raise OpsError("managed_installation_unavailable")
+            record["attempts"][-1]["installation"] = self.installer.begin(self, previous, plan, operation_id)
         return record
 
     def _require_previous_settled(self, plan: dict[str, Any]) -> None:
@@ -554,7 +623,11 @@ class Ops:
             self.store.save(record)
 
         try:
-            if cancelled():
+            if plan["operation"] in {"install", "repair"}:
+                if self.installer is None:
+                    raise OpsError("managed_installation_unavailable")  # noqa: TRY301
+                current["result"] = self.installer.execute(self, record, emit)
+            elif cancelled():
                 current["result"] = {"outcome": "cancelled", "components": self.inspect()}
             else:
                 recovery = current.get("recovery")
@@ -611,6 +684,13 @@ class Ops:
                 if configuration_cancelled:
                     current["result"]["outcome"] = "cancelled"
             current["phase"] = "finished"
+        except OpsError as error:
+            if error.code == "resource_cancelled" and plan["operation"] in {"install", "repair"}:
+                current["result"] = {"outcome": "cancelled", "components": self.inspect()}
+                current["phase"] = "finished"
+            else:
+                current["result"] = self._failure(current)
+                current["result"]["error"] = {"code": error.code}
         except (OSError, ValueError, ServiceError, subprocess.SubprocessError, KeyError, TypeError):
             current["result"] = self._failure(current)
         try:

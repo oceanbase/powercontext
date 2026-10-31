@@ -73,7 +73,13 @@ const report: CheckReport = {
   capabilities: fact,
   compatibilityVerified: true,
   anonymousAccess: true,
-  supportedOperations: [],
+  supportedOperations: [
+    "remember_memory",
+    "search_memory",
+    "get_artifact_revision",
+    "list_scopes",
+    "get_scope",
+  ],
 };
 const scope = {
   scope_id: "exact-scope-a",
@@ -335,8 +341,10 @@ test("empty profiles, pending save and failed save stay distinct and preserve ed
   );
   await user.click(screen.getByRole("button", { name: "Save configuration" }));
   expect(
-    screen.getByText("An operation is in progress. Please wait…"),
-  ).toBeTruthy();
+    screen
+      .getAllByRole("status")
+      .some((status) => status.textContent === "Saving…"),
+  ).toBe(true);
   await act(async () => {
     fail({ code: "storage_error" });
   });

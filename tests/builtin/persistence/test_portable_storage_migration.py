@@ -30,19 +30,46 @@ from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
 
 
-def previous_bundle(directory, embedding):
+def previous_bundle(directory, embedding, *, include_portable=False, include_owner=False):
     current = server_bundle(embedding_profile=embedding)
     shutil.copytree(current.directory, directory, ignore=shutil.ignore_patterns("__pycache__"))
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
-    removed = manifest["revision_resources"].pop("s1402")
-    for resource in (*removed, "versions/s1402_portable_storage.py", "mysql/versions/s1402.py", "portable_storage.py"):
-        (directory / resource).unlink()
-    del manifest["sqlite_fingerprints"]["s1402"]
-    del manifest["domain_readiness"]["s1402"]
-    manifest["domain_steps"] = [step for step in manifest["domain_steps"] if step["revision"] != "s1402"]
-    manifest["mysql_state_layouts"].remove("schemas/mysql-s1402.json")
-    manifest["affected_objects"].remove("pc_portable_restore_receipts")
+    later_revisions = [
+        ("v1_5_0_001", "artifact_storage", None),
+        ("v1_4_1_006", "source_write_plugins", "pc_source_write_plugins"),
+        ("v1_4_1_005", "atomic_memory_description", None),
+    ]
+    if not include_owner:
+        later_revisions.append(("v1_4_1_004", "owner_recovery", "pc_access_owner_recovery"))
+    for later, suffix, table in later_revisions:
+        for resource in (
+            *manifest["revision_resources"].pop(later),
+            f"versions/{later}_{suffix}.py",
+            f"mysql/versions/{later}.py",
+        ):
+            (directory / resource).unlink()
+        del manifest["sqlite_fingerprints"][later]
+        del manifest["domain_readiness"][later]
+        manifest["mysql_state_layouts"].remove(f"schemas/mysql-{later}.json")
+        if table is not None:
+            manifest["affected_objects"].remove(table)
+    manifest["domain_steps"] = [step for step in manifest["domain_steps"] if step["revision"] != "v1_5_0_001"]
+    (directory / "artifact_storage_readiness.py").unlink()
+    if not include_portable:
+        removed = manifest["revision_resources"].pop("s1402")
+        for resource in (
+            *removed,
+            "versions/s1402_portable_storage.py",
+            "mysql/versions/s1402.py",
+            "portable_storage.py",
+        ):
+            (directory / resource).unlink()
+        del manifest["sqlite_fingerprints"]["s1402"]
+        del manifest["domain_readiness"]["s1402"]
+        manifest["domain_steps"] = [step for step in manifest["domain_steps"] if step["revision"] != "s1402"]
+        manifest["mysql_state_layouts"].remove("schemas/mysql-s1402.json")
+        manifest["affected_objects"].remove("pc_portable_restore_receipts")
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     return MigrationBundle(directory, embedding_profile=embedding)
 
@@ -86,8 +113,8 @@ def test_registered_s1401_upgrade_preserves_completed_evidence_and_matches_fresh
     upgraded = SQLiteMigrationRunner(database, bundle, configuration=config)
     plan = upgraded.plan()
     assert plan.source_revision == "s1401"
-    assert plan.revisions == ("s1402",)
-    assert apply(upgraded).revision == "s1402"
+    assert plan.revisions == ("s1402", "v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001")
+    assert apply(upgraded).revision == "v1_5_0_001"
     assert upgraded.verify().state == "ready"
     assert not apply(upgraded).changed
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", bundle, configuration=config)
@@ -127,3 +154,41 @@ def test_pending_portable_restore_blocks_migration_readiness_without_repair(tmp_
     with closing(sqlite3.connect(runner.database)) as connection, connection:
         connection.execute("UPDATE pc_portable_restore_receipts SET status='ready',projections_ready=1")
     assert runner.verify().state == "ready"
+
+
+@pytest.mark.parametrize("vectors", [False, True])
+@pytest.mark.parametrize("include_owner", [False, True])
+def test_source_write_plugin_upgrade_preserves_data_and_registration(tmp_path, vectors, include_owner):
+    embedding = EmbeddingProfile(profile_id="source-vectors", model="fixture", dimension=3) if vectors else None
+    config = configuration(embedding)
+    previous = previous_bundle(tmp_path / "previous", embedding, include_portable=True, include_owner=include_owner)
+    database = tmp_path / "existing.db"
+    old = SQLiteMigrationRunner(database, previous, configuration=config)
+    assert apply(old).revision == ("v1_4_1_004" if include_owner else "s1402")
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute(
+            "INSERT INTO pc_scopes (scope_id,title,summary,scope_id_search,title_search,summary_search,version) "
+            "VALUES ('scope','preserved','summary','scope','preserved','summary',1)"
+        )
+    bundle = server_bundle(embedding_profile=embedding)
+    upgraded = SQLiteMigrationRunner(database, bundle, configuration=config)
+    assert upgraded.plan().revisions == (
+        ("v1_4_1_005", "v1_4_1_006", "v1_5_0_001")
+        if include_owner
+        else ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001")
+    )
+    assert apply(upgraded).revision == "v1_5_0_001"
+    definition = b'{"configuration":{"id":"tickets","entry":"tickets"}}'
+    with closing(sqlite3.connect(database)) as connection, connection:
+        assert connection.execute("SELECT title FROM pc_scopes").fetchall() == [("preserved",)]
+        connection.execute("INSERT INTO pc_source_write_plugins VALUES (?, ?)", ("tickets", definition))
+    reopened = SQLiteMigrationRunner(database, bundle, configuration=config)
+    assert reopened.verify().state == "ready"
+    assert not apply(reopened).changed
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("SELECT plugin_id, definition FROM pc_source_write_plugins").fetchall() == [
+            ("tickets", definition)
+        ]
+    fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", bundle, configuration=config)
+    apply(fresh)
+    assert reopened.plan().schema_fingerprint == fresh.plan().schema_fingerprint

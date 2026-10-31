@@ -102,6 +102,13 @@
         "maximum": 20000,
         "default": 4000
       },
+      "flushMaxCalls": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 4,
+        "description": "Maximum synchronous flush calls at one lifecycle boundary."
+      },
       "scopeId": {
         "type": "string",
         "minLength": 1,
@@ -134,6 +141,10 @@
     "contextAssembly": {
       "label": "Context text assembly",
       "help": "Select Memory, Experience, and Profile sections and their order, limits, and displayed metadata."
+    },
+    "flushMaxCalls": {
+      "label": "Lifecycle flush calls",
+      "help": "Bound the synchronous flush attempts made at one lifecycle boundary."
     }
   },
   "skills": [

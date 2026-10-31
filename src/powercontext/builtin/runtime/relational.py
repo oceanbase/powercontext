@@ -743,6 +743,10 @@ class RelationalContexts:
         self._scope_states: dict[str, _ScopeState] = {}
 
     @property
+    def handoff_artifact_id(self) -> str:
+        return self._handoff_artifact_id
+
+    @property
     def token_estimator(self) -> TokenEstimator:
         """Return the deployment-fixed estimator used by internal processors."""
 

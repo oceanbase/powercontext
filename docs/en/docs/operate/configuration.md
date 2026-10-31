@@ -145,6 +145,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | Storage backend: `sqlite`, `seekdb`, or `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekdb |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekdb path; used only when `DATABASE_KIND=seekdb` |
+| `POWERCONTEXT_SERVER_DATABASE_DATABASE` | `powercontext` | seekDB database name; explicitly set `test` to retain legacy data |
 | `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` | `5000` | Milliseconds a business connection waits for SQLite's single write lock before raising; it does not govern usage accounting, which has its own bounded budget |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Inactive scope compositions retained by the Runtime; in-flight scopes are never evicted |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Source journal positions per activation; Memory reduces its window after generation timeouts |
@@ -175,7 +176,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | Whether expansion may still run when `MEMORY_RERANK_ENABLED` is set; by default reranking ends the expansion |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | Relative FTS contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes FTS-only matches from hybrid results |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | Relative vector contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes vector-only matches from hybrid results |
-| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.25` | Seconds each Atomic Memory or Topic Memory search inside a context preparation waits for the query embedding, at most `60`. A preparation searches the Scope and each of its context references in turn, so the waits add up. When a budget expires, that search continues with lexical matching only and logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback`. A remote embedding provider needs more than the default; keep the summed waits inside the host's Hook request timeout, 3 seconds on most hosts |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | Seconds one context preparation waits for query embeddings in total, at most `60`. The Atomic Memory searches of the Scope and each of its context references and the Topic Memory search share this budget, and only the time spent waiting for an embedding is charged to it: each search waits only for what the earlier ones left, so the preparation's wait stays within it however many Scopes are searched, while database reads and reranking between the searches do not use it up. The search whose embedding wait spends the budget logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback` once. A later search in the same preparation sends no new embedding request and logs no fallback event: it still uses a query vector an earlier search obtained, and otherwise continues with lexical matching only. The default covers a typical remote embedding round trip; keep it below the prepare request timeout of the hosts in use, the shortest default being 1 second on Kimi Code, ZCode, and DSH |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | unset | Memory automatic admission interval; `SCHEDULE_SECONDS` remains a compatibility alias |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Topic Memory automatic admission interval; unset disables new automatic admission |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources per Topic Memory Window, capped at 100; one Scope invocation can finish several Windows |
@@ -612,8 +613,18 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase
 export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 ```
 
-The URL must use the `mysql+aoceanbase` driver, include an explicit port and database, and set `charset=utf8mb4`. The
-tenant must use MySQL compatibility mode.
+The URL must use the `mysql+aoceanbase` driver, include an explicit port, and set `charset=utf8mb4`. An omitted database
+defaults to `powercontext`; an explicit database is preserved. The tenant must use MySQL compatibility mode.
+
+seekDB startup and OceanBase Python SDK initialization create a missing selected database before initializing tables and reuse existing databases
+without issuing a database-creation statement. Missing-database creation failures include manual provisioning guidance;
+other connection errors do not trigger fallback. seekDB detects PowerContext-named tables in the old `test` database
+when no name was explicitly configured and requires an explicit choice before initializing a new database.
+Both backends reject database names containing backticks during configuration validation, before any database writes.
+Choose a name without backticks, such as `team_context`.
+Full OceanBase Server deployments require a prepared database and explicit Server schema maintenance before startup;
+database auto-provisioning does not replace that admission contract.
+See [Install and run](../get-started/install-and-run.md) for custom names, permissions, and old seekDB data handling.
 
 ### Embeddings and SQLite vector search
 

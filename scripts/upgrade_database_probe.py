@@ -110,7 +110,9 @@ def sqlite_snapshot(database: Path, *, add_revision: bool) -> dict[str, Any]:
     }
 
 
-async def inspect(backend: str, database: Path, *, add_revision: bool, canonical: bool = False) -> dict[str, Any]:
+async def inspect(
+    backend: str, database: Path, *, add_revision: bool, canonical: bool = False, seekdb_database: str = "test"
+) -> dict[str, Any]:
     if backend == "sqlite":
         return sqlite_snapshot(database, add_revision=add_revision)
     # Use the driver's public API, not a current-checkout Profile that could run
@@ -121,7 +123,7 @@ async def inspect(backend: str, database: Path, *, add_revision: bool, canonical
     if backend == "seekdb":
         binding = import_module("pylibseekdb")
         instance = await binding.aopen(str(database))
-        options = {**instance.connection_options(), "database": "test"}
+        options = {**instance.connection_options(), "database": seekdb_database}
         details["embedded_binding_version"] = version("pylibseekdb")
     else:
         url = urlsplit(os.environ["PC_UPGRADE_OCEANBASE_URL"])
@@ -163,7 +165,9 @@ async def inspect(backend: str, database: Path, *, add_revision: bool, canonical
             trigger_rows = [
                 dict(zip((column[0] for column in cursor.description), row, strict=True)) for row in cursor.fetchall()
             ]
-            triggers = {row["Trigger"]: [row["Event"], row["Table"], row["Statement"]] for row in trigger_rows}
+            triggers = {
+                row["Trigger"]: [row["Timing"], row["Event"], row["Table"], row["Statement"]] for row in trigger_rows
+            }
         logical = None
         if canonical:
             from powercontext.builtin.persistence.migrations.mysql_schema import _parse_table
@@ -196,8 +200,17 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--add-revision", action="store_true")
     parser.add_argument("--canonical", action="store_true")
+    parser.add_argument("--seekdb-database", default="test")
     args = parser.parse_args()
-    result = asyncio.run(inspect(args.backend, args.database, add_revision=args.add_revision, canonical=args.canonical))
+    result = asyncio.run(
+        inspect(
+            args.backend,
+            args.database,
+            add_revision=args.add_revision,
+            canonical=args.canonical,
+            seekdb_database=args.seekdb_database,
+        )
+    )
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 

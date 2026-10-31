@@ -29,9 +29,46 @@ Typed adapters separate liveness, readiness, identity and capabilities. Native c
 | Complete request, including response body | 15 seconds |
 | Response body | 1 MiB, checked both by declared size and streamed bytes |
 | Concurrent reads per client | 4; excess fails as busy |
+| Session observations | 512 terminal records shared across HTTP requests and native Memory/Scope actions; memory only |
 
-Error responses are enum codes. Transport exception text, endpoint URLs, bodies and credentials are never returned or logged. No product logging, telemetry, crash uploader or persistent business cache is configured. The app does not read databases, start a Server or inspect process environments. Explicit local diagnostics verify a pinned absolute executable and digest, then run one of two native-defined diagnostic commands. Registration requires no version, and legacy version fields are ignored. Diagnostic responses must match the supported output schema. A subsequent fixed `--version` query collects bounded display metadata; failure, unsupported output or an unavailable version does not reject an otherwise valid diagnostic result. Each invocation has a combined 256 KiB output budget and a deadline. Windows helpers enter an owned kill-on-close Job before resuming. macOS runs a read-only snapshot of the digest-verified launcher in a private process group, which is terminated after completion, cancellation or timeout; raw output is projected to allowlisted status fields and discarded. Normal application exit closes diagnostic admission and waits for active worker process cleanup before Tauri exits. A local CLI pin does not authenticate its publisher or freeze its Python dependencies; the configured installation must be trusted.
+Session observation commands require the same trusted main-window boundary and work independently of connection state. Rust projects only fixed operation/unit/outcome enums, elapsed milliseconds, UTC timestamps, counts, HTTP status and existing safe error codes. It never serializes connection or write state for export; content, queries, credentials, endpoints, private paths and target identities never enter the collector. The preview serializes only that projection. Retention/reset and process-lifetime loss metadata expose incomplete coverage; nonblocking recording cannot change business results or suppress cancellation. HTTP response success and native write certainty are separate measurements. Installer/Ops and local diagnostic output are outside collection. The [session observation contract](../docs/en/development/desktop-session-observations.md) defines the complete field allowlist and coverage.
+
+Error responses are enum codes. Transport exception text, endpoint URLs, bodies and credentials are never returned or logged. No product logging, telemetry, crash uploader or persistent business cache is configured. The app does not read databases or inspect process environments. Authorized local service changes use the independent Ops boundary described below. Explicit local diagnostics verify a pinned absolute executable and digest, then run one of two native-defined diagnostic commands. Registration requires no version, and legacy version fields are ignored. Diagnostic responses must match the supported output schema. A subsequent fixed `--version` query collects bounded display metadata; failure, unsupported output or an unavailable version does not reject an otherwise valid diagnostic result. Each invocation has a combined 256 KiB output budget and a deadline. Windows helpers enter an owned kill-on-close Job before resuming. macOS runs a read-only snapshot of the digest-verified launcher in a private process group, which is terminated after completion, cancellation or timeout; raw output is projected to allowlisted status fields and discarded. Normal application exit closes diagnostic admission and waits for active worker process cleanup before Tauri exits. A local CLI pin does not authenticate its publisher or freeze its Python dependencies; the configured installation must be trusted.
 
 Tests cover actual TLS fixtures and adversarial HTTP responses, shared loopback policy, mocked Tauri permission resolution with the real capability configuration, navigation rejection, unavailable vault behavior and the explicit session path. The opt-in Windows vault probe separately verifies persistence across processes. See the [validation guide](VALIDATION.md) for packaged checks, CI artifacts and remaining platform qualification.
 
 Framework references: [Tauri capabilities](https://v2.tauri.app/security/capabilities/), [Windows installer options](https://v2.tauri.app/distribute/windows-installer/).
+
+## Independent Ops boundary
+
+Only the packaged main window may use the seven fixed Ops commands and the retained-reference reader. Inputs are typed
+operation/options or native-issued approval/reference IDs; executable, binding paths, URLs, service names, and complete
+plans cannot cross renderer IPC. The main window receives validated progress through `ops-progress`; no global
+renderer event-emission permission is granted. Preflight retains the exact plan for ten minutes and apply/resume consume
+the approval once against the same distribution and target binding.
+
+Packaged `ops-provision.json` pins the independent bundle manifest and optional managed catalog. Every invocation
+verifies the complete bundle inventory and contents, including safe runtime-local file aliases. Missing provision is
+unavailable; a candidate manifest cannot authorize itself and system/Server Python is never a fallback. Immutable
+digest-named private binding copies prevent an in-flight helper from observing a subsequently selected binding.
+The fixed stable root is current-user `PowerContext/Ops` under local application data, independent of Desktop removal.
+Native code writes private files atomically (0600/0700 on POSIX; current-user protected ACLs on Windows), rejects path
+links/reparse points, and validates ownership/protection on existing control files. This same-user bridge is not a
+privilege boundary against another process running as that user.
+
+The native reference file stores only operation IDs and binding fingerprints before dispatch. Ops journals and locks
+remain the sole recovery authority. Four ordinary and two reserved status/cancel helpers bound native concurrency;
+timed-out children retain their slot until exit. Each invocation bounds JSONL messages to 64 KiB, aggregate output to
+1 MiB and 128 messages, with 30-second passive-read, 180-second preflight and 30-minute mutation deadlines. Stderr is discarded. Invalid schema,
+identity, sequence or enums never reach the renderer; valid structured nonzero exits preserve unhealthy outcomes.
+Nonblocking drains finish at helper exit even when a descendant holds a pipe open.
+
+Timeout/lost response/Quit retain the operation reference and report unknown. Normal Quit closes admission and waits
+at most two seconds without signalling Ops, Server or manager processes. Pipe closure can produce a durable safe-boundary
+progress failure; accepted work may continue. Cancellation calls Ops and does not imply rollback. Recovery reads the
+existing operation, then requires a newly approved plan; no automatic replay or parallel outcome journal exists.
+
+See [Local Server Ops](../docs/en/docs/operate/local-server-ops.md#desktop-native-bridge) for the exact optional Tauri
+resource configuration, producer pins, stable paths and recovery API. The bridge does not ship production resources or
+an installation wizard. Real service mutations, signing/notarization and clean-machine acceptance require separate
+platform evidence.

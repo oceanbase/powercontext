@@ -1,11 +1,17 @@
 name: Desktop validation
 
 on:
-  pull_request:
-    paths: ['desktop/**', 'src/powercontext/**', 'pyproject.toml', 'uv.lock', 'openapi/powercontext.yaml', 'tests/fixtures/transport_loopback_vectors.json', 'tests/test_desktop_fixture_qualification.py', 'website/assets/**', '.github/workflows/desktop.yml']
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
+      installer_run:
+        type: string
+        default: ''
   push:
-    branches: [master, codex/desktop-preview]
-    paths: ['desktop/**', 'src/powercontext/**', 'pyproject.toml', 'uv.lock', 'openapi/powercontext.yaml', 'tests/fixtures/transport_loopback_vectors.json', 'tests/test_desktop_fixture_qualification.py', 'website/assets/**', '.github/workflows/desktop.yml']
+    branches: [codex/desktop-preview]
   workflow_dispatch:
     inputs:
       installer_run:
@@ -15,15 +21,25 @@ on:
         default: ''
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: desktop-${{ github.event.pull_request.number || github.ref }}-${{ inputs.installer_run || 'build' }}
+  group: desktop-${{ github.event.pull_request.number || github.ref }}-${{ inputs.installer_run || 'build' }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    if: ${{ inputs.suites == '' }}
+    uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: desktop.yml
+
   windows:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.installer_run == '' }}
+    needs: changes
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.installer_run == '') &&
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').desktop) }}
     runs-on: windows-2025
     timeout-minutes: 40
     defaults:
@@ -42,7 +58,7 @@ jobs:
           if ((git rev-parse refs/tags/powercontext-v1.0.0) -ne 'ec97efba5f26fc972e9d8bf5027d8233acab3ca1') {
             throw 'Unexpected Server version baseline tag'
           }
-      - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
           working_directory: desktop
       - name: Install pinned Windows Rust toolchain
@@ -53,7 +69,7 @@ jobs:
           working-directory: desktop
           cache-dependency-glob: desktop/pnpm-lock.yaml
       - name: Cache Rust dependencies and compilation
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: desktop/src-tauri -> target
           key: ${{ hashFiles('desktop/rust-toolchain.toml') }}
@@ -73,9 +89,12 @@ jobs:
       - name: Verify Windows vault across processes
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
       - name: Set up Python fixture tooling
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        timeout-minutes: 5
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.10.12"
+          # Use the release source directly; a stalled mirror download can exhaust the job budget.
+          download-from-astral-mirror: false
           enable-cache: true
           cache-suffix: desktop-${{ github.job }}-py3.12
           cache-dependency-glob: |
@@ -148,7 +167,10 @@ jobs:
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}
 
   macos:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.installer_run == '' }}
+    needs: changes
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.installer_run == '') &&
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').desktop) }}
     strategy:
       fail-fast: false
       matrix:
@@ -162,11 +184,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
           working_directory: desktop
       - run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: desktop/src-tauri -> target
           key: macos-${{ matrix.runner }}
@@ -182,11 +204,103 @@ jobs:
       - name: Verify native Keychain across processes
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
       - name: Build unsigned macOS app and DMG
-        run: pnpm desktop:build
+        run: |
+          mkdir -p .artifacts
+          set -o pipefail
+          pnpm tauri build --ci --verbose -- --locked 2>&1 | tee .artifacts/macos-build.log
+      - name: Upload failed macOS build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: desktop-macos-${{ matrix.runner }}-build-diagnostics
+          path: |
+            desktop/.artifacts/macos-build.log
+            desktop/src-tauri/target/release/bundle/dmg/bundle_dmg.sh
+          if-no-files-found: warn
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: desktop-macos-${{ matrix.runner }}-internal-unsigned
           path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+  linux:
+    needs: changes
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.installer_run == '') &&
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').desktop) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install Linux Desktop dependencies
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            dbus-x11 \
+            gnome-keyring \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            libsecret-1-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            openjdk-17-jre-headless \
+            pkg-config
+      - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        with:
+          working_directory: desktop
+      - name: Install pinned Linux Rust toolchain
+        run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
+      - name: Cache desktop dependencies
+        uses: ./.github/actions/cache-pnpm
+        with:
+          working-directory: desktop
+          cache-dependency-glob: desktop/pnpm-lock.yaml
+      - name: Cache Rust dependencies and compilation
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: desktop/src-tauri -> target
+          key: linux
+          cache-bin: false
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - run: pnpm ipc:check
+      - name: Verify Linux Secret Service across processes
+        run: |
+          dbus-run-session -- bash -lc '
+            set -euo pipefail
+            eval "$(printf "%s\n" powercontext-ci | gnome-keyring-daemon --daemonize --login --components=secrets)"
+            cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
+          '
+      - name: Build unsigned Debian package
+        run: pnpm tauri build --bundles deb --ci -- --locked
+      - name: Verify Debian package
+        run: |
+          packages=(src-tauri/target/release/bundle/deb/*.deb)
+          test "${#packages[@]}" -eq 1
+          dpkg-deb --info "${packages[0]}"
+          dpkg-deb --contents "${packages[0]}" >/dev/null
+      - name: Upload Debian package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: desktop-linux-ubuntu-24.04-internal-unsigned
+          path: desktop/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
 
   installed-package:
@@ -209,7 +323,7 @@ jobs:
           git fetch --no-tags https://github.com/oceanbase/powercontext.git refs/tags/powercontext-v1.0.0:refs/tags/powercontext-v1.0.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ((git rev-parse refs/tags/powercontext-v1.0.0) -ne 'ec97efba5f26fc972e9d8bf5027d8233acab3ca1') { throw 'Unexpected Server version baseline tag' }
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.10.12"
           enable-cache: true

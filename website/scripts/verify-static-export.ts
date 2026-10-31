@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { access, readdir, readFile } from 'node:fs/promises';
+import { access, readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { absoluteSiteUrl, basePath, withBasePath } from '../src/lib/urls';
 
@@ -127,6 +127,17 @@ for (const [route, document] of exportedDocuments) {
       continue;
     }
     const targetRoute = normalizeRoute(targetPath.slice(basePath.length) || '/');
+    if (/\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(targetRoute)) {
+      const assetFile = path.resolve(outputDirectory, `.${targetRoute}`);
+      try {
+        if (!assetFile.startsWith(`${outputDirectory}${path.sep}`) || !(await stat(assetFile)).isFile()) {
+          missingAssets.add(`${route} -> ${targetRoute}`);
+        }
+      } catch {
+        missingAssets.add(`${route} -> ${targetRoute}`);
+      }
+      continue;
+    }
     if (!exportedDocuments.has(targetRoute)) brokenLinks.add(`${route} -> ${targetRoute}`);
   }
 

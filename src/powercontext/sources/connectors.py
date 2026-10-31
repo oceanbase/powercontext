@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from enum import StrEnum
 from typing import Protocol
 
@@ -131,6 +132,16 @@ class Connector(Protocol):
     source_definitions: frozenset[str]
 
     async def run(self, session: ConnectorRunSession, /) -> ConnectorRunCompletion: ...
+
+
+class ConnectorRunObserver(Protocol):
+    """Lifecycle hooks awaited before work and before advancing a checkpoint."""
+
+    async def started(self, session: ConnectorRunSession, /) -> None: ...
+
+    async def prepared(self, session: ConnectorRunSession, completion: ConnectorRunCompletion, /) -> None: ...
+
+    async def completed(self, result: ConnectorRunResult, /) -> None: ...
 
 
 class ConnectorRunSession:
@@ -249,18 +260,24 @@ class ConnectorLifecycle:
         self._sink = sink
         self._checkpoints = checkpoints
 
-    async def run(self, connector: Connector, binding: ConnectorBinding, /) -> ConnectorRunResult:
+    async def run(
+        self, connector: Connector, binding: ConnectorBinding, /, *, observer: ConnectorRunObserver | None = None
+    ) -> ConnectorRunResult:
         source_definitions = validate_connector(connector, binding)
         previous = await self._checkpoints.load(binding)
         session = ConnectorRunSession(
             binding=binding,
-            checkpoint=previous,
+            checkpoint=deepcopy(previous),
             source_definitions=source_definitions,
             sink=self._sink,
         )
+        if observer is not None:
+            await observer.started(session)
         completion = await connector.run(session)
         if not isinstance(completion, ConnectorRunCompletion):
             raise InvalidConnectorRunError("completion", "Connector must return ConnectorRunCompletion")
+        if observer is not None:
+            await observer.prepared(session, completion)
 
         unsafe = tuple(
             outcome
@@ -271,7 +288,7 @@ class ConnectorLifecycle:
         if completion.status is ConnectorRunStatus.COMPLETE and completion.checkpoint != previous and not unsafe:
             await self._checkpoints.save(binding, completion.checkpoint, expected=previous)
             committed = completion.checkpoint
-        return ConnectorRunResult(
+        result = ConnectorRunResult(
             binding=binding,
             status=ConnectorRunStatus.INCOMPLETE if unsafe else completion.status,
             previous_checkpoint=previous,
@@ -279,6 +296,9 @@ class ConnectorLifecycle:
             committed_checkpoint=committed,
             items=session.outcomes,
         )
+        if observer is not None:
+            await observer.completed(result)
+        return result
 
 
 def validate_connector(

@@ -47,6 +47,12 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
 from powercontext.builtin.persistence.tables import SHARED_TABLES
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     ArtifactProcessingSupervisor,
@@ -337,6 +343,23 @@ def _raise_inference_failure(scope_id: str) -> None:
         raise InferenceUnavailableError("generation", _PRIVATE)
     if scope_id == "invalid-output":
         raise InvalidInferenceOutputError("memory-extract", _PRIVATE)
+    if scope_id == "diagnosed-failure":
+        raise attach_diagnostics(
+            InvalidInferenceOutputError(
+                "atomic-memory-input-budget", "A complete comparison input exceeds its token budget"
+            ),
+            ProcessingDiagnostics(
+                stage=ProcessingStage.BUSINESS_VALIDATION,
+                reason=ProcessingFailureReason.CONTEXT_OVERFLOW,
+                input_item_count=3,
+                estimated_input_tokens=120,
+                token_estimator_id="character:weighted",  # noqa: S106 - estimator identity, not a secret
+                effective_budget=100,
+                provider_request_id="req-1",
+                finish_reason="length",
+                failure_location="atomic_memory.extract",
+            ),
+        )
 
 
 def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerCompletion:
@@ -440,6 +463,7 @@ def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
         ("cancellation", "cancelled", "cancelled"),
         ("cancellation-subclass", "cancelled", "cancelled"),
         ("cancellation-name-collision", "internal", "failure"),
+        ("diagnosed-failure", "dependency", "failure"),
     ],
 )
 def test_supervisor_logs_isolate_request_identity_and_preserve_child_cancellation(
@@ -499,6 +523,17 @@ def test_supervisor_logs_isolate_request_identity_and_preserve_child_cancellatio
     if scope_id == "cancellation-subclass":
         assert failure["exception_type"] == child["exception_type"] == "_WorkerCancelled"
     assert "request_id" not in failure
+    if scope_id == "diagnosed-failure":
+        for record in (failure, child):
+            assert record["processing_stage"] == "business_validation"
+            assert record["failure_reason"] == "context_overflow"
+            assert record["input_item_count"] == 3
+            assert record["estimated_input_tokens"] == 120
+            assert record["token_estimator_id"] == "character:weighted"  # noqa: S105 - estimator identity
+            assert record["effective_budget"] == 100
+            assert record["provider_request_id"] == "req-1"
+            assert record["finish_reason"] == "length"
+            assert record["failure_location"] == "atomic_memory.extract"
     caller = next(record for record in records if record.get("event") == "caller.observed")
     assert caller["request_id"] == "unrelated-parent-request"
     assert _PRIVATE not in output.getvalue() + child_output.out + child_output.err

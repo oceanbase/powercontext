@@ -99,8 +99,10 @@ asyncio.run(export_context())
 省略 `assembly` 的默认 prepare 请求还会召回当前 Scope 中可用的 Topic Memory。
 显式 `assembly` 通过选择 `topic-memory` 包含主题记忆；`assembly: {}` 仍只选择 Memory 和 Experience。
 
-当前 Scope 没有 Topic 时，主题召回会跳过查询 Embedding。组装上下文时，每次 Topic 查询 Embedding 最多等待
-250 毫秒，超时后回退到 FTS。同一次 prepare 的 recall gate 扩展轮次复用这个选择，后续请求可以重新尝试 Embedding，
+当前 Scope 没有 Topic 时，主题召回会跳过查询 Embedding。组装上下文时，若 Topic 与 Memory 使用同一个 Embedding 模型，
+且查询在 Topic 检索的限制之内（64 个不同词项、8,192 个字符），主题召回复用 Memory 的查询向量；否则单独嵌入查询。
+这次嵌入只等待 Memory 召回用剩的本次准备 `recall_embedding_timeout_seconds` 预算（默认 500 毫秒），所以第二次
+Embedding 往返也要落在同一预算内，预算用完后回退到 FTS。同一次 prepare 的 recall gate 扩展轮次复用这个选择，后续请求可以重新尝试 Embedding，
 避免缓慢的可选模型重复阻塞已召回的 Memory。直接检索 Topic 仍使用配置的模型超时。
 
 同一类别内保留召回顺序，包括已有 Memory reranker 的排序。前面的候选因预算无法装入时，rank 可能不连续。

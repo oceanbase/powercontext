@@ -102,9 +102,12 @@ asyncio.run(export_context())
 Default prepare requests without `assembly` also recall Topic Memory from the current Scope when available.
 With explicit `assembly`, select `topic-memory` to include it. `assembly: {}` still selects only Memory and Experience.
 
-Topic recall skips query Embedding when the Scope has no current Topics. During context preparation, each Topic
-query Embedding attempt has a 250 ms budget and falls back to FTS on timeout. The same prepare request reuses that FTS
-choice in recall-gate expansion rounds; a subsequent request can try Embedding again. A slow optional provider does not
+Topic recall skips query Embedding when the Scope has no current Topics. During context preparation, Topic recall
+reuses the Memory query vector when both use the same embedding model and the query fits Topic search (64 distinct
+terms and 8,192 characters); otherwise it embeds its own query. That attempt waits only for what Memory recall left of
+the preparation's `recall_embedding_timeout_seconds` budget (500 ms by default), so a second embedding round trip has
+to fit in the same budget, and falls back to FTS when the budget runs out. The same prepare request reuses that
+FTS choice in recall-gate expansion rounds; a subsequent request can try Embedding again. A slow optional provider does not
 hold up already retrieved Memory. Direct Topic search keeps the configured provider timeout.
 
 Entries retain retrieval order within a family. Existing Memory reranking remains authoritative. Rank can have gaps

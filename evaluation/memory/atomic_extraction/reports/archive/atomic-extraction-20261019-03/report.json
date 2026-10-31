@@ -1,0 +1,79 @@
+{
+  "content_policy": "aggregate_only_no_evidence_or_generated_candidate_text",
+  "dataset": {
+    "case_count": 9,
+    "dataset_version": "powercontext.atomic-memory-extraction.synthetic.v1",
+    "manifest_sha256": "47e6a9e731523b6b41295cf59f6eb4772e69b1afddfa1edebfbf1fe6db021ab4",
+    "schema_version": "powercontext.atomic-memory-extraction-cases.v1"
+  },
+  "dispositions": {
+    "atomic_memory": {
+      "failed": 0,
+      "passed": 6,
+      "total": 6
+    },
+    "experience_or_skill": {
+      "failed": 0,
+      "passed": 1,
+      "total": 1
+    },
+    "reject": {
+      "failed": 0,
+      "passed": 2,
+      "total": 2
+    }
+  },
+  "factual_retention": {
+    "failed": 0,
+    "false_rejections": 0,
+    "passed": 6,
+    "total": 6,
+    "unobserved": 0
+  },
+  "failure_classes": {},
+  "instruction_leakage": {
+    "leaks": 0,
+    "passed": 9,
+    "total": 9,
+    "unobserved": 0
+  },
+  "overall": {
+    "failed": 0,
+    "passed": 9,
+    "total": 9
+  },
+  "prompts": {
+    "coding": {
+      "builtin_version": "powercontext.atomic-memory.extract.coding.v2",
+      "compiled_digest": "825fdf1eac61ad9e317afeb3b87d0b28890a77d249838ed4ca08afa0da2da121",
+      "definition_version": "powercontext.prompt.atomic-memory.extract.v1",
+      "instructions_sha256": "87c82c353bc7a4b52a34ddcbdc1ef2cd288128b840dd5e3c6ca414efcfcf3dde",
+      "key": "atomic_memory.extract"
+    },
+    "conversation": {
+      "builtin_version": "powercontext.atomic-memory.extract.conversation.v2",
+      "compiled_digest": "45736bf63485f3ae157e6acc892491759a499ba8933d3fe3acb82b3aff60bac2",
+      "definition_version": "powercontext.prompt.atomic-memory.extract.v1",
+      "instructions_sha256": "2a603e600272542cddc7b5079853600abe977063bffe82b49822e40083e6bb38",
+      "key": "atomic_memory.extract"
+    }
+  },
+  "provider": {
+    "base_url_configured": false,
+    "base_url_sha256": null,
+    "header_names": [],
+    "max_requests": 2,
+    "model": "deepseek:deepseek-flash",
+    "model_settings": {
+      "max_tokens": 1024,
+      "temperature": 0
+    },
+    "model_settings_sha256": "b9f635b45475fb726ad1b3c9898384d3a88bd5e2019187da1fc9050b351c666e",
+    "provider": "deepseek",
+    "timeout_seconds": 120.0
+  },
+  "run_id": "atomic-extraction-20261019-03",
+  "run_manifest_sha256": "a3f19356592e9a880505157534aa6f69a496c5a1dbea810970d2172905b0feb0",
+  "schema_version": "powercontext.atomic-memory-extraction-report.v1",
+  "status": "passed"
+}

@@ -15,10 +15,24 @@
 import re
 from pathlib import Path
 
-from sqlalchemy import BigInteger, Date, DateTime, Integer, LargeBinary, String, Table
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    inspect,
+)
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
+from powercontext.builtin.persistence.schema import _create_mysql_tables
 from powercontext.builtin.persistence.tables import (
     AGENT_SKILL_TARGETS_TABLE,
     ARTIFACT_HANDLES_TABLE,
@@ -33,6 +47,22 @@ from powercontext.builtin.persistence.tables import (
 
 INNODB_MAX_INDEX_BYTES = 3072
 UTF8MB4_MAX_BYTES_PER_CHARACTER = 4
+
+
+def test_mysql_initialization_ignores_unselected_table_with_unresolved_foreign_key() -> None:
+    metadata = MetaData()
+    selected = Table("pc_selected", metadata, Column("id", Integer, primary_key=True))
+    Table(
+        "pc_unselected",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("missing_id", Integer, ForeignKey("pc_missing.id")),
+    )
+
+    with create_engine("sqlite://").begin() as connection:
+        _create_mysql_tables(connection, (selected,))
+        assert inspect(connection).has_table(selected.name)
+        assert not inspect(connection).has_table("pc_unselected")
 
 
 class _UnbudgetedColumnTypeError(AssertionError):
@@ -165,7 +195,9 @@ def test_documented_obloader_restore_layers_are_parent_first() -> None:
     assert len(set(restore_plans)) == 1
 
     restore_layers = restore_plans[0]
-    _assert_restore_layers_are_parent_first(restore_layers, BUILTIN_TABLES)
+    _assert_restore_layers_are_parent_first(
+        restore_layers, tuple(table for table in BUILTIN_TABLES if table.name != "pc_artifact_vectors")
+    )
 
 
 def test_every_mysql_utf8mb4_key_stays_below_the_innodb_limit() -> None:

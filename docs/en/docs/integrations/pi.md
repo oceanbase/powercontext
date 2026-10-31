@@ -50,6 +50,27 @@ Scope ID. Keep the explicit variable unset unless the host must force one existi
 
 With these capabilities enabled, Pi satisfies the repository's Full core integration profile.
 
+### Pre-compaction checkpoint
+
+The package implements **best-effort** checkpointing on Pi's public `session_before_compact` event. Eligible prompts
+are captured with deterministic Source IDs before the agent turn, and the event flushes their accepted journal
+positions. A position is removed from the pending set only after a complete, valid flush response reports
+`current_cursor` at or beyond that exact position. A 2xx response, malformed cursor, or cursor from another Scope
+cannot acknowledge it.
+
+Each lifecycle boundary makes at most `POWERCONTEXT_PI_FLUSH_MAX_CALLS` calls (default `4`, valid range `1`–`16`)
+within its own one-second budget. Queue waiting, all pending Scopes, and retry calls share that boundary budget. A
+behind cursor or `remaining_work` consumes another bounded call.
+Failures and cancellation before acknowledgement retain pending work; cancellation after acknowledgement does not
+revoke it. A boundary that exhausts its budget while queued emits a content-free `deadline_exceeded` diagnostic and
+retains its pending positions. `session_before_switch` and `session_shutdown` flush only already accepted pending
+positions.
+
+Pi's real `ExtensionRunner` continues after thrown handler errors unless a handler explicitly returns
+`{ cancel: true }`. This package never returns that result, so checkpoint failure does not block compaction and the
+integration is not `required_capable`. Optional diagnostics are content-free and use a hashed Scope correlation,
+target and observed positions, lifecycle event, host, and stable failure class.
+
 ## Control prompt capture
 
 Prompt capture is enabled by default. Disable it before starting Pi when current work must not be recorded:
@@ -140,7 +161,7 @@ changing PowerContext environment variables.
 | `POWERCONTEXT_PI_HTTP_BUDGET_MS` | `6000` | Shared recall/capture HTTP budget in milliseconds |
 | `POWERCONTEXT_PI_MAX_BYTES` | `8000` | Requested and validated PreparedContext byte limit (`512`–`32768`) |
 | `POWERCONTEXT_PI_FLUSH_ON_CAPTURE` | `false` | Wait for captured Source processing during the prompt hook |
-| `POWERCONTEXT_PI_FLUSH_MAX_CALLS` | `4` | Maximum flush attempts for one pending Source |
+| `POWERCONTEXT_PI_FLUSH_MAX_CALLS` | `4` | Maximum flush calls shared by all pending Scopes at one lifecycle boundary |
 | `POWERCONTEXT_PI_DIAGNOSTICS` | `off` | Failure diagnostics sink: `off`, `stderr`, or an absolute file path (`~/` expanded) for JSON lines |
 
 Pi rejects base URLs containing credentials, a query, or a fragment. Recall, capture, and boundary flushing fail open;

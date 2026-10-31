@@ -14,7 +14,18 @@
  * limitations under the License.
  */
 
-import type { DesktopState } from "../generated/ipc";
+import type { CheckReport, DesktopState } from "../generated/ipc";
+import type { operations } from "../generated/operations";
+
+export function operationSupported(
+  report: CheckReport | undefined,
+  operation: keyof typeof operations,
+): boolean {
+  return (
+    !!report?.compatibilityVerified &&
+    report.supportedOperations.includes(operation)
+  );
+}
 
 // Presentation only: operation authorization remains at the native boundary.
 export function activeCheckReport(state: DesktopState | null) {

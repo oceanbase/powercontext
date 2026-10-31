@@ -251,6 +251,8 @@ class TopicMemorySearchResult(BaseModel):
     artifacts: tuple[TopicMemory, ...] = Field(default=(), exclude=True)
     #: Set only when a wanted query embedding was abandoned, never when FTS was the plan.
     embedding_fallback: str | None = Field(default=None, exclude=True)
+    #: Seconds spent waiting for the query embedding, so a context preparation can share one budget across searches.
+    embedding_wait_seconds: float = Field(default=0.0, exclude=True)
 
 
 class PublishedTopicMemory(BaseModel):

@@ -237,6 +237,56 @@ Logical export is not a substitute for a crash-consistent deployment backup:
 
 ## Current boundaries
 
+Target compatibility checks group records by type, with at most 100 records per SQL statement, 900 bound
+parameters across the pending groups, and 1 MiB of encoded lookup keys and expected digests. Wider composite
+keys can produce smaller batches. Pending groups retain keys and digests, not record bodies. The result cursor
+fetches one target row at a time; peak memory still includes a single decoded archive record, a target row,
+canonical encoding buffers, and database-driver overhead. A large existing target body therefore does not
+multiply by the batch size. This is a working-set bound, not a fixed process-memory limit.
+
+Each batch preserves the target database's key comparison rules and checks both logical identities and
+alternate physical unique keys. Any differing match makes that archive record a conflict, counted once.
+Nullable unique keys retain SQL null semantics. Dry-run results are not cached for a later restore: restore
+checks the current target again, and write-time conflicts still roll back the transaction. Publication-chain
+and combined-tag-set checks run after the record checks.
+
+Target-check progress is reported after each completed batch, even when its processed count skips a
+1,000-record reporting threshold. Records whose target tables are absent retain periodic per-record reporting.
+
+For the representative archive containing one Scope, one journal head, and N small Sources, the compatibility
+query budget against initialized tables is `ceil(N / 100) + 2`: 3, 12, and 52 statements for 100, 1,000, and
+5,000 Sources. Missing tables require no record compatibility queries. Schema introspection, local dependency
+index queries, and publication/tag integrity queries are separate from this budget.
+
+Run `uv run python scripts/benchmark_archive_validation.py --sources 100 1000 5000 --runs 3` to measure full
+validation times and query counts on disposable file-backed SQLite targets. Fixture generation and export
+are excluded. The separately reported restore duration includes revalidation, staging, authoritative writes,
+and the receipt, with no projection rebuilder configured; it is not an isolated write or search-rebuild timing.
+Compare the same script and environment across checkouts. Fewer SQL executions do not imply the same reduction
+in complete validation time: archive parsing, dependency checks, decoding, and digests remain per-record work.
+Embedded SeekDB is local; remote OceanBase costs depend on the deployment topology and need real-backend measurements.
+
+On 2026-10-23, the script was run against baseline `4a21da08` (PR #1561 plus current master) and the batched
+implementation on Windows 11 build 26200, CPython 3.12.13, SQLite 3.50.4, with default SQLiteProfile settings,
+256-byte Source content, and no injected network delay. Each cell below is the median of three full validations;
+query counts were identical in all repetitions and exclude schema introspection.
+
+| Records | Target | Queries: baseline → batched | Seconds: baseline → batched |
+| ---: | --- | ---: | ---: |
+| 102 | Empty | 102 → 3 | 0.3469 → 0.2828 |
+| 102 | Identical | 102 → 3 | 0.3755 → 0.3039 |
+| 1,002 | Empty | 1,002 → 12 | 2.6401 → 1.9954 |
+| 1,002 | Identical | 1,002 → 12 | 3.2584 → 2.3064 |
+| 5,002 | Empty | 5,002 → 52 | 16.3445 → 9.1713 |
+| 5,002 | Identical | 5,002 → 52 | 16.9955 → 10.7552 |
+| 5,002 | Tables absent | 0 → 0 | 7.9935 → 7.5444 |
+
+The missing-table control also varies despite executing no compatibility queries; these are local diagnostic
+measurements, not a throughput guarantee. One 5,002-record restore without projections took 17.6685 seconds on
+the baseline and 10.5197 seconds with batching, including internal validation and staging. Projection rebuilding
+was not measured. Native SeekDB and OceanBase were not executed in this environment; their parameterized archive
+acceptance tests require actual backend runs before those configurations are qualified for this optimization.
+
 Export streams database rows to a temporary NDJSON file. Validation stores record identities and Candidate versions in a
 temporary on-disk index to verify each head against its exact version. Restore replays dependency levels as streams, so
 aggregate archive payloads are not retained in

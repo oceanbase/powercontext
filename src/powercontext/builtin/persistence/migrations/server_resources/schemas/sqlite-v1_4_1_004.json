@@ -1,0 +1,3 @@
+{
+  "create": "CREATE TABLE pc_access_owner_recovery (\n\toperation_id VARCHAR(64) NOT NULL, \n\tdeployment_id VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tcompleted BOOLEAN NOT NULL, \n\tpayload TEXT NOT NULL, \n\tPRIMARY KEY (operation_id), \n\tCONSTRAINT uq_pc_access_owner_recovery_pending UNIQUE (deployment_id, completed, operation_id)\n)"
+}

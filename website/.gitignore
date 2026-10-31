@@ -11,3 +11,5 @@ public/powercontext-reverse.png
 public/docs-assets/
 next-env.d.ts
 *.tsbuildinfo
+
+content/blog

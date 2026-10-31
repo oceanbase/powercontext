@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+import type { CheckReport, DiscoveryResult } from "../generated/ipc";
+import type { operations } from "../generated/operations";
+import { operationSupported } from "./context";
+
 export const connectionMessages = {
   zh: {
     add: "添加连接",
@@ -56,6 +60,29 @@ export const connectionMessages = {
       "此 Desktop 未包含该兼容配置的验证记录。请选择可用配置，保存后重新检查连接。",
     compatibilityHint:
       "配置表示已测试的 Server 构建，不证明远端二进制身份。请先核对部署版本。",
+    discovery: "Server 发现",
+    discovery_supported: "发现协议受支持；操作仍需要已验证的兼容配置。",
+    discovery_missing:
+      "Server 未提供发现接口；仅可使用明确选择的旧版兼容配置已验证的操作。",
+    discovery_denied:
+      "Server 拒绝访问发现接口。请核对凭据与访问权限，然后重新检查连接。",
+    discovery_unavailable:
+      "Server 发现暂时不可用。请检查服务和网络，然后重新检查连接；兼容性确认前业务操作不可用。",
+    discovery_invalid:
+      "Server 发现响应无效。请核对 Server 构建，然后重新检查连接。",
+    discovery_incompatible: "Server 发现协议与此 Desktop 构建不兼容。",
+    discovery_product_mismatch: "该地址返回的不是 PowerContext Server。",
+    discovery_schema_version: "发现响应的 major 版本不受支持。",
+    discovery_api_version: "Server API 的 major 版本不受支持。",
+    operation_feature_missing:
+      "Server 未声明此操作所需的功能，请核对受支持的 Server 构建。",
+    operation_feature_version:
+      "此操作所需的功能版本不受支持，请核对 Server 构建。",
+    operation_missing: "Server 未声明支持此操作，其他已验证操作仍可使用。",
+    operation_qualification_required:
+      "所选兼容配置没有此操作的独立验证记录，请核对该操作支持的 Server 构建和兼容配置。",
+    operation_unverified:
+      "此连接的该项操作尚未验证，请核对 Server 支持情况和兼容配置。",
     save: "保存配置",
     check: "检查连接",
     activate: "使用此连接",
@@ -68,6 +95,12 @@ export const connectionMessages = {
     discard: "丢弃尚未保存的输入？",
     dirty: "尚未保存；保存后才能检查或使用。",
     wait: "正在检查…",
+    saving: "正在保存…",
+    activating: "正在启用…",
+    removing: "正在移除…",
+    checkedComplete: "连接检查已完成，请核对下方各项结果。",
+    activationBlocked:
+      "连接尚不满足范围选择条件，请核对下方的兼容性和身份验证结果。",
     saved: "配置已保存，尚未执行新的连接验证。",
     not_required: "无需凭据",
     stored: "已保存到系统凭据库",
@@ -87,9 +120,13 @@ export const connectionMessages = {
     disconnect: "断开桌面连接",
     scope: "选择精确范围",
     scopeQuery: "按范围标题查找",
+    scopeListUnavailable: "范围查找不可用",
+    scopeSelectUnavailable: "范围选择不可用",
     find: "查找范围",
     more: "下一页",
     empty: "本页没有可访问的范围。",
+    emptyScopeHint:
+      "可尝试其他标题、请管理员授予范围访问权限，或选择其他连接。",
     currentScope: "当前范围",
     scopeHint: "选择只影响此桌面，不创建范围或修改 Agent 绑定。",
     noConnection: "连接并明确启用服务后，才能选择范围。",
@@ -172,6 +209,34 @@ export const connectionMessages = {
       "This Desktop does not include a qualification record for this profile. Select an available profile, save, and check the connection again.",
     compatibilityHint:
       "A profile identifies a tested Server build, not the identity of the remote binary. Check your deployment version.",
+    discovery: "Server discovery",
+    discovery_supported:
+      "The discovery contract is supported; operations still require a verified compatibility profile.",
+    discovery_missing:
+      "The Server has no discovery endpoint; only operations verified by an explicitly selected legacy profile can be used.",
+    discovery_denied:
+      "Server discovery access was denied. Check credentials and access permissions, then check this connection again.",
+    discovery_unavailable:
+      "Server discovery is temporarily unavailable. Check the service and network, then check this connection again; business operations remain unavailable until compatibility is verified.",
+    discovery_invalid:
+      "The Server discovery response is invalid. Verify the Server build, then check this connection again.",
+    discovery_incompatible:
+      "Server discovery is incompatible with this Desktop build.",
+    discovery_product_mismatch:
+      "This address did not return a PowerContext Server.",
+    discovery_schema_version:
+      "The discovery response major version is unsupported.",
+    discovery_api_version: "The Server API major version is unsupported.",
+    operation_feature_missing:
+      "The Server does not declare the feature required for this operation. Check the supported Server build.",
+    operation_feature_version:
+      "The feature version required for this operation is unsupported. Check the Server build.",
+    operation_missing:
+      "The Server does not declare support for this operation. Other verified operations remain available.",
+    operation_qualification_required:
+      "The selected profile has no independent qualification for this operation. Check the Server build and profile verified for this operation.",
+    operation_unverified:
+      "This operation is unverified for this connection. Check Server support and the compatibility profile.",
     save: "Save configuration",
     check: "Check connection",
     activate: "Use this connection",
@@ -184,6 +249,13 @@ export const connectionMessages = {
     discard: "Discard unsaved input?",
     dirty: "Unsaved changes: save before checking or activating.",
     wait: "Checking…",
+    saving: "Saving…",
+    activating: "Activating…",
+    removing: "Removing…",
+    checkedComplete:
+      "Connection check complete. Review the individual results below.",
+    activationBlocked:
+      "The connection is not ready for scope selection. Review compatibility and identity verification below.",
     saved: "Configuration saved; a new connection check has not run.",
     not_required: "No credential required",
     stored: "Stored in the system vault",
@@ -205,9 +277,13 @@ export const connectionMessages = {
     disconnect: "Disconnect Desktop",
     scope: "Select an exact scope",
     scopeQuery: "Find scopes by title",
+    scopeListUnavailable: "Scope search is unavailable",
+    scopeSelectUnavailable: "Scope selection is unavailable",
     find: "Find scopes",
     more: "Next page",
     empty: "No accessible scopes on this page.",
+    emptyScopeHint:
+      "Try another title, request Scope access from an administrator, or choose another connection.",
     currentScope: "Current scope",
     scopeHint:
       "Selection affects only Desktop, without creating scopes or changing Agent bindings.",
@@ -261,6 +337,51 @@ export function connectionError(error: unknown, language: "zh" | "en"): string {
   return typeof key === "string" && Object.hasOwn(text, key)
     ? text[key as keyof typeof text]
     : text.error;
+}
+
+export function discoveryMessage(
+  result: DiscoveryResult,
+  language: "zh" | "en",
+): string {
+  const text = connectionMessages[language];
+  const reason = result.reason;
+  const detail =
+    reason === "product_mismatch" ||
+    reason === "schema_version" ||
+    reason === "api_version"
+      ? text[`discovery_${reason}`]
+      : null;
+  return [
+    text[`discovery_${result.status}`],
+    detail,
+    result.error && connectionError(result.error, language),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function operationRestriction(
+  report: CheckReport | undefined,
+  operation: keyof typeof operations,
+  language: "zh" | "en",
+): string | null {
+  if (operationSupported(report, operation)) return null;
+  const text = connectionMessages[language];
+  const reason = report?.discovery?.operations[operation]?.reason;
+  switch (reason) {
+    case "feature_missing":
+      return text.operation_feature_missing;
+    case "feature_version":
+      return text.operation_feature_version;
+    case "operation_missing":
+      return text.operation_missing;
+    case "qualification_required":
+      return text.operation_qualification_required;
+    default:
+      return report?.discovery && report.discovery.status !== "supported"
+        ? discoveryMessage(report.discovery, language)
+        : text.operation_unverified;
+  }
 }
 
 export function connectionErrorCode(error: unknown): string | null {

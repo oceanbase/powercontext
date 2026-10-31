@@ -337,6 +337,15 @@ describe('registered automatic path', () => {
     expect(JSON.stringify(h.requests)).not.toContain('Workspace policy details.')
   })
 
+  it('sends the end of a long prompt as the recall query and captures the whole prompt', async () => {
+    const h = await fixture(successfulRequest)
+    const prompt = `${'earlier context '.repeat(1_000)}Which service owns the retry?`
+    await h.run({ messages: [{ content: [{ type: 'text', text: prompt }], source: { kind: 'user' } }] })
+
+    expect(h.requests.find(({ path }) => path === PREPARE)?.body).toMatchObject({ query: prompt.slice(-8_192) })
+    expect(h.requests.find(({ path }) => path === CAPTURE)?.body).toMatchObject({ content: prompt })
+  })
+
   it('reports message construction failure without calling downstream twice', async () => {
     const h = await fixture(successfulRequest)
     peers.createUserMessage.mockImplementation(() => { throw new Error(PRIVATE) })

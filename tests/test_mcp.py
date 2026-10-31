@@ -82,6 +82,12 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
     tool_names, resource_count, prompt_count = run_async(inspect_components)
 
     assert set(tool_names) == {
+        "pc_source_add",
+        "pc_source_capabilities",
+        "pc_source_instance_set_enabled",
+        "pc_source_instances",
+        "pc_source_status",
+        "pc_source_target_set_enabled",
         "generate_experience",
         "get_experience",
         "propose_experience",
@@ -112,6 +118,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "replace_artifact",
         "get_atomic_memory_state",
         "list_atomic_memories",
+        "get_recall_manifest",
         "search_atomic_memory",
         "merge_atomic_memories",
         "change_atomic_memory_lifecycle",
@@ -161,6 +168,7 @@ def test_mcp_memory_reads_are_read_only_and_flush_is_excluded() -> None:
         "get_artifact_revision",
         "get_atomic_memory_state",
         "list_atomic_memories",
+        "get_recall_manifest",
         "search_atomic_memory",
         "preview_atomic_memory_restoration",
     ):

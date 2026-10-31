@@ -16,11 +16,13 @@
 
 import json
 from hashlib import sha256
+from importlib import import_module
 from pathlib import Path
 
 
 def main() -> None:
-    from task import increment
+    # The receiver supplies this module in the disposable workspace.
+    increment = import_module("task").increment
 
     assert increment(0) == 1
     assert increment(-2) == -1

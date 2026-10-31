@@ -49,6 +49,26 @@ OpenClaw 构建 prompt 前，插件会以默认 8000-byte 预算调用一次 `PO
 `powercontext_memory_revise` 和 `powercontext_memory_retire`。写工具需要模型显式调用，由 OpenClaw 控制
 side-effecting 工具的执行。
 
+### 压缩前 checkpoint
+
+插件通过 OpenClaw 公开的 `before_compaction` 事件提供 **best-effort** 压缩前 checkpoint。它只解析一次 Scope，
+采集最新一条符合条件的 user message，并派生确定性 Source ID；`agent_end` identity 使用宿主公开的 `runId`。
+`before_compaction` 没有唯一事件 ID，因此只在这条低频路径上，以规范化的对象字段顺序流式哈希完整、JSON 形态的事件
+messages；语义相同的重复 payload 会保留同一个 identity，后续不同 payload 则保持独立，同时不会构造 transcript 大小的
+中间字符串。随后保留返回的 Source journal position，并对同一个 Scope 执行 flush。只有完整、合法的 flush 响应满足
+`current_cursor >= position` 时才确认
+checkpoint；仅有 HTTP 2xx 不算确认。
+
+当 cursor 落后或 `remaining_work` 为 true 时，插件会在从 flush 入队时开始计算的一秒边界总预算内最多调用 `flushMaxCalls` 次（默认 `4`，
+有效范围 `1`–`16`）；`timeoutMs`（默认 2500 ms）仍是单次请求上限。未确认的已接受 position 会继续保留，供 Server
+调度或之后在 `session_end`、`gateway_stop` 执行有界 flush。关闭任务的优先级高于尚未开始的压缩前任务，但排队等待
+也计入各事件的边界预算。关闭事件只 flush 已接受的 position，不会被报告成压缩前事件。边界在排队期间耗尽预算时，
+会发出不含内容的 `deadline_exceeded` 诊断并保留 pending position。
+
+OpenClaw 会捕获 `before_compaction` hook 的失败并继续压缩，因此该集成不具备 `required_capable` 语义。失败诊断
+只包含宿主、生命周期事件、Scope 哈希关联值、已知的目标/观测 position 和稳定失败分类；不会包含 transcript、
+prompt、query、凭据或 provider exception。
+
 显式 search 调用 `/v1/memory/search`，get 读取精确的 Atomic Memory Artifact revision，不会调用
 `/v1/context/prepare`。search 将查询限制为 8192 个字符，并把请求的结果上限约束在 1–50（默认 10）；
 每次 get 最多返回 120 行、12,000 个字符。

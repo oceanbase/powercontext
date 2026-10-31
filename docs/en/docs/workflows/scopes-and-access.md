@@ -57,3 +57,45 @@ target's tags follows that target's write permission. Use [Tags](manage-artifact
 Teams use the API, MCP, or host integrations with their own identities and permissions. The Dashboard is limited to
 personal and demonstration deployments, with optional static token authentication. It is not a team RBAC interface; leave
 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false` in team deployments.
+
+## Recover external ownership writes
+
+When `create_server_app` composes the built-in Runtime with relationship/audit stores outside its business transaction,
+supported creation hooks persist ownership intents in `pc_access_owner_recovery`. A failed delivery returns 503 even
+when the domain object has committed. Keep the original database: the Server retries pending intents after restart.
+Do not repeat a non-idempotent create blindly, assign the retrying user as owner, or edit an intent's payload.
+
+An operator with access to the embedded application can inspect metadata and explicitly retry an accepted intent:
+
+```python
+recovery = app.state.owner_recovery
+if recovery is not None:
+    pending = await recovery.pending(scope_id=scope_id, limit=100)
+    for operation in pending:
+        await recovery.replay(operation.operation_id)
+
+    after = None
+    while True:
+        page = await recovery.inventory_gaps(scope_id, kind="artifact", after=after, limit=100)
+        # Export page.items only to the trusted operator's destination.
+        after = page.after
+        if after is None:
+            break
+```
+
+`pending` also accepts an `after` operation ID for pagination. Use `kind="candidate"` to inventory proposed-owner
+attestations. Inventory returns identity metadata, never Artifact or Candidate bodies. Its `after` cursor follows
+scanned identities, so an empty `items` page may still have a continuation. `unknown` means no trusted intent exists;
+`delivered_relation_missing` means a completed receipt no longer has its relation; `legacy_selector_required` means a
+Memory collection needs an explicit entry inventory. These require an operator policy based on trusted original
+evidence; replay does not accept a new owner or restore completed receipts whose external relation was deleted.
+An existing independent read grant remains valid and does not fill the ownership gap.
+
+External Artifact recovery requires event-idempotent `append_audit_once`; missing capability fails before the domain
+commit. Relationship writers must enforce their existing immutable owner/key and exact Candidate target contracts.
+Conflicts remain pending for investigation. Completed receipts are retained. Keep them with the business database's
+backup and retention policy. No public recovery HTTP/MCP endpoint or CLI is provided.
+
+The recovery tests use two separate real SQLite databases with injected delivery/acknowledgement failures, process
+lifecycle restart, and concurrent replay. They do not establish acceptance for a remote relationship service,
+OceanBase/MySQL, multiple Server nodes, or custom Runtime assemblies without commit hooks.

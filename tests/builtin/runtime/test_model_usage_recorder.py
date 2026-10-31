@@ -102,7 +102,11 @@ def test_flush_persists_copied_usage_with_unknown_tokens_and_original_date(tmp_p
                 usage.requests = 900
                 usage.output_tokens = 900
                 _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
-                await recorder.flush()
+                # flush is best-effort; wait for this prefix before reading its usage.
+                target = recorder.checkpoint()
+                async with asyncio.timeout(5.0):
+                    while recorder._settled < target:
+                        await recorder.flush(target)
                 rows = await _rows(database)
                 assert len(rows) == 1
                 assert rows[0].usage_date == _DAY

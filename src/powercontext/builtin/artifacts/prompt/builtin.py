@@ -20,6 +20,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionInput,
     AtomicMemoryExtractionOutput,
     atomic_memory_extraction_instructions,
+    atomic_memory_extraction_instructions_version,
 )
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
@@ -104,10 +105,10 @@ def builtin_prompt_definitions(
     return (
         PromptDefinition(
             key="atomic_memory.extract",
-            definition_version="powercontext.prompt.atomic-memory.extract.v1",
+            definition_version="powercontext.prompt.atomic-memory.extract.v2",
             input_type=AtomicMemoryExtractionInput,
             output_type=AtomicMemoryExtractionOutput,
-            builtin_version=f"powercontext.atomic-memory.extract.{profile.value}.v1",
+            builtin_version=atomic_memory_extraction_instructions_version(profile),
             invariant_instructions=atomic_memory_extraction_instructions(profile),
             default_instructions=atomic_memory_extraction_instructions(profile),
             builtin_profile=profile.value,
@@ -115,10 +116,10 @@ def builtin_prompt_definitions(
         ),
         PromptDefinition(
             key="atomic_memory.reconcile",
-            definition_version="powercontext.prompt.atomic-memory.reconcile.v1",
+            definition_version="powercontext.prompt.atomic-memory.reconcile.v2",
             input_type=AtomicMemoryReconciliationInput,
             output_type=AtomicMemoryReconciliationOutput,
-            builtin_version="powercontext.atomic-memory.reconcile.v1",
+            builtin_version="powercontext.atomic-memory.reconcile.v2",
             invariant_instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
             default_instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
         ),

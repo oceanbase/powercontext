@@ -226,3 +226,157 @@ fn memory_commands_reject_untrusted_callers_before_accessing_the_connection() {
         }
     }
 }
+
+#[test]
+fn session_commands_work_without_a_connection_and_reject_untrusted_callers() {
+    use powercontext_desktop::{commands, session_observations::SessionObservations};
+    use tauri::Manager;
+    let app = mock_builder()
+        .manage(SessionObservations::default())
+        .invoke_handler(tauri::generate_handler![
+            commands::session_summary,
+            commands::reset_session_observations,
+            commands::preview_session_diagnostics
+        ])
+        .build(test_context())
+        .unwrap();
+    for command in [
+        "session_summary",
+        "reset_session_observations",
+        "preview_session_diagnostics",
+    ] {
+        for (label, origin, allowed) in [
+            ("main", LOCAL_ORIGIN, true),
+            ("other", LOCAL_ORIGIN, false),
+            ("main", "https://evil.example", false),
+        ] {
+            let window = app.get_webview_window(label).unwrap_or_else(|| {
+                tauri::WebviewWindowBuilder::new(&app, label, Default::default())
+                    .build()
+                    .unwrap()
+            });
+            let result = get_ipc_response(
+                &window,
+                InvokeRequest {
+                    cmd: command.into(),
+                    callback: CallbackFn(0),
+                    error: CallbackFn(1),
+                    url: origin.parse().unwrap(),
+                    body: InvokeBody::default(),
+                    headers: Default::default(),
+                    invoke_key: INVOKE_KEY.into(),
+                },
+            );
+            assert_eq!(
+                result.is_ok(),
+                allowed,
+                "{command} {label} {origin}: {result:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ops_commands_require_the_packaged_main_window_and_reject_arbitrary_input() {
+    use powercontext_desktop::{commands, ops_bridge::OpsHost};
+    use serde_json::json;
+    use tauri::Manager;
+    let app = mock_builder()
+        .manage(OpsHost::new(None, None, None))
+        .invoke_handler(tauri::generate_handler![
+            commands::ops_inspect,
+            commands::ops_config_validate,
+            commands::ops_preflight,
+            commands::ops_apply,
+            commands::ops_resume,
+            commands::ops_operation_status,
+            commands::ops_cancel,
+            commands::ops_references
+        ])
+        .build(test_context())
+        .unwrap();
+    let invoke = |label: &str, origin: &str, command: &str, body| {
+        let window = app.get_webview_window(label).unwrap_or_else(|| {
+            tauri::WebviewWindowBuilder::new(&app, label, Default::default())
+                .build()
+                .unwrap()
+        });
+        get_ipc_response(
+            &window,
+            InvokeRequest {
+                cmd: command.into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: origin.parse().unwrap(),
+                body: InvokeBody::Json(body),
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.into(),
+            },
+        )
+    };
+    let missing_host = if cfg!(any(windows, target_os = "macos")) {
+        "unavailable"
+    } else {
+        "unsupported_platform"
+    };
+    for (command, body, expected_error) in [
+        ("ops_inspect", json!({}), None),
+        ("ops_config_validate", json!({}), None),
+        ("ops_references", json!({}), None),
+        (
+            "ops_preflight",
+            json!({"input":{"operation":"start","options":{"restart":true}}}),
+            Some("invalid_input"),
+        ),
+        (
+            "ops_apply",
+            json!({"input":{"approvalId":"invalid","planId":"a".repeat(64)}}),
+            Some("invalid_input"),
+        ),
+        (
+            "ops_resume",
+            json!({"input":{"approvalId":"invalid","planId":"a".repeat(64)}}),
+            Some("invalid_input"),
+        ),
+        (
+            "ops_operation_status",
+            json!({"input":{"operationId":"operation"}}),
+            Some(missing_host),
+        ),
+        (
+            "ops_cancel",
+            json!({"input":{"operationId":"operation","attempt":0}}),
+            Some("invalid_input"),
+        ),
+    ] {
+        let permitted = invoke("main", LOCAL_ORIGIN, command, body.clone());
+        if let Some(expected) = expected_error {
+            assert_eq!(permitted.unwrap_err(), json!(expected), "{command}");
+        } else {
+            assert!(permitted.is_ok(), "{command}: {permitted:?}");
+        }
+        for (label, origin) in [("other", LOCAL_ORIGIN), ("main", "https://evil.example")] {
+            let error = invoke(label, origin, command, body.clone()).unwrap_err();
+            assert_ne!(error, json!(expected_error), "{command} {label} {origin}");
+        }
+    }
+    for (input, expected) in [
+        (
+            json!({"operation":"stop","options":{},"executable":"/bin/sh"}),
+            "unknown field `executable`",
+        ),
+        (
+            json!({"operation":"shell","options":{}}),
+            "unknown variant `shell`",
+        ),
+    ] {
+        let error = invoke(
+            "main",
+            LOCAL_ORIGIN,
+            "ops_preflight",
+            json!({"input":input}),
+        )
+        .unwrap_err();
+        assert!(error.as_str().unwrap().contains(expected), "{error}");
+    }
+}

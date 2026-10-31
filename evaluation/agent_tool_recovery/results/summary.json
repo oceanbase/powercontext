@@ -1,0 +1,1632 @@
+{
+  "run_dirs": [
+    "20261019T155658Z-d4dc89d3",
+    "20261020T012717Z-c6fc9895",
+    "20261020T115931Z-8147501b",
+    "20261020T115931Z-4bf85026"
+  ],
+  "cases": [
+    {
+      "case_id": "dream-capacity",
+      "failure_class": "transient",
+      "operation_id": "create_dream_run",
+      "host": "claude-code",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 2,
+        "failure_not_triggered": 1
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 2,
+        "other": 1
+      },
+      "observed_error_codes": {
+        "invalid_request": 4,
+        "capacity_exceeded": 2
+      },
+      "unplanned_failures": {
+        "create_dream_run:invalid_request": 4
+      },
+      "target_failures_reaching_server": 6,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 6,
+      "failed_results_without_retry_disposition": 6,
+      "median_output_tokens_after_first_failure": 1123,
+      "median_seconds_first_failure_to_terminal": 21.429,
+      "transcript_sha256": [
+        "0bd32ab223ca7f4b041b915f36a9d772139dc24187a2e48ad1e2453f6360bb59",
+        "2f656c0618ae698a158904d06e32f04f5821e6b738ff35792573f98505097cd7",
+        "94de42360e91d37d5ee38ea2c3400dd07a98547b130ded85a526f368c662f7d1"
+      ]
+    },
+    {
+      "case_id": "dream-capacity",
+      "failure_class": "transient",
+      "operation_id": "create_dream_run",
+      "host": "claude-code-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code-plugin 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 1,
+        "stopped": 2
+      },
+      "violations": {},
+      "answer_labels": {
+        "other": 1,
+        "asked_user": 2
+      },
+      "observed_error_codes": {
+        "invalid_request": 3,
+        "capacity_exceeded": 4
+      },
+      "unplanned_failures": {
+        "create_dream_run:invalid_request": 3
+      },
+      "target_failures_reaching_server": 7,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 2,
+      "target_retries": 2,
+      "retry_behavior": {
+        "unchanged_repeats": 2,
+        "retries_after_change": 0,
+        "retry_later_resends": 2,
+        "terminal_stops": 0
+      },
+      "failed_results": 7,
+      "failed_results_without_retry_disposition": 7,
+      "median_output_tokens_after_first_failure": 1261,
+      "median_seconds_first_failure_to_terminal": 20.377,
+      "transcript_sha256": [
+        "0e8434b1ca0aa0803265050aa98467dbc08e7ca03fd5ea9914aab9baadf116c5",
+        "182442368a314ed1dd14e384761b0e58068cfdc6066d2fcd5992c1a064e535e6",
+        "ba98f4997550b66c88f6ed6d808eed902b3cdf4472bdee3e24865a85be93e0b7"
+      ]
+    },
+    {
+      "case_id": "dream-capacity",
+      "failure_class": "transient",
+      "operation_id": "create_dream_run",
+      "host": "codex",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "other": 3
+      },
+      "observed_error_codes": {
+        "invalid_request": 3
+      },
+      "unplanned_failures": {
+        "create_dream_run:invalid_request": 3
+      },
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 3.1,
+      "transcript_sha256": [
+        "525d532620103cfcef7c4c1a3d91fb8bb4e92a90fcc2d32cf7f11abe6df845bf",
+        "a526deb7da4edec75fdec5f5f0240cccf8f18479bb08bf87751559bfe898b177",
+        "d93f75b40c2ed3c60eae244a4b8f7ae3ed2a94138c7eb00769c972b51c1c04b5"
+      ]
+    },
+    {
+      "case_id": "dream-capacity",
+      "failure_class": "transient",
+      "operation_id": "create_dream_run",
+      "host": "codex-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex-plugin codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "other": 3
+      },
+      "observed_error_codes": {
+        "invalid_request": 3
+      },
+      "unplanned_failures": {
+        "create_dream_run:invalid_request": 3
+      },
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 3.784,
+      "transcript_sha256": [
+        "6ad977c6d8bfd795a568f528a96ad550ec81c882a910622cd4e82a6d51774050",
+        "89012bd44a9900eeef8d09cc94823fbec2d90e346ce8acd16358f568f11c6b5b",
+        "a7129aaea04670673dcb4400607c8597b81cdd4d5fc4e730c381f23c7741afb7"
+      ]
+    },
+    {
+      "case_id": "generation-unavailable",
+      "failure_class": "capability_unavailable",
+      "operation_id": "generate_experience",
+      "host": "claude-code",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {
+        "generation_unavailable": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 3
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 331,
+      "median_seconds_first_failure_to_terminal": 4.671,
+      "transcript_sha256": [
+        "6343d8fc2a5c47e454a6e3d3dfdd1041a101ae20486fbeb79e9990f86697564e",
+        "9b629c5a6aa5387d93b94ea48f809bc09e6132115584682a66f2841bbd06355a",
+        "a0c7bf302f199092e805ee745fcb1db990cf90f420401f981f7d2c4bb038db01"
+      ]
+    },
+    {
+      "case_id": "generation-unavailable",
+      "failure_class": "capability_unavailable",
+      "operation_id": "generate_experience",
+      "host": "claude-code-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code-plugin 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {
+        "generation_unavailable": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 3
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 320,
+      "median_seconds_first_failure_to_terminal": 5.591,
+      "transcript_sha256": [
+        "0511674ad09f949d5540eef84f08dd2459a0ced320788055ceb0fad2fcaca44b",
+        "7a65990fd94d38bdd8812ffcc45a8813f92248446bd80c7880b6883f46c168dd",
+        "911d0bf4c3c3053e49e558748cd8fd99ffc160ca0e48a38dfbb9f44e7a57df10"
+      ]
+    },
+    {
+      "case_id": "generation-unavailable",
+      "failure_class": "capability_unavailable",
+      "operation_id": "generate_experience",
+      "host": "codex",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {
+        "generation_unavailable": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 3
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 3.031,
+      "transcript_sha256": [
+        "1ed4b4b66f7a4bcf7fe626a7f4d84ffa88f44e2578b911d25972ccacd1edb24b",
+        "b215ae2b936547bbd7b05958c1fcc7a014a8d3eb1d12e2cd9e543e33d6552f58",
+        "e273b16be7536c9751f851b6cc94913fc323f7bb01f304cc85544ba937ccd002"
+      ]
+    },
+    {
+      "case_id": "generation-unavailable",
+      "failure_class": "capability_unavailable",
+      "operation_id": "generate_experience",
+      "host": "codex-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex-plugin codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {
+        "generation_unavailable": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 3
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 3.636,
+      "transcript_sha256": [
+        "12e3db2ba95c9344d733c812eba74fa80af1502e293fc52bfd7cab79d0d61916",
+        "47fa2d371715e23cda91146dbe006be5b12cd8595cab38b320e8101bfb22aaf1",
+        "f28653ca5126e9ba3758eb25111254b1650c2a0201a816cc3da66410c6c37323"
+      ]
+    },
+    {
+      "case_id": "idempotent-replay",
+      "failure_class": "idempotent_replay",
+      "operation_id": "create_scope",
+      "host": "claude-code",
+      "evidence": [
+        "injected_transport_fault_real_server"
+      ],
+      "hosts": [
+        "claude-code 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "recovered": 2,
+        "stopped": 1
+      },
+      "violations": {},
+      "answer_labels": {
+        "recovered": 3
+      },
+      "observed_error_codes": {
+        "None": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 3,
+      "identical_retries": 2,
+      "target_retries": 2,
+      "retry_behavior": {
+        "unchanged_repeats": 2,
+        "retries_after_change": 0,
+        "retry_later_resends": 2,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 355,
+      "median_seconds_first_failure_to_terminal": 10.776,
+      "transcript_sha256": [
+        "d36fa1dd212bd3c414372b1408070c302e1943dbe5ad156efd4fad41507cdbf9",
+        "dd402aaf0a4b38410442cf5880ad2685c4bb1520f6f26ea10d6117eef8072630",
+        "e84623044ecf0ca246e8f9563be043cb66b26a6d6d1bbde2fb446455f4a94897"
+      ]
+    },
+    {
+      "case_id": "idempotent-replay",
+      "failure_class": "idempotent_replay",
+      "operation_id": "create_scope",
+      "host": "claude-code-plugin",
+      "evidence": [
+        "injected_transport_fault_real_server"
+      ],
+      "hosts": [
+        "claude-code-plugin 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "recovered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "recovered": 3
+      },
+      "observed_error_codes": {
+        "None": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 3,
+      "identical_retries": 3,
+      "target_retries": 3,
+      "retry_behavior": {
+        "unchanged_repeats": 3,
+        "retries_after_change": 0,
+        "retry_later_resends": 3,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 494,
+      "median_seconds_first_failure_to_terminal": 14.102,
+      "transcript_sha256": [
+        "7eebf4d274da57d56c9998c0286a8d5826222ac9adfa0fc3cd090476b37c46a5",
+        "84fd010a7022e5b4dfaf7b6d69637ba334ddcc3bb031158f6e1ffa46a1ff67c5",
+        "99a4d0ec17444992badfa5513ac357d3bd79c60d695fb81c9d8b394bad45b241"
+      ]
+    },
+    {
+      "case_id": "idempotent-replay",
+      "failure_class": "idempotent_replay",
+      "operation_id": "create_scope",
+      "host": "codex",
+      "evidence": [
+        "injected_transport_fault_real_server"
+      ],
+      "hosts": [
+        "codex codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "abandoned_retryable": 3
+      },
+      "observed_error_codes": {
+        "None": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 3,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 3.342,
+      "transcript_sha256": [
+        "3e132cc476d2f573ad949841a1903bb5e67728ece9cba929ee57d4da150a728f",
+        "6879fa3625376d182d74cbab8245d5cbfb3234d2221a8ef470586c0149eaec8b",
+        "9e28a374b23de068b25de79310af761dbb626d18c07e8af841b1f2a4cefed6bd"
+      ]
+    },
+    {
+      "case_id": "idempotent-replay",
+      "failure_class": "idempotent_replay",
+      "operation_id": "create_scope",
+      "host": "codex-plugin",
+      "evidence": [
+        "injected_transport_fault_real_server"
+      ],
+      "hosts": [
+        "codex-plugin codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "abandoned_retryable": 3
+      },
+      "observed_error_codes": {
+        "None": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 3,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 3.362,
+      "transcript_sha256": [
+        "49ca911217890a481693e9bea83db00901454aeae78b5943ffdf687d1e689f6c",
+        "70f98fc79d125ddf38490d841dc78eb3d15b83ec385fd04c038ed36638cdb4f3",
+        "a7fded7da5e4f252aa6c78448c94eeef879c34df084e7b177528be01c6cf54ea"
+      ]
+    },
+    {
+      "case_id": "mcp-family-rejected",
+      "failure_class": "request_schema",
+      "operation_id": "replace_artifact",
+      "host": "claude-code",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {},
+      "unplanned_failures": {
+        "propose_experience:invalid_request": 5
+      },
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 5,
+      "failed_results_without_retry_disposition": 5,
+      "median_output_tokens_after_first_failure": 1020.0,
+      "median_seconds_first_failure_to_terminal": 11.711500000000001,
+      "transcript_sha256": [
+        "388d0625626d0f89c5d5041b473aa0ef6e8eb864296f8ffeb9bd57e866b5b721",
+        "3c09923aa0f4c9423758e64f163fe696bce9d37cc7037f1860b151e894747639",
+        "fc802310bf02e39d83fc1634d1d65eafb4c450492c54dcac46050282a0761e9a"
+      ]
+    },
+    {
+      "case_id": "mcp-family-rejected",
+      "failure_class": "request_schema",
+      "operation_id": "replace_artifact",
+      "host": "claude-code-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code-plugin 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "asked_user": 2,
+        "stopped_correctly": 1
+      },
+      "observed_error_codes": {},
+      "unplanned_failures": {
+        "propose_experience:invalid_request": 6
+      },
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 6,
+      "failed_results_without_retry_disposition": 6,
+      "median_output_tokens_after_first_failure": 1251,
+      "median_seconds_first_failure_to_terminal": 14.574,
+      "transcript_sha256": [
+        "5121882e691efcc4a6767b22c0d585e26ae855f7dc1cdd39cd9c9e8b91ef5a78",
+        "96b4e98011b0c0fb8fc9bac10ba753759c6ca6886e5aef5c23be175aa500a3fd",
+        "9d3848d42c1d5dbc23a7617bc5e08e41d64249eeedfba8188bfd5f9b0b9ff449"
+      ]
+    },
+    {
+      "case_id": "mcp-family-rejected",
+      "failure_class": "request_schema",
+      "operation_id": "replace_artifact",
+      "host": "codex",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {},
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 0,
+      "failed_results_without_retry_disposition": 0,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": null,
+      "transcript_sha256": [
+        "4aaea618b2fc3b25df7747db3e8c2550b4cfc4a28d7e2232ddd0749a92cc0e95",
+        "d45c3de2a64451e4b7a30ba91fdc0cd7afdcaabd5fe972ae44c08470ea5d113f",
+        "eb44b53b3a6d160d57fb0bc8c34dbec390d595bd2b9339149daa61bcc71df4bc"
+      ]
+    },
+    {
+      "case_id": "mcp-family-rejected",
+      "failure_class": "request_schema",
+      "operation_id": "replace_artifact",
+      "host": "codex-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex-plugin codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {},
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 0,
+      "failed_results_without_retry_disposition": 0,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": null,
+      "transcript_sha256": [
+        "39eda704a55ee1a168a98ca3b0359179ecc878c34543a89e63b9c55464b09abf",
+        "6b7b71cf511b76abb65d29c1f18f361de2dd8b4400bfe1092bb9495165ba1b54",
+        "deb1293b3681db9b4888203f5bd4e627d48bd6ff683f165676c696db4fc60057"
+      ]
+    },
+    {
+      "case_id": "permission-denied",
+      "failure_class": "authorization",
+      "operation_id": "remember_memory",
+      "host": "claude-code",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {
+        "forbidden": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 3
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 222,
+      "median_seconds_first_failure_to_terminal": 4.759,
+      "transcript_sha256": [
+        "0e724c2b9d6840569026cc2984e33589429aa9c12d75985491ff3511e7215953",
+        "24bd832cd571f807a8a2ad1b20394181c1dd81aa25373575978be4058cd52ad3",
+        "ee9dfe2b21d35fe3d153d9fbc836858b66c0b1cda4bb69219f59ff462c2da976"
+      ]
+    },
+    {
+      "case_id": "permission-denied",
+      "failure_class": "authorization",
+      "operation_id": "remember_memory",
+      "host": "claude-code-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code-plugin 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {
+        "forbidden": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 3
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 248,
+      "median_seconds_first_failure_to_terminal": 5.08,
+      "transcript_sha256": [
+        "690b9584a95944acf80b8d911da82f03b7bf1a91b9eb604649ae904d63f9b1b1",
+        "b56f51c9a97973cc74bfc1756c35803a4fb06fc407e6c9ab3261f369cd80d731",
+        "deb8ca4ed1abffb45161a91bdbe926085d037b73c7ce150763e3e4a1c205a1da"
+      ]
+    },
+    {
+      "case_id": "permission-denied",
+      "failure_class": "authorization",
+      "operation_id": "remember_memory",
+      "host": "codex",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {
+        "forbidden": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 3
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 2.891,
+      "transcript_sha256": [
+        "8e182aff0b56cb2b747fd0321ede479b095ef209c58c911db393b4d7e1a088b3",
+        "cdc602a4845ad74438ea965c01d393d8e3e425a6a26f926680df3daefba476e5",
+        "fb9211b10e5d7f126a00d44eb939285f631cff3218937ffcde2a322f2a63dc3a"
+      ]
+    },
+    {
+      "case_id": "permission-denied",
+      "failure_class": "authorization",
+      "operation_id": "remember_memory",
+      "host": "codex-plugin",
+      "evidence": [],
+      "hosts": [],
+      "runs": 3,
+      "incomplete_runs": 3,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {},
+      "violations": {},
+      "answer_labels": {},
+      "observed_error_codes": {},
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 0,
+      "failed_results_without_retry_disposition": 0,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": null,
+      "transcript_sha256": [
+        "07ede270f12e006bc8e0a62930346f5b21c2ceef035fc5d8a3a4716e715d5d09",
+        "f96a08a88a6906d38015d8a8dd4ba04528a2dd5fa47ee9130229fdaf66c62439",
+        "ff05bb74c972c634da265b0da744600bbfdc141e867535bce49c6afe67daa661"
+      ]
+    },
+    {
+      "case_id": "schema-past-expiry",
+      "failure_class": "request_schema",
+      "operation_id": "capture_working_note",
+      "host": "claude-code",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "asked_user": 3
+      },
+      "observed_error_codes": {},
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 0,
+      "failed_results_without_retry_disposition": 0,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": null,
+      "transcript_sha256": [
+        "01503c99591036c85ccb78c54c83cc8b747d609480afcbf2e71768fa0ba5171a",
+        "29153ac5666aae671b456c3c1e9c6c979972be72297fc909168df5826a2a77d1",
+        "c38708f6aa91c2359ea03bfacf98ccc939333eb281bbd63670a229dc1485407d"
+      ]
+    },
+    {
+      "case_id": "schema-past-expiry",
+      "failure_class": "request_schema",
+      "operation_id": "capture_working_note",
+      "host": "claude-code-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code-plugin 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "asked_user": 3
+      },
+      "observed_error_codes": {
+        "invalid_request": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 3,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 403,
+      "median_seconds_first_failure_to_terminal": 5.267,
+      "transcript_sha256": [
+        "091b4aa3353fce379ba52e2a3053ac38aeaab23b8f8a90e9490fbc4f064097f3",
+        "2b610e95a8b74f17b60b85a8a3b197175157eff703b69dfa7bcb4d898db41019",
+        "dba8398ce322800a02e58407bfdddc969471bbdd66a8b6bb82544df043497455"
+      ]
+    },
+    {
+      "case_id": "schema-past-expiry",
+      "failure_class": "request_schema",
+      "operation_id": "capture_working_note",
+      "host": "codex",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "asked_user": 1,
+        "stopped_correctly": 2
+      },
+      "observed_error_codes": {
+        "invalid_request": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 3,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 2.879,
+      "transcript_sha256": [
+        "af07957c105018818260c0a0170bf199a531d40a71fc6574e87b7e32fd6cfc1d",
+        "f3335747c5945e01d7fb68a56709761dd6f90a62f73c77ead9a6648ba27314c5",
+        "fadcd36d74ac6a4082496d6a9ddbf8d573458086a0c9c434c72b76215e15e206"
+      ]
+    },
+    {
+      "case_id": "schema-past-expiry",
+      "failure_class": "request_schema",
+      "operation_id": "capture_working_note",
+      "host": "codex-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex-plugin codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "abandoned_retryable": 3
+      },
+      "observed_error_codes": {
+        "invalid_request": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 3,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 2.844,
+      "transcript_sha256": [
+        "3b2c78ad0640469726b8e1122bed61ba087759c3ab6447b7196f6bba30cee435",
+        "72170dc38adf19ab6ff50a1fcb28003cd6c816945745ff65ad9e48324c8d3e61",
+        "f117b79393d0385fc9edb461280c324b82acb7a6df5e95980e55cdea9edb074d"
+      ]
+    },
+    {
+      "case_id": "stale-candidate-approval",
+      "failure_class": "stale_version",
+      "operation_id": "approve_candidate",
+      "host": "claude-code",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 1,
+        "failure_not_triggered": 2
+      },
+      "violations": {},
+      "answer_labels": {
+        "asked_user": 3
+      },
+      "observed_error_codes": {
+        "candidate_conflict": 1
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 1,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 1,
+      "failed_results_without_retry_disposition": 1,
+      "median_output_tokens_after_first_failure": 452,
+      "median_seconds_first_failure_to_terminal": 6.588,
+      "transcript_sha256": [
+        "0a81d917d2fb784be7297f2b40b6d84c1d7f0da3aeca6d3e38805b864c73e469",
+        "0db4075f012ed00a8de8784767fadf4b5eddbd57b3b3a6c7821f79280255ba44",
+        "f7f0f416a1e96f1a11b592775e488e700c9b2e0d78328c85d2066d868179dc83"
+      ]
+    },
+    {
+      "case_id": "stale-candidate-approval",
+      "failure_class": "stale_version",
+      "operation_id": "approve_candidate",
+      "host": "claude-code-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "claude-code-plugin 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 2,
+        "stopped": 1
+      },
+      "violations": {},
+      "answer_labels": {
+        "asked_user": 3
+      },
+      "observed_error_codes": {
+        "candidate_conflict": 1
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 1,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 1,
+      "failed_results_without_retry_disposition": 1,
+      "median_output_tokens_after_first_failure": 459,
+      "median_seconds_first_failure_to_terminal": 11.177,
+      "transcript_sha256": [
+        "20f856682f0b0201f985ca7ae7dc58d070bf41ec6b2db5af933634af92b849eb",
+        "dd030e69fb17688f7f046cb2a58ff2ba73b729d344dbc9c09b1002f012f230f7",
+        "fc7b3410b9ecbde6db9bfd8fafc10f18f3d5800174e0c9377f76eb0b8e1dc163"
+      ]
+    },
+    {
+      "case_id": "stale-candidate-approval",
+      "failure_class": "stale_version",
+      "operation_id": "approve_candidate",
+      "host": "codex",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 2,
+        "stopped": 1
+      },
+      "violations": {},
+      "answer_labels": {
+        "asked_user": 3
+      },
+      "observed_error_codes": {
+        "candidate_conflict": 1
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 1,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 1,
+      "failed_results_without_retry_disposition": 1,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 4.503,
+      "transcript_sha256": [
+        "04d7839c2d4c074468b81c12bf5a0634ad4febd455d85d19e2f27d6731759e41",
+        "36322ab78830d3d180598d3a0aed0c2f4e38ede01dff6bad62c6fca709350c2a",
+        "9a9aab933facd567fd433bd1ab78b287ce1a6a5b679f90d13772da4f39db9da3"
+      ]
+    },
+    {
+      "case_id": "stale-candidate-approval",
+      "failure_class": "stale_version",
+      "operation_id": "approve_candidate",
+      "host": "codex-plugin",
+      "evidence": [
+        "real_server"
+      ],
+      "hosts": [
+        "codex-plugin codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "failure_not_triggered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "asked_user": 3
+      },
+      "observed_error_codes": {},
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 0,
+      "failed_results_without_retry_disposition": 0,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": null,
+      "transcript_sha256": [
+        "7c77edc243618862646b001aeadd50ed7740c9d8e41472bfbc730fd0be4b4758",
+        "b7f03b7a194c2d2fada661ee5868d2da4500f997aa0e2e9865b5810265fbfe92",
+        "fadc2f10dc726360e84891d1def7e0be204430f38be61fcef898855efa88e7db"
+      ]
+    },
+    {
+      "case_id": "stale-etag-replace",
+      "failure_class": "stale_version",
+      "operation_id": "replace_artifact",
+      "host": "claude-code",
+      "evidence": [
+        "injected_concurrent_write_real_server"
+      ],
+      "hosts": [
+        "claude-code 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "asked_user": 3
+      },
+      "observed_error_codes": {
+        "revision_conflict": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 504,
+      "median_seconds_first_failure_to_terminal": 9.356,
+      "transcript_sha256": [
+        "220fce34d5536d2b16706a6d39c3781fcf5643ff9dee88b9dd63964bd6c8c697",
+        "868b4fbe658c11503420194cfc558bb02f30efd06d327a32a8f4862056ece0d3",
+        "f93f927d3749432a725b485ef02586c1d3cc16e9c611010bf6f2d2265af938f4"
+      ]
+    },
+    {
+      "case_id": "stale-etag-replace",
+      "failure_class": "stale_version",
+      "operation_id": "replace_artifact",
+      "host": "claude-code-plugin",
+      "evidence": [
+        "injected_concurrent_write_real_server"
+      ],
+      "hosts": [
+        "claude-code-plugin 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "asked_user": 3
+      },
+      "observed_error_codes": {
+        "revision_conflict": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 526,
+      "median_seconds_first_failure_to_terminal": 9.557,
+      "transcript_sha256": [
+        "a216a4d5821fe317ea77b8e0fa3ec49bae0a4e4960a17a445ec60acbe913f82d",
+        "b91dec01876f73664e4b08dcb2bbe7a8d96dccd0225daecfd55c04f84392196f",
+        "fac3dc94d7ff8e3f2c0f9e93cae08f5360dba39cb721f3ff023c5d439c7b270a"
+      ]
+    },
+    {
+      "case_id": "stale-etag-replace",
+      "failure_class": "stale_version",
+      "operation_id": "replace_artifact",
+      "host": "codex",
+      "evidence": [
+        "injected_concurrent_write_real_server"
+      ],
+      "hosts": [
+        "codex codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {
+        "revision_conflict": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 2.347,
+      "transcript_sha256": [
+        "4e8781c5708fde1c1a1c3b8c96df5c83d521fc8f295350ff684b6b7ca0505955",
+        "a7d4ce9d68d9c5bab73bc5de95873de1ce1208d4a30a33e150612dbfa0a78a5b",
+        "c436ea61d623f143a701568980fec6510e34b6fe92f9a865621cf84be2c77049"
+      ]
+    },
+    {
+      "case_id": "stale-etag-replace",
+      "failure_class": "stale_version",
+      "operation_id": "replace_artifact",
+      "host": "codex-plugin",
+      "evidence": [
+        "injected_concurrent_write_real_server"
+      ],
+      "hosts": [
+        "codex-plugin codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "stopped_correctly": 3
+      },
+      "observed_error_codes": {
+        "revision_conflict": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 3,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 2.68,
+      "transcript_sha256": [
+        "0aa18e0a7de5eddba3856f750d2f8dafa654a21045213f7831b728016bdb80a4",
+        "287433f7f450483b69be4fb64ae04d635ecfaf1e8705a63678c85328998e8f5c",
+        "e814908270e3171a9b51da04309b525e0c4d194e1e2b14ddcb756d145788f3ce"
+      ]
+    },
+    {
+      "case_id": "transport-reset-read",
+      "failure_class": "transient",
+      "operation_id": "search_memory",
+      "host": "claude-code",
+      "evidence": [
+        "injected_transport_fault_real_server"
+      ],
+      "hosts": [
+        "claude-code 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "recovered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "recovered": 3
+      },
+      "observed_error_codes": {
+        "None": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 3,
+      "target_retries": 3,
+      "retry_behavior": {
+        "unchanged_repeats": 3,
+        "retries_after_change": 0,
+        "retry_later_resends": 3,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 390,
+      "median_seconds_first_failure_to_terminal": 6.811,
+      "transcript_sha256": [
+        "84ed8216f122fbd70dcc5af5383b2f6e7d6309cc551c6ab28158df567f142482",
+        "dd8a60ab9ef51e7f7e7d63d3fd697068a9b90bf53ca01f3375256ff6971fcf5e",
+        "f6890a15d870368db310f2f3498076bb76aa4f805d1258fa977c28abff4852b2"
+      ]
+    },
+    {
+      "case_id": "transport-reset-read",
+      "failure_class": "transient",
+      "operation_id": "search_memory",
+      "host": "claude-code-plugin",
+      "evidence": [
+        "injected_transport_fault_real_server"
+      ],
+      "hosts": [
+        "claude-code-plugin 2.1.280 (Claude Code) / claude-opus-5-5"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "recovered": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "recovered": 3
+      },
+      "observed_error_codes": {
+        "None": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 3,
+      "target_retries": 3,
+      "retry_behavior": {
+        "unchanged_repeats": 3,
+        "retries_after_change": 0,
+        "retry_later_resends": 3,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": 392,
+      "median_seconds_first_failure_to_terminal": 6.675,
+      "transcript_sha256": [
+        "439a44a8296ba812a26273e5f22a191ad40d1d2da9c94502d6c2afaca2a8ade8",
+        "4d19927fe331c79206026e796eb097e1de97148f1efaddf651c8d5a68e2354b1",
+        "6a6883a0f29cf33d71a450314a136c60b43b31541520fe0908eae4801ff585b9"
+      ]
+    },
+    {
+      "case_id": "transport-reset-read",
+      "failure_class": "transient",
+      "operation_id": "search_memory",
+      "host": "codex",
+      "evidence": [
+        "injected_transport_fault_real_server"
+      ],
+      "hosts": [
+        "codex codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "abandoned_retryable": 3
+      },
+      "observed_error_codes": {
+        "None": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 4.199,
+      "transcript_sha256": [
+        "2ea26efd59ad616f9e04be1b6f6329749b2d4816cf96abf77950fdc566f5fd26",
+        "d8d35ddabcb45d69d41fd2b058c134d09daedcf5f38605cdfc37d0a55eabaab6",
+        "d8f221c5b0aa51e8a0f235ba4732f57f6ccfb1e04afa5787904ba7d2de3c7acd"
+      ]
+    },
+    {
+      "case_id": "transport-reset-read",
+      "failure_class": "transient",
+      "operation_id": "search_memory",
+      "host": "codex-plugin",
+      "evidence": [
+        "injected_transport_fault_real_server"
+      ],
+      "hosts": [
+        "codex-plugin codex-cli 0.163.0 / gpt-6.1-sol"
+      ],
+      "runs": 3,
+      "incomplete_runs": 0,
+      "leak_blocked_runs": 0,
+      "structural_outcomes": {
+        "stopped": 3
+      },
+      "violations": {},
+      "answer_labels": {
+        "abandoned_retryable": 3
+      },
+      "observed_error_codes": {
+        "None": 3
+      },
+      "unplanned_failures": {},
+      "target_failures_reaching_server": 0,
+      "target_failures_without_named_field": 0,
+      "identical_retries": 0,
+      "target_retries": 0,
+      "retry_behavior": {
+        "unchanged_repeats": 0,
+        "retries_after_change": 0,
+        "retry_later_resends": 0,
+        "terminal_stops": 0
+      },
+      "failed_results": 3,
+      "failed_results_without_retry_disposition": 3,
+      "median_output_tokens_after_first_failure": null,
+      "median_seconds_first_failure_to_terminal": 3.79,
+      "transcript_sha256": [
+        "24371c6f09f698f67f52297df9cb7762fd05d50b4d45ea17547afcad9840a825",
+        "270558f1951f330058ae57167a1aaa02ce82f6388e705ca989d362f8061208a2",
+        "de798aa0584ad3b41ffd1619428fad175e483d1f95c09cb65152ebb2a1e55d37"
+      ]
+    }
+  ]
+}

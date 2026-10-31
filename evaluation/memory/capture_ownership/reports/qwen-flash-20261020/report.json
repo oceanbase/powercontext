@@ -1,0 +1,3407 @@
+{
+  "schema_version": "capture-ownership.report.v1",
+  "decision": "projection_follow_up_required",
+  "generation_mode": "live",
+  "corpus": "synthetic",
+  "run_sha256": "bf2c8c73736dc2cd668f70e39aba15a87a1d20564c1272da2ba4e3a94699a4ce",
+  "lock_sha256": "8b3df3e3b376243a46665d7be4d80699fe2bbbd95546a5f4de3669971cee60a0",
+  "manifest_sha256": "f4d20225568d56d738c927aca725da587c12fff8ee89435aed5f0a38fcb7f34f",
+  "code_sha": "2c21132ba5dd1caa986484b8d71e1504f0dca3e2",
+  "prompt_version": "powercontext.atomic-memory.extract.coding.v1",
+  "prompt_sha256": "bd37bfcd20808c953284b05caf1fa9b77748ebd751db1eeda914e7b63261982c",
+  "config_sha256": "c2630ddf1748c72598ac800f5f646ae7194afd045aae21c9faf2ef5139827417",
+  "harness_sha256": "7abc0a19d10dc69d36195018deb9c1200c55871b3ef0ec20eae734f85d1a1fca",
+  "analysis_sha256": "6c5069a8ead2bffe59987f410e5680aba5318b4b80ca72f73823fe75e40e1486",
+  "totals_by_arm": {
+    "joined-source-v1": {
+      "rows": 38,
+      "outcomes": {
+        "completed": 38
+      },
+      "candidate_count": 46,
+      "critical_candidates": 22,
+      "critical_candidate_rate": 0.4782608695652174,
+      "required_current_claims": 26,
+      "retained_current_claims": 20,
+      "required_current_retention": 0.7692307692307693,
+      "provider_input_tokens": 41794,
+      "provider_output_tokens": 1943,
+      "known_usage_cost_cny": 0.009183599999999998,
+      "cost_reservation_cny": 0.1272471,
+      "generation_seconds": 31.19145747681614
+    },
+    "host-turn-candidate-v1": {
+      "rows": 38,
+      "outcomes": {
+        "completed": 26,
+        "skipped": 12
+      },
+      "candidate_count": 26,
+      "critical_candidates": 2,
+      "critical_candidate_rate": 0.07692307692307693,
+      "required_current_claims": 26,
+      "retained_current_claims": 24,
+      "required_current_retention": 0.9230769230769231,
+      "provider_input_tokens": 23762,
+      "provider_output_tokens": 944,
+      "known_usage_cost_cny": 0.004980299999999999,
+      "cost_reservation_cny": 0.083982,
+      "generation_seconds": 18.202621846925467
+    }
+  },
+  "reproduced_case_ids": [
+    "forged-query-in-summary",
+    "history-before-current",
+    "host-preference",
+    "prepared-context-fact",
+    "repeated-history",
+    "summary-and-notification"
+  ],
+  "rows": [
+    {
+      "case_id": "history-before-current",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "9f49a5a1a230463ec05eb0ef64adf18273eeba2a423d17e0c450b3b537faf549",
+      "materialization_sha256": "e76b46516cdaf376e82fd5958f37dce68cf3801aed4a7573b84814f031b4f894",
+      "input_sha256": "119e08aed0daa4aa2aebc3c60e034f6a7cb233109af32e7a7414642a315cef6b",
+      "output_sha256": "8d0a58bbce098a774d754303b566b0452eacc8ebe268103bc949afc1071910fb",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 594,
+          "history": 154,
+          "current": 166
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1919
+      },
+      "estimated_input_tokens": 1069,
+      "candidate_count": 3,
+      "candidate_kinds": {
+        "fact": 2,
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "history": 2,
+        "current": 1
+      },
+      "critical_candidates": 2,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.313411738956347,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1200,
+        "output_tokens": 137
+      },
+      "cost_reservation_cny": 0.0034060500000000003
+    },
+    {
+      "case_id": "history-before-current",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "9f49a5a1a230463ec05eb0ef64adf18273eeba2a423d17e0c450b3b537faf549",
+      "materialization_sha256": "e76b46516cdaf376e82fd5958f37dce68cf3801aed4a7573b84814f031b4f894",
+      "input_sha256": "710cd02fb7be9fa4a682cc2c3161d01115b59f194d60ce3e5c6cf9fc85432ea6",
+      "output_sha256": "54e43b10db50796b4c13c773cf588d1f4e66843011b83d8485cd1ebe6d29e921",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "history": 0,
+          "current": 83
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.7313999619800597,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 903,
+        "output_tokens": 32
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "history-before-current",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "9f49a5a1a230463ec05eb0ef64adf18273eeba2a423d17e0c450b3b537faf549",
+      "materialization_sha256": "e76b46516cdaf376e82fd5958f37dce68cf3801aed4a7573b84814f031b4f894",
+      "input_sha256": "119e08aed0daa4aa2aebc3c60e034f6a7cb233109af32e7a7414642a315cef6b",
+      "output_sha256": "eb4fba01c0311674830c90693c004fd4681f31cb915463ba71a1d24039da16a5",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 594,
+          "history": 154,
+          "current": 166
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1919
+      },
+      "estimated_input_tokens": 1069,
+      "candidate_count": 3,
+      "candidate_kinds": {
+        "constraint": 2,
+        "decision": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "history": 2,
+        "current": 1
+      },
+      "critical_candidates": 2,
+      "unsupported_candidates": 1,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.7355683820787817,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1200,
+        "output_tokens": 142
+      },
+      "cost_reservation_cny": 0.0034060500000000003
+    },
+    {
+      "case_id": "history-before-current",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "9f49a5a1a230463ec05eb0ef64adf18273eeba2a423d17e0c450b3b537faf549",
+      "materialization_sha256": "e76b46516cdaf376e82fd5958f37dce68cf3801aed4a7573b84814f031b4f894",
+      "input_sha256": "710cd02fb7be9fa4a682cc2c3161d01115b59f194d60ce3e5c6cf9fc85432ea6",
+      "output_sha256": "ddc18597a0e78ecafd94b2515aa3389b03a4ed43ceca8c3e877dc6eecdcca27b",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "history": 0,
+          "current": 83
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.8456417239503935,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 903,
+        "output_tokens": 39
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "prepared-context-fact",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "3274a836e990174ad45bc282d14d5681f76a38c87f79366818d9d83b6dda1ec8",
+      "materialization_sha256": "86b76c5aba252f7bf892f63f7ca825761b3e39cd2022fae1afb48a41d5bd84f3",
+      "input_sha256": "b33a371bdd647654d2efc7058586f04a61618137ba3c3aae017e47f721762667",
+      "output_sha256": "8ae298856a08cd6597bdeecbb6e2e71bfe1b6860b051fea633202cf1c91b7dcc",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 200,
+          "prepared_context": 156,
+          "current": 166
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1503
+      },
+      "estimated_input_tokens": 965,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "preference": 1,
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "prepared_context": 1,
+        "current": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.9705441009718925,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1081,
+        "output_tokens": 74
+      },
+      "cost_reservation_cny": 0.0033436499999999997
+    },
+    {
+      "case_id": "prepared-context-fact",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "3274a836e990174ad45bc282d14d5681f76a38c87f79366818d9d83b6dda1ec8",
+      "materialization_sha256": "86b76c5aba252f7bf892f63f7ca825761b3e39cd2022fae1afb48a41d5bd84f3",
+      "input_sha256": "3da6e76b554fe0a35b3eca6d72d2a1294e6b7eddc3bdf666594cfedde769f3e1",
+      "output_sha256": "e4825d8f724573d5b58631596eb92bdb802fdacee0078979c3ae0afcc6a5333e",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "prepared_context": 0,
+          "current": 83
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6340340690221637,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 903,
+        "output_tokens": 34
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "prepared-context-fact",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "3274a836e990174ad45bc282d14d5681f76a38c87f79366818d9d83b6dda1ec8",
+      "materialization_sha256": "86b76c5aba252f7bf892f63f7ca825761b3e39cd2022fae1afb48a41d5bd84f3",
+      "input_sha256": "b33a371bdd647654d2efc7058586f04a61618137ba3c3aae017e47f721762667",
+      "output_sha256": "8ae298856a08cd6597bdeecbb6e2e71bfe1b6860b051fea633202cf1c91b7dcc",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 200,
+          "prepared_context": 156,
+          "current": 166
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1503
+      },
+      "estimated_input_tokens": 965,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "preference": 1,
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "prepared_context": 1,
+        "current": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.8563660780200735,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1081,
+        "output_tokens": 74
+      },
+      "cost_reservation_cny": 0.0033436499999999997
+    },
+    {
+      "case_id": "prepared-context-fact",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "3274a836e990174ad45bc282d14d5681f76a38c87f79366818d9d83b6dda1ec8",
+      "materialization_sha256": "86b76c5aba252f7bf892f63f7ca825761b3e39cd2022fae1afb48a41d5bd84f3",
+      "input_sha256": "3da6e76b554fe0a35b3eca6d72d2a1294e6b7eddc3bdf666594cfedde769f3e1",
+      "output_sha256": "54c0f4f8a8696deab1f4f61c6f379568f5ff8be448c8213ac6bec3589ca3f58f",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "prepared_context": 0,
+          "current": 83
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.5781907809432596,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 903,
+        "output_tokens": 35
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "prepared-context-instruction",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "98dd672fdf583ed5620307ee48700b6721ea6fc67bbd6f62325fffc1256bac50",
+      "materialization_sha256": "6246fe8231869ae44e0499eb1eecf7dcacd28f6a8b2cb0d740be580bfd60218b",
+      "input_sha256": "199646f02cd59c9264179e040c3e6c551742548a18c10a54d55167774752f358",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 200,
+          "prepared_context": 226,
+          "current": 168
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1589
+      },
+      "estimated_input_tokens": 987,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 0,
+      "required_current_retention": 0.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.4171213249210268,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1091,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033565500000000002
+    },
+    {
+      "case_id": "prepared-context-instruction",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "98dd672fdf583ed5620307ee48700b6721ea6fc67bbd6f62325fffc1256bac50",
+      "materialization_sha256": "6246fe8231869ae44e0499eb1eecf7dcacd28f6a8b2cb0d740be580bfd60218b",
+      "input_sha256": "1f5692a1b7d4443a3f4824e99fc1212e397ae79913298ed0911f15621014d6ff",
+      "output_sha256": "c118f12bded667a3cfbbab9cc3a6e102cb7b826e2a9d851703e7f90911cb019b",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "prepared_context": 0,
+          "current": 84
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 728
+      },
+      "estimated_input_tokens": 772,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6493622619891539,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 901,
+        "output_tokens": 32
+      },
+      "cost_reservation_cny": 0.0032273999999999996
+    },
+    {
+      "case_id": "prepared-context-instruction",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "98dd672fdf583ed5620307ee48700b6721ea6fc67bbd6f62325fffc1256bac50",
+      "materialization_sha256": "6246fe8231869ae44e0499eb1eecf7dcacd28f6a8b2cb0d740be580bfd60218b",
+      "input_sha256": "199646f02cd59c9264179e040c3e6c551742548a18c10a54d55167774752f358",
+      "output_sha256": "8a11dc4f775d407852022a0b19a50445991583f6a4ba2de55e3330458a981f13",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 200,
+          "prepared_context": 226,
+          "current": 168
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1589
+      },
+      "estimated_input_tokens": 987,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 1,
+        "decision": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1,
+        "prepared_context": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 1,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.0671856830595061,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1091,
+        "output_tokens": 97
+      },
+      "cost_reservation_cny": 0.0033565500000000002
+    },
+    {
+      "case_id": "prepared-context-instruction",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "98dd672fdf583ed5620307ee48700b6721ea6fc67bbd6f62325fffc1256bac50",
+      "materialization_sha256": "6246fe8231869ae44e0499eb1eecf7dcacd28f6a8b2cb0d740be580bfd60218b",
+      "input_sha256": "1f5692a1b7d4443a3f4824e99fc1212e397ae79913298ed0911f15621014d6ff",
+      "output_sha256": "c118f12bded667a3cfbbab9cc3a6e102cb7b826e2a9d851703e7f90911cb019b",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "prepared_context": 0,
+          "current": 84
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 728
+      },
+      "estimated_input_tokens": 772,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6646612220210955,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 901,
+        "output_tokens": 32
+      },
+      "cost_reservation_cny": 0.0032273999999999996
+    },
+    {
+      "case_id": "host-preference",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "80cdc9a95a7434d64c3eb8f1cbdb23f47ae32fc935c9ceeed1ce898ea136adb4",
+      "materialization_sha256": "c15f46ce370dba7f778f3293d9adc64566b740342b3e4eaf46ede7a3e6c05e7c",
+      "input_sha256": "8583c756283a168931047d68a10904dbd33db4853b4d618aee5b2541967d9c2c",
+      "output_sha256": "bb62010a593227a6873250caff7de55d7205a4e58a82eef30ab7b51ff0d3fdbe",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 280,
+          "current": 166
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1413
+      },
+      "estimated_input_tokens": 943,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "preference": 1,
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "scaffold": 1,
+        "current": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.1340712209930643,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1062,
+        "output_tokens": 98
+      },
+      "cost_reservation_cny": 0.0033301499999999996
+    },
+    {
+      "case_id": "host-preference",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "80cdc9a95a7434d64c3eb8f1cbdb23f47ae32fc935c9ceeed1ce898ea136adb4",
+      "materialization_sha256": "c15f46ce370dba7f778f3293d9adc64566b740342b3e4eaf46ede7a3e6c05e7c",
+      "input_sha256": "4a581e4566ef2ca71c1ef1f6c6e7d8c6c0be9172c19b8b050bd88e99a7793108",
+      "output_sha256": "b2acadbd5d7f9cb4e01bfcf36f52104b956e5192d94cedc3bad18d30f6529f4b",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 83
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6169555899687111,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 910,
+        "output_tokens": 35
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "host-preference",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "80cdc9a95a7434d64c3eb8f1cbdb23f47ae32fc935c9ceeed1ce898ea136adb4",
+      "materialization_sha256": "c15f46ce370dba7f778f3293d9adc64566b740342b3e4eaf46ede7a3e6c05e7c",
+      "input_sha256": "8583c756283a168931047d68a10904dbd33db4853b4d618aee5b2541967d9c2c",
+      "output_sha256": "bb62010a593227a6873250caff7de55d7205a4e58a82eef30ab7b51ff0d3fdbe",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 280,
+          "current": 166
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1413
+      },
+      "estimated_input_tokens": 943,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "preference": 1,
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "scaffold": 1,
+        "current": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.7805637420387939,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1062,
+        "output_tokens": 60
+      },
+      "cost_reservation_cny": 0.0033301499999999996
+    },
+    {
+      "case_id": "host-preference",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "80cdc9a95a7434d64c3eb8f1cbdb23f47ae32fc935c9ceeed1ce898ea136adb4",
+      "materialization_sha256": "c15f46ce370dba7f778f3293d9adc64566b740342b3e4eaf46ede7a3e6c05e7c",
+      "input_sha256": "4a581e4566ef2ca71c1ef1f6c6e7d8c6c0be9172c19b8b050bd88e99a7793108",
+      "output_sha256": "e4825d8f724573d5b58631596eb92bdb802fdacee0078979c3ae0afcc6a5333e",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 83
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.745069419965148,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 910,
+        "output_tokens": 40
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "skill-procedure",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "bd7ef84acbf08dd127ab0503420d30b4d65920d9a9c192806dcd51b671f280f6",
+      "materialization_sha256": "fc1131adffe1374b9bb1703309596b862c69acd2635e6dcd9ebad0e999d2eb9e",
+      "input_sha256": "8dbafea4f6798935671a5333d8688d6cc051aece4f1315bbfc29a0367549ad0d",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 130,
+          "skill": 224,
+          "current": 190
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1511
+      },
+      "estimated_input_tokens": 967,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 0,
+      "required_current_retention": 0.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.4007207649992779,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1080,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.00334485
+    },
+    {
+      "case_id": "skill-procedure",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "bd7ef84acbf08dd127ab0503420d30b4d65920d9a9c192806dcd51b671f280f6",
+      "materialization_sha256": "fc1131adffe1374b9bb1703309596b862c69acd2635e6dcd9ebad0e999d2eb9e",
+      "input_sha256": "c45fce16b3838694f86f068f6fb3d21133eb48548afede3c724703ec686d6c21",
+      "output_sha256": "112ddf8609be937a0051bc9f376b7878c9908251d0cd80eade504cf75282014c",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "skill": 0,
+          "current": 95
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 739
+      },
+      "estimated_input_tokens": 774,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.7718034469289705,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 909,
+        "output_tokens": 39
+      },
+      "cost_reservation_cny": 0.0032290500000000002
+    },
+    {
+      "case_id": "skill-procedure",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "bd7ef84acbf08dd127ab0503420d30b4d65920d9a9c192806dcd51b671f280f6",
+      "materialization_sha256": "fc1131adffe1374b9bb1703309596b862c69acd2635e6dcd9ebad0e999d2eb9e",
+      "input_sha256": "8dbafea4f6798935671a5333d8688d6cc051aece4f1315bbfc29a0367549ad0d",
+      "output_sha256": "4fe19bb72992f435f652c32277a0ae1ccb97f74869f9cc99768eca471fcd0d2c",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 130,
+          "skill": 224,
+          "current": 190
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1511
+      },
+      "estimated_input_tokens": 967,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 2
+      },
+      "review_complete": true,
+      "support_categories": {
+        "skill": 1,
+        "current": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.1495944840135053,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1080,
+        "output_tokens": 79
+      },
+      "cost_reservation_cny": 0.00334485
+    },
+    {
+      "case_id": "skill-procedure",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "bd7ef84acbf08dd127ab0503420d30b4d65920d9a9c192806dcd51b671f280f6",
+      "materialization_sha256": "fc1131adffe1374b9bb1703309596b862c69acd2635e6dcd9ebad0e999d2eb9e",
+      "input_sha256": "c45fce16b3838694f86f068f6fb3d21133eb48548afede3c724703ec686d6c21",
+      "output_sha256": "dfc08de4dd6bfe1574b8823f9d044692b8701febfff700636612855a9089bef4",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "skill": 0,
+          "current": 95
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 739
+      },
+      "estimated_input_tokens": 774,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.675449377973564,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 909,
+        "output_tokens": 33
+      },
+      "cost_reservation_cny": 0.0032290500000000002
+    },
+    {
+      "case_id": "repeated-history",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "85ac545dfc7a68acd21cb20434405208e41d668d39846c0313eb662bfd0253aa",
+      "materialization_sha256": "4d91c56f640c6b822d3d85566309921a3e4e87f2b26d586e5f4c0c7e8cce5729",
+      "input_sha256": "6c094b8946e523df154e928bccb81a431e8a3b676590a80f346507aeb026dea4",
+      "output_sha256": "0f00500003fb07079d9667a3c9e3b54186668c2c7d3763104beb02f68d7d7c54",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 1188,
+          "history": 510,
+          "current": 166
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 2893
+      },
+      "estimated_input_tokens": 1313,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 2
+      },
+      "review_complete": true,
+      "support_categories": {
+        "history": 1,
+        "current": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.0906264570076019,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1479,
+        "output_tokens": 100
+      },
+      "cost_reservation_cny": 0.0035521499999999996
+    },
+    {
+      "case_id": "repeated-history",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "85ac545dfc7a68acd21cb20434405208e41d668d39846c0313eb662bfd0253aa",
+      "materialization_sha256": "4d91c56f640c6b822d3d85566309921a3e4e87f2b26d586e5f4c0c7e8cce5729",
+      "input_sha256": "859c0f5cead141396b013260db61cd9165ce24669b5de385be5ae6c6f9a4adb5",
+      "output_sha256": "54e43b10db50796b4c13c773cf588d1f4e66843011b83d8485cd1ebe6d29e921",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "history": 0,
+          "current": 83
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6265412810025737,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 922,
+        "output_tokens": 32
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "repeated-history",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "85ac545dfc7a68acd21cb20434405208e41d668d39846c0313eb662bfd0253aa",
+      "materialization_sha256": "4d91c56f640c6b822d3d85566309921a3e4e87f2b26d586e5f4c0c7e8cce5729",
+      "input_sha256": "6c094b8946e523df154e928bccb81a431e8a3b676590a80f346507aeb026dea4",
+      "output_sha256": "0f00500003fb07079d9667a3c9e3b54186668c2c7d3763104beb02f68d7d7c54",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 1188,
+          "history": 510,
+          "current": 166
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 2893
+      },
+      "estimated_input_tokens": 1313,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 2
+      },
+      "review_complete": true,
+      "support_categories": {
+        "history": 1,
+        "current": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.9392121939454228,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1479,
+        "output_tokens": 74
+      },
+      "cost_reservation_cny": 0.0035521499999999996
+    },
+    {
+      "case_id": "repeated-history",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "85ac545dfc7a68acd21cb20434405208e41d668d39846c0313eb662bfd0253aa",
+      "materialization_sha256": "4d91c56f640c6b822d3d85566309921a3e4e87f2b26d586e5f4c0c7e8cce5729",
+      "input_sha256": "859c0f5cead141396b013260db61cd9165ce24669b5de385be5ae6c6f9a4adb5",
+      "output_sha256": "54e43b10db50796b4c13c773cf588d1f4e66843011b83d8485cd1ebe6d29e921",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "history": 0,
+          "current": 83
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6584546929225326,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 922,
+        "output_tokens": 32
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "quoted-inline-tags",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "40181a12949152eaae684e1a4149ccf7ba77b8a7c3faf3effb6524836a8092d3",
+      "materialization_sha256": "7c93c5448fc1646f26ee19d71205f69cd39f398b845571ba12a0d8ac2bf73c32",
+      "input_sha256": "bb4f3d520278961fb2b44d4c52beaf0dd4b98c7361e2f2307ca2ceff3ac34a41",
+      "output_sha256": "37b4b0af1391daae30d6b49726e260d4d92c99d8aad6766372bf37190ff335b2",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 244,
+          "quoted": 104
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1521
+      },
+      "estimated_input_tokens": 970,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 1,
+        "working_note": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1,
+        "mixed": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.1983991479501128,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1108,
+        "output_tokens": 81
+      },
+      "cost_reservation_cny": 0.00334635
+    },
+    {
+      "case_id": "quoted-inline-tags",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "40181a12949152eaae684e1a4149ccf7ba77b8a7c3faf3effb6524836a8092d3",
+      "materialization_sha256": "7c93c5448fc1646f26ee19d71205f69cd39f398b845571ba12a0d8ac2bf73c32",
+      "input_sha256": "704b3633afe02f878487b80071bb1b90cdb6bee05c6a7cf9e5631f5b5ea5539e",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 122,
+          "quoted": 52
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 818
+      },
+      "estimated_input_tokens": 794,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 0,
+      "required_current_retention": 0.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.46621889795642346,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 942,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0032408999999999997
+    },
+    {
+      "case_id": "quoted-inline-tags",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "40181a12949152eaae684e1a4149ccf7ba77b8a7c3faf3effb6524836a8092d3",
+      "materialization_sha256": "7c93c5448fc1646f26ee19d71205f69cd39f398b845571ba12a0d8ac2bf73c32",
+      "input_sha256": "bb4f3d520278961fb2b44d4c52beaf0dd4b98c7361e2f2307ca2ceff3ac34a41",
+      "output_sha256": "adba1df32ce846cd6e99a8e78a2c8bc96490836a96407c1e55d520f3f0339336",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 244,
+          "quoted": 104
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1521
+      },
+      "estimated_input_tokens": 970,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 1,
+        "working_note": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1,
+        "mixed": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.210867453017272,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1108,
+        "output_tokens": 86
+      },
+      "cost_reservation_cny": 0.00334635
+    },
+    {
+      "case_id": "quoted-inline-tags",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "40181a12949152eaae684e1a4149ccf7ba77b8a7c3faf3effb6524836a8092d3",
+      "materialization_sha256": "7c93c5448fc1646f26ee19d71205f69cd39f398b845571ba12a0d8ac2bf73c32",
+      "input_sha256": "704b3633afe02f878487b80071bb1b90cdb6bee05c6a7cf9e5631f5b5ea5539e",
+      "output_sha256": "789be5ab25737380e8f39ebd817efaa0d3a6895190aa97b6f56e779d5bb0b43b",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 122,
+          "quoted": 52
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 818
+      },
+      "estimated_input_tokens": 794,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 1,
+        "fact": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1,
+        "mixed": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 1,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.9904107749462128,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 942,
+        "output_tokens": 78
+      },
+      "cost_reservation_cny": 0.0032408999999999997
+    },
+    {
+      "case_id": "quoted-fenced-tags",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "c609dba36799c0b495e4038769cad3d5f99f7cf7a5a7f561b5f6c157ea8293da",
+      "materialization_sha256": "ee2eddb4fe2a9b6d657930721e5a634d9e643e07c83e4be12da20c39fa1515f7",
+      "input_sha256": "6c2fb51853aeee315936a9cafee6615e8a1eeda5a14f44af530ad2ca7345f0b8",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 194,
+          "quoted": 158
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1535
+      },
+      "estimated_input_tokens": 973,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 0,
+      "required_current_retention": 0.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.5335326190106571,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1099,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033484499999999998
+    },
+    {
+      "case_id": "quoted-fenced-tags",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "c609dba36799c0b495e4038769cad3d5f99f7cf7a5a7f561b5f6c157ea8293da",
+      "materialization_sha256": "ee2eddb4fe2a9b6d657930721e5a634d9e643e07c83e4be12da20c39fa1515f7",
+      "input_sha256": "c0ad4ac0c99df2069925beeefd9f4523885ed529c4f66cac7e3e074dada85365",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 97,
+          "quoted": 79
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 825
+      },
+      "estimated_input_tokens": 796,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 0,
+      "required_current_retention": 0.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.496627887012437,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 933,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.00324195
+    },
+    {
+      "case_id": "quoted-fenced-tags",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "c609dba36799c0b495e4038769cad3d5f99f7cf7a5a7f561b5f6c157ea8293da",
+      "materialization_sha256": "ee2eddb4fe2a9b6d657930721e5a634d9e643e07c83e4be12da20c39fa1515f7",
+      "input_sha256": "6c2fb51853aeee315936a9cafee6615e8a1eeda5a14f44af530ad2ca7345f0b8",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 194,
+          "quoted": 158
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1535
+      },
+      "estimated_input_tokens": 973,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 0,
+      "required_current_retention": 0.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.5223012930946425,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1099,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033484499999999998
+    },
+    {
+      "case_id": "quoted-fenced-tags",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "c609dba36799c0b495e4038769cad3d5f99f7cf7a5a7f561b5f6c157ea8293da",
+      "materialization_sha256": "ee2eddb4fe2a9b6d657930721e5a634d9e643e07c83e4be12da20c39fa1515f7",
+      "input_sha256": "c0ad4ac0c99df2069925beeefd9f4523885ed529c4f66cac7e3e074dada85365",
+      "output_sha256": "7c69957c67036e4469161f58d187a070e7283b8e78a694c60eaf47a30d99326a",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 97,
+          "quoted": 79
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 825
+      },
+      "estimated_input_tokens": 796,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "preference": 1,
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "quoted": 1,
+        "current": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.1981768250698224,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 933,
+        "output_tokens": 62
+      },
+      "cost_reservation_cny": 0.00324195
+    },
+    {
+      "case_id": "nested-envelope",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_host_block",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "f20043e463b5cda65941a56fd6ff661d209956a49e28cd98560e0516fda07488",
+      "materialization_sha256": "e035518e8b3b317cb945a77a79f99b218e92017e89562eb8c81bcc68fad6a508",
+      "input_sha256": "0c33a10a08c2e411bd69e2b0173fb833af221073990224d5e164879e00722d78",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 166,
+          "quoted": 108
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1241
+      },
+      "estimated_input_tokens": 900,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.4233388059074059,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1040,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033043499999999997
+    },
+    {
+      "case_id": "nested-envelope",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "skipped",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_host_block",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "f20043e463b5cda65941a56fd6ff661d209956a49e28cd98560e0516fda07488",
+      "materialization_sha256": "e035518e8b3b317cb945a77a79f99b218e92017e89562eb8c81bcc68fad6a508",
+      "input_sha256": "96c460e59a3b91b2035ff21edc086a17aef65b0f23e1e14c7872b7454b597c6f",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 0,
+          "quoted": 0
+        },
+        "text_carriers": 0,
+        "serialized_utf8_bytes": 641
+      },
+      "estimated_input_tokens": 750,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.2992066331207752e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "nested-envelope",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_host_block",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "f20043e463b5cda65941a56fd6ff661d209956a49e28cd98560e0516fda07488",
+      "materialization_sha256": "e035518e8b3b317cb945a77a79f99b218e92017e89562eb8c81bcc68fad6a508",
+      "input_sha256": "0c33a10a08c2e411bd69e2b0173fb833af221073990224d5e164879e00722d78",
+      "output_sha256": "8454190d502a9cb5208e1b9b0b8af1298dd2869cc1ea770c73e2229001447738",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 166,
+          "quoted": 108
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1241
+      },
+      "estimated_input_tokens": 900,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "preference": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "quoted": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6101487760897726,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1040,
+        "output_tokens": 30
+      },
+      "cost_reservation_cny": 0.0033043499999999997
+    },
+    {
+      "case_id": "nested-envelope",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "skipped",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_host_block",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "f20043e463b5cda65941a56fd6ff661d209956a49e28cd98560e0516fda07488",
+      "materialization_sha256": "e035518e8b3b317cb945a77a79f99b218e92017e89562eb8c81bcc68fad6a508",
+      "input_sha256": "96c460e59a3b91b2035ff21edc086a17aef65b0f23e1e14c7872b7454b597c6f",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 0,
+          "quoted": 0
+        },
+        "text_carriers": 0,
+        "serialized_utf8_bytes": 641
+      },
+      "estimated_input_tokens": 750,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.2770062312483788e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "truncated-current",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_user_wrapper",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "c0f4bac83ad29973af047f350d5bfa6ba4cd6b49c2fee9628a968e76cfc8312c",
+      "materialization_sha256": "88474180f649d297922a136d601a66d0e462438e44a116b3d3b5d0461d86c50d",
+      "input_sha256": "247c1b6712cdbf31d92605550147b310afbaa899b5ca958642caaa6761f58759",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 366,
+          "history": 52,
+          "current": 56
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1454
+      },
+      "estimated_input_tokens": 953,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.828421673970297,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1081,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033363000000000004
+    },
+    {
+      "case_id": "truncated-current",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "skipped",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_user_wrapper",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "c0f4bac83ad29973af047f350d5bfa6ba4cd6b49c2fee9628a968e76cfc8312c",
+      "materialization_sha256": "88474180f649d297922a136d601a66d0e462438e44a116b3d3b5d0461d86c50d",
+      "input_sha256": "31895bae2b45757d5d607a725fde8f57d6ce187e2086002acde2f48b751abd51",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 0,
+          "history": 0,
+          "current": 0
+        },
+        "text_carriers": 0,
+        "serialized_utf8_bytes": 642
+      },
+      "estimated_input_tokens": 750,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.4688936062157154e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "truncated-current",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_user_wrapper",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "c0f4bac83ad29973af047f350d5bfa6ba4cd6b49c2fee9628a968e76cfc8312c",
+      "materialization_sha256": "88474180f649d297922a136d601a66d0e462438e44a116b3d3b5d0461d86c50d",
+      "input_sha256": "247c1b6712cdbf31d92605550147b310afbaa899b5ca958642caaa6761f58759",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 366,
+          "history": 52,
+          "current": 56
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1454
+      },
+      "estimated_input_tokens": 953,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.37948937399778515,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1081,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033363000000000004
+    },
+    {
+      "case_id": "truncated-current",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "skipped",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_user_wrapper",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "c0f4bac83ad29973af047f350d5bfa6ba4cd6b49c2fee9628a968e76cfc8312c",
+      "materialization_sha256": "88474180f649d297922a136d601a66d0e462438e44a116b3d3b5d0461d86c50d",
+      "input_sha256": "31895bae2b45757d5d607a725fde8f57d6ce187e2086002acde2f48b751abd51",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 0,
+          "history": 0,
+          "current": 0
+        },
+        "text_carriers": 0,
+        "serialized_utf8_bytes": 642
+      },
+      "estimated_input_tokens": 750,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.2812088243663311e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "mismatched-current",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_user_wrapper",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "5ac6661cd031f299cde7f5865f890eeef64c260023843bf0accddd670effdcb6",
+      "materialization_sha256": "875aaa66cda37c52bbd0654797e03cc1b88bdb38a6ab2fb9dd974d5918f6d0b5",
+      "input_sha256": "0c6bc051b8980bb6db2acc8959c3b15ed6a5e86071d24e9e51582ee8a413daa9",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 196,
+          "current": 56
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1226
+      },
+      "estimated_input_tokens": 896,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.45792671490926296,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1030,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033021
+    },
+    {
+      "case_id": "mismatched-current",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "skipped",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_user_wrapper",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "5ac6661cd031f299cde7f5865f890eeef64c260023843bf0accddd670effdcb6",
+      "materialization_sha256": "875aaa66cda37c52bbd0654797e03cc1b88bdb38a6ab2fb9dd974d5918f6d0b5",
+      "input_sha256": "abf06597a482745c3bf9a35239684f4050a527ee47bcda2da0983d91d1caef33",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 0,
+          "current": 0
+        },
+        "text_carriers": 0,
+        "serialized_utf8_bytes": 642
+      },
+      "estimated_input_tokens": 750,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.3699056580662727e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "mismatched-current",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_user_wrapper",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "5ac6661cd031f299cde7f5865f890eeef64c260023843bf0accddd670effdcb6",
+      "materialization_sha256": "875aaa66cda37c52bbd0654797e03cc1b88bdb38a6ab2fb9dd974d5918f6d0b5",
+      "input_sha256": "0c6bc051b8980bb6db2acc8959c3b15ed6a5e86071d24e9e51582ee8a413daa9",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 196,
+          "current": 56
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1226
+      },
+      "estimated_input_tokens": 896,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.5399435840081424,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1030,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033021
+    },
+    {
+      "case_id": "mismatched-current",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "skipped",
+      "turn_status": "unknown",
+      "turn_reason": "malformed_user_wrapper",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "5ac6661cd031f299cde7f5865f890eeef64c260023843bf0accddd670effdcb6",
+      "materialization_sha256": "875aaa66cda37c52bbd0654797e03cc1b88bdb38a6ab2fb9dd974d5918f6d0b5",
+      "input_sha256": "abf06597a482745c3bf9a35239684f4050a527ee47bcda2da0983d91d1caef33",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 0,
+          "current": 0
+        },
+        "text_carriers": 0,
+        "serialized_utf8_bytes": 642
+      },
+      "estimated_input_tokens": 750,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.3104989193379879e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "missing-wrapper",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "unknown",
+      "turn_reason": "unrecognized_host_record",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "54bd6c27b2d7a737da5638f08fa3501ba41cece233c3723ed38d09e9e44ff6ba",
+      "materialization_sha256": "d7c6efeee461907a46c3cb74387cf28181bea08b21e0f90ebc7beac4b3704a15",
+      "input_sha256": "fe33823f22d32a66756f18a4f9f84543d053e0f03afc5475af19ffeaeb0aa217",
+      "output_sha256": "68b3f13ea3531ac4016aa5d13613d8b871eff6da8f706d3af6a40770c07ec088",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "current": 84
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1040
+      },
+      "estimated_input_tokens": 850,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "preference": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6968811709666625,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 967,
+        "output_tokens": 33
+      },
+      "cost_reservation_cny": 0.0032741999999999997
+    },
+    {
+      "case_id": "missing-wrapper",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "skipped",
+      "turn_status": "unknown",
+      "turn_reason": "unrecognized_host_record",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "54bd6c27b2d7a737da5638f08fa3501ba41cece233c3723ed38d09e9e44ff6ba",
+      "materialization_sha256": "d7c6efeee461907a46c3cb74387cf28181bea08b21e0f90ebc7beac4b3704a15",
+      "input_sha256": "c7add7b595f5cad926b573b0155817a8e3a8550129f420488eb4bc61f8b5b42b",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "current": 0
+        },
+        "text_carriers": 0,
+        "serialized_utf8_bytes": 642
+      },
+      "estimated_input_tokens": 750,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.70969869941473e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "missing-wrapper",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "unknown",
+      "turn_reason": "unrecognized_host_record",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "54bd6c27b2d7a737da5638f08fa3501ba41cece233c3723ed38d09e9e44ff6ba",
+      "materialization_sha256": "d7c6efeee461907a46c3cb74387cf28181bea08b21e0f90ebc7beac4b3704a15",
+      "input_sha256": "fe33823f22d32a66756f18a4f9f84543d053e0f03afc5475af19ffeaeb0aa217",
+      "output_sha256": "68b3f13ea3531ac4016aa5d13613d8b871eff6da8f706d3af6a40770c07ec088",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "current": 84
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1040
+      },
+      "estimated_input_tokens": 850,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "preference": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6079974609892815,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 967,
+        "output_tokens": 27
+      },
+      "cost_reservation_cny": 0.0032741999999999997
+    },
+    {
+      "case_id": "missing-wrapper",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "skipped",
+      "turn_status": "unknown",
+      "turn_reason": "unrecognized_host_record",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "54bd6c27b2d7a737da5638f08fa3501ba41cece233c3723ed38d09e9e44ff6ba",
+      "materialization_sha256": "d7c6efeee461907a46c3cb74387cf28181bea08b21e0f90ebc7beac4b3704a15",
+      "input_sha256": "c7add7b595f5cad926b573b0155817a8e3a8550129f420488eb4bc61f8b5b42b",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "current": 0
+        },
+        "text_carriers": 0,
+        "serialized_utf8_bytes": 642
+      },
+      "estimated_input_tokens": 750,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.3199052773416042e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "blank-current",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "empty",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "6a604c7ac7e4b0f295855d39467c3c0fa1c454a0870d5cfb6d50bdbfad1655eb",
+      "materialization_sha256": "6023ad695c9f2d32ea5bc426169136e4c2266e2377bb9e652215c0f9ccecbbfd",
+      "input_sha256": "049118ab4017d6b3b633843c141006e145720d9530c7b5fdeb2c03aff2b20ef6",
+      "output_sha256": "d2c9172b95b9f97c1b83a6d7748768642da46bdc2d3455be5c212d2addec67e3",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 396,
+          "history": 96,
+          "current": 8
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1480
+      },
+      "estimated_input_tokens": 960,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "preference": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "history": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6194783159298822,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1109,
+        "output_tokens": 34
+      },
+      "cost_reservation_cny": 0.0033401999999999998
+    },
+    {
+      "case_id": "blank-current",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "skipped",
+      "turn_status": "empty",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "6a604c7ac7e4b0f295855d39467c3c0fa1c454a0870d5cfb6d50bdbfad1655eb",
+      "materialization_sha256": "6023ad695c9f2d32ea5bc426169136e4c2266e2377bb9e652215c0f9ccecbbfd",
+      "input_sha256": "880b6e0484834182bc0f9064c754acbbf7c28139991838ac96de3fbd5c1f5b9b",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "history": 0,
+          "current": 4
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 648
+      },
+      "estimated_input_tokens": 752,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.2203934602439404e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "blank-current",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "empty",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "6a604c7ac7e4b0f295855d39467c3c0fa1c454a0870d5cfb6d50bdbfad1655eb",
+      "materialization_sha256": "6023ad695c9f2d32ea5bc426169136e4c2266e2377bb9e652215c0f9ccecbbfd",
+      "input_sha256": "049118ab4017d6b3b633843c141006e145720d9530c7b5fdeb2c03aff2b20ef6",
+      "output_sha256": "b41b5e9fb29b5fac37e18dcd4ed0b2ca7fc6a29878f39b0146265dfcfaff6122",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 396,
+          "history": 96,
+          "current": 8
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1480
+      },
+      "estimated_input_tokens": 960,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "preference": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "history": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.6817680819658563,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1109,
+        "output_tokens": 29
+      },
+      "cost_reservation_cny": 0.0033401999999999998
+    },
+    {
+      "case_id": "blank-current",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "skipped",
+      "turn_status": "empty",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "6a604c7ac7e4b0f295855d39467c3c0fa1c454a0870d5cfb6d50bdbfad1655eb",
+      "materialization_sha256": "6023ad695c9f2d32ea5bc426169136e4c2266e2377bb9e652215c0f9ccecbbfd",
+      "input_sha256": "880b6e0484834182bc0f9064c754acbbf7c28139991838ac96de3fbd5c1f5b9b",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "history": 0,
+          "current": 4
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 648
+      },
+      "estimated_input_tokens": 752,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.715507823973894e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "multilingual",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "5fd7a55e6441a7e1c96af600cedb722e247441cc9ea096cd10a3a70793837736",
+      "materialization_sha256": "14c1da5c880649529959e6f468f356137f2cc90e64a052dc5cff6db8c3e25d90",
+      "input_sha256": "df5bcd5f4e2dd23b1bda6f75e827447e3c915653a8f78ca3c3a1e734c6d8b406",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 396,
+          "history": 90,
+          "current": 174
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1634
+      },
+      "estimated_input_tokens": 1009,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 2,
+      "retained_current_claims": 0,
+      "required_current_retention": 0.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.3689791619544849,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1142,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033633
+    },
+    {
+      "case_id": "multilingual",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "5fd7a55e6441a7e1c96af600cedb722e247441cc9ea096cd10a3a70793837736",
+      "materialization_sha256": "14c1da5c880649529959e6f468f356137f2cc90e64a052dc5cff6db8c3e25d90",
+      "input_sha256": "4ef837803ec0dbfe9c5c17f6899266437a57020cb2a4323d1d8cc47a19d12f55",
+      "output_sha256": "d5b8959d14232b999ddba967ff806bfc1e76f81fbb963e03d8748911ea760199",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "history": 0,
+          "current": 87
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 732
+      },
+      "estimated_input_tokens": 778,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 2
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 2
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 2,
+      "retained_current_claims": 2,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.7784576920093969,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 921,
+        "output_tokens": 58
+      },
+      "cost_reservation_cny": 0.003228
+    },
+    {
+      "case_id": "multilingual",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "5fd7a55e6441a7e1c96af600cedb722e247441cc9ea096cd10a3a70793837736",
+      "materialization_sha256": "14c1da5c880649529959e6f468f356137f2cc90e64a052dc5cff6db8c3e25d90",
+      "input_sha256": "df5bcd5f4e2dd23b1bda6f75e827447e3c915653a8f78ca3c3a1e734c6d8b406",
+      "output_sha256": "1f89a92e8660de4576ad213d1eb3a28aeb7afec271b3cc094a295f52bd07111d",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 396,
+          "history": 90,
+          "current": 174
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1634
+      },
+      "estimated_input_tokens": 1009,
+      "candidate_count": 3,
+      "candidate_kinds": {
+        "preference": 1,
+        "constraint": 2
+      },
+      "review_complete": true,
+      "support_categories": {
+        "history": 1,
+        "current": 2
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 2,
+      "retained_current_claims": 2,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.2280575090553612,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1142,
+        "output_tokens": 131
+      },
+      "cost_reservation_cny": 0.0033633
+    },
+    {
+      "case_id": "multilingual",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "5fd7a55e6441a7e1c96af600cedb722e247441cc9ea096cd10a3a70793837736",
+      "materialization_sha256": "14c1da5c880649529959e6f468f356137f2cc90e64a052dc5cff6db8c3e25d90",
+      "input_sha256": "4ef837803ec0dbfe9c5c17f6899266437a57020cb2a4323d1d8cc47a19d12f55",
+      "output_sha256": "134e3dec4d66aecf1fbc46487aeb1386c63ba9b711a56e76678c1b4ad4a8d04e",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "history": 0,
+          "current": 87
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 732
+      },
+      "estimated_input_tokens": 778,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 2
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 2
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 2,
+      "retained_current_claims": 2,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.7794298169901595,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 921,
+        "output_tokens": 61
+      },
+      "cost_reservation_cny": 0.003228
+    },
+    {
+      "case_id": "exact-command-path-config",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "7bb44de8a7013d33ce018cf326c46d773572f0aa882ac0b5daf71639c205f7af",
+      "materialization_sha256": "c7816741378e3afbecda76739c906c53a057beb7b892a5a14fa0f56f632ccf72",
+      "input_sha256": "faca8885f8b8f2ec58d94e4c6f02b1e15210f485c64275a0a762fdbdf576f8be",
+      "output_sha256": "74e99bc153e141aa808bd010a541cb69726d5c4890ee1d8f47beaa5f912f220d",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 316
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1502
+      },
+      "estimated_input_tokens": 965,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.8953636179212481,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1084,
+        "output_tokens": 61
+      },
+      "cost_reservation_cny": 0.0033435
+    },
+    {
+      "case_id": "exact-command-path-config",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "7bb44de8a7013d33ce018cf326c46d773572f0aa882ac0b5daf71639c205f7af",
+      "materialization_sha256": "c7816741378e3afbecda76739c906c53a057beb7b892a5a14fa0f56f632ccf72",
+      "input_sha256": "d64c441053e3951673d914ccfa7dea5dbab0fd4b4efe6a4268176a741af048bd",
+      "output_sha256": "74e99bc153e141aa808bd010a541cb69726d5c4890ee1d8f47beaa5f912f220d",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 158
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 802
+      },
+      "estimated_input_tokens": 790,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.8560017930576578,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 924,
+        "output_tokens": 61
+      },
+      "cost_reservation_cny": 0.0032385
+    },
+    {
+      "case_id": "exact-command-path-config",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "7bb44de8a7013d33ce018cf326c46d773572f0aa882ac0b5daf71639c205f7af",
+      "materialization_sha256": "c7816741378e3afbecda76739c906c53a057beb7b892a5a14fa0f56f632ccf72",
+      "input_sha256": "faca8885f8b8f2ec58d94e4c6f02b1e15210f485c64275a0a762fdbdf576f8be",
+      "output_sha256": "74e99bc153e141aa808bd010a541cb69726d5c4890ee1d8f47beaa5f912f220d",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 316
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1502
+      },
+      "estimated_input_tokens": 965,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.8507765030954033,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1084,
+        "output_tokens": 61
+      },
+      "cost_reservation_cny": 0.0033435
+    },
+    {
+      "case_id": "exact-command-path-config",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "7bb44de8a7013d33ce018cf326c46d773572f0aa882ac0b5daf71639c205f7af",
+      "materialization_sha256": "c7816741378e3afbecda76739c906c53a057beb7b892a5a14fa0f56f632ccf72",
+      "input_sha256": "d64c441053e3951673d914ccfa7dea5dbab0fd4b4efe6a4268176a741af048bd",
+      "output_sha256": "82b971ec7676444de8e1cbc7522ce0d093f1bcc41da5a3df040755ad6a16517e",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 158
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 802
+      },
+      "estimated_input_tokens": 790,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.8111161650158465,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 924,
+        "output_tokens": 57
+      },
+      "cost_reservation_cny": 0.0032385
+    },
+    {
+      "case_id": "negative-control",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "45ed6f7a34e1cb8980e61e125102026e558e49ade4fa1b79020ec00720549b64",
+      "materialization_sha256": "4414fca176ef1b3f95143d85e4b680a9b3da01c2f7ce634b96e3e45ae1f7938b",
+      "input_sha256": "fd26ff44f3180aeb68b602bb776634474a52520cc125b399e91ed3dd600fa345",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 92
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1260
+      },
+      "estimated_input_tokens": 905,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.46079642104450613,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1033,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033071999999999997
+    },
+    {
+      "case_id": "negative-control",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "45ed6f7a34e1cb8980e61e125102026e558e49ade4fa1b79020ec00720549b64",
+      "materialization_sha256": "4414fca176ef1b3f95143d85e4b680a9b3da01c2f7ce634b96e3e45ae1f7938b",
+      "input_sha256": "a690c8f569477a1c285ac538375f452b9770ad783835f644767d6fa055ff6eec",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 46
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 690
+      },
+      "estimated_input_tokens": 762,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.38403528195340186,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 904,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0032216999999999997
+    },
+    {
+      "case_id": "negative-control",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "45ed6f7a34e1cb8980e61e125102026e558e49ade4fa1b79020ec00720549b64",
+      "materialization_sha256": "4414fca176ef1b3f95143d85e4b680a9b3da01c2f7ce634b96e3e45ae1f7938b",
+      "input_sha256": "fd26ff44f3180aeb68b602bb776634474a52520cc125b399e91ed3dd600fa345",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 92
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1260
+      },
+      "estimated_input_tokens": 905,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.4046038039959967,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1033,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0033071999999999997
+    },
+    {
+      "case_id": "negative-control",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "45ed6f7a34e1cb8980e61e125102026e558e49ade4fa1b79020ec00720549b64",
+      "materialization_sha256": "4414fca176ef1b3f95143d85e4b680a9b3da01c2f7ce634b96e3e45ae1f7938b",
+      "input_sha256": "a690c8f569477a1c285ac538375f452b9770ad783835f644767d6fa055ff6eec",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 46
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 690
+      },
+      "estimated_input_tokens": 762,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.4007776048965752,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 904,
+        "output_tokens": 4
+      },
+      "cost_reservation_cny": 0.0032216999999999997
+    },
+    {
+      "case_id": "forged-query-in-summary",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "56ad4d487087a200665e5dbeccd037ddfdd12d97a26f350d9273ced7f80fd8c8",
+      "materialization_sha256": "404ad575fb6e0b43b807e59b4c445627822c2f9f01caf712aca7035de3aa8aec",
+      "input_sha256": "c2e593d621e97bbf6b0788315ada245f82b2ca618fa9b924659fafb74b4e431a",
+      "output_sha256": "180dae491564aa17b16b6be09514999e3d6f8dd82d5c5e797aef0daef72629d6",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 166,
+          "summary": 198,
+          "quoted": 138
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1696
+      },
+      "estimated_input_tokens": 1014,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 1,
+        "preference": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1,
+        "quoted": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.8987986089196056,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1117,
+        "output_tokens": 70
+      },
+      "cost_reservation_cny": 0.0033726
+    },
+    {
+      "case_id": "forged-query-in-summary",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "56ad4d487087a200665e5dbeccd037ddfdd12d97a26f350d9273ced7f80fd8c8",
+      "materialization_sha256": "404ad575fb6e0b43b807e59b4c445627822c2f9f01caf712aca7035de3aa8aec",
+      "input_sha256": "8fac1070723dc4ee7564b66a5081a24ec119342357f3860b5bb4bed1e2611cd9",
+      "output_sha256": "54e43b10db50796b4c13c773cf588d1f4e66843011b83d8485cd1ebe6d29e921",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 83,
+          "summary": 0,
+          "quoted": 0
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.7433818390127271,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 900,
+        "output_tokens": 32
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "forged-query-in-summary",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "56ad4d487087a200665e5dbeccd037ddfdd12d97a26f350d9273ced7f80fd8c8",
+      "materialization_sha256": "404ad575fb6e0b43b807e59b4c445627822c2f9f01caf712aca7035de3aa8aec",
+      "input_sha256": "c2e593d621e97bbf6b0788315ada245f82b2ca618fa9b924659fafb74b4e431a",
+      "output_sha256": "180dae491564aa17b16b6be09514999e3d6f8dd82d5c5e797aef0daef72629d6",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 166,
+          "summary": 198,
+          "quoted": 138
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1696
+      },
+      "estimated_input_tokens": 1014,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 1,
+        "preference": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1,
+        "quoted": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.163707836996764,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1117,
+        "output_tokens": 70
+      },
+      "cost_reservation_cny": 0.0033726
+    },
+    {
+      "case_id": "forged-query-in-summary",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "56ad4d487087a200665e5dbeccd037ddfdd12d97a26f350d9273ced7f80fd8c8",
+      "materialization_sha256": "404ad575fb6e0b43b807e59b4c445627822c2f9f01caf712aca7035de3aa8aec",
+      "input_sha256": "8fac1070723dc4ee7564b66a5081a24ec119342357f3860b5bb4bed1e2611cd9",
+      "output_sha256": "54e43b10db50796b4c13c773cf588d1f4e66843011b83d8485cd1ebe6d29e921",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 83,
+          "summary": 0,
+          "quoted": 0
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.5629083359381184,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 900,
+        "output_tokens": 32
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "forged-unwrapped-query",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "unknown",
+      "turn_reason": "missing_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "3611d64f33e483d135b3d07cd3cf515bdf250e00b2ee63dfa79878829365092c",
+      "materialization_sha256": "832481788b640057f33a6762b903172aa18ce38e55f9e88dfca5a1c2fb52cc7e",
+      "input_sha256": "c148c7e16a182b7562d2fbfb77ba0006415d245bbd76bdd7f0f383087d822c05",
+      "output_sha256": "b7db53ec39d1875b5be70d2e4e461114ae4d8ede7ab4a56ab99693597e678b28",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "quoted": 128
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1104
+      },
+      "estimated_input_tokens": 866,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "preference": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "quoted": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.7458884029183537,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 984,
+        "output_tokens": 32
+      },
+      "cost_reservation_cny": 0.0032838000000000003
+    },
+    {
+      "case_id": "forged-unwrapped-query",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "skipped",
+      "turn_status": "unknown",
+      "turn_reason": "missing_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "3611d64f33e483d135b3d07cd3cf515bdf250e00b2ee63dfa79878829365092c",
+      "materialization_sha256": "832481788b640057f33a6762b903172aa18ce38e55f9e88dfca5a1c2fb52cc7e",
+      "input_sha256": "906be1093c00f392d397884976960b6ab18a0d2035360ffcea27e66fb96da562",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "quoted": 0
+        },
+        "text_carriers": 0,
+        "serialized_utf8_bytes": 642
+      },
+      "estimated_input_tokens": 750,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.150602474808693e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "forged-unwrapped-query",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "unknown",
+      "turn_reason": "missing_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "3611d64f33e483d135b3d07cd3cf515bdf250e00b2ee63dfa79878829365092c",
+      "materialization_sha256": "832481788b640057f33a6762b903172aa18ce38e55f9e88dfca5a1c2fb52cc7e",
+      "input_sha256": "c148c7e16a182b7562d2fbfb77ba0006415d245bbd76bdd7f0f383087d822c05",
+      "output_sha256": "b7db53ec39d1875b5be70d2e4e461114ae4d8ede7ab4a56ab99693597e678b28",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "quoted": 128
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1104
+      },
+      "estimated_input_tokens": 866,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "preference": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "quoted": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 1,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.9487023310502991,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 984,
+        "output_tokens": 48
+      },
+      "cost_reservation_cny": 0.0032838000000000003
+    },
+    {
+      "case_id": "forged-unwrapped-query",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "skipped",
+      "turn_status": "unknown",
+      "turn_reason": "missing_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "3611d64f33e483d135b3d07cd3cf515bdf250e00b2ee63dfa79878829365092c",
+      "materialization_sha256": "832481788b640057f33a6762b903172aa18ce38e55f9e88dfca5a1c2fb52cc7e",
+      "input_sha256": "906be1093c00f392d397884976960b6ab18a0d2035360ffcea27e66fb96da562",
+      "output_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "quoted": 0
+        },
+        "text_carriers": 0,
+        "serialized_utf8_bytes": 642
+      },
+      "estimated_input_tokens": 750,
+      "candidate_count": 0,
+      "candidate_kinds": {},
+      "review_complete": true,
+      "support_categories": {},
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 0,
+      "retained_current_claims": 0,
+      "required_current_retention": null,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.1241994798183441e-05,
+      "provider_usage": null,
+      "cost_reservation_cny": 0.0
+    },
+    {
+      "case_id": "summary-and-notification",
+      "arm": "joined-source-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "cd84f12599b1e0c46a06e0bcfb4e40a1d0959237c5ede7a6aa9341fc14f5e9f9",
+      "materialization_sha256": "784b5c1b3c2e4913a76ab562f112f3e5c34f668744e6736ae2b398fc008f9111",
+      "input_sha256": "c6ecd793d91b23649b01c2043adfcf64c8517f343be2f74ef9a7b95e3cabf108",
+      "output_sha256": "875fce99d465d830134f981f53da26c50ca56de47fb95daf628f8f0f22edf5de",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 166,
+          "summary": 302
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1664
+      },
+      "estimated_input_tokens": 1006,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 1,
+        "fact": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1,
+        "summary": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.871385814039968,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1110,
+        "output_tokens": 71
+      },
+      "cost_reservation_cny": 0.0033678000000000002
+    },
+    {
+      "case_id": "summary-and-notification",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 0,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "cd84f12599b1e0c46a06e0bcfb4e40a1d0959237c5ede7a6aa9341fc14f5e9f9",
+      "materialization_sha256": "784b5c1b3c2e4913a76ab562f112f3e5c34f668744e6736ae2b398fc008f9111",
+      "input_sha256": "14131050106f5be7efef9198e6a92c68bf913ea1efb520128a344c5691993264",
+      "output_sha256": "54e43b10db50796b4c13c773cf588d1f4e66843011b83d8485cd1ebe6d29e921",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 83,
+          "summary": 0
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.7605454210424796,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 909,
+        "output_tokens": 32
+      },
+      "cost_reservation_cny": 0.00322725
+    },
+    {
+      "case_id": "summary-and-notification",
+      "arm": "joined-source-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "cd84f12599b1e0c46a06e0bcfb4e40a1d0959237c5ede7a6aa9341fc14f5e9f9",
+      "materialization_sha256": "784b5c1b3c2e4913a76ab562f112f3e5c34f668744e6736ae2b398fc008f9111",
+      "input_sha256": "c6ecd793d91b23649b01c2043adfcf64c8517f343be2f74ef9a7b95e3cabf108",
+      "output_sha256": "f645801316662eff08458c2ac41cb6b5f745c8c0bab83d5574cd11ac91444320",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 198,
+          "current": 166,
+          "summary": 302
+        },
+        "text_carriers": 2,
+        "serialized_utf8_bytes": 1664
+      },
+      "estimated_input_tokens": 1006,
+      "candidate_count": 2,
+      "candidate_kinds": {
+        "constraint": 1,
+        "fact": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1,
+        "summary": 1
+      },
+      "critical_candidates": 1,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 1.188916823011823,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 1110,
+        "output_tokens": 96
+      },
+      "cost_reservation_cny": 0.0033678000000000002
+    },
+    {
+      "case_id": "summary-and-notification",
+      "arm": "host-turn-candidate-v1",
+      "repetition": 1,
+      "status": "completed",
+      "turn_status": "eligible",
+      "turn_reason": "validated_host_envelope",
+      "parser_matches_ground_truth": true,
+      "source_sha256": "cd84f12599b1e0c46a06e0bcfb4e40a1d0959237c5ede7a6aa9341fc14f5e9f9",
+      "materialization_sha256": "784b5c1b3c2e4913a76ab562f112f3e5c34f668744e6736ae2b398fc008f9111",
+      "input_sha256": "14131050106f5be7efef9198e6a92c68bf913ea1efb520128a344c5691993264",
+      "output_sha256": "e4825d8f724573d5b58631596eb92bdb802fdacee0078979c3ae0afcc6a5333e",
+      "occupancy": {
+        "labeled_utf8_bytes": {
+          "scaffold": 2,
+          "current": 83,
+          "summary": 0
+        },
+        "text_carriers": 1,
+        "serialized_utf8_bytes": 727
+      },
+      "estimated_input_tokens": 771,
+      "candidate_count": 1,
+      "candidate_kinds": {
+        "constraint": 1
+      },
+      "review_complete": true,
+      "support_categories": {
+        "current": 1
+      },
+      "critical_candidates": 0,
+      "unsupported_candidates": 0,
+      "false_current_attribution": 0,
+      "near_duplicate_candidates": 0,
+      "required_current_claims": 1,
+      "retained_current_claims": 1,
+      "required_current_retention": 1.0,
+      "exact_literal_failures": 0,
+      "generation_seconds": 0.7768072130857036,
+      "provider_usage": {
+        "requests": 1,
+        "input_tokens": 909,
+        "output_tokens": 40
+      },
+      "cost_reservation_cny": 0.00322725
+    }
+  ],
+  "limitations": [
+    "Synthetic host replay does not qualify a native WorkBuddy installation.",
+    "Eligible means syntactically identified under the frozen host envelope hypothesis, not trusted authority.",
+    "Only the configured extraction profile/provider and committed cases were evaluated.",
+    "Input occupancy and empty offline outputs do not establish candidate contamination or model use."
+  ]
+}

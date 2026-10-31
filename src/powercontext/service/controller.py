@@ -30,13 +30,19 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
+from uuid import UUID, uuid4
 
 from powercontext.cli.env_file import environment_context
 from powercontext.paths import POWERCONTEXT_HOME_ENV, powercontext_data_dir
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.service.adapters import NativeServiceAdapter, native_service_adapter
 from powercontext.service.adapters.base import atomic_write, definition_state, service_python_executable
-from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file
+from powercontext.service.environment import (
+    ProtectedEnvironmentFileError,
+    load_protected_environment_file,
+    read_protected_file,
+    write_protected_file,
+)
 from powercontext.service.model import (
     DEFINITION_VERSION,
     OWNERSHIP_MARKER,
@@ -288,6 +294,29 @@ class ServiceController:
     def native_command_path(self) -> Path:
         return self._adapter.lock_path.with_name(f"{self._adapter.lock_path.name}.native-command") / "state.json"
 
+    @property
+    def registration_removal_path(self) -> Path:
+        return self._adapter.lock_path.with_name(f"{self._adapter.lock_path.name}.registration-removal") / "state.json"
+
+    def _registration_removal(self) -> str | None:
+        path = self.registration_removal_path
+        if not path.exists() and not path.is_symlink():
+            return None
+        try:
+            record = json.loads(read_protected_file(path).content)
+            if (
+                not isinstance(record, dict)
+                or set(record) != {"format_version", "removal_id"}
+                or type(record["format_version"]) is not int
+                or record["format_version"] != 1
+                or not isinstance(record["removal_id"], str)
+                or str(UUID(record["removal_id"])) != record["removal_id"]
+            ):
+                raise ValueError("invalid registration removal evidence")  # noqa: TRY003, TRY301
+            return record["removal_id"]
+        except (OSError, ValueError) as error:
+            raise ServiceError("the registration removal evidence cannot be verified") from error  # noqa: TRY003
+
     def start(self) -> ServiceStatus:
         """Start the registered executable without reinstalling or changing configuration."""
 
@@ -295,6 +324,8 @@ class ServiceController:
             self._recover_definition_switch()
             registration, running = self._owned_registration()
             record = self._maintenance_record()
+            if record is not None and record.get("phase") == "runtime_repair":
+                raise ServiceError("resume the owning Ops runtime repair before starting the service")  # noqa: TRY003
             if record is not None and record.get("phase") not in {"manual_stopped", "database_ready", "start_failed"}:
                 raise ServiceError(  # noqa: TRY003
                     "the database migration has not been verified; complete it before starting the service"
@@ -337,6 +368,53 @@ class ServiceController:
                 raise ServiceError("the service is not stopped with a persistent maintenance guard")  # noqa: TRY003
             self._require_stopped(registration.definition)
             return self.status()
+
+    @contextmanager
+    def runtime_repair(self, *, expected_definition: ServiceDefinition, repair_id: str) -> Generator[None, None, None]:
+        """Hold an owned service stopped while its exact runtime is repaired.
+
+        The installer owns resource publication and verification inside this
+        boundary. A normal exit confirms those steps; an exception or process
+        exit retains a guard that ordinary start/install cannot clear. Repair
+        never changes the registered executable, configuration, or version,
+        and completion leaves the service explicitly stopped.
+        """
+        if (
+            not repair_id
+            or len(repair_id) > 96
+            or not all(c.isascii() and (c.isalnum() or c in "-_") for c in repair_id)
+        ):
+            raise ServiceError("the runtime repair identity is invalid")  # noqa: TRY003
+        with self.mutation():
+            registration, _running = self._owned_registration()
+            if registration.definition != expected_definition:
+                raise ServiceError("the service changed; review a new runtime repair plan")  # noqa: TRY003
+            guard: dict[str, object] = {
+                "phase": "runtime_repair",
+                "repair_id": repair_id,
+                "definition": expected_definition.as_dict(),
+                "registration_checksum": hashlib.sha256(registration.content or b"").hexdigest(),
+            }
+            record = self._maintenance_record()
+            if record is not None and record.get("phase") not in {"manual_stopped", "start_failed"} and record != guard:
+                raise ServiceError("finish the existing service maintenance before repairing its runtime")  # noqa: TRY003
+            self._write_maintenance_record(guard)
+            self._adapter.suspend(self.maintenance_path)
+            self._adapter.stop()
+            self._require_stopped(expected_definition)
+            yield
+            registration, running = self._owned_registration()
+            if (
+                running
+                or registration.definition != expected_definition
+                or hashlib.sha256(registration.content or b"").hexdigest() != guard["registration_checksum"]
+                or self._maintenance_record() != guard
+            ):
+                raise ServiceError("the service changed during runtime repair; preserve its recovery guard")  # noqa: TRY003
+            self._require_stopped(expected_definition)
+            if not Path(expected_definition.python_executable).is_file():
+                raise ServiceError("the repaired Server executable is unavailable")  # noqa: TRY003
+            self._write_maintenance_record({"phase": "manual_stopped"})
 
     def stop(self) -> ServiceStatus:
         """Stop the owned service and persistently suppress native automatic activation."""
@@ -393,6 +471,7 @@ class ServiceController:
             "manager": self._adapter.manager_state().value,
             "maintenance": self._maintenance_record(),
             "native_command": native_command_evidence(self.native_command_path),
+            "registration_removal": self._registration_removal(),
         }
 
     def configure(  # noqa: C901
@@ -869,6 +948,8 @@ class ServiceController:
         ):
             if record.get("phase") == "configuration_switching":
                 recovery = "use the owning Ops caller to inspect and resume the interrupted `config_apply` operation"
+            elif record.get("phase") == "runtime_repair":
+                recovery = "use the owning Ops caller to inspect and resume the interrupted runtime repair"
             elif record.get("phase") == "manual_switching":
                 recovery = "run `powercontext service install` to finish the interrupted stopped-registration update"
             elif record.get("phase") == "manual_stopped" and registration.definition is DefinitionState.CURRENT:
@@ -890,6 +971,16 @@ class ServiceController:
             self._require_mutable_registration(registration)
             loaded = self._adapter.loaded_registration()
             self._require_mutable_manager_registration(loaded)
+            # Persist explicit removal intent before touching the registration.
+            # A first install interrupted before registration is retryable, but
+            # its recovery must never undo a later CLI or Ops removal.
+            try:
+                write_protected_file(
+                    self.registration_removal_path,
+                    json.dumps({"format_version": 1, "removal_id": str(uuid4())}).encode("utf-8"),
+                )
+            except (OSError, ValueError) as error:
+                raise ServiceError("registration removal intent could not be recorded") from error  # noqa: TRY003
             if (
                 registration.state is RegistrationState.NOT_INSTALLED
                 and loaded.state is ManagerOwnershipState.NOT_LOADED
@@ -952,6 +1043,7 @@ class ServiceController:
             data_dir=data_dir,
             env_file=loaded_env.identity if loaded_env is not None else None,
             start_on_login=start_on_login,
+            isolated_runtime=target.isolated_runtime,
         )
 
     def _run_uninstall_stage(self, stage: str, operation: Callable[[], None]) -> None:

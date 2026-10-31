@@ -855,9 +855,12 @@ def _kimi_installation(home: Path) -> dict[str, object]:
                 assert script.is_file()
                 assert encoded_script in text
                 assert "__POWERCONTEXT_SCOPE_SCRIPT_JSON__" not in text
+                text = text.replace(encoded_script, '"<installed-scope-script>"')
             if path.suffix == ".json":
                 files[path.relative_to(home).as_posix()] = json.loads(text)
             else:
+                if path.name == "SKILL.md":
+                    assert "__POWERCONTEXT_SCOPE_SCRIPT_JSON__" not in text
                 # The guidance names the installed Scope script by its path inside this test's directories.
                 text = text.replace(str(home.resolve()), "<home>").replace(str(home), "<home>")
                 files[path.relative_to(home).as_posix()] = text

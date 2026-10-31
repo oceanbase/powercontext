@@ -15,7 +15,11 @@ description: 安装 PowerContext Claude Code 插件，并配置召回、提示�
 ```bash
 powercontext --version
 claude --version
+python3 --version
 ```
+
+Claude Code 使用 `PATH` 上找到的 `python3` 运行插件的 Hook 和状态栏，而不是 PowerContext 安装所用的 Python。
+它们需要 Python 3.9 或更新版本，且只依赖标准库，因此 macOS 自带的系统 Python 即可使用。
 
 Python package 和插件应使用同一个 PowerContext 仓库 ref。Hook 会校验带版本的 Prepared Context contract，
 因此旧 Server 与新插件混用时，召回可能被禁用，但不会阻塞 Claude Code。

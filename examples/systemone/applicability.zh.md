@@ -1,6 +1,6 @@
 # 使用 Jev / Laya 判断 Experience 和 Skill 是否适用
 
-[English](applicability.README.md) · [Issue #1647](https://github.com/oceanbase/powercontext/issues/1647)
+[English](applicability.README.md) · [Issue #1941](https://github.com/oceanbase/powercontext/issues/1941)
 
 这个功能解决的是“当前任务应该参考哪些经验、使用哪个 Skill”。例如修改 HTTP 契约时，
 生成客户端和验证契约两条经验都适用；只解释接口用途时，这些修改流程都不该被推荐。

@@ -1063,6 +1063,76 @@ def target_config(tmp_path: Path, short_tmp_path: Path, request: pytest.FixtureR
         yield BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'target.db'}"))
 
 
+def test_archive_batches_validation_and_rechecks_after_dry_run(tmp_path: Path, target_config: BuiltinConfig) -> None:
+    async def authorize(_scopes: tuple[str, ...]) -> None:
+        pass
+
+    async def scenario() -> None:
+        archive = tmp_path / "batched.pcb"
+        async with open_builtin_contexts(BuiltinConfig()) as source:
+            scope = await source.scopes.create(ScopeDraft(title="Batch", summary="Batch", idempotency_key="batch"))
+            context = await source.get(scope.scope_id)
+            for number in range(205):
+                await context.sources.capture(ContentCapture(source_id=f"source-{number:04}", content="portable"))
+            exported = await source.portability.export([scope.scope_id], archive, authorize=authorize)
+
+        async with open_builtin_contexts(target_config) as target:
+            query_parameters = []
+
+            def observe(_connection, _cursor, statement, parameters, _context, _many):
+                if statement.startswith("SELECT") and "FROM pc_sources" in statement:
+                    query_parameters.append(len(parameters))
+
+            event.listen(target.database.engine.sync_engine, "before_cursor_execute", observe)
+            try:
+                validation = await target.portability.validate(archive)
+                assert validation.compatible and validation.already_present == 0
+                assert 0 < len(query_parameters) <= 3
+                assert max(query_parameters) <= 900
+            finally:
+                event.remove(target.database.engine.sync_engine, "before_cursor_execute", observe)
+            restored = await target.portability.restore(archive)
+            assert restored.inserted == exported.record_count and restored.projections_ready
+            query_parameters.clear()
+            event.listen(target.database.engine.sync_engine, "before_cursor_execute", observe)
+            try:
+                validation = await target.portability.validate(archive)
+                assert validation.compatible and validation.already_present == exported.record_count
+                assert 0 < len(query_parameters) <= 3
+            finally:
+                event.remove(target.database.engine.sync_engine, "before_cursor_execute", observe)
+
+            # Change a real target after a successful dry-run, then ensure the
+            # fresh restore-time check rejects it without overwriting anything.
+            async with target.database.transaction() as connection:
+                original = await connection.scalar(
+                    select(SOURCES_TABLE.c.payload).where(
+                        SOURCES_TABLE.c.scope_id == scope.scope_id, SOURCES_TABLE.c.source_id == "source-0100"
+                    )
+                )
+                assert original is not None
+                await connection.execute(
+                    update(SOURCES_TABLE)
+                    .where(SOURCES_TABLE.c.scope_id == scope.scope_id, SOURCES_TABLE.c.source_id == "source-0100")
+                    .values(payload=bytes(original).replace(b"portable", b"modified"))
+                )
+            with pytest.raises(BundleConflictError):
+                await target.portability.restore(archive)
+            assert (await target.portability.validate(archive)).conflicts == 1
+            async with target.database.transaction() as connection:
+                await connection.execute(
+                    update(SOURCES_TABLE)
+                    .where(SOURCES_TABLE.c.scope_id == scope.scope_id, SOURCES_TABLE.c.source_id == "source-0100")
+                    .values(payload=original)
+                )
+            retry = await target.portability.restore(archive)
+            assert retry.inserted == 0 and retry.already_present == exported.record_count
+        async with open_builtin_contexts(target_config) as restarted:
+            assert (await restarted.portability.validate(archive)).already_present == exported.record_count
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("legacy", [False, True])
 @pytest.mark.parametrize("target_definition", ["absent", "identical", "conflicting"])
 def test_archive_preserves_remote_observations_without_worker_adapter(

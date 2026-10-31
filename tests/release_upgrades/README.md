@@ -2,13 +2,13 @@
 
 `release/upgrade-support.json` requires **positive** 1.3.0 upgrades on SQLite, embedded seekDB, and OceanBase.
 The current `upgrade-required` mode keeps the upgrade support declaration unverified while requiring every automatic case
-to run and pass. The two embedded seekDB Code configurations are temporarily manual and do not block publication. Missing full migration integration (#2154) fails the gate. `supported-upgrades` runs the same
+to run and pass, including both embedded seekDB Code configurations. Missing full migration integration (#2154) fails the gate. `supported-upgrades` runs the same
 matrix and enables publication after the reviewed support declaration is updated. `fresh-install-only` is rejected.
 
 ## Reviewed sources and current target
 
 The declared target release is **1.4.1**. Public migration output maps the two source baselines to
-`v1_3_0_000` / `v1_4_0_000` and the shared steps to `v1_4_1_001`–`v1_4_1_003`. The suite checks
+`v1_3_0_000` / `v1_4_0_000` and the shared steps to `v1_4_1_001`–`v1_4_1_006`. The suite checks
 these names while retaining the original revision IDs in execution and recovery evidence.
 
 The `automatic_sources` policy uses `strategy: "fixed-version"` and `source_version: "1.3.0"`.
@@ -75,23 +75,20 @@ PR and publication CI use the same reusable workflow, `upgrade-release.yml`:
 4. **Gate publication:** require all case jobs, including cleanup and artifact upload, to succeed. Only the accepted automatic
    distribution snapshot can reach PyPI or GitHub Release assets. `upgrade-required` still blocks publication.
 
-Temporarily, Main and Release automatically require 10 configurations. Embedded seekDB `full-server-code`
-and `full-server-vector-code` run only on manual request while the available engine exhibits DDL waits.
-In Actions → Main → Run workflow, select the branch and set `upgrade_selection` to `seekdb-code` to run
-those two upgrade configurations alone, or `full` to run all 12. Other Main CI suites still run normally.
-For a PR branch, the equivalent command is:
+Main and Release automatically require all 12 configurations, including embedded seekDB `full-server-code`
+and `full-server-vector-code`. The project requires `pylibseekdb>=1.4.0.post2,<2`, and `uv.lock` pins
+`1.4.0.post2`, which contains the recovered-transaction lock fix from seekdb#1499.
+Both `full` (the default) and `automatic` select the complete matrix.
+
+For focused diagnostics, Actions → Main → Run workflow still accepts `upgrade_selection=seekdb-code`
+to run just the two seekDB Code configurations. Other Main CI suites still run normally:
 
 ```sh
-gh workflow run master.yml --repo oceanbase/powercontext --ref codex/issue-2154-full-server-upgrade -f upgrade_selection=seekdb-code
+gh workflow run master.yml --repo oceanbase/powercontext --ref YOUR_BRANCH -f upgrade_selection=seekdb-code
 ```
 
-`automatic` runs the remaining 10. Reports list deferred cases and mark full acceptance incomplete; a passing
-automatic run can expose the tested distributions for publication without evidence from the manual cases.
-A manual-only run produces no publication artifacts and cannot authorize release. Missing, skipped or failed
-automatic cases still block publication, and the reviewed support declaration remains mandatory. Passing
-automatic CI does not certify either seekDB Code configuration; they are excluded from generated supported
-upgrade claims. After validating a fixed seekDB release, remove the temporary `manual_upgrade_case` waiver
-and restore Main and Release to `full` selection.
+A diagnostic subset produces no publication artifacts and cannot authorize release. Missing, skipped or failed
+cases in the full automatic matrix block publication, and the reviewed support declaration remains mandatory.
 
 The fixed required check remains **Upgrade release gate**; on Main it covers only the selected configurations. It fails if the shared workflow fails or is cancelled.
 Each case job has a sixty-minute budget including provisioning; existing thirty-minute command deadlines and
@@ -99,7 +96,7 @@ owned-descendant cleanup remain unchanged. Wall time depends on the slowest case
 not the sum of twelve cases. This increases concurrent runner use and does not promise a fixed speedup.
 
 The runner creates separate source/target environments, installs the exact published source package and the built
-target wheel, verifies their versions, then executes the reviewed suite in an isolated working directory. Repository
+target wheel, pins both seekDB environments to the `pylibseekdb` version in the checkout's `uv.lock`, verifies their versions, then executes the reviewed suite in an isolated working directory. Repository
 pytest configuration and deployment environment variables are excluded. The suite must exercise those installed
 processes, not import the current checkout's runtime in place of either version. Use `-I` when invoking their Python.
 
@@ -125,11 +122,16 @@ Provide these behavioral tests (additional tests are allowed):
 | `test_public_migration_commands` | Stop writers, run the target artifact's public maintenance commands, and validate full readiness. SQLite additionally restores the actual automatic recovery point, reads it with the source Server, upgrades it and verifies target use. A limited bundle verification does not pass. |
 | `test_target_startup` | Start the target Server against the migrated database and verify readiness. |
 | `test_read_write_and_retrieval` | Read the old records, write new ones, and retrieve both through public interfaces. |
-| `test_authorization` | Verify permitted and denied access and preservation of relevant grants. |
+| `test_authorization` | Preserve the old viewer grant; verify allowed reads, denied cross-scope reads, denied writes and unchanged data after rejection using both installed releases. Invalid credentials must still fail. |
 | `test_candidates_and_processing` | Verify retained Candidates and CAS approval; load and acknowledge the old pending intent using the target installed SDK, including idempotency. |
 | `test_background_processing` | Run the installed target's actual Memory Worker against a local controlled inference endpoint; capture a new Source, verify the published Memory's exact Source reference and FTS retrieval, and require the child Worker's usage report. |
 | `test_preserved_history_and_cursors` | Verify exact history/references and unchanged or declared-transformed cursor and receipt semantics. |
 | `test_fresh_upgrade_equivalence` | Initialize a fresh target database; compare schema/backend objects and behavior with the upgraded database. The current suite has no retained/archive object exclusions. |
+
+The authorization probe runs each installed release's native Server through real HTTP handlers with a fixed
+ordinary-user authentication provider. The persisted builtin authorization policy is not overridden. Both the
+source and target CLI Servers are stopped before the SDK probe opens storage, so embedded seekDB has one owner.
+CLI readiness remains a separate mandatory phase.
 
 Use a session fixture for the shared lifecycle; do not depend on pytest's test execution order. All collected tests
 must execute and pass. Empty collection, missing phases, skips (including missing backends), xfail, failure, command
@@ -153,7 +155,8 @@ The separate SDK fixture tests the old pending intent's format and acknowledgmen
 execution and evidence preservation, not real-model quality. Vector storage uses its separately registered profiles;
 passing a no-vector case cannot establish vector acceptance.
 SQLite inventories include indexes, views and triggers; MySQL-family table DDL includes indexes and constraints,
-and views are collected separately. MySQL comparison parses columns, indexes (including parser properties), constraints, and CHECK expressions, ignoring only physical formatting and backend-generated constraint names. Views and triggers are collected independently. SQLite normalizes whitespace and identifier quoting. Structural differences fail rather than being silently excluded.
+and views are collected separately. MySQL comparison parses columns, indexes (including parser properties), constraints, and CHECK expressions, ignoring only physical formatting and backend-generated constraint names. Views and triggers are collected independently; native trigger comparison includes timing (`BEFORE`/`AFTER`),
+event, table and statement. SQLite preserves quoted tokens and normalizes only unquoted formatting whitespace. Structural differences fail rather than being silently excluded.
 
 Regenerate installation support regions with
 `uv run python scripts/upgrade_release_gate.py --write-docs` and run `make upgrade-policy-check`. When persistence
@@ -206,3 +209,31 @@ Main first runs the previously failing embedded seekDB concurrent-startup regres
 once, before the installed-release workflow and the remaining seekDB clean-migration job.
 Those jobs still run after a failed priority check unless the workflow is cancelled; the
 selected installed-release cases remain disjoint and parallel. Other CI suites can run concurrently.
+
+## Regression checks
+
+The shared prepare job runs gate, publication and schema-equivalence regressions before checking the reviewed
+persistence digest. Digest failure still blocks preparation; the earlier regression result remains visible.
+The raw DDL comparator preserves quoted literals, comments and identifier boundaries, normalizing only unquoted
+whitespace and table-level auto-increment counters. Native logical table reflection remains authoritative for
+seekDB/OceanBase comparisons, with views and triggers also compared. SQL literal differences must never disappear
+as formatting changes. Unknown configurations and missing or mismatched execution evidence fail closed.
+
+Full installed-release acceptance requires Linux process ownership and descendant cleanup. Other hosts can run
+the policy and comparison regressions, but the full runner rejects them before creating workspaces or installing
+packages. Passing local regressions is not evidence of a successful native-backend upgrade.
+
+
+## Acceptance boundaries
+
+A passing run establishes the selected cases for that exact target build, not every historical production database.
+The source fixture is newly initialized with the official 1.3.0 package and representative data; it does not recreate
+an older-version-to-1.3.0 lineage or an existing user's database. Each future target build must rerun acceptance.
+The Linux matrix does not establish macOS embedded-engine, desktop-daemon or in-place tool-installation behavior.
+Source and target dependency resolution does not freeze the dependencies of a historical installation, so recorded
+engine/driver versions must be considered when interpreting compatibility evidence.
+
+The positive path exercises the public `db-migrate` commands, not the historical `atomic-memory-migrate` procedure.
+SQLite tests automatic backup restoration; seekDB and OceanBase explicitly skip backups in this suite and do not
+establish backup/rollback acceptance. Both embedded seekDB Code configurations require successful evidence
+as part of the complete automatic matrix.

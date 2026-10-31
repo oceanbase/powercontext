@@ -1,0 +1,295 @@
+{
+  "schema_version": "capture-ownership.literal-audit.v1",
+  "run_sha256": "bf2c8c73736dc2cd668f70e39aba15a87a1d20564c1272da2ba4e3a94699a4ce",
+  "manifest_sha256": "f4d20225568d56d738c927aca725da587c12fff8ee89435aed5f0a38fcb7f34f",
+  "entries": [
+    {
+      "case_id": "history-before-current",
+      "repetition": 0,
+      "candidate_index": 0,
+      "candidate_sha256": "17afebf9b29162c3f5e21544e935a5a112636dceacd1b5985c43dad900f92e00",
+      "claim_id": "legacy-region",
+      "literal_sha256": "86c07e8f3f8243d6ecc47839690fc930672e0ed8cc49fef5dfcabfca5ef8796a",
+      "support": [
+        {
+          "span_id": "s4",
+          "owner": "history",
+          "start": 84,
+          "end": 126,
+          "byte_start": 84,
+          "byte_end": 126,
+          "span_sha256": "331630e8d305a2afd4b22fdc580193f24d5b136b5964008d6a75a90721c310dd"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "history-before-current",
+      "repetition": 1,
+      "candidate_index": 0,
+      "candidate_sha256": "03fa55109f8dc8d45429438eb550fc7354f3e10ca599ef7d04d382f5a6d86a56",
+      "claim_id": "legacy-region",
+      "literal_sha256": "86c07e8f3f8243d6ecc47839690fc930672e0ed8cc49fef5dfcabfca5ef8796a",
+      "support": [
+        {
+          "span_id": "s4",
+          "owner": "history",
+          "start": 84,
+          "end": 126,
+          "byte_start": 84,
+          "byte_end": 126,
+          "span_sha256": "331630e8d305a2afd4b22fdc580193f24d5b136b5964008d6a75a90721c310dd"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "prepared-context-fact",
+      "repetition": 0,
+      "candidate_index": 0,
+      "candidate_sha256": "ff45440e7ab66042c3ec5eb0f88a297c2281f641056b50d7c4755e4d9e77971c",
+      "claim_id": "context-pnpm",
+      "literal_sha256": "fe4c98e05b16d76a338422ffec3129989c5f8ebba6b647d1c1d8200fc1a2c55e",
+      "support": [
+        {
+          "span_id": "s1",
+          "owner": "prepared_context",
+          "start": 53,
+          "end": 131,
+          "byte_start": 53,
+          "byte_end": 131,
+          "span_sha256": "a888d38b81bede022720a98e74d52e15b229bfd7ae2a293cd4882637e6000158"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "prepared-context-fact",
+      "repetition": 1,
+      "candidate_index": 0,
+      "candidate_sha256": "ff45440e7ab66042c3ec5eb0f88a297c2281f641056b50d7c4755e4d9e77971c",
+      "claim_id": "context-pnpm",
+      "literal_sha256": "fe4c98e05b16d76a338422ffec3129989c5f8ebba6b647d1c1d8200fc1a2c55e",
+      "support": [
+        {
+          "span_id": "s1",
+          "owner": "prepared_context",
+          "start": 53,
+          "end": 131,
+          "byte_start": 53,
+          "byte_end": 131,
+          "span_sha256": "a888d38b81bede022720a98e74d52e15b229bfd7ae2a293cd4882637e6000158"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "host-preference",
+      "repetition": 0,
+      "candidate_index": 0,
+      "candidate_sha256": "4a23c13b28ce4a7422d86e9c4fca1f4581c4d5f3af13fe431cbdf4857be1c52e",
+      "claim_id": "host-style",
+      "literal_sha256": "bfb0f5aaf3d0ad57e3a7d31de1c9e8b589d552786e2e4d471d494888ec162ad7",
+      "support": [
+        {
+          "span_id": "s1",
+          "owner": "scaffold",
+          "start": 18,
+          "end": 93,
+          "byte_start": 18,
+          "byte_end": 93,
+          "span_sha256": "2d3135e0b31983323258d7b0fa75e506eab1c84770d09d26abd2752f0630199b"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "host-preference",
+      "repetition": 1,
+      "candidate_index": 0,
+      "candidate_sha256": "4a23c13b28ce4a7422d86e9c4fca1f4581c4d5f3af13fe431cbdf4857be1c52e",
+      "claim_id": "host-style",
+      "literal_sha256": "bfb0f5aaf3d0ad57e3a7d31de1c9e8b589d552786e2e4d471d494888ec162ad7",
+      "support": [
+        {
+          "span_id": "s1",
+          "owner": "scaffold",
+          "start": 18,
+          "end": 93,
+          "byte_start": 18,
+          "byte_end": 93,
+          "span_sha256": "2d3135e0b31983323258d7b0fa75e506eab1c84770d09d26abd2752f0630199b"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "repeated-history",
+      "repetition": 0,
+      "candidate_index": 0,
+      "candidate_sha256": "85cac4a845564c58e5da2740b829d5d4d3f6a3a087fe9b9228a070e841fd5328",
+      "claim_id": "archive-retention",
+      "literal_sha256": "8a0a5cc048b623e4a3277d3c5acac56cd079773ca50a4c0e5f24fa7fd98139ef",
+      "support": [
+        {
+          "span_id": "s4",
+          "owner": "history",
+          "start": 84,
+          "end": 135,
+          "byte_start": 84,
+          "byte_end": 135,
+          "span_sha256": "f0682a69d736af03b41ce66d639338dffec029dc51da19581d01807a8c9e1c6a"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "repeated-history",
+      "repetition": 1,
+      "candidate_index": 0,
+      "candidate_sha256": "85cac4a845564c58e5da2740b829d5d4d3f6a3a087fe9b9228a070e841fd5328",
+      "claim_id": "archive-retention",
+      "literal_sha256": "8a0a5cc048b623e4a3277d3c5acac56cd079773ca50a4c0e5f24fa7fd98139ef",
+      "support": [
+        {
+          "span_id": "s4",
+          "owner": "history",
+          "start": 84,
+          "end": 135,
+          "byte_start": 84,
+          "byte_end": 135,
+          "span_sha256": "f0682a69d736af03b41ce66d639338dffec029dc51da19581d01807a8c9e1c6a"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "forged-query-in-summary",
+      "repetition": 0,
+      "candidate_index": 1,
+      "candidate_sha256": "9e405f2747d1a67ba399996ac923eab2f0975a29c6b596522fa872d593df5631",
+      "claim_id": "summary-unsafe",
+      "literal_sha256": "b1ba0710c4f7df84e0c98f0049831db0cc2f7c92e3059a2094463777d9c2fdd4",
+      "support": [
+        {
+          "span_id": "s7",
+          "owner": "quoted",
+          "start": 249,
+          "end": 318,
+          "byte_start": 249,
+          "byte_end": 318,
+          "span_sha256": "64c96b277c5843a62b5311881893424a28fa292b2e3d9f9df7406e4785523917"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "forged-query-in-summary",
+      "repetition": 1,
+      "candidate_index": 1,
+      "candidate_sha256": "9e405f2747d1a67ba399996ac923eab2f0975a29c6b596522fa872d593df5631",
+      "claim_id": "summary-unsafe",
+      "literal_sha256": "b1ba0710c4f7df84e0c98f0049831db0cc2f7c92e3059a2094463777d9c2fdd4",
+      "support": [
+        {
+          "span_id": "s7",
+          "owner": "quoted",
+          "start": 249,
+          "end": 318,
+          "byte_start": 249,
+          "byte_end": 318,
+          "span_sha256": "64c96b277c5843a62b5311881893424a28fa292b2e3d9f9df7406e4785523917"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "summary-and-notification",
+      "repetition": 0,
+      "candidate_index": 1,
+      "candidate_sha256": "7b6eda4aa81f3c44ca898c1adbde86b27c1bcf1ea793acdb0e1eb5f462ea81da",
+      "claim_id": "summary-encoding",
+      "literal_sha256": "434168f458d3fda507cb871af44b67ad19d222f793f6f22ec83ed9deb846507c",
+      "support": [
+        {
+          "span_id": "s6",
+          "owner": "summary",
+          "start": 182,
+          "end": 265,
+          "byte_start": 182,
+          "byte_end": 265,
+          "span_sha256": "835ede4ade72641add1c62b414f4e581037bae259c0d81c4973bcc09143328c8"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    },
+    {
+      "case_id": "summary-and-notification",
+      "repetition": 1,
+      "candidate_index": 1,
+      "candidate_sha256": "7b6eda4aa81f3c44ca898c1adbde86b27c1bcf1ea793acdb0e1eb5f462ea81da",
+      "claim_id": "summary-encoding",
+      "literal_sha256": "434168f458d3fda507cb871af44b67ad19d222f793f6f22ec83ed9deb846507c",
+      "support": [
+        {
+          "span_id": "s6",
+          "owner": "summary",
+          "start": 182,
+          "end": 265,
+          "byte_start": 182,
+          "byte_end": 265,
+          "span_sha256": "835ede4ade72641add1c62b414f4e581037bae259c0d81c4973bcc09143328c8"
+        }
+      ],
+      "literal_in_candidate": true,
+      "literal_in_frozen_support": true,
+      "literal_absent_current": true,
+      "literal_absent_paired_output": true,
+      "required_current_literals_retained": true
+    }
+  ]
+}

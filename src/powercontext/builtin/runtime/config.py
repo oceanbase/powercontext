@@ -180,11 +180,12 @@ class RuntimeConfig(BaseModel):
     recall_gate_allow_with_rerank: bool = False
     recall_fts_weight: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
     recall_vector_weight: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
-    # Budget for embedding the query in each Atomic Memory or Topic Memory search of a context preparation. A
-    # preparation searches the Scope and each context reference in turn, so the waits add up inside the Hook
-    # request; when a budget expires, that search continues with lexical matching only. A remote embedding
-    # provider needs more than the default.
-    recall_embedding_timeout_seconds: float = Field(default=0.25, gt=0.0, le=60.0, allow_inf_nan=False)
+    # Budget for waiting on query embeddings in one context preparation. The Atomic Memory searches of the Scope and
+    # each context reference and the Topic Memory search share it, and only their waits are charged, so database reads
+    # and reranking in between do not take a later search's share; a search that finds it spent continues with lexical
+    # matching only. The default covers a typical remote embedding round trip and leaves the rest of a one-second Hook
+    # request to the other work.
+    recall_embedding_timeout_seconds: float = Field(default=0.5, gt=0.0, le=60.0, allow_inf_nan=False)
     profile_schedule_enabled: bool = False
     profile_cron: str = "0 2 * * *"
     profile_timezone: str = "Asia/Shanghai"

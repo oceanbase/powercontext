@@ -51,6 +51,30 @@ The plugin exposes five tools: `powercontext_memory_search`, `powercontext_memor
 `powercontext_memory_store`, `powercontext_memory_revise`, and `powercontext_memory_retire`. The mutating tools
 require the model to call them explicitly; OpenClaw controls side-effecting tool execution.
 
+### Pre-compaction checkpoint
+
+The plugin implements **best-effort** pre-compaction checkpointing on OpenClaw's public `before_compaction` event.
+It resolves the Scope once, captures the latest eligible user message with a deterministic Source ID, retains the
+returned Source journal position, and flushes that same Scope. `agent_end` identity uses the public host `runId`.
+Because `before_compaction` has no unique event ID, its less frequent path streams the complete JSON-shaped event
+messages through a canonical object-key-ordered hash; semantic duplicate payloads therefore retain one identity while
+later payloads remain distinct without constructing a transcript-sized intermediate string. A
+checkpoint is acknowledged only by a complete, valid flush response whose `current_cursor` is at or beyond that
+position. A 2xx response alone is not an acknowledgement.
+
+If the cursor is behind or `remaining_work` is true, the plugin makes at most `flushMaxCalls` calls (default `4`,
+valid range `1`–`16`) within a one-second boundary budget that starts when the flush is queued; `timeoutMs` (default 2500 ms) remains the per-request
+ceiling. Accepted positions that are not acknowledged remain pending for Server scheduling or a later bounded flush
+at `session_end` or `gateway_stop`. Closing work has priority over queued pre-compaction work, while queue waiting
+counts against each event's boundary budget. Closing events flush only
+already accepted positions and are not reported as pre-compaction events. A boundary that exhausts its budget while
+queued emits a content-free `deadline_exceeded` diagnostic and retains its pending positions.
+
+OpenClaw catches `before_compaction` hook failures and continues compaction, so this integration is not
+`required_capable`. Failure diagnostics contain the host, lifecycle event, a hashed Scope correlation, target and
+observed positions when known, and a stable failure class. They never include transcript content, prompts, queries,
+credentials, or provider exceptions.
+
 Explicit search uses `/v1/memory/search` and get reads the exact Atomic Memory Artifact revision; they do not call
 `/v1/context/prepare`. Search limits the query to 8192 characters and clamps the requested result limit to 1–50
 (default 10), while each get returns at most 120 lines and 12,000 characters.

@@ -19,7 +19,6 @@ import re
 import shlex
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import cast
 
 import httpx
 import pytest
@@ -62,11 +61,6 @@ from powercontext.server.settings import (
 from powercontext.sources import Source
 
 _ACCESS_FAMILIES = "atomic-memory:enabled,experience:enabled,handoff:enabled,memory:enabled,profile:enabled,prompt:enabled,skill:enabled"
-
-
-class _StartupOnlyAccessControl:
-    async def committed_receipt_identity(self, _scope_id: str, _source_id: str, /) -> None:
-        return None
 
 
 def _access_readiness_checks(
@@ -448,7 +442,7 @@ def test_server_settings_select_embedded_seekdb(tmp_path, monkeypatch) -> None:
 
     assert isinstance(settings.database, SeekDBConfig)
     assert settings.database.path == data_dir / "seekdb"
-    assert settings.database.database == "test"
+    assert settings.database.database == "powercontext"
     assert not data_dir.exists()
 
 
@@ -474,16 +468,65 @@ def test_server_settings_override_embedded_seekdb_path(tmp_path, monkeypatch) ->
 
     assert isinstance(settings.database, SeekDBConfig)
     assert settings.database.path == database_path
-    assert settings.database.database == "test"
+    assert settings.database.database == "powercontext"
 
 
-def test_server_settings_reject_custom_embedded_seekdb_database(tmp_path, monkeypatch) -> None:
+def test_server_settings_accept_custom_embedded_seekdb_database(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "seekdb"))
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_DATABASE", "custom")
 
-    with pytest.raises(ValidationError, match="Input should be 'test'"):
-        ServerSettings()
+    settings = ServerSettings()
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.database == "custom"
+    assert "database" in settings.database.model_fields_set
+
+
+@pytest.mark.parametrize("source", ["model", "mapping", "environment"])
+@pytest.mark.parametrize("name", [None, "powercontext", "test", "team_context"])
+def test_server_settings_preserve_seekdb_database_choice(tmp_path, monkeypatch, source, name) -> None:
+    values = {"kind": "seekdb", "path": tmp_path / "seekdb"}
+    if name is not None:
+        values["database"] = name
+    original = SeekDBConfig.model_validate(values)
+    original_fields = original.model_fields_set.copy()
+    if source == "model":
+        settings = ServerSettings(database=original)
+    elif source == "mapping":
+        settings = ServerSettings(database=values)  # ty: ignore[invalid-argument-type] Pydantic accepts nested mappings.
+    else:
+        for key, value in values.items():
+            monkeypatch.setenv(f"POWERCONTEXT_SERVER_DATABASE_{key.upper()}", str(value))
+        settings = ServerSettings()
+
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.database == (name or "powercontext")
+    assert ("database" in settings.database.model_fields_set) is (name is not None)
+    assert settings.database.path == original.path
+    assert original.model_fields_set == original_fields
+
+
+@pytest.mark.parametrize("name", [None, "powercontext", "test", "team_context"])
+def test_server_settings_merge_seekdb_model_with_environment(tmp_path, monkeypatch, name) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_DATABASE", "environment_context")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "environment"))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_ECHO", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_POOL_PRE_PING", "false")
+    original = (
+        SeekDBConfig(path=tmp_path / "seekdb")
+        if name is None
+        else SeekDBConfig(path=tmp_path / "seekdb", database=name)
+    )
+
+    settings = ServerSettings(database=original)
+
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.database == (name or "environment_context")
+    assert "database" in settings.database.model_fields_set
+    assert settings.database.path == original.path
+    assert settings.database.echo is original.echo
+    assert settings.database.pool_pre_ping is original.pool_pre_ping
+    assert ("database" in original.model_fields_set) is (name is not None)
 
 
 def test_supervisor_uses_primary_database_without_scheduler_sidecar(tmp_path, monkeypatch) -> None:
@@ -631,11 +674,11 @@ def test_enforced_mode_fails_closed_if_the_authorization_provider_disappears(tmp
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
             mcp=McpConfig(enabled=False),
         ),
-        access_control=cast(AccessControlService, _StartupOnlyAccessControl()),
     )
     headers = {"Authorization": "Bearer server-secret"}
 
     with TestClient(app) as client:
+        assert isinstance(app.state.access_control, AccessControlService)
         app.state.access_control = None
         readiness = client.get("/health/ready")
         protected = (
@@ -1280,3 +1323,23 @@ def test_logging_failure_does_not_change_the_response(monkeypatch) -> None:
 
     assert response.status_code == 500
     assert re.fullmatch(r"[0-9a-f]{16}", response.headers["X-PowerContext-Request-ID"])
+
+
+def test_server_settings_keep_explicit_legacy_seekdb_database(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "seekdb"))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_DATABASE", "test")
+    settings = ServerSettings()
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.database == "test"
+    assert "database" in settings.database.model_fields_set
+
+
+def test_server_settings_default_oceanbase_database(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "oceanbase")
+    monkeypatch.setenv(
+        "POWERCONTEXT_SERVER_DATABASE_URL", "mysql+aoceanbase://user:password@localhost:2881/?charset=utf8mb4"
+    )
+    settings = ServerSettings()
+    assert isinstance(settings.database, OceanBaseConfig)
+    assert "/powercontext?charset=utf8mb4" in settings.database.url.get_secret_value()

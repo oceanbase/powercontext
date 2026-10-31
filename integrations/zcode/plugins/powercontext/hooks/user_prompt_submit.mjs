@@ -24,6 +24,7 @@ import { scrubSecrets } from '../shared/prompt-privacy.mjs'
 
 const SETTINGS = loadSettings()
 const MAX_QUERY_CHARACTERS = 8_192
+const MAX_QUERY_BYTES = 8_192
 const MAX_SOURCE_CHARACTERS = 200_000
 
 function diagnostic(stage, code) {
@@ -38,12 +39,15 @@ function emit(output) {
 
 function boundedQuery(prompt) {
   const characters = Array.from(prompt.trim())
-  let query = characters.slice(-MAX_QUERY_CHARACTERS).join('')
-  const encoded = Buffer.from(query, 'utf8')
-  if (encoded.length > MAX_QUERY_CHARACTERS) {
-    query = encoded.subarray(-MAX_QUERY_CHARACTERS).toString('utf8').replace(/^\uFFFD/u, '')
+  let start = characters.length
+  let bytes = 0
+  while (start > 0 && characters.length - start < MAX_QUERY_CHARACTERS) {
+    const size = Buffer.byteLength(characters[start - 1], 'utf8')
+    if (bytes + size > MAX_QUERY_BYTES) break
+    bytes += size
+    start -= 1
   }
-  return query.trim()
+  return characters.slice(start).join('').trim()
 }
 
 function sourceId(input, scopeId, prompt) {

@@ -1,6 +1,6 @@
 # Experience and Skill applicability with Jev / Laya
 
-[中文说明](applicability.zh.md) · [Issue #1647](https://github.com/oceanbase/powercontext/issues/1647)
+[中文说明](applicability.zh.md) · [Issue #1941](https://github.com/oceanbase/powercontext/issues/1941)
 
 This opt-in example answers a specific question: which approved Experience and available Skill
 revisions apply to the current task? Changing an HTTP contract needs generation and validation;

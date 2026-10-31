@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import asyncio
 
-from sqlalchemy import insert
+from sqlalchemy import event, insert
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
@@ -330,3 +331,50 @@ def test_an_accepted_handoff_with_an_outcome_records_selection() -> None:
             assert "avoided" in events
 
     asyncio.run(scenario())
+
+
+# Measured with 40 active Experiences and one unlinked outcome; slack of one statement.
+_INCUBATION_STATEMENT_CEILING = 14
+
+
+def test_incubation_statement_count_does_not_grow_with_scope_experiences() -> None:
+    """An unlinked outcome must not read the scope Experience heads one by one."""
+
+    async def counted(experiences: int) -> int:
+        statements: list[str] = []
+
+        def record(_conn, _cursor, statement, *_args) -> None:
+            statements.append(statement)
+
+        async with SQLiteProfile.open(SQLiteConfig(), tables=TABLES) as profile:
+            sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
+            artifacts = ArtifactRepository((Handoff, Experience), sources=sources)
+            ledger = _ledger(profile.database, sources, artifacts, RecurrenceRepository())
+            async with profile.database.transaction() as connection:
+                await _seed(connection, sources, artifacts, "experience_content")
+                for index in range(2, experiences + 1):
+                    await artifacts.create(
+                        connection,
+                        SCOPE,
+                        f"experience-{index}",
+                        artifacts.draft(
+                            Experience.family,
+                            _content(repair_surface="experience_content").model_dump(mode="json"),
+                        ),
+                    )
+                await _add_failure(sources, connection, "failure-1")
+            event.listen(Engine, "before_cursor_execute", record)
+            try:
+                async with profile.database.transaction() as connection:
+                    through = await sources.journal_position(connection, SCOPE)
+                    rows = await sources.list_window(connection, SCOPE, after=0, through=through)
+                    await ledger.record_window(connection, rows)
+            finally:
+                event.remove(Engine, "before_cursor_execute", record)
+        return len(statements)
+
+    medium = asyncio.run(counted(10))
+    large = asyncio.run(counted(40))
+
+    assert medium == large
+    assert large <= _INCUBATION_STATEMENT_CEILING

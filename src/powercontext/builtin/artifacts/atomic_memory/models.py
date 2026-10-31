@@ -27,6 +27,23 @@ from powercontext.artifacts import Artifact, ArtifactDraft, ArtifactRef
 from powercontext.builtin.artifacts.memory.canonical import canonical_error_code, normalize_text
 
 
+class RecallManifestEntry(BaseModel):
+    """Metadata for one exact active Atomic Memory revision; no body or embedding."""
+
+    ref: ArtifactRef
+    kind: str
+    description: str | None
+    state_version: int
+
+
+class RecallManifestPage(BaseModel):
+    """A bounded live keyset window, never proof that other context families are empty."""
+
+    items: tuple[RecallManifestEntry, ...]
+    next_cursor: str | None
+    code: Literal["page", "empty_inventory"]
+
+
 class AtomicMemoryCreation(BaseModel):
     """Select merge inputs from the exact lineage of revision one."""
 
@@ -51,6 +68,8 @@ class AtomicMemoryContent(BaseModel):
     schema_: Literal["powercontext.atomic-memory.v1"] = Field(default="powercontext.atomic-memory.v1", alias="schema")
     kind: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1)
+    # Historical revisions predate summaries; omit the absent field to preserve their serialized content.
+    description: str | None = Field(default=None, min_length=1, max_length=200, exclude_if=lambda value: value is None)
     creation: AtomicMemoryCreation | None = None
 
     @field_validator("kind")
@@ -72,6 +91,19 @@ class AtomicMemoryContent(BaseModel):
                 raise
         # This model also decodes immutable revisions. Preserve their exact text;
         # the owning service normalizes new writes before preparing a draft.
+        return value
+
+    @field_validator("description")
+    @classmethod
+    def valid_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if value is None:
+            return value
+        if not value.strip():
+            raise ValueError("description must not be blank")  # noqa: TRY003
+        if any(char in value for char in ("\n", "\r", "\u0085", "\u2028", "\u2029")):
+            raise ValueError("description must be a single line")  # noqa: TRY003
         return value
 
     def without_creation(self) -> AtomicMemoryContent:

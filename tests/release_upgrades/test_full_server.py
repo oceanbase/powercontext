@@ -34,11 +34,12 @@ import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 from urllib.parse import urlsplit
 
 import httpx
 import pytest
+from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[2]
 TOKEN = "isolated-upgrade-acceptance-token"  # noqa: S105 -- disposable fixture, never a deployment credential
@@ -123,6 +124,7 @@ def model_gateway():
                 self.wfile.write(response)
                 return
             payload = next((obj for obj in objects(body["messages"]) if "evidence" in obj), None)
+            value: dict[str, Any]
             if payload is None:
                 value = {"ready": True}
             elif "proposal" in payload:
@@ -146,6 +148,17 @@ def model_gateway():
                         if AUTOMATIC_MEMORY in json.dumps(item["content"])
                     ]
                 }
+            # Released schemas forbid extra fields; follow the requested output
+            # schema instead of the target checkout's current content model.
+            description_requested = any(
+                {"kind", "text", "description"} <= obj.get("properties", {}).keys()
+                for schema in objects(body)
+                if {"candidates", "action"} & schema.get("properties", {}).keys()
+                for obj in objects(schema)
+            )
+            contents = [*value.get("candidates", []), value.get("content")]
+            for content in (item for item in contents if description_requested and item is not None):
+                content["description"] = AUTOMATIC_MEMORY
             output = json.dumps(value)
             tools = body.get("tools", [])
             message = {"role": "assistant", "content": output}
@@ -184,6 +197,72 @@ def model_gateway():
         gateway.shutdown()
         gateway.server_close()
         thread.join(timeout=5)
+
+
+@pytest.mark.parametrize("description", [False, True], ids=["released", "current"])
+@pytest.mark.parametrize("stage", ["extract", "create", "noop"])
+@pytest.mark.parametrize("transport", ["prompted", "tool", "native"])
+def test_model_gateway_matches_requested_memory_schema(model_gateway, description, stage, transport):
+    properties = {"kind": {"type": "string"}, "text": {"type": "string"}}
+    if description:
+        properties["description"] = {"type": "string", "minLength": 1, "maxLength": 200}
+    if stage == "extract":
+        properties["evidence_ids"] = {"type": "array", "items": {"type": "string"}, "minItems": 1}
+    record = {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
+    if stage == "extract":
+        output_properties = {"candidates": {"type": "array", "items": {"$ref": "#/$defs/Record"}}}
+    else:
+        output_properties = {
+            "action": {"enum": ["create", "noop"]},
+            "compared_ids": {"type": "array", "items": {"type": "string"}},
+            "target_ids": {"type": "array", "items": {"type": "string"}},
+            "content": {"anyOf": [{"$ref": "#/$defs/Record"}, {"type": "null"}]},
+            "evidence_ids": {"type": "array", "items": {"type": "string"}},
+            "reason": {"type": "string"},
+        }
+    schema = {
+        "$defs": {"Record": record},
+        "type": "object",
+        "properties": output_properties,
+        "required": list(output_properties),
+        "additionalProperties": False,
+    }
+    payload = {"evidence": [{"evidence_id": "source-1", "content": {"content": AUTOMATIC_MEMORY}}]}
+    if stage != "extract":
+        payload.update({
+            "proposal": {
+                "kind": "fact",
+                "text": AUTOMATIC_MEMORY,
+                "description": "Input metadata must not choose the output schema",
+                "evidence_ids": ["source-1"],
+            },
+            "related": [{"item_id": "existing", "text": AUTOMATIC_MEMORY}] if stage == "noop" else [],
+        })
+    body = {"model": "upgrade-fixture", "messages": [{"role": "user", "content": json.dumps(payload)}]}
+    if transport == "prompted":
+        body["messages"].insert(
+            0, {"role": "system", "content": "Respond using this JSON schema:\n" + json.dumps(schema)}
+        )
+    elif transport == "tool":
+        body["tools"] = [{"type": "function", "function": {"name": "final_result", "parameters": schema}}]
+    else:
+        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "final_result", "schema": schema}}
+    with httpx.Client(trust_env=False) as client:
+        response = client.post(model_gateway["url"] + "/chat/completions", json=body)
+    response.raise_for_status()
+    message = response.json()["choices"][0]["message"]
+    if transport == "tool":
+        assert message["tool_calls"][0]["function"]["name"] == "final_result"
+        output = json.loads(message["tool_calls"][0]["function"]["arguments"])
+    else:
+        output = json.loads(message["content"])
+    Draft202012Validator(schema).validate(output)
+    if stage == "noop":
+        assert output["action"] == "noop" and output["content"] is None and output["evidence_ids"] == []
+    else:
+        content = output["candidates"][0] if stage == "extract" else output["content"]
+        assert content["text"] == AUTOMATIC_MEMORY
+        assert ("description" in content) == description
 
 
 def digest(value):
@@ -303,6 +382,8 @@ def environment_for(case, *, fresh=False):
         environment["POWERCONTEXT_SERVER_DATABASE_URL"] = f"sqlite+aiosqlite:///{database}"
     elif backend == "seekdb":
         environment["POWERCONTEXT_SERVER_DATABASE_PATH"] = str(database)
+        if not fresh:
+            environment["POWERCONTEXT_SERVER_DATABASE_DATABASE"] = "test"
     else:
         name = "PC_UPGRADE_OCEANBASE_FRESH_URL" if fresh else "PC_UPGRADE_OCEANBASE_URL"
         url = os.environ[name]
@@ -341,6 +422,7 @@ def snapshot(case, role, name, *, fresh=False):
             case["backend"],
             "--database",
             str(case["work"] / ("fresh" if fresh else "database")),
+            *(["--seekdb-database", "powercontext"] if case["backend"] == "seekdb" and fresh else []),
             "--output",
             str(path),
         ],
@@ -348,7 +430,10 @@ def snapshot(case, role, name, *, fresh=False):
         case["work"],
         case["report"] / f"{name}-probe.log",
     )
-    return json.loads(path.read_text())
+    result = json.loads(path.read_text())
+    if case["backend"] == "seekdb":
+        assert result["database"] == ("powercontext" if fresh else "test")
+    return result
 
 
 def task_state(case, role, operation, scope):
@@ -368,6 +453,17 @@ def task_state(case, role, operation, scope):
         case["report"] / f"task-{operation}.log",
     )
     return json.loads(path.read_text())
+
+
+def verify_authorization(case, role, historical):
+    fixture = case["report"] / "authorization-fixture.json"
+    fixture.write_text(json.dumps(historical), encoding="utf-8")
+    command(
+        [str(case[role]), "-I", str(ROOT / "tests/release_upgrades/authorization_fixture.py"), str(fixture)],
+        environment_for(case),
+        case["work"],
+        case["report"] / f"{role}-authorization.log",
+    )
 
 
 def seed(client, *, candidate_prefix):
@@ -423,9 +519,8 @@ def seed(client, *, candidate_prefix):
         {"scope_id": scope, "candidate_id": published["candidate_id"], "expected_version": published["version"]},
     )
     artifact = post(client, "/v1/experience/get", {"scope_id": scope, "artifact": published["result_artifact"]})
-    principal = client.get("/v1/access/me").json()["principal"]
     grant = {
-        "subject": principal,
+        "subject": {"type": "user", "id": "upgrade-viewer"},
         "resource": {"type": "scope", "scope_id": scope},
         "role": "scope.viewer",
         "idempotency_key": "upgrade-viewer",
@@ -440,6 +535,7 @@ def seed(client, *, candidate_prefix):
     assert {digest(item) for item in readback} >= {digest(item) for item in memory}
     return {
         "scope": scope,
+        "ungranted_scope": scopes[1]["scope_id"],
         "memory": memory,
         "candidate": candidate,
         "first_candidate": first,
@@ -547,6 +643,7 @@ def historical(case):
                 },
             )
             assert_vector_reads(client, value)
+    verify_authorization(case, "source", value)
     if case["code_enabled"]:
         value["code"] = historical_code(case, value["scope"])
     value["task"] = task_state(case, "source", "seed", value["scope"])
@@ -568,6 +665,17 @@ def historical(case):
 @pytest.fixture(scope="session")
 def rejected_legacy_startup(case, historical):
     before = snapshot(case, "target", "before-rejected-startup")
+    if case["backend"] == "seekdb":
+        implicit_environment = environment_for(case)
+        implicit_environment.pop("POWERCONTEXT_SERVER_DATABASE_DATABASE")
+        implicit_log = case["report"] / "implicit-legacy-target-server.log"
+        with (
+            pytest.raises(AssertionError, match="Server exited before readiness"),
+            server(case["target"], implicit_environment, case["work"], implicit_log),
+        ):
+            pytest.fail("The target Server switched away from the historical seekdb database")
+        assert "explicit_database_required" in implicit_log.read_text()
+        assert "POWERCONTEXT_SERVER_DATABASE_DATABASE=test" in implicit_log.read_text()
     log = case["report"] / "legacy-target-server.log"
     with (
         pytest.raises(AssertionError, match="Server exited before readiness"),
@@ -960,12 +1068,17 @@ def test_read_write_and_retrieval(case, target, historical):
         assert_vector_reads(target, historical, new_text=text)
 
 
-def test_authorization(target, historical):
-    assert target.get("/v1/scopes", headers={"Authorization": "Bearer invalid-fixture-token"}).status_code == 401
-    # The stable idempotency key must resolve to the SAME persisted grant.
-    assert post(target, "/v1/access/bindings/create", historical["grant"]) == historical["binding"]
-    response = target.get(f"/v1/scopes/{historical['scope']}")
-    assert response.status_code == 200
+def test_authorization(case, migrated):
+    historical = migrated["historical"]
+    with server(
+        case["target"], environment_for(case), case["work"], case["report"] / "authorization-server.log"
+    ) as client:
+        assert client.get("/v1/scopes", headers={"Authorization": "Bearer invalid-fixture-token"}).status_code == 401
+        # The stable idempotency key must resolve to the SAME persisted grant.
+        assert post(client, "/v1/access/bindings/create", historical["grant"]) == historical["binding"]
+    # Stop the CLI before opening the same database with the installed SDK,
+    # especially for the embedded engine's exclusive process ownership.
+    verify_authorization(case, "target", historical)
 
 
 def test_candidates_and_processing(case, migrated):
@@ -1025,6 +1138,17 @@ def test_preserved_history_and_cursors(target, historical):
             assert stored[key] == version[key]
 
 
+# Quoted tokens and comments are opaque: whitespace, quote characters and
+# AUTO_INCREMENT text inside them are schema content, not formatting.
+DDL_TOKENS = re.compile(
+    r"""'(?:''|\\.|[^'\\])*' | "(?:""|\\.|[^"\\])*" | `(?:``|\\.|[^`\\])*`
+    | \[(?:\]\]|[^\]])*\] | /\*.*?\*/ | --[^\r\n]*
+    | [A-Za-z_\u0080-\U0010ffff][A-Za-z_0-9$\u0080-\U0010ffff]* | [0-9]+ | ->> | -> | <= | >= | <> | != | \|\| | << | >> | [^\s]
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+
+
 def canonical_schema(snapshot):
     if snapshot.get("logical_tables") is not None:
         return {
@@ -1034,9 +1158,35 @@ def canonical_schema(snapshot):
         }
 
     def normalize(sql):
-        sql = re.sub(r"\bAUTO_INCREMENT=\d+", "", sql)
-        sql = re.sub(r'["`]([A-Za-z_][A-Za-z_0-9]*)["`]', r"\1", sql)
-        return " ".join(sql.split())
+        tokens = DDL_TOKENS.findall(sql)
+        table = [lexeme.upper() for lexeme in tokens[:2]] == ["CREATE", "TABLE"]
+        depth = 0
+        closed_definition = False
+        normalized = []
+        index = 0
+        while index < len(tokens):
+            lexeme = tokens[index]
+            # Only ignore the table-level next-id counter after the definition.
+            # Column AUTO_INCREMENT attributes and all quoted contents remain.
+            if (
+                table
+                and closed_definition
+                and depth == 0
+                and lexeme.upper() == "AUTO_INCREMENT"
+                and tokens[index + 1 : index + 2] == ["="]
+                and index + 2 < len(tokens)
+                and tokens[index + 2].isdigit()
+            ):
+                index += 3
+                continue
+            if lexeme == "(":
+                depth += 1
+            elif lexeme == ")":
+                depth -= 1
+                closed_definition = depth == 0
+            normalized.append(lexeme)
+            index += 1
+        return tuple(normalized)
 
     return {
         kind: {name: normalize(sql or "") for name, sql in snapshot.get(kind, {}).items()}

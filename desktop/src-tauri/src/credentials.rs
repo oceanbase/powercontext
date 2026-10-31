@@ -20,7 +20,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
 use zeroize::Zeroizing;
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 const SERVICE: &str = "com.powercontext.desktop.preview";
 pub struct Secret(Zeroizing<String>);
 impl Secret {
@@ -67,13 +67,13 @@ pub trait Vault: Send + Sync {
 }
 
 pub struct NativeVault;
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 impl NativeVault {
     fn entry(id: &CredentialId) -> Result<keyring::Entry, SafeError> {
         keyring::Entry::new(SERVICE, &id.0).map_err(|_| SafeError::CredentialUnavailable)
     }
 }
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 impl Vault for NativeVault {
     fn put(&self, id: &CredentialId, secret: &Secret) -> Result<(), SafeError> {
         Self::entry(id)?
@@ -94,7 +94,7 @@ impl Vault for NativeVault {
         }
     }
 }
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 impl Vault for NativeVault {
     fn put(&self, _: &CredentialId, _: &Secret) -> Result<(), SafeError> {
         Err(SafeError::CredentialUnavailable)
@@ -179,6 +179,20 @@ impl Credential {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Available;
+    impl Vault for Available {
+        fn put(&self, _: &CredentialId, _: &Secret) -> Result<(), SafeError> {
+            Ok(())
+        }
+        fn read(&self, _: &CredentialId) -> Result<Secret, SafeError> {
+            Secret::new("synthetic".into())
+        }
+        fn delete(&self, _: &CredentialId) -> Result<(), SafeError> {
+            Ok(())
+        }
+    }
+
     struct Unavailable;
     impl Vault for Unavailable {
         fn put(&self, _: &CredentialId, _: &Secret) -> Result<(), SafeError> {
@@ -221,6 +235,19 @@ mod tests {
             serde_json::to_value(receipt).unwrap(),
             serde_json::json!({"storage":"session_only"})
         );
+    }
+
+    #[test]
+    fn persistent_write_receipt_never_exposes_secret_or_native_id() {
+        let request: CredentialWriteRequest =
+            serde_json::from_str(r#"{"secret":"synthetic","storage":"persistent"}"#).unwrap();
+        let (_, receipt) = request
+            .store(&Available, CredentialId::new("native-id".into()).unwrap())
+            .unwrap();
+        let encoded = serde_json::to_string(&receipt).unwrap();
+        assert_eq!(encoded, r#"{"storage":"persistent"}"#);
+        assert!(!encoded.contains("synthetic"));
+        assert!(!encoded.contains("native-id"));
     }
 
     #[test]

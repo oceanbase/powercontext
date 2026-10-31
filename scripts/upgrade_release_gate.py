@@ -26,6 +26,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import tomllib
 import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -167,12 +168,6 @@ def load_policy(root: Path) -> dict[str, Any]:
     return policy
 
 
-def manual_upgrade_case(case: dict[str, Any]) -> bool:
-    # Temporary embedded-engine waiver: keep both Code configurations available
-    # for manual diagnostics, but do not claim accepted upgrade support for them.
-    return case["backend"] == "seekdb" and case["configuration"] in {"full-server-code", "full-server-vector-code"}
-
-
 def support_text(policy: dict[str, Any], language: str) -> str:
     if policy["mode"] == "upgrade-required":
         return NOTICE[language]
@@ -185,13 +180,11 @@ def support_text(policy: dict[str, Any], language: str) -> str:
     lines.extend(
         f"| {case['source_version']} | {policy['target_version']} | {case['backend']} | {case['configuration']} |"
         for case in policy["cases"]
-        if not manual_upgrade_case(case)
     )
     if automatic := policy["automatic_sources"]:
         lines.extend(
             f"| {automatic['source_version']} | {policy['target_version']} | {profile['backend']} | {profile['configuration']} |"
             for profile in automatic["profiles"]
-            if not manual_upgrade_case(profile)
         )
     return "\n".join(lines)
 
@@ -390,6 +383,7 @@ def case_workspace(backend: str, output: Path) -> Iterator[Path]:
 
 
 def run_case(root: Path, wheel: Path, case: dict[str, Any], output: Path) -> dict[str, Any]:
+    require(sys.platform == "linux", "Installed-release acceptance requires Linux process ownership and cleanup")
     output.mkdir(parents=True, exist_ok=False)
     # Never inherit a developer's live deployment or pytest selection overrides.
     environment = {
@@ -407,6 +401,13 @@ def run_case(root: Path, wheel: Path, case: dict[str, Any], output: Path) -> dic
             "source": f"powercontext[{extras}] @ {artifact['url']}#sha256={artifact['sha256']}",
             "target": f"{wheel}[{extras}]",
         }
+        # Installed-release environments resolve separately from the checkout.
+        # Use the CI-locked engine for both the historical source and the target.
+        engine_requirement = []
+        if case["backend"] == "seekdb":
+            lock = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))
+            binding = next(package for package in lock["package"] if package["name"] == "pylibseekdb")
+            engine_requirement = [f"pylibseekdb=={binding['version']}"]
         for role, package in packages.items():
             venv = directory / role
             run_owned(
@@ -417,7 +418,7 @@ def run_case(root: Path, wheel: Path, case: dict[str, Any], output: Path) -> dic
             )
             python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
             run_owned(
-                ["uv", "pip", "install", "--python", str(python), package],
+                ["uv", "pip", "install", "--python", str(python), package, *engine_requirement],
                 environment=environment,
                 cwd=directory,
                 log=output / f"{role}-install.log",
@@ -535,10 +536,9 @@ def gate(root: Path, wheel: Path, output: Path, *, release: bool = False, releas
         evidence["resolved_matrix"] = matrix
         require(matrix["required_cases"], "No required upgrade acceptance cases")
         failures = []
-        evidence["deferred_cases"] = [case for case in matrix["required_cases"] if manual_upgrade_case(case)]
-        evidence["complete"] = not evidence["deferred_cases"]
-        required = [case for case in matrix["required_cases"] if not manual_upgrade_case(case)]
-        require(required, "No required automatic upgrade cases")
+        evidence["deferred_cases"] = []
+        evidence["complete"] = True
+        required = matrix["required_cases"]
         for index, case in enumerate(required):
             try:
                 evidence["cases"].append(run_case(root, wheel, case, output / f"case-{index}"))
@@ -553,7 +553,7 @@ def gate(root: Path, wheel: Path, output: Path, *, release: bool = False, releas
                 policy["mode"] == "supported-upgrades",
                 "Upgrade acceptance passed; update the reviewed support declaration before publication",
             )
-        evidence["status"] = "passed" if evidence["complete"] else "selected-cases-passed"
+        evidence["status"] = "passed"
     finally:
         (output / "result.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 

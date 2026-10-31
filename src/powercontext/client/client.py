@@ -995,6 +995,12 @@ class PowerContextClient:
             path_parameters={"scope_id": scope_id, "artifact_id": artifact_id},
         )
 
+    async def get_recall_manifest(
+        self, request: atomic_models.RecallManifestRequest
+    ) -> atomic_models.RecallManifestResponse:
+        """Read bounded Atomic Memory metadata before fetching selected exact revisions."""
+        return await self._request(atomic_operations.GET_RECALL_MANIFEST, request)
+
     async def list_atomic_memories(
         self, request: atomic_models.ListAtomicMemoryRequest
     ) -> atomic_models.ListAtomicMemoryResponse:

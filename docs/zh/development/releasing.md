@@ -123,7 +123,9 @@ DSH README 中说明某项能力已包含在 `1.1.0` 的文字同样属于历史
 ### 数据库升级支持范围
 
 `release/upgrade-support.json` 声明目标版本、来源版本选择策略、后端和配置。`automatic_sources` 继续将 1.3.0
-作为固定基线，显式 `cases` 为空。共要求 12 个组合：一个来源 × 三种后端 × 向量开关 × Code 开关。
+作为固定基线，显式 `cases` 为空。共登记 12 个组合：一个来源 × 三种后端 × 向量开关 × Code 开关。
+常规发布要求十个自动验收组合全部通过。两个启用 Code 的嵌入式 seekDB 配置因原生 DDL 等待暂时仅手动运行，
+尚未验收，不计入支持的升级声明；自动门禁通过不代表完整的十二项验收通过。
 目标始终是本次 CI 构建的实际 wheel；后续目标发布版本继续测试 1.3.0，不自动加入中间发行版。
 1.4.0 桥接实现和登记仍保留，但不纳入 CI 升级验收；门禁通过不能证明该路径已通过验收。来源 wheel 的公开 PyPI 地址和 SHA-256 与目标产物一起记录。
 
@@ -162,15 +164,52 @@ uv run python scripts/run_upgrade_release_gate.py --release --release-notes /pat
 旧版发行包和目标 wheel。测试缺失、后端跳过、执行失败或证据缺失都会阻断检查。仅通过静态策略检查不表示
 存在升级路径。普通 PR 构建允许使用开发版本；`--release` 必须验证最终 tag 构建的 wheel，不能覆盖版本号。
 
-CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在全部 12 个登记组合中通过公开命令迁移、
+CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十个必测自动组合中通过公开命令迁移、
 完整 Server 就绪验证、目标版本启动、历史数据读取和新增写入。局部迁移验证返回 `server_ready=false` 也会失败。一个后端失败后，仍继续执行其他后端，
 分别保存结果和日志。seekDB 直接在 runner 临时目录中以嵌入式启动；PR 和发布工作流均启动隔离的 OceanBase CE
 容器，等待 MySQL 租户就绪，归档诊断并在测试失败时也清理容器，不依赖外部数据库凭据。
 任一后端无法启动都使检查失败，不能跳过。历史拒绝行为回归不参与正向升级门禁。
 仓库管理员需要在分支保护中将该检查设为必需。
-发布工作流只有验收通过才会上传发行包、发布 PyPI 和上传 Release 附件，并归档验收证据。工作流在
+默认发布工作流只有验收通过才会上传发行包、发布 PyPI 和上传 Release 附件，并归档验收证据。工作流在
 `release.published` 后运行，无法阻止之前手动发布 GitHub Release 页面，因此必须先运行上述命令再发布页面。
 `make publish` 要求提供 `UPGRADE_RELEASE_NOTES=/path/to/release-notes.md`，并在上传软件包之前执行相同门禁。
+
+### 手动跳过升级验收发布
+
+**Release** 工作流提供 `workflow_dispatch` 参数 `skip_upgrade_acceptance`，默认 `false`。
+只有明确按“仅供新建数据库使用”发布、不声明已有数据库可升级时，才启用此选项。它不修改
+`release/upgrade-support.json`，不证明迁移路径可用，也不放宽默认发布流程和 PR 的升级门禁。
+启用时，目标版本的策略必须仍为 `upgrade-required`。
+
+对于已经发布的 GitHub Release，例如 `powercontext-v1.4.1`：
+
+1. 在 Release 正文中加入以下英文原文；工作流会检查该声明：
+
+   ```text
+   Upgrade acceptance was skipped for this release. Use only new databases; upgrades of existing databases are not supported.
+   ```
+
+   中文可同时写明：本次发布跳过了升级验收，仅供新建数据库使用，不支持已有数据库升级。
+
+2. 打开 **Actions → Release → Run workflow**，选择仓库默认分支 `master`，填写
+   `release_tag=powercontext-v1.4.1`，勾选 `skip_upgrade_acceptance`。工作流修改需要先合并到默认分支。
+   通过参数指定目标 tag，工作流分支选择器仍选默认分支。
+
+   ```bash
+   gh workflow run release.yml --repo oceanbase/powercontext --ref master \
+     -f release_tag=powercontext-v1.4.1 -f skip_upgrade_acceptance=true
+   ```
+
+工作流将已有 tag 解析为提交并构建该提交，不移动 tag，也不打包当前默认分支。声明从 GitHub Release
+实时读取，不复用失败运行的旧事件正文。版本一致性、发版引用同步、策略一致性、发行包元数据、源码包
+重建对比、干净环境安装、依赖检查以及新库 Server/MCP/Memory 冒烟验证仍须通过，之后才会将这些确切产物
+发布到 PyPI 并上传 Release 附件。发布后验证和官网部署继续执行，并使用选定的发布目标。
+
+`release-without-upgrades` 附件记录 tag、源码提交、操作者、运行编号、发行包哈希及
+`upgrade_acceptance: skipped`；运行摘要也会注明已有数据库升级不受支持。
+未勾选该选项时，仍执行常规自动升级矩阵及支持声明检查。
+
+### 通用发布验证
 
 针对本次发布的完整变化运行检查，包括生成的契约和文档：
 

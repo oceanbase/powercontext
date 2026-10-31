@@ -14,5 +14,6 @@
  * limitations under the License.
  */
 
+pub mod discovery;
 pub mod profiles;
 pub mod session;

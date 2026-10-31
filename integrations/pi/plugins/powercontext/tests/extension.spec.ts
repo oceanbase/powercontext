@@ -14,11 +14,23 @@
  * limitations under the License.
  */
 
+import { createExtensionRuntime, ExtensionRunner } from '@earendil-works/pi-coding-agent'
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import powercontextPi from '../extensions/powercontext.ts'
 import { GUIDANCE } from '../src/guidance.ts'
 
 type Handler = (event: Record<string, unknown>, context: Record<string, unknown>) => Promise<unknown>
+
+function bestEffortCase(id: string): { input: Record<string, any>; expected: Record<string, any> } {
+  const payload = JSON.parse(readFileSync(
+    new URL('../../../../../tests/integration_conformance/cases.json', import.meta.url),
+    'utf8',
+  )) as { cases: Array<{ id: string; modes: string[]; input: Record<string, any>; expected: Record<string, any> }> }
+  const value = payload.cases.find((item) => item.id === id && item.modes.includes('best_effort'))
+  if (!value) throw new Error(`missing best-effort conformance case: ${id}`)
+  return value
+}
 
 function installExtension(): Map<string, Handler> {
   const handlers = new Map<string, Handler>()
@@ -40,6 +52,17 @@ function scopeAwareFetch(
     }
     return handler(url, init)
   })
+}
+
+function flushProgress(currentCursor: number, remainingWork = false): Record<string, unknown> {
+  return {
+    status: currentCursor ? 'processed' : 'idle',
+    previous_cursor: 0,
+    current_cursor: currentCursor,
+    high_watermark: currentCursor,
+    processed_source_count: currentCursor ? 1 : 0,
+    remaining_work: remainingWork,
+  }
 }
 
 afterEach(() => {
@@ -98,6 +121,41 @@ describe('PowerContext Pi extension', () => {
         turn_id: '2',
       },
     })
+  })
+
+  it('sends the end of a long prompt as the recall query and captures the whole prompt', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
+    const fetch = scopeAwareFetch(async (url: string) => {
+      if (url.endsWith('/v1/context/prepare')) {
+        return new Response(JSON.stringify({
+          schema: 'powercontext.prepared-context.v1',
+          status: 'empty',
+          content: null,
+          content_bytes: 0,
+        }))
+      }
+      if (url.endsWith('/v1/sources/content')) return new Response(JSON.stringify({ position: 7 }))
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+    const prompt = `${'earlier context '.repeat(1_000)}Which service owns the retry?`
+
+    await installExtension().get('before_agent_start')?.({
+      prompt,
+      systemPrompt: 'Base instructions',
+    }, {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    })
+
+    const body = (path: string) => JSON.parse(String(
+      fetch.mock.calls.find(([url]) => url === `http://127.0.0.1:8000${path}`)?.[1]?.body,
+    ))
+    expect(body('/v1/context/prepare').query).toBe(prompt.slice(-8_192))
+    expect(body('/v1/sources/content').content).toBe(prompt)
   })
 
   it('keeps stderr clean by default so the TUI input bar is not corrupted', async () => {
@@ -204,6 +262,42 @@ describe('PowerContext Pi extension', () => {
     )
   })
 
+  it('reports a malformed capture receipt instead of silently dropping its position', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
+    vi.stubEnv('POWERCONTEXT_PI_DIAGNOSTICS', 'stderr')
+    const fetch = scopeAwareFetch(async (url: string) => {
+      if (url.endsWith('/v1/context/prepare')) {
+        return new Response(JSON.stringify({
+          schema: 'powercontext.prepared-context.v1',
+          status: 'empty',
+          content: null,
+          content_bytes: 0,
+        }))
+      }
+      if (url.endsWith('/v1/sources/content')) {
+        return new Response(JSON.stringify({ status: 'accepted' }), { status: 202 })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    await installExtension().get('before_agent_start')?.({
+      prompt: 'continue implementation',
+      systemPrompt: 'Base instructions',
+    }, {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    })
+
+    expect(warning).toHaveBeenCalledWith(
+      '{"component":"powercontext.pi","event":"capture_source","outcome":"invalid_response"}',
+    )
+  })
+
   it('reports a flush domain failure from the actual endpoint', async () => {
     vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_ON_CAPTURE', 'true')
@@ -241,6 +335,113 @@ describe('PowerContext Pi extension', () => {
 
     expect(warning).toHaveBeenCalledWith(
       '{"component":"powercontext.pi","event":"flush_memory","outcome":"invalid_response","http_status":409,"error_code":"conflict"}',
+    )
+  })
+
+  it('emits deadline diagnostics for distinct lifecycle boundaries on the same Scope', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:private-demo')
+    vi.stubEnv('POWERCONTEXT_PI_DIAGNOSTICS', 'stderr')
+    vi.stubEnv('POWERCONTEXT_PI_FLUSH_MAX_CALLS', '1')
+    vi.stubEnv('POWERCONTEXT_PI_HTTP_BUDGET_MS', '100')
+    vi.stubEnv('POWERCONTEXT_PI_REQUEST_TIMEOUT_MS', '100')
+    const fetch = scopeAwareFetch(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/v1/context/prepare')) {
+        return new Response(JSON.stringify({
+          schema: 'powercontext.prepared-context.v1',
+          status: 'empty',
+          content: null,
+          content_bytes: 0,
+        }))
+      }
+      if (url.endsWith('/v1/sources/content')) return new Response(JSON.stringify({ position: 1 }))
+      if (url.endsWith('/v1/memory/flush')) {
+        return await new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal
+          const abort = () => reject(signal?.reason ?? new Error('aborted'))
+          if (signal?.aborted) abort()
+          else signal?.addEventListener('abort', abort, { once: true })
+        })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    }, 'project:private-demo')
+    vi.stubGlobal('fetch', fetch)
+    const lines: string[] = []
+    let observeAgentDeadline: (() => void) | undefined
+    const agentDeadline = new Promise<void>((resolve) => { observeAgentDeadline = resolve })
+    vi.spyOn(console, 'warn').mockImplementation((line) => {
+      lines.push(String(line))
+      const event = JSON.parse(String(line)) as Record<string, unknown>
+      if (event.lifecycle_event === 'agent_end') observeAgentDeadline?.()
+    })
+    const handlers = installExtension()
+    const context = {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    }
+
+    await handlers.get('before_agent_start')?.({
+      prompt: 'private prompt',
+      systemPrompt: 'Base instructions',
+    }, context)
+    handlers.get('agent_end')?.({}, context)
+    await agentDeadline
+    await handlers.get('session_shutdown')?.({}, context)
+
+    const deadlines = lines.map((line) => JSON.parse(line)).filter((event) => (
+      event.event === 'flush_memory' && event.outcome === 'deadline_exceeded'
+    ))
+    expect(deadlines).toHaveLength(2)
+    expect(deadlines.map((event) => event.lifecycle_event)).toEqual(['agent_end', 'session_shutdown'])
+    expect(deadlines[0]?.scope_correlation).toBe(deadlines[1]?.scope_correlation)
+    expect(JSON.stringify(deadlines)).not.toContain('project:private-demo')
+    expect(JSON.stringify(deadlines)).not.toContain('private prompt')
+  })
+
+  it('rejects a partial 2xx response from capture-time flush and retries it later', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
+    vi.stubEnv('POWERCONTEXT_PI_FLUSH_ON_CAPTURE', 'true')
+    vi.stubEnv('POWERCONTEXT_PI_FLUSH_MAX_CALLS', '1')
+    vi.stubEnv('POWERCONTEXT_PI_DIAGNOSTICS', 'stderr')
+    let flushCalls = 0
+    const fetch = scopeAwareFetch(async (url: string) => {
+      if (url.endsWith('/v1/context/prepare')) {
+        return new Response(JSON.stringify({
+          schema: 'powercontext.prepared-context.v1',
+          status: 'empty',
+          content: null,
+          content_bytes: 0,
+        }))
+      }
+      if (url.endsWith('/v1/sources/content')) return new Response(JSON.stringify({ position: 1 }))
+      if (url.endsWith('/v1/memory/flush')) {
+        flushCalls += 1
+        return new Response(JSON.stringify(flushCalls === 1 ? { current_cursor: 1 } : flushProgress(1)))
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const handlers = installExtension()
+    const context = {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    }
+
+    await handlers.get('before_agent_start')?.({
+      prompt: 'continue implementation',
+      systemPrompt: 'Base instructions',
+    }, context)
+    await handlers.get('session_before_compact')?.({}, context)
+
+    expect(flushCalls).toBe(2)
+    expect(warning).toHaveBeenCalledWith(
+      '{"component":"powercontext.pi","event":"flush_memory","outcome":"invalid_response"}',
     )
   })
 
@@ -286,7 +487,7 @@ describe('PowerContext Pi extension', () => {
         }))
       }
       if (url.endsWith('/v1/sources/content')) return new Response(JSON.stringify({ position: 7 }))
-      if (url.endsWith('/v1/memory/flush')) return new Response(JSON.stringify({ current_cursor: 7 }))
+      if (url.endsWith('/v1/memory/flush')) return new Response(JSON.stringify(flushProgress(7)))
       throw new Error(`unexpected request: ${url}`)
     })
     vi.stubGlobal('fetch', fetch)
@@ -327,7 +528,7 @@ describe('PowerContext Pi extension', () => {
         flushAttempts += 1
         return flushAttempts === 1
           ? new Response(JSON.stringify({ error: { message: 'temporary failure' } }), { status: 500 })
-          : new Response(JSON.stringify({ current_cursor: 7 }))
+          : new Response(JSON.stringify(flushProgress(7)))
       }
       throw new Error(`unexpected request: ${url}`)
     })
@@ -366,7 +567,7 @@ describe('PowerContext Pi extension', () => {
         flushAttempts += 1
         return flushAttempts === 1
           ? new Response(JSON.stringify({ error: { message: 'temporary failure' } }), { status: 500 })
-          : new Response(JSON.stringify({ current_cursor: 7 }))
+          : new Response(JSON.stringify(flushProgress(7)))
       }
       throw new Error(`unexpected request: ${url}`)
     })
@@ -389,6 +590,81 @@ describe('PowerContext Pi extension', () => {
     await handlers.get('session_before_compact')?.({}, context)
 
     expect(flushAttempts).toBe(2)
+  })
+
+  it('keeps host compaction fail-open through the real ExtensionRunner', async () => {
+    const vector = bestEffortCase('best_effort_fail_open')
+    vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
+    vi.stubEnv('POWERCONTEXT_PI_FLUSH_MAX_CALLS', '1')
+    const fetch = scopeAwareFetch(async (url: string) => {
+      if (url.endsWith('/v1/context/prepare')) {
+        return new Response(JSON.stringify({
+          schema: 'powercontext.prepared-context.v1',
+          status: 'empty',
+          content: null,
+          content_bytes: 0,
+        }))
+      }
+      if (url.endsWith('/v1/sources/content')) return new Response(JSON.stringify({ position: 7 }))
+      if (url.endsWith('/v1/memory/flush')) return new Response(JSON.stringify({ current_cursor: 'malformed' }))
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+    const handlers = installExtension()
+    const context = {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    }
+    await handlers.get('before_agent_start')?.({
+      prompt: 'continue implementation',
+      systemPrompt: 'Base instructions',
+    }, context)
+
+    let throwingHookCalls = 0
+    const runnerHandlers = new Map([...handlers].map(([name, handler]) => [name, [handler]]))
+    runnerHandlers.get('session_before_compact')?.push(async () => {
+      throwingHookCalls += 1
+      throw new Error('checkpoint failed')
+    })
+    const extension = {
+      path: 'powercontext-test',
+      resolvedPath: 'powercontext-test',
+      sourceInfo: { kind: 'path', path: 'powercontext-test' },
+      handlers: runnerHandlers,
+      tools: new Map(),
+      messageRenderers: new Map(),
+      commands: new Map(),
+      flags: new Map(),
+      shortcuts: new Map(),
+    }
+    const runner = new ExtensionRunner(
+      [extension] as never,
+      createExtensionRuntime(),
+      '/workspace/repo',
+      {} as never,
+      {} as never,
+    )
+    const errors: unknown[] = []
+    runner.onError((error) => errors.push(error))
+
+    const result = await runner.emit({
+      type: 'session_before_compact',
+      preparation: {},
+      branchEntries: [],
+      reason: 'manual',
+      willRetry: false,
+      signal: new AbortController().signal,
+    } as never)
+
+    expect(result).toBeUndefined()
+    expect(throwingHookCalls).toBe(1)
+    expect(errors).toHaveLength(1)
+    expect(fetch.mock.calls.some(([url]) => url === 'http://127.0.0.1:8000/v1/memory/flush')).toBe(true)
+    expect(vector.input.handler_outcome).toBe('throw')
+    expect(vector.expected.host_continues).toBe(true)
   })
 
   it('does not persist a prompt when capture is disabled', async () => {

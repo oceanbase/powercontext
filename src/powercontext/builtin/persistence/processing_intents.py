@@ -339,7 +339,13 @@ class ArtifactProcessingIntentRepository:
         state = (
             (
                 await connection.execute(
-                    select(state_table).where(state_table.c.binding_name == binding_name).with_for_update()
+                    select(
+                        state_table.c.scan_in_progress,
+                        state_table.c.scan_generation,
+                        state_table.c.scan_upper_pending_sequence,
+                    )
+                    .where(state_table.c.binding_name == binding_name)
+                    .with_for_update()
                 )
             )
             .mappings()

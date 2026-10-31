@@ -22,7 +22,7 @@ use powercontext_desktop::{
     },
     credentials::{NativeVault, Secret},
     error::SafeError,
-    transport::{Endpoint, ServerApi, wire::ArtifactReference},
+    transport::{DiscoveryDocument, Endpoint, ServerApi, wire::ArtifactReference},
 };
 use serde::Deserialize;
 #[derive(Deserialize)]
@@ -74,6 +74,17 @@ async fn main() {
         fixture.token.take(),
     )
     .unwrap();
+    assert!(matches!(
+        api.server_info().await.unwrap(),
+        DiscoveryDocument::Server(_)
+    ));
+    if args
+        .get(2)
+        .is_some_and(|argument| argument == "discovery-only")
+    {
+        println!("{{\"result\":\"passed\",\"operation\":\"get_server_info\"}}");
+        return;
+    }
     api.live().await.unwrap();
     api.readiness().await.unwrap();
     if has_token {
@@ -144,6 +155,15 @@ async fn main() {
         "authentication":if has_token { "bearer" } else { "unauthenticated_loopback" },
         "caPem":fixture.ca_pem,"compatibility":compatibility,"keepCredential":false,"credential":credential
     })).unwrap()).unwrap().profiles[0].id.clone();
+    assert!(manager.state().unwrap().active.is_none());
+    let checked = manager.check(&profile, false).await.unwrap();
+    assert!(checked.active.is_none());
+    assert!(
+        checked
+            .reports
+            .iter()
+            .any(|report| report.connection_id == profile)
+    );
     let generation = manager.check(&profile, true).await.unwrap().generation;
     let generation = manager
         .select_scope(generation, &fixture.scope_id)

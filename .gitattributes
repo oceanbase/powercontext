@@ -1,4 +1,5 @@
 evaluation/memory/locomo/dataset/locomo10.json text eol=lf
+evaluation/memory/atomic_extraction/cases/*.json text eol=lf
 evaluation/memory/source_poisoning/cases.json text eol=lf
 evaluation/memory/source_poisoning/collection_cases.json text eol=lf
 evaluation/memory/source_poisoning/collect.py text eol=lf

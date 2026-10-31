@@ -336,9 +336,10 @@ def _clear_retry_files(definition: ServiceDefinition) -> None:
 
 
 def _launcher_arguments(definition: ServiceDefinition) -> list[str]:
+    launcher = definition.launcher_arguments()
+    module_position = launcher.index("-m")
     return [
-        definition.python_executable,
-        "-m",
+        *launcher[: module_position + 1],
         "powercontext_service_bootstrap",
         "--retry-state",
         str(_failure_state_path(definition)),
@@ -349,7 +350,7 @@ def _launcher_arguments(definition: ServiceDefinition) -> list[str]:
         "--retry-window-seconds",
         str(_FAILURE_WINDOW_SECONDS),
         "--",
-        *definition.launcher_arguments()[3:],
+        *launcher[module_position + 2 :],
     ]
 
 

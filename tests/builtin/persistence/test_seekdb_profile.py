@@ -15,13 +15,15 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import AbstractAsyncContextManager
-from types import TracebackType
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from pathlib import Path
+from types import SimpleNamespace, TracebackType
 from typing import cast
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import Table
+from sqlalchemy.dialects.mysql import dialect as mysql_dialect
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -31,11 +33,19 @@ from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.seekdb import profile as seekdb_profile_module
 
 
-class _TrackedConnection:
-    dialect = seekdb_profile_module.AsyncSeekDBDialect()
-
-    async def exec_driver_sql(self, _statement: str) -> None:
+class _EmptyResult:
+    def first(self):
         return None
+
+    def scalar_one(self):
+        return "powercontext"
+
+
+class _TrackedConnection:
+    dialect = mysql_dialect()
+
+    async def exec_driver_sql(self, _statement: str) -> _EmptyResult:
+        return _EmptyResult()
 
 
 class _Begin(AbstractAsyncContextManager[_TrackedConnection]):
@@ -52,10 +62,15 @@ class _Begin(AbstractAsyncContextManager[_TrackedConnection]):
 
 
 class _TrackedEngine:
+    dialect = mysql_dialect()
+
     def __init__(self, events: list[str]) -> None:
         self.events = events
 
     def begin(self) -> _Begin:
+        return _Begin()
+
+    def connect(self) -> _Begin:
         return _Begin()
 
     async def dispose(self) -> None:
@@ -110,7 +125,8 @@ def test_dialect_terminates_connections_on_close() -> None:
     assert connection.terminated
 
 
-def test_engine_uses_the_local_socket(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("database", [None, "test", "custom"])
+def test_engine_uses_the_local_socket(tmp_path, monkeypatch: pytest.MonkeyPatch, database: str | None) -> None:
     captured: dict[str, object] = {}
     expected_engine = cast(AsyncEngine, object())
 
@@ -123,8 +139,8 @@ def test_engine_uses_the_local_socket(tmp_path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(seekdb_profile_module, "_register_seekdb_dialect", lambda: None)
 
     engine = seekdb_profile_module._create_engine(
-        SeekDBConfig(path=tmp_path),
-        {"user": "root", "unix_socket": "seekdb.sock"},
+        SeekDBConfig(path=tmp_path) if database is None else SeekDBConfig(path=tmp_path, database=database),
+        {"user": "root", "unix_socket": "seekdb.sock", "database": "test", "db": "test"},
     )
 
     captured_url = captured["url"]
@@ -134,7 +150,7 @@ def test_engine_uses_the_local_socket(tmp_path, monkeypatch: pytest.MonkeyPatch)
     assert url.drivername == "mysql+aseekdb"
     assert url.username == "root"
     assert url.host == "localhost"
-    assert url.database == "test"
+    assert url.database == (database or "powercontext")
     assert url.query["charset"] == "utf8mb4"
     assert captured["connect_args"] == {
         "init_command": "SET autocommit = 0",
@@ -158,7 +174,7 @@ def test_profile_closes_engine_before_instance(tmp_path, monkeypatch: pytest.Mon
         monkeypatch.setattr(seekdb_profile_module, "create_tables", create_no_tables)
         monkeypatch.setattr(seekdb_profile_module, "assert_dream_schema_ready", _skip_dream_preflight)
 
-        async with SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb"), tables=()):
+        async with SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb", database="powercontext"), tables=()):
             pass
 
         assert events == [f"aopen:{(tmp_path / 'seekdb').resolve()}", "engine.dispose", "instance.close"]
@@ -193,7 +209,7 @@ def test_profile_finishes_shutdown_before_propagating_repeated_cancellation(
         monkeypatch.setattr(seekdb_profile_module, "assert_dream_schema_ready", _skip_dream_preflight)
         monkeypatch.setattr(AsyncDatabase, "close", observe_close)
 
-        context = SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb"), tables=())
+        context = SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb", database="powercontext"), tables=())
         profile = await context.__aenter__()
 
         async def hold_transaction() -> None:
@@ -252,7 +268,7 @@ def test_profile_closes_instance_if_open_is_cancelled_repeatedly(tmp_path, monke
         monkeypatch.setattr(seekdb_profile_module, "_load_binding", DelayedModule)
 
         async def open_profile() -> None:
-            async with SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb"), tables=()):
+            async with SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb", database="powercontext"), tables=()):
                 pass
 
         task = asyncio.create_task(open_profile())
@@ -274,3 +290,33 @@ def test_profile_closes_instance_if_open_is_cancelled_repeatedly(tmp_path, monke
         assert events == [f"aopen:{(tmp_path / 'seekdb').resolve()}", "instance.close"]
 
     asyncio.run(scenario())
+
+
+def test_legacy_database_probe_never_echoes_sql(monkeypatch) -> None:
+    """The probe writes to stdout for nobody: maintenance owns machine-readable output."""
+    seen: list[SeekDBConfig] = []
+
+    class _Connection:
+        async def exec_driver_sql(self, _statement):
+            return _EmptyResult()
+
+    @asynccontextmanager
+    async def connect():
+        yield _Connection()
+
+    def create_engine(config, _options, *, database=None):
+        seen.append(config)
+        return SimpleNamespace(connect=connect)
+
+    async def dispose(_engine) -> None:
+        return None
+
+    monkeypatch.setattr(seekdb_profile_module, "_create_engine", create_engine)
+    monkeypatch.setattr(seekdb_profile_module, "dispose_engine", dispose)
+
+    asyncio.run(
+        seekdb_profile_module._require_explicit_legacy_database(SeekDBConfig(path=Path("/nonexistent"), echo=True), {})
+    )
+
+    assert len(seen) == 1
+    assert seen[0].echo is False

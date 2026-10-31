@@ -17,7 +17,8 @@
 import type { DesktopState } from "../generated/ipc";
 import { messages, type Language } from "./messages";
 import { PageFeedback } from "./PageFeedback";
-import { activeCheckReport } from "./context";
+import { activeCheckReport, operationSupported } from "./context";
+import { operationRestriction } from "./connection-messages";
 import memoryIcon from "../assets/memory.svg";
 import connectionsIcon from "../assets/connections.svg";
 import retrievalIcon from "../assets/retrieval.svg";
@@ -54,10 +55,25 @@ export function Overview({
         ? (principal.description ?? `${principal.type}: ${principal.id}`)
         : t.unverified;
   const features = [
-    { icon: memoryIcon, name: t.featureSave, hint: t.featureSaveHint },
-    { icon: retrievalIcon, name: t.featureSearch, hint: t.featureSearchHint },
-    { icon: connectionsIcon, name: t.featureRead, hint: t.featureReadHint },
-  ];
+    {
+      icon: memoryIcon,
+      name: t.featureSave,
+      hint: t.featureSaveHint,
+      operation: "remember_memory",
+    },
+    {
+      icon: retrievalIcon,
+      name: t.featureSearch,
+      hint: t.featureSearchHint,
+      operation: "search_memory",
+    },
+    {
+      icon: connectionsIcon,
+      name: t.featureRead,
+      hint: t.featureReadHint,
+      operation: "get_artifact_revision",
+    },
+  ] as const;
   const environment = [
     t.envService,
     t.envOwnership,
@@ -162,16 +178,34 @@ export function Overview({
             <h2>{t.features}</h2>
           </div>
           {features.map((feature) => (
-            <div className="feature-row" key={feature.name}>
+            <div
+              className="feature-row"
+              key={feature.name}
+              role="group"
+              aria-label={feature.name}
+            >
               <div>
                 <span className="feature-name">
                   <img src={feature.icon} alt="" />
                   {feature.name}
                 </span>
                 <p>{feature.hint}</p>
+                {active && !operationSupported(report, feature.operation) && (
+                  <p>
+                    {operationRestriction(report, feature.operation, language)}
+                  </p>
+                )}
               </div>
-              <span className={enabled ? "badge success" : "badge subtle"}>
-                {enabled ? t.available : t.notAvailable}
+              <span
+                className={
+                  enabled && operationSupported(report, feature.operation)
+                    ? "badge success"
+                    : "badge subtle"
+                }
+              >
+                {enabled && operationSupported(report, feature.operation)
+                  ? t.available
+                  : t.notAvailable}
               </span>
             </div>
           ))}

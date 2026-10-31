@@ -1,0 +1,39 @@
+#
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+authors:
+  dinah-zhang:
+    name: Dinah Zhang
+    description: CNCF 大使
+    avatar: assets/blog/authors/dinah-zhang.png
+    socials:
+      github: zhanghuidinah
+      x: dinah_zhang
+  chojan-shang:
+    name: Chojan Shang
+    description: Apache 软件基金会成员
+    avatar: assets/blog/authors/chojan-shang.png
+    socials:
+      github: PsiACE
+      x: psiace
+  jingshun:
+    name: Tanner
+    avatar: assets/blog/authors/jingshun.jpg
+    socials:
+      github: hidb4ai
+  jackie-cqz:
+    name: jackie-cqz
+    description: PowerContext 贡献者
+    avatar: assets/blog/authors/jackie-cqz.jpg

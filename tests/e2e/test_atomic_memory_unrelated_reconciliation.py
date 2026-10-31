@@ -48,6 +48,7 @@ class _Extractor:
                     {
                         "kind": "decision",
                         "text": "The billing service uses PostgreSQL 16.",
+                        "description": "Billing database is PostgreSQL 16",
                         "evidence_ids": [request.evidence[0].evidence_id],
                     }
                 ]
@@ -66,7 +67,9 @@ class _Reconciler:
                 action="create",
                 compared_ids=(),
                 content=AtomicMemoryReconciliationContent(
-                    kind=request.proposal.kind, text="Billing runs on PostgreSQL 16."
+                    kind=request.proposal.kind,
+                    text="Billing runs on PostgreSQL 16.",
+                    description="Billing runs on PostgreSQL 16",
                 ),
                 evidence_ids=request.proposal.evidence_ids,
                 reason="An injected policy rewrites every candidate.",
@@ -129,9 +132,15 @@ def test_builtin_reconciliation_drops_only_candidates_it_compares(tmp_path, monk
                     {
                         "kind": "decision",
                         "text": "The billing service uses PostgreSQL 16.",
+                        "description": "Billing database is PostgreSQL 16",
                         "evidence_ids": [evidence_id],
                     },
-                    {"kind": "fact", "text": "The billing team had lunch today.", "evidence_ids": [evidence_id]},
+                    {
+                        "kind": "fact",
+                        "text": "The billing team had lunch today.",
+                        "description": "Billing team lunch today",
+                        "evidence_ids": [evidence_id],
+                    },
                 ]
             }
         return ModelResponse(parts=[TextPart(json.dumps(value))])

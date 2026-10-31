@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="482" viewBox="0 0 1000 482" lang="en" role="img" aria-labelledby="title"><title id="title">Two processes connected over HTTP</title><rect width="1000" height="482" rx="18" fill="#f7f5ef"/><style>text{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;fill:#14213a}</style>
+<text x="48" y="43" font-size="18" font-weight="700" style="fill:#1769d2">PowerContext</text>
+<text x="48" y="88" font-size="30" font-weight="700" style="fill:#14213a">Two processes connected over HTTP</text>
+<rect x="48.0" y="156" width="285.3333333333333" height="226" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="72.0" y="198" font-size="22" font-weight="700" style="fill:#1769d2">Browser</text>
+<text x="72.0" y="250" font-size="20" font-weight="400" style="fill:#14213a">Uses the local</text>
+<text x="72.0" y="279" font-size="20" font-weight="400" style="fill:#14213a">Harness UI; does not</text>
+<text x="72.0" y="308" font-size="20" font-weight="400" style="fill:#14213a">call the Server</text>
+<text x="72.0" y="337" font-size="20" font-weight="400" style="fill:#14213a">directly.</text>
+<rect x="357.3333333333333" y="156" width="285.3333333333333" height="226" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="381.3333333333333" y="198" font-size="22" font-weight="700" style="fill:#1769d2">powercontext-dsh</text>
+<text x="381.3333333333333" y="250" font-size="20" font-weight="400" style="fill:#14213a">The Node adapter</text>
+<text x="381.3333333333333" y="279" font-size="20" font-weight="400" style="fill:#14213a">calls prepare_context</text>
+<text x="381.3333333333333" y="308" font-size="20" font-weight="400" style="fill:#14213a">, capture_source and</text>
+<text x="381.3333333333333" y="337" font-size="20" font-weight="400" style="fill:#14213a">pc_* tools.</text>
+<rect x="666.6666666666666" y="156" width="285.3333333333333" height="226" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="690.6666666666666" y="198" font-size="22" font-weight="700" style="fill:#1769d2">PowerContext Server</text>
+<text x="690.6666666666666" y="250" font-size="20" font-weight="400" style="fill:#14213a">An independent Python</text>
+<text x="690.6666666666666" y="279" font-size="20" font-weight="400" style="fill:#14213a">process serves</text>
+<text x="690.6666666666666" y="308" font-size="20" font-weight="400" style="fill:#14213a">memory and retrieval</text>
+<text x="690.6666666666666" y="337" font-size="20" font-weight="400" style="fill:#14213a">over HTTP /v1.</text>
+</svg>

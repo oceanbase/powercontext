@@ -189,6 +189,7 @@ class MemoryPipeline:
                         kind="working_note",
                         text="The replay test passed without duplicate writes.",
                         evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
                     )
                     for evidence in request.evidence
                 )
@@ -552,7 +553,9 @@ def test_memory_dream_revises_only_selected_atomic_memory_after_review(
                     reason="The correction changes one current Memory entry.",
                     intent="correct",
                     proposal=AtomicMemoryContent(
-                        kind="task_record", text="The corrected replay did create a duplicate; avoid blind retries."
+                        kind="task_record",
+                        text="The corrected replay did create a duplicate; avoid blind retries.",
+                        description="Explicit fixture memory",
                     ),
                     evidence_ids=evidence,
                 ),
@@ -588,7 +591,7 @@ def test_memory_dream_revises_only_selected_atomic_memory_after_review(
                 GetCandidateRequest(candidate_id=completed.candidate.candidate_id)
             )
             transport_proposal = candidate_response(candidate).proposal
-            from powercontext.http import AtomicMemoryWriteContent as TransportAtomicMemoryContent
+            from powercontext.http import AtomicMemoryReadContent as TransportAtomicMemoryContent
 
             assert isinstance(transport_proposal, TransportAtomicMemoryContent)
             assert candidate.audit.dream_run_id == run.run_id
@@ -606,7 +609,13 @@ def test_memory_dream_revises_only_selected_atomic_memory_after_review(
                         "atomic-memory",
                         citation.artifact_id,
                         f'"revision:{citation.revision}"',
-                        ArtifactWrite(content={"kind": "working_note", "text": "A newer manual correction."}),
+                        ArtifactWrite(
+                            content={
+                                "kind": "working_note",
+                                "text": "A newer manual correction.",
+                                "description": "Explicit fixture memory",
+                            }
+                        ),
                     )
                 current = await runtime.atomic_memory.for_scope(scope).get(citation.artifact_id)
                 expected_error = EvidenceResolutionError if target_change == "forgotten" else RevisionConflictError
@@ -1219,7 +1228,9 @@ async def seed(runtime: BuiltinRuntime):
     assert runtime.atomic_memory is not None
     await runtime.atomic_memory.for_scope(scope.scope_id).flush()
     await runtime.atomic_memory.for_scope(scope.scope_id).create((
-        AtomicMemoryContent(kind="private_note", text="UNSELECTED_SIBLING_SENTINEL"),
+        AtomicMemoryContent(
+            kind="private_note", text="UNSELECTED_SIBLING_SENTINEL", description="Explicit fixture memory"
+        ),
     ))
     entries = await runtime.atomic_memory.for_scope(scope.scope_id).list()
     citation = next(item.ref for item in entries.items if item.artifact.content.kind == "working_note")
@@ -2210,7 +2221,11 @@ def test_active_merged_memory_keeps_exact_frozen_history_for_new_review(
             inputs = (await memories.list()).items
             merged = await memories.merge(
                 tuple(item.as_read() for item in inputs),
-                AtomicMemoryContent(kind="working_note", text="Replaying the write key preserved exactly one row."),
+                AtomicMemoryContent(
+                    kind="working_note",
+                    text="Replaying the write key preserved exactly one row.",
+                    description="Explicit fixture memory",
+                ),
             )
             target = merged.primary.ref
             if revise_memory:
@@ -2219,7 +2234,13 @@ def test_active_merged_memory_keeps_exact_frozen_history_for_new_review(
                     "atomic-memory",
                     target.artifact_id,
                     '"revision:1"',
-                    ArtifactWrite(content={"kind": "working_note", "text": "The key replay remained idempotent."}),
+                    ArtifactWrite(
+                        content={
+                            "kind": "working_note",
+                            "text": "The key replay remained idempotent.",
+                            "description": "Explicit fixture memory",
+                        }
+                    ),
                 )
                 target = (await memories.get(updated.artifact_id)).ref
             for item in inputs:
@@ -2324,6 +2345,7 @@ def test_memory_without_task_sources_cannot_produce_experience(database: Databas
                 AtomicMemoryContent(
                     kind="preference",
                     text="I prefer retrying writes without checking the previous result.",
+                    description="Explicit fixture memory",
                 ),
             ))
             citation = (await runtime.atomic_memory.for_scope(scope).list()).items[0].ref
@@ -2453,7 +2475,12 @@ def test_multiple_entries_and_experience_reusing_a_source_keep_one_root(database
             return GenerationResult(
                 output=AtomicMemoryExtractionOutput(
                     candidates=tuple(
-                        AtomicMemoryCandidate(kind="working_note", text=text, evidence_ids=(evidence.evidence_id,))
+                        AtomicMemoryCandidate(
+                            kind="working_note",
+                            text=text,
+                            evidence_ids=(evidence.evidence_id,),
+                            description="Extracted fixture fact",
+                        )
                         for evidence in request.evidence
                         for text in (
                             "Replaying the original key kept one row.",
@@ -3115,7 +3142,11 @@ def test_memory_approval_replays_across_servers(  # noqa: C901 - keep race barri
         ):
             scope, source, target = await seed(first)
             candidate = await first._review(scope).propose_memory_dream(
-                AtomicMemoryContent(kind="task_record", text="Verify the committed result before retrying."),
+                AtomicMemoryContent(
+                    kind="task_record",
+                    text="Verify the committed result before retrying.",
+                    description="Explicit fixture memory",
+                ),
                 sources=(source,),
                 artifacts=(target,),
                 target=target,
@@ -3125,7 +3156,11 @@ def test_memory_approval_replays_across_servers(  # noqa: C901 - keep race barri
             competing = None
             if winner == "advance":
                 competing = await first._review(scope).propose_memory_dream(
-                    AtomicMemoryContent(kind="task_record", text="A separate correction supersedes the target."),
+                    AtomicMemoryContent(
+                        kind="task_record",
+                        text="A separate correction supersedes the target.",
+                        description="Explicit fixture memory",
+                    ),
                     sources=(source,),
                     artifacts=(target,),
                     target=target,

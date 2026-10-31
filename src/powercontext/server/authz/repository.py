@@ -936,6 +936,42 @@ class RelationalAccessRepository:
             async with self._database.connection(self._bound_connection) as connection:
                 await connection.execute(insert(ACCESS_AUDIT_EVENTS_TABLE), [_audit_row(event) for event in events])
 
+    async def append_audit_once(self, event: AccessAuditEvent, /) -> AccessAuditEvent:
+        """Keep a recovery event idempotent across a lost acknowledgement."""
+        async with self._database.connection(self._bound_connection) as connection:
+            if connection.dialect.name == "sqlite":
+                # A released first SAVEPOINT must not commit a caller's transaction.
+                await connection.execute(
+                    update(ACCESS_AUDIT_EVENTS_TABLE)
+                    .where(ACCESS_AUDIT_EVENTS_TABLE.c.event_id == event.event_id)
+                    .values(event_id=ACCESS_AUDIT_EVENTS_TABLE.c.event_id)
+                )
+            try:
+                async with connection.begin_nested():
+                    result = await connection.execute(insert(ACCESS_AUDIT_EVENTS_TABLE).values(_audit_row(event)))
+                    key = result.inserted_primary_key
+                    if key is None or key[0] is None:
+                        raise RuntimeError("Access audit insert did not return a cursor")  # noqa: TRY003
+                    return replace(event, cursor=int(key[0]))
+            except IntegrityError:
+                row = (
+                    (
+                        await connection.execute(
+                            select(ACCESS_AUDIT_EVENTS_TABLE)
+                            .where(ACCESS_AUDIT_EVENTS_TABLE.c.event_id == event.event_id)
+                            .with_for_update()
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if row is None:
+                    raise
+                existing = _decode_audit(row)
+                if replace(existing, cursor=None) != replace(event, cursor=None):
+                    raise AccessConflictError("owner-recovery-audit") from None
+                return existing
+
     async def list_audit(
         self,
         *,

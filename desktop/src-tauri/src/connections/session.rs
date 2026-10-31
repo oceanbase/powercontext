@@ -15,9 +15,13 @@
  */
 
 //! Native-owned connection and Scope context. Viewing a profile never activates it.
+use super::discovery::DiscoveryResult;
 use super::profiles::{ProfileInput, ProfileRepository, ProfileView};
 use crate::{
     error::SafeError,
+    session_observations::{
+        ObservationOutcome, ObservationUnit, ObservedOperation, SessionObservations,
+    },
     transport::{ApiFailure, ServerApi, wire::*},
 };
 use serde::{Deserialize, Serialize};
@@ -61,6 +65,9 @@ pub struct CheckReport {
     pub compatibility_verified: bool,
     pub anonymous_access: bool,
     pub supported_operations: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub discovery: Option<DiscoveryResult>,
 }
 #[derive(Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -154,6 +161,7 @@ struct Inner {
     last_write: Option<WriteRecord>,
 }
 pub struct ConnectionManager {
+    observations: SessionObservations,
     inner: Mutex<Inner>,
     changed: watch::Sender<u32>,
     scope_reads: watch::Sender<u32>,
@@ -190,6 +198,7 @@ impl ConnectionManager {
     ) -> Self {
         let (changed, _) = watch::channel(0);
         Self {
+            observations: SessionObservations::default(),
             inner: Mutex::new(Inner {
                 profiles,
                 reports: BTreeMap::new(),
@@ -207,6 +216,9 @@ impl ConnectionManager {
     }
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Inner>, SafeError> {
         self.inner.lock().map_err(|_| SafeError::Storage)
+    }
+    pub fn observations(&self) -> &SessionObservations {
+        &self.observations
     }
     fn invalidate(&self, inner: &mut Inner) -> Result<(), SafeError> {
         inner.generation = inner.generation.checked_add(1).ok_or(SafeError::Storage)?;
@@ -303,7 +315,12 @@ impl ConnectionManager {
                 self.invalidate(&mut inner)?;
             }
             (
-                Arc::new(inner.profiles.api(id)?),
+                Arc::new(
+                    inner
+                        .profiles
+                        .api(id)?
+                        .with_observations(self.observations.clone()),
+                ),
                 profile,
                 inner.generation,
                 self.changed.subscribe(),
@@ -311,6 +328,8 @@ impl ConnectionManager {
             )
         };
         let report = Self::cancellable(&mut cancelled, async {
+            // Discovery is separate from the bounded observation batch (four transport slots).
+            let discovery = api.server_info().await;
             let (live, ready, identity, capabilities) = tokio::join!(
                 api.live(),
                 api.readiness(),
@@ -338,6 +357,8 @@ impl ConnectionManager {
                         .as_ref()
                         .is_err_and(|e| e.code == SafeError::InvalidResponse)
             });
+            let discovery = DiscoveryResult::assess(discovery, compatible);
+            let supported_operations = discovery.supported_operations();
             Ok(CheckReport {
                 anonymous_access,
                 connection_id: id.into(),
@@ -350,8 +371,9 @@ impl ConnectionManager {
                 readiness: ready.into(),
                 identity: identity.into(),
                 capabilities: capabilities.into(),
-                compatibility_verified: compatible.is_some(),
-                supported_operations: compatible.map(|c| c.operations.clone()).unwrap_or_default(),
+                compatibility_verified: !supported_operations.is_empty(),
+                supported_operations,
+                discovery: Some(discovery),
             })
         })
         .await?;
@@ -459,65 +481,77 @@ impl ConnectionManager {
         query: &str,
         cursor: Option<&str>,
     ) -> Result<ScopePage, ApiFailure> {
-        let ReadSnapshot {
-            api,
-            identity,
-            mut cancelled,
-        } = self.snapshot(generation, "list_scopes")?;
-        let mut query_cancelled = self.begin_scope_query(generation)?;
-        Self::cancellable(
-            &mut cancelled,
-            Self::cancellable(&mut query_cancelled, async {
-                self.identity_unchanged(&api, &identity, generation).await?;
-                api.scopes(query, cursor).await
-            }),
-        )
-        .await
+        self.observations
+            .user_operation(ObservedOperation::ListScopes, async {
+                let ReadSnapshot {
+                    api,
+                    identity,
+                    mut cancelled,
+                } = self.snapshot(generation, "list_scopes")?;
+                let mut query_cancelled = self.begin_scope_query(generation)?;
+                Self::cancellable(
+                    &mut cancelled,
+                    Self::cancellable(&mut query_cancelled, async {
+                        self.identity_unchanged(&api, &identity, generation).await?;
+                        api.scopes(query, cursor).await
+                    }),
+                )
+                .await
+            })
+            .await
     }
     pub async fn default_scope(&self, generation: u32) -> Result<ScopeDescriptor, ApiFailure> {
-        let ReadSnapshot {
-            api,
-            identity,
-            mut cancelled,
-        } = self.snapshot(generation, "get_default_scope")?;
-        let mut query_cancelled = self.begin_scope_query(generation)?;
-        Self::cancellable(
-            &mut cancelled,
-            Self::cancellable(&mut query_cancelled, async {
-                self.identity_unchanged(&api, &identity, generation).await?;
-                api.default_scope().await
-            }),
-        )
-        .await
+        self.observations
+            .user_operation(ObservedOperation::GetDefaultScope, async {
+                let ReadSnapshot {
+                    api,
+                    identity,
+                    mut cancelled,
+                } = self.snapshot(generation, "get_default_scope")?;
+                let mut query_cancelled = self.begin_scope_query(generation)?;
+                Self::cancellable(
+                    &mut cancelled,
+                    Self::cancellable(&mut query_cancelled, async {
+                        self.identity_unchanged(&api, &identity, generation).await?;
+                        api.default_scope().await
+                    }),
+                )
+                .await
+            })
+            .await
     }
     pub async fn select_scope(
         &self,
         generation: u32,
         id: &str,
     ) -> Result<DesktopState, ApiFailure> {
-        let ReadSnapshot {
-            api,
-            identity,
-            mut cancelled,
-        } = self.snapshot(generation, "get_scope")?;
-        let scope = Self::cancellable(&mut cancelled, async {
-            self.identity_unchanged(&api, &identity, generation).await?;
-            api.scope(id).await
-        })
-        .await?;
-        let mut inner = self.lock()?;
-        if generation != inner.generation {
-            return Err(SafeError::StaleContext.into());
-        }
-        self.invalidate(&mut inner)?;
-        inner
-            .active
-            .as_mut()
-            .ok_or(SafeError::NotConnected)?
-            .view
-            .scope = Some(scope);
-        drop(inner);
-        self.state().map_err(Into::into)
+        self.observations
+            .user_operation(ObservedOperation::GetScope, async {
+                let ReadSnapshot {
+                    api,
+                    identity,
+                    mut cancelled,
+                } = self.snapshot(generation, "get_scope")?;
+                let scope = Self::cancellable(&mut cancelled, async {
+                    self.identity_unchanged(&api, &identity, generation).await?;
+                    api.scope(id).await
+                })
+                .await?;
+                let mut inner = self.lock()?;
+                if generation != inner.generation {
+                    return Err(SafeError::StaleContext.into());
+                }
+                self.invalidate(&mut inner)?;
+                inner
+                    .active
+                    .as_mut()
+                    .ok_or(SafeError::NotConnected)?
+                    .view
+                    .scope = Some(scope);
+                drop(inner);
+                self.state().map_err(Into::into)
+            })
+            .await
     }
     fn memory_snapshot(
         &self,
@@ -574,124 +608,152 @@ impl ConnectionManager {
         generation: u32,
         query: &str,
     ) -> Result<crate::transport::MemorySearchResponse, ApiFailure> {
-        let (
-            ReadSnapshot {
-                api,
-                identity,
-                mut cancelled,
-            },
-            context,
-        ) = self.memory_snapshot(generation, "search_memory")?;
-        let mut query_cancelled = self.begin_memory_read(generation)?;
-        Self::cancellable(
-            &mut cancelled,
-            Self::cancellable(&mut query_cancelled, async {
-                self.identity_unchanged(&api, &identity, generation).await?;
-                api.search(&context.scope_id, query).await
-            }),
-        )
-        .await
+        self.observations
+            .user_operation(ObservedOperation::SearchMemory, async {
+                let (
+                    ReadSnapshot {
+                        api,
+                        identity,
+                        mut cancelled,
+                    },
+                    context,
+                ) = self.memory_snapshot(generation, "search_memory")?;
+                let mut query_cancelled = self.begin_memory_read(generation)?;
+                Self::cancellable(
+                    &mut cancelled,
+                    Self::cancellable(&mut query_cancelled, async {
+                        self.identity_unchanged(&api, &identity, generation).await?;
+                        api.search(&context.scope_id, query).await
+                    }),
+                )
+                .await
+            })
+            .await
     }
     pub async fn atomic_memory_entry(
         &self,
         generation: u32,
         artifact: &ArtifactReference,
     ) -> Result<crate::transport::AtomicMemoryDetail, ApiFailure> {
-        let (
-            ReadSnapshot {
-                api,
-                identity,
-                mut cancelled,
-            },
-            context,
-        ) = self.memory_snapshot(generation, "get_artifact_revision")?;
-        let mut query_cancelled = self.begin_memory_read(generation)?;
-        Self::cancellable(
-            &mut cancelled,
-            Self::cancellable(&mut query_cancelled, async {
-                self.identity_unchanged(&api, &identity, generation).await?;
-                api.atomic_entry(&context.scope_id, artifact).await
-            }),
-        )
-        .await
+        self.observations
+            .user_operation(ObservedOperation::GetArtifactRevision, async {
+                let (
+                    ReadSnapshot {
+                        api,
+                        identity,
+                        mut cancelled,
+                    },
+                    context,
+                ) = self.memory_snapshot(generation, "get_artifact_revision")?;
+                let mut query_cancelled = self.begin_memory_read(generation)?;
+                Self::cancellable(
+                    &mut cancelled,
+                    Self::cancellable(&mut query_cancelled, async {
+                        self.identity_unchanged(&api, &identity, generation).await?;
+                        api.atomic_entry(&context.scope_id, artifact).await
+                    }),
+                )
+                .await
+            })
+            .await
     }
     pub async fn remember(&self, generation: u32, text: &str) -> Result<WriteOutcome, ApiFailure> {
-        let _permit = self.writes.try_acquire().map_err(|_| SafeError::Busy)?;
-        crate::transport::validate_text(text)?;
-        let (
-            ReadSnapshot {
-                api,
-                identity,
-                mut cancelled,
-            },
-            context,
-        ) = self.memory_snapshot(generation, "remember_memory")?;
-        Self::cancellable(
-            &mut cancelled,
-            self.identity_unchanged(&api, &identity, generation),
-        )
-        .await?;
-        let mut record = WriteRecord {
-            operation_id: uuid::Uuid::new_v4().to_string(),
-            context,
-            status: WriteStatus::Pending,
-            references: vec![],
-            error: None,
-        };
-        {
+        let mut observation = self.observations.begin(
+            ObservationUnit::UserOperation,
+            ObservedOperation::RememberMemory,
+        );
+        let result = async {
+            let _permit = self.writes.try_acquire().map_err(|_| SafeError::Busy)?;
+            crate::transport::validate_text(text)?;
+            let (
+                ReadSnapshot {
+                    api,
+                    identity,
+                    mut cancelled,
+                },
+                context,
+            ) = self.memory_snapshot(generation, "remember_memory")?;
+            Self::cancellable(
+                &mut cancelled,
+                self.identity_unchanged(&api, &identity, generation),
+            )
+            .await?;
+            let mut record = WriteRecord {
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                context,
+                status: WriteStatus::Pending,
+                references: vec![],
+                error: None,
+            };
+            {
+                let mut inner = self.lock()?;
+                if inner.generation != generation {
+                    return Err(SafeError::StaleContext.into());
+                }
+                inner.last_write = Some(record.clone());
+            }
+            // No context cancellation after this point: the immutable API and Scope own the dispatched write.
+            let mut guard = WriteGuard {
+                manager: self,
+                armed: true,
+            };
+            observation.write_dispatched();
+            let response = api.remember(&record.context.scope_id, text).await;
+            let result = match response {
+                Ok(value) => {
+                    record.status = WriteStatus::Succeeded;
+                    record.references = value
+                        .records
+                        .iter()
+                        .map(|record| record.artifact.clone())
+                        .collect();
+                    Some(value)
+                }
+                Err(error) => {
+                    record.status = if error.dispatched
+                        && !matches!(
+                            error.code,
+                            SafeError::Unauthorized
+                                | SafeError::Forbidden
+                                | SafeError::InvalidInput
+                                | SafeError::NotFound
+                                | SafeError::Conflict
+                                | SafeError::AuthenticationUnavailable
+                                | SafeError::RuntimeNotReady
+                                | SafeError::Redirect
+                        ) {
+                        WriteStatus::Unknown
+                    } else {
+                        WriteStatus::Failed
+                    };
+                    record.error = Some(error);
+                    None
+                }
+            };
             let mut inner = self.lock()?;
-            if inner.generation != generation {
-                return Err(SafeError::StaleContext.into());
-            }
             inner.last_write = Some(record.clone());
-        }
-        // No context cancellation after this point: the immutable API and Scope own the dispatched write.
-        let mut guard = WriteGuard {
-            manager: self,
-            armed: true,
-        };
-        let response = api.remember(&record.context.scope_id, text).await;
-        let result = match response {
-            Ok(value) => {
-                record.status = WriteStatus::Succeeded;
-                record.references = value
-                    .records
-                    .iter()
-                    .map(|record| record.artifact.clone())
-                    .collect();
-                Some(value)
-            }
-            Err(error) => {
-                record.status = if error.dispatched
-                    && !matches!(
-                        error.code,
-                        SafeError::Unauthorized
-                            | SafeError::Forbidden
-                            | SafeError::InvalidInput
-                            | SafeError::NotFound
-                            | SafeError::Conflict
-                            | SafeError::AuthenticationUnavailable
-                            | SafeError::RuntimeNotReady
-                            | SafeError::Redirect
-                    ) {
-                    WriteStatus::Unknown
-                } else {
-                    WriteStatus::Failed
-                };
-                record.error = Some(error);
+            guard.armed = false;
+            // A late response may report its original target, but may not disclose old body text in a new context.
+            let result = if inner.generation == generation {
+                result
+            } else {
                 None
-            }
-        };
-        let mut inner = self.lock()?;
-        inner.last_write = Some(record.clone());
-        guard.armed = false;
-        // A late response may report its original target, but may not disclose old body text in a new context.
-        let result = if inner.generation == generation {
-            result
-        } else {
-            None
-        };
-        Ok(WriteOutcome { record, result })
+            };
+            Ok(WriteOutcome { record, result })
+        }
+        .await;
+        match &result {
+            Ok(outcome) => observation.write_finished(
+                match outcome.record.status {
+                    WriteStatus::Succeeded => ObservationOutcome::Success,
+                    WriteStatus::Failed => ObservationOutcome::Failure,
+                    WriteStatus::Unknown | WriteStatus::Pending => ObservationOutcome::Unknown,
+                },
+                outcome.record.error.as_ref().map(|error| error.code),
+            ),
+            Err(_) => observation.finish(&result),
+        }
+        result
     }
     async fn cancellable<T>(
         cancelled: &mut watch::Receiver<u32>,

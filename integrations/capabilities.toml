@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-schema_version = 1
+schema_version = 2
 
 # Every integrations/*/ directory must be declared below or explicitly excluded.
 [directory_exclusions]
+cindy = "Scoped Ghost recall and will-user-message hooks plus native MCP under evaluation with Cindy 0.1.115; opt-in Codex app-server acceptance does not qualify Electron installation, credential UI, or complete Desktop harness routing. See integrations/cindy/README.md."
 agent-plugin = "Portable Agent Plugin client package, not a qualified host or framework adapter; host support is tracked by the individual host declarations. See integrations/agent-plugin/README.md."
 minimax = "Host package awaiting one-command setup and native qualification under #1840; not yet included in the supported host catalog. See integrations/minimax/README.md."
 opendal = "Independently deployed evaluation Connector worker, not a complete standard Source integration or host adapter. See integrations/opendal/README.md."
@@ -70,6 +71,9 @@ capabilities = ["memory_read"]
 id = "list_atomic_memories"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
+id = "get_recall_manifest"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "search_atomic_memory"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
@@ -98,6 +102,24 @@ id = "restore_atomic_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
 id = "capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_capabilities"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_add"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_status"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_target_set_enabled"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instances"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instance_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "capture_working_note"
@@ -282,6 +304,9 @@ capabilities = ["memory_read"]
 id = "mcp__powercontext__list_atomic_memories"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
+id = "mcp__powercontext__get_recall_manifest"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "mcp__powercontext__search_atomic_memory"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
@@ -310,6 +335,24 @@ id = "mcp__powercontext__restore_atomic_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
 id = "mcp__powercontext__capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_capabilities"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_add"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_status"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_target_set_enabled"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_instances"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_instance_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "mcp__powercontext__capture_working_note"
@@ -902,6 +945,8 @@ availability = "master_only"
 capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
 profiles = ["minimal", "recommended", "full"]
 toolsets = ["server-mcp", "prompt-hooks"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/codex/plugins/powercontext/.mcp.json", "integrations/codex/plugins/powercontext/hooks/session_binding.py", "integrations/codex/plugins/powercontext/hooks/recall.py"]
 documentation = ["docs/en/docs/integrations/codex.md", "docs/zh/docs/integrations/codex.md"]
@@ -914,6 +959,8 @@ availability = "master_only"
 capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
 profiles = ["minimal", "recommended", "full"]
 toolsets = ["server-mcp", "prompt-hooks"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/claude-code/plugins/powercontext/.mcp.json", "integrations/claude-code/plugins/powercontext/hooks/session_start.py", "integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py"]
 documentation = ["docs/en/docs/integrations/claude-code.md", "docs/zh/docs/integrations/claude-code.md"]
@@ -926,6 +973,8 @@ availability = "master_only"
 capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding", "slash_command"]
 profiles = ["minimal", "recommended", "full"]
 toolsets = ["dsh-mcp", "dsh-lifecycle", "dsh-command"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/dsh/plugins/powercontext/src/mcp.ts", "integrations/dsh/plugins/powercontext/src/recall.ts", "integrations/dsh/plugins/powercontext/src/commands.ts"]
 documentation = ["docs/en/docs/integrations/dsh.md", "docs/zh/docs/integrations/dsh.md"]
@@ -938,6 +987,8 @@ availability = "master_only"
 capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill", "slash_command", "persistent_scope_binding"]
 profiles = ["minimal", "recommended", "full"]
 toolsets = ["hermes-operations", "hermes-command"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/hermes/plugins/powercontext/operations.py", "integrations/hermes/plugins/powercontext/commands.py"]
 documentation = ["docs/en/docs/integrations/hermes.md", "docs/zh/docs/integrations/hermes.md"]
@@ -950,6 +1001,13 @@ availability = "master_only"
 capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "pre_compaction_capture"]
 profiles = ["minimal"]
 toolsets = ["openclaw-tools", "openclaw-lifecycle"]
+[integrations.lifecycle.pre_compaction]
+mode = "best_effort"
+surface = "before_compaction"
+[integrations.lifecycle.pre_compaction.evidence]
+implementation = ["integrations/openclaw/plugins/memory-powercontext/src/lifecycle.ts"]
+documentation = ["docs/en/docs/integrations/openclaw.md", "docs/zh/docs/integrations/openclaw.md"]
+tests = ["integrations/openclaw/plugins/memory-powercontext/src/lifecycle.test.ts"]
 [integrations.evidence]
 implementation = ["integrations/openclaw/plugins/memory-powercontext/src/tools.ts", "integrations/openclaw/plugins/memory-powercontext/src/lifecycle.ts"]
 documentation = ["docs/en/docs/integrations/openclaw.md", "docs/zh/docs/integrations/openclaw.md"]
@@ -962,6 +1020,8 @@ availability = "master_only"
 capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review"]
 profiles = ["minimal"]
 toolsets = ["opencode-tools"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/opencode/plugins/powercontext/src/index.ts"]
 documentation = ["docs/en/docs/integrations/opencode.md", "docs/zh/docs/integrations/opencode.md"]
@@ -974,6 +1034,13 @@ availability = "master_only"
 capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill", "topic_memory_read", "pre_compaction_capture", "slash_command"]
 profiles = ["minimal", "recommended", "full"]
 toolsets = ["pi-tools", "pi-command", "pi-lifecycle"]
+[integrations.lifecycle.pre_compaction]
+mode = "best_effort"
+surface = "session_before_compact"
+[integrations.lifecycle.pre_compaction.evidence]
+implementation = ["integrations/pi/plugins/powercontext/src/flush.ts", "integrations/pi/plugins/powercontext/extensions/powercontext.ts"]
+documentation = ["docs/en/docs/integrations/pi.md", "docs/zh/docs/integrations/pi.md"]
+tests = ["integrations/pi/plugins/powercontext/tests/extension.spec.ts", "integrations/pi/plugins/powercontext/tests/flush.spec.ts"]
 [integrations.evidence]
 implementation = ["integrations/pi/plugins/powercontext/src/tools.ts", "integrations/pi/plugins/powercontext/extensions/powercontext.ts"]
 documentation = ["docs/en/docs/integrations/pi.md", "docs/zh/docs/integrations/pi.md"]
@@ -986,6 +1053,8 @@ availability = "master_only"
 capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
 profiles = ["minimal", "recommended", "full"]
 toolsets = ["server-mcp", "prompt-hooks"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/workbuddy/plugins/powercontext/.mcp.json", "integrations/workbuddy/plugins/powercontext/hooks/workbuddy_powercontext_hook.py"]
 documentation = ["docs/en/docs/integrations/workbuddy.md", "docs/zh/docs/integrations/workbuddy.md"]
@@ -998,6 +1067,8 @@ availability = "master_only"
 capabilities = ["flush_or_checkpoint", "memory_read", "memory_write", "source_capture", "context_injection", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
 profiles = ["minimal", "recommended", "full"]
 toolsets = ["server-mcp", "zcode-prompt-hook"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/zcode/plugins/powercontext/.mcp.json", "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs", "integrations/zcode/plugins/powercontext/scripts/scope.mjs", "integrations/zcode/plugins/powercontext/scripts/status.mjs", "integrations/zcode/plugins/powercontext/scripts/doctor.mjs", "integrations/zcode/plugins/powercontext/hooks/session_start.mjs", "integrations/zcode/plugins/powercontext/hooks/stop.mjs", "integrations/zcode/plugins/powercontext/shared/pending.mjs", "integrations/zcode/plugins/powercontext/scripts/pending.mjs"]
 documentation = ["docs/en/docs/integrations/zcode.md", "docs/zh/docs/integrations/zcode.md", "integrations/zcode/acceptance/README.md", "integrations/zcode/acceptance/desktop.md"]
@@ -1062,6 +1133,9 @@ tests = ["integrations/dify/tests/test_plugin_contract.py", "tests/e2e/test_dify
 id = "kimi-code-mcp"
 probe = "kimi_code_mcp"
 [[toolsets.tools]]
+id = "get_recall_manifest"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "search_memory"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
@@ -1111,6 +1185,24 @@ id = "restore_atomic_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
 id = "capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_capabilities"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_add"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_status"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_target_set_enabled"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instances"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instance_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "capture_working_note"
@@ -1221,6 +1313,8 @@ availability = "experimental"
 capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "persistent_scope_binding", "work_contract", "handoff", "acknowledge", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill"]
 profiles = ["minimal", "recommended", "full"]
 toolsets = ["kimi-code-mcp", "kimi-code-prompt-hook", "kimi-code-scope"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/kimi-code/plugins/powercontext/kimi.plugin.json", "integrations/kimi-code/plugins/powercontext/hooks/user_prompt_submit.mjs", "integrations/kimi-code/plugins/powercontext/scripts/scope.mjs", "src/powercontext/cli/kimi_code.py"]
 documentation = ["docs/en/docs/integrations/kimi-code.md", "docs/zh/docs/integrations/kimi-code.md"]

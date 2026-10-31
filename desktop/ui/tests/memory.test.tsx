@@ -22,6 +22,7 @@ import {
   fireEvent,
   act,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
@@ -35,6 +36,7 @@ import { Overview } from "../src/app/Overview";
 import { desktopApi } from "../src/shared/ipc";
 import type {
   ArtifactReference,
+  CompatibilityReason,
   DesktopState,
   MemorySearchResponse,
   WriteOutcome,
@@ -84,7 +86,13 @@ const state: DesktopState = {
       capabilities: fact,
       compatibilityVerified: true,
       anonymousAccess: true,
-      supportedOperations: [],
+      supportedOperations: [
+        "remember_memory",
+        "search_memory",
+        "get_artifact_revision",
+        "list_scopes",
+        "get_scope",
+      ],
     },
   },
   compatibilityProfiles: [],
@@ -96,6 +104,241 @@ const artifact: ArtifactReference = {
   artifact_id: "atomic-a",
   revision: 7,
 };
+function restrictedState(
+  operation: string,
+  reason: CompatibilityReason,
+): DesktopState {
+  const active = state.active!;
+  return {
+    ...state,
+    active: {
+      ...active,
+      report: {
+        ...active.report,
+        supportedOperations: active.report.supportedOperations.filter(
+          (item) => item !== operation,
+        ),
+        discovery: {
+          status: "supported",
+          server: null,
+          error: null,
+          reason: null,
+          operations: {
+            [operation]: {
+              status:
+                reason === "qualification_required"
+                  ? "unverified"
+                  : "unsupported",
+              reason,
+              qualificationId: null,
+            },
+          },
+        },
+      },
+    },
+  };
+}
+test.each(["en", "zh"] as const)(
+  "unsupported saving preserves independently supported search and exact reads (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    const restricted = restrictedState("remember_memory", "operation_missing");
+    vi.mocked(desktopApi.search).mockResolvedValue({
+      hits: [
+        { artifact, text: "supported search", score: 1, matched_by: ["text"] },
+      ],
+    });
+    vi.mocked(desktopApi.atomicEntry).mockResolvedValue({
+      artifact,
+      kind: "note",
+      text: "exact content",
+      source_refs: [],
+    });
+    render(
+      <MemoryWorkspace
+        state={restricted}
+        language={language}
+        onState={vi.fn()}
+        onDirty={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText(
+      language === "en" ? "Memory text" : "记忆内容",
+    ) as HTMLTextAreaElement;
+    expect(input.disabled).toBe(true);
+    const save = screen.getByRole("button", {
+      name: language === "en" ? "Save" : "保存",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(
+      screen.getByText(
+        language === "en"
+          ? /Server does not declare support for this operation/
+          : /Server 未声明支持此操作/,
+      ),
+    ).toBeTruthy();
+    await user.click(save);
+    expect(desktopApi.remember).not.toHaveBeenCalled();
+    await user.type(
+      screen.getByLabelText(
+        language === "en" ? "Keyword search" : "关键词搜索",
+      ),
+      "supported",
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Search" : "搜索",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Read exact version" : "阅读精确版本",
+      }),
+    );
+    expect(desktopApi.search).toHaveBeenCalledWith(1, "supported");
+    expect(desktopApi.atomicEntry).toHaveBeenCalledWith(1, artifact);
+    expect(screen.getByText("exact content")).toBeTruthy();
+  },
+);
+test("unqualified exact reads leave search results and saving usable", async () => {
+  const user = userEvent.setup();
+  vi.mocked(desktopApi.search).mockResolvedValue({
+    hits: [{ artifact, text: "searchable", score: 1, matched_by: ["text"] }],
+  });
+  render(
+    <MemoryWorkspace
+      state={restrictedState("get_artifact_revision", "qualification_required")}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  expect(
+    (screen.getByLabelText("Memory text") as HTMLTextAreaElement).disabled,
+  ).toBe(false);
+  await user.type(screen.getByLabelText("Keyword search"), "query");
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  expect(screen.getAllByText("searchable").length).toBeGreaterThan(0);
+  const read = screen.getByRole("button", {
+    name: "Read exact version",
+  }) as HTMLButtonElement;
+  expect(read.disabled).toBe(true);
+  expect(
+    screen.getByText(
+      /selected profile has no independent qualification for this operation/,
+    ),
+  ).toBeTruthy();
+  await user.click(read);
+  expect(desktopApi.atomicEntry).not.toHaveBeenCalled();
+});
+test("an unavailable search does not disable saving", async () => {
+  const user = userEvent.setup();
+  const restricted = restrictedState("search_memory", "feature_missing");
+  vi.mocked(desktopApi.state).mockResolvedValue(restricted);
+  vi.mocked(desktopApi.remember).mockResolvedValue(outcome("succeeded"));
+  render(
+    <MemoryWorkspace
+      state={restricted}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  expect(
+    (screen.getByLabelText("Keyword search") as HTMLInputElement).disabled,
+  ).toBe(true);
+  expect(
+    screen.getByText(
+      /Server does not declare the feature required for this operation/,
+    ),
+  ).toBeTruthy();
+  await user.type(screen.getByLabelText("Memory text"), "supported save");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(desktopApi.remember).toHaveBeenCalledWith(1, "supported save");
+  expect(desktopApi.search).not.toHaveBeenCalled();
+});
+test("an aggregate compatibility verdict cannot enable an unlisted save operation", () => {
+  const active = state.active!;
+  render(
+    <NoteForm
+      state={{
+        ...state,
+        active: {
+          ...active,
+          report: { ...active.report, supportedOperations: [] },
+        },
+      }}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+      onReadSaved={vi.fn()}
+      invalidateSaved={0}
+    />,
+  );
+  expect(
+    (screen.getByLabelText("Memory text") as HTMLTextAreaElement).disabled,
+  ).toBe(true);
+  expect(
+    screen.getByText(/This operation is unverified for this connection/),
+  ).toBeTruthy();
+});
+
+test("saved records cannot open an unqualified exact read while saving remains available", async () => {
+  const user = userEvent.setup();
+  const restricted = restrictedState(
+    "get_artifact_revision",
+    "qualification_required",
+  );
+  const saved = makeSaved(1);
+  vi.mocked(desktopApi.remember).mockResolvedValue(saved.outcome);
+  vi.mocked(desktopApi.state).mockResolvedValue(restricted);
+  render(
+    <MemoryWorkspace
+      state={restricted}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.type(screen.getByLabelText("Memory text"), "supported save");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(desktopApi.remember).toHaveBeenCalledWith(1, "supported save");
+  const open = screen.getByRole("button", {
+    name: "Open saved record",
+  }) as HTMLButtonElement;
+  expect(open.disabled).toBe(true);
+  expect(
+    screen.getAllByText(
+      /selected profile has no independent qualification for this operation/,
+    ).length,
+  ).toBeGreaterThan(0);
+  await user.click(open);
+  expect(desktopApi.atomicEntry).not.toHaveBeenCalled();
+});
+test("Overview shows availability and restriction for each feature", () => {
+  render(
+    <Overview
+      state={restrictedState("remember_memory", "operation_missing")}
+      language="en"
+      onNavigate={vi.fn()}
+    />,
+  );
+  const save = within(screen.getByRole("group", { name: "Save memories" }));
+  expect(save.getByText("Unavailable")).toBeTruthy();
+  expect(
+    save.getByText(/Server does not declare support for this operation/),
+  ).toBeTruthy();
+  expect(
+    within(screen.getByRole("group", { name: "Full-text search" })).getByText(
+      "Available",
+    ),
+  ).toBeTruthy();
+  expect(
+    within(screen.getByRole("group", { name: "Exact details" })).getByText(
+      "Available",
+    ),
+  ).toBeTruthy();
+});
 function outcome(status: "succeeded" | "unknown" | "failed"): WriteOutcome {
   return {
     record: {

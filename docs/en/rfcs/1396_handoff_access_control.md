@@ -620,16 +620,16 @@ logical resource, one `PrincipalRef`, trusted creation time, policy revision, an
 contains no Artifact Revision. The owner relation is immutable; creating it again is idempotent only for the same
 owner and key, and a different owner returns a conflict. Ownership transfer is not part of this RFC.
 
-In enforced mode, Artifact authorization fails closed with `artifact_owner_pending` until this relation exists. New
+In enforced mode, a write requiring ownership establishment fails closed with `artifact_owner_pending` until this relation exists. New
 Memory entries and first Handoff commits are owned by the creating Principal. A new Experience or Skill Candidate
 records a Server-side proposed-owner attestation; approval establishes that Principal as owner. A Candidate targeting
 an existing identity must retain its existing owner. Cross-Scope publication establishes the publisher as owner of
 the new target identity.
 
-The first version assumes that a deployment enables enforced mode before it persists its first Artifact. It does not
-backfill or infer owners for a catalog populated while access control was disabled, and it exposes no general owner
-repair workflow. Switching such a catalog to enforced mode without a separate operator migration leaves those
-Artifacts unavailable by design.
+Enable enforced mode before persisting the first Artifact when possible. The Server does not backfill or infer owners
+for a catalog populated while access control was disabled. Historical records without trusted ownership evidence remain
+unknown and require an explicit operator policy; current administrator status does not establish their original owner.
+An existing independent read grant continues to authorize reads without becoming ownership.
 
 When the canonical relational repository owns relationships and audit in the business database, Artifact creation, first Handoff
 commit, cross-Scope publication, and Experience/Skill Candidate creation commit their owner relation or proposed-owner
@@ -637,13 +637,35 @@ attestation in the business transaction. This includes generated, uploaded, impo
 An ownership failure rolls back the associated write; scheduled incubation also retains its Source cursor for retry.
 Atomic Memory, Profile generation, Dream, and supervised worker writes retain their domain-owned transaction hooks.
 
-External relationship writers and separate audit stores cannot join that transaction. If domain persistence succeeds
-but owner establishment fails in those compositions, the request still fails closed; only a business flow that
-explicitly supports idempotent replay may repair the relation on retry. Local existing ownerless records are not attributed
-to the current caller or reconstructed from content. They remain unavailable until an operator migration can establish
-the original identity from trusted persisted evidence. Local publication replay and Handoff no-op replay report
-`artifact_owner_pending` for those records without creating an owner. A general transactional outbox and operator
-recovery procedure are future work outside this RFC.
+External relationship writers and separate audit stores cannot join that transaction. The composed Server persists
+`pc_access_owner_recovery` in the business database for creation paths with domain commit hooks: base Artifact creation,
+first Handoff commit, publication, Candidate proposal/generation/upload/import, scheduled incubation, and Profile flush.
+The immutable intent commits alongside the domain object and retains only the trusted initiating Principal type/ID,
+exact logical resource or Candidate identity and target, idempotency key, and data-minimized audit context. It contains
+no Artifact/Source bodies, model output, tokens, or credentials.
+
+The Server delivers accepted intents after the business transaction and before returning success. A delivery failure
+returns 503 and leaves the intent durable. A background task retries bounded pages every five seconds, advancing past
+failed entries. Restart and concurrent replay preserve the original identity; a different owner/key/target conflicts
+rather than transferring ownership. Artifact recovery requires the external audit store's
+`append_audit_once(AccessAuditEvent)` capability: identical event ID and fields return the original event, while changed
+fields conflict. The canonical relational audit store implements it. If absent, the commit hook fails before the domain
+commit. Candidate intents retain the immutable proposed-owner receipt; they do not establish ownership of an existing
+target. Completed recovery receipts are retained and must not be independently purged while their identities remain.
+
+Operators can inspect `app.state.owner_recovery.pending()`, page through `inventory_gaps(scope_id)`, and call
+`replay(operation_id)` from trusted embedding code; there is no owner-assignment HTTP/MCP endpoint or recovery CLI.
+Inventory reads only head identities and classifies pending intents, unknown history, completed receipts whose
+relations are missing, and legacy Memory collections requiring entry selectors. Replay accepts an existing intent ID,
+never a caller-supplied Principal. Unknown history is not replayable. Local publication and Handoff no-op replay do not
+attribute historical ownerless records to the current caller. Existing grants retain their independent read semantics.
+
+Candidate approval already retains its original proposed-owner attestation and approved result; retrying the same
+terminal approval can establish that proposed owner without approving twice. Custom Runtime/RecordService assemblies
+without transactional commit hooks retain their explicit business-retry guarantees and do not gain durable recovery
+merely by injecting an external writer. Atomic Memory, Dream, and supervised worker security retain their domain-owned
+transaction requirements. See [operator recovery](../docs/workflows/scopes-and-access.md#recover-external-ownership-writes)
+for inspection and validation limits.
 
 ### Built-in relational persistence
 

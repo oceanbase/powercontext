@@ -166,7 +166,7 @@ test("entering Observation respects the existing Memory draft confirmation", asy
         capabilities: fact,
         compatibilityVerified: true,
         anonymousAccess: true,
-        supportedOperations: [],
+        supportedOperations: ["remember_memory"],
       },
     },
   });

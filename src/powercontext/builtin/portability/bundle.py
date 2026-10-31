@@ -54,9 +54,11 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
     insert,
+    literal_column,
     or_,
     select,
     tuple_,
+    union_all,
     update,
 )
 from sqlalchemy import inspect as sqlalchemy_inspect
@@ -126,6 +128,9 @@ _MAX_RECORDS_BYTES = 2 * 1024 * 1024 * 1024
 _MAX_RECORDS = 2_000_000
 _MAX_LINE_BYTES = 8 * 1024 * 1024
 _MAX_MANIFEST_BYTES = 256 * 1024
+_TARGET_BATCH_RECORDS = 100
+_TARGET_BATCH_PARAMETERS = 900
+_TARGET_BATCH_KEY_BYTES = 1024 * 1024
 _HEX_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ABSOLUTE_HOST_PATH = re.compile(r"^(?:/|file:/+|[A-Za-z]:[\\/]|\\\\)")
 _SENSITIVE_KEYS = frozenset({
@@ -260,6 +265,14 @@ class _Record:
     record_type: RecordType
     identity: Mapping[str, str | int]
     payload: Mapping[str, Any]
+    digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class _TargetLookup:
+    """Only keys and the expected digest survive between streamed archive rows."""
+
+    identities: tuple[Mapping[str, Any], ...]
     digest: str
 
 
@@ -764,11 +777,25 @@ class PortableBundleService:
                 }
             )
             checked_types: set[RecordType] = set()
-            for processed, record in enumerate(_iter_records(source), start=1):
+            pending: dict[RecordType, list[_TargetLookup]] = {}
+            pending_parameters = pending_bytes = processed = 0
+
+            async def flush() -> None:
+                nonlocal already_present, conflicts, processed
+                for kind, lookups in pending.items():
+                    present, different = await _check_target_batch(connection, kind, lookups)
+                    already_present += present
+                    conflicts += different
+                    processed += len(lookups)
+                    _report_progress(progress, "target", processed, total, force=True)
+                pending.clear()
+
+            for record in _iter_records(source):
                 self._validate_target_content(record, supported_source_types=supported_source_types)
                 spec = _SPECS[record.record_type]
                 table = spec.table
                 if table.name not in existing_tables:
+                    processed += 1
                     _report_progress(progress, "target", processed, total)
                     continue
                 if record.record_type not in checked_types:
@@ -783,23 +810,19 @@ class PortableBundleService:
                         )
                     checked_types.add(record.record_type)
                 keys = (record.identity, *_unique_identities(record))
-                where = or_(
-                    *(
-                        and_(*(table.c[key] == _database_value(value, table.c[key]) for key, value in identity.items()))
-                        for identity in keys
-                    )
-                )
-                statement = select(*(table.c[field] for field in (*spec.identity, *spec.payload))).where(where)
-                rows = (await connection.execute(statement)).mappings().all()
-                if rows:
-                    if all(
-                        _record_from_row(record.record_type, cast(Mapping[str, Any], row)).digest == record.digest
-                        for row in rows
-                    ):
-                        already_present += 1
-                    else:
-                        conflicts += 1
-                _report_progress(progress, "target", processed, total)
+                parameters = sum(len(identity) for identity in keys)
+                size = len(_canonical_json(keys)) + len(record.digest)
+                if pending and (
+                    len(pending.get(record.record_type, ())) >= _TARGET_BATCH_RECORDS
+                    or pending_parameters + parameters > _TARGET_BATCH_PARAMETERS
+                    or pending_bytes + size > _TARGET_BATCH_KEY_BYTES
+                ):
+                    await flush()
+                    pending_parameters = pending_bytes = 0
+                pending.setdefault(record.record_type, []).append(_TargetLookup(keys, record.digest))
+                pending_parameters += parameters
+                pending_bytes += size
+            await flush()
             if (
                 conflicts == 0
                 and ARTIFACT_PUBLICATIONS_TABLE.name in existing_tables
@@ -935,6 +958,42 @@ class PortableBundleService:
                 _report_progress(progress, "export", count, None)
         _report_progress(progress, "export", count, count)
         return count, records_by_type, digest.value()
+
+
+async def _check_target_batch(
+    connection: AsyncConnection, kind: RecordType, lookups: list[_TargetLookup]
+) -> tuple[int, int]:
+    spec = _SPECS[kind]
+    table = spec.table
+    statements = []
+    for ordinal, lookup in enumerate(lookups):
+        predicate = or_(
+            *(
+                and_(*(table.c[key] == _database_value(value, table.c[key]) for key, value in identity.items()))
+                for identity in lookup.identities
+            )
+        )
+        # Carry the archive ordinal through SQL so matching retains the target's
+        # comparison semantics (including collation), not Python key equality.
+        statements.append(
+            select(
+                literal_column(str(ordinal)).label("_archive_ordinal"),
+                *(table.c[field] for field in (*spec.identity, *spec.payload)),
+            ).where(predicate)
+        )
+    present = [False] * len(lookups)
+    different = [False] * len(lookups)
+    # execute() buffers rows in some drivers even without .all(). Bound the
+    # cursor to one target row: its payload can dwarf the incoming archive row.
+    async with connection.stream(union_all(*statements), execution_options={"yield_per": 1}) as rows:
+        async for row in rows.mappings():
+            ordinal = int(row["_archive_ordinal"])
+            present[ordinal] = True
+            if not different[ordinal]:
+                different[ordinal] = (
+                    _record_from_row(kind, cast(Mapping[str, Any], row)).digest != lookups[ordinal].digest
+                )
+    return sum(found and not conflict for found, conflict in zip(present, different, strict=True)), sum(different)
 
 
 async def _export_rows(
@@ -2567,8 +2626,10 @@ def _report_progress(
     phase: Literal["export", "inspect", "validate", "target", "restore", "projections"],
     processed: int,
     total: int | None,
+    *,
+    force: bool = False,
 ) -> None:
-    if observer is not None and (processed in {0, 1, total} or processed % 1_000 == 0):
+    if observer is not None and (force or processed in {0, 1, total} or processed % 1_000 == 0):
         observer(BundleProgress(phase=phase, processed=processed, total=total))
 
 

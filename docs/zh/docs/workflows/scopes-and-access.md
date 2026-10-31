@@ -49,3 +49,42 @@ Scope 选择项目上下文边界。其不透明 ID 用于标识数据，不负�
 
 团队通过 API、MCP 或宿主集成使用各自的身份与权限。Dashboard 仅用于个人和演示部署，可选用静态 token 鉴权，
 不作为 RBAC 团队入口；团队部署保持 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false`。
+
+## 恢复外部所有权写入
+
+`create_server_app` 将内置 Runtime 与业务事务之外的 relationship/audit store 组合时，
+受支持的创建回调在 `pc_access_owner_recovery` 保存所有权 intent。交付失败返回 503，此时业务对象可能已提交。
+保留原业务库，Server 重启后会继续重试 pending intent。不要盲目重复非幂等创建、把重试者指定为 owner，或修改 intent payload。
+
+能访问嵌入应用的运营者可以查看元数据，并显式重试已有 intent：
+
+```python
+recovery = app.state.owner_recovery
+if recovery is not None:
+    pending = await recovery.pending(scope_id=scope_id, limit=100)
+    for operation in pending:
+        await recovery.replay(operation.operation_id)
+
+    after = None
+    while True:
+        page = await recovery.inventory_gaps(scope_id, kind="artifact", after=after, limit=100)
+        # 仅向可信运营目标导出 page.items。
+        after = page.after
+        if after is None:
+            break
+```
+
+`pending` 同样支持用 operation ID 作为 `after` 分页。使用 `kind="candidate"` 盘点拟定归属凭证。
+清单只返回 identity 元数据，不返回 Artifact 或 Candidate 正文。`after` 跟随扫描过的 identity，
+因此 `items` 为空时也可能有下一页。`unknown` 表示没有可信 intent；`delivered_relation_missing` 表示完成 receipt
+对应的外部 relation 已缺失；`legacy_selector_required` 表示旧 Memory collection 需要显式 entry 清单。
+这些情况需要基于可信原始证据确定 operator policy；重放不接受新 owner，也不会恢复已完成 receipt 对应的被删除 relation。
+已有独立读取授权仍有效，但不会填补所有权缺口。
+
+外部 Artifact 恢复要求支持按事件幂等的 `append_audit_once`；缺少该能力会在业务提交前失败。
+Relationship writer 必须遵循原有不可变 owner/key 以及精确 Candidate target 契约。
+冲突保持 pending，供运营者调查。完成 receipt 持续保留，应纳入业务库备份和保留策略。
+没有新增公共 recovery HTTP/MCP 接口或 CLI。
+
+恢复测试使用两个独立真实 SQLite 数据库，注入交付/确认失败，验证应用生命周期重启与并发重放。
+这不等于远程权限服务、OceanBase/MySQL、多 Server 节点或不具备 commit hook 的自组装 Runtime 已通过验收。

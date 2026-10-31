@@ -71,7 +71,9 @@ def test_unpublished_reconciliation_receives_bounded_identity_correction(correct
                 compared_ids=("candidate:0",),
                 target_ids=("candidate:0",),
                 content=AtomicMemoryReconciliationContent(
-                    kind="fact", text="The project selected OceanBase for persistence."
+                    kind="fact",
+                    text="The project selected OceanBase for persistence.",
+                    description="OceanBase selected for persistence",
                 ),
                 evidence_ids=("source:1",),
                 reason="Combine the two supported statements.",
@@ -93,6 +95,7 @@ def test_unpublished_reconciliation_receives_bounded_identity_correction(correct
             key = workset.apply("candidate:1", related, result.output)
             assert workset.items[key].origins == ()
             assert workset.items[key].content.text == "The project selected OceanBase for persistence."
+            assert workset.items[key].content.description == "OceanBase selected for persistence"
         else:
             with pytest.raises(InvalidInferenceOutputError):
                 await generator.generate(request)
@@ -109,7 +112,7 @@ def test_reconciliation_generator_advertises_only_model_owned_content() -> None:
         schema = output.json_schema
         (content_schema,) = tuple(item for item in schema["properties"]["content"]["anyOf"] if "$ref" in item)
         content = schema["$defs"][content_schema["$ref"].rsplit("/", 1)[-1]]
-        assert set(content["properties"]) == {"kind", "text"}
+        assert set(content["properties"]) == {"kind", "text", "description"}
         assert content["additionalProperties"] is False
         assert "AtomicMemoryCreation" not in schema.get("$defs", {})
         return ModelResponse(parts=[TextPart('{"action":"noop","compared_ids":[],"reason":"Unsupported."}')])
@@ -148,7 +151,7 @@ def test_reconciliation_output_rejects_externally_supplied_metadata(metadata: di
         AtomicMemoryReconciliationOutput.model_validate({
             "action": "create",
             "compared_ids": [],
-            "content": {"kind": "fact", "text": "Supplied fact.", **metadata},
+            "content": {"kind": "fact", "text": "Supplied fact.", "description": "Supplied fact", **metadata},
             "evidence_ids": ["source:1"],
             "reason": "Supported by the Source.",
         })
@@ -159,4 +162,4 @@ def test_reconciliation_output_json_schema_omits_service_owned_metadata(mode) ->
     schema = AtomicMemoryReconciliationOutput.model_json_schema(mode=mode)
     (content_schema,) = tuple(item for item in schema["properties"]["content"]["anyOf"] if "$ref" in item)
     content = schema["$defs"][content_schema["$ref"].rsplit("/", 1)[-1]]
-    assert set(content["properties"]) == {"kind", "text"}
+    assert set(content["properties"]) == {"kind", "text", "description"}

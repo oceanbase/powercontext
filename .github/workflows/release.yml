@@ -3,20 +3,106 @@ name: Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing published Release tag to build and publish
+        required: true
+        type: string
+      skip_upgrade_acceptance:
+        description: Publish for new databases only, without database upgrade acceptance
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event.release.tag_name || github.ref }}
+  group: release-${{ inputs.release_tag || github.event.release.tag_name || github.ref }}
   cancel-in-progress: false
 
 jobs:
+  resolve-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+    steps:
+      - name: Resolve the published Release and pin its source
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
+          SKIP_UPGRADE_ACCEPTANCE: ${{ inputs.skip_upgrade_acceptance || false }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          tag = os.environ["RELEASE_TAG"]
+          if not re.fullmatch(r"(?:powercontext-v|v)?\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?", tag):
+              raise SystemExit("Invalid PowerContext Release tag")
+          manual = os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch"
+          skip = os.environ["SKIP_UPGRADE_ACCEPTANCE"] == "true"
+          if manual and os.environ["GITHUB_REF"] != "refs/heads/" + os.environ["DEFAULT_BRANCH"]:
+              raise SystemExit("Run manual publication from the default branch; select the target with release_tag")
+          if skip and not manual:
+              raise SystemExit("Skipping upgrade acceptance requires explicit manual dispatch")
+
+          def get(path):
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/{path}",
+                  headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                           "Accept": "application/vnd.github+json"},
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+
+          quoted_tag = urllib.parse.quote(tag, safe="")
+          release = get(f"releases/tags/{quoted_tag}")
+          if release["tag_name"] != tag or release["draft"] or not release["published_at"]:
+              raise SystemExit("Select an existing published GitHub Release")
+          notice = (
+              "Upgrade acceptance was skipped for this release. "
+              "Use only new databases; upgrades of existing databases are not supported."
+          )
+          if skip and notice not in (release["body"] or ""):
+              raise SystemExit("Add this exact notice to the GitHub Release before skipping upgrades: " + notice)
+          commit = get(f"commits/{urllib.parse.quote('refs/tags/' + tag, safe='')}")["sha"]
+          if not re.fullmatch(r"[0-9a-f]{40}", commit):
+              raise SystemExit("Release tag did not resolve to a commit")
+          if not manual and commit != os.environ["GITHUB_SHA"]:
+              raise SystemExit("Release tag changed since the published event")
+          event = Path(os.environ["RUNNER_TEMP"]) / "release-metadata" / "event.json"
+          event.parent.mkdir()
+          event.write_text(json.dumps({"release": release}, ensure_ascii=False), encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"tag={tag}\nsource_sha={commit}\n")
+          PY
+      - name: Preserve the Release notes used for validation
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-metadata
+          path: ${{ runner.temp }}/release-metadata/event.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
   release-build:
+    needs: resolve-release
     uses: ./.github/workflows/upgrade-release.yml
     with:
       release: true
-      selection: automatic
+      selection: full
+      source_ref: ${{ needs.resolve-release.outputs.source_sha }}
+      release_tag: ${{ needs.resolve-release.outputs.tag }}
+      skip_upgrade_acceptance: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_upgrade_acceptance }}
 
   pypi-publish:
     runs-on: ubuntu-latest
@@ -32,12 +118,12 @@ jobs:
           path: dist/
 
       - name: Publish release distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
 
   release-assets:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: release-build
+    needs: [resolve-release, release-build]
     permissions:
       contents: write
     steps:
@@ -50,21 +136,21 @@ jobs:
       - name: Upload GitHub Release assets
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ needs.resolve-release.outputs.tag }}
           files: dist/*
           fail_on_unmatched_files: true
 
   release-verify:
-    needs: [pypi-publish, release-assets]
+    needs: [resolve-release, pypi-publish, release-assets]
     permissions:
       contents: read
     uses: ./.github/workflows/release-verify.yml
     with:
-      release_tag: ${{ github.event.release.tag_name }}
+      release_tag: ${{ needs.resolve-release.outputs.tag }}
       release_package: powercontext
 
   deploy-website:
-    needs: pypi-publish
+    needs: [resolve-release, pypi-publish]
     permissions:
       contents: read
       pages: write
@@ -78,13 +164,15 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ needs.resolve-release.outputs.source_sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
       - name: Set up website tools
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm

@@ -1,0 +1,217 @@
+[
+  {
+    "operation_id": "create_scope",
+    "case_ids": [
+      "idempotent-replay"
+    ],
+    "observed_error_code": null,
+    "retry_disposition": "retry_later",
+    "missing_or_stale_fields": [
+      "idempotency_key"
+    ],
+    "next_action": "Retry create_scope once with the same idempotency_key, or confirm through list_scopes before any new create_scope.",
+    "problems": {
+      "codex": [
+        "abandoned_retryable"
+      ],
+      "codex-plugin": [
+        "abandoned_retryable"
+      ]
+    },
+    "source": "case_rule",
+    "evidence": {
+      "runs": 6,
+      "repeated_calls": 0,
+      "retries_after_change": 0,
+      "transcript_hashes": [
+        "3e132cc476d2f573ad949841a1903bb5e67728ece9cba929ee57d4da150a728f",
+        "49ca911217890a481693e9bea83db00901454aeae78b5943ffdf687d1e689f6c",
+        "6879fa3625376d182d74cbab8245d5cbfb3234d2221a8ef470586c0149eaec8b",
+        "70f98fc79d125ddf38490d841dc78eb3d15b83ec385fd04c038ed36638cdb4f3",
+        "9e28a374b23de068b25de79310af761dbb626d18c07e8af841b1f2a4cefed6bd",
+        "a7fded7da5e4f252aa6c78448c94eeef879c34df084e7b177528be01c6cf54ea"
+      ]
+    }
+  },
+  {
+    "operation_id": "capture_working_note",
+    "case_ids": [
+      "schema-past-expiry"
+    ],
+    "observed_error_code": "invalid_request",
+    "retry_disposition": "retry_after_change",
+    "missing_or_stale_fields": [
+      "expires_at"
+    ],
+    "next_action": "Retry capture_working_note once with expires_at in the future or omitted.",
+    "problems": {
+      "claude-code-plugin": [
+        "failure_does_not_name_field"
+      ],
+      "codex": [
+        "failure_does_not_name_field"
+      ],
+      "codex-plugin": [
+        "failure_does_not_name_field",
+        "abandoned_retryable"
+      ]
+    },
+    "source": "case_rule",
+    "evidence": {
+      "runs": 9,
+      "repeated_calls": 0,
+      "retries_after_change": 0,
+      "transcript_hashes": [
+        "091b4aa3353fce379ba52e2a3053ac38aeaab23b8f8a90e9490fbc4f064097f3",
+        "2b610e95a8b74f17b60b85a8a3b197175157eff703b69dfa7bcb4d898db41019",
+        "3b2c78ad0640469726b8e1122bed61ba087759c3ab6447b7196f6bba30cee435",
+        "72170dc38adf19ab6ff50a1fcb28003cd6c816945745ff65ad9e48324c8d3e61",
+        "af07957c105018818260c0a0170bf199a531d40a71fc6574e87b7e32fd6cfc1d",
+        "dba8398ce322800a02e58407bfdddc969471bbdd66a8b6bb82544df043497455",
+        "f117b79393d0385fc9edb461280c324b82acb7a6df5e95980e55cdea9edb074d",
+        "f3335747c5945e01d7fb68a56709761dd6f90a62f73c77ead9a6648ba27314c5",
+        "fadcd36d74ac6a4082496d6a9ddbf8d573458086a0c9c434c72b76215e15e206"
+      ]
+    }
+  },
+  {
+    "operation_id": "search_memory",
+    "case_ids": [
+      "transport-reset-read"
+    ],
+    "observed_error_code": null,
+    "retry_disposition": "retry_later",
+    "missing_or_stale_fields": [],
+    "next_action": "Retry search_memory once with the same arguments.",
+    "problems": {
+      "codex": [
+        "abandoned_retryable"
+      ],
+      "codex-plugin": [
+        "abandoned_retryable"
+      ]
+    },
+    "source": "case_rule",
+    "evidence": {
+      "runs": 6,
+      "repeated_calls": 0,
+      "retries_after_change": 0,
+      "transcript_hashes": [
+        "24371c6f09f698f67f52297df9cb7762fd05d50b4d45ea17547afcad9840a825",
+        "270558f1951f330058ae57167a1aaa02ce82f6388e705ca989d362f8061208a2",
+        "2ea26efd59ad616f9e04be1b6f6329749b2d4816cf96abf77950fdc566f5fd26",
+        "d8d35ddabcb45d69d41fd2b058c134d09daedcf5f38605cdfc37d0a55eabaab6",
+        "d8f221c5b0aa51e8a0f235ba4732f57f6ccfb1e04afa5787904ba7d2de3c7acd",
+        "de798aa0584ad3b41ffd1619428fad175e483d1f95c09cb65152ebb2a1e55d37"
+      ]
+    }
+  },
+  {
+    "operation_id": "propose_experience",
+    "case_ids": [
+      "mcp-family-rejected"
+    ],
+    "observed_error_code": "invalid_request",
+    "retry_disposition": "retry_after_change",
+    "missing_or_stale_fields": [
+      "artifact_refs"
+    ],
+    "next_action": "Retry propose_experience with the exact target Experience revision in artifact_refs.",
+    "problems": {
+      "claude-code": [
+        "blind_retries_after_change",
+        "non_actionable_error_detail"
+      ],
+      "claude-code-plugin": [
+        "blind_retries_after_change",
+        "non_actionable_error_detail"
+      ]
+    },
+    "source": "manual_review",
+    "evidence": {
+      "runs": 5,
+      "repeated_calls": 0,
+      "retries_after_change": 8,
+      "transcript_hashes": [
+        "3c09923aa0f4c9423758e64f163fe696bce9d37cc7037f1860b151e894747639",
+        "5121882e691efcc4a6767b22c0d585e26ae855f7dc1cdd39cd9c9e8b91ef5a78",
+        "96b4e98011b0c0fb8fc9bac10ba753759c6ca6886e5aef5c23be175aa500a3fd",
+        "9d3848d42c1d5dbc23a7617bc5e08e41d64249eeedfba8188bfd5f9b0b9ff449",
+        "fc802310bf02e39d83fc1634d1d65eafb4c450492c54dcac46050282a0761e9a"
+      ]
+    }
+  },
+  {
+    "operation_id": "create_dream_run",
+    "case_ids": [
+      "dream-capacity"
+    ],
+    "observed_error_code": "invalid_request",
+    "retry_disposition": "retry_after_change",
+    "missing_or_stale_fields": [
+      "artifacts"
+    ],
+    "next_action": "Retry create_dream_run with the Experience revision in artifacts (1 to 20 items).",
+    "problems": {
+      "claude-code": [
+        "non_actionable_error_detail"
+      ],
+      "claude-code-plugin": [
+        "non_actionable_error_detail"
+      ],
+      "codex": [
+        "non_actionable_error_detail"
+      ],
+      "codex-plugin": [
+        "non_actionable_error_detail"
+      ]
+    },
+    "source": "manual_review",
+    "evidence": {
+      "runs": 12,
+      "repeated_calls": 0,
+      "retries_after_change": 5,
+      "transcript_hashes": [
+        "0bd32ab223ca7f4b041b915f36a9d772139dc24187a2e48ad1e2453f6360bb59",
+        "0e8434b1ca0aa0803265050aa98467dbc08e7ca03fd5ea9914aab9baadf116c5",
+        "182442368a314ed1dd14e384761b0e58068cfdc6066d2fcd5992c1a064e535e6",
+        "2f656c0618ae698a158904d06e32f04f5821e6b738ff35792573f98505097cd7",
+        "525d532620103cfcef7c4c1a3d91fb8bb4e92a90fcc2d32cf7f11abe6df845bf",
+        "6ad977c6d8bfd795a568f528a96ad550ec81c882a910622cd4e82a6d51774050",
+        "89012bd44a9900eeef8d09cc94823fbec2d90e346ce8acd16358f568f11c6b5b",
+        "94de42360e91d37d5ee38ea2c3400dd07a98547b130ded85a526f368c662f7d1",
+        "a526deb7da4edec75fdec5f5f0240cccf8f18479bb08bf87751559bfe898b177",
+        "a7129aaea04670673dcb4400607c8597b81cdd4d5fc4e730c381f23c7741afb7",
+        "ba98f4997550b66c88f6ed6d808eed902b3cdf4472bdee3e24865a85be93e0b7",
+        "d93f75b40c2ed3c60eae244a4b8f7ae3ed2a94138c7eb00769c972b51c1c04b5"
+      ]
+    }
+  },
+  {
+    "operation_id": "resolve_scope_binding",
+    "case_ids": [
+      "permission-denied"
+    ],
+    "observed_error_code": "forbidden",
+    "retry_disposition": "terminal",
+    "missing_or_stale_fields": [],
+    "next_action": "Stop and report the missing permission; do not retry or use another Scope.",
+    "problems": {
+      "codex-plugin": [
+        "host_transcript_omits_denied_call",
+        "plugin_hook_masks_authorization_denial"
+      ]
+    },
+    "source": "manual_review",
+    "evidence": {
+      "runs": 3,
+      "repeated_calls": 0,
+      "retries_after_change": 0,
+      "transcript_hashes": [
+        "07ede270f12e006bc8e0a62930346f5b21c2ceef035fc5d8a3a4716e715d5d09",
+        "f96a08a88a6906d38015d8a8dd4ba04528a2dd5fa47ee9130229fdaf66c62439",
+        "ff05bb74c972c634da265b0da744600bbfdc141e867535bce49c6afe67daa661"
+      ]
+    }
+  }
+]

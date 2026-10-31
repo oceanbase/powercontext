@@ -246,7 +246,7 @@ def test_real_seekdb_reports_engine_fork_version_without_claiming_recovery_accep
             def inspect_provider(sync: Connection) -> None:
                 provider = ForkBackupProvider(
                     sync,
-                    database_name="test",
+                    database_name=str(sync.exec_driver_sql("SELECT DATABASE()").scalar_one()),
                     expected_product="seekdb",
                     directory=short_tmp_path / "manifests",
                 )
@@ -265,15 +265,21 @@ def test_real_seekdb_reports_engine_fork_version_without_claiming_recovery_accep
 
 
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")
-def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_restore(short_tmp_path: Path) -> None:
+@pytest.mark.parametrize("database_name", [None, "test", "backup_context"])
+def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_restore(
+    short_tmp_path: Path, database_name: str | None
+) -> None:
     """Acceptance for one scratch-table shape, not the complete PC schema."""
     from powercontext.builtin.persistence.migrations.connections import MaintenanceConnections
     from powercontext.builtin.persistence.seekdb import SeekDBConfig
 
-    adapter = MaintenanceConnections(SeekDBConfig(path=short_tmp_path / "seekdb"))
+    path = short_tmp_path / "seekdb"
+    config = SeekDBConfig(path=path) if database_name is None else SeekDBConfig(path=path, database=database_name)
+    adapter = MaintenanceConnections(config)
 
-    def create_and_change(connection, _identity, _verify):
+    def create_and_change(connection, identity, _verify):
         assert connection is not None
+        assert connection.exec_driver_sql("SELECT DATABASE()").scalar_one() == identity.database_name
         connection.exec_driver_sql("CREATE TABLE pc_artifacts (id INT PRIMARY KEY, content VARCHAR(40))")
         connection.exec_driver_sql("INSERT INTO pc_artifacts VALUES (1, 'original')")
         connection.commit()
@@ -281,7 +287,7 @@ def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_re
         comment = str(connection.exec_driver_sql("SELECT @@version_comment").scalar_one())
         number = identify_fork_server(version, comment)[1]
         assert number is not None
-        definition = str(connection.exec_driver_sql("SHOW CREATE TABLE test.pc_artifacts").one()[1])
+        definition = str(connection.exec_driver_sql("SHOW CREATE TABLE pc_artifacts").one()[1])
         # This test performs every claimed DDL/restart/restore check below.
         # It does not install this evidence in any production adapter.
         acceptance = ForkWorkflowAcceptance(
@@ -294,7 +300,7 @@ def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_re
             covered_objects=("pc_artifacts",),
             evidence_reference="scratch-table acceptance executed by this integration test",
             restore_steps=(
-                "While stopped, Fork the retained table into a new table in the original test database.",
+                "While stopped, Fork the retained table into a new table in the original configured database.",
                 "Rename the current table to a retained name, then atomically give the restored table its original name.",
                 "Verify original data and revision; preserve the original Fork database and failed table.",
             ),
@@ -305,7 +311,7 @@ def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_re
         )
         provider = ForkBackupProvider(
             connection,
-            database_name="test",
+            database_name=identity.database_name,
             expected_product="seekdb",
             directory=short_tmp_path / "manifests",
             acceptance=acceptance,
@@ -321,11 +327,12 @@ def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_re
     # second one reopens the scratch schema without initializing business tables.
     ref, acceptance = adapter.run(create_and_change, writable=True)
 
-    def inspect_and_restore(connection, _identity, _verify):
+    def inspect_and_restore(connection, identity, _verify):
         assert connection is not None
+        assert connection.exec_driver_sql("SELECT DATABASE()").scalar_one() == identity.database_name
         provider = ForkBackupProvider(
             connection,
-            database_name="test",
+            database_name=identity.database_name,
             expected_product="seekdb",
             directory=short_tmp_path / "manifests",
             acceptance=acceptance,
@@ -337,16 +344,16 @@ def test_real_seekdb_fork_simple_table_survives_ddl_restart_and_original_name_re
         # Source DDL and process restart must not replace the original
         # point if the executor lost its own post-backup receipt.
         assert provider.create_backup(context()) == ref
-        # The generated name is hexadecimal; it is not user SQL input.
-        connection.exec_driver_sql(f"FORK TABLE `{ref.location}`.`pc_artifacts` TO `test`.`pc_restore_probe`")
+        quote = connection.dialect.identifier_preparer.quote_identifier
         connection.exec_driver_sql(
-            "RENAME TABLE test.pc_artifacts TO test.pc_failed_retained,test.pc_restore_probe TO test.pc_artifacts"
+            f"FORK TABLE {quote(ref.location)}.`pc_artifacts` TO {quote(identity.database_name)}.`pc_restore_probe`"
         )
+        connection.exec_driver_sql("RENAME TABLE pc_artifacts TO pc_failed_retained, pc_restore_probe TO pc_artifacts")
         connection.commit()
-        assert connection.exec_driver_sql("SELECT id,content FROM test.pc_artifacts").all() == [(1, "original")]
-        assert connection.exec_driver_sql("SELECT content FROM test.pc_failed_retained").all() == [("changed",)]
+        assert connection.exec_driver_sql("SELECT id,content FROM pc_artifacts").all() == [(1, "original")]
+        assert connection.exec_driver_sql("SELECT content FROM pc_failed_retained").all() == [("changed",)]
         assert connection.exec_driver_sql(
-            f"SELECT id,content FROM `{ref.location}`.`pc_artifacts`"  # noqa: S608 -- generated hexadecimal name
+            f"SELECT id,content FROM {quote(ref.location)}.`pc_artifacts`"  # noqa: S608 -- dialect-quoted identifier
         ).all() == [(1, "original")]
 
     adapter.run(inspect_and_restore, writable=True)

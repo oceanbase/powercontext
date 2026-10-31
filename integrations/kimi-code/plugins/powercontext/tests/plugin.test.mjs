@@ -30,6 +30,10 @@ const prompt = 'The deployment color is teal-731.'
 const { cases: privacyCases } = JSON.parse(await readFile(
   new URL('../../../../../tests/fixtures/automatic_prompt_privacy.json', import.meta.url), 'utf8',
 ))
+const { cases: queryBoundCases } = JSON.parse(await readFile(
+  new URL('../../../../../tests/fixtures/recall_query_bound.json', import.meta.url), 'utf8',
+))
+const expand = segments => segments.map(({ text, repeat = 1 }) => text.repeat(repeat)).join('')
 
 test('automatic prompt privacy preserves preparation and original accepted events', async t => {
   const scenarios = [
@@ -53,6 +57,20 @@ test('automatic prompt privacy preserves preparation and original accepted event
         assert.equal(state.captures[0].content, sample.prompt)
         assert.equal(prepares[0].body.query, sample.prompt)
       }
+    })
+  }
+})
+test('the recall query keeps the end of a long prompt', async t => {
+  for (const sample of queryBoundCases) {
+    await t.test(sample.id, async t => {
+      const state = await fixture(t)
+      const result = await state.invoke({
+        hook_event_name: 'UserPromptSubmit', cwd: state.workspace,
+        session_id: `query-${sample.id}`, prompt: expand(sample.prompt),
+      })
+      const prepares = state.requests.filter(item => item.path === '/v1/context/prepare')
+      assert.equal(prepares.length, 1, result.stderr)
+      assert.equal(prepares[0].body.query, expand(sample.query))
     })
   }
 })

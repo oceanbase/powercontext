@@ -44,8 +44,10 @@ from powercontext.builtin.artifacts.search import AdmissionCounts
 from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryContent,
     TopicMemoryDraft,
+    chunk_topic_memory_detail,
     prepare_topic_memory_projection,
 )
+from powercontext.builtin.artifacts.topic_memory.search import bounded_topic_memory_query
 from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError
 from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -118,6 +120,7 @@ class _RecallRoundLog:
             admission: Any,
             reuse: Any,
             topic_reuse: Any,
+            embedding_budget: Any,
             excluded_memory: Any,
         ) -> Any:
             log.calls.append({"families": set(families), "admission": admission})
@@ -132,6 +135,7 @@ class _RecallRoundLog:
                 admission=admission,
                 reuse=reuse,
                 topic_reuse=topic_reuse,
+                embedding_budget=embedding_budget,
                 excluded_memory=excluded_memory,
             )
             log.calls[-1]["memory_recoverable"] = result.memory_recoverable
@@ -184,22 +188,36 @@ async def _seed(runtime: BuiltinRuntime, scope_id: str, texts: list[str]) -> Non
     await runtime.atomic_memory.for_scope(scope_id).create(tuple(_entry(text) for text in map(_embedded_body, texts)))
 
 
-async def _seed_topic_memories(runtime: BuiltinRuntime, scope_id: str, count: int) -> None:
+async def _seed_topic_memories(
+    runtime: BuiltinRuntime, scope_id: str, count: int, *, embedding_model: Any = None
+) -> None:
+    for position in range(count):
+        content = TopicMemoryContent(
+            title=f"alpha beta topic {position:02d}",
+            summary=f"Useful evidence {position}",
+            detail="unrelated detail",
+        )
+        await _seed_topic_memory(runtime, scope_id, f"topic-over-cap-{position:02d}", content, embedding_model)
+
+
+async def _seed_topic_memory(
+    runtime: BuiltinRuntime, scope_id: str, key: str, content: TopicMemoryContent, embedding_model: Any = None
+) -> None:
     provider = cast(Any, runtime._provider)
+    projection = prepare_topic_memory_projection(content)
+    if embedding_model is not None:
+        chunks = chunk_topic_memory_detail(content.detail)
+        embedded = await embedding_model.embed((f"{content.title}\n{content.summary}", *(c.text for c in chunks)))
+        projection = prepare_topic_memory_projection(
+            content,
+            topic_embedding=embedded.vectors[0],
+            chunk_embeddings=embedded.vectors[1:],
+            embedding_profile=embedding_model.profile,
+        )
     async with provider.database.transaction() as connection:
-        for position in range(count):
-            content = TopicMemoryContent(
-                title=f"alpha beta topic {position:02d}",
-                summary=f"Useful evidence {position}",
-                detail="unrelated detail",
-            )
-            await provider.repositories.topic_memories.publish_create(
-                connection,
-                scope_id,
-                f"topic-over-cap-{position:02d}",
-                TopicMemoryDraft(content=content),
-                prepare_topic_memory_projection(content),
-            )
+        await provider.repositories.topic_memories.publish_create(
+            connection, scope_id, key, TopicMemoryDraft(content=content), projection
+        )
 
 
 async def _create_scope(runtime: BuiltinRuntime, key: str, *, references: tuple[str, ...] = ()) -> str:
@@ -796,6 +814,179 @@ def test_topic_embedding_timeout_is_paid_once_per_prepare(tmp_path, monkeypatch)
     asyncio.run(scenario())
 
 
+def test_work_between_embedding_waits_does_not_spend_the_preparation_budget(tmp_path) -> None:
+    """Only waiting for a query embedding is charged to ``recall_embedding_timeout_seconds``.
+
+    Atomic Memory and Topic Memory each embed the query here, and a slow Experience recall runs between them. Both
+    providers answer well inside the budget; charging the Experience recall too would leave Topic Memory nothing and
+    drop its semantic channel.
+    """
+
+    class SlowQueryEmbedding:
+        profile = EmbeddingProfile(profile_id="query", model="query", dimension=2)
+
+        def __init__(self) -> None:
+            self.answered = False
+
+        async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+            if _QUERY in texts:
+                await asyncio.sleep(0.15)
+                self.answered = True
+            return EmbeddingResult(vectors=tuple((1.0, 0.0) for _ in texts))
+
+    async def slow_experience(_scope_id: str, _query: str, _limit: int, **_kwargs: Any) -> ExperienceSearchOutcome:
+        await asyncio.sleep(0.3)
+        return ExperienceSearchOutcome()
+
+    memory_embedding = SlowQueryEmbedding()
+    topic_embedding = SlowQueryEmbedding()
+
+    async def scenario() -> Any:
+        async with _runtime(
+            tmp_path / "embedding-budget.db",
+            RuntimeConfig(recall_embedding_timeout_seconds=0.4),
+            embedding_model=memory_embedding,
+        ) as runtime:
+            scope_id = await _create_scope(runtime, "embedding-budget")
+            await _seed(runtime, scope_id, ["alpha beta gamma evidence"])
+            await _seed_topic_memories(runtime, scope_id, 1, embedding_model=memory_embedding)
+            assert runtime._topic_memory_search is not None
+            runtime._topic_memory_searcher = TopicMemorySearcher(
+                search=runtime._topic_memory_search,
+                embedding_model=topic_embedding,
+                observer=runtime._topic_memory_search_observer,
+            )
+            # A separate Topic Memory model makes it embed the query itself instead of reusing the Atomic vector.
+            runtime._topic_memory_embedding_model = topic_embedding
+            runtime._experience_recall = slow_experience
+            request = PrepareContextRequest.model_validate({"query": _QUERY, "max_bytes": 8000, "explain": True})
+            return await runtime.context.for_scope(scope_id).prepare(request)
+
+    prepared = asyncio.run(scenario())
+
+    assert memory_embedding.answered
+    assert topic_embedding.answered
+    assert prepared.reason is None
+
+
+def test_a_spent_budget_keeps_the_cached_memory_vector_for_expansion(tmp_path) -> None:
+    """A spent budget stops new embedding requests, not the use of a query vector already obtained.
+
+    Atomic Memory embeds the query at once. A query this long gets its own bounded Topic Memory embedding, which times
+    out and spends the budget. The vector-only Memory below round zero's semantic floor must still be admitted by the
+    expansion round through the cached Atomic vector, without another provider call.
+    """
+
+    query = " ".join((_QUERY, *(f"term{index:02d}" for index in range(70))))
+    topic_query = bounded_topic_memory_query(query)
+    assert topic_query != query
+    vector_only = "unrelated vector evidence"
+    profile = EmbeddingProfile(
+        profile_id="spent-budget", model="deterministic", dimension=2, distance="l2", normalization="unit"
+    )
+
+    class AtomicFastTopicSlowEmbedding:
+        def __init__(self) -> None:
+            self.profile = profile
+            self.query_calls = 0
+
+        async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+            if query in texts:
+                self.query_calls += 1
+                await asyncio.sleep(0.05)
+            elif topic_query in texts:
+                self.query_calls += 1
+                await asyncio.sleep(5)
+            similarities = tuple(
+                1.0 if text == query else 0.2 if text == vector_only else 0.31 for text in map(_embedded_body, texts)
+            )
+            return EmbeddingResult(
+                vectors=tuple((similarity, math.sqrt(1.0 - similarity**2)) for similarity in similarities)
+            )
+
+    embedding = AtomicFastTopicSlowEmbedding()
+
+    async def scenario() -> Any:
+        async with _runtime(
+            tmp_path / "spent-budget.db",
+            RuntimeConfig(recall_gate_enabled=True, recall_gate_min_candidates=1),
+            embedding_model=embedding,
+        ) as runtime:
+            scope_id = await _create_scope(runtime, "spent-budget")
+            await _seed(runtime, scope_id, ["alpha beta gamma vector evidence", vector_only])
+            await _seed_topic_memories(runtime, scope_id, 1, embedding_model=embedding)
+            # SQLite's optional math functions are not part of the backend requirements.
+            provider = cast(Any, runtime._provider)
+            async with provider.database.transaction() as connection:
+                driver = (await connection.get_raw_connection()).driver_connection
+                assert driver is not None
+                await driver.create_function("power", 2, None)
+            request = PrepareContextRequest.model_validate({"query": query, "max_bytes": 8000, "explain": True})
+            return await runtime.context.for_scope(scope_id).prepare(request)
+
+    prepared = asyncio.run(scenario())
+
+    assert prepared.reason == "inference_timeout"
+    assert vector_only in (prepared.content or "")
+    # This is the external inference-attempt budget for one request: Atomic once, Topic once.
+    assert embedding.query_calls == 2
+
+
+def test_a_spent_budget_keeps_the_cached_vector_for_topic_memory(tmp_path) -> None:
+    """Topic Memory keeps searching by vector with the query vector Atomic Memory obtained, after the budget is spent.
+
+    The provider answers Atomic Memory's query embedding only as the budget runs out: the vector arrives, and the wait
+    spends the budget. Topic Memory then searches with that cached vector instead of a new request, so a Topic Memory
+    that only the vector channel finds still reaches the prepared content.
+    """
+
+    budget = 0.2
+    vector_only = "orchard ledger"
+
+    class SlowAnswerEmbedding:
+        profile = EmbeddingProfile(profile_id="slow-answer", model="deterministic", dimension=2)
+
+        def __init__(self) -> None:
+            self.query_calls = 0
+
+        async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+            if texts == (_QUERY,):
+                self.query_calls += 1
+                # Not yielding lets the answer arrive after the deadline instead of being cancelled at it.
+                time.sleep(budget * 1.5)  # noqa: ASYNC251
+            similarities = tuple(1.0 if text == _QUERY else 0.9 if vector_only in text else 0.1 for text in texts)
+            return EmbeddingResult(
+                vectors=tuple((similarity, math.sqrt(1.0 - similarity**2)) for similarity in similarities)
+            )
+
+    embedding = SlowAnswerEmbedding()
+
+    async def scenario() -> Any:
+        async with _runtime(
+            tmp_path / "spent-budget-topic.db",
+            RuntimeConfig(recall_embedding_timeout_seconds=budget),
+            embedding_model=embedding,
+        ) as runtime:
+            scope_id = await _create_scope(runtime, "spent-budget-topic")
+            await _seed(runtime, scope_id, ["alpha beta gamma evidence"])
+            await _seed_topic_memory(
+                runtime,
+                scope_id,
+                "vector-only-topic",
+                TopicMemoryContent(title=vector_only, summary="Seasonal accounts", detail="unrelated detail"),
+                embedding,
+            )
+            request = PrepareContextRequest.model_validate({"query": _QUERY, "max_bytes": 8000, "explain": True})
+            return await runtime.context.for_scope(scope_id).prepare(request)
+
+    prepared = asyncio.run(scenario())
+
+    assert prepared.reason is None
+    assert vector_only in (prepared.content or "")
+    # This is the external inference-attempt budget for one request: Topic Memory reuses Atomic Memory's vector.
+    assert embedding.query_calls == 1
+
+
 def test_empty_scope_is_no_content_and_does_not_expand(tmp_path, monkeypatch) -> None:
     log = _RecallRoundLog()
     log.install(monkeypatch)
@@ -900,6 +1091,7 @@ def test_memory_head_change_during_expansion_fails_open_to_round_zero(tmp_path, 
             admission: Any,
             reuse: Any,
             topic_reuse: Any,
+            embedding_budget: Any,
             excluded_memory: Any,
         ) -> Any:
             nonlocal calls
@@ -914,6 +1106,7 @@ def test_memory_head_change_during_expansion_fails_open_to_round_zero(tmp_path, 
                     admission=admission,
                     reuse=reuse,
                     topic_reuse=topic_reuse,
+                    embedding_budget=embedding_budget,
                     excluded_memory=excluded_memory,
                 )
             raise AtomicMemoryConflictError("Memory changed while expanding retrieval")  # noqa: TRY003
@@ -1000,6 +1193,7 @@ def test_later_round_failure_preserves_committed_expansion(tmp_path, monkeypatch
             admission: Any,
             reuse: Any,
             topic_reuse: Any,
+            embedding_budget: Any,
             excluded_memory: Any,
         ) -> Any:
             nonlocal calls
@@ -1015,6 +1209,7 @@ def test_later_round_failure_preserves_committed_expansion(tmp_path, monkeypatch
                 admission=admission,
                 reuse=reuse,
                 topic_reuse=topic_reuse,
+                embedding_budget=embedding_budget,
                 excluded_memory=excluded_memory,
             )
             if calls == 2:

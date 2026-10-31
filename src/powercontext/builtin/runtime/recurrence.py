@@ -112,12 +112,14 @@ class RelationalRecurrenceLedger:
     ) -> tuple[RecurrenceRevisionProposal, ...]:
         """Record every event one incubation window proves, in evidence order."""
 
+        outcomes = tuple((row, outcome) for row in rows if (outcome := _task_outcome(row)) is not None)
+        # Every unlinked outcome matches against the same scope-head snapshot, and
+        # this method writes no artifacts, so read the snapshot once per window.
+        needs_heads = any(outcome.handoff_receipt_ref is None for _, outcome in outcomes)
+        heads: _Contents = await self._experience_heads(connection) if needs_heads else ()
         proposals: list[RecurrenceRevisionProposal] = []
-        for row in rows:
-            outcome = _task_outcome(row)
-            if outcome is None:
-                continue
-            proposals.extend(await self._record_outcome(connection, row, outcome))
+        for row, outcome in outcomes:
+            proposals.extend(await self._record_outcome(connection, row, outcome, heads=heads))
         return tuple(proposals)
 
     async def _record_outcome(
@@ -126,6 +128,8 @@ class RelationalRecurrenceLedger:
         row: StoredSource,
         outcome: TaskOutcome,
         /,
+        *,
+        heads: _Contents,
     ) -> tuple[RecurrenceRevisionProposal, ...]:
         link = await self._resolve_link(connection, outcome)
         if not isinstance(link, (_LinkedHandoff, type(None))):
@@ -133,7 +137,7 @@ class RelationalRecurrenceLedger:
         contents: _Contents = () if link is None else link.contents
         if link is not None:
             await self._record_selected(connection, row=row, link=link, contents=contents)
-        candidates: _Contents = contents if link is not None else await self._experience_heads(connection)
+        candidates: _Contents = contents if link is not None else heads
         matches = await self._freeze_matches(
             connection,
             row=row,
@@ -477,12 +481,18 @@ class RelationalRecurrenceLedger:
     async def _contents(self, connection: AsyncConnection, refs: tuple[ArtifactRef, ...], /) -> _Contents:
         if not refs:
             return ()
+        try:
+            artifacts = await self.artifacts.get_many(connection, self.scope_id, refs)
+        except RepositoryNotFoundError:
+            # get_many is all-or-nothing; skip missing revisions one by one as before.
+            artifacts = []
+            for ref in refs:
+                try:
+                    artifacts.append(await self.artifacts.get(connection, self.scope_id, ref))
+                except RepositoryNotFoundError:
+                    continue
         contents: list[tuple[ArtifactRef, ExperienceContent]] = []
-        for ref in refs:
-            try:
-                artifact = await self.artifacts.get(connection, self.scope_id, ref)
-            except RepositoryNotFoundError:
-                continue
+        for artifact in artifacts:
             if isinstance(artifact.content, ExperienceContent):
                 contents.append((artifact.as_ref(), artifact.content))
         return tuple(contents)

@@ -128,8 +128,12 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 await transport.get(f"/v1/scopes/{encoded_scope}/sources", params={"source_type": "content"})
             ).status_code == 422
 
-            invalid_source_type = await transport.get(
+            unknown_source_type = await transport.get(
                 f"/v1/scopes/{encoded_scope}/sources/private/{quote(source.source_id, safe='')}"
+            )
+            assert unknown_source_type.status_code == 404
+            invalid_source_type = await transport.get(
+                f"/v1/scopes/{encoded_scope}/sources/{quote(' ', safe='')}/{quote(source.source_id, safe='')}"
             )
             assert invalid_source_type.status_code == 422
             invalid_family = await transport.post(

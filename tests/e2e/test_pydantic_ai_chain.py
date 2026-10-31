@@ -47,7 +47,12 @@ class ToolResultCandidatePipeline:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="working_note", text=text, evidence_ids=(evidence.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="working_note",
+                        text=text,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
                     for evidence in request.evidence
                     if (text := memory_source_text(evidence)) is not None
                     if isinstance(evidence.source_metadata, dict)

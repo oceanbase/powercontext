@@ -39,13 +39,18 @@ const [{ source }, { languages }] = await Promise.all([
   import('../src/lib/i18n'),
 ]);
 
-const sourcePages = source.getPages();
+const [{ blogSource }, { blogRoutes }] = await Promise.all([import('../src/lib/blog-source'), import('../src/lib/blog')]);
+const sourcePages = [...source.getPages(), ...blogSource.getPages()];
 const documentationPages = sourcePages.filter((page) => page.slugs[0] === 'docs');
 const rfcPages = sourcePages.filter((page) => page.slugs[0] === 'rfcs');
 const developmentPages = sourcePages.filter((page) => page.slugs[0] === 'development');
 const scanned = await scanURLs({
   preset: 'next',
   populate: {
+    '(localized)/[lang]/blog/[[...slug]]': languages.flatMap((lang) => blogRoutes(lang).map((slug) => ({
+      value: { lang, slug },
+      hashes: blogSource.getPage(slug, lang)?.data.toc.map((item) => item.url.slice(1)) ?? [],
+    }))),
     '(localized)/[lang]': languages.map((lang) => ({ value: { lang } })),
     '(localized)/[lang]/(documentation)/docs/[[...slug]]': documentationPages.map((page) => ({
       value: { lang: page.locale ?? 'en', slug: page.slugs.slice(1) },

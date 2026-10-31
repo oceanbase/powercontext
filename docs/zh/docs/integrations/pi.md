@@ -49,6 +49,23 @@ Scope 时设置显式变量。
 
 启用这些能力后，Pi 已满足仓库定义的 Full 核心接入 profile。
 
+### 压缩前 checkpoint
+
+package 通过 Pi 公开的 `session_before_compact` 事件提供 **best-effort** checkpoint。符合条件的 prompt 会在 agent
+turn 前使用确定性 Source ID 采集，事件会 flush 这些已接受的 journal position。只有完整、合法的 flush 响应满足
+`current_cursor >= position` 时，position 才会从 pending 集合移除；仅有 HTTP 2xx、畸形 cursor 或其他 Scope 的
+cursor 都不能完成确认。
+
+每个 lifecycle 边界最多调用 `POWERCONTEXT_PI_FLUSH_MAX_CALLS` 次（默认 `4`，有效范围 `1`–`16`），并拥有各自的
+一秒预算；排队时间、所有 pending Scope 和重试调用共享该边界的预算。cursor 落后或 `remaining_work` 为 true 时会在
+预算内继续调用。确认前失败或取消会保留 pending work；确认后
+发生取消不会撤销确认。边界在排队期间耗尽预算时，会发出不含内容的 `deadline_exceeded` 诊断并保留 pending position。
+`session_before_switch` 和 `session_shutdown` 只 flush 已接受的 pending position。
+
+Pi 的真实 `ExtensionRunner` 会在 handler 抛错后继续运行；只有 handler 显式返回 `{ cancel: true }` 才会停止压缩。
+该 package 不返回这一结果，因此 checkpoint 失败不会阻止压缩，集成不具备 `required_capable` 语义。可选诊断不含
+内容，只记录 Scope 哈希关联值、目标/观测 position、生命周期事件、宿主和稳定失败分类。
+
 ## 控制提示词采集
 
 默认开启提示词采集。当前工作不应被记录时，请在启动 Pi 前关闭：
@@ -137,7 +154,7 @@ powercontext doctor pi
 | `POWERCONTEXT_PI_HTTP_BUDGET_MS` | `6000` | 召回/采集共享 HTTP 时间预算，单位毫秒 |
 | `POWERCONTEXT_PI_MAX_BYTES` | `8000` | 请求并校验的 PreparedContext byte 上限（`512`–`32768`） |
 | `POWERCONTEXT_PI_FLUSH_ON_CAPTURE` | `false` | 在 prompt hook 中等待已采集 Source 的处理 |
-| `POWERCONTEXT_PI_FLUSH_MAX_CALLS` | `4` | 一个 pending Source 最多 flush 次数 |
+| `POWERCONTEXT_PI_FLUSH_MAX_CALLS` | `4` | 一个 lifecycle 边界内所有 pending Scope 共享的最大 flush 调用次数 |
 | `POWERCONTEXT_PI_DIAGNOSTICS` | `off` | 失败诊断输出：`off`、`stderr`，或写入 JSON 行的绝对文件路径（支持 `~/`） |
 
 Pi 会拒绝包含凭据、query 或 fragment 的 base URL。召回、采集和边界 flush 都会正常降级；显式 `pc_*` 持久化写入
