@@ -33,6 +33,7 @@ from powercontext.builtin.runtime.composition import _embedding_models
 from powercontext.client import PowerContextClient
 from powercontext.http import CreateScopeRequest, PrepareContextRequest, RememberMemoryRequest
 from powercontext.server.settings import McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 from tests.e2e.test_context_text_assembly import _seed_topics
 
 from .harness import _configured_access_token, _start_configured_server, _without_scheduled_processing
@@ -75,6 +76,7 @@ def test_configured_profile_generation_review_and_context_delivery(tmp_path, pyt
                     )
                 }
             )
+            prepare_server_database(settings, evidence_dir=tmp_path / "migration-evidence")
         elif isinstance(settings.database, SQLiteConfig):
             settings = settings.model_copy(
                 update={"database": SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile.db'}")}

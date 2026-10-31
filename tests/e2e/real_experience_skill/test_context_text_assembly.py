@@ -53,6 +53,7 @@ from powercontext.http import (
     UpdateScopeRequest,
 )
 from powercontext.server.settings import McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 from .harness import _configured_access_token, _start_configured_server, _without_scheduled_processing
 
@@ -105,6 +106,7 @@ def test_configured_services_and_native_codex_consume_standard_text(tmp_path, py
                     )
                 }
             )
+            prepare_server_database(settings, evidence_dir=tmp_path / "migration-evidence")
             report["temporary_database"] = temporary_database
             (tmp_path / "assembly-report.json").write_text(json.dumps(report, indent=2))
         print("Starting isolated configured-service context assembly acceptance", flush=True)
