@@ -2023,8 +2023,10 @@ def test_restart_recovers_expired_run_with_its_pinned_input(database: DatabaseCo
 
 def test_missing_provenance_requires_maintenance_without_changing_existing_records(database: DatabaseConfig) -> None:
     from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.schema import DropIndex
 
     from powercontext.builtin.persistence.dream_schema import DreamSchemaNotReadyError
+    from powercontext.builtin.persistence.tables import DREAM_RUNS_TABLE
 
     async def scenario() -> None:
         settings = BuiltinConfig(database=database)
@@ -2048,7 +2050,10 @@ def test_missing_provenance_requires_maintenance_without_changing_existing_recor
         engine = create_async_engine(url, hide_parameters=True)
         try:
             async with engine.begin() as connection:
-                await connection.exec_driver_sql("DROP INDEX ix_pc_dream_runs_proposal_fingerprint")
+                index = next(
+                    index for index in DREAM_RUNS_TABLE.indexes if index.name == "ix_pc_dream_runs_proposal_fingerprint"
+                )
+                await connection.execute(DropIndex(index))
                 await connection.exec_driver_sql("ALTER TABLE pc_dream_runs DROP COLUMN proposal_fingerprint")
             async with engine.connect() as connection:
                 before = {
