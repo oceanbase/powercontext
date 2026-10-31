@@ -229,7 +229,7 @@ class Ops:
         ):
             raise OpsError("registration_missing")
 
-    def preflight(self, operation: object, options: object) -> dict[str, Any]:  # noqa: C901
+    def preflight(self, operation: object, options: object) -> dict[str, Any]:
         selected = protocol.options(operation, options)
         if operation in {"install", "repair"}:
             if self.installer is None:
@@ -262,16 +262,7 @@ class Ops:
             )
         database = None
         if self.installer is not None and may_start:
-            from powercontext.ops.local_policy import classify_database
-
-            configuration = self.installer._configuration(self, snapshot, {})
-            database = classify_database(configuration, self.target.package_version)
-            if not database.allowed_to_start:
-                raise OpsError(
-                    "database_incompatible"
-                    if database.classification == "incompatible"
-                    else "database_compatibility_unknown"
-                )
+            database = self.installer.admit_start(self, snapshot)
         result = {
             "protocol_version": 1,
             "target_id": self.target.target_id,

@@ -91,42 +91,62 @@ Preflight does not create a configuration file, data directory, or database.
 
 ## Database compatibility boundary
 
-Database inventory does not construct a Server runtime, connect to SQLite, initialize tables, change WAL settings, or
-apply migrations. It observes the selected file and recovery sidecars and binds that observation to the exact target
-Server version. Ops' own package version cannot prove compatibility with the target Server.
+Passive inspection inventories the selected SQLite file and recovery sidecars without opening SQLite or starting a
+target process. Existing files remain `existing_unknown` in ordinary status. Program-only repair binds the file
+identity and target version, allows normal writes and WAL checkpointing during resource preparation, and completes
+with the service stopped. Replacing the database invalidates its repair plan.
 
-Program-only repair binds the existing database's file identity and target version, allowing normal writes and WAL
-checkpointing while resources are prepared. Replacing the database invalidates the plan. This repair observation does
-not authorize startup; installation and startup retain strict database and recovery-sidecar observations.
+Operations that can start the managed service perform a separate admission check: `start`, `restart`, registration,
+and configuration changes that actually restart an active service. Ops verifies the owned target resource against its
+fixed manifest, then invokes that bundle's Server admission entry with isolated Python (`-I -B`). Windows uses the
+manifest's console Python from the same bundle. The child checks its installed package version against the selected
+Server version. An older target without this entry remains unsupported; the Ops package version or a previous
+successful startup cannot replace target admission.
 
-| Observation | Installer behavior |
+The target checks the complete Server schema and indexes, supported revision history, configured domains and
+embedding profile, SQLite integrity, original-path maintenance evidence, and unfinished archive restores. It reads a
+private copy of the main database and WAL, including committed data not yet checkpointed into main. The original
+database is never opened by SQLite during admission; its SHM is neither copied nor changed, and no original sidecars
+are created or removed. File identities and modification evidence must remain stable while copying and checking.
+Admission performs no initialization, migration, restoration, model call, HTTP startup, or worker startup.
+
+| Observation | Startup behavior |
 | --- | --- |
-| Database and SQLite recovery sidecars are absent | Classify as `new`; the approved target Server may initialize a new database during startup. |
-| An existing SQLite file, including an empty file | Classify as `existing_unknown`; do not automatically start or restart against it. |
-| An existing file has an unsupported database header | Classify as `incompatible`; preserve it and block startup. |
-| Orphan sidecars, a linked or unverified location, an unreadable file, or a changing observation | Classify as `unknown`; preserve the files and block startup. |
+| Database and recovery evidence are absent | `new`; only the approved Server startup may initialize storage. |
+| Existing storage passes the exact target's complete check | `existing_ready` for that explicit admission; same-version startup and restart require unchanged storage through apply. |
+| Unknown schema, empty existing file, older layout, future revision, unsupported profile, or missing target helper | Block startup and preserve storage. |
+| Interrupted maintenance/restore, rollback journal, active maintenance lock, orphan sidecars, unsafe location, or changing source | Block startup and preserve recovery evidence. |
 
-The current public maintenance checks cover individual domains, not complete Server schema, indexes, persisted task
-formats, and all configured capabilities. A Dream or processing check, an Atomic Memory verification, or a migration
-bundle reporting `ready` therefore cannot lift the installer gate. A `pc_schema_revision` marker does not establish
-whole-Server readiness. The installer does not create one for new databases.
+A revision marker or a partial domain check is insufficient. Required migrations and recovery remain explicit
+operator work under [Database migrations](database-migrations.md). `database_migration_required`,
+`database_recovery_required`, and `database_configuration_mismatch` identify those boundaries;
+`database_compatibility_unknown` means the exact target could not establish compatibility. Repair changes programs
+only and does not remove these requirements.
 
-For existing data without a qualified whole-database check for the fixed target version, keep the service stopped and
-preserve the database. Same-version program repair can complete while the database remains `existing_unknown`; that
-does not authorize startup. There is no general maintenance command that this installer can recommend to make every
-such database compatible. Consult [Database migrations](database-migrations.md) for the actual supported bundle
-boundary, and wait for a maintenance release supporting the specific database before attempting a data transition.
-Do not repeatedly run a partial migration as an automatic repair.
+Admission copies and hashes the complete main file and WAL, then scans the snapshot using Server validators. Each
+preflight and apply revalidation repeats this work; it is not an incremental or cached check. The combined main/WAL
+limit is **8 GiB**, the temporary filesystem needs their combined size plus **32 MiB** free, and copying plus target
+validation has a **120-second** deadline. Oversize, insufficient space, and timeout return
+`database_snapshot_too_large`, `database_snapshot_space_insufficient`, and `database_admission_timeout`. Recovery
+journals are limited to 4 MiB each. Large or busy databases require an operator-controlled maintenance workflow;
+raising a limit does not establish compatibility. Temporary copies are removed after the check.
 
-This also limits normal operation today: after first startup creates a database, subsequent `start`, `restart`, and
-`config_apply` with `restart=true` when it would restart an active service are rejected through the managed entry while
-whole-database compatibility remains unknown. An already stopped service stays stopped during configuration changes,
-including when `restart=true` is supplied. A previous successful startup or the installation manifest does not bypass
-this gate. Inspection, stopping,
-configuration changes without restart, and same-version program repair remain available. Repeating `install` for an
-owned current installation only reports facts. This implementation therefore does not yet provide a complete daily
-restart workflow; qualified whole-database checks are still required. The separate prepared-runtime operator binding
-retains its existing contract and is not evidence that the managed database is compatible.
+Normal writes also invalidate approved database evidence. If the running Server keeps writing, or data changes
+between preflight and apply, stop it through Ops, obtain a fresh `start` plan after writes have stopped, and approve
+that plan. A rejected restart leaves the running service unchanged. Admission does not automatically stop writers or
+relax the approved database identity; other processes writing the same database must also be quiescent.
+
+A local macOS arm64 / CPython 3.12.15 measurement with 2,000 public Memory records, 4,000 revisions and a 168.4 MiB
+SQLite main file took 3.78–3.86 seconds per admission across three runs; copying and hashing took 0.074–0.075 seconds.
+Source hashes remained unchanged. This measurement excludes resource-manifest verification and native service
+commands and does not qualify other machines, WAL sizes, or databases near the limit.
+
+Apply repeats admission and compares the approved plan's database, configuration, target-resource and recovery
+evidence. Changed evidence rejects the old plan before a service command. The running Server still owns its normal
+startup checks. Inspection, stopping, registration removal, and stopped program repair remain available when the
+target interpreter is damaged or absent. A stopped service stays stopped
+when configuration changes request `restart=true`. The independent prepared-runtime operator binding retains its
+existing contract.
 
 ## Startup and connection handoff
 

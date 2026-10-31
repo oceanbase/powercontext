@@ -21,9 +21,11 @@ import threading
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
+from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import ModuleType
 from typing import Any
+from urllib.error import HTTPError
 
 import pytest
 
@@ -760,7 +762,7 @@ def test_http_error_preserves_structured_error_code(hook_module: ModuleType) -> 
     assert caught.value.code == "invalid_request"
 
 
-def test_hook_aborts_a_slow_error_response_at_the_shared_deadline(
+def test_hook_aborts_a_slow_http_error_response(
     hook_module: ModuleType,
 ) -> None:
     class SlowErrorHandler(BaseHTTPRequestHandler):
@@ -782,7 +784,6 @@ def test_hook_aborts_a_slow_error_response_at_the_shared_deadline(
             pass
 
     with _serve(SlowErrorHandler) as server_url:
-        started = time.monotonic()
         settings = hook_module.ClaudeCodePluginSettings(
             server_url=server_url,
             request_timeout_seconds=1.0,
@@ -793,9 +794,43 @@ def test_hook_aborts_a_slow_error_response_at_the_shared_deadline(
                 "/v1/context/prepare",
                 {},
                 settings=settings,
-                deadline=started + 0.1,
+                deadline=time.monotonic() + 0.1,
                 expected_status=200,
             )
-        elapsed = time.monotonic() - started
 
-    assert elapsed < 0.5
+
+def test_hook_error_body_reads_share_one_deadline(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    elapsed = 0.0
+    content = b'{"error":{"code":"invalid_request","message":"slow"}}'
+
+    class SlowErrorBody(io.BytesIO):
+        def read(self, size: int | None = -1, /) -> bytes:
+            nonlocal elapsed
+            chunk = super().read(min(size, 1) if size is not None and size >= 0 else 1)
+            elapsed += 0.02
+            return chunk
+
+    body = SlowErrorBody(content)
+    error = HTTPError("http://127.0.0.1/v1/context/prepare", 422, "invalid request", Message(), body)
+
+    def open_error(*args: Any, **kwargs: Any) -> None:
+        raise error
+
+    # Advance only transport time so scheduler pauses cannot masquerade as
+    # deadline overruns. The separate HTTP test covers urllib's real error path.
+    monkeypatch.setattr(hook_module, "monotonic", lambda: elapsed)
+    monkeypatch.setattr(hook_module, "open_bounded", open_error)
+    with pytest.raises(hook_module._ServerUnavailableError):
+        hook_module._post_json(
+            "/v1/context/prepare",
+            {},
+            settings=hook_module.ClaudeCodePluginSettings(request_timeout_seconds=1.0, http_budget_seconds=0.1),
+            deadline=0.1,
+            expected_status=200,
+        )
+
+    assert elapsed == pytest.approx(0.1)
+    assert body.tell() < len(content)

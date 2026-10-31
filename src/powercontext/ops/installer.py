@@ -29,6 +29,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from powercontext.ops import protocol
+from powercontext.ops.database_admission import admit_database, require_admitted
 from powercontext.ops.local_policy import (
     classify_database,
     default_data_dir,
@@ -254,6 +255,28 @@ class ManagedInstaller:
         ops._require_native_settled(original)
         return owner
 
+    def admit_start(self, ops: Ops, snapshot: dict[str, Any]):
+        """Verify the owned target before delegating database admission to it."""
+        evidence = self._installation(ops) or self._pending(ops, snapshot=snapshot)
+        resources, identity = self._resource_fact(evidence)
+        if resources != "verified":
+            raise OpsError("runtime_damaged")
+        database = admit_database(
+            self._configuration(ops, snapshot, {}),
+            self.spec.server_version,
+            python_executable=self.directory / self.spec.python_console_relative,
+        )
+        require_admitted(database)
+        return replace(
+            database,
+            fingerprint=protocol.digest({
+                "database": database.fingerprint,
+                "resource_digest": self.spec.digest,
+                "resource_identity": identity,
+                "catalog": self.catalog.sha256,
+            }),
+        )
+
     def preflight(self, ops: Ops, operation: str, options: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
         validate_destination(self.spec, self.directory)
         validate_destination(self.spec, self.layout.programs / "staging" / ("resource-" + "0" * 32))
@@ -296,6 +319,16 @@ class ManagedInstaller:
             and isinstance(maintenance, dict)
             and maintenance.get("phase") in {"manual_stopped", "start_failed"}
         )
+        if operation == "install" and not current and not preserve_stopped and not verify_running:
+            if database.classification == "new":
+                database = admit_database(
+                    configuration,
+                    self.spec.server_version,
+                    python_executable=self.directory / self.spec.python_console_relative,
+                )
+                require_admitted(database)
+            elif resources == "verified" and database.classification == "existing_unknown":
+                database = self.admit_start(ops, snapshot)
         may_start = (
             operation == "install"
             and not current
@@ -507,10 +540,16 @@ class ManagedInstaller:
                     return {"outcome": "cancelled", "components": self.components(ops, state)}
                 if plan["effects"]["may_start"] and not plan["installation"]["verify_running"]:
                     configuration = self._configuration(ops, ops.controller.operation_snapshot(), plan["options"])
-                    if (
-                        classify_database(configuration, self.spec.server_version).as_dict()
-                        != plan["installation"]["database"]
-                    ):
+                    database = (
+                        self.admit_start(ops, ops.controller.operation_snapshot())
+                        if plan["installation"]["database"]["classification"] == "existing_ready"
+                        else admit_database(
+                            configuration,
+                            self.spec.server_version,
+                            python_executable=self.directory / self.spec.python_console_relative,
+                        )
+                    )
+                    if database.as_dict() != plan["installation"]["database"]:
                         raise OpsError("plan_stale")
                 with observe_native_commands(lambda event: self._native_checkpoint(ops, record, event)):
                     if plan["installation"]["preserve_stopped"]:
@@ -544,10 +583,20 @@ class ManagedInstaller:
         if protocol.digest(snapshot) != plan["installation"]["service_before"]:
             raise OpsError("plan_stale")
         summary = self._configuration(ops, snapshot, plan["options"])
+        database = (
+            self.admit_start(ops, snapshot)
+            if plan["installation"]["database"]["classification"] == "existing_ready"
+            else admit_database(
+                summary,
+                self.spec.server_version,
+                python_executable=self.directory / self.spec.python_console_relative,
+            )
+            if plan["installation"]["database"]["classification"] == "new" and plan["operation"] == "install"
+            else classify_database(summary, self.spec.server_version, for_repair=plan["operation"] == "repair")
+        )
         if (
             summary.as_dict() != plan["installation"]["configuration"]
-            or classify_database(summary, self.spec.server_version, for_repair=plan["operation"] == "repair").as_dict()
-            != plan["installation"]["database"]
+            or database.as_dict() != plan["installation"]["database"]
         ):
             raise OpsError("plan_stale")
 
