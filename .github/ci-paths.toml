@@ -1,28 +1,33 @@
-# Shared runtime, dependency, and CI changes can affect every consumer.
+# Shared runtime and dependency changes can affect every consumer.
 # Patterns use Python fnmatch semantics: * also matches path separators.
 full = [
-  "src/**", "openapi/**", "pyproject.toml", "uv.lock", "Makefile", "tox.ini",
-  ".mise.toml", ".pre-commit-config.yaml", ".github/actions/**", ".github/workflows/**",
-  ".github/ci-paths.toml", "scripts/ci_changes.py", "tests/test_ci_changes.py",
+  "Makefile", "tox.ini",
+  ".mise.toml", ".pre-commit-config.yaml", ".github/actions/setup-python-env/**",
+  ".github/workflows/ci-changes.yml", ".github/workflows/master.yml",
+  ".github/ci-paths.toml", "scripts/ci_changes.py", "tests/test_ci_changes.py", "tests/test_ci_pipeline.py",
   "tests/conftest.py", "tests/**/conftest.py", "tests/fixtures/**", "integrations/capabilities.toml",
   "integrations/langchain/pyproject.toml", "integrations/langgraph/pyproject.toml",
   "integrations/opendal/pyproject.toml",
 ]
 
-# These files still receive the always-running quality and license checks.
+# These files still receive the always-running preflight checks.
 ignore = [
   "AGENTS.md", "REVIEW.md", "CONTRIBUTING.md", "GOVERNANCE.md", "LICENSE", "LICENSES/**",
   ".github/ISSUE_TEMPLATE/**", ".github/pull_request_template.md", ".github/CODEOWNERS",
+  ".github/dependabot.yml", ".licenserc.yaml",
+  "scripts/ci_queue_report.py",
 ]
 
 [suites]
-# Rust PowerContext Gateway workspace: build, clippy, and tests via .github/workflows/gateway.yml
+helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
+# Rust PowerContext Gateway workspace; validation runs via .github/workflows/gateway.yml.
 gateway = ["gateway/**", ".github/workflows/gateway.yml"]
 tests = [
   "tests/**", "integrations/**", "examples/**", "scripts/generate_js_operations.py",
   "scripts/sync_dsh_plugin_tree.py", "scripts/generate_integration_manifest_docs.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/scan_e2e_evidence.sh",
-  "scripts/ci_role_smoke.py",
+  "scripts/check_atomic_memory_migration_shards.py",
+  "scripts/ci_role_smoke.py", "scripts/ci_installation_roles.py",
   # These evaluator suites still live under the root tests/ directory.
   "evaluation/memory/locomo/**", "evaluation/memory/locomo_plus/**", "evaluation/memory/write_gate/**",
 ]
@@ -34,16 +39,26 @@ database = [
   "tests/e2e/*native_code*", "tests/e2e/test_recall_sufficiency_gate.py",
   "tests/e2e/test_context_text_assembly.py", "tests/e2e/test_scope_search_migration.py",
   "scripts/run_atomic_memory_clean_migration.py",
+  ".github/workflows/e2e-harness.yml", ".github/actions/setup-upgrade-oceanbase/**",
+  "tests/native/test_oceanbase_engine_recovery.py",
+  "tests/*migration*.py", "scripts/check_atomic_memory_migration_shards.py",
 ]
 dify = ["integrations/dify/**", "tests/*dify*"]
 hermes = ["integrations/hermes/**", "tests/*hermes*"]
 dsh = ["integrations/dsh/**", "tests/*dsh*", "scripts/generate_js_operations.py", "scripts/sync_dsh_plugin_tree.py"]
+cindy = [
+  "integrations/cindy/**", "tests/e2e/*cindy*", "scripts/generate_js_operations.py",
+  "integrations/dsh/plugins/powercontext/src/**", "integrations/dsh/plugins/powercontext/package.json",
+  "integrations/dsh/plugins/powercontext/pnpm-lock.yaml", "integrations/dsh/plugins/powercontext/pnpm-workspace.yaml",
+  "integrations/dsh/plugins/powercontext/tsconfig.json",
+]
 pi = ["integrations/pi/**", "tests/*pi_*"]
 opencode = ["integrations/opencode/**", "tests/*opencode*"]
 openclaw = ["integrations/openclaw/**", "tests/*openclaw*"]
 opendal = ["integrations/opendal/**"]
 website = [
   "docs/**", "website/**", "assets/**", "README*.md", "scripts/generate_integration_manifest_docs.py",
+  "tests/e2e/test_blog_site.py",
 ]
 # Root tests assert exact sentences in published docs, so documentation edits must
 # exercise them without paying for the complete tests matrix.
@@ -51,6 +66,7 @@ docs_tests = ["docs/**", "README*.md"]
 native = ["tests/native/**", "tests/test_service*.py", "tests/test_cursor_secret.py", "tests/test_server.py"]
 harness = [
   "e2e/**", "integrations/bub/**", "scripts/scan_e2e_evidence.sh", "tests/test_e2e_workflow_contract.py",
+  ".github/workflows/e2e-harness.yml",
   "tests/e2e/test_atomic_memory_search_authorization_snapshot.py", "tests/e2e/test_atomic_memory_read_snapshot.py",
   "tests/e2e/test_runtime_server.py",
 ]
@@ -59,12 +75,123 @@ zcode = [
   "integrations/zcode/**", "evaluation/zcode_guidance/**", "tests/*zcode*", "integrations/pi/**",
   "tests/e2e/test_cross_host_work_continuity.py", "tests/e2e/cross_host_work_continuity/**",
 ]
-kimi = ["integrations/kimi-code/**", "tests/*kimi*"]
+kimi = ["integrations/kimi-code/**", "tests/*kimi*", ".github/workflows/kimi-code-acceptance.yml"]
+upgrade = [
+  "scripts/run_atomic_memory_clean_migration.py", "scripts/build_ops_bundle.py",
+  "release/**", "scripts/upgrade_*.py", "scripts/ci_legacy_upgrade_rejection.py",
+  "scripts/ci_release_smoke.py", "scripts/ci_ops_bundle_smoke.py", "scripts/capture_release_schema.py",
+  "tests/release_upgrades/**", "tests/test_upgrade*.py", "tests/test_registered_source_maintenance_cli.py",
+  "tests/test_managed_*maintenance.py", "tests/e2e/*migration*", "tests/e2e/*managed_startup*",
+  "tests/test_managed_startup*.py", "tests/builtin/persistence/**", "tests/*migration*.py",
+  ".github/workflows/upgrade-release.yml", ".github/workflows/release.yml",
+  ".github/actions/setup-upgrade-oceanbase/**",
+]
+observability = [
+  "tests/*observability*", "tests/*logging*", "tests/*tracing*", "tests/e2e/*worker*",
+  "tests/e2e/*observability*", "tests/builtin/runtime/*worker*", "tests/builtin/runtime/*model_usage*",
+]
+packaging = [
+  "scripts/build_ops_bundle.py",
+  "tests/test_installation.py", "tests/test_upgrade_publication.py", "scripts/ci_role_smoke.py",
+  "scripts/ci_installation_roles.py", "tests/test_ci_installation_roles.py", "release/**",
+  ".github/workflows/release.yml", ".github/workflows/build-artifacts.yml",
+  ".github/workflows/build-docker.yml", "docker/**",
+]
+desktop = [
+  "desktop/**", "tests/test_desktop_fixture_qualification.py", "website/assets/**",
+  ".github/workflows/desktop.yml",
+]
+managed_resources = [
+  "scripts/*managed_resource*", "scripts/build_ops_bundle.py", "scripts/ci_ops_bundle_smoke.py",
+  "scripts/build_intel_managed_wheel.py", "tests/test_managed_resource_producer.py", "tests/test_ops_resources.py",
+  ".github/workflows/managed-resource-candidates.yml",
+]
+candidate_replay = [
+  "src/powercontext/builtin/persistence/**", "src/powercontext/builtin/artifacts/**", "pyproject.toml", "uv.lock",
+  "tests/builtin/persistence/**", "scripts/replay_candidate_migration.py",
+  ".github/workflows/candidate-schema-replay.yml", ".github/actions/setup-upgrade-oceanbase/**",
+]
+release_schema = [
+  "scripts/capture_release_schema.py", "scripts/upgrade_database_probe.py", "scripts/upgrade_process.py",
+  "tests/release_upgrades/test_full_server.py", ".github/workflows/capture-release-schema.yml",
+  ".github/actions/setup-upgrade-oceanbase/**",
+]
+seekdb_lock = ["scripts/probe_seekdb_migration_lock.py", ".github/workflows/seekdb-lock-probe.yml", ".github/workflows/seekdb-lock-observation.yml"]
+skill_guidance = [
+  "evaluation/skills/skill-up/**",
+  "integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/**",
+  ".github/workflows/skill-guidance.yml",
+]
 
 # Packaged guidance and its generators are inputs to the native host tests.
-[shared]
+[shared.guidance]
 patterns = [
   "scripts/integration_guidance*", "scripts/evaluate_integration_guidance.py", "scripts/guidance_templates/**",
   "tests/test_integration_guidance*", "tests/test_guidance*", "tests/test_setup_rollback.py",
 ]
 suites = ["tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode", "kimi"]
+
+# Shared Python changes still exercise all runtime consumers. Diagnostic source
+# capture and lock probes have their own inputs rather than joining every build.
+[shared.runtime]
+patterns = ["src/**", "openapi/**", "pyproject.toml", "uv.lock"]
+suites = [
+  "tests", "evaluation", "database", "dify", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "opendal",
+  "website", "native", "harness", "zcode", "kimi", "upgrade", "observability", "packaging", "desktop",
+  "managed_resources",
+]
+
+[shared.openapi_guidance]
+patterns = ["openapi/powercontext.yaml"]
+suites = ["skill_guidance"]
+
+[shared.native]
+patterns = [".github/workflows/native-service.yml"]
+suites = ["native"]
+
+[shared.zcode]
+patterns = [".github/workflows/zcode-acceptance.yml"]
+suites = ["zcode"]
+
+[shared.node_cache]
+patterns = [".github/actions/cache-pnpm/**"]
+suites = ["tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw"]
+
+[shared.docs_deploy]
+patterns = [".github/workflows/deploy-docs.yml"]
+suites = ["website"]
+
+[shared.release_verify]
+patterns = [".github/workflows/release-verify.yml"]
+suites = ["upgrade", "packaging"]
+
+# A selected scope must produce successful root jobs, not silent skips.
+# Main's result gate consumes this contract; reusable workflows own their children.
+[checks]
+helm = ["helm"]
+tests = ["tests", "windows-unit-portability"]
+evaluation = ["evaluation-tests"]
+database = ["oceanbase-engine-recovery", "code-seekdb", "atomic-memory-clean-seekdb", "harness-validation"]
+dify = ["dify-tools"]
+hermes = ["hermes-skills"]
+dsh = ["dsh-package"]
+cindy = ["cindy-package"]
+pi = ["pi-package"]
+opencode = ["opencode-package"]
+openclaw = ["openclaw-package"]
+opendal = ["opendal-package"]
+website = ["check-website", "website-link-validation-windows"]
+docs_tests = ["docs-tests"]
+native = ["native-service"]
+harness = ["harness-validation"]
+zcode = ["zcode-acceptance"]
+kimi = ["kimi-acceptance"]
+upgrade = ["seekdb-managed-startup", "upgrade-acceptance"]
+observability = ["worker-observability"]
+packaging = ["isolated-installations"]
+desktop = ["desktop-validation"]
+managed_resources = ["managed-resource-candidates"]
+candidate_replay = ["candidate-replay"]
+release_schema = ["release-schema"]
+seekdb_lock = ["seekdb-lock"]
+skill_guidance = ["skill-guidance"]
