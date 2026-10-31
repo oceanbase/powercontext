@@ -22,7 +22,7 @@ import json
 import os
 import shutil
 import sqlite3
-from contextlib import closing, nullcontext
+from contextlib import closing
 
 import pytest
 from sqlalchemy import Engine, event
@@ -41,7 +41,6 @@ from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.topic_memory_recovery import TopicMemoryRecoveryService
 from powercontext.cli.app import create_cli
 from powercontext.server.cli import app
-from tests.builtin.persistence.test_mysql_migration_runner import _seekdb_scenario_lifetime
 from tests.builtin.runtime.test_topic_memory_processing import _repositories
 from tests.builtin.runtime.test_topic_memory_scope import BINDING, _capture
 from tests.builtin.runtime.test_topic_memory_terminal_frontier import _budget, _seed
@@ -587,7 +586,7 @@ def test_initialization_preserves_an_independent_code_database(tmp_path, block_p
 @pytest.mark.parametrize("backend", ["seekdb", "oceanbase"])
 @pytest.mark.parametrize("interrupted", [False, True])
 def test_real_mysql_recovery_upgrade_preserves_receipt_and_resumes_registered_ddl_prefix(
-    backend, interrupted, short_tmp_path, tmp_path, monkeypatch
+    backend, interrupted, short_tmp_path, tmp_path
 ):
     async def scenario():
         async with _isolated_database(backend, short_tmp_path) as (config, open_profile):
@@ -661,8 +660,4 @@ def test_real_mysql_recovery_upgrade_preserves_receipt_and_resumes_registered_dd
                         )
                     ).one() == (3, 9, 1000)
 
-    # Exercise committed DDL recovery across independent connections without
-    # triggering seekdb 1.4's rapid last-client-close runtime lock stall.
-    # Native restart/exclusion acceptance remains in the connection tests.
-    with _seekdb_scenario_lifetime(monkeypatch) if backend == "seekdb" else nullcontext():
-        asyncio.run(scenario())
+    asyncio.run(scenario())

@@ -433,6 +433,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.14"]
+        migration-shard: [0, 1]
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -446,9 +447,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Test code indexing with embedded seekdb
+        if: matrix.migration-shard == 0
         run: make code-seekdb-test
 
       - name: Test database bootstrap with embedded seekdb without skips
+        if: matrix.migration-shard == 0
         # Two 360s native-process deadlines still leave room for the remaining
         # bootstrap cases and diagnostic upload before the step deadline.
         timeout-minutes: 20
@@ -474,6 +477,7 @@ jobs:
           PYCODE
 
       - name: Test batched archive validation with embedded seekdb
+        if: matrix.migration-shard == 0
         timeout-minutes: 5
         run: |
           uv run --locked --extra seekdb python -c "import pylibseekdb"
@@ -482,10 +486,11 @@ jobs:
 
       - name: Test unified migrations with embedded seekdb
         if: ${{ !cancelled() && steps.seekdb_setup.outcome == 'success' }}
-        # Full-Server cases run in separate processes and exceed fifteen minutes
-        # in aggregate; each runner keeps its 180-second deadline below.
+        # Last-client shutdown adds native startup work. Partition runner nodes;
+        # every node keeps its 180-second deadline.
         timeout-minutes: 25
         env:
+          SEEKDB_MIGRATION_SHARD: ${{ matrix.migration-shard }}
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
           POWERCONTEXT_TEST_MIGRATION_SQL_LOG: "1"
           PYTHONUNBUFFERED: "1"
@@ -505,16 +510,18 @@ jobs:
           }
           trap collect_diagnostics EXIT
           df -h . /tmp
-          uv run --locked --extra seekdb pytest -vv \
-            -o faulthandler_timeout=120 --durations=20 \
-            tests/builtin/persistence/test_database_migration_backends.py \
-            tests/builtin/persistence/test_database_backup_providers.py \
-            tests/builtin/persistence/test_database_migration_connections.py \
-            tests/e2e/test_topic_memory_recovery_migration.py \
-            tests/builtin/persistence/test_mysql_migration_checks.py \
-            tests/builtin/persistence/test_mysql_migration_schema.py -k seekdb \
-            2>&1 | tee seekdb-migrations.log
-          uv run --locked --extra seekdb pytest --collect-only -q --color=no \
+          if [ "$SEEKDB_MIGRATION_SHARD" -eq 0 ]; then
+            uv run --locked --extra seekdb --extra code pytest -vv \
+              -o faulthandler_timeout=120 --durations=20 \
+              tests/builtin/persistence/test_database_migration_backends.py \
+              tests/builtin/persistence/test_database_backup_providers.py \
+              tests/builtin/persistence/test_database_migration_connections.py \
+              tests/e2e/test_topic_memory_recovery_migration.py \
+              tests/builtin/persistence/test_mysql_migration_checks.py \
+              tests/builtin/persistence/test_mysql_migration_schema.py -k seekdb \
+              2>&1 | tee seekdb-migrations.log
+          fi
+          uv run --locked --extra seekdb --extra code pytest --collect-only -q --color=no \
             tests/builtin/persistence/test_mysql_migration_runner.py -k seekdb \
             2>&1 | tee seekdb-runner-collection.log | tee -a seekdb-migrations.log
           mapfile -t seekdb_runner_nodes < <(
@@ -525,25 +532,31 @@ jobs:
             echo "No seekdb migration runner tests were collected" >&2
             exit 1
           fi
-          for seekdb_runner_node in "${seekdb_runner_nodes[@]}"; do
-            uv run --locked --extra seekdb python .github/scripts/run_seekdb_migration_test.py \
+          for index in "${!seekdb_runner_nodes[@]}"; do
+            if [ "$((index % 2))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
+              continue
+            fi
+            seekdb_runner_node="${seekdb_runner_nodes[$index]}"
+            uv run --locked --extra seekdb --extra code python .github/scripts/run_seekdb_migration_test.py \
               "$seekdb_runner_node" \
               2>&1 | tee -a seekdb-migrations.log
           done
           # These are required independent runs, not retries: any failure stops
           # the job. Exercise the lifecycle race on both supported matrix ends.
-          for repetition in 2 3; do
-            echo "Baseline adoption stability run $repetition/3" | tee -a seekdb-migrations.log
-            uv run --locked --extra seekdb python .github/scripts/run_seekdb_migration_test.py \
-              'tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_baseline_adoption_recovers_an_empty_committed_version_table[seekdb]' \
-              2>&1 | tee -a seekdb-migrations.log
-          done
+          if [ "$SEEKDB_MIGRATION_SHARD" -eq 0 ]; then
+            for repetition in 2 3; do
+              echo "Baseline adoption stability run $repetition/3" | tee -a seekdb-migrations.log
+              uv run --locked --extra seekdb --extra code python .github/scripts/run_seekdb_migration_test.py \
+                'tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_baseline_adoption_recovers_an_empty_committed_version_table[seekdb]' \
+                2>&1 | tee -a seekdb-migrations.log
+            done
+          fi
 
       - name: Upload seekdb bootstrap diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: seekdb-bootstrap-${{ matrix.python-version }}
+          name: seekdb-bootstrap-${{ matrix.python-version }}-${{ matrix.migration-shard }}
           path: .powercontext/database-bootstrap-ci/
           if-no-files-found: ignore
 
@@ -551,7 +564,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: seekdb-migrations-${{ matrix.python-version }}
+          name: seekdb-migrations-${{ matrix.python-version }}-${{ matrix.migration-shard }}
           path: |
             seekdb-migrations.log
             seekdb-native.log

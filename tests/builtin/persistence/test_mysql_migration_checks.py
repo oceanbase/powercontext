@@ -30,7 +30,6 @@ from powercontext.builtin.persistence.migrations.models import MigrationError
 from powercontext.builtin.persistence.migrations.mysql import MySQLMigrationRunner
 from powercontext.builtin.persistence.migrations.mysql_schema import MySQLSchema, _expression_sql, mysql_inventory
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
-from tests.builtin.persistence.test_mysql_migration_runner import _seekdb_scenario_lifetime
 from tests.builtin.persistence.test_mysql_migration_schema import _inventory, _ReflectedDatabase
 
 _FIXTURE = Path(__file__).parents[2] / "fixtures/database_migrations/schemas/seekdb_v1_3_0_checks.json"
@@ -179,9 +178,7 @@ def test_real_seekdb_historical_check_reflection_and_rendering(short_tmp_path):
     [("a % 2 = 0", "INTEGER", 2, 3), ("a = '100%s%%'", "VARCHAR(32)", "100%s%%", "different")],
     ids=["remainder", "percent_literal"],
 )
-def test_real_seekdb_percent_checks_validate_data_and_plan(
-    short_tmp_path, monkeypatch, expression, column_type, valid, invalid
-):
+def test_real_seekdb_percent_checks_validate_data_and_plan(short_tmp_path, expression, column_type, valid, invalid):
     pytest.importorskip("pylibseekdb")
     # Extend an isolated bundle, preserving the shipped layouts and their eligibility.
     directory = short_tmp_path / "bundle"
@@ -222,23 +219,22 @@ def test_real_seekdb_percent_checks_validate_data_and_plan(
         with pytest.raises(MigrationError, match=r"data_integrity_error.*CHECK"):
             schema.validate_data(connection, "p0001")
 
-    with _seekdb_scenario_lifetime(monkeypatch):
-        fresh = MySQLMigrationRunner(
-            MaintenanceConnections(SeekDBConfig(path=short_tmp_path / "fresh_seekdb")),
-            bundle,
-            evidence_directory=short_tmp_path / "fresh_evidence",
-        )
-        fresh_plan = fresh.plan(backup_policy="skip")
-        fresh.apply(
-            plan_id=fresh_plan.plan_id,
-            accepted=True,
-            maintenance_confirmed=True,
-            backup_policy="skip",
-            accept_no_backup=True,
-        )
-        assert fresh.verify().state == "ready"
-        connections.run(prepare, writable=True)
-        assert runner.plan().state == "migration_required"
-        connections.run(invalidate, writable=True)
-        with pytest.raises(MigrationError, match=r"data_integrity_error.*CHECK"):
-            runner.plan()
+    fresh = MySQLMigrationRunner(
+        MaintenanceConnections(SeekDBConfig(path=short_tmp_path / "fresh_seekdb")),
+        bundle,
+        evidence_directory=short_tmp_path / "fresh_evidence",
+    )
+    fresh_plan = fresh.plan(backup_policy="skip")
+    fresh.apply(
+        plan_id=fresh_plan.plan_id,
+        accepted=True,
+        maintenance_confirmed=True,
+        backup_policy="skip",
+        accept_no_backup=True,
+    )
+    assert fresh.verify().state == "ready"
+    connections.run(prepare, writable=True)
+    assert runner.plan().state == "migration_required"
+    connections.run(invalidate, writable=True)
+    with pytest.raises(MigrationError, match=r"data_integrity_error.*CHECK"):
+        runner.plan()
