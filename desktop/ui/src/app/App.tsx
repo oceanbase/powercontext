@@ -45,6 +45,7 @@ import { Connections } from "./Connections";
 import { Scopes } from "./Scopes";
 import { Observation, type ObservationTab } from "./Observation";
 import { connectionMessages } from "./connection-messages";
+import { memoryMessages } from "./memory-messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
 import { activeCheckReport } from "./context";
 import { Modal } from "./Modal";
@@ -127,7 +128,11 @@ export function App() {
   async function confirmSwitch() {
     if (
       (dirty || submittedDrafts.length > 0) &&
-      !(await confirm(connectionMessages[language].discard))
+      !(await confirm(
+        submittedDrafts.length > 0
+          ? memoryMessages[language].discardAllSubmittedConfirm
+          : connectionMessages[language].discard,
+      ))
     )
       return false;
     setSubmittedDrafts([]);

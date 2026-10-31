@@ -152,6 +152,7 @@ const text: Record<string, readonly [string, string]> = {
   installationStage: ["安装阶段", "Installation stage"],
   database: ["数据库兼容性", "Database compatibility"],
   operation: ["操作", "Operation"],
+  config_apply: ["应用配置", "Apply configuration"],
   history: ["操作与恢复", "Operations and recovery"],
   select: ["选择历史操作", "Select recorded operation"],
   none: ["暂无操作记录", "No recorded operations"],
