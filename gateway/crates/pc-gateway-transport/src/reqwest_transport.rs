@@ -36,9 +36,6 @@ pub struct ReqwestTransport {
 impl ReqwestTransport {
     pub fn new(timeout: Duration) -> Self {
         let client = reqwest::Client::builder()
-            // 获准目的地必须保持为实际目的地：307/308 会让 reqwest 把已准入的
-            // POST body 原样重发到未经 Core 审查的新地址。禁用自动跟随，重定向
-            // 响应原样上抛（经 before_release 后透传给调用方），字节绝不自动重发。
             .redirect(reqwest::redirect::Policy::none())
             .timeout(timeout)
             .build()
