@@ -36,7 +36,6 @@ pub use request_id::RequestId;
 pub mod resource_limits;
 pub use resource_limits::ResourceLimits;
 
-
 pub const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-powercontext-request-id");
 
 /// 一个中间件 = 请求进入时的一段处理 + 调用后续链。
@@ -53,11 +52,13 @@ pub trait GatewayMiddleware: Send + Sync + 'static {
     ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>>;
 }
 
-
 /// 把中间件链挂到 Router 的外层。
 /// axum 的 layer 语义：后挂的先执行；这里让 `chain[0]` 成为最外层，
 /// 与注册顺序直觉一致。
-pub fn apply_chain(mut router: axum::Router, chain: Vec<Arc<dyn GatewayMiddleware>>) -> axum::Router {
+pub fn apply_chain(
+    mut router: axum::Router,
+    chain: Vec<Arc<dyn GatewayMiddleware>>,
+) -> axum::Router {
     for mw in chain.into_iter().rev() {
         router = router.layer(axum::middleware::from_fn(move |req, next| {
             let mw = mw.clone();

@@ -113,12 +113,9 @@ impl UdsGateClient {
         prefer_pool: bool,
     ) -> Result<(u16, Vec<u8>), GateError> {
         let mut leased = LeasedConnection::new(self.clone());
-        let stream = leased
-            .acquire(prefer_pool)
-            .await
-            .map_err(|e| {
-                GateError::GateUnavailable(format!("uds connect {}: {e}", self.socket.display()))
-            })?;
+        let stream = leased.acquire(prefer_pool).await.map_err(|e| {
+            GateError::GateUnavailable(format!("uds connect {}: {e}", self.socket.display()))
+        })?;
         let (mut rd, mut wr) = tokio::io::split(stream);
 
         let body = body.unwrap_or(&[]);
@@ -218,7 +215,9 @@ async fn read_response(rd: &mut ReadHalf<UnixStream>) -> Result<(u16, Vec<u8>, b
     let mut chunked = false;
     let mut keep_alive = true; // HTTP/1.1 默认 keep-alive
     for line in lines {
-        let Some((k, v)) = line.split_once(':') else { continue };
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
         let k = k.trim().to_ascii_lowercase();
         let v = v.trim();
         match k.as_str() {
@@ -356,14 +355,13 @@ fn find_terminator(buf: &[u8]) -> Option<usize> {
 }
 
 impl GateClient for UdsGateClient {
-    async fn check(
-        &self,
-        request: ContextCheckRequest,
-    ) -> Result<ContextCheckResult, GateError> {
+    async fn check(&self, request: ContextCheckRequest) -> Result<ContextCheckResult, GateError> {
         let body = serde_json::to_vec(&request).expect("serialize gate request");
         let this = self.clone();
         {
-            let (status, body) = this.request("POST", "/v1/context/check", Some(&body)).await?;
+            let (status, body) = this
+                .request("POST", "/v1/context/check", Some(&body))
+                .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateUnavailable(format!("gate HTTP {status}")));
             }
@@ -377,7 +375,9 @@ impl GateClient for UdsGateClient {
         {
             let (status, body) = this.request("GET", "/v1/capabilities", None).await?;
             if !(200..300).contains(&status) {
-                return Err(GateError::GateUnavailable(format!("capabilities HTTP {status}")));
+                return Err(GateError::GateUnavailable(format!(
+                    "capabilities HTTP {status}"
+                )));
             }
             serde_json::from_slice(&body)
                 .map_err(|e| GateError::Malformed(format!("decode capabilities: {e}")))
@@ -391,7 +391,9 @@ impl GateClient for UdsGateClient {
         let body = serde_json::to_vec(&request).expect("serialize gate request");
         let this = self.clone();
         {
-            let (status, body) = this.request("POST", "/v1/context/prepare", Some(&body)).await?;
+            let (status, body) = this
+                .request("POST", "/v1/context/prepare", Some(&body))
+                .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateUnavailable(format!("prepare HTTP {status}")));
             }
@@ -407,7 +409,9 @@ impl GateClient for UdsGateClient {
         let body = serde_json::to_vec(&request).expect("serialize gate request");
         let this = self.clone();
         {
-            let (status, body) = this.request("POST", "/v1/sources/content", Some(&body)).await?;
+            let (status, body) = this
+                .request("POST", "/v1/sources/content", Some(&body))
+                .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateUnavailable(format!("capture HTTP {status}")));
             }

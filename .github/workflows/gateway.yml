@@ -1,0 +1,38 @@
+name: Gateway
+
+on:
+  pull_request:
+    paths: ['gateway/**', '.github/workflows/gateway.yml']
+  push:
+    branches: [master]
+    paths: ['gateway/**', '.github/workflows/gateway.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.95.0-x86_64-unknown-linux-gnu --profile minimal --component rustfmt --component clippy
+      - name: Cache Rust dependencies and compilation
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: gateway -> target
+          cache-bin: false
+      - name: Format check
+        run: cargo fmt --manifest-path gateway/Cargo.toml --all --check
+      - name: Clippy
+        run: cargo clippy --locked --manifest-path gateway/Cargo.toml --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --locked --manifest-path gateway/Cargo.toml --workspace

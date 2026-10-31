@@ -78,10 +78,7 @@ impl HttpGateClient {
 }
 
 impl GateClient for HttpGateClient {
-    async fn check(
-        &self,
-        request: ContextCheckRequest,
-    ) -> Result<ContextCheckResult, GateError> {
+    async fn check(&self, request: ContextCheckRequest) -> Result<ContextCheckResult, GateError> {
         self.post("/v1/context/check", &request).await
     }
 

@@ -60,7 +60,9 @@ fn merges_only_approved_cache_plan_fields() {
 #[test]
 fn non_object_plan_rejected() {
     let plan = serde_json::json!(["not", "an", "object"]);
-    let err = OpenAiChatRenderer.render(&request(), Some(&plan)).unwrap_err();
+    let err = OpenAiChatRenderer
+        .render(&request(), Some(&plan))
+        .unwrap_err();
     assert!(matches!(
         err,
         pc_gateway_protocol::RenderError::InvalidRenderPlan { .. }
@@ -111,7 +113,9 @@ fn tool_call_metadata_round_trip_preserved() {
         tools: vec![],
         instructions: None,
         native_cache_fields: None,
-        output_limits: OutputLimits { max_output_tokens: 16 },
+        output_limits: OutputLimits {
+            max_output_tokens: 16,
+        },
         stream: false,
     };
     let p = OpenAiChatRenderer.render(&req, None).unwrap();
@@ -120,7 +124,11 @@ fn tool_call_metadata_round_trip_preserved() {
 
     assert_eq!(msgs.len(), 3);
     // assistant：content 为 null + tool_calls 完整
-    assert!(msgs[1]["content"].is_null(), "content:null 必须保持 null，实际: {}", msgs[1]["content"]);
+    assert!(
+        msgs[1]["content"].is_null(),
+        "content:null 必须保持 null，实际: {}",
+        msgs[1]["content"]
+    );
     let tc = msgs[1]["tool_calls"].as_array().unwrap();
     assert_eq!(tc[0]["id"], "call_1");
     assert_eq!(tc[0]["function"]["name"], "get_weather");

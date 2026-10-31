@@ -18,9 +18,9 @@
 
 use super::{reject, GatewayMiddleware};
 use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -54,46 +54,50 @@ impl GatewayMiddleware for ResourceLimits {
         next: Next,
     ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>> {
         Box::pin(async move {
-        // 1) 请求体上限：优先用 Content-Length 预检（零拷贝拒绝）。
-        if let Some(len) = req
-            .headers()
-            .get(axum::http::header::CONTENT_LENGTH)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse::<usize>().ok())
-        {
-            if len > self.max_body_bytes {
-                self.rejected_body.fetch_add(1, Ordering::Relaxed);
-                tracing::warn!(bytes = len, limit = self.max_body_bytes, "request body rejected");
-                return reject(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    "request_body_too_large",
-                    format!("body {len} bytes exceeds limit {}", self.max_body_bytes),
-                );
-            }
-        }
-
-        // 2) 并发上限：非阻塞获取；占满即拒（不排队——排队会把内存压力换成延迟压力）。
-        let is_health = req.uri().path() == "/healthz";
-        let permit = if is_health {
-            None
-        } else {
-            match self.max_concurrent.clone().try_acquire_owned() {
-                Ok(p) => Some(p),
-                Err(_) => {
-                    self.rejected_concurrency.fetch_add(1, Ordering::Relaxed);
-                    tracing::warn!("concurrency limit reached, rejecting");
+            // 1) 请求体上限：优先用 Content-Length 预检（零拷贝拒绝）。
+            if let Some(len) = req
+                .headers()
+                .get(axum::http::header::CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                if len > self.max_body_bytes {
+                    self.rejected_body.fetch_add(1, Ordering::Relaxed);
+                    tracing::warn!(
+                        bytes = len,
+                        limit = self.max_body_bytes,
+                        "request body rejected"
+                    );
                     return reject(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "concurrency_limit",
-                        "gateway at max concurrent requests",
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "request_body_too_large",
+                        format!("body {len} bytes exceeds limit {}", self.max_body_bytes),
                     );
                 }
             }
-        };
 
-        let resp = next.run(req).await;
-        drop(permit); // 显式归还（作用域结束也会归还，这里表达意图）
-        resp
+            // 2) 并发上限：非阻塞获取；占满即拒（不排队——排队会把内存压力换成延迟压力）。
+            let is_health = req.uri().path() == "/healthz";
+            let permit = if is_health {
+                None
+            } else {
+                match self.max_concurrent.clone().try_acquire_owned() {
+                    Ok(p) => Some(p),
+                    Err(_) => {
+                        self.rejected_concurrency.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!("concurrency limit reached, rejecting");
+                        return reject(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "concurrency_limit",
+                            "gateway at max concurrent requests",
+                        );
+                    }
+                }
+            };
+
+            let resp = next.run(req).await;
+            drop(permit); // 显式归还（作用域结束也会归还，这里表达意图）
+            resp
         })
     }
 }

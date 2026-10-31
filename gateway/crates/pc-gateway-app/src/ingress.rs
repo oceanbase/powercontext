@@ -124,7 +124,7 @@ async fn ingress_common(
                 status,
                 Json(serde_json::json!({ "error": code, "detail": e.to_string() })),
             )
-                .into_response()
+                .into_response();
         }
     };
     let canonical = match format {
@@ -191,13 +191,15 @@ async fn ingress_common(
             Format::Responses => &state.upstream_responses_api_key,
         }),
         degrade_policy: state.degrade,
-        inject_context: state.inject_context
-            && matches!(format, Format::Chat),
+        inject_context: state.inject_context && matches!(format, Format::Chat),
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
     };
 
-    let outcome = state.executor.run(call, &renderer, state.evidence.as_ref()).await;
+    let outcome = state
+        .executor
+        .run(call, &renderer, state.evidence.as_ref())
+        .await;
     respond(outcome)
 }
 
@@ -302,7 +304,12 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
 /// 结果映射：不存在静默成功；降级直通必须显式标记。
 fn respond(outcome: ManagedOutcome) -> Response {
     match outcome {
-        ManagedOutcome::Released { status, content_type, body, .. } => {
+        ManagedOutcome::Released {
+            status,
+            content_type,
+            body,
+            ..
+        } => {
             // 上游状态码与 Content-Type 原样透传（错误不伪装 200）。
             let code = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
             (
@@ -312,10 +319,12 @@ fn respond(outcome: ManagedOutcome) -> Response {
             )
                 .into_response()
         }
-        ManagedOutcome::Degraded { status, content_type, body } => match Response::builder()
-            .status(
-                StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
-            )
+        ManagedOutcome::Degraded {
+            status,
+            content_type,
+            body,
+        } => match Response::builder()
+            .status(StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY))
             .header(header::CONTENT_TYPE, content_type.as_str())
             .header("x-pc-degraded", "passthrough_without_memory")
             .body(axum::body::Body::from(body.to_vec()))
@@ -389,7 +398,8 @@ mod tests {
 
     #[test]
     fn chat_ingress_null_content_without_tool_calls_also_preserved() {
-        let body = r#"{"model":"m","messages":[{"role":"assistant","content":null}],"max_tokens":8}"#;
+        let body =
+            r#"{"model":"m","messages":[{"role":"assistant","content":null}],"max_tokens":8}"#;
         let chat: OpenAiChatRequest = serde_json::from_str(body).unwrap();
         let canonical = to_canonical_chat(chat).unwrap();
         assert!(canonical.messages[0].content_null);

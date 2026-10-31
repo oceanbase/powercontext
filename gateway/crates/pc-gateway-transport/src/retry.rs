@@ -54,8 +54,9 @@ impl<T: Transport> BoundedRetry<T> {
             evidence.record_attempt(attempt);
             match self.transport.send(send.clone()).await {
                 // 可能已送达：立即上抛，不做任何自动重发。
-                outcome @ SendOutcome::Indeterminate(_)
-                | outcome @ SendOutcome::Delivered(_) => return RetryOutcome::Done(outcome),
+                outcome @ SendOutcome::Indeterminate(_) | outcome @ SendOutcome::Delivered(_) => {
+                    return RetryOutcome::Done(outcome)
+                }
                 SendOutcome::NotSent(reason) => {
                     if attempt >= self.max_attempts.get() {
                         evidence.record_not_sent(attempt, &reason.to_string());

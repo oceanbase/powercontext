@@ -67,8 +67,7 @@ pub struct AppState {
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -113,7 +112,9 @@ async fn main() {
         upstream_responses_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
             .unwrap_or_default(),
-        api_key: std::env::var("PC_GATEWAY_API_KEY").ok().filter(|k| !k.is_empty()),
+        api_key: std::env::var("PC_GATEWAY_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty()),
         degrade,
         inject_context: matches!(std::env::var("PC_GATEWAY_INJECTION").as_deref(), Ok("on")),
         sediment: matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on")),
@@ -124,7 +125,10 @@ async fn main() {
 
     let router = Router::new()
         .route("/healthz", get(healthz))
-        .route("/gateway/v1/chat/completions", post(ingress::chat_completions))
+        .route(
+            "/gateway/v1/chat/completions",
+            post(ingress::chat_completions),
+        )
         .route("/gateway/v1/responses", post(ingress::responses))
         .fallback(proxy::fallback)
         .with_state((state, proxy_state));

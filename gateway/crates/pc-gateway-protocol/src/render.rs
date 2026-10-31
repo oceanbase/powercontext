@@ -18,7 +18,10 @@ use crate::{CanonicalRequest, RenderedPayload};
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
     #[error("unsupported field for renderer {renderer}: {field}")]
-    UnsupportedField { renderer: &'static str, field: String },
+    UnsupportedField {
+        renderer: &'static str,
+        field: String,
+    },
     #[error("cache render plan invalid for renderer {renderer}")]
     InvalidRenderPlan { renderer: &'static str },
 }
@@ -64,12 +67,12 @@ impl WireRenderer for OpenAiChatRenderer {
             } else {
                 match m.content.as_slice() {
                     [serde_json::Value::String(s)] => serde_json::Value::String(s.clone()),
-                    other => serde_json::to_value(other).map_err(|e| {
-                        RenderError::UnsupportedField {
+                    other => {
+                        serde_json::to_value(other).map_err(|e| RenderError::UnsupportedField {
                             renderer: self.name(),
                             field: e.to_string(),
-                        }
-                    })?,
+                        })?
+                    }
                 }
             };
             let mut message = serde_json::json!({
@@ -223,12 +226,12 @@ impl WireRenderer for OpenAiResponsesRenderer {
             } else {
                 match msg.content.as_slice() {
                     [serde_json::Value::String(s)] => serde_json::Value::String(s.clone()),
-                    other => serde_json::to_value(other).map_err(|e| {
-                        RenderError::UnsupportedField {
+                    other => {
+                        serde_json::to_value(other).map_err(|e| RenderError::UnsupportedField {
                             renderer: self.name(),
                             field: e.to_string(),
-                        }
-                    })?,
+                        })?
+                    }
                 }
             };
             input.push(serde_json::json!({

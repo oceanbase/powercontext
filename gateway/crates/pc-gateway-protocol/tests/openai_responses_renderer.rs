@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use pc_gateway_protocol::{
-    CanonicalMessage, CanonicalRequest, OpenAiResponsesRenderer, OutputLimits, Role,
-    WireRenderer,
+    CanonicalMessage, CanonicalRequest, OpenAiResponsesRenderer, OutputLimits, Role, WireRenderer,
 };
 
 fn request() -> CanonicalRequest {
@@ -46,7 +45,10 @@ fn renders_responses_wire_format() {
     assert_eq!(v["max_output_tokens"], 16);
     assert_eq!(v["stream"], false);
     assert_eq!(v["input"][0]["role"], "user");
-    assert_eq!(v["input"][0]["content"], "hi", "单字符串 content 必须保持 string（review P2：不得变 [\"hi\"]）");
+    assert_eq!(
+        v["input"][0]["content"], "hi",
+        "单字符串 content 必须保持 string（review P2：不得变 [\"hi\"]）"
+    );
     assert!(v.get("messages").is_none(), "不得混入 chat 字段");
     assert!(v.get("max_tokens").is_none());
 }
@@ -62,17 +64,17 @@ fn responses_items_pass_through_verbatim() {
             CanonicalMessage {
                 role: Role::User,
                 content: vec![serde_json::json!("hi")],
-            content_null: false,
-            tool_calls: None,
-            tool_call_id: None,
+                content_null: false,
+                tool_calls: None,
+                tool_call_id: None,
             },
             // 无 role 的顶层 item：原样封进 content，渲染时作为顶层 item 透出
             CanonicalMessage {
                 role: Role::Tool,
                 content: vec![fc.clone()],
-            content_null: false,
-            tool_calls: None,
-            tool_call_id: None,
+                content_null: false,
+                tool_calls: None,
+                tool_call_id: None,
             },
         ],
         tools: vec![],
@@ -92,7 +94,9 @@ fn responses_items_pass_through_verbatim() {
 #[test]
 fn merges_only_approved_cache_plan_fields() {
     let plan = serde_json::json!({"prompt_cache_key": "scope-1"});
-    let p = OpenAiResponsesRenderer.render(&request(), Some(&plan)).unwrap();
+    let p = OpenAiResponsesRenderer
+        .render(&request(), Some(&plan))
+        .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&p.bytes).unwrap();
     assert_eq!(v["prompt_cache_key"], "scope-1");
     assert_eq!(v["model"], "m", "基础字段不被计划覆盖");
@@ -116,7 +120,9 @@ fn typed_content_parts_pass_through_as_array() {
         tools: vec![],
         instructions: None,
         native_cache_fields: None,
-        output_limits: OutputLimits { max_output_tokens: 16 },
+        output_limits: OutputLimits {
+            max_output_tokens: 16,
+        },
         stream: false,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();

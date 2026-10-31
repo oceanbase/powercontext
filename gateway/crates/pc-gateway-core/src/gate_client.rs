@@ -31,9 +31,7 @@ pub trait GateClient: Send + Sync {
     ) -> impl Future<Output = Result<ContextCheckResult, GateError>> + Send;
 
     /// GET_CAPABILITIES 能力发现：获知支持的模式、必需规则、可降级性等。
-    fn capabilities(
-        &self,
-    ) -> impl Future<Output = Result<serde_json::Value, GateError>> + Send;
+    fn capabilities(&self) -> impl Future<Output = Result<serde_json::Value, GateError>> + Send;
 
     /// PREPARE_CONTEXT：检索并装配注入内容（智力全在 Core；网关只放置）。
     fn prepare(

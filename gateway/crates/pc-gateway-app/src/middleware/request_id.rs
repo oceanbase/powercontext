@@ -46,23 +46,25 @@ impl GatewayMiddleware for RequestId {
         next: Next,
     ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>> {
         Box::pin(async move {
-        let id = req
-            .headers()
-            .get(&REQUEST_ID_HEADER)
-            .and_then(|v| v.to_str().ok())
-            .filter(|v| !v.is_empty() && v.len() <= 128 && v.chars().all(|c| c.is_ascii_graphic()))
-            .map(|v| v.to_string())
-            .unwrap_or_else(generate);
-        // 注入扩展 + 当前 span，供后续 handler 与日志关联。
-        req.extensions_mut().insert(id.clone());
-        tracing::Span::current().record("request_id", &id);
-        let mut resp = next.run(req).await;
-        if resp.headers().get(&REQUEST_ID_HEADER).is_none() {
-            if let Ok(v) = axum::http::HeaderValue::from_str(&id) {
-                resp.headers_mut().insert(REQUEST_ID_HEADER, v);
+            let id = req
+                .headers()
+                .get(&REQUEST_ID_HEADER)
+                .and_then(|v| v.to_str().ok())
+                .filter(|v| {
+                    !v.is_empty() && v.len() <= 128 && v.chars().all(|c| c.is_ascii_graphic())
+                })
+                .map(|v| v.to_string())
+                .unwrap_or_else(generate);
+            // 注入扩展 + 当前 span，供后续 handler 与日志关联。
+            req.extensions_mut().insert(id.clone());
+            tracing::Span::current().record("request_id", &id);
+            let mut resp = next.run(req).await;
+            if resp.headers().get(&REQUEST_ID_HEADER).is_none() {
+                if let Ok(v) = axum::http::HeaderValue::from_str(&id) {
+                    resp.headers_mut().insert(REQUEST_ID_HEADER, v);
+                }
             }
-        }
-        resp
+            resp
         })
     }
 }

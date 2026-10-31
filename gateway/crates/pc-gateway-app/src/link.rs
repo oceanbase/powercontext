@@ -31,8 +31,8 @@ impl CoreLink {
             tracing::info!(%sock, "core link: UDS (combined deployment)");
             Self::Uds(UdsGateClient::new(sock))
         } else {
-            let base =
-                std::env::var("PC_GATEWAY_CORE_BASE").unwrap_or_else(|_| "http://127.0.0.1:8000".into());
+            let base = std::env::var("PC_GATEWAY_CORE_BASE")
+                .unwrap_or_else(|_| "http://127.0.0.1:8000".into());
             tracing::info!(%base, "core link: TCP (standalone deployment)");
             Self::Http(HttpGateClient::new(base))
         }
@@ -40,10 +40,7 @@ impl CoreLink {
 }
 
 impl GateClient for CoreLink {
-    async fn check(
-        &self,
-        request: ContextCheckRequest,
-    ) -> Result<ContextCheckResult, GateError> {
+    async fn check(&self, request: ContextCheckRequest) -> Result<ContextCheckResult, GateError> {
         match self {
             CoreLink::Uds(c) => c.check(request).await,
             CoreLink::Http(c) => c.check(request).await,

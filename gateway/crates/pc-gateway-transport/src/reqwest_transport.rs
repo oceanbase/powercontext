@@ -59,10 +59,7 @@ impl Default for ReqwestTransport {
 }
 
 impl Transport for ReqwestTransport {
-    fn send<'a>(
-        &'a self,
-        send: AdmittedSend,
-    ) -> impl Future<Output = SendOutcome> + Send + 'a {
+    fn send<'a>(&'a self, send: AdmittedSend) -> impl Future<Output = SendOutcome> + Send + 'a {
         Box::pin(async move {
             let mut req = self.client.post(&send.target_url);
             let mut has_content_type = false;
@@ -89,9 +86,7 @@ impl Transport for ReqwestTransport {
                     } else if e.is_builder() {
                         SendOutcome::NotSent(NotSentReason::RejectedLocally)
                     } else if e.is_timeout() {
-                        SendOutcome::Indeterminate(
-                            SendIndeterminateReason::TimeoutAwaitingResponse,
-                        )
+                        SendOutcome::Indeterminate(SendIndeterminateReason::TimeoutAwaitingResponse)
                     } else {
                         SendOutcome::Indeterminate(SendIndeterminateReason::LostAfterHandoff)
                     };

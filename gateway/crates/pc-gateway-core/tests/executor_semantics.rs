@@ -14,15 +14,18 @@
 
 //! PR #2264 失败语义表的状态机级验证（真实契约形态）。
 
-use pc_gateway_core::{DegradePolicy, Executor, GateClient, GateError, ManagedCall, ManagedOutcome};
+use pc_gateway_core::{
+    DegradePolicy, Executor, GateClient, GateError, ManagedCall, ManagedOutcome,
+};
 use pc_gateway_evidence::{BufferedEvidenceSink, NoopEvidenceSink};
 use pc_gateway_protocol::{
     CanonicalMessage, CanonicalRequest, OutputLimits, RenderedPayload, Role, WireRenderer,
 };
 use pc_gateway_transport::{AdmittedSend, SendOutcome, Transport};
 use pc_gateway_types::{
-    CheckDecision, CheckPhase, ContextCheckRequest, ContextCheckResult, PrepareContextRequest,
-    CaptureContentSourceRequest, PrepareContextResult, PreparedContext, PreparedContextLocation,
+    CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
+    ContextCheckResult, PrepareContextRequest, PrepareContextResult, PreparedContext,
+    PreparedContextLocation,
 };
 use std::collections::VecDeque;
 use std::future::Future;
@@ -93,7 +96,9 @@ impl GateClient for FakeGate {
             } => (CheckPhase::BeforeRelease, request_binding.clone()),
         };
         let declared = match &request {
-            ContextCheckRequest::BeforeSend { prepared_contexts, .. } => prepared_contexts.clone(),
+            ContextCheckRequest::BeforeSend {
+                prepared_contexts, ..
+            } => prepared_contexts.clone(),
             _ => Vec::new(),
         };
         self.prepared_seen.lock().unwrap().push(declared);
@@ -111,13 +116,17 @@ impl GateClient for FakeGate {
         request: PrepareContextRequest,
     ) -> impl Future<Output = Result<PrepareContextResult, GateError>> + Send {
         self.prepare_queries.lock().unwrap().push(request.query);
-        let step = self.prepare_result.lock().unwrap().take()
-            .unwrap_or(Ok(PrepareContextResult::Plain(PreparedContext {
-                schema: "powercontext.prepared-context.v1".into(),
-                status: "empty".into(),
-                content: None,
-                content_bytes: 0,
-            })));
+        let step =
+            self.prepare_result
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap_or(Ok(PrepareContextResult::Plain(PreparedContext {
+                    schema: "powercontext.prepared-context.v1".into(),
+                    status: "empty".into(),
+                    content: None,
+                    content_bytes: 0,
+                })));
         async move { step }
     }
 
@@ -125,7 +134,10 @@ impl GateClient for FakeGate {
         &self,
         request: CaptureContentSourceRequest,
     ) -> Result<serde_json::Value, GateError> {
-        self.captured.lock().unwrap().push((request.source_id, request.content));
+        self.captured
+            .lock()
+            .unwrap()
+            .push((request.source_id, request.content));
         Ok(serde_json::json!({"captured": true}))
     }
 }
@@ -138,16 +150,11 @@ struct FakeTransport {
 }
 
 impl Transport for FakeTransport {
-    fn send<'a>(
-        &'a self,
-        send: AdmittedSend,
-    ) -> impl Future<Output = SendOutcome> + Send + 'a {
+    fn send<'a>(&'a self, send: AdmittedSend) -> impl Future<Output = SendOutcome> + Send + 'a {
         let outcome = self.outcomes.lock().unwrap().pop_front();
         self.sends.lock().unwrap().push(send.payload);
         self.bindings.lock().unwrap().push(send.binding);
-        async move {
-            outcome.unwrap_or_else(|| panic!("transport script exhausted"))
-        }
+        async move { outcome.unwrap_or_else(|| panic!("transport script exhausted")) }
     }
 
     async fn cancel(&self, _send: &AdmittedSend) {
@@ -191,9 +198,9 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
             messages: vec![CanonicalMessage {
                 role: Role::User,
                 content: vec![serde_json::json!("hello")],
-            content_null: false,
-            tool_calls: None,
-            tool_call_id: None,
+                content_null: false,
+                tool_calls: None,
+                tool_call_id: None,
             }],
             tools: vec![],
             instructions: None,
@@ -230,10 +237,7 @@ impl WireRenderer for RendererRef {
 #[derive(Clone)]
 struct TransportRef(Arc<FakeTransport>);
 impl Transport for TransportRef {
-    fn send<'a>(
-        &'a self,
-        send: AdmittedSend,
-    ) -> impl Future<Output = SendOutcome> + Send + 'a {
+    fn send<'a>(&'a self, send: AdmittedSend) -> impl Future<Output = SendOutcome> + Send + 'a {
         Transport::send(&*self.0, send)
     }
     async fn cancel(&self, send: &AdmittedSend) {
@@ -250,9 +254,7 @@ impl GateClient for FakeGateRef {
     ) -> impl Future<Output = Result<ContextCheckResult, GateError>> + Send {
         GateClient::check(&*self.0, request)
     }
-    fn capabilities(
-        &self,
-    ) -> impl Future<Output = Result<serde_json::Value, GateError>> + Send {
+    fn capabilities(&self) -> impl Future<Output = Result<serde_json::Value, GateError>> + Send {
         GateClient::capabilities(&*self.0)
     }
 
@@ -281,7 +283,9 @@ fn harness(
     Arc<FakeTransport>,
     Arc<FakeGate>,
 ) {
-    let renderer = Arc::new(RecordingRenderer { renders: Mutex::new(0) });
+    let renderer = Arc::new(RecordingRenderer {
+        renders: Mutex::new(0),
+    });
     let transport = Arc::new(FakeTransport {
         outcomes: Mutex::new(transport_outcomes.into()),
         sends: Mutex::new(Vec::new()),
@@ -317,10 +321,19 @@ async fn allow_send_allow_release() {
         2,
     );
     let outcome = executor
-        .run(call(DegradePolicy::Pause), &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     match outcome {
-        ManagedOutcome::Released { binding, status, body, .. } => {
+        ManagedOutcome::Released {
+            binding,
+            status,
+            body,
+            ..
+        } => {
             assert_eq!(binding.as_deref(), Some("binding-1"));
             assert_eq!(status, 200);
             let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -346,7 +359,11 @@ async fn before_send_block_never_sends() {
         2,
     );
     let outcome = executor
-        .run(call(DegradePolicy::Pause), &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     match outcome {
         ManagedOutcome::Blocked { reason_codes } => assert_eq!(reason_codes, ["privacy.denied"]),
@@ -367,7 +384,11 @@ async fn withhold_is_terminal_in_pr2264_contract() {
         2,
     );
     let outcome = executor
-        .run(call(DegradePolicy::Pause), &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::Withheld { .. }));
     assert_eq!(*renderer.renders.lock().unwrap(), 1);
@@ -383,7 +404,11 @@ async fn gate_unavailable_pauses_never_allow() {
         2,
     );
     let outcome = executor
-        .run(call(DegradePolicy::Pause), &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::GatePaused(_)));
     assert_eq!(transport.sends.lock().unwrap().len(), 0);
@@ -434,7 +459,11 @@ async fn block_does_not_degrade() {
 #[tokio::test]
 async fn deterministic_not_sent_retries_bounded() {
     let (executor, renderer, _transport, _g) = harness(
-        vec![Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]))],
+        vec![Ok(result(
+            CheckPhase::BeforeSend,
+            CheckDecision::Allow,
+            &[],
+        ))],
         vec![
             SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused),
             SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused),
@@ -443,7 +472,11 @@ async fn deterministic_not_sent_retries_bounded() {
     );
     let evidence = BufferedEvidenceSink::new();
     let outcome = executor
-        .run(call(DegradePolicy::Pause), &RendererRef(renderer.clone()), &evidence)
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &evidence,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::NotSent { attempts: 2 }));
     assert_eq!(evidence.attempts(), vec![1, 2]);
@@ -452,14 +485,22 @@ async fn deterministic_not_sent_retries_bounded() {
 #[tokio::test]
 async fn indeterminate_never_resends() {
     let (executor, renderer, transport, _g) = harness(
-        vec![Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]))],
+        vec![Ok(result(
+            CheckPhase::BeforeSend,
+            CheckDecision::Allow,
+            &[],
+        ))],
         vec![SendOutcome::Indeterminate(
             pc_gateway_transport::SendIndeterminateReason::TimeoutAwaitingResponse,
         )],
         3,
     );
     let outcome = executor
-        .run(call(DegradePolicy::Pause), &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::SendIndeterminate));
     assert_eq!(transport.sends.lock().unwrap().len(), 1);
@@ -480,7 +521,11 @@ async fn before_release_block_blocks_and_cancels() {
         2,
     );
     let outcome = executor
-        .run(call(DegradePolicy::Pause), &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     match outcome {
         ManagedOutcome::Blocked { reason_codes } => assert_eq!(reason_codes, ["privacy.denied"]),
@@ -500,7 +545,11 @@ async fn credentials_never_enter_check_payload() {
         2,
     );
     executor
-        .run(call(DegradePolicy::Pause), &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     let seen = gate.seen.lock().unwrap().clone();
     let (_, before_send_payload) = &seen[0];
@@ -545,7 +594,9 @@ async fn injects_block_and_declares_exact_location() {
     )));
     let mut c = call(DegradePolicy::Pause);
     c.inject_context = true;
-    let outcome = executor.run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink).await;
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
     assert!(matches!(outcome, ManagedOutcome::Released { .. }));
 
     // 检索词 = 最后一条 user 消息文本
@@ -555,12 +606,15 @@ async fn injects_block_and_declares_exact_location() {
     let seen = gate.seen.lock().unwrap().clone();
     let payload = &seen[0].1;
     let v: serde_json::Value = serde_json::from_str(
-        &format!("{{\"inner\":{payload}}}").replace("\"inner\":{", "\"inner\":", ),
+        &format!("{{\"inner\":{payload}}}").replace("\"inner\":{", "\"inner\":"),
     )
     .unwrap_or(serde_json::Value::Null);
     let _ = v;
     let msg_text = extract_user_text(payload);
-    assert!(msg_text.starts_with("BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1"), "块必须在头部: {msg_text}");
+    assert!(
+        msg_text.starts_with("BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1"),
+        "块必须在头部: {msg_text}"
+    );
     assert!(msg_text.contains("网关必须无策略"));
     assert!(msg_text.ends_with("hello"));
 
@@ -570,7 +624,10 @@ async fn injects_block_and_declares_exact_location() {
     let loc = &declared[0][0];
     assert_eq!(loc.binding, "opaque-binding");
     assert_eq!(loc.location.pointer, "/messages/0/content");
-    assert_eq!(loc.location.schema, "powercontext.model-json-text-location.v1");
+    assert_eq!(
+        loc.location.schema,
+        "powercontext.model-json-text-location.v1"
+    );
     assert_eq!(loc.location.start_byte, 0);
     let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[{\"content\":\"网关必须无策略\"}]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
     assert_eq!(loc.location.end_byte as usize, block.len());
@@ -596,9 +653,14 @@ async fn empty_prepare_injects_nothing() {
     // prepare 默认返回 empty（FakeGate 默认值）
     let mut c = call(DegradePolicy::Pause);
     c.inject_context = true;
-    executor.run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink).await;
+    executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
     let seen = gate.seen.lock().unwrap().clone();
-    assert!(!seen[0].1.contains("BEGIN_POWERCONTEXT"), "empty 不得注入标记");
+    assert!(
+        !seen[0].1.contains("BEGIN_POWERCONTEXT"),
+        "empty 不得注入标记"
+    );
     assert!(gate.prepared_seen.lock().unwrap()[0].is_empty());
 }
 
@@ -616,8 +678,13 @@ async fn prepare_failure_still_sends_without_injection() {
     let evidence = BufferedEvidenceSink::new();
     let mut c = call(DegradePolicy::Pause);
     c.inject_context = true;
-    let outcome = executor.run(c, &RendererRef(renderer.clone()), &evidence).await;
-    assert!(matches!(outcome, ManagedOutcome::Released { .. }), "prepare 失败不阻塞主链路");
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &evidence)
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::Released { .. }),
+        "prepare 失败不阻塞主链路"
+    );
     assert_eq!(transport.sends.lock().unwrap().len(), 1);
     assert!(gate.prepared_seen.lock().unwrap()[0].is_empty());
     assert!(evidence.not_sent()[0].1.starts_with("prepare_failed"));
@@ -635,11 +702,17 @@ async fn sediment_captures_released_turn_synchronously() {
     );
     let mut c = call(DegradePolicy::Pause);
     c.sediment = true;
-    let outcome = executor.run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink).await;
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
     assert!(matches!(outcome, ManagedOutcome::Released { .. }));
     let captured = gate.captured.lock().unwrap().clone();
     assert_eq!(captured.len(), 1, "Released 轮次同步沉淀一次");
-    assert!(captured[0].0.starts_with("gw-turn-"), "幂等键: {}", captured[0].0);
+    assert!(
+        captured[0].0.starts_with("gw-turn-"),
+        "幂等键: {}",
+        captured[0].0
+    );
     let v: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
     assert_eq!(v["user"], "hello");
     assert_eq!(v["model"], "test-model");
@@ -658,7 +731,9 @@ async fn blocked_turn_never_sediments() {
     );
     let mut c = call(DegradePolicy::Pause);
     c.sediment = true;
-    executor.run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink).await;
+    executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
     assert!(gate.captured.lock().unwrap().is_empty(), "被拦内容不得沉淀");
 }
 
@@ -677,7 +752,10 @@ async fn malformed_gate_never_degrades_even_with_passthrough() {
             &NoopEvidenceSink,
         )
         .await;
-    assert!(matches!(outcome, ManagedOutcome::GatePaused(_)), "Malformed 必须暂停");
+    assert!(
+        matches!(outcome, ManagedOutcome::GatePaused(_)),
+        "Malformed 必须暂停"
+    );
     assert_eq!(transport.sends.lock().unwrap().len(), 0, "零发送");
 }
 
@@ -692,12 +770,20 @@ async fn non_utf8_response_is_never_released() {
         usage: None,
     });
     let (executor, renderer, transport, gate) = harness(
-        vec![Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]))],
+        vec![Ok(result(
+            CheckPhase::BeforeSend,
+            CheckDecision::Allow,
+            &[],
+        ))],
         vec![bad],
         2,
     );
     let outcome = executor
-        .run(call(DegradePolicy::Pause), &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     match outcome {
         ManagedOutcome::Withheld { reason_codes } => {

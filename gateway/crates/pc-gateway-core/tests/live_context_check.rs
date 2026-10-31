@@ -20,15 +20,14 @@
 //! 不可达时全部跳过（不失败）。
 
 use pc_gateway_core::{GateClient, GateError, HttpGateClient};
-use pc_gateway_types::{
-    CheckDecision, ContextCheckRequest, ContextCheckResult, ModelJsonPayload,
-};
+use pc_gateway_types::{CheckDecision, ContextCheckRequest, ContextCheckResult, ModelJsonPayload};
 use std::collections::BTreeMap;
 
 const CORE: &str = "http://127.0.0.1:8000";
 const TARGET_PROFILE: &str = "coding";
 const MODEL_BODY: &str = r#"{"model":"glm-4-flash","max_tokens":80,"stream":false,"messages":[{"role":"user","content":"hi"}]}"#;
-const RESPONSE_BODY: &str = r#"{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"total_tokens":1}}"#;
+const RESPONSE_BODY: &str =
+    r#"{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"total_tokens":1}}"#;
 
 fn client() -> HttpGateClient {
     HttpGateClient::new(CORE)
@@ -103,16 +102,26 @@ async fn before_release(scope: &str, binding: &str) -> Result<ContextCheckResult
 /// happy path：真实 allow 返回加密 binding、完整覆盖与两个期限。
 #[tokio::test]
 async fn live_allow_returns_real_binding_and_deadlines() {
-    let Some(_) = require_core().await else { return };
+    let Some(_) = require_core().await else {
+        return;
+    };
     let Some(scope) = create_scope("happy").await else {
         panic!("scope creation failed");
     };
     let result = before_send(&scope).await.expect("check should succeed");
 
-    assert_eq!(result.decision, CheckDecision::Allow, "reasons: {:?}（需配置 coding profile）", result.reason_codes);
+    assert_eq!(
+        result.decision,
+        CheckDecision::Allow,
+        "reasons: {:?}（需配置 coding profile）",
+        result.reason_codes
+    );
     assert!(result.coverage.complete);
     let binding = result.binding.as_deref().expect("allow 必须携带 binding");
-    assert!(binding.starts_with("pc1."), "真实加密 binding 前缀: {binding:.20}...");
+    assert!(
+        binding.starts_with("pc1."),
+        "真实加密 binding 前缀: {binding:.20}..."
+    );
 
     // 期限分离：发送窗口 ~60s，关联窗口 ~300s。
     let now = chrono_like_now();
@@ -122,7 +131,9 @@ async fn live_allow_returns_real_binding_and_deadlines() {
         valid > now && valid <= now + 65_000,
         "发送期限应在 60s 窗口内: valid={valid} now={now}"
     );
-    let Some(correlate) = correlate else { panic!("before_send allow 必须带 correlate_until") };
+    let Some(correlate) = correlate else {
+        panic!("before_send allow 必须带 correlate_until")
+    };
     assert!(
         correlate > now && correlate <= now + 310_000,
         "关联期限应在 300s 窗口内"
@@ -132,8 +143,12 @@ async fn live_allow_returns_real_binding_and_deadlines() {
 /// 伪造 binding 做 before_release → Core 必须拒绝（绝不能 allow）。
 #[tokio::test]
 async fn live_forged_binding_is_rejected() {
-    let Some(_) = require_core().await else { return };
-    let Some(scope) = create_scope("forged").await else { panic!("scope creation failed") };
+    let Some(_) = require_core().await else {
+        return;
+    };
+    let Some(scope) = create_scope("forged").await else {
+        panic!("scope creation failed")
+    };
     let result = before_release(&scope, "pc1.forged-binding-not-issued-by-core").await;
     match result {
         Ok(r) => assert_ne!(
@@ -143,10 +158,9 @@ async fn live_forged_binding_is_rejected() {
             r.reason_codes
         ),
         // 4xx 拒绝（如绑定校验直接失败）同样视为通过。
-        Err(GateError::GateUnavailable(msg)) => assert!(
-            msg.contains("HTTP 4"),
-            "期望 4xx 拒绝，得到: {msg}"
-        ),
+        Err(GateError::GateUnavailable(msg)) => {
+            assert!(msg.contains("HTTP 4"), "期望 4xx 拒绝，得到: {msg}")
+        }
         Err(other) => panic!("unexpected: {other}"),
     }
 }
@@ -155,13 +169,21 @@ async fn live_forged_binding_is_rejected() {
 /// `test_request_binding_cannot_cross_identity_scope_or_current_policy`）。
 #[tokio::test]
 async fn live_binding_cannot_cross_scope() {
-    let Some(_) = require_core().await else { return };
-    let (Some(scope_a), Some(scope_b)) = (create_scope("cross-a").await, create_scope("cross-b").await)
+    let Some(_) = require_core().await else {
+        return;
+    };
+    let (Some(scope_a), Some(scope_b)) =
+        (create_scope("cross-a").await, create_scope("cross-b").await)
     else {
         panic!("scope creation failed");
     };
     let allow = before_send(&scope_a).await.expect("check a");
-    assert_eq!(allow.decision, CheckDecision::Allow, "reasons: {:?}", allow.reason_codes);
+    assert_eq!(
+        allow.decision,
+        CheckDecision::Allow,
+        "reasons: {:?}",
+        allow.reason_codes
+    );
     let binding = allow.binding.expect("binding");
 
     let cross = before_release(&scope_b, &binding).await;
@@ -172,10 +194,9 @@ async fn live_binding_cannot_cross_scope() {
             "A 的 binding 不得放行 B 的释放: {:?}",
             r.reason_codes
         ),
-        Err(GateError::GateUnavailable(msg)) => assert!(
-            msg.contains("HTTP 4"),
-            "期望 4xx 拒绝，得到: {msg}"
-        ),
+        Err(GateError::GateUnavailable(msg)) => {
+            assert!(msg.contains("HTTP 4"), "期望 4xx 拒绝，得到: {msg}")
+        }
         Err(other) => panic!("unexpected: {other}"),
     }
 }
@@ -184,8 +205,12 @@ async fn live_binding_cannot_cross_scope() {
 /// 真实 OpenAPI 的逐字段对齐。
 #[tokio::test]
 async fn live_missing_prepared_contexts_rejected() {
-    let Some(_) = require_core().await else { return };
-    let Some(scope) = create_scope("dto").await else { panic!("scope creation failed") };
+    let Some(_) = require_core().await else {
+        return;
+    };
+    let Some(scope) = create_scope("dto").await else {
+        panic!("scope creation failed")
+    };
     let raw = serde_json::json!({
         "phase": "before_send",
         "scope_id": scope,

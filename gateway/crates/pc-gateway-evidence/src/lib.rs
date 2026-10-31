@@ -107,6 +107,9 @@ impl EvidenceSink for BufferedEvidenceSink {
     }
 
     fn record_call(&self, evidence: &CallEvidence) {
-        self.calls.lock().expect("evidence lock").push(evidence.clone());
+        self.calls
+            .lock()
+            .expect("evidence lock")
+            .push(evidence.clone());
     }
 }

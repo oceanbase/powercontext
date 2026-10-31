@@ -18,7 +18,7 @@ use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
 use pc_gateway_transport::{AdmittedSend, BoundedRetry, RetryOutcome, SendOutcome, Transport};
 use pc_gateway_types::{
     CaptureContentSourceRequest, CheckDecision, ContextCheckRequest, ContextCheckResult,
-    ModelJsonPayload, ModelJsonTextLocation, PreparedContextLocation, PrepareContextRequest,
+    ModelJsonPayload, ModelJsonTextLocation, PrepareContextRequest, PreparedContextLocation,
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -145,12 +145,11 @@ where
                 // #2199 语义：降级仅适用于 Core「不可用」。Malformed 表示 Core 可达但
                 // 响应异常（版本错乱/被篡改/代理污染）——恰恰最不该绕过检查，一律暂停。
                 return match (e, call.degrade_policy) {
-                    (
-                        GateError::GateUnavailable(_),
-                        DegradePolicy::PassthroughWithoutMemory,
-                    ) => self.degraded_send(&call, payload.bytes, evidence).await,
+                    (GateError::GateUnavailable(_), DegradePolicy::PassthroughWithoutMemory) => {
+                        self.degraded_send(&call, payload.bytes, evidence).await
+                    }
                     (e, _) => ManagedOutcome::GatePaused(classify_gate_error(e)),
-                }
+                };
             }
             Ok(result) => match result.decision {
                 CheckDecision::Allow => unwrap_binding(result),
@@ -227,7 +226,9 @@ where
                             "assistant": release_body.clone(),
                             "model": call.request.model,
                         });
-                        let digest = result.binding.as_deref()
+                        let digest = result
+                            .binding
+                            .as_deref()
                             .map(simple_digest)
                             .unwrap_or_else(|| simple_digest(&release_body));
                         let capture = CaptureContentSourceRequest {
@@ -297,8 +298,12 @@ where
         // 必须原样注入：check 会校验区间字节摘要 == sha256(content)，
         // 网关任何增删（包括再包裹）都会导致 digest 不匹配被暂缓。
         let block = content.to_string();
-        let Some(index) = last_user_index(&call.request) else { return };
-        let Some(message) = call.request.messages.get_mut(index) else { return };
+        let Some(index) = last_user_index(&call.request) else {
+            return;
+        };
+        let Some(message) = call.request.messages.get_mut(index) else {
+            return;
+        };
         let original = match message.content.as_slice() {
             [serde_json::Value::String(s)] => s.clone(),
             _ => return,

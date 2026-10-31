@@ -16,9 +16,7 @@
 //! 覆盖三个场景：content-length 精确、chunked（含 trailer）、content-length 超读截断。
 
 use pc_gateway_core::{GateClient, UdsGateClient};
-use pc_gateway_types::{
-    CheckDecision, CheckPhase, ContextCheckRequest, ModelJsonPayload,
-};
+use pc_gateway_types::{CheckDecision, CheckPhase, ContextCheckRequest, ModelJsonPayload};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -55,10 +53,10 @@ async fn read_request(conn: &mut UnixStream) {
     }
     // 简化：Content-Length 为 0 的探测请求到此结束；带 body 的读掉
     let head = String::from_utf8_lossy(&buf).to_string();
-    if let Some(len) = head
-        .lines()
-        .find_map(|l| l.strip_prefix("Content-Length: ").and_then(|v| v.trim().parse::<usize>().ok()))
-    {
+    if let Some(len) = head.lines().find_map(|l| {
+        l.strip_prefix("Content-Length: ")
+            .and_then(|v| v.trim().parse::<usize>().ok())
+    }) {
         let mut body = vec![0u8; len];
         if len > 0 {
             conn.read_exact(&mut body).await.unwrap();
@@ -82,8 +80,14 @@ async fn pooled_connection_parses_sequential_responses_correctly() {
         read_request(&mut conn).await;
         let body = result_json("allow");
         conn.write_all(
-            format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", body.len()).as_bytes(),
-        ).await.unwrap();
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
         conn.write_all(body.as_bytes()).await.unwrap();
 
         // 请求2 → chunked（0-chunk + 终止 CRLF，即 trailer 空行）
@@ -103,7 +107,9 @@ async fn pooled_connection_parses_sequential_responses_correctly() {
         let body3 = result_json("allow");
         conn.write_all(
             format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body3.len()).as_bytes(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         conn.write_all(body3.as_bytes()).await.unwrap();
         conn.write_all(b"DIRTY").await.unwrap();
         // 保持连接打开一会儿，验证客户端没把脏字节当下一响应
@@ -124,5 +130,9 @@ async fn pooled_connection_parses_sequential_responses_correctly() {
 
     server.await.unwrap();
     // 三次请求只应建立一条连接（第3次后因脏字节弃用，但那是之后的事）
-    assert_eq!(CONN_COUNT.load(Ordering::SeqCst), 1, "keep-alive 应复用同一连接");
+    assert_eq!(
+        CONN_COUNT.load(Ordering::SeqCst),
+        1,
+        "keep-alive 应复用同一连接"
+    );
 }

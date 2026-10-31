@@ -75,10 +75,7 @@ pub enum SendIndeterminateReason {
 
 /// 传输器抽象；实现保证只发送 `AdmittedSend`（类型上无法构造未准入的发送）。
 pub trait Transport: Send + Sync {
-    fn send<'a>(
-        &'a self,
-        send: AdmittedSend,
-    ) -> impl Future<Output = SendOutcome> + Send + 'a;
+    fn send<'a>(&'a self, send: AdmittedSend) -> impl Future<Output = SendOutcome> + Send + 'a;
 
     /// 尽力取消上游（strict 检查失败/缓冲超限时必需）。
     /// RPITIT 声明以固化 Send 约束（trait 是公开 API）。

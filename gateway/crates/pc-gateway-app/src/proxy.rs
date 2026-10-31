@@ -15,11 +15,13 @@
 //! 端口接管代理：非 `/gateway/*` 的流量原样转发到 Python 的 UDS。
 //! 原 Core/MCP 路由由此透传；流式（SSE/分块）由 hyper 客户端透传保证。
 
-use crate::AppState;use axum::body::Body;
+use crate::AppState;
+use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use hyper::Uri as HyperUri;use hyper_util::client::legacy::Client;
+use hyper::Uri as HyperUri;
+use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use std::future::Future;
 use std::path::PathBuf;
@@ -43,8 +45,9 @@ impl ProxyState {
     pub fn from_env() -> Self {
         match std::env::var("PC_GATEWAY_CORE_UDS") {
             Ok(sock) => {
-                let client = Client::builder(TokioExecutor::new())
-                    .build(UnixConnector { socket: PathBuf::from(&sock) });
+                let client = Client::builder(TokioExecutor::new()).build(UnixConnector {
+                    socket: PathBuf::from(&sock),
+                });
                 tracing::info!(%sock, "proxy: forwarding non-gateway routes to Python UDS");
                 Self {
                     inner: Some(Arc::new(ProxyInner {
@@ -82,11 +85,7 @@ impl tower::Service<HyperUri> for UnixConnector {
 
     fn call(&mut self, _uri: HyperUri) -> Self::Future {
         let path = self.socket.clone();
-        Box::pin(async move {
-            UnixStream::connect(path)
-                .await
-                .map(TokioIo::new)
-        })
+        Box::pin(async move { UnixStream::connect(path).await.map(TokioIo::new) })
     }
 }
 
@@ -145,11 +144,9 @@ pub async fn fallback(State((_, proxy)): State<SharedProxy>, req: Request) -> Re
             if let Some(h) = response.headers_mut() {
                 *h = rparts.headers;
             }
-            response
-                .body(Body::new(rbody))
-                .unwrap_or_else(|e| {
-                    (StatusCode::BAD_GATEWAY, format!("proxy build: {e}")).into_response()
-                })
+            response.body(Body::new(rbody)).unwrap_or_else(|e| {
+                (StatusCode::BAD_GATEWAY, format!("proxy build: {e}")).into_response()
+            })
         }
         Err(e) => (
             StatusCode::BAD_GATEWAY,
