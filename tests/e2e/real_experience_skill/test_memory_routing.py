@@ -294,8 +294,9 @@ def test_real_codex_routes_explicit_save_and_search_without_handoff_selector(
             assert save_calls, save_message
             assert not _has_tool_name(save_events, "select_handoff_workstream")
             entries = _list_entries(server.base_url, scope_id)
-            assert any("uv" in entry.text and "Python" in entry.text for entry in entries)
-            assert any(entry.kind == "preference" for entry in entries)
+            assert any(
+                "uv" in entry.text and "Python" in entry.text and entry.kind == "preference" for entry in entries
+            )
             lowered_save_message = save_message.lower()
             assert any(token in lowered_save_message for token in ("saved", "save", "remember", "保存", "记住"))
 
