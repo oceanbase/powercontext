@@ -22,13 +22,14 @@ from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.schema import CreateTable
 
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
-from powercontext.builtin.artifacts.skill import Skill, SkillContent
+from powercontext.builtin.artifacts.search import analyze_text, fts_match_query
+from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.persistence.artifact_governance import ArtifactLifecycleState
 from powercontext.builtin.persistence.experience_index import (
     ensure_artifact_head_searchable_text,
@@ -286,23 +287,6 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
             )
 
             async with contexts.database.transaction() as connection:
-                experience_searchable_text = await connection.scalar(
-                    select(ARTIFACT_HEADS_TABLE.c.searchable_text).where(
-                        ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                        ARTIFACT_HEADS_TABLE.c.family == Experience.family,
-                    )
-                )
-                skill_searchable_text = await connection.scalar(
-                    select(ARTIFACT_HEADS_TABLE.c.searchable_text).where(
-                        ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                        ARTIFACT_HEADS_TABLE.c.family == Skill.family,
-                    )
-                )
-                assert experience_searchable_text is not None
-                assert "falconcurrent" in experience_searchable_text
-                assert skill_searchable_text is not None
-                assert "regenerate" in skill_searchable_text
-
                 await connection.execute(
                     ARTIFACT_HEADS_TABLE
                     .update()
@@ -320,19 +304,42 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
                     "SELECT scope_id, family, artifact_id, revision, searchable_text FROM pc_artifact_heads "
                     "WHERE family = 'skill'"
                 )
-                await connection.exec_driver_sql(
-                    "INSERT INTO pc_artifact_fts (scope_id, family, artifact_id, revision, searchable_text) "
-                    "SELECT scope_id, family, artifact_id, revision - 1, 'staleprojection' FROM pc_artifact_heads "
-                    "WHERE family = 'experience'"
+                await connection.execute(
+                    text(
+                        "INSERT INTO pc_artifact_fts (scope_id, family, artifact_id, revision, searchable_text) "
+                        "SELECT scope_id, family, artifact_id, revision - 1, :projection FROM pc_artifact_heads "
+                        "WHERE family = 'experience'"
+                    ),
+                    {"projection": analyze_text("staleprojection")},
                 )
-                await connection.exec_driver_sql(
-                    "INSERT INTO pc_artifact_fts VALUES (?, 'experience', 'orphan', 1, 'orphanprojection')",
-                    (scope_id,),
+                await connection.execute(
+                    text("INSERT INTO pc_artifact_fts VALUES (:scope, 'experience', 'orphan', 1, :projection)"),
+                    {"scope": scope_id, "projection": analyze_text("orphanprojection")},
                 )
+                projection_matches = text(
+                    "SELECT COUNT(*) FROM pc_artifact_fts WHERE scope_id = :scope AND pc_artifact_fts MATCH :query"
+                )
+                # These rows must match native FTS before head qualification and rebuild can exclude them.
+                for marker in ("staleprojection", "orphanprojection"):
+                    assert (
+                        await connection.scalar(
+                            projection_matches, {"scope": scope_id, "query": fts_match_query(marker)}
+                        )
+                        == 1
+                    )
             assert await contexts.search_experience(scope_id, "falconcurrent", 8) == ()
+            assert await contexts.search_experience(scope_id, "staleprojection", 8) == ()
+            assert await contexts.search_experience(scope_id, "orphanprojection", 8) == ()
 
             async with contexts.database.transaction() as connection:
                 await contexts.experience_index.rebuild(connection)
+                for marker in ("staleprojection", "orphanprojection"):
+                    assert (
+                        await connection.scalar(
+                            projection_matches, {"scope": scope_id, "query": fts_match_query(marker)}
+                        )
+                        == 0
+                    )
             rebuilt = await contexts.search_experience(scope_id, "falconcurrent", 8)
             assert tuple(hit.artifact_ref for hit in rebuilt) == (replaced.result_artifact,)
             assert await contexts.search_experience(scope_id, "staleprojection", 8) == ()
