@@ -29,13 +29,19 @@ Selecting a saved profile in the global connection menu opens that exact configu
 
 Scope selection also keeps an application-wide pending state. Escape, the close button and the backdrop can close the dialog, but do not cancel an accepted native selection. Memory editing and further Scope switching stay paused until it finishes. Closing a dialog whose trigger is disabled returns focus to the page heading. A late result still updates authoritative native state, while it cannot clear a new connection editor's draft guard. Failures after the dialog has closed appear in the shared error feedback.
 
-## Local Server preparation
+## Local Server setup and management
 
-Overview remains the initial page. In disconnected Memories, **Set up locally** opens and focuses **Settings & diagnostics → Local Server**; **Connect an existing Server** opens the existing connection editor. Selecting either path does not install software, activate a connection, run diagnostics or probe readiness.
+Overview and disconnected Memories offer **Set up locally** and the independent existing-Server connection path. Local setup opens **Settings & diagnostics → Local Server**. Opening the page only inspects local facts and retained operation references; it never installs, activates a private connection or probes model readiness.
 
-The Local Server guidance is also available by opening Settings directly, including when native state is loading or unavailable. It explicitly marks Desktop installation, recovery and service management as unavailable; that status makes no claim about an actual local installation or running service. Settings stays at the bottom of the sidebar.
+With distributor-provisioned trusted Installer/Ops resources, choose install, repair, start, stop, restart, login startup or service-registration removal. Review the actual program/configuration/data locations, endpoint, pinned Server version, space requirement and service effects, then explicitly approve the one-shot plan. Installation phases, configuration, registration, process state, liveness and readiness are shown separately. Missing resources leave local controls unavailable and preserve existing-Server access.
 
-Prepare a Server independently using [Install and run](../docs/en/docs/get-started/install-and-run.md) and [Deploy the Server](../docs/en/docs/operate/deploy-server.md), observing their platform limits. Confirm the actual address, authentication and a qualified Desktop compatibility profile, then save and explicitly activate the connection and select an exact Scope. A running Server alone does not establish Desktop compatibility. Existing independently running Servers do not need to be reinstalled. The in-app Usage help provides a copyable address for this guide.
+Operations retain native references across Desktop exit. Reopening queries the selected operation's authoritative Ops status without replay. An interrupted/failed attempt can offer a fresh approved recovery plan for the original action/options. An unknown live executor is query-only; cancellation is a request, not confirmation of rollback or completion. Records from older bridges remain queryable, but missing action metadata cannot authorize resume.
+
+After setup, explicitly choose **Connect and open default Scope**. Native code rechecks actual ownership, service/configuration/resource facts and the returned endpoint. A pinned managed catalog must name a bundled, current-contract Desktop qualification in `qualification_ref`; unqualified candidate references are rejected. The actual discovery package version must match the resource version. The ordinary connection manager then verifies identity/compatibility and resolves the public default Scope before opening Memory. This action discloses its readiness probe; application reopen never activates a session automatically.
+
+Registration removal preserves configuration and data and does not uninstall Desktop. The OS-managed Server survives Desktop exit. Unfinished installation is not promised to continue after Quit; query its durable result on reopen. Signed Windows/macOS packages, published qualified resources and clean-machine installed acceptance remain release responsibilities under #2108/#2109/#2112.
+
+See [the local setup contract](../docs/en/development/desktop-local-server.md) and [independent Server installation](../docs/en/docs/get-started/install-and-run.md).
 
 ## Run the installed preview
 
@@ -83,7 +89,7 @@ The unsigned installer is for internal verification. If WebView2 is absent, its 
 ## Connect an existing Server
 
 1. Open Connections and add a named profile. HTTP is restricted to literal loopback hosts; other addresses require HTTPS. A reverse-proxy path prefix is preserved.
-2. Explicitly choose unauthenticated loopback access or Bearer authentication. Bearer storage is either Windows Credential Manager or this session only. Trust/address changes require credential reconfiguration. An optional CA augments system trust without disabling certificate checks.
+2. Explicitly choose unauthenticated loopback access or Bearer authentication. Bearer storage uses Windows Credential Manager, macOS Keychain, or Linux Secret Service (GNOME Keyring/KWallet); session-only storage is also available only when explicitly selected. If the native credential store is unavailable or locked, saving fails without writing the secret to profile JSON; choose session-only storage or cancel. Trust/address changes require credential reconfiguration. An optional CA augments system trust without disabling certificate checks.
 3. Select a qualified compatibility profile after comparing its tested build with your deployment. The selection does not prove the remote binary identity. See [validation guide](VALIDATION.md) for the exact fixture and supported combinations.
 4. Save, then explicitly use the connection. Merely selecting a saved profile does not activate it. Review liveness, readiness, identity and capabilities separately; none implies resource authorization.
 5. Open the Scope dropdown and find an authorized Scope by title (50 per page). Selecting a result updates the active Scope and closes the dialog. Selection never creates a Scope or changes Agent bindings. Editing a query cancels its old read; connection and identity changes invalidate old results.
@@ -104,7 +110,11 @@ Connection checks call the public `get_server_info` operation through the existi
 
 Qualification still requires an explicitly selected native record matching the bundled contract. A discovery 404 permits that record's independently qualified legacy operations; 401, 403, 503, malformed responses and incompatible products/required majors do not select a legacy fallback. Missing feature groups, unsupported feature versions and absent operation IDs restrict the affected operations. Exact Artifact reads require their own qualification; the `memory.explicit` group does not establish that support. Discovery metadata never grants authorization or attests a remote binary.
 
-Connection checks and anonymous identity revalidation still perform readiness probes. The observed `server_id` is recorded with the check; deployment-aware context fencing and explicit readiness separation are not established by this discovery result.
+Connection checks bind the observed `server_id` to the Principal and recheck the deployment after collecting connection facts. Scope listing/default lookup/selection and Memory search/exact reads revalidate deployment and Principal before dispatch and before returning private results. A changed identity, failed discovery, or disappearance of discovery clears the active context, invalidating Scope selections, cursors and pending reads. Reconnect explicitly to establish a new context. Package version changes alone do not change deployment identity.
+
+Submitted writes retain their original endpoint, `serverId` (null for qualified legacy Servers), Principal, Scope and generation. If the post-write identity check fails, a successful HTTP reply is treated as an unknown outcome: private bodies/references are withheld and the write is never automatically replayed. The original deployment is shown in write recovery feedback. Each submitted input is retained before native dispatch, independently of the form lifetime. Automatic read disconnection, rejected writes and pre-dispatch retry failure preserve the original and edited retry inputs as separate read-only recovery drafts in the current window, with explicit copy/discard actions; it is never inserted into a new target's form or persisted. Closing the window loses these drafts. A successful receipt clears only its own draft. Confirmed navigation discards all retained inputs, and a late response cannot restore an explicitly discarded draft. A late write cannot invalidate a newly activated context. Qualified legacy sessions require discovery to remain 404; discovery appearing requires explicit rechecking rather than silently acquiring a deployment identity. A failed connection recheck removes the previous cached report instead of leaving old verification visible.
+
+These checks observe identity around requests; the public mutation contract has no conditional Server-identity precondition. They cannot atomically prevent an endpoint from changing between identity verification and dispatch, or detect a replacement that changes back between observations. Legacy Servers have no durable deployment fence. Discovery does not attest binary identity. Connection checks and anonymous identity revalidation still perform readiness probes; explicit readiness separation remains pending.
 
 Connections displays discovery separately from the compatibility verdict, with guidance for denied or temporarily unavailable discovery and the reason for an incompatible product or major version. A failed discovery check keeps business operations unavailable; it does not remove the selected qualification record. After correcting the connection or service, explicitly check the connection again to reassess operation availability. Only a discovery 404 permits the qualified legacy policy described above.
 
@@ -124,7 +134,7 @@ The canonical brand source is `website/assets/powercontext-color.png`, which is 
 cargo run --locked --manifest-path desktop/src-tauri/Cargo.toml --example credential_probe
 ```
 
-This explicit probe creates a uniquely named synthetic credential in the preview namespace, loads it in another process and deletes it. It never reads another application's credential or prints a secret. Normal tests simulate unavailable storage and require an explicit session-only choice. Do not treat the probe as end-to-end S2 credential-form verification.
+This explicit probe creates a uniquely named synthetic credential in the preview namespace, loads it in another process and deletes it. It never reads another application's credential or prints a secret. Normal tests simulate unavailable storage and require an explicit session-only choice; a native-store failure never downgrades a persistent request or writes the secret to profile JSON. Do not treat the probe as end-to-end S2 credential-form verification.
 
 The Windows CI workflow runs on PRs and the preview branch, verifies native vault persistence, builds an unsigned internal installer, and tests Chinese-path installation/uninstallation on its disposable runner. It uploads the installer and a JSON smoke report. CI and mocked IPC tests do not prove clean-machine installation, notification activation, independent service login or Agent capture/recall.
 
@@ -203,4 +213,6 @@ launcher with an absolute interpreter path; launchers that locate dependencies r
 are unsuitable. The CLI must not depend on a shell profile or an interactive terminal.
 Diagnostics keep the existing output limits and deadlines and terminate their private process group
 on completion, timeout and cancellation. Before normal application exit, Desktop rejects new diagnostics,
-cancels active work and waits for process-group cleanup and launcher reaping. The app does not install or manage a LaunchAgent.
+cancels active work and waits for process-group cleanup and launcher reaping. Read-only diagnostics do not manage LaunchAgents; explicit Local Server actions use trusted independent Ops.
+
+A pending local connection handoff may update the observed connection state after navigation. It opens Memories only while the initiating UI intent remains current; later navigation or editing keeps the current page, input and discard guard intact.

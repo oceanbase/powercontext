@@ -29,7 +29,7 @@ use powercontext_desktop::{
 };
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicU16, Ordering},
+    atomic::{AtomicU16, AtomicUsize, Ordering},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -44,6 +44,7 @@ struct Fixture {
     release: Arc<Notify>,
     requests: Arc<Mutex<Vec<serde_json::Value>>>,
     fail: Arc<AtomicU16>,
+    http_requests: Arc<AtomicUsize>,
     task: tokio::task::JoinHandle<()>,
     _dir: tempfile::TempDir,
 }
@@ -63,6 +64,8 @@ async fn setup_response(response: serde_json::Value) -> Fixture {
     let release = Arc::new(Notify::new());
     let fail = Arc::new(AtomicU16::new(200));
     let requests = Arc::new(Mutex::new(vec![]));
+    let http_requests = Arc::new(AtomicUsize::new(0));
+    let received = http_requests.clone();
     let (start, finish, bodies, failure) = (
         started.clone(),
         release.clone(),
@@ -72,6 +75,7 @@ async fn setup_response(response: serde_json::Value) -> Fixture {
     let task = tokio::spawn(async move {
         loop {
             let (mut socket, _) = listener.accept().await.unwrap();
+            let received = received.clone();
             let (start, finish, bodies, failure) = (
                 start.clone(),
                 finish.clone(),
@@ -109,6 +113,7 @@ async fn setup_response(response: serde_json::Value) -> Fixture {
                     .nth(1)
                     .unwrap()
                     .to_owned();
+                received.fetch_add(1, Ordering::Relaxed);
                 let (status, value) = match path.as_str() {
                     "/v1/server-info" => (404, serde_json::json!({})),
                     "/v1/access/me" => (
@@ -181,6 +186,7 @@ async fn setup_response(response: serde_json::Value) -> Fixture {
         release,
         requests,
         fail,
+        http_requests,
         task,
         _dir: dir,
     }
@@ -480,13 +486,34 @@ async fn reset_excludes_in_flight_observations_without_cancelling_the_write() {
     )
     .await
     .unwrap();
+    let before_reset_requests = fixture.http_requests.load(Ordering::Relaxed);
     fixture.manager.observations().reset().unwrap();
     fixture.release.notify_one();
     let outcome = write.await.unwrap().unwrap();
     assert_eq!(outcome.record.status, WriteStatus::Succeeded);
     let summary = fixture.manager.observations().summary().unwrap();
-    assert!(summary.recent.is_empty());
-    assert!(summary.operations.is_empty());
+    // New post-write identity requests belong to the new window; the dispatched
+    // write and its original user operation must not repopulate it.
+    assert!(
+        summary
+            .recent
+            .iter()
+            .all(|record| record.operation != ObservedOperation::RememberMemory)
+    );
+    assert!(
+        summary
+            .operations
+            .iter()
+            .all(|record| record.operation != ObservedOperation::RememberMemory)
+    );
+    assert_eq!(
+        summary
+            .recent
+            .iter()
+            .filter(|record| record.unit == ObservationUnit::HttpRequest)
+            .count(),
+        fixture.http_requests.load(Ordering::Relaxed) - before_reset_requests
+    );
     assert_eq!(summary.evicted, 0);
     // Both the HTTP request and its user operation completed outside their reset window.
     assert_eq!(summary.dropped_since_start, 2);
@@ -543,6 +570,7 @@ async fn successful_http_with_an_invalid_write_receipt_keeps_the_user_outcome_un
 async fn request_and_action_latency_use_milliseconds_with_distinct_sample_counts() {
     let fixture = setup().await;
     fixture.manager.observations().reset().unwrap();
+    let before_requests = fixture.http_requests.load(Ordering::Relaxed);
     let generation = fixture.manager.state().unwrap().generation;
     let manager = fixture.manager.clone();
     let started = std::time::Instant::now();
@@ -581,6 +609,6 @@ async fn request_and_action_latency_use_milliseconds_with_distinct_sample_counts
             .iter()
             .filter(|r| r.unit == ObservationUnit::HttpRequest)
             .count(),
-        3
+        fixture.http_requests.load(Ordering::Relaxed) - before_requests
     );
 }

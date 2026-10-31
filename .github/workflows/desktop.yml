@@ -256,6 +256,13 @@ jobs:
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - run: pnpm ipc:check
+      - name: Verify Linux Secret Service across processes
+        run: |
+          dbus-run-session -- bash -lc '
+            set -euo pipefail
+            eval "$(printf "%s\n" powercontext-ci | gnome-keyring-daemon --daemonize --login --components=secrets)"
+            cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
+          '
       - name: Build unsigned Debian package
         run: pnpm tauri build --bundles deb --ci -- --locked
       - name: Verify Debian package

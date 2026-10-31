@@ -19,7 +19,9 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { answerConfirmation } from "./confirmation";
 import { App } from "../src/app/App";
+import { opsApi } from "../src/shared/ops";
 import { desktopApi } from "../src/shared/ipc";
+import { localText } from "../src/app/local-server-messages";
 import { messages } from "../src/app/messages";
 import type { DesktopState } from "../src/generated/ipc";
 
@@ -33,6 +35,10 @@ vi.mock("../src/shared/ipc", () => ({
     cancelMemory: vi.fn().mockResolvedValue(undefined),
   },
 }));
+vi.mock("../src/shared/ops", () => ({
+  subscribeOpsProgress: vi.fn().mockResolvedValue(() => {}),
+  opsApi: { references: vi.fn(), inspect: vi.fn() },
+}));
 const disconnected: DesktopState = {
   generation: 0,
   profiles: [],
@@ -43,6 +49,15 @@ const disconnected: DesktopState = {
   lastWrite: null,
 };
 beforeEach(() => {
+  vi.mocked(opsApi.inspect).mockResolvedValue({
+    outcome: "unknown",
+    bridgeError: "unavailable",
+  });
+  vi.mocked(opsApi.references).mockResolvedValue({
+    bindingAvailable: false,
+    loginStartChoice: false,
+    operations: [],
+  });
   vi.mocked(desktopApi.state).mockResolvedValue(disconnected);
 });
 afterEach(() => {
@@ -52,7 +67,7 @@ afterEach(() => {
 });
 
 test.each(["zh", "en"] as const)(
-  "disconnected Memory provides local and existing-Server paths without changing Overview (%s)",
+  "first use and disconnected Memory provide local and existing-Server paths (%s)",
   async (language) => {
     const user = userEvent.setup();
     render(<App />);
@@ -60,10 +75,9 @@ test.each(["zh", "en"] as const)(
     expect(
       screen.getByRole("heading", { level: 1, name: "总览" }),
     ).toBeTruthy();
-    // Overview retains its original content; the two-path entry belongs to Memory.
     expect(
-      screen.queryByRole("button", { name: messages.zh.setUpLocally }),
-    ).toBeNull();
+      screen.getByRole("button", { name: messages.zh.setUpLocally }),
+    ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "设置与诊断" }));
     await user.selectOptions(screen.getByLabelText("语言"), language);
     const t = messages[language];
@@ -90,11 +104,20 @@ test.each(["zh", "en"] as const)(
       within(region).getByRole("heading", { name: "Local Server", level: 2 }),
     );
     expect(
-      within(region).getByRole("heading", { name: t.localServerUnavailable }),
+      within(region).getByRole("heading", {
+        name: localText(language, "unavailable"),
+      }),
     ).toBeTruthy();
-    expect(within(region).getByText(t.localServerUnavailableHint)).toBeTruthy();
-    expect(within(region).getAllByRole("listitem")).toHaveLength(3);
-    expect(within(region).getAllByRole("button")).toHaveLength(1);
+    expect(
+      within(region).getByText(localText(language, "unavailableHint")),
+    ).toBeTruthy();
+    expect(
+      (
+        within(region).getByRole("button", {
+          name: localText(language, "install"),
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     expect(
       screen
         .getByRole("button", { name: t.settings })
@@ -125,7 +148,7 @@ test.each(["loading", "error"])(
     await user.click(screen.getByRole("button", { name: "设置与诊断" }));
     const region = screen.getByRole("region", { name: "Local Server" });
     expect(
-      within(region).getByText(messages.zh.localServerUnavailableHint),
+      within(region).getByText(localText("zh", "unavailableHint")),
     ).toBeTruthy();
     expect(
       within(region)

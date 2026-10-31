@@ -79,7 +79,7 @@ export function Diagnostics({ language }: { language: Language }) {
   }
   const code = typeof error === "string" ? error : null;
   return (
-    <section className="card stack">
+    <section id="local-diagnostics" className="card stack">
       <h2>{zh ? "本地诊断" : "Local diagnostics"}</h2>
       <p>
         {zh

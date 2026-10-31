@@ -17,7 +17,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { messages, type Language } from "./messages";
 import { getFoundationInfo, desktopApi } from "../shared/ipc";
-import type { FoundationInfo, DesktopState } from "../generated/ipc";
+import type {
+  FoundationInfo,
+  DesktopState,
+  WriteRecord,
+} from "../generated/ipc";
 import logo from "../../../src-tauri/icons/brand.png";
 import homeIcon from "../assets/overview.svg";
 import connectionsIcon from "../assets/connections.svg";
@@ -25,9 +29,15 @@ import memoryIcon from "../assets/memory.svg";
 import settingsIcon from "../assets/settings.svg";
 import observationIcon from "../assets/retrieval.svg";
 
+import { useLocalServer } from "./useLocalServer";
+import { opsApi } from "../shared/ops";
 import { TopBar } from "./TopBar";
 import { Overview } from "./Overview";
-import { MemoryWorkspace } from "./MemoryWorkspace";
+import {
+  MemoryWorkspace,
+  SubmittedDraftRecovery,
+  type SubmittedDraft,
+} from "./MemoryWorkspace";
 import { LocalServerSettings } from "./LocalServerSettings";
 import { Help } from "./Help";
 import { Diagnostics } from "./Diagnostics";
@@ -35,6 +45,7 @@ import { Connections } from "./Connections";
 import { Scopes } from "./Scopes";
 import { Observation, type ObservationTab } from "./Observation";
 import { connectionMessages } from "./connection-messages";
+import { memoryMessages } from "./memory-messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
 import { activeCheckReport } from "./context";
 import { Modal } from "./Modal";
@@ -43,6 +54,8 @@ import { useConfirmation } from "./useConfirmation";
 type Page = "home" | "connections" | "memories" | "observation" | "settings";
 type Theme = "light" | "dark" | "system";
 export function App() {
+  const localServer = useLocalServer();
+  const [connectingLocal, setConnectingLocal] = useState(false);
   const [language, setLanguage] = useState<Language>("zh");
   const [theme, setTheme] = useState<Theme>("system");
   const [page, setPage] = useState<Page>("home");
@@ -56,6 +69,37 @@ export function App() {
   const [stateLoading, setStateLoading] = useState(true);
   const stateRequest = useRef(0);
   const [dirty, setDirty] = useState(false);
+  const uiIntent = useRef(0);
+  function editorDirty(next: boolean) {
+    uiIntent.current++;
+    setDirty(next);
+  }
+  const [submittedDrafts, setSubmittedDrafts] = useState<SubmittedDraft[]>([]);
+  const submissionSequence = useRef(0);
+  function beginSubmission(text: string, target: SubmittedDraft["target"]) {
+    const id = ++submissionSequence.current;
+    setSubmittedDrafts((current) => [
+      ...current,
+      { id, text, target, phase: "pending" },
+    ]);
+    return (record: WriteRecord | null) => {
+      // Update only a retained intent. Explicit discard removes its identity,
+      // so late receipts cannot revive it or clear a different submission.
+      setSubmittedDrafts((current) =>
+        current.flatMap((draft) => {
+          if (draft.id !== id) return [draft];
+          if (record?.status === "succeeded") return [];
+          return [
+            {
+              ...draft,
+              target: record?.context ?? draft.target,
+              phase: record?.status ?? "unconfirmed",
+            },
+          ];
+        }),
+      );
+    };
+  }
   const [scopeOpen, setScopeOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [connectionSelection, setConnectionSelection] = useState<{
@@ -73,14 +117,26 @@ export function App() {
     // Pending operations may finish after their editor has unmounted.
     setPendingConnections((current) => current + (pending ? 1 : -1));
   }
+  const acceptedGeneration = useRef(-1);
   function receiveState(next: DesktopState) {
-    setDesktop((current) =>
-      !current || next.generation >= current.generation ? next : current,
-    );
+    if (next.generation < acceptedGeneration.current) return false;
+    acceptedGeneration.current = next.generation;
+    setDesktop(next);
+    return true;
   }
   const { confirm, confirmation } = useConfirmation(language);
-  function confirmSwitch() {
-    return !dirty || confirm(connectionMessages[language].discard);
+  async function confirmSwitch() {
+    if (
+      (dirty || submittedDrafts.length > 0) &&
+      !(await confirm(
+        submittedDrafts.length > 0
+          ? memoryMessages[language].discardAllSubmittedConfirm
+          : connectionMessages[language].discard,
+      ))
+    )
+      return false;
+    setSubmittedDrafts([]);
+    return true;
   }
   const activeProfile = desktop?.profiles.find(
     (p) => p.id === desktop.active?.connectionId,
@@ -124,6 +180,7 @@ export function App() {
     if (localServer) target?.scrollIntoView?.({ block: "start" });
   }, [page, connectionSelection]);
   function openScopes(trigger: HTMLElement) {
+    uiIntent.current++;
     scopeReturnFocus.current = trigger;
     setScopeOpen(true);
   }
@@ -136,6 +193,7 @@ export function App() {
       !(await confirmSwitch())
     )
       return;
+    uiIntent.current++;
     settingsSection.current = target?.section;
     setConnectionSelection((current) =>
       target?.profileId === undefined
@@ -167,6 +225,11 @@ export function App() {
       );
     } catch (e) {
       setNativeError(e);
+      try {
+        receiveState(await desktopApi.state());
+      } catch {
+        /* Preserve the original check failure. */
+      }
     } finally {
       connectionPending(false);
       setRefreshing(false);
@@ -308,6 +371,17 @@ export function App() {
               </span>
             </div>
           )}
+          {page === "home" && !desktop?.active && (
+            <div className="actions">
+              <button
+                onClick={() =>
+                  navigate("settings", { section: "local-server" })
+                }
+              >
+                {t.setUpLocally}
+              </button>
+            </div>
+          )}
           {page === "home" && (
             <Overview
               state={desktop}
@@ -318,19 +392,39 @@ export function App() {
             />
           )}
           {page === "memories" && (
-            <MemoryWorkspace
-              key={`memory-${desktop?.active?.generation ?? "none"}`}
-              state={desktop}
-              language={language}
-              onState={receiveState}
-              onDirty={setDirty}
-              onManageConnections={() => navigate("connections")}
-              onOpenScopes={openScopes}
-              onOpenLocalServer={() =>
-                navigate("settings", { section: "local-server" })
-              }
-              contextPending={contextPending}
-            />
+            <>
+              {submittedDrafts
+                .filter(
+                  (draft) =>
+                    draft.target.generation !== desktop?.active?.generation,
+                )
+                .map((draft) => (
+                  <SubmittedDraftRecovery
+                    key={draft.id}
+                    draft={draft}
+                    language={language}
+                    onDiscard={() =>
+                      setSubmittedDrafts((current) =>
+                        current.filter((item) => item.id !== draft.id),
+                      )
+                    }
+                  />
+                ))}
+              <MemoryWorkspace
+                key={`memory-${desktop?.active?.generation ?? "none"}`}
+                state={desktop}
+                language={language}
+                onState={receiveState}
+                onDirty={editorDirty}
+                onSubmission={beginSubmission}
+                onManageConnections={() => navigate("connections")}
+                onOpenScopes={openScopes}
+                onOpenLocalServer={() =>
+                  navigate("settings", { section: "local-server" })
+                }
+                contextPending={contextPending}
+              />
+            </>
           )}
           {page === "connections" && (
             <Connections
@@ -339,7 +433,7 @@ export function App() {
               state={desktop}
               language={language}
               onState={receiveState}
-              onDirty={setDirty}
+              onDirty={editorDirty}
               onPendingChange={connectionPending}
             />
           )}
@@ -378,6 +472,62 @@ export function App() {
                 </div>
               </section>
               <LocalServerSettings
+                controller={localServer}
+                connecting={connectingLocal}
+                connectionAvailable={
+                  !!desktop && !stateLoading && !contextPending
+                }
+                onBeforeApply={async (plan) => {
+                  if (
+                    activeProfile &&
+                    plan.target.endpoint &&
+                    new URL(activeProfile.endpoint).origin ===
+                      new URL(plan.target.endpoint).origin
+                  ) {
+                    if (!(await confirmSwitch())) return false;
+                    try {
+                      receiveState(
+                        await desktopApi.invalidate(activeProfile.id),
+                      );
+                      setDirty(false);
+                    } catch (error) {
+                      setNativeError(error);
+                      return false;
+                    }
+                  }
+                  return true;
+                }}
+                onConnect={async () => {
+                  const intent = uiIntent.current;
+                  if (!desktop || connectingLocal || !(await confirmSwitch()))
+                    return;
+                  if (intent !== uiIntent.current) return;
+                  setConnectingLocal(true);
+                  connectionPending(true);
+                  setNativeError(null);
+                  try {
+                    const next = await opsApi.connect(desktop.generation);
+                    const accepted = receiveState(next);
+                    if (
+                      accepted &&
+                      next.active?.scope &&
+                      intent === uiIntent.current
+                    ) {
+                      setDirty(false);
+                      setPage("memories");
+                    }
+                  } catch (error) {
+                    setNativeError(error);
+                    try {
+                      receiveState(await desktopApi.state());
+                    } catch {
+                      /* Keep the connection error visible. */
+                    }
+                  } finally {
+                    setConnectingLocal(false);
+                    connectionPending(false);
+                  }
+                }}
                 language={language}
                 headingRef={localServerHeading}
                 onManageConnections={() => navigate("connections")}

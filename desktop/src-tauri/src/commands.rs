@@ -346,3 +346,40 @@ pub async fn ops_cancel<R: tauri::Runtime>(
         .await
         .map_err(|_| crate::ops_bridge::OpsBridgeError::ProcessFailure)?
 }
+
+/// An explicit setup action may probe readiness and select the public default Scope.
+#[tauri::command]
+pub async fn connect_local_server<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    ops: tauri::State<'_, crate::ops_bridge::OpsHost>,
+    generation: u32,
+) -> Result<DesktopState, ApiFailure> {
+    let manager = manager(&window, &state)?;
+    if manager.state()?.generation != generation {
+        return Err(SafeError::StaleContext.into());
+    }
+    let host = ops.inner().clone();
+    let qualifications = manager.state()?.compatibility_profiles;
+    let (endpoint, qualification, version) =
+        tauri::async_runtime::spawn_blocking(move || host.connection_target(&qualifications))
+            .await
+            .map_err(|_| SafeError::ProcessFailure)?
+            .map_err(|error| match error {
+                crate::ops_bridge::OpsBridgeError::IntegrityFailure => SafeError::IntegrityFailure,
+                crate::ops_bridge::OpsBridgeError::InvalidInput => SafeError::InvalidInput,
+                crate::ops_bridge::OpsBridgeError::Storage => SafeError::Storage,
+                crate::ops_bridge::OpsBridgeError::Busy => SafeError::Busy,
+                crate::ops_bridge::OpsBridgeError::Timeout => SafeError::Timeout,
+                crate::ops_bridge::OpsBridgeError::ForeignBinding => SafeError::Conflict,
+                crate::ops_bridge::OpsBridgeError::InvalidResponse => SafeError::InvalidResponse,
+                crate::ops_bridge::OpsBridgeError::Unavailable
+                | crate::ops_bridge::OpsBridgeError::UnsupportedPlatform => {
+                    SafeError::RuntimeNotReady
+                }
+                _ => SafeError::ProcessFailure,
+            })?;
+    manager
+        .connect_local(generation, endpoint, qualification, version)
+        .await
+}

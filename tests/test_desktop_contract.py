@@ -46,3 +46,17 @@ def test_desktop_contract_identity_matches_openapi(manifest: str) -> None:
         actual = match.group(1)
 
     assert actual == expected, f"Stale Desktop contract identity in {manifest}; run 'pnpm --dir desktop generate'."
+
+
+def test_local_setup_catalog_digest_matches_the_ops_model(tmp_path: Path) -> None:
+    """The Rust handoff must accept catalog defaults normalized by actual Ops."""
+    from powercontext.ops.resources import ResourceCatalog
+
+    fixture = REPOSITORY_ROOT / "desktop/src-tauri/tests/fixtures/local-setup-catalog.json"
+    content = fixture.read_bytes()
+    catalog = tmp_path / "catalog.json"
+    catalog.write_bytes(content)
+    catalog.chmod(0o600)
+    resource = ResourceCatalog.read(catalog, hashlib.sha256(content).hexdigest()).resources[0]
+    assert resource.files[-1].executable is False
+    assert resource.digest == "1a41e4f4b604815d6b6ed2a76679786a1f5795aed2549542aeeb643094f12c7e"

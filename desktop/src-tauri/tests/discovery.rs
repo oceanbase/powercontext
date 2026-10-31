@@ -27,11 +27,12 @@ use powercontext_desktop::{
 use serde_json::{Value, json};
 use std::sync::{
     Arc,
-    atomic::{AtomicU16, Ordering},
+    atomic::{AtomicBool, AtomicU16, Ordering},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
+    sync::Notify,
 };
 
 fn document() -> Value {
@@ -46,6 +47,11 @@ struct Fixture {
     manager: ConnectionManager,
     id: String,
     status: Arc<AtomicU16>,
+    scope_status: Arc<AtomicU16>,
+    hold_scope: Arc<AtomicBool>,
+    change_access_on_exact: Arc<AtomicBool>,
+    scope_started: Arc<Notify>,
+    scope_release: Arc<Notify>,
     server: tokio::task::JoinHandle<()>,
     _directory: tempfile::TempDir,
 }
@@ -59,11 +65,32 @@ async fn fixture(status: u16, document: Value, qualified: bool) -> Fixture {
     let endpoint = format!("http://{}/prefix", listener.local_addr().unwrap());
     let status = Arc::new(AtomicU16::new(status));
     let response_status = status.clone();
+    let scope_status = Arc::new(AtomicU16::new(200));
+    let hold_scope = Arc::new(AtomicBool::new(false));
+    let change_access_on_exact = Arc::new(AtomicBool::new(false));
+    let access_enabled = Arc::new(AtomicBool::new(false));
+    let change_access = change_access_on_exact.clone();
+    let scope_started = Arc::new(Notify::new());
+    let scope_release = Arc::new(Notify::new());
+    let (scope_reply, scope_hold, started, release) = (
+        scope_status.clone(),
+        hold_scope.clone(),
+        scope_started.clone(),
+        scope_release.clone(),
+    );
     let server = tokio::spawn(async move {
         loop {
             let (mut socket, _) = listener.accept().await.unwrap();
             let document = document.clone();
             let status = response_status.load(Ordering::Relaxed);
+            let (scope_status, hold_scope, scope_started, scope_release) = (
+                scope_reply.clone(),
+                scope_hold.clone(),
+                started.clone(),
+                release.clone(),
+            );
+            let change_access = change_access.clone();
+            let access_enabled = access_enabled.clone();
             tokio::spawn(async move {
                 let mut bytes = Vec::new();
                 loop {
@@ -82,14 +109,30 @@ async fn fixture(status: u16, document: Value, qualified: bool) -> Fixture {
                 if status == 0 && path == "/prefix/v1/server-info" {
                     return;
                 }
+                if path.starts_with("/prefix/v1/scopes/") && hold_scope.load(Ordering::Relaxed) {
+                    scope_started.notify_one();
+                    scope_release.notified().await;
+                }
+                if path == "/prefix/v1/scopes/default-exact"
+                    && change_access.load(Ordering::Relaxed)
+                {
+                    access_enabled.store(true, Ordering::Relaxed);
+                }
                 let (status, body) = match path {
                     "/prefix/v1/server-info" => (status, document),
                     "/prefix/health/ready" => (
                         200,
-                        json!({"status":"ready","checks":{"access_mode":"disabled"}}),
+                        json!({"status":"ready","checks":{"access_mode":if access_enabled.load(Ordering::Relaxed) {"enabled"} else {"disabled"}}}),
                     ),
                     "/prefix/v1/access/me" => (503, json!({"error":{"code":"runtime_not_ready"}})),
                     "/prefix/v1/capabilities" => (403, json!({})),
+                    "/prefix/v1/scopes/default" | "/prefix/v1/scopes/default-exact" => (
+                        scope_status.load(Ordering::Relaxed),
+                        json!({
+                            "scope_id":"default-exact", "title":"Personal", "summary":"", "context_references":[],
+                            "external_references":[], "version":1
+                        }),
+                    ),
                     path if path.starts_with("/prefix/v1/scopes?") => {
                         (200, json!({"items":[],"next_cursor":null}))
                     }
@@ -122,6 +165,11 @@ async fn fixture(status: u16, document: Value, qualified: bool) -> Fixture {
         manager,
         id: state.profiles[0].id.clone(),
         status,
+        scope_status,
+        hold_scope,
+        change_access_on_exact,
+        scope_started,
+        scope_release,
         server,
         _directory: directory,
     }
@@ -320,4 +368,234 @@ async fn optional_feature_and_operation_restrictions_do_not_disable_unrelated_sc
             CompatibilityStatus::Qualified
         );
     }
+}
+
+#[tokio::test]
+async fn explicit_local_handoff_resolves_the_public_default_scope_and_reuses_its_profile() {
+    let f = fixture(200, document(), true).await;
+    let endpoint = f.manager.state().unwrap().profiles[0].endpoint.clone();
+    f.manager.remove_profile(&f.id, 1).unwrap();
+    let before = f.manager.state().unwrap();
+    let selected = f
+        .manager
+        .connect_local(
+            before.generation,
+            endpoint.clone(),
+            common::PROFILE_ID.into(),
+            "display-only-version".into(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        selected
+            .active
+            .as_ref()
+            .unwrap()
+            .scope
+            .as_ref()
+            .unwrap()
+            .scope_id,
+        "default-exact"
+    );
+    assert_eq!(selected.profiles.len(), 1);
+    let id = selected.active.as_ref().unwrap().connection_id.clone();
+    let again = f
+        .manager
+        .connect_local(
+            selected.generation,
+            endpoint.clone(),
+            common::PROFILE_ID.into(),
+            "display-only-version".into(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(again.profiles.len(), 1);
+    assert_eq!(again.active.as_ref().unwrap().connection_id, id);
+    assert_eq!(
+        f.manager
+            .connect_local(
+                before.generation,
+                endpoint,
+                common::PROFILE_ID.into(),
+                "display-only-version".into()
+            )
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    assert_eq!(f.manager.state().unwrap().generation, again.generation);
+}
+
+#[tokio::test]
+async fn local_handoff_cannot_select_a_scope_without_qualified_discovery() {
+    let f = fixture(503, document(), true).await;
+    let before = f.manager.state().unwrap();
+    assert_eq!(
+        f.manager
+            .connect_local(
+                before.generation,
+                before.profiles[0].endpoint.clone(),
+                common::PROFILE_ID.into(),
+                "display-only-version".into()
+            )
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::CompatibilityUnverified
+    );
+    assert!(f.manager.state().unwrap().active.is_none());
+}
+
+#[tokio::test]
+async fn a_different_server_version_cannot_leave_an_activated_local_context() {
+    let f = fixture(200, document(), true).await;
+    let before = f.manager.state().unwrap();
+    assert_eq!(
+        f.manager
+            .connect_local(
+                before.generation,
+                before.profiles[0].endpoint.clone(),
+                common::PROFILE_ID.into(),
+                "different-resource-version".into()
+            )
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::CompatibilityUnverified
+    );
+    assert!(f.manager.state().unwrap().active.is_none());
+}
+
+#[tokio::test]
+async fn local_handoff_requires_the_complete_basic_memory_operation_set() {
+    let mut info = document();
+    info["feature_contracts"]["memory.explicit"]["operations"] = json!(["search_memory"]);
+    let f = fixture(200, info, true).await;
+    let before = f.manager.state().unwrap();
+    assert_eq!(
+        f.manager
+            .connect_local(
+                before.generation,
+                before.profiles[0].endpoint.clone(),
+                common::PROFILE_ID.into(),
+                "display-only-version".into()
+            )
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::CompatibilityUnverified
+    );
+    assert!(f.manager.state().unwrap().active.is_none());
+}
+
+#[tokio::test]
+async fn a_pending_or_failed_default_scope_never_publishes_a_local_activation() {
+    let f = fixture(200, document(), true).await;
+    f.hold_scope.store(true, Ordering::Relaxed);
+    let before = f.manager.state().unwrap();
+    let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(
+            f.manager.connect_local(
+                before.generation,
+                before.profiles[0].endpoint.clone(),
+                common::PROFILE_ID.into(),
+                "display-only-version".into()
+            ),
+            async {
+                f.scope_started.notified().await;
+                assert!(f.manager.state().unwrap().active.is_none());
+                f.scope_status.store(403, Ordering::Relaxed);
+                f.hold_scope.store(false, Ordering::Relaxed);
+                f.scope_release.notify_one();
+            }
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(result.err().unwrap().code, SafeError::Forbidden);
+    let state = f.manager.state().unwrap();
+    assert!(state.active.is_none());
+    assert!(state.reports.is_empty());
+}
+
+#[tokio::test]
+async fn ordinary_refresh_reauthorizes_the_local_default_scope_and_drops_revoked_selection() {
+    let f = fixture(200, document(), true).await;
+    let before = f.manager.state().unwrap();
+    let selected = f
+        .manager
+        .connect_local(
+            before.generation,
+            before.profiles[0].endpoint.clone(),
+            common::PROFILE_ID.into(),
+            "display-only-version".into(),
+        )
+        .await
+        .unwrap();
+    let id = selected.active.as_ref().unwrap().connection_id.clone();
+    let refreshed = f.manager.check(&id, false).await.unwrap();
+    assert_eq!(
+        refreshed.active.unwrap().scope.unwrap().scope_id,
+        "default-exact"
+    );
+    f.scope_status.store(403, Ordering::Relaxed);
+    let revoked = f.manager.check(&id, false).await.unwrap();
+    assert!(revoked.active.unwrap().scope.is_none());
+}
+
+#[tokio::test]
+async fn published_local_scope_is_newer_than_pending_activation_snapshots() {
+    let f = fixture(200, document(), true).await;
+    f.hold_scope.store(true, Ordering::Relaxed);
+    let before = f.manager.state().unwrap();
+    let (result, pending_generation) =
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::join!(
+                f.manager.connect_local(
+                    before.generation,
+                    before.profiles[0].endpoint.clone(),
+                    common::PROFILE_ID.into(),
+                    "display-only-version".into()
+                ),
+                async {
+                    f.scope_started.notified().await;
+                    let pending = f.manager.state().unwrap();
+                    assert!(pending.active.is_none());
+                    f.hold_scope.store(false, Ordering::Relaxed);
+                    f.scope_release.notify_one();
+                    pending.generation
+                }
+            )
+        })
+        .await
+        .unwrap();
+    let published = result.unwrap();
+    assert!(published.generation > pending_generation);
+    assert_eq!(
+        published.active.unwrap().scope.unwrap().scope_id,
+        "default-exact"
+    );
+}
+
+#[tokio::test]
+async fn local_handoff_rejects_identity_changes_during_exact_scope_resolution() {
+    let f = fixture(200, document(), true).await;
+    f.change_access_on_exact.store(true, Ordering::Relaxed);
+    let before = f.manager.state().unwrap();
+    let result = f
+        .manager
+        .connect_local(
+            before.generation,
+            before.profiles[0].endpoint.clone(),
+            common::PROFILE_ID.into(),
+            "display-only-version".into(),
+        )
+        .await;
+    assert_eq!(result.err().unwrap().code, SafeError::RuntimeNotReady);
+    assert!(f.manager.state().unwrap().active.is_none());
 }

@@ -1241,3 +1241,23 @@ footer {
   overflow-wrap: anywhere;
   user-select: text;
 }
+
+.local-server {
+  min-width: 0;
+}
+.local-server dd,
+.local-server code,
+.local-server select {
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.local-server fieldset {
+  min-width: 0;
+}
+.local-server .actions {
+  flex-wrap: wrap;
+}
+
+.local-server-plan dd {
+  overflow-wrap: anywhere;
+}

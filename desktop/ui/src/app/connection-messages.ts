@@ -132,6 +132,10 @@ export const connectionMessages = {
     unauthorized: "Server 要求有效凭据。",
     forbidden: "当前身份无权执行此操作。",
     authentication_unavailable: "认证服务暂时不可用；不会改用匿名身份重试。",
+    integrity_failure:
+      "可信资源校验失败。请核对发行包和固定资源，不能跳过校验执行。",
+    process_failure:
+      "本机辅助进程未完成请求。请检查本机状态和持久操作结果，不会自动重放。",
     runtime_not_ready: "服务未提供此项运行能力。",
     tls: "证书或主机名验证失败。",
     redirect: "服务返回重定向，桌面未跟随。",
@@ -287,6 +291,10 @@ export const connectionMessages = {
     forbidden: "This identity cannot perform this operation.",
     authentication_unavailable:
       "Authentication is temporarily unavailable. No anonymous retry was attempted.",
+    integrity_failure:
+      "Trusted resource verification failed. Check the distribution package and pinned resources; verification cannot be bypassed.",
+    process_failure:
+      "The local helper did not complete the request. Inspect local state and durable operation results; work is not replayed automatically.",
     runtime_not_ready: "The Server does not provide this runtime capability.",
     tls: "Certificate or hostname verification failed.",
     redirect: "The Server returned a redirect; Desktop did not follow it.",

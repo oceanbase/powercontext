@@ -15,7 +15,7 @@
  */
 
 //! Native-owned connection and Scope context. Viewing a profile never activates it.
-use super::discovery::DiscoveryResult;
+use super::discovery::{DiscoveryResult, DiscoveryStatus};
 use super::profiles::{ProfileInput, ProfileRepository, ProfileView};
 use crate::{
     error::SafeError,
@@ -103,6 +103,7 @@ pub struct DesktopState {
 pub struct MemoryContext {
     pub connection_id: String,
     pub endpoint: String,
+    pub server_id: Option<String>,
     pub principal: Option<AccessPrincipal>,
     pub generation: u32,
     pub scope_id: String,
@@ -146,6 +147,7 @@ impl Drop for WriteGuard<'_> {
 }
 struct ReadSnapshot {
     api: Arc<ServerApi>,
+    server_id: Option<String>,
     identity: Option<AccessMeResponse>,
     cancelled: watch::Receiver<u32>,
 }
@@ -230,7 +232,10 @@ impl ConnectionManager {
     }
     pub fn state(&self) -> Result<DesktopState, SafeError> {
         let inner = self.lock()?;
-        Ok(DesktopState {
+        Ok(self.state_view(&inner))
+    }
+    fn state_view(&self, inner: &Inner) -> DesktopState {
+        DesktopState {
             generation: inner.generation,
             profiles: inner.profiles.views(),
             reports: inner.reports.values().cloned().collect(),
@@ -238,7 +243,7 @@ impl ConnectionManager {
             compatibility_profiles: self.compatibility.clone(),
             pending_credential_cleanup: inner.profiles.pending_cleanup(),
             last_write: inner.last_write.clone(),
-        })
+        }
     }
     pub fn save_profile(&self, input: ProfileInput) -> Result<DesktopState, SafeError> {
         let mut inner = self.lock()?;
@@ -296,9 +301,82 @@ impl ConnectionManager {
         self.state()
     }
     pub async fn check(&self, id: &str, activate: bool) -> Result<DesktopState, ApiFailure> {
-        let _permit = self.probes.try_acquire().map_err(|_| SafeError::Busy)?;
-        let (api, profile, generation, mut cancelled, use_as_active) = {
+        self.check_expected(id, activate, None, None).await
+    }
+    /// Explicit local setup handoff. The endpoint comes from native Ops, never the renderer.
+    pub async fn connect_local(
+        &self,
+        expected_generation: u32,
+        endpoint: String,
+        qualification: String,
+        server_version: String,
+    ) -> Result<DesktopState, ApiFailure> {
+        use super::profiles::Authentication;
+        let endpoint = crate::transport::Endpoint::parse(&endpoint)?
+            .as_str()
+            .to_owned();
+        let contract: serde_json::Value =
+            serde_json::from_str(include_str!("../transport/operations.json"))
+                .map_err(|_| SafeError::InvalidResponse)?;
+        if !self.compatibility.iter().any(|profile| {
+            profile.id == qualification
+                && Some(profile.contract_sha256.as_str()) == contract["contractSha256"].as_str()
+        }) {
+            return Err(SafeError::CompatibilityUnverified.into());
+        }
+        let (id, generation) = {
             let mut inner = self.lock()?;
+            if inner.generation != expected_generation {
+                return Err(SafeError::StaleContext.into());
+            }
+            let profiles = inner.profiles.views();
+            let existing = profiles.iter().find(|p| {
+                p.endpoint == endpoint
+                    && p.authentication == Authentication::UnauthenticatedLoopback
+                    && p.ca_pem.is_none()
+                    && p.compatibility.as_deref() == Some(qualification.as_str())
+            });
+            let id = if let Some(profile) = existing {
+                profile.id.clone()
+            } else {
+                let mut name = "Local Server".to_string();
+                if profiles.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
+                    name = format!("Local Server {}", &uuid::Uuid::new_v4().to_string()[..8]);
+                }
+                inner
+                    .profiles
+                    .save(ProfileInput {
+                        id: None,
+                        revision: None,
+                        name,
+                        endpoint,
+                        authentication: Authentication::UnauthenticatedLoopback,
+                        ca_pem: None,
+                        compatibility: Some(qualification),
+                        keep_credential: false,
+                        credential: None,
+                    })?
+                    .id
+            };
+            self.invalidate(&mut inner)?;
+            (id, inner.generation)
+        };
+        self.check_expected(&id, true, Some(generation), Some(&server_version))
+            .await
+    }
+    async fn check_expected(
+        &self,
+        id: &str,
+        activate: bool,
+        expected: Option<u32>,
+        local_version: Option<&str>,
+    ) -> Result<DesktopState, ApiFailure> {
+        let _permit = self.probes.try_acquire().map_err(|_| SafeError::Busy)?;
+        let (api, profile, generation, mut cancelled, use_as_active, retained_scope) = {
+            let mut inner = self.lock()?;
+            if expected.is_some_and(|value| value != inner.generation) {
+                return Err(SafeError::StaleContext.into());
+            }
             let profile = inner
                 .profiles
                 .views()
@@ -310,6 +388,23 @@ impl ConnectionManager {
                     .active
                     .as_ref()
                     .is_some_and(|a| a.view.connection_id == id);
+            let retained_scope = if !activate {
+                inner
+                    .active
+                    .as_ref()
+                    .filter(|active| active.view.connection_id == id)
+                    .and_then(|active| {
+                        active
+                            .view
+                            .scope
+                            .clone()
+                            .map(|scope| (scope, active.view.report.clone()))
+                    })
+            } else {
+                None
+            };
+            // A failed recheck must not expose a previously verified report.
+            inner.reports.remove(id);
             if use_as_active {
                 inner.active = None;
                 self.invalidate(&mut inner)?;
@@ -325,6 +420,7 @@ impl ConnectionManager {
                 inner.generation,
                 self.changed.subscribe(),
                 use_as_active,
+                retained_scope,
             )
         };
         let report = Self::cancellable(&mut cancelled, async {
@@ -359,6 +455,17 @@ impl ConnectionManager {
             });
             let discovery = DiscoveryResult::assess(discovery, compatible);
             let supported_operations = discovery.supported_operations();
+            if !supported_operations.is_empty() {
+                // Do not activate a Principal observed across a deployment replacement.
+                Self::deployment_unchanged(
+                    &api,
+                    discovery
+                        .server
+                        .as_ref()
+                        .map(|server| server.server_id.as_str()),
+                )
+                .await?;
+            }
             Ok(CheckReport {
                 anonymous_access,
                 connection_id: id.into(),
@@ -377,10 +484,134 @@ impl ConnectionManager {
             })
         })
         .await?;
+        // Local setup publishes no active context until version, identity and the exact default Scope pass.
+        let scope = if let Some(version) = local_version {
+            let server = report
+                .discovery
+                .as_ref()
+                .and_then(|discovery| discovery.server.as_ref())
+                .ok_or(SafeError::CompatibilityUnverified)?;
+            if server.package_version != version
+                || [
+                    "get_default_scope",
+                    "get_scope",
+                    "remember_memory",
+                    "search_memory",
+                    "get_artifact_revision",
+                ]
+                .iter()
+                .any(|operation| {
+                    !report
+                        .supported_operations
+                        .iter()
+                        .any(|supported| supported == operation)
+                })
+            {
+                return Err(SafeError::CompatibilityUnverified.into());
+            }
+            let identity = report.identity.value.clone();
+            if identity.is_none() && !report.anonymous_access {
+                return Err(SafeError::Unauthorized.into());
+            }
+            let server_id = server.server_id.clone();
+            Some(
+                Self::cancellable(&mut cancelled, async {
+                    self.identity_unchanged(&api, &identity, Some(server_id.as_str()), generation)
+                        .await?;
+                    let default = api.default_scope().await?;
+                    self.identity_unchanged(&api, &identity, Some(server_id.as_str()), generation)
+                        .await?;
+                    let exact = api.scope(&default.scope_id).await?;
+                    self.identity_unchanged(&api, &identity, Some(server_id.as_str()), generation)
+                        .await?;
+                    match api.server_info().await? {
+                        crate::transport::DiscoveryDocument::Server(current)
+                            if current.server_id == server_id
+                                && current.package_version == version => {}
+                        _ => return Err(SafeError::StaleContext.into()),
+                    }
+                    Ok(exact)
+                })
+                .await?,
+            )
+        } else if let Some((scope, previous)) = retained_scope {
+            let previous_server = previous
+                .discovery
+                .as_ref()
+                .and_then(|value| value.server.as_ref());
+            let current_server = report
+                .discovery
+                .as_ref()
+                .and_then(|value| value.server.as_ref());
+            let same_identity = previous.identity.value == report.identity.value
+                && previous.anonymous_access == report.anonymous_access
+                && (report.identity.value.is_some() || report.anonymous_access);
+            match (previous_server, current_server) {
+                (Some(before), Some(current))
+                    if before.server_id == current.server_id
+                        && same_identity
+                        && report
+                            .supported_operations
+                            .iter()
+                            .any(|operation| operation == "get_scope") =>
+                {
+                    let identity = report.identity.value.clone();
+                    let server_id = current.server_id.clone();
+                    Self::cancellable(&mut cancelled, async {
+                        self.identity_unchanged(
+                            &api,
+                            &identity,
+                            Some(server_id.as_str()),
+                            generation,
+                        )
+                        .await?;
+                        // Revoked or removed Scopes lose selection without disabling other authorized Scopes.
+                        let exact = match api.scope(&scope.scope_id).await {
+                            Ok(scope) => Some(scope),
+                            Err(error)
+                                if matches!(
+                                    error.code,
+                                    SafeError::Forbidden | SafeError::NotFound
+                                ) =>
+                            {
+                                None
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        self.identity_unchanged(
+                            &api,
+                            &identity,
+                            Some(server_id.as_str()),
+                            generation,
+                        )
+                        .await?;
+                        match api.server_info().await? {
+                            crate::transport::DiscoveryDocument::Server(current)
+                                if current.server_id == server_id =>
+                            {
+                                Ok(exact)
+                            }
+                            _ => Err(SafeError::StaleContext.into()),
+                        }
+                    })
+                    .await?
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
         let mut inner = self.lock()?;
         if inner.generation != generation {
             return Err(SafeError::StaleContext.into());
         }
+        // Scope publication must be newer than state snapshots taken while activation was pending.
+        let generation = if use_as_active && scope.is_some() {
+            self.invalidate(&mut inner)?;
+            inner.generation
+        } else {
+            generation
+        };
         inner.reports.insert(id.into(), report.clone());
         // Activation can expose diagnostic facts while business operations remain independently gated.
         if use_as_active {
@@ -389,13 +620,12 @@ impl ConnectionManager {
                     connection_id: id.into(),
                     generation,
                     report,
-                    scope: None,
+                    scope,
                 },
                 api,
             });
         }
-        drop(inner);
-        self.state().map_err(Into::into)
+        Ok(self.state_view(&inner))
     }
     fn snapshot(&self, generation: u32, operation: &str) -> Result<ReadSnapshot, SafeError> {
         let inner = self.lock()?;
@@ -419,14 +649,46 @@ impl ConnectionManager {
         }
         Ok(ReadSnapshot {
             api: active.api.clone(),
+            server_id: active
+                .view
+                .report
+                .discovery
+                .as_ref()
+                .and_then(|discovery| discovery.server.as_ref())
+                .map(|server| server.server_id.clone()),
             identity: principal,
             cancelled: self.changed.subscribe(),
         })
+    }
+    async fn deployment_unchanged(
+        api: &ServerApi,
+        original: Option<&str>,
+    ) -> Result<(), ApiFailure> {
+        // Re-observation never creates qualification or silently upgrades a legacy session.
+        let current = DiscoveryResult::assess(api.server_info().await, None);
+        let unchanged = match current.status {
+            DiscoveryStatus::Supported => original.is_some_and(|id| {
+                current
+                    .server
+                    .as_ref()
+                    .is_some_and(|server| server.server_id == id)
+            }),
+            DiscoveryStatus::Missing => original.is_none(),
+            _ => false,
+        };
+        if unchanged {
+            Ok(())
+        } else {
+            Err(current
+                .error
+                .unwrap_or_else(|| SafeError::StaleContext.into()))
+        }
     }
     async fn identity_unchanged(
         &self,
         api: &ServerApi,
         original: &Option<AccessMeResponse>,
+        server_id: Option<&str>,
         generation: u32,
     ) -> Result<(), ApiFailure> {
         let current = api.principal().await;
@@ -441,8 +703,16 @@ impl ConnectionManager {
                     .await
                     .is_ok_and(|r| r.checks.get("access_mode").is_some_and(|v| v == "disabled"))
         };
-        if unchanged {
-            return Ok(());
+        let result = if unchanged {
+            Self::deployment_unchanged(api, server_id).await
+        } else {
+            match current {
+                Err(error) => Err(error),
+                Ok(_) => Err(SafeError::StaleContext.into()),
+            }
+        };
+        if result.is_ok() {
+            return result;
         }
         let mut inner = self.lock()?;
         if inner.generation == generation {
@@ -451,10 +721,7 @@ impl ConnectionManager {
             }
             self.invalidate(&mut inner)?;
         }
-        match current {
-            Err(error) => Err(error),
-            Ok(_) => Err(SafeError::StaleContext.into()),
-        }
+        result
     }
     fn begin_scope_query(&self, generation: u32) -> Result<watch::Receiver<u32>, SafeError> {
         let inner = self.lock()?;
@@ -485,6 +752,7 @@ impl ConnectionManager {
             .user_operation(ObservedOperation::ListScopes, async {
                 let ReadSnapshot {
                     api,
+                    server_id,
                     identity,
                     mut cancelled,
                 } = self.snapshot(generation, "list_scopes")?;
@@ -492,8 +760,12 @@ impl ConnectionManager {
                 Self::cancellable(
                     &mut cancelled,
                     Self::cancellable(&mut query_cancelled, async {
-                        self.identity_unchanged(&api, &identity, generation).await?;
-                        api.scopes(query, cursor).await
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        let result = api.scopes(query, cursor).await;
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        result
                     }),
                 )
                 .await
@@ -505,6 +777,7 @@ impl ConnectionManager {
             .user_operation(ObservedOperation::GetDefaultScope, async {
                 let ReadSnapshot {
                     api,
+                    server_id,
                     identity,
                     mut cancelled,
                 } = self.snapshot(generation, "get_default_scope")?;
@@ -512,8 +785,12 @@ impl ConnectionManager {
                 Self::cancellable(
                     &mut cancelled,
                     Self::cancellable(&mut query_cancelled, async {
-                        self.identity_unchanged(&api, &identity, generation).await?;
-                        api.default_scope().await
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        let result = api.default_scope().await;
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        result
                     }),
                 )
                 .await
@@ -529,12 +806,17 @@ impl ConnectionManager {
             .user_operation(ObservedOperation::GetScope, async {
                 let ReadSnapshot {
                     api,
+                    server_id,
                     identity,
                     mut cancelled,
                 } = self.snapshot(generation, "get_scope")?;
                 let scope = Self::cancellable(&mut cancelled, async {
-                    self.identity_unchanged(&api, &identity, generation).await?;
-                    api.scope(id).await
+                    self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                        .await?;
+                    let result = api.scope(id).await;
+                    self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                        .await?;
+                    result
                 })
                 .await?;
                 let mut inner = self.lock()?;
@@ -576,10 +858,12 @@ impl ConnectionManager {
             .identity
             .as_ref()
             .map(|value| value.principal.clone());
+        let server_id = snapshot.server_id.clone();
         Ok((
             snapshot,
             MemoryContext {
                 endpoint,
+                server_id,
                 principal,
                 connection_id: active.view.connection_id.clone(),
                 generation,
@@ -613,6 +897,7 @@ impl ConnectionManager {
                 let (
                     ReadSnapshot {
                         api,
+                        server_id,
                         identity,
                         mut cancelled,
                     },
@@ -622,8 +907,12 @@ impl ConnectionManager {
                 Self::cancellable(
                     &mut cancelled,
                     Self::cancellable(&mut query_cancelled, async {
-                        self.identity_unchanged(&api, &identity, generation).await?;
-                        api.search(&context.scope_id, query).await
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        let result = api.search(&context.scope_id, query).await;
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        result
                     }),
                 )
                 .await
@@ -640,6 +929,7 @@ impl ConnectionManager {
                 let (
                     ReadSnapshot {
                         api,
+                        server_id,
                         identity,
                         mut cancelled,
                     },
@@ -649,8 +939,12 @@ impl ConnectionManager {
                 Self::cancellable(
                     &mut cancelled,
                     Self::cancellable(&mut query_cancelled, async {
-                        self.identity_unchanged(&api, &identity, generation).await?;
-                        api.atomic_entry(&context.scope_id, artifact).await
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        let result = api.atomic_entry(&context.scope_id, artifact).await;
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        result
                     }),
                 )
                 .await
@@ -668,6 +962,7 @@ impl ConnectionManager {
             let (
                 ReadSnapshot {
                     api,
+                    server_id,
                     identity,
                     mut cancelled,
                 },
@@ -675,7 +970,7 @@ impl ConnectionManager {
             ) = self.memory_snapshot(generation, "remember_memory")?;
             Self::cancellable(
                 &mut cancelled,
-                self.identity_unchanged(&api, &identity, generation),
+                self.identity_unchanged(&api, &identity, server_id.as_deref(), generation),
             )
             .await?;
             let mut record = WriteRecord {
@@ -699,15 +994,25 @@ impl ConnectionManager {
             };
             observation.write_dispatched();
             let response = api.remember(&record.context.scope_id, text).await;
+            let identity_result = self
+                .identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                .await;
             let result = match response {
                 Ok(value) => {
-                    record.status = WriteStatus::Succeeded;
-                    record.references = value
-                        .records
-                        .iter()
-                        .map(|record| record.artifact.clone())
-                        .collect();
-                    Some(value)
+                    if let Err(error) = identity_result {
+                        // A successful HTTP reply cannot establish which deployment accepted the write.
+                        record.status = WriteStatus::Unknown;
+                        record.error = Some(error);
+                        None
+                    } else {
+                        record.status = WriteStatus::Succeeded;
+                        record.references = value
+                            .records
+                            .iter()
+                            .map(|record| record.artifact.clone())
+                            .collect();
+                        Some(value)
+                    }
                 }
                 Err(error) => {
                     record.status = if error.dispatched

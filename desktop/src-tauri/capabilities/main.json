@@ -25,6 +25,7 @@
     "allow-session-summary",
     "allow-reset-session-observations",
     "allow-preview-session-diagnostics",
+    "allow-connect-local-server",
     "allow-ops-references",
     "allow-ops-inspect",
     "allow-ops-config-validate",

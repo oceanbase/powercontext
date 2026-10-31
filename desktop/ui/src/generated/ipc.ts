@@ -15,7 +15,7 @@
  */
 
 // Generated from Rust IPC types. Do not edit.
-export type SafeError = "unauthorized_window" | "invalid_endpoint" | "insecure_transport" | "invalid_certificate" | "credential_unavailable" | "credential_missing" | "invalid_credential" | "timeout" | "tls" | "network" | "redirect" | "unauthorized" | "forbidden" | "server" | "invalid_response" | "response_too_large" | "busy" | "invalid_input" | "not_found" | "cursor_expired" | "conflict" | "authentication_unavailable" | "runtime_not_ready" | "stale_context" | "compatibility_unverified" | "storage" | "profile_corrupt" | "duplicate_name" | "not_connected" | "scope_required";
+export type SafeError = "unauthorized_window" | "invalid_endpoint" | "insecure_transport" | "invalid_certificate" | "credential_unavailable" | "credential_missing" | "invalid_credential" | "timeout" | "tls" | "network" | "redirect" | "unauthorized" | "forbidden" | "server" | "invalid_response" | "response_too_large" | "busy" | "invalid_input" | "not_found" | "cursor_expired" | "conflict" | "authentication_unavailable" | "runtime_not_ready" | "integrity_failure" | "process_failure" | "stale_context" | "compatibility_unverified" | "storage" | "profile_corrupt" | "duplicate_name" | "not_connected" | "scope_required";
 export type FoundationInfo = { version: string, phase: string, credentialBackend: string, serverConnected: boolean, };
 export type StorageChoice = "persistent" | "session_only";
 export type CredentialWriteRequest = { secret: string, storage: StorageChoice, };
@@ -31,9 +31,9 @@ export type OpsPreflightInput = { operation: OpsOperation, options: OpsOptions, 
 export type OpsApprovalInput = { approvalId: string, planId: string, };
 export type OpsStatusInput = { operationId: string, };
 export type OpsCancelInput = { operationId: string, attempt: number, };
-export type OpsOperationReference = { operationId: string, bindingStatus: OpsReferenceBindingStatus, };
+export type OpsOperationReference = { operationId: string, bindingStatus: OpsReferenceBindingStatus, operation?: OpsOperation, options?: OpsOptions, };
 export type OpsReferenceBindingStatus = "current" | "different" | "unavailable";
-export type OpsReferences = { bindingAvailable: boolean, operations: Array<OpsOperationReference>, };
+export type OpsReferences = { bindingAvailable: boolean, loginStartChoice: boolean, operations: Array<OpsOperationReference>, };
 export type OpsInspectionReply = { outcome: OpsOutcome, components?: OpsComponents, error?: OpsErrorCode, bridgeError?: OpsBridgeError, exitCode?: number, };
 export type OpsValidationReply = { outcome: OpsOutcome, configuration: OpsConfigurationState, error?: OpsErrorCode, bridgeError?: OpsBridgeError, exitCode?: number, };
 export type OpsConfigurationState = "valid" | "missing_or_invalid" | "unknown";
@@ -46,7 +46,7 @@ export type OpsInstallationClassification = "missing" | "owned_current" | "owned
 export type OpsInstallationResources = "missing" | "damaged" | "verified";
 export type OpsDatabaseClassification = "new" | "existing_unknown" | "existing_ready" | "incompatible" | "unknown";
 export type OpsComponents = { support?: OpsSupportState, registration?: OpsRegistrationState, definition?: OpsDefinitionState, managerOwnership?: OpsManagerOwnership, manager?: OpsManagerState, liveness?: OpsLivenessState, readiness?: OpsReadinessState, endpoint?: string, maintenance?: OpsMaintenancePhase, resources?: OpsRuntimeResources, configuration?: OpsConfigurationState, installationId?: string, resourceId?: string, resourceDigest?: string, database?: OpsDatabaseClassification, connectionCompatibility?: OpsConnectionCompatibility, installationStage?: OpsServicePhase, installationObservation?: OpsObservationState, };
-export type OpsProgress = { requestId: string, operationId: string, attempt: number, sequence: number | null, phase: OpsServicePhase | null, accepted: boolean, };
+export type OpsProgress = { approvalId?: string, requestId: string, operationId: string, attempt: number, sequence: number | null, phase: OpsServicePhase | null, accepted: boolean, };
 export type OpsOperationReply = { operationId: string, outcome: OpsOutcome, attempt?: number, exitCode?: number, error?: OpsErrorCode, bridgeError?: OpsBridgeError, status?: OpsOperationStatus, };
 export type OpsOperationStatus = { operationId: string, attempt: number, phase: OpsAttemptPhase, executor: OpsExecutor, executionState: OpsExecutionState, outcome: OpsOutcome, cancelRequested?: boolean, result?: OpsStoredResult, observation: OpsObservation, history: Array<OpsAttemptSummary>, recoveryActions: Array<OpsRecoveryAction>, };
 export type OpsExecutor = { pid?: number, observation: OpsExecutorObservation, };
@@ -86,7 +86,7 @@ export type DiscoveryResult = { status: DiscoveryStatus, server: ServerInfo | nu
 export type CheckReport = { connectionId: string, revision: number, checkedAt: number, liveness: Fact<HealthResponse>, readiness: Fact<ReadinessResponse>, identity: Fact<AccessMeResponse>, capabilities: Fact<Capabilities>, compatibilityVerified: boolean, anonymousAccess: boolean, supportedOperations: Array<string>, discovery?: DiscoveryResult, };
 export type CompatibilityProfile = { id: string, serverCommit: string, contractSha256: string, artifactSha256: string, operations: Array<string>, evidence: string, };
 export type ActiveView = { connectionId: string, generation: number, report: CheckReport, scope: ScopeDescriptor | null, };
-export type MemoryContext = { connectionId: string, endpoint: string, principal: AccessPrincipal | null, generation: number, scopeId: string, };
+export type MemoryContext = { connectionId: string, endpoint: string, serverId: string | null, principal: AccessPrincipal | null, generation: number, scopeId: string, };
 export type WriteStatus = "pending" | "succeeded" | "failed" | "unknown";
 export type WriteRecord = { operationId: string, context: MemoryContext, status: WriteStatus, references: Array<ArtifactReference>, error: ApiFailure | null, };
 export type WriteOutcome = { record: WriteRecord, result: MemorySaveResponse | null, };

@@ -50,6 +50,8 @@ struct Host {
 }
 struct Approval {
     plan: Value,
+    operation: OpsOperation,
+    options: OpsOptions,
     binding: String,
     resume: Option<OpsResumeReference>,
     created: Instant,
@@ -135,10 +137,13 @@ impl OpsHost {
             .read()?;
         Ok(OpsReferences {
             binding_available: binding.is_some(),
+            login_start_choice: cfg!(windows),
             operations: items
                 .into_iter()
                 .map(|item| OpsOperationReference {
                     operation_id: item.operation_id,
+                    operation: item.operation,
+                    options: item.options,
                     binding_status: match &binding {
                         Some(b) if b.fingerprint == item.binding_id => {
                             OpsReferenceBindingStatus::Current
@@ -171,6 +176,42 @@ impl OpsHost {
             },
         }
     }
+    pub fn connection_target(
+        &self,
+        qualifications: &[crate::connections::session::CompatibilityProfile],
+    ) -> Result<(String, String, String), OpsBridgeError> {
+        let reply = self.inspect();
+        if reply.outcome != OpsOutcome::Succeeded {
+            return Err(reply.bridge_error.unwrap_or(OpsBridgeError::ProcessFailure));
+        }
+        let components = reply
+            .components
+            .as_ref()
+            .ok_or(OpsBridgeError::InvalidResponse)?;
+        let endpoint = Self::owned_endpoint(components)?;
+        let (qualification, version) = self
+            .0
+            .trust
+            .connection_qualification(components, qualifications)?;
+        Ok((endpoint, qualification, version))
+    }
+    fn owned_endpoint(components: &OpsComponents) -> Result<String, OpsBridgeError> {
+        if components.manager_ownership != Some(OpsManagerOwnership::Owned)
+            || components.manager != Some(OpsManagerState::Active)
+            || components.registration != Some(OpsRegistrationState::Installed)
+            || components.definition != Some(OpsDefinitionState::Current)
+            || components.configuration != Some(OpsConfigurationState::Valid)
+            || components.liveness != Some(OpsLivenessState::Live)
+            || components.resources != Some(OpsRuntimeResources::Present)
+            || components.installation_id.is_none()
+        {
+            return Err(OpsBridgeError::Unavailable);
+        }
+        components
+            .endpoint
+            .clone()
+            .ok_or(OpsBridgeError::Unavailable)
+    }
     pub fn config_validate(&self) -> OpsValidationReply {
         match self
             .read(OpsAction::ConfigValidate)
@@ -199,7 +240,27 @@ impl OpsHost {
             if !(1..64).contains(&resume.expected_attempt) {
                 return Err(OpsBridgeError::InvalidInput);
             }
-            self.require_reference(&resume.operation_id, &binding.fingerprint)?;
+            let references = self
+                .0
+                .references
+                .lock()
+                .map_err(|_| OpsBridgeError::Storage)?
+                .read()?;
+            let reference = references
+                .iter()
+                .find(|r| r.operation_id == resume.operation_id)
+                .ok_or(OpsBridgeError::UnknownOperation)?;
+            if reference.binding_id != binding.fingerprint {
+                return Err(OpsBridgeError::ForeignBinding);
+            }
+            let (Some(operation), Some(options)) =
+                (reference.operation, reference.options.as_ref())
+            else {
+                return Err(OpsBridgeError::UnknownOperation);
+            };
+            if operation != input.operation || options.wire_value() != input.options.wire_value() {
+                return Err(OpsBridgeError::InvalidInput);
+            }
         }
         let body = request(
             OpsAction::Preflight,
@@ -265,6 +326,8 @@ impl OpsHost {
             id,
             Approval {
                 plan: plan.clone(),
+                operation: input.operation,
+                options: input.options,
                 binding: binding.fingerprint,
                 resume: input.resume,
                 created: Instant::now(),
@@ -301,6 +364,7 @@ impl OpsHost {
         if Uuid::parse_str(&input.approval_id).is_err() || !trust::is_digest(&input.plan_id) {
             return Err(OpsBridgeError::InvalidInput);
         }
+        let approval_id = input.approval_id.clone();
         let action = if resume {
             OpsAction::Resume
         } else {
@@ -330,17 +394,25 @@ impl OpsHost {
         if resume {
             self.require_reference(&id, &binding.fingerprint)?;
         }
-        // The reference is durable before any possibility of dispatch. It is not an outcome.
+        // Metadata identifies the approved action for recovery; only Ops owns its outcome.
         self.0
             .references
             .lock()
             .map_err(|_| OpsBridgeError::Storage)?
-            .add(&id, &binding.fingerprint)?;
+            .add(
+                &id,
+                &binding.fingerprint,
+                approval.operation,
+                approval.options,
+            )?;
         let mut fields = json!({"operation_id":id, "plan":approval.plan, "authorization":{"plan_id":input.plan_id,"approved":true}});
         if let Some(reference) = approval.resume {
             fields["expected_attempt"] = reference.expected_attempt.into();
         }
-        self.operation(&binding, action, id, fields, guard, emit)
+        self.operation(&binding, action, id, fields, guard, move |mut progress| {
+            progress.approval_id = Some(approval_id.clone());
+            emit(progress);
+        })
     }
     pub fn operation_status(
         &self,

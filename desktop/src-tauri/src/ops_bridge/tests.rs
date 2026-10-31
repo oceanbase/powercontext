@@ -931,3 +931,148 @@ fn actual_independent_bundle_runs_through_native_trust_and_read_only_bridge() {
         Some(OpsBridgeError::IntegrityFailure)
     );
 }
+
+#[test]
+fn reopening_preserves_approved_action_and_rejects_different_recovery_options() {
+    let f = Fixture::new();
+    let host = f.host();
+    let approval = f.approve(&host);
+    let approval_id = approval.approval_id.clone();
+    let (send, receive) = mpsc::channel();
+    let result = host
+        .apply(approval, move |event| {
+            let _ = send.send(event);
+        })
+        .unwrap();
+    let progress = receive.recv_timeout(Duration::from_secs(3)).unwrap();
+    assert_eq!(progress.approval_id.as_deref(), Some(approval_id.as_str()));
+    let reopened = f.host();
+    let references = reopened.references().unwrap();
+    let reference = &references.operations[0];
+    assert_eq!(reference.operation_id, result.operation_id);
+    assert_eq!(reference.operation, Some(OpsOperation::RemoveRegistration));
+    assert_eq!(reference.options.as_ref().unwrap().wire_value(), json!({}));
+    assert!(matches!(
+        reopened.preflight(OpsPreflightInput {
+            operation: OpsOperation::Register,
+            options: OpsOptions {
+                start_on_login: Some(false),
+                ..Default::default()
+            },
+            resume: Some(OpsResumeReference {
+                operation_id: result.operation_id,
+                expected_attempt: 1
+            })
+        }),
+        Err(OpsBridgeError::InvalidInput)
+    ));
+}
+
+#[test]
+fn legacy_operation_references_remain_queryable_without_inventing_an_action() {
+    let f = Fixture::new();
+    let host = f.host();
+    let result = host.apply(f.approve(&host), |_| {}).unwrap();
+    let path = f.support.join("bridge-operations.json");
+    let mut document: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for field in ["operation", "options"] {
+        document["operations"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+    }
+    fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+    let reopened = f.host();
+    assert!(
+        reopened.references().unwrap().operations[0]
+            .operation
+            .is_none()
+    );
+    assert_eq!(
+        reopened
+            .operation_status(OpsStatusInput {
+                operation_id: result.operation_id
+            })
+            .unwrap()
+            .outcome,
+        OpsOutcome::Succeeded
+    );
+}
+
+#[test]
+fn local_handoff_requires_independent_positive_ownership_and_service_facts() {
+    let mut components: OpsComponents = serde_json::from_value(json!({
+        "managerOwnership":"owned", "manager":"active", "registration":"installed", "definition":"current",
+        "configuration":"valid", "liveness":"live", "resources":"present", "installationId":"personal-a",
+        "endpoint":"http://127.0.0.1:8123"
+    })).unwrap();
+    assert_eq!(
+        OpsHost::owned_endpoint(&components).unwrap(),
+        "http://127.0.0.1:8123"
+    );
+    components.manager_ownership = Some(OpsManagerOwnership::Foreign);
+    assert!(OpsHost::owned_endpoint(&components).is_err());
+    components.manager_ownership = Some(OpsManagerOwnership::Owned);
+    components.resources = Some(OpsRuntimeResources::MissingExecutable);
+    assert!(OpsHost::owned_endpoint(&components).is_err());
+    components.resources = Some(OpsRuntimeResources::Present);
+    components.installation_id = None;
+    assert!(OpsHost::owned_endpoint(&components).is_err());
+}
+
+#[test]
+fn local_qualification_is_bound_to_the_pinned_catalog_and_observed_resource_digest() {
+    let f = Fixture::new();
+    // This valid catalog omits ResourceFile.executable=false. Python's ResourceCatalog accepts it.
+    let catalog = include_bytes!("../../tests/fixtures/local-setup-catalog.json").to_vec();
+    let digest = "1a41e4f4b604815d6b6ed2a76679786a1f5795aed2549542aeeb643094f12c7e";
+    fs::create_dir_all(f.resources.join("server")).unwrap();
+    fs::write(f.resources.join("server/catalog.json"), &catalog).unwrap();
+    let provision = f.resources.join("ops-provision.json");
+    let mut value: Value = serde_json::from_slice(&fs::read(&provision).unwrap()).unwrap();
+    value["binding_mode"] = "managed_catalog".into();
+    value["catalog_sha256"] = trust::sha256(&catalog).into();
+    fs::write(provision, serde_json::to_vec(&value).unwrap()).unwrap();
+    let mut components: OpsComponents =
+        serde_json::from_value(json!({"resourceId":"resource-a", "resourceDigest":digest}))
+            .unwrap();
+    let host = f.host();
+    let mut qualifications = vec![crate::connections::session::CompatibilityProfile {
+        id: "qualified-profile-a".into(),
+        server_commit: "d".repeat(40),
+        artifact_sha256: "e".repeat(64),
+        contract_sha256: "synthetic-fixture".into(),
+        operations: vec![],
+        evidence: "Synthetic catalog identity only; not platform qualification".into(),
+    }];
+    assert_eq!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications)
+            .unwrap(),
+        ("qualified-profile-a".into(), "1.4.2".into())
+    );
+    qualifications[0].artifact_sha256 = "f".repeat(64);
+    assert!(matches!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications),
+        Err(OpsBridgeError::IntegrityFailure)
+    ));
+    qualifications[0].artifact_sha256 = "e".repeat(64);
+    qualifications[0].server_commit = "f".repeat(40);
+    assert!(matches!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications),
+        Err(OpsBridgeError::IntegrityFailure)
+    ));
+    qualifications[0].server_commit = "d".repeat(40);
+    components.resource_digest = Some("a".repeat(64));
+    assert!(matches!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications),
+        Err(OpsBridgeError::IntegrityFailure)
+    ));
+}

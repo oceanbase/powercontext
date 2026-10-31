@@ -56,6 +56,12 @@ keyring = { version = "=3.6.3", default-features = false, features = ["apple-nat
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Use the desktop Secret Service (GNOME Keyring/KWallet) as the native vault.
+# Keep this synchronous because the Vault trait is synchronous; callers must not
+# invoke it from an async runtime thread without a blocking boundary.
+keyring = { version = "=3.6.3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
+
 [dev-dependencies]
 tauri = { version = "=2.11.0", features = ["test"] }
 rcgen = "=0.14.8"

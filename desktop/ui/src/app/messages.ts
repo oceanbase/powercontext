@@ -25,27 +25,14 @@ export const messages = {
     setUpLocally: "本地设置",
     connectExisting: "连接已有 Server",
     startPathsHint:
-      "可以查看本地 Server 准备说明，或连接已经运行的本地／远程 Server。两条路径都不会自动安装或激活连接。",
+      "可以查看并批准本地 Server 安装计划，或独立连接已有本地／远程 Server。选择入口不会自动安装或激活连接。",
     localServer: "Local Server",
-    localServerIntro: "即使尚未连接 Server，也可在此查看本地准备说明。",
-    localServerUnavailable: "安装、恢复与服务管理尚未接入",
-    localServerUnavailableHint:
-      "此版本不能在 Desktop 内安装、修复、启动、停止、重启 Server 或设置登录启动。这不表示本机没有安装 Server，也不判断服务是否正在运行。",
-    prepareServer: "独立准备 Server",
-    prepareServerDocs:
-      "通过下方“使用帮助”复制并打开文档，按指引在 Desktop 外独立安装、配置和运行 PowerContext Server。",
-    prepareServerAddress:
-      "确认实际 Server 地址、认证方式及受支持的兼容配置；已有独立运行的 Server 可直接连接，无需重复安装。",
-    prepareServerConnect:
-      "准备完成后，连接已有 Server，保存配置并显式激活，再选择精确 Scope。Desktop 不会自动连接或恢复 Scope。",
-    localServerDiagnostics:
-      "下方本机诊断可手动执行，但不能代替安装、恢复或服务启停；关闭 Desktop 不会停止独立运行的 Server。",
     connectionUpdating: "正在更新连接状态…",
     connectionUpdatingHint:
       "可以浏览其他页面。连接操作完成前，记忆编辑、保存、搜索、精确读取及范围切换暂不可用；完成后请核对当前连接与精确 Scope。",
     help: "使用帮助",
     helpPrepare:
-      "请先按使用文档独立准备 PowerContext Server，或使用已运行的本地／远程 Server。Desktop 不安装或启停 Server。",
+      "发行包包含可信资源时，可在 Local Server 中查看并批准安装和服务操作计划；也可按文档独立准备 Server，或连接已有本地／远程 Server。",
     helpConnect:
       "在“连接”中保存地址及认证配置，核对受支持的兼容配置后，显式点击“使用此连接”。选择配置不会自动激活连接。",
     helpScope:
@@ -140,7 +127,7 @@ export const messages = {
       "连接服务并选择范围后，使用全文搜索查找内容。这里不会自动加载全部记忆。",
     noConnections: "尚未添加连接",
     boundary:
-      "桌面不会安装或启动 Server。关闭窗口将退出桌面，不会停止独立运行的服务。",
+      "本地安装和服务修改需要明确批准计划。关闭窗口将退出桌面，不会停止独立运行的服务。",
     details: "连接状态详情",
     unverified: "未验证",
     identity: "身份与访问",
@@ -232,29 +219,14 @@ export const messages = {
     setUpLocally: "Set up locally",
     connectExisting: "Connect an existing Server",
     startPathsHint:
-      "Read the local Server preparation guide, or connect an existing local or remote Server. Neither path installs anything or activates a connection automatically.",
+      "Review and approve a local Server installation plan, or independently connect an existing local or remote Server. Choosing an entry does not install or activate automatically.",
     localServer: "Local Server",
-    localServerIntro:
-      "Local preparation guidance remains available before connecting to a Server.",
-    localServerUnavailable:
-      "Installation, recovery and service management are not integrated",
-    localServerUnavailableHint:
-      "This version cannot install, repair, start, stop or restart a Server or configure login startup from Desktop. This does not mean a Server is absent or determine whether a service is running.",
-    prepareServer: "Prepare a Server independently",
-    prepareServerDocs:
-      "Copy and open the documentation from Usage help below, then follow the guide to install, configure and run PowerContext Server outside Desktop.",
-    prepareServerAddress:
-      "Confirm the actual Server address, authentication method and supported compatibility profile. An independently running Server can be connected without reinstalling it.",
-    prepareServerConnect:
-      "When ready, connect the existing Server, save and explicitly activate its profile, then select an exact Scope. Desktop does not automatically connect or restore a Scope.",
-    localServerDiagnostics:
-      "You can run the local diagnostics below explicitly. They do not install, recover, start or stop services. Closing Desktop leaves an independently running Server active.",
     connectionUpdating: "Updating connection state…",
     connectionUpdatingHint:
       "You can browse other pages. Memory editing, saving, searching, exact reads and Scope switching are unavailable until the connection operation finishes. Then verify the current connection and exact Scope.",
     help: "Usage help",
     helpPrepare:
-      "Prepare PowerContext Server independently using the usage guide, or use an existing local or remote Server. Desktop does not install, start or stop the Server.",
+      "With trusted distribution resources, review and approve installation or service plans in Local Server. Alternatively, prepare a Server using the guide or connect an existing local or remote Server.",
     helpConnect:
       "In Connections, save the address and authentication settings, verify a supported compatibility profile, then explicitly choose Use this connection. Selecting a profile does not activate it.",
     helpScope:
@@ -356,7 +328,7 @@ export const messages = {
       "Connect a server and select a scope to search. This page does not automatically load all memories.",
     noConnections: "No connections added",
     boundary:
-      "Desktop does not install or start a Server. Closing the window exits Desktop and leaves independent services running.",
+      "Local installation and service changes require an explicitly approved plan. Closing the window exits Desktop and leaves independent services running.",
     details: "Connection status details",
     unverified: "Not verified",
     identity: "Identity and access",

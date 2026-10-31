@@ -43,6 +43,8 @@ pub enum SafeError {
     Conflict,
     AuthenticationUnavailable,
     RuntimeNotReady,
+    IntegrityFailure,
+    ProcessFailure,
     StaleContext,
     CompatibilityUnverified,
     Storage,
