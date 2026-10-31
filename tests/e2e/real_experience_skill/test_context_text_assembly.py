@@ -491,8 +491,10 @@ async def _cleanup(database, scope_ids):
             scoped_tables = await connection.run_sync(
                 lambda conn: [
                     name
-                    for name in inspect(conn).get_table_names()
-                    if any(column["name"] == "scope_id" for column in inspect(conn).get_columns(name))
+                    # Remove referencing rows before their referenced Artifacts and Scopes.
+                    for name, _foreign_keys in reversed(inspect(conn).get_sorted_table_and_fkc_names())
+                    if name is not None
+                    and any(column["name"] == "scope_id" for column in inspect(conn).get_columns(name))
                 ]
             )
             for name in scoped_tables:
