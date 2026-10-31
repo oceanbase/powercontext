@@ -150,6 +150,8 @@ def _address(directory):
 
 
 def _control(listener, identity, state_path):
+    if sys.platform != "linux":
+        raise ManagementError("unsupported", "Source process control requires Linux")
     stopping = False
     while True:
         try:
