@@ -106,8 +106,12 @@ also asks to remember, save, or keep it for future work.
 For an explicit save request:
 
 1. Resolve the current `scope_id` using the resolver above and reuse it.
-2. Choose a supported `kind` from the current schema: `decision`, `constraint`,
-   `current-state`, `task-outcome`, `next-step`, or `agent-note`. Build concise, self-contained `text`.
+2. Choose a `kind` that preserves the user's meaning. The schema accepts an
+   application-defined string; recommended values are `fact`, `preference`,
+   `decision`, `constraint`, and `working_note`. Use `preference` for an explicit
+   preference such as "I prefer uv for Python", and `constraint` for a requirement
+   or restriction. Preserve a kind explicitly supplied by the user. Build concise,
+   self-contained `text`.
 3. Call `remember_memory` with that scope and content. Do not call
    `select_handoff_workstream` for this flow.
 4. Wait for the tool result. Report that Memory was saved only after the tool
