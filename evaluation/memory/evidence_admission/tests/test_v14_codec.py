@@ -28,6 +28,8 @@ from powercontext_eval_evidence_admission.v14.codec import (
     split_cells,
 )
 
+ALIASES = ("source:1",)
+
 
 def supplied(text):
     evidence = AtomicMemoryEvidence(
@@ -79,11 +81,19 @@ def test_backtick_spans_become_cells():
     assert [c.cell_id for c in cells] == ["c0", "c1", "c2", "c3"]
 
 
-def test_string_without_backticks_has_no_cells():
+def test_plain_ascii_without_backticks_has_no_cells():
+    text = "The synthetic service number 0 uses region-0.\n"
+    value, supports = supplied(text)
+    assert build_cells(value, supports) == ()
+
+
+def test_non_ascii_without_backticks_is_one_whole_cell():
     text = "用户要求：发布前检查中文说明、emoji 👩🏽‍💻 和组合字符 é。\r\n下一步保留原始换行。"
     value, supports = supplied(text)
     cells = build_cells(value, supports)
-    assert cells == ()
+    assert len(cells) == 1
+    assert cells[0].value == text
+    assert cells[0].cell_id == "c0"
 
 
 def test_render_copies_whole_cell_without_byte_offsets():
@@ -91,18 +101,29 @@ def test_render_copies_whole_cell_without_byte_offsets():
     value, supports = supplied(text)
     cells = build_cells(value, supports)
     output = copy_template(cells[0])
-    rendered = render(output, cells)
+    rendered = render(output, cells, ALIASES)
     assert rendered.candidates[0].text == "deployctl --region cn-2 --retries 03"
     assert rendered.candidates[0].text.encode() == "deployctl --region cn-2 --retries 03".encode()
 
 
-def test_unicode_preserved_byte_for_byte():
-    text = "code `👩🏽‍💻` and `e\u0301` and `\r\n`"
+def test_original_unicode_whole_cell_preserved_byte_for_byte():
+    text = "用户要求：检查 emoji 👩🏽‍💻 和组合字符 e\u0301。\r\n下一行"
     value, supports = supplied(text)
     cells = build_cells(value, supports)
-    assert [c.value for c in cells] == ["👩🏽‍💻", "e\u0301", "\r\n"]
-    rendered = render(copy_template(cells[0]), cells)
-    assert rendered.candidates[0].text.encode() == "👩🏽‍💻".encode()
+    assert len(cells) == 1
+    rendered = render(copy_template(cells[0]), cells, ALIASES)
+    assert rendered.candidates[0].text.encode() == text.encode()
+
+
+def test_plain_text_candidate_without_cells_is_valid():
+    value, supports = supplied("plain ASCII fact without any cell")
+    cells = build_cells(value, supports)
+    assert cells == ()
+    output = TemplateOutput.model_validate(
+        {"candidates": [{"kind": "fact", "evidence_ids": ["e0"], "parts": [{"type": "text", "text": "plain fact"}]}]}
+    )
+    rendered = render(output, cells, ALIASES)
+    assert rendered.candidates[0].text == "plain fact"
 
 
 def test_unknown_cell_id_rejected():
@@ -112,7 +133,7 @@ def test_unknown_cell_id_rejected():
         {"candidates": [{"kind": "fact", "evidence_ids": ["e0"], "parts": [{"type": "copy", "quote_id": "c999"}]}]}
     )
     with pytest.raises(EvaluationError, match="copy_without_candidate_support"):
-        render(bad, cells)
+        render(bad, cells, ALIASES)
 
 
 def test_cross_request_binding_rejected():
@@ -123,7 +144,7 @@ def test_cross_request_binding_rejected():
     assert a_cells[0].cell_id == b_cells[0].cell_id == "c0"
     assert cell_binding(a_cells) != cell_binding(b_cells)
     with pytest.raises(EvaluationError, match="cell_request_binding_mismatch"):
-        render(copy_template(a_cells[0]), b_cells, request_hash=cell_binding(a_cells))
+        render(copy_template(a_cells[0]), b_cells, ALIASES, request_hash=cell_binding(a_cells))
 
 
 def test_copy_ref_rejects_byte_offsets():
@@ -146,8 +167,11 @@ def test_copy_ref_rejects_byte_offsets():
 def test_split_cells_deterministic_and_no_substring_enumeration():
     text = "a `b c` d `e`"
     assert split_cells(text) == [("b c", 3, 6), ("e", 11, 12)]
-    # No backticks → no cells, not every substring.
+    # Plain ASCII without backticks → no cells, not every substring.
     assert split_cells("plain text") == []
+    # Non-ASCII or CRLF without backticks → one whole-string cell.
+    assert split_cells("中文说明") == [("中文说明", 0, 4)]
+    assert split_cells("line\r\nnext") == [("line\r\nnext", 0, 10)]
 
 
 def test_full_identity_bound_internally_not_in_index():

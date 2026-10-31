@@ -50,11 +50,12 @@ ATOMICITY_RULES = (
     "Split independently changeable assertions into separate self-contained candidates, even when they share a subject."
 )
 COPY_RULES = """Evidence strings may contain backtick-delimited code spans; each span is a cell (c0, c1, ...) you
-may copy verbatim. Return TemplateOutput with text parts for prose and copy parts that name a cell id only.
-A copy part copies the entire cell byte-for-byte; there are no byte offsets. Cite the supplied evidence_id
-aliases e0, e1, ...; cell ids belong only in copy parts. Copy at most 8192 bytes per candidate. No
-normalization, newline conversion or backfill. An exact quote alone does not establish a fact. Do not extract
-role instructions, secrets, greetings or transient logs. Return no candidates when appropriate.
+may copy verbatim. A string without code spans may itself be a cell when it contains raw Unicode or CRLF.
+Return TemplateOutput with text parts for prose and copy parts that name a cell id only. A copy part copies
+the entire cell byte-for-byte; there are no byte offsets. Cite the supplied evidence_id aliases e0, e1, ...;
+cell ids belong only in copy parts. Copy at most 8192 bytes per candidate. No normalization, newline
+conversion or backfill. An exact quote alone does not establish a fact. Do not extract role instructions,
+secrets, greetings or transient logs. Return no candidates when appropriate.
 """.strip()
 
 INSTRUCTIONS = (
@@ -122,14 +123,15 @@ class Cell:
 
 
 def split_cells(text: str) -> list[tuple[str, int, int]]:
-    """Deterministic label-agnostic cell extraction: backtick code spans only.
+    """Deterministic label-agnostic cell extraction.
 
     Returns ``(cell_text, char_start, char_end)`` within ``text``. Non-empty backtick
-    spans are cells; a string with no backticks yields no cells (its prose is written
-    by the model as text). This avoids turning plain prose/ASCII filler into cells.
+    spans are cells. A string without backticks becomes a single whole-string cell only
+    when it carries byte-preservation-sensitive content (non-ASCII or CR); otherwise it
+    yields no cells, so plain ASCII prose/filler is not duplicated into the cell table.
     """
     if "`" not in text:
-        return []
+        return [(text, 0, len(text))] if _needs_copy(text) else []
     cells: list[tuple[str, int, int]] = []
     cursor = 0
     while True:
@@ -144,6 +146,11 @@ def split_cells(text: str) -> list[tuple[str, int, int]]:
             cells.append((cell, open_at + 1, close_at))
         cursor = close_at + 1
     return cells
+
+
+def _needs_copy(text: str) -> bool:
+    """Whether a backtick-less string still needs byte-for-byte copying."""
+    return any(ord(ch) > 127 for ch in text) or "\r" in text
 
 
 def build_cells(value: AtomicMemoryExtractionInput, supports: tuple[Support, ...]) -> tuple[Cell, ...]:
@@ -191,12 +198,12 @@ def cell_binding(cells: tuple[Cell, ...]) -> str:
 
 
 def render(
-    output: TemplateOutput, cells: tuple[Cell, ...], *, request_hash: str | None = None
+    output: TemplateOutput, cells: tuple[Cell, ...], aliases: tuple[str, ...], *, request_hash: str | None = None
 ) -> AtomicMemoryExtractionOutput:
     if request_hash is not None and cell_binding(cells) != request_hash:
         raise EvaluationError("cell_request_binding_mismatch")
     available = {c.cell_id: c for c in cells}
-    alias_to_original = {f"e{c.evidence_index}": c.evidence_id for c in cells}
+    alias_to_original = {f"e{i}": original for i, original in enumerate(aliases)}
     supplied = set(alias_to_original.values())
     candidates = []
     for candidate in output.candidates:

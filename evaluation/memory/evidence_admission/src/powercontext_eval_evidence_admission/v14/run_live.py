@@ -121,7 +121,8 @@ async def run_once(output_dir: Path) -> dict[str, Any]:
         raw = await generator.generate(request.encoded.payload)
         template = TemplateOutput.model_validate(raw.output)
         result["provider_usage"] = raw.usage.model_dump(mode="json")
-        rendered = render(template, request.encoded.cells, request_hash=cell_binding(request.encoded.cells))
+        result["raw_template_hash"] = digest(template.model_dump(mode="json"))
+        rendered = render(template, request.encoded.cells, request.encoded.aliases, request_hash=cell_binding(request.encoded.cells))
     result["score"] = score_literals(case, rendered)
     result["rendered_candidates"] = [c.text for c in rendered.candidates]
     output_dir.mkdir(parents=True)

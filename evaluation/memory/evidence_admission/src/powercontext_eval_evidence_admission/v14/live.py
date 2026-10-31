@@ -56,6 +56,7 @@ class Extractor:
         output = render(
             TemplateOutput.model_validate(generated.output),
             request.encoded.cells,
+            request.encoded.aliases,
             request_hash=cell_binding(request.encoded.cells),
         )
         return GenerationResult(output=output, usage=generated.usage)

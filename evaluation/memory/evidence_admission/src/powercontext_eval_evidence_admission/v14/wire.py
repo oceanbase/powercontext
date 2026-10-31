@@ -34,6 +34,7 @@ class Request:
     supports: tuple[Support, ...]
     payload: dict[str, Any]
     cells: tuple[Cell, ...]
+    aliases: tuple[str, ...]
     binding_hash: str
     cost: dict[str, Any]
 
@@ -57,6 +58,7 @@ def prepare(value: AtomicMemoryExtractionInput, supports: tuple[Support, ...]) -
         raise EvaluationError("v14_duplicate_evidence_id")
     supports = tuple(s for s in supports if s.evidence_id in evidence_ids)
     cells = build_cells(value, supports)
+    aliases = tuple(e.evidence_id for e in value.evidence)
     payload: dict[str, Any] = {"fields": [], "evidence": [], "cells": [c.index() for c in cells]}
     for ei, evidence in enumerate(value.evidence):
         encoded = {
@@ -100,7 +102,7 @@ def prepare(value: AtomicMemoryExtractionInput, supports: tuple[Support, ...]) -
             "schema": TemplateOutput.model_json_schema(),
         }
     )
-    return Request(value, supports, payload, cells, binding, ledger(payload, cells))
+    return Request(value, supports, payload, cells, aliases, binding, ledger(payload, cells))
 
 
 def ledger(payload: dict[str, Any], cells: tuple[Cell, ...]) -> dict[str, Any]:
