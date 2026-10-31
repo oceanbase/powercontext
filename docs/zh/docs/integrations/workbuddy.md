@@ -263,8 +263,8 @@ export POWERCONTEXT_WORKBUDDY_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
 ## 诊断
 
 正常空结果或召回失败时，Hook 会向 stderr 写一行不含正文的 JSON 诊断。outcome 包括 `empty`、
-`authentication_failed`、`version_mismatch`、`server_unavailable` 和 `invalid_response`。HTTP 失败会带上
-`http_status`，Server 返回了错误码时还会带上 `error_code`。`version_mismatch` 表示 Server 对 Hook 依赖的路由
+`authentication_failed`、`version_mismatch`、`server_unavailable` 和 `invalid_response`。HTTP 错误的事件可能带有
+`http_status`，Server 的错误体给出错误码时还会带上 `error_code`。`version_mismatch` 表示 Server 对 Hook 依赖的路由
 返回了不带错误码的 HTTP 404，即 Server 不提供该路由；请从同一个 ref 安装 package 和插件。带
 `error_code: scope_not_found` 的 `invalid_response` 表示配置的 Scope 不存在，或者没有可解析的绑定。事件不会包含
 query、scope、prepared content、citation、response body 或 authorization value。

@@ -300,9 +300,9 @@ blocks normal WorkBuddy work.
 
 For a normal empty result or recall failure, the Hook writes one content-free
 JSON diagnostic to stderr. Outcomes include `empty`, `authentication_failed`,
-`version_mismatch`, `server_unavailable`, and `invalid_response`. An HTTP
-failure carries `http_status` and, when the Server returned one, its
-`error_code`. `version_mismatch` means the Server answered HTTP 404 without an
+`version_mismatch`, `server_unavailable`, and `invalid_response`. An event for
+an HTTP error can carry `http_status` and, when the Server's error body names
+one, `error_code`. `version_mismatch` means the Server answered HTTP 404 without an
 error code because it does not provide a route the hook requires; install the
 package and plugin from the same ref. An `invalid_response` event with
 `error_code: scope_not_found` means the configured Scope does not exist or no
