@@ -276,3 +276,4 @@ integrations/pi/plugins/powercontext/*.tgz
 
 # pnpm package store is a local cache, never committed.
 .pnpm-store/
+powercontext/gateway/
