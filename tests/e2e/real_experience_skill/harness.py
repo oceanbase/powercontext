@@ -94,6 +94,7 @@ from powercontext.http import (
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
+from tests.e2e.real_experience_skill.settings import IsolatedServerSettings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / ".powercontext-e2e"
@@ -2051,7 +2052,7 @@ def _start_server(database: Path, scheduler: Path) -> RunningServer:
     with ExitStack() as resources:
         endpoint = resources.enter_context(_task_outcome_provider())
         app = create_server_app(
-            settings=ServerSettings(
+            settings=IsolatedServerSettings(
                 database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
                 runtime=RuntimeConfig(experience_schedule_seconds=0.05, artifact_processing_families=("experience",)),
                 inference=InferenceConfig(
