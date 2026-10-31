@@ -127,8 +127,8 @@ async def run_once(output_dir: Path) -> dict[str, Any]:
         result["provider_usage"] = usage.model_dump(mode="json")
         result["raw_template_hash"] = digest(template.model_dump(mode="json"))
         result["raw_template"] = template.model_dump(mode="json")
-    result["score"] = score_literals(case, rendered)
-    result["rendered_candidates"] = [c.text for c in rendered.candidates]
+    result["score"] = score_literals(case, rendered.output)
+    result["rendered_candidates"] = [c.text for c in rendered.output.candidates]
     output_dir.mkdir(parents=True)
     (output_dir / "result.json").write_text(canonical(result).decode(), encoding="utf-8")
     return result
