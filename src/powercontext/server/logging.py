@@ -104,6 +104,7 @@ _OPERATIONAL_FIELDS = (
     "verdict",
     "final_action",
     "fallback_reason",
+    "reason",
     "candidate_count",
     "evidence_count",
     "trace_id",
@@ -207,7 +208,7 @@ class _HumanContextFilter(OperationalContextFilter):
             if field not in self._identity and field not in {"request_id", "trace_id", "span_id"}
         )
         if isinstance(event, str) and event.startswith("code."):
-            fields += _CODE_FIELDS
+            fields = tuple(dict.fromkeys((*fields, *_CODE_FIELDS)))
         record.processing_context = "".join(
             f" {field}={json.dumps(value, ensure_ascii=False)}"
             for field in fields

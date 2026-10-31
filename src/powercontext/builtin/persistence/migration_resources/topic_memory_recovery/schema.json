@@ -103,9 +103,33 @@
       ],
       [
         "table",
+        "pc_atomic_memory_evidence",
+        "pc_atomic_memory_evidence",
+        "CREATE TABLE pc_atomic_memory_evidence (\n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision BIGINT NOT NULL, \n\tsources BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id, revision), \n\tCONSTRAINT ck_pc_atomic_memory_evidence_revision CHECK (revision > 0)\n)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_evidence_history",
+        "pc_atomic_memory_evidence_history",
+        "CREATE TABLE pc_atomic_memory_evidence_history (\n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision BIGINT NOT NULL, \n\tsources BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id, revision), \n\tCONSTRAINT ck_pc_atomic_memory_evidence_history_revision CHECK (revision > 0)\n)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_evidence_schema",
+        "pc_atomic_memory_evidence_schema",
+        "CREATE TABLE pc_atomic_memory_evidence_schema (\n\tschema_version VARCHAR(32) NOT NULL, \n\tPRIMARY KEY (schema_version)\n)"
+      ],
+      [
+        "table",
         "pc_memory_artifact_archive",
         "pc_memory_artifact_archive",
         "CREATE TABLE pc_memory_artifact_archive (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tcontent BLOB NOT NULL, \n\tmemory_citations BLOB, \n\tmetadata BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision)\n)"
+      ],
+      [
+        "table",
+        "pc_source_evidence_bindings",
+        "pc_source_evidence_bindings",
+        "CREATE TABLE pc_source_evidence_bindings (\n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_type VARCHAR(128) NOT NULL, \n\tsource_id VARCHAR(256) NOT NULL, \n\tmaterial_digest VARCHAR(71) NOT NULL, \n\tdefinition_name TEXT NOT NULL, \n\tdefinition_version TEXT NOT NULL, \n\tmanifest_fingerprint VARCHAR(71), \n\tdeclaration BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, source_type, source_id)\n)"
       ],
       [
         "trigger",
@@ -129,6 +153,7 @@
     "empty_tables": [
       "pc_atomic_memory_current",
       "pc_atomic_memory_current_fts",
+      "pc_atomic_memory_evidence",
       "pc_memory_artifact_archive"
     ]
   }

@@ -129,7 +129,7 @@ def extended_bundle(tmp_path: Path) -> MigrationBundle:
     (directory / "versions/fixture_next.py").write_text(
         "from alembic import op\n"
         "revision = 'fixture_next'\n"
-        "down_revision = 'p0004'\n"
+        "down_revision = 'p0005'\n"
         f"def upgrade():\n    op.execute({_NEXT_TABLE!r})\n",
         encoding="utf-8",
     )
@@ -137,7 +137,7 @@ def extended_bundle(tmp_path: Path) -> MigrationBundle:
     (directory / "mysql_wrappers/fixture_next.py").write_text(
         "from alembic import context\n"
         "revision = 'fixture_next'\n"
-        "down_revision = 'p0004'\n"
+        "down_revision = 'p0005'\n"
         "def upgrade():\n    context.config.attributes['execute_revision'](revision)\n",
         encoding="utf-8",
     )
@@ -150,21 +150,20 @@ def test_registered_next_revision_uses_the_same_recognition_and_sqlite_executor(
     schema = MySQLSchema(extended_bundle)
     layouts = json.loads((extended_bundle.snapshot_directory / "mysql_layouts.json").read_text())
     tables = _show_tables(citations=2, drop_family_check=True)
-    for revision in ("p0004",):
+    for revision in ("p0004", "p0005"):
         for statement in layouts["revisions"][revision]:
             tables[statement.split()[2]] = statement
     source = _ReflectedDatabase(tables)
     inventory = _inventory(source)
-    assert schema.identify(inventory) == "p0004"
-    recovery = schema.recovery(inventory, "p0004")
-    assert recovery.revision == "fixture_next"
+    assert schema.identify(inventory) == "p0005"
+    recovery = schema.recovery(inventory, "p0005")
     assert recovery.pending_statements == (_NEXT_TABLE,)
     source.tables["pc_extension_marker"] = _NEXT_TABLE
     inventory = _inventory(source)
     assert schema.identify(inventory) == "fixture_next"
     schema.verify(inventory, "fixture_next")
-    assert schema.recovery(inventory, "p0004").completed_revision == "fixture_next"
-    assert extended_bundle.pending("p0003") == ("p0004", "fixture_next")
+    assert schema.recovery(inventory, "p0005").completed_revision == "fixture_next"
+    assert extended_bundle.pending("p0004") == ("p0005", "fixture_next")
     source.tables["pc_schema_revision"] = (
         "CREATE TABLE pc_schema_revision (version_num VARCHAR(32) NOT NULL, PRIMARY KEY (version_num))"
     )
@@ -213,11 +212,11 @@ def test_mysql_execution_registration_rejects_incomplete_history_before_opening_
         del manifest["mysql_wrappers"]
     elif change == "predecessor":
         wrapper = extended_bundle.directory / "mysql_wrappers/fixture_next.py"
-        wrapper.write_text(wrapper.read_text().replace("'p0004'", "'p0003'"), encoding="utf-8")
+        wrapper.write_text(wrapper.read_text().replace("'p0005'", "'p0004'"), encoding="utf-8")
     elif change == "unbound":
         manifest["revision_resources"]["fixture_next"].remove("mysql_wrappers/fixture_next.py")
     else:
-        manifest["mysql_wrappers"]["p0004"] = "mysql_wrappers/fixture_next.py"
+        manifest["mysql_wrappers"]["p0005"] = "mysql_wrappers/fixture_next.py"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     target = tmp_path / "absent-seekdb"
     evidence = tmp_path / "absent-evidence"

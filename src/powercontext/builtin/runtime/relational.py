@@ -1422,6 +1422,8 @@ class RelationalContexts:
     async def rebuild_portable_projections(self, scope_ids: tuple[str, ...], /) -> None:
         """Rebuild target-local search projections after a logical restore."""
 
+        from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_evidence
+
         for scope_id in scope_ids:
             async with self.database.transaction() as connection:
                 await self.atomic_memory_index.initialize(connection)
@@ -1467,6 +1469,9 @@ class RelationalContexts:
                 )
                 if projected != rebuilt:
                     raise RuntimeError("restored Atomic Memory projection is incomplete")  # noqa: TRY003
+                await rebuild_atomic_memory_evidence(
+                    connection, self.atomic_memory_index, sources=self.repositories.sources, scope_id=scope_id
+                )
                 topic_heads = tuple(
                     (
                         await connection.execute(

@@ -646,6 +646,9 @@ async def _atomic_memory_maintenance(
         if action in {"apply", "rebuild-projection"}:
             embedding_model, _readiness = await _embedding_models(inference, resources, None)
             if action == "rebuild-projection":
+                # This command reads deployment configuration, not host code, so
+                # evidence admission uses BUILTIN_SOURCE_REGISTRY. Hosts with native
+                # Definitions pass the runtime registry to the Python API instead.
                 report = await rebuild_atomic_memory_projection(
                     profile.database,
                     index,

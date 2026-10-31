@@ -482,6 +482,7 @@ def test_json_formatter_emits_stable_operational_fields() -> None:
         "verdict": "deny",
         "final_action": "memory_write_hold",
         "fallback_reason": "decision_model_fallback",
+        "reason": "manifest_conflict",
         "candidate_count": 1,
         "evidence_count": 2,
         "ignored": "not serialized",
@@ -508,6 +509,7 @@ def test_json_formatter_emits_stable_operational_fields() -> None:
     assert payload["verdict"] == "deny"
     assert payload["final_action"] == "memory_write_hold"
     assert payload["fallback_reason"] == "decision_model_fallback"
+    assert payload["reason"] == "manifest_conflict"
     assert (payload["candidate_count"], payload["evidence_count"]) == (1, 2)
     assert "ignored" not in payload
 

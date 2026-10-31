@@ -245,12 +245,14 @@ jobs:
 
       # Each group keeps a hard deadline. The six independent recovery scenarios
       # must not consume a single shared deadline before client-exit recovery runs.
+      # One scenario reloads the baseline, upgrades the full Server chain, recovers
+      # it, and verifies history, so the group budget covers 6 x ~110s plus collection.
       - name: Recover committed Server DDL and domain checkpoints on real OceanBase without skips
         env:
           POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
             mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
         run: |
-          timeout --signal=TERM --kill-after=10s 600s uv run --locked pytest -vv -s -rs \
+          timeout --signal=TERM --kill-after=10s 900s uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_full_server_interruption_preserves_history_and_original_maintenance \
             -o faulthandler_timeout=180 --durations=0 \
             -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-checkpoints.xml
@@ -289,8 +291,8 @@ jobs:
               Path(".powercontext/recall-effort-ci/full-server-maintenance.xml"),
           )
           cases = [case for report in reports for case in ElementTree.parse(report).iter("testcase")]
-          if len(cases) != 11 or any(case.find(tag) is not None for case in cases for tag in ("skipped", "failure", "error")):
-              raise SystemExit("All eleven native full Server recovery and maintenance scenarios must pass without skips.")
+          if len(cases) != 13 or any(case.find(tag) is not None for case in cases for tag in ("skipped", "failure", "error")):
+              raise SystemExit("All thirteen native full Server recovery and maintenance scenarios must pass without skips.")
           PY
 
       - name: Collect the database log

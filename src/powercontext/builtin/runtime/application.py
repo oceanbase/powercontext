@@ -3393,6 +3393,12 @@ class ScopedAtomicMemoryApplication:
         async with self._runtime._scope_operation(self.scope_id):
             return await self._scoped.state(artifact_id, context=context)
 
+    async def evidence(self, artifact_id: str, *, revision: int, context=None):
+        """Read one authorized revision's neutral evidence facts."""
+
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._scoped.evidence(artifact_id, revision=revision, context=context)
+
     async def _filter_current_candidates(self, candidates, *, context=None):
         async with self._runtime._scope_operation(self.scope_id):
             return await self._scoped._filter_current_candidates(candidates, context=context)

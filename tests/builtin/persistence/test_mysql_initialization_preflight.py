@@ -149,3 +149,143 @@ def test_initialization_recovery_defers_seed_checks_only_for_registered_prefix(t
                 assert completed.maintenance_window_id == "interrupted-initialization"
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("backend", ["seekdb", "oceanbase"])
+@pytest.mark.parametrize("created_tables", [1, 2, 3])
+def test_evidence_recovery_resumes_before_final_schema_marker(tmp_path, monkeypatch, backend, created_tables):
+    from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
+    from tests.builtin.persistence.test_atomic_evidence_upgrade_history import (
+        configuration as evidence_configuration,
+    )
+    from tests.builtin.persistence.test_atomic_evidence_upgrade_history import (
+        previous_upstream_bundle,
+    )
+
+    configuration = evidence_configuration(None)
+    previous = previous_upstream_bundle(tmp_path / "previous-bundle", None)
+    assert previous.head == "v1_4_1_004"
+    predecessor = "v1_5_0_001"
+    database = tmp_path / "managed.db"
+    sqlite = SQLiteMigrationRunner(database, previous, configuration=configuration)
+    sqlite.apply(plan_id=sqlite.plan().plan_id, accepted=True, maintenance_confirmed=True)
+    directory = tmp_path / "native-evidence"
+    config = (
+        SeekDBConfig(path=tmp_path / "native")
+        if backend == "seekdb"
+        else OceanBaseConfig(url=SecretStr("mysql+aoceanbase://root@localhost:2881/test?charset=utf8mb4"))
+    )
+    connections = MaintenanceConnections(
+        config, evidence_directory=directory, lock_coordination="single-host" if backend == "oceanbase" else None
+    )
+    runner = migration.MySQLMigrationRunner(
+        connections, server_bundle(), evidence_directory=directory, configuration=configuration
+    )
+    identity = BackendIdentity(backend, "fixture-evidence-recovery", "test")
+    marker = "pc_atomic_memory_evidence_schema"
+    history = "pc_atomic_memory_evidence_history"
+    bindings = "pc_source_evidence_bindings"
+    inventory = copy.deepcopy(
+        next(
+            state
+            for state in runner.schema._prefixes["v1_5_0_002"]
+            if len({marker, history, bindings} & state["tables"].keys()) == created_tables
+        )
+    )
+    control = "CREATE TABLE pc_schema_revision (version_num VARCHAR(32) NOT NULL, PRIMARY KEY (version_num))"
+    inventory["tables"]["pc_schema_revision"] = _parse_table(control)[1]
+    journal = migration._Journal(directory, identity)
+    journal.write(
+        migration._Evidence(
+            state="active",
+            database_id=identity.database_id,
+            source_revision=None,
+            source_fingerprint=runner.schema.fingerprint({"tables": {}, "views": [], "triggers": []}),
+            bundle_checksum=runner.checksum,
+            configuration_digest=runner.configuration_digest,
+            last_revision=predecessor,
+            pending_revision="v1_5_0_002",
+            maintenance_window_id="interrupted-evidence-ddl",
+            backup_policy="auto",
+            backup_state="not_required",
+            release_checksums={
+                revision: runner.checksums[revision]
+                for revision in runner.bundle.revisions[: runner.bundle.revisions.index(predecessor) + 1]
+            },
+        )
+    )
+    engine = create_engine(f"sqlite:///{database}")
+    try:
+        with engine.connect() as connection:
+            # The interrupted evidence DDL starts only after the released
+            # description and plugin migrations, including their real version advancement.
+            config = runner.bundle.config(connection)
+            config.attributes["configuration"] = configuration
+            command.upgrade(config, predecessor)
+            assert connection.exec_driver_sql("SELECT version_num FROM pc_schema_revision").scalar_one() == predecessor
+            statements = json.loads((runner.bundle.snapshot_directory / "schemas/sqlite-v1_5_0_002.json").read_text())[
+                "create"
+            ]
+            for statement in statements[:created_tables]:
+                connection.exec_driver_sql(statement)
+            connection.commit()
+            assert connection.exec_driver_sql("SELECT version_num FROM pc_schema_revision").scalar_one() == predecessor
+            monkeypatch.setattr(migration, "mysql_inventory", lambda _connection: copy.deepcopy(inventory))
+            monkeypatch.setattr(mysql_schema, "mysql_inventory", lambda _connection: copy.deepcopy(inventory))
+            monkeypatch.setattr(
+                connections, "run", lambda operation, **_options: operation(connection, identity, lambda: None)
+            )
+            monkeypatch.setattr(connections, "coordination", lambda _identity: {})
+            before = database.read_bytes(), journal.path.read_bytes()
+            plan = runner.plan()
+            assert plan.state == "recovery_required" and plan.source_revision == predecessor
+            assert plan.revisions == ("v1_5_0_002", "v1_5_0_003")
+            assert (database.read_bytes(), journal.path.read_bytes()) == before
+            assert connection.exec_driver_sql("SELECT schema_version FROM pc_atomic_memory_evidence_schema").all() == []
+
+            def execute_revision(connection, _config, _source, target, guard):
+                # Model the remaining native DDL, retaining the real domain work,
+                # version advancement, and original durable recovery evidence.
+                config = runner.bundle.config(connection)
+                config.attributes["configuration"] = runner.configuration
+                if target == "v1_5_0_002":
+                    for statement in statements[created_tables:]:
+                        connection.exec_driver_sql(statement)
+                    command.stamp(config, target)
+                else:
+                    command.upgrade(config, target)
+                runner.bundle.domains.apply(
+                    connection, target, backend=backend, configuration=runner.configuration, guard=guard
+                )
+                inventory.clear()
+                inventory.update(copy.deepcopy(runner.schema._schemas[target]))
+                inventory["tables"]["pc_schema_revision"] = _parse_table(control)[1]
+                connection.commit()
+
+            monkeypatch.setattr(runner, "_upgrade", execute_revision)
+            result = runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
+            assert result.state == "ready" and result.revision == "v1_5_0_003"
+            assert result.backup_state == "not_required"
+            assert runner.verify().state == "ready"
+            assert connection.exec_driver_sql("SELECT schema_version FROM pc_atomic_memory_evidence_schema").all() == [
+                ("p0005",)
+            ]
+            completed = journal.read()
+            assert completed is not None and completed.state == "complete"
+            assert completed.maintenance_window_id == "interrupted-evidence-ddl"
+            assert completed.source_revision is None and completed.backup_state == "not_required"
+            assert completed.last_revision == "v1_5_0_003" and completed.pending_revision is None
+            assert completed.release_checksums == runner.checksums
+            assert not runner.apply(plan_id=runner.plan().plan_id, accepted=True, maintenance_confirmed=True).changed
+
+            # An empty marker is resumable only while the original evidence
+            # records pending DDL, never a repair authorization at completed head.
+            connection.exec_driver_sql("DELETE FROM pc_atomic_memory_evidence_schema")
+            connection.commit()
+            before = database.read_bytes(), journal.path.read_bytes()
+            for inspect in (runner.plan, runner.verify, runner.apply):
+                with pytest.raises(MigrationError, match="domain_validation_failed"):
+                    inspect()
+                assert (database.read_bytes(), journal.path.read_bytes()) == before
+    finally:
+        engine.dispose()

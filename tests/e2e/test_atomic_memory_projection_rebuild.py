@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,9 @@ from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAt
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_projection
+from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION
+from powercontext.sources import SourceDefinitionRegistry
+from powercontext.sources.evidence import MemoryEvidenceDeclaration
 from tests.e2e.atomic_memory_migration_fixture import SCOPE, _atomic, _seed_and_migrate
 from tests.legacy_memory import add_legacy_citation_columns
 
@@ -36,6 +40,12 @@ from tests.legacy_memory import add_legacy_citation_columns
 @pytest.mark.parametrize("retention", ["complete", "archive_only", "entries_only", "removed", "unreadable"])
 def test_rebuild_uses_current_authority_independently_of_legacy_retention(tmp_path: Path, retention: str) -> None:
     config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'projection.db'}")
+    strong_registry = SourceDefinitionRegistry((
+        replace(
+            CONTENT_SOURCE_DEFINITION,
+            memory_evidence=MemoryEvidenceDeclaration(authority="system_attested", verification="verified"),
+        ),
+    ))
 
     async def scenario() -> None:
         await _seed_and_migrate(config)
@@ -43,6 +53,8 @@ def test_rebuild_uses_current_authority_independently_of_legacy_retention(tmp_pa
             memory = contexts.atomic_memory.for_scope(SCOPE)
             current = await memory.get(_atomic("alpha", 2).artifact_id)
             historical = await memory.get(_atomic("alpha", 1).artifact_id, revision=1)
+            annotation = await memory.evidence(historical.ref.artifact_id, revision=1)
+            assert all(source.declaration == MemoryEvidenceDeclaration() for source in annotation.sources)
         async with SQLiteProfile.open(config, tables=()) as profile:
             async with profile.database.transaction() as connection:
                 if retention in {"entries_only", "removed"}:
@@ -63,10 +75,13 @@ def test_rebuild_uses_current_authority_independently_of_legacy_retention(tmp_pa
             )
             assert report.ready, report.errors
             assert report.counts["rebuilt_rows"] == 2
-        async with open_builtin_contexts(BuiltinConfig(database=config)) as contexts:
+            assert report.counts["historical_revisions"] == 3
+            assert report.counts["neutral_sources"] == 4
+        async with open_builtin_contexts(BuiltinConfig(database=config), source_registry=strong_registry) as contexts:
             memory = contexts.atomic_memory.for_scope(SCOPE)
             assert await memory.get(current.ref.artifact_id) == current
             assert await memory.get(historical.ref.artifact_id, revision=1) == historical
+            assert await memory.evidence(historical.ref.artifact_id, revision=1) == annotation
             result = await memory.search("Tasks A and C", mode="text")
             assert current.ref in tuple(hit.hit.artifact_ref for hit in result.hits)
 

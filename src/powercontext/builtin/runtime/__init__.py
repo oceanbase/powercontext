@@ -42,6 +42,7 @@ from powercontext.builtin.dream.models import (
     GetDreamRunRequest,
     ListDreamRunsRequest,
 )
+from powercontext.builtin.persistence.atomic_memory_evidence import AtomicMemoryEvidenceAnnotation
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
     GenerationCapabilityUnavailableError,
@@ -253,6 +254,7 @@ __all__ = [
     "ArtifactProcessingWorkerCompletion",
     "ArtifactProcessingWorkerFailure",
     "ArtifactProcessingWorkerOutcome",
+    "AtomicMemoryEvidenceAnnotation",
     "AtomicMemoryPage",
     "AtomicMemoryRuntimeApplication",
     "AtomicMemorySearchHit",

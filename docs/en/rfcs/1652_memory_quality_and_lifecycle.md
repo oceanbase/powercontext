@@ -222,6 +222,24 @@ candidate pool or delivered Context Pack occupied by a lower-authority class, bu
 legitimate answer-bearing evidence. This is an opt-in experiment, not a stage-1 default or a substitute for the Source
 declaration contract.
 
+## Current implementation amendment: source evidence declaration
+
+The Source evidence prerequisite is implemented as specified above. This section supersedes the "provisionally named"
+wording and the statement that `SourceDefinition` carries no authority or verification declaration.
+
+- `SourceDefinition` and `AdapterSourceDefinition` expose an optional `memory_evidence` declaration with `authority`,
+  `verification`, and `declaration_version="1"`.
+- Trusted adapter code, or deployment configuration keyed by an exact `(name, version, fingerprint)` Definition
+  manifest, supplies the declaration. Source text, `SourceRef`, model output, and retrieval rank cannot.
+- Each Atomic Memory revision retains the accepted declaration with its exact Source materialization and manifest
+  fingerprint. A separate index-owned projection holds the same facts for that revision and can be discarded and
+  rebuilt from retained evidence without consulting the current registry.
+- Missing, invalid, or unverifiable declarations remain `untrusted`/`unknown` for reads and rebuilds. There is no
+  trust backfill, and existing write authority, generation eligibility, body text, content hashes, citations, and
+  search contracts are unchanged.
+- Stage-1 quality ranking, lifecycle actions, and receipt-linked usage feedback remain unimplemented. This slice is
+  their prerequisite, not a substitute for them.
+
 ## Independent quality dimensions
 
 The policy keeps these dimensions separate:

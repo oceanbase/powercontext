@@ -62,6 +62,14 @@ Code 专用诊断字段仅在 `code.*` events 中输出。
 | `duration_ms`、`error_code`、`error_category` | 毫秒耗时、诊断 code 和有限取值的 operational error category |
 | `stage`、`processing_stage`、`failure_reason`、`input_item_count`、`estimated_input_tokens`、`token_estimator_id`、`effective_budget`、`provider_request_id`、`finish_reason`、`failure_location`、`cause_exception_type` | 处理失败 stage/reason 与安全计数字段；`stage` 表示发出失败的位置或领域位置（Worker/supervisor stage、领域 block 名称或 `worker` 兜底），`processing_stage` 表示有界的领域阶段。详见 [处理失败诊断](../../development/processing-failures.md) |
 
+`reason` 是保留证据降级的有限原因。`atomic_memory.evidence.neutral` 事件表示已接受的证据无法被佐证，
+因此解析为 `untrusted` / `unknown`；该事件不携带材料、声明正文或请求内容。其 `unit` 为保留事实的类型
+（`source`、`declaration`、`manifest` 或 `revision`），`outcome` 为 `neutral`，`reason` 取
+`schema_mismatch`、`digest_mismatch`、`no_manifest`、`decode_failed`、`legacy_unverifiable`、
+`invalid_declaration`、`manifest_conflict`、`definition_missing` 或 `evidence_mismatch` 之一。
+已登记的完整性原因以 `WARNING` 输出；可预期的历史缺口保持 `INFO` 或 `DEBUG`。`manifest_conflict` 这类完整性原因
+可告警，并与“从未声明”区分开。
+
 Server role 为 `all`（API 与 supervisor）、`api` 或 `background`，child process 使用 `worker`。
 显式配置 logging 但没有指定 deployment role 时使用 `server`。JSON identity 字段对应 trace resource attributes：
 `service.name`、`service.version`、`service.instance.id` 和 `powercontext.service.role`。

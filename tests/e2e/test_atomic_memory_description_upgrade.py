@@ -85,9 +85,9 @@ def test_nonempty_released_memory_upgrades_without_rewriting_history(tmp_path, r
             )
 
     result = _apply(runner)
-    assert result.state == "ready" and result.readiness_scope == "server" and result.revision == "v1_5_0_001"
+    assert result.state == "ready" and result.readiness_scope == "server" and result.revision == "v1_5_0_003"
     verified = runner.verify()
-    assert verified.state == "ready" and verified.readiness_scope == "server"
+    assert verified.state == "ready" and verified.readiness_scope == "server" and verified.revision == "v1_5_0_003"
     assert not _apply(runner).changed
     with closing(sqlite3.connect(runner.database)) as connection:
         assert (

@@ -50,12 +50,16 @@ from powercontext.builtin.artifacts.memory import (
 )
 from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
+from powercontext.builtin.persistence.atomic_memory_evidence import AtomicMemoryEvidenceRepository
 from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryIndexCapabilities,
     AtomicMemorySearchChannels,
     AtomicMemorySearchRequest,
 )
-from powercontext.builtin.persistence.atomic_memory_index_schema import atomic_memory_current_table
+from powercontext.builtin.persistence.atomic_memory_index_schema import (
+    ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE,
+    atomic_memory_current_table,
+)
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, open_builtin_runtime
 from powercontext.builtin.runtime.artifact_processing import (
@@ -236,13 +240,25 @@ class _VectorMemoryIndex:
 
     capabilities = AtomicMemoryIndexCapabilities(fts=False, vector=True, embedding_profile=_VECTOR_PROFILE)
     table = atomic_memory_current_table()
-    tables = ()
+    tables = (ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE,)
 
     def __init__(self, profile=None):
-        pass
+        self._evidence = AtomicMemoryEvidenceRepository()
 
     async def initialize(self, connection: AsyncConnection, /):
         pass
+
+    async def save_evidence(self, connection, scope_id, artifact_ref, sources, /):
+        return await self._evidence.save(connection, scope_id, artifact_ref, sources)
+
+    async def read_evidence(self, connection, scope_id, artifact_ref, /):
+        return await self._evidence.read(connection, scope_id, artifact_ref)
+
+    async def project_evidence(self, connection, annotation, /):
+        await self._evidence.replace_projection(connection, annotation)
+
+    async def read_evidence_projection(self, connection, scope_id, artifact_ref, /):
+        return await self._evidence.read_projection(connection, scope_id, artifact_ref)
 
     async def validate_current(self, connection: AsyncConnection, /):
         pass

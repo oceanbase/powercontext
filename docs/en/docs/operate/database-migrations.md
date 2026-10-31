@@ -14,10 +14,10 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 
 `powercontext server db-migrate status/plan/apply/verify` default to `--bundle server` and use the configured persistent SQLite, embedded seekDB, or OceanBase MySQL database. Explicit environment files are authoritative; arbitrary bundle paths are not accepted.
 
-The full Server framework registers two installed-release sources for the PowerContext 1.4.1 target (stored compatibility IDs shown below):
+The full Server framework registers two installed-release sources for the current target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
@@ -52,6 +52,25 @@ maintenance for existing managed storage. Runtime startup does not add the recei
 Revision `v1_4_1_004` registers `pc_access_owner_recovery` for durable Artifact and Candidate ownership intents. Both installed-release source paths and vector profiles include this table. Existing managed databases require explicit maintenance; fresh databases create the registered empty table. Pending intents retain their original deployment, principal and idempotency identity across Server restarts. Earlier revision resources and checksums remain unchanged. Unregistered database layouts are rejected rather than adopted from a table name alone. This registration does not establish installed-release or external-Provider upgrade acceptance.
 
 Revision `v1_4_1_005` adds nullable `pc_atomic_memory_current.description` metadata for text and vector profiles. Existing managed databases require explicit migration; startup does not alter this column. The additive revision leaves historical Artifact bytes unchanged and existing descriptions null until a new write or explicit projection rebuild copies authoritative metadata.
+
+Revision `v1_5_0_001` registers durable Artifact plugin storage on the shared Server chain. It adds plugin registration
+columns to `pc_artifact_processing_binding_states`, family declarations, search state and text projections, index
+coverage and changes, and vector-space and vector-index registrations. SQLite also registers portable vectors and the
+FTS auxiliary structures. Native registration columns are added in one `ALTER` with a matching recovery checkpoint;
+their final definitions and constraints are unchanged. Native vector tables are created online from registered spaces
+and are admitted to later maintenance inventories only after exact layout validation. Historical migration resources,
+retained objects and existing data are preserved; persistence validates persisted plugin bindings, including unloaded
+registrations, and does not transform business data or projections. This review does not expand the supported upgrade
+matrix or certify installed-release acceptance.
+
+Revision `v1_5_0_002` adds the Source evidence bindings, exact Atomic Memory evidence snapshots, and evidence schema marker. Its own domain step validates retained Source material and historical evidence for both lexical and vector profiles. Earlier projection validators and their recorded revision checksums remain unchanged; evidence validation is required only from this revision onward. Existing Sources and Memory revisions without accepted declarations stay neutral (`untrusted` / `unknown`); upgrading never backfills trust. Current projection repair and rebuild also require evidence validation.
+
+Revision `v1_5_0_003` registers `pc_atomic_memory_evidence`, the disposable exact-revision evidence projection. It is
+derived from retained history, can be discarded and rebuilt, and never becomes the authority for a trust decision.
+
+The runtime bundle stamps `pc_atomic_memory_evidence_schema.schema_version` with `p0005`, its own revision for the same
+tables; the Server chain registers that shape as `v1_5_0_002`. Operator messages name both so a runtime deployment and a
+managed Server deployment can each apply the revision they own.
 
 An interrupted [portable restore](portable-archive.md) keeps normal startup and workers blocked until its projections
 are complete. Retry `powercontext archive restore <bundle> --yes` with the same validated bundle. Only this explicit
@@ -99,15 +118,18 @@ Sequence `000` identifies a registered historical baseline; upgrade steps start 
 | `v1_4_1_001` | 1.4.1 | 1 | `s1400` | Complete Server storage transition |
 | `v1_4_1_002` | 1.4.1 | 2 | `s1401` | Offline Memory history archive |
 | `v1_4_1_003` | 1.4.1 | 3 | `s1402` | Portable restore receipts and timestamp adaptation |
-| `v1_4_1_004` | 1.4.1 | 4 | `v1_4_1_004` | Durable owner recovery intents |
+| `v1_4_1_004` | 1.4.1 | 4 | `v1_4_1_004` | Durable external-owner recovery intents |
 | `v1_4_1_005` | 1.4.1 | 5 | `v1_4_1_005` | Nullable Atomic Memory description projection |
 | `v1_4_1_006` | 1.4.1 | 6 | `v1_4_1_006` | Source write plugin registrations |
+| `v1_5_0_001` | 1.5.0 | 1 | `v1_5_0_001` | Artifact plugin storage and search projections |
+| `v1_5_0_002` | 1.5.0 | 2 | `v1_5_0_002` | Retained Source evidence and historical validation |
+| `v1_5_0_003` | 1.5.0 | 3 | `v1_5_0_003` | Disposable exact-revision evidence projection |
 
-Both registered source paths reach `v1_4_1_006`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `v1_5_0_003`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`
@@ -129,7 +151,7 @@ existing plans and original backups usable. Partial prototype bundles keep their
 
 For a new Server migration, use the release-based name directly as its Alembic `revision` and
 register its schema, domain steps and recovery checkpoints as usual. `down_revision` must reference
-the actual preceding ID (`v1_4_1_006` when appending directly to the current head), even if that ID has
+the actual preceding ID (`v1_5_0_003` when appending directly to the current head), even if that ID has
 a display alias. The framework follows this registered chain, not lexical name ordering. Already
 registered names and release assignments stay immutable; a version bump must not rename history.
 
@@ -223,6 +245,11 @@ Inspection and repair scan the relevant Atomic history, heads, tags, lineage and
 bound row buffering; this is an offline whole-projection operation. It does not register vector-profile changes or
 embedded seekDB Code configurations. The compatibility command `server atomic-memory-rebuild-projection` delegates managed
 databases to this bundle and supports `--action plan/apply/verify` with the same confirmation and backup options.
+
+Both maintenance entry points run from the migration bundle and therefore admit evidence against the builtin Source
+registry; they do not receive a host's code-supplied `SourceDefinitionRegistry`. The runtime evidence read path
+(`AtomicMemory.evidence`) uses the configured registry, so a deployment with custom native Definitions should rebuild
+through the Python API with `sources=<configured repository>` when it needs an identical verdict.
 
 ## Topic Memory recovery bundle
 
@@ -629,6 +656,10 @@ Parameter-free DDL uses statement-scoped driver execution options so CHECK remai
 SQL literals reach the backend unchanged.
 
 Repositories run after schema checks. Both full Server source chains register exact per-statement schema transitions and recovery prefixes through `mysql_state_layouts`. Domain steps attach to the shared revision and use its connection, lock, and recovery point; verification precedes version advancement. Read-only live checks are separate from migration-copy validation. Vector configurations still require separate registration.
+
+During `v1_5_0_002`, an interrupted MySQL-compatible upgrade can resume a registered CREATE-table prefix before the
+final `p0005` evidence marker is inserted. Full evidence validation starts once that marker exists; a completed
+database with missing or incompatible evidence storage still fails admission.
 
 Online readiness reads Atomic Memory authority and projections from the same snapshot without locking business head rows. Offline projection repair retains its locked state comparison and write-side concurrency protection.
 

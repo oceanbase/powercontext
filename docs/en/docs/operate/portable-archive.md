@@ -131,6 +131,7 @@ Format version 1 carries the portable relational representation of these support
 | --- | --- |
 | Scope identity, hierarchy, context/external references, and creation identity | Scope access bindings and host-local default selection |
 | Source journal heads, Source records, and referenced remote Source Definition manifests | Search projections and indexes |
+| Accepted Memory evidence: per-Source declaration bindings, the Definition manifests they reference, and exact-revision evidence snapshots | Today's registry declarations, which never replace a saved snapshot |
 | Artifact Revisions, their timestamps/actors/rollback metadata, stable handles, lineage, cross-Scope publication provenance, and heads | Source cursors and scheduler state |
 | Atomic Memory merge relationships and marked merge-input lineage | External Skill registrations and host-local installation state |
 | Candidate versions, decision heads, and their evidence references | Audit events, usage facts, evaluation receipts, and restore receipts |

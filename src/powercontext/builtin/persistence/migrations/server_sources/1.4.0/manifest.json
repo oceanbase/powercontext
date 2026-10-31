@@ -28,13 +28,21 @@
       "schemas/sqlite-v1_4_1_005.json",
       "schemas/mysql-v1_4_1_005.json"
     ],
+    "v1_4_1_006": [
+      "schemas/sqlite-v1_4_1_006.json",
+      "schemas/mysql-v1_4_1_006.json"
+    ],
     "v1_5_0_001": [
       "schemas/sqlite-v1_5_0_001.json",
       "schemas/mysql-v1_5_0_001.json"
     ],
-    "v1_4_1_006": [
-      "schemas/sqlite-v1_4_1_006.json",
-      "schemas/mysql-v1_4_1_006.json"
+    "v1_5_0_002": [
+      "schemas/sqlite-v1_5_0_002.json",
+      "schemas/mysql-v1_5_0_002.json"
+    ],
+    "v1_5_0_003": [
+      "schemas/sqlite-v1_5_0_003.json",
+      "schemas/mysql-v1_5_0_003.json"
     ]
   },
   "sqlite_baselines": {
@@ -59,11 +67,17 @@
     "v1_4_1_005": [
       "2e24be9f699c202cb9d7985690b2be947bdc98f8f64c1c4e4b8e16e35a580fc4"
     ],
+    "v1_4_1_006": [
+      "cacce80bdfb14aff889b7babebc9ab8487b7f0a11d2dbbd3d77a3717a23df74c"
+    ],
     "v1_5_0_001": [
       "8f2d4a32f3558612b1bd390c262b8b3e355b172e34cc99692f38c11876226ebd"
     ],
-    "v1_4_1_006": [
-      "cacce80bdfb14aff889b7babebc9ab8487b7f0a11d2dbbd3d77a3717a23df74c"
+    "v1_5_0_002": [
+      "2aafcccabd74f8a8ddfe9f961b5ec3f01055110e7e961dfc27d4ec752e50806a"
+    ],
+    "v1_5_0_003": [
+      "357287e3bae474ca1810dd0949fe56326dff48f5adf0db851b4b4cf3cf01a308"
     ]
   },
   "affected_objects": [
@@ -121,6 +135,9 @@
     "pc_atomic_memory_current_fts_data",
     "pc_atomic_memory_current_fts_docsize",
     "pc_atomic_memory_current_fts_idx",
+    "pc_atomic_memory_evidence",
+    "pc_atomic_memory_evidence_history",
+    "pc_atomic_memory_evidence_schema",
     "pc_candidate_heads",
     "pc_candidate_versions",
     "pc_connector_checkpoints",
@@ -154,7 +171,9 @@
     "pc_skill_publications",
     "pc_source_cursors",
     "pc_source_definition_manifests",
+    "pc_source_evidence_bindings",
     "pc_source_journal_heads",
+    "pc_source_write_plugins",
     "pc_sources",
     "pc_topic_memory_active_chunks",
     "pc_topic_memory_active_topics",
@@ -175,8 +194,7 @@
     "pc_topic_memory_topic_fts_docsize",
     "pc_topic_memory_topic_fts_idx",
     "pc_topic_memory_work_blocks",
-    "pc_topic_memory_work_budgets",
-    "pc_source_write_plugins"
+    "pc_topic_memory_work_budgets"
   ],
   "readiness_scope": "server",
   "retained_objects": [
@@ -243,6 +261,34 @@
         "seekdb",
         "oceanbase"
       ]
+    },
+    {
+      "id": "atomic_memory_evidence",
+      "revision": "v1_5_0_002",
+      "kind": "projection",
+      "module": "atomic_memory_evidence.py",
+      "depends_on": [
+        "portable_storage"
+      ],
+      "backends": [
+        "sqlite",
+        "seekdb",
+        "oceanbase"
+      ]
+    },
+    {
+      "id": "atomic_memory_evidence_projection",
+      "revision": "v1_5_0_003",
+      "kind": "projection",
+      "module": "atomic_memory_evidence_projection.py",
+      "depends_on": [
+        "atomic_memory_evidence"
+      ],
+      "backends": [
+        "sqlite",
+        "seekdb",
+        "oceanbase"
+      ]
     }
   ],
   "domain_readiness": {
@@ -264,13 +310,23 @@
       "server_upgrade",
       "portable_storage"
     ],
+    "v1_4_1_006": [
+      "server_upgrade",
+      "portable_storage"
+    ],
     "v1_5_0_001": [
       "artifact_storage",
       "portable_storage"
     ],
-    "v1_4_1_006": [
-      "server_upgrade",
-      "portable_storage"
+    "v1_5_0_002": [
+      "artifact_storage",
+      "portable_storage",
+      "atomic_memory_evidence"
+    ],
+    "v1_5_0_003": [
+      "artifact_storage",
+      "portable_storage",
+      "atomic_memory_evidence_projection"
     ]
   },
   "retained_fingerprints": {
@@ -288,8 +344,10 @@
     "schemas/mysql-s1402.json",
     "schemas/mysql-v1_4_1_004.json",
     "schemas/mysql-v1_4_1_005.json",
+    "schemas/mysql-v1_4_1_006.json",
     "schemas/mysql-v1_5_0_001.json",
-    "schemas/mysql-v1_4_1_006.json"
+    "schemas/mysql-v1_5_0_002.json",
+    "schemas/mysql-v1_5_0_003.json"
   ],
   "mysql_history": "mysql",
   "mysql_schema_extensions": {

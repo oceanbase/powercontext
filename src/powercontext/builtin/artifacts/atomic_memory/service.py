@@ -98,6 +98,9 @@ class AtomicMemoryProjections(Protocol):
         records: Sequence[tuple[AtomicMemoryRecord, PreparedAtomicMemoryProjection]],
     ) -> None: ...
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None: ...
+    async def capture_evidence(
+        self, connection: AsyncConnection, scope_id: str, record: AtomicMemoryRecord
+    ) -> None: ...
 
 
 ATOMIC_MERGE_ERRORS = ArtifactMergeErrors(
@@ -316,7 +319,25 @@ class _AtomicPreviewAdapter:
 
 
 class _AtomicMemoryMergeService(ArtifactMergeService):
-    """Apply the same summary invariant to generic and Atomic-specific merge entry points."""
+    """Persist descriptions and capture evidence atomically across all merge entry points."""
+
+    @override
+    async def _commit_locked(
+        self,
+        connection: AsyncConnection,
+        prepared: Sequence[tuple[PreparedArtifactMerge, SourceRef | None]],
+        current: dict[str, ArtifactMergeRecord],
+        context: Any,
+        source_read_set: _SourceReadSet | None,
+    ) -> tuple[ArtifactMergeMutationResult, ...]:
+        results = await super()._commit_locked(connection, prepared, current, context, source_read_set)
+        projections = cast(AtomicMemoryMergeAdapter, self.adapter).projections
+        for (item, _), result in zip(prepared, results, strict=True):
+            revisions = {write.artifact_id for write in item.plan.writes if write.draft is not None}
+            for record in result.records:
+                if record.ref.artifact_id in revisions:
+                    await projections.capture_evidence(connection, item.plan.scope_id, _atomic_record(record))
+        return results
 
     @override
     async def prepare_change(self, plan: ArtifactMergePlan) -> PreparedArtifactMerge:

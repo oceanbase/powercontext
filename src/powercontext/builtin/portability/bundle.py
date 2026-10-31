@@ -76,6 +76,10 @@ from powercontext.builtin.artifacts.experience.recurrence import (
     verdict_key,
 )
 from powercontext.builtin.artifacts.skill.package import SkillPackageError, capture_skill_archive
+from powercontext.builtin.persistence.atomic_memory_evidence_schema import (
+    ATOMIC_MEMORY_EVIDENCE_HISTORY_TABLE,
+    SOURCE_EVIDENCE_BINDINGS_TABLE,
+)
 from powercontext.builtin.persistence.candidates import decode_candidate_proposal_envelope
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import (
@@ -118,6 +122,7 @@ from powercontext.builtin.sources.observation_validation import (
 from powercontext.builtin.tags import normalize_tags
 from powercontext.errors import SourceError
 from powercontext.sources import SourceDefinitionManifest, SourceObservation
+from powercontext.sources.evidence import MemoryEvidenceDeclaration, SourceEvidence
 
 FORMAT_VERSION = 1
 _RECORDS_NAME = "records.ndjson"
@@ -169,6 +174,7 @@ RecordType = Literal[
     "source_definition",
     "source_journal_head",
     "source",
+    "source_evidence_binding",
     "skill_package",
     "artifact_revision",
     "artifact_handle",
@@ -178,6 +184,7 @@ RecordType = Literal[
     "artifact_head",
     "memory_entry_version",
     "memory_entry_head",
+    "atomic_memory_evidence_history",
     "candidate_version",
     "candidate_head",
     "topic_memory_publication",
@@ -312,6 +319,11 @@ _SPECS: dict[RecordType, _RecordSpec] = {
         ("scope_id", "source_type", "source_id"),
         ("payload", "journal_position"),
     ),
+    "source_evidence_binding": _RecordSpec(
+        SOURCE_EVIDENCE_BINDINGS_TABLE,
+        ("scope_id", "source_type", "source_id"),
+        ("material_digest", "definition_name", "definition_version", "manifest_fingerprint", "declaration"),
+    ),
     "skill_package": _RecordSpec(
         SKILL_PACKAGES_TABLE,
         ("scope_id", "tree_digest"),
@@ -385,6 +397,11 @@ _SPECS: dict[RecordType, _RecordSpec] = {
         MEMORY_ENTRY_HEADS_TABLE,
         ("scope_id", "memory_artifact_id", "entry_id"),
         ("family", "head_revision", "entry_version_id", "entry_content_hash"),
+    ),
+    "atomic_memory_evidence_history": _RecordSpec(
+        ATOMIC_MEMORY_EVIDENCE_HISTORY_TABLE,
+        ("scope_id", "artifact_id", "revision"),
+        ("sources",),
     ),
     "candidate_version": _RecordSpec(
         CANDIDATE_VERSIONS_TABLE,
@@ -1020,14 +1037,9 @@ async def _export_rows(
         return
 
     # Definition manifests are global, but export authority is scope-bound.
-    # Include only immutable declarations referenced by selected observations.
-    definitions: set[tuple[str, str]] = set()
-    async for row in _export_rows(connection, "source", scopes):
-        observation = _source_observation(_record_from_row("source", row))
-        if observation is not None:
-            definitions.add((observation.source_type, observation.definition_version))
+    # Include immutable manifests referenced by observations or retained bindings.
     table = SOURCE_DEFINITION_MANIFESTS_TABLE
-    for name, definition_version in sorted(definitions):
+    for name, definition_version in sorted(await _referenced_definitions(connection, scopes)):
         row = (
             (
                 await connection.execute(
@@ -1040,8 +1052,29 @@ async def _export_rows(
             .one_or_none()
         )
         if row is None:
-            raise BundleFormatError("observation references missing Source definition")
+            raise BundleFormatError("evidence or observation references missing Source definition")
         yield cast(Mapping[str, Any], row)
+
+
+async def _referenced_definitions(connection: AsyncConnection, scopes: tuple[str, ...]) -> set[tuple[str, str]]:
+    """Collect Definition identities whose immutable manifest must travel with the scope."""
+
+    definitions: set[tuple[str, str]] = set()
+    async for row in _export_rows(connection, "source", scopes):
+        observation = _source_observation(_record_from_row("source", row))
+        if observation is not None:
+            definitions.add((observation.source_type, observation.definition_version))
+    async for binding in _export_rows(connection, "source_evidence_binding", scopes):
+        if binding["manifest_fingerprint"] is not None:
+            definitions.add((str(binding["definition_name"]), str(binding["definition_version"])))
+    async for row in _export_rows(connection, "atomic_memory_evidence_history", scopes):
+        record = _record_from_row("atomic_memory_evidence_history", row)
+        definitions.update(
+            (source.definition_name, source.definition_version)
+            for source in _evidence_history_value(record)
+            if source.manifest_fingerprint is not None
+        )
+    return definitions
 
 
 def _source_observation(record: _Record) -> SourceObservation | None:
@@ -1488,6 +1521,30 @@ def _validate_record_values(record: _Record, /) -> None:  # noqa: C901 - one ver
         strings("fingerprint")
         bytes_values("manifest")
         _source_definition(record)
+    elif kind == "source_evidence_binding":
+        strings("material_digest", "definition_name", "definition_version")
+        strings("manifest_fingerprint", nullable=("manifest_fingerprint",))
+        bytes_values("declaration")
+        try:
+            MemoryEvidenceDeclaration.model_validate_json(cast(bytes, _database_value(payload["declaration"])))
+        except (ValidationError, ValueError, TypeError) as error:
+            raise BundleFormatError("Source evidence binding has an invalid declaration") from error
+        if (
+            payload["definition_name"] != identity["source_type"]
+            or not _valid_digest(payload["material_digest"])
+            or (payload["manifest_fingerprint"] is not None and not _valid_digest(payload["manifest_fingerprint"]))
+        ):
+            raise BundleFormatError("Source evidence binding identity or digest is invalid")
+    elif kind == "atomic_memory_evidence_history":
+        bytes_values("sources")
+        sources = _evidence_history_value(record)
+        if any(
+            not _valid_digest(source.material_digest)
+            or source.definition_name != source.source_ref.source_type
+            or (source.manifest_fingerprint is not None and not _valid_digest(source.manifest_fingerprint))
+            for source in sources
+        ):
+            raise BundleFormatError("Atomic Memory evidence has invalid bindings")
     elif kind == "source":
         bytes_values("payload")
         integers("journal_position", positive=True)
@@ -1697,6 +1754,19 @@ def _recurrence_value(record: _Record, /) -> RecurrenceMatch | RecurrenceObserva
     if any(type(actual[key]) is not type(field) or actual[key] != field for key, field in expected.items()):
         raise BundleFormatError("recurrence payload does not match its indexed fields")
     return value
+
+
+def _evidence_history_value(record: _Record, /) -> tuple[SourceEvidence, ...]:
+    try:
+        value = json.loads(cast(bytes, _database_value(record.payload["sources"])))
+    except (ValueError, UnicodeDecodeError, TypeError) as error:
+        raise BundleFormatError("Atomic Memory evidence payload is not valid JSON") from error
+    if not isinstance(value, list):
+        raise BundleFormatError("Atomic Memory evidence payload is not a list")
+    try:
+        return tuple(SourceEvidence.model_validate(item) for item in value)
+    except ValidationError as error:
+        raise BundleFormatError("Atomic Memory evidence payload has an invalid Source entry") from error
 
 
 def _validate_datetime_text(value: object, /) -> None:
@@ -2031,6 +2101,46 @@ def _validate_record_dependencies(  # noqa: C901 - logical record kinds have dis
             },
         ):
             raise BundleFormatError("observation references missing or mismatched Source definition")
+    elif record.record_type == "source_evidence_binding":
+        if not contains(
+            "source",
+            {"scope_id": scope, "source_type": identity["source_type"], "source_id": identity["source_id"]},
+        ):
+            raise BundleFormatError("Source evidence binding references missing Source")
+        fingerprint = payload["manifest_fingerprint"]
+        if fingerprint is not None and not contains(
+            "source_definition_fingerprint",
+            {
+                "definition_name": payload["definition_name"],
+                "definition_version": payload["definition_version"],
+                "fingerprint": fingerprint,
+            },
+        ):
+            raise BundleFormatError("Source evidence binding references missing Source definition")
+    elif record.record_type == "atomic_memory_evidence_history":
+        if not contains(
+            "artifact_revision",
+            {
+                "scope_id": scope,
+                "family": "atomic-memory",
+                "artifact_id": identity["artifact_id"],
+                "revision": identity["revision"],
+            },
+        ):
+            raise BundleFormatError("Atomic Memory evidence references missing exact Artifact revision")
+        for source in _evidence_history_value(record):
+            if not contains("source", {"scope_id": scope, **source.source_ref.model_dump()}):
+                raise BundleFormatError("Atomic Memory evidence references missing Source")
+            fingerprint = source.manifest_fingerprint
+            if fingerprint is not None and not contains(
+                "source_definition_fingerprint",
+                {
+                    "definition_name": source.definition_name,
+                    "definition_version": source.definition_version,
+                    "fingerprint": fingerprint,
+                },
+            ):
+                raise BundleFormatError("Atomic Memory evidence references missing Source definition")
     elif record.record_type in {"recurrence_match", "recurrence_observation"}:
         value = _recurrence_value(record)
         if not contains(

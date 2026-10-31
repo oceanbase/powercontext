@@ -1560,6 +1560,12 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
         raise AtomicMemoryMigrationError((str(error),)) from error
     async with database.transaction() as connection:
         await drop_legacy_citation_columns(connection)
+        if "pc_artifacts" in await _tables(connection):
+            from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_evidence
+
+            # Imported revisions never accepted a declaration; derive neutral facts
+            # from the converted lineage without manufacturing historical snapshots.
+            await rebuild_atomic_memory_evidence(connection, index)
     async with database.transaction() as connection:
         residual = await residual_issues(connection, await _tables(connection), thorough=False)
     if rebuilt_projection:

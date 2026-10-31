@@ -1,0 +1,5 @@
+{
+  "create": [
+    "CREATE TABLE pc_atomic_memory_evidence (\n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision BIGINT NOT NULL, \n\tsources BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id, revision), \n\tCONSTRAINT ck_pc_atomic_memory_evidence_revision CHECK (revision > 0)\n)"
+  ]
+}
