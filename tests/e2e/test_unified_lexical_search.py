@@ -25,6 +25,7 @@ from powercontext.builtin.runtime import BuiltinConfig, PrepareContextRequest, R
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 FACT = "本项目的 PowerContext Server 固定在 127.0.0.1:8000；测试写入。"
 QUESTIONS = (
@@ -78,13 +79,16 @@ def test_prepared_topic_recall_preserves_evidence_after_stopwords(migration_back
 
 
 def test_public_word_recall_identifiers_and_prepare(migration_backend):
+    settings = ServerSettings(
+        database=migration_backend.config,
+        runtime=RuntimeConfig(artifact_processing_families=()),
+        mcp=McpConfig(enabled=False),
+    )
+    prepare_server_database(settings, evidence_dir=migration_backend.directory / "migration-evidence")
+
     async def scenario():
         app = create_server_app(
-            settings=ServerSettings(
-                database=migration_backend.config,
-                runtime=RuntimeConfig(artifact_processing_families=()),
-                mcp=McpConfig(enabled=False),
-            ),
+            settings=settings,
             scheduler_path=migration_backend.directory / "scheduler",
         )
         async with (
