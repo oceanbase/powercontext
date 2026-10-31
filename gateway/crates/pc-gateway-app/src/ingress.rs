@@ -106,12 +106,23 @@ async fn ingress_common(
         }
     }
 
-    let body = match axum::body::to_bytes(req.into_body(), 32 * 1024 * 1024).await {
+    // Applies the configured limit to the consumed body as well: chunked requests have no Content-Length,
+    // so the middleware precheck cannot limit them. Here we use the same configured value to prevent bypassing via framing.
+    let body = match axum::body::to_bytes(req.into_body(), state.max_body_bytes).await {
         Ok(b) => b,
         Err(e) => {
+            // 区分超限（413，与中间件预检语义一致）与其他读取错误（400）。
+            let over_limit = std::error::Error::source(&e)
+                .and_then(|s| s.downcast_ref::<http_body_util::LengthLimitError>())
+                .is_some();
+            let (status, code) = if over_limit {
+                (StatusCode::PAYLOAD_TOO_LARGE, "request_body_too_large")
+            } else {
+                (StatusCode::BAD_REQUEST, "invalid_body")
+            };
             return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "invalid_body", "detail": e.to_string() })),
+                status,
+                Json(serde_json::json!({ "error": code, "detail": e.to_string() })),
             )
                 .into_response()
         }

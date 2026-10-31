@@ -59,6 +59,8 @@ pub struct AppState {
     pub sediment: bool,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
+    /// Request body byte limit (also enforced when consuming chunked bodies).
+    pub max_body_bytes: usize,
 }
 
 #[tokio::main]
@@ -117,6 +119,7 @@ async fn main() {
         sediment: matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on")),
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
+        max_body_bytes,
     });
 
     let router = Router::new()
