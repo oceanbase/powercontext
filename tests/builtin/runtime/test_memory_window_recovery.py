@@ -50,7 +50,9 @@ class Pipeline:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(source.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="fact", text=text, evidence_ids=(source.evidence_id,), description="Extracted fixture fact"
+                    )
                     for source in request.evidence
                     if (text := memory_source_text(source)) is not None
                 )

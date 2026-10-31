@@ -132,7 +132,7 @@ class InstalledPage:
         self.element(
             f"//ul[@class='profile-list']/li[.//span[@class='profile-name'][normalize-space(.)='{name}']]//span[contains(@class,'badge')]"
         )
-        self.button("记忆")
+        self.element("//div[@role='dialog' and @aria-label='选择精确范围']")
 
     def connect(self, name: str, endpoint: str) -> None:
         self.button("连接")
@@ -144,7 +144,8 @@ class InstalledPage:
         self.activate(name)
 
     def select_scope(self, scope_id: str) -> None:
-        self.click("//div[@class='topbar-group']/button")
+        if not self.observe("return !!document.querySelector('[role=dialog]');"):
+            self.click("//div[@class='topbar-group']/button")
         self.type("按范围标题查找", "Desktop installed CI")
         self.button("查找范围")
         self.click(f"//ul[@class='scope-list']/li[code[normalize-space(.)='{scope_id}']]/button")
@@ -281,8 +282,8 @@ def exercise_connection_isolation(
         seeded.raise_for_status()
         reference_b = saved_reference(seeded.json())
         page.connect("Desktop CI B", str(server_b.base_url).rstrip("/"))
-        page.expect_empty_context()
         page.select_scope(scope_b)
+        page.expect_empty_context()
         if page.search_read(text_b) != reference_b:
             raise HarnessFailure("installed_second_server_reference_mismatch")
         draft = "desktopunsavedci 不应写入的草稿"
@@ -302,8 +303,8 @@ def exercise_connection_isolation(
         page.button("连接")
         page.profile("Desktop CI synthetic")
         page.activate("Desktop CI synthetic")
-        page.expect_empty_context()
         page.select_scope(scope_a)
+        page.expect_empty_context()
         if page.search_read(NOTE) != current_reference_a:
             raise HarnessFailure("installed_reconnected_reference_mismatch")
         page.button("连接")

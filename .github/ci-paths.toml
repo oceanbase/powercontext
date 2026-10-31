@@ -16,6 +16,7 @@ ignore = [
 ]
 
 [suites]
+helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
 tests = [
   "tests/**", "integrations/**", "examples/**", "scripts/generate_js_operations.py",
   "scripts/sync_dsh_plugin_tree.py", "scripts/generate_integration_manifest_docs.py",
@@ -38,12 +39,19 @@ database = [
 dify = ["integrations/dify/**", "tests/*dify*"]
 hermes = ["integrations/hermes/**", "tests/*hermes*"]
 dsh = ["integrations/dsh/**", "tests/*dsh*", "scripts/generate_js_operations.py", "scripts/sync_dsh_plugin_tree.py"]
+cindy = [
+  "integrations/cindy/**", "tests/e2e/*cindy*", "scripts/generate_js_operations.py",
+  "integrations/dsh/plugins/powercontext/src/**", "integrations/dsh/plugins/powercontext/package.json",
+  "integrations/dsh/plugins/powercontext/pnpm-lock.yaml", "integrations/dsh/plugins/powercontext/pnpm-workspace.yaml",
+  "integrations/dsh/plugins/powercontext/tsconfig.json",
+]
 pi = ["integrations/pi/**", "tests/*pi_*"]
 opencode = ["integrations/opencode/**", "tests/*opencode*"]
 openclaw = ["integrations/openclaw/**", "tests/*openclaw*"]
 opendal = ["integrations/opendal/**"]
 website = [
   "docs/**", "website/**", "assets/**", "README*.md", "scripts/generate_integration_manifest_docs.py",
+  "tests/e2e/test_blog_site.py",
 ]
 # Root tests assert exact sentences in published docs, so documentation edits must
 # exercise them without paying for the complete tests matrix.

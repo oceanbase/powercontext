@@ -665,9 +665,12 @@ def test_terminal_cache_overflow_does_not_launch_blocked_workers_or_starve_healt
                     ),
                 ),
                 lease_mode="single-process",
-                blocked_check_seconds=60,
+                blocked_check_seconds=600,
             ) as supervisor:
-                await _wait(lambda: supervisor.family_status["topic-memory"]["completed"] == 1, timeout_seconds=20)
+                # Scanning 1005 durable intents performs real SQLite I/O. Keep
+                # the observation window below terminal-cache expiry so expiry
+                # cannot hide a failure to advance to the healthy tail.
+                await _wait(lambda: supervisor.family_status["topic-memory"]["completed"] == 1, timeout_seconds=120)
                 assert [a.scope_id for a in launcher.assignments] == ["healthy-tail"]
                 assert supervisor.family_status["topic-memory"]["failed"] == 0
                 assert supervisor.max_resident <= 1000 + 100 + 1

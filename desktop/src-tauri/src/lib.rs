@@ -25,6 +25,7 @@ mod diagnostic_process;
 pub mod diagnostics;
 pub mod error;
 pub mod ipc;
+pub mod ops_bridge;
 pub mod session_observations;
 pub mod transport;
 
@@ -43,6 +44,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ipc::foundation_info,
             commands::local_diagnostics,
+            commands::ops_references,
+            commands::ops_inspect,
+            commands::ops_config_validate,
+            commands::ops_preflight,
+            commands::ops_apply,
+            commands::ops_operation_status,
+            commands::ops_cancel,
+            commands::ops_resume,
             commands::remember_memory,
             commands::search_memory,
             commands::atomic_memory_entry,
@@ -89,6 +98,11 @@ pub fn run() {
             app.manage(diagnostics::DiagnosticHost::new(
                 app.path().app_data_dir().ok(),
             ));
+            app.manage(ops_bridge::OpsHost::new(
+                app.path().resource_dir().ok(),
+                app.path().local_data_dir().ok(),
+                app.path().home_dir().ok(),
+            ));
             let config = &app.config().app.windows[0];
             tauri::WebviewWindowBuilder::from_config(app, config)?
                 .on_navigation(ipc::allowed_navigation)
@@ -103,6 +117,13 @@ pub fn run() {
             {
                 // Tauri exits directly after this callback; worker Drop alone
                 // cannot supervise child processes once the application exits.
+                host.shutdown();
+            }
+            if matches!(event, tauri::RunEvent::Exit)
+                && let Some(host) = app.try_state::<ops_bridge::OpsHost>()
+            {
+                // Ops owns its durable operation journal and service locks. Closing Desktop
+                // stops new IPC admission but never signals a service-manager process.
                 host.shutdown();
             }
         });

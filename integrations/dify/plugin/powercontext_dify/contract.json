@@ -549,7 +549,8 @@
     ],
     "get_atomic_memory_state": [],
     "remember_memory": [
-      "reason"
+      "reason",
+      "description"
     ],
     "revise_memory_entry": [
       "artifact"
@@ -1150,6 +1151,48 @@
           }
         }
       },
+      "AtomicMemoryReadContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "text"
+        ],
+        "properties": {
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AtomicMemoryContentSchema"
+              }
+            ],
+            "default": "powercontext.atomic-memory.v1"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Memory text is NFC-normalized and trimmed before enforcing an 8192 UTF-8 byte limit."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\r\\n\\u0085\\u2028\\u2029]*\\S[^\\r\\n\\u0085\\u2028\\u2029]*$",
+                "description": "A concise single-line summary of final text, in the same language. Required for new writes."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "AtomicMemoryRecord": {
         "type": "object",
         "additionalProperties": false,
@@ -1294,6 +1337,20 @@
             "type": "string",
             "minLength": 1,
             "description": "Memory text is NFC-normalized and trimmed before enforcing an 8192 UTF-8 byte limit."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\r\\n\\u0085\\u2028\\u2029]*\\S[^\\r\\n\\u0085\\u2028\\u2029]*$",
+                "description": "Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -1368,7 +1425,7 @@
                 "$ref": "#/components/schemas/ProfileCandidateProposal"
               },
               {
-                "$ref": "#/components/schemas/AtomicMemoryWriteContent"
+                "$ref": "#/components/schemas/AtomicMemoryReadContent"
               },
               {
                 "$ref": "#/components/schemas/TopicMemoryDreamProposal"
@@ -3626,6 +3683,20 @@
               {
                 "type": "integer",
                 "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\r\\n\\u0085\\u2028\\u2029]*\\S[^\\r\\n\\u0085\\u2028\\u2029]*$",
+                "description": "Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model."
               },
               {
                 "type": "null"

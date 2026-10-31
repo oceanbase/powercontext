@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="616" viewBox="0 0 1000 616" lang="en" role="img" aria-labelledby="title"><title id="title">Capabilities compose through plugins</title><rect width="1000" height="616" rx="18" fill="#f7f5ef"/><style>text{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;fill:#14213a}</style>
+<text x="48" y="43" font-size="18" font-weight="700" style="fill:#1769d2">PowerContext</text>
+<text x="48" y="88" font-size="30" font-weight="700" style="fill:#14213a">Capabilities compose through plugins</text>
+<rect x="48.0" y="156" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="72.0" y="198" font-size="22" font-weight="700" style="fill:#1769d2">Harness</text>
+<text x="72.0" y="250" font-size="20" font-weight="400" style="fill:#14213a">The Cordis kernel composes plugin</text>
+<text x="72.0" y="279" font-size="20" font-weight="400" style="fill:#14213a">capabilities.</text>
+<rect x="512.0" y="156" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="536.0" y="198" font-size="22" font-weight="700" style="fill:#1769d2">Models and tools</text>
+<text x="536.0" y="250" font-size="20" font-weight="400" style="fill:#14213a">Model adapters route requests;</text>
+<text x="536.0" y="279" font-size="20" font-weight="400" style="fill:#14213a">tools register through defineTool.</text>
+<rect x="48.0" y="348" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="72.0" y="390" font-size="22" font-weight="700" style="fill:#1769d2">Sessions and UI</text>
+<text x="72.0" y="442" font-size="20" font-weight="400" style="fill:#14213a">Workspace, sessions and the web</text>
+<text x="72.0" y="471" font-size="20" font-weight="400" style="fill:#14213a">interface are plugins.</text>
+<rect x="512.0" y="348" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="536.0" y="390" font-size="22" font-weight="700" style="fill:#1769d2">powercontext-dsh</text>
+<text x="536.0" y="442" font-size="20" font-weight="400" style="fill:#14213a">Provides project-memory recall and</text>
+<text x="536.0" y="471" font-size="20" font-weight="400" style="fill:#14213a">handoff capabilities.</text>
+</svg>

@@ -22,7 +22,7 @@ import signal
 from contextlib import AsyncExitStack, nullcontext
 from pathlib import Path
 from sqlite3 import SQLITE_CANTOPEN
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Never
 
 import typer
 from pydantic import ValidationError
@@ -30,6 +30,11 @@ from sqlalchemy import inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
+from powercontext.builtin.persistence.bootstrap import (
+    DatabaseAccessError,
+    DatabaseCreationError,
+    MissingDatabaseError,
+)
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 from powercontext.builtin.persistence.processing_migration import (
@@ -37,7 +42,12 @@ from powercontext.builtin.persistence.processing_migration import (
     plan_processing_migration,
     verify_processing_migration,
 )
-from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.seekdb import (
+    LegacySeekDBDatabaseError,
+    SeekDBConfig,
+    SeekDBInspectionError,
+    SeekDBProfile,
+)
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
 from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_projection
@@ -180,9 +190,33 @@ def processing_migrate(
             )
         return
     with server_settings_context(env_file=env_file) as settings:
-        ready = asyncio.run(_processing_maintenance(settings, action, migration_id=migration_id, batch_size=batch_size))
+        try:
+            ready = asyncio.run(
+                _processing_maintenance(settings, action, migration_id=migration_id, batch_size=batch_size)
+            )
+        except MissingDatabaseError as error:
+            if action == "apply":
+                raise
+            raise typer.BadParameter(_missing_read_only_database(error)) from error
+        except (SeekDBInspectionError, LegacySeekDBDatabaseError) as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
     if not ready:
         raise typer.Exit(code=1)
+
+
+def _report_database_guidance(error: DatabaseAccessError | DatabaseCreationError) -> Never:
+    """Print provisioning guidance verbatim; the rich error panel truncates long statements."""
+    typer.echo(str(error), err=True)
+    raise typer.Exit(code=2)
+
+
+def _missing_read_only_database(error: MissingDatabaseError) -> str:
+    return (
+        f"plan and verify require an existing database: {error.database_name!r} is missing. "
+        "Provision it first, or start the Server once to create the configured database"
+    )
 
 
 def _managed_storage(
@@ -247,17 +281,24 @@ async def _processing_maintenance(
     )
     manifest = canonical_processing_manifest(config)
     database = settings.database
-    # A plan only inspects an existing database: opening it read-only keeps the
-    # command from creating the directory, the file or a journal mode it reports on.
-    read_only = action == "plan"
+    # A plan or verify only inspects the configured database: opening it read-only
+    # keeps the command from creating the directory, the file or a journal mode it
+    # reports on.
+    read_only = action in {"plan", "verify"}
     if isinstance(database, SQLiteConfig):
         if not database.is_persistent:
             raise typer.BadParameter("offline migration requires a persistent database")  # noqa: TRY003
         opened = SQLiteProfile.open_readonly(database) if read_only else SQLiteProfile.open(database, tables=())
     elif isinstance(database, OceanBaseConfig):
-        opened = OceanBaseProfile.open(database, tables=())
+        opened = (
+            OceanBaseProfile.open_existing(database, tables=())
+            if read_only
+            else OceanBaseProfile.open(database, tables=())
+        )
     elif isinstance(database, SeekDBConfig):
-        opened = SeekDBProfile.open(database, tables=())
+        opened = (
+            SeekDBProfile.open_existing(database, tables=()) if read_only else SeekDBProfile.open(database, tables=())
+        )
     else:
         raise typer.BadParameter("unsupported migration database")  # noqa: TRY003
     async with opened as profile:
@@ -300,7 +341,12 @@ def identity_reset(
     with server_settings_context(env_file=env_file) as settings:
         if isinstance(settings.database, SQLiteConfig) and not settings.database.is_persistent:
             raise typer.BadParameter("identity reset requires a persistent database")  # noqa: TRY003
-        server_id = asyncio.run(_reset_server_identity(settings))
+        try:
+            server_id = asyncio.run(_reset_server_identity(settings))
+        except LegacySeekDBDatabaseError as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
     typer.echo(server_id)
 
 
@@ -310,7 +356,7 @@ async def _reset_server_identity(settings: ServerSettings) -> str:
 
 
 @app.command("atomic-memory-migrate")
-def atomic_memory_migrate(
+def atomic_memory_migrate(  # noqa: C901
     action: Annotated[
         Literal["plan", "apply", "verify"], typer.Option(help="Offline domain migration action.")
     ] = "plan",
@@ -413,6 +459,14 @@ def atomic_memory_migrate(
                     owner_decisions=loaded_owners,
                 )
             )
+        except MissingDatabaseError as error:
+            if action == "apply":
+                raise
+            raise typer.BadParameter(_missing_read_only_database(error)) from error
+        except (SeekDBInspectionError, LegacySeekDBDatabaseError) as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
         except OperationalError as error:
             sqlite_code = getattr(error.orig, "sqlite_errorcode", None)
             if (
@@ -496,11 +550,16 @@ def atomic_memory_rebuild_projection(
     if not maintenance_confirmed:
         raise typer.BadParameter("projection rebuild requires --maintenance-confirmed after stopping every writer")  # noqa: TRY003
     with server_settings_context(env_file=env_file) as settings:
-        ready = asyncio.run(
-            _atomic_memory_maintenance(
-                settings, "rebuild-projection", maintenance_confirmed=maintenance_confirmed, batch_size=batch_size
+        try:
+            ready = asyncio.run(
+                _atomic_memory_maintenance(
+                    settings, "rebuild-projection", maintenance_confirmed=maintenance_confirmed, batch_size=batch_size
+                )
             )
-        )
+        except LegacySeekDBDatabaseError as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
     if not ready:
         raise typer.Exit(code=1)
 
@@ -569,10 +628,16 @@ async def _atomic_memory_maintenance(
         )
         index = SQLiteAtomicMemoryIndex(embedding_profile)
     elif isinstance(database, OceanBaseConfig):
-        opened = OceanBaseProfile.open(database, tables=())
+        opened = (
+            OceanBaseProfile.open_existing(database, tables=())
+            if read_only
+            else OceanBaseProfile.open(database, tables=())
+        )
         index = OceanBaseAtomicMemoryIndex(embedding_profile)
     elif isinstance(database, SeekDBConfig):
-        opened = SeekDBProfile.open(database, tables=())
+        opened = (
+            SeekDBProfile.open_existing(database, tables=()) if read_only else SeekDBProfile.open(database, tables=())
+        )
         index = OceanBaseAtomicMemoryIndex(embedding_profile)
     else:
         raise typer.BadParameter("unsupported migration database")  # noqa: TRY003

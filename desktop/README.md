@@ -29,6 +29,14 @@ Selecting a saved profile in the global connection menu opens that exact configu
 
 Scope selection also keeps an application-wide pending state. Escape, the close button and the backdrop can close the dialog, but do not cancel an accepted native selection. Memory editing and further Scope switching stay paused until it finishes. Closing a dialog whose trigger is disabled returns focus to the page heading. A late result still updates authoritative native state, while it cannot clear a new connection editor's draft guard. Failures after the dialog has closed appear in the shared error feedback.
 
+## Existing Server connection journey
+
+Saving, checking and activating a profile are separate actions with distinct progress and completion feedback. Saving does not activate a connection; a completed check asks users to review its individual facts. A compatible activation with a verified identity opens the shared exact-Scope picker. Lookup and selection retain their individual operation restrictions. Select the intended Server-returned Scope, using its complete ID to distinguish duplicate titles; the ID also supplies the button's accessible description. The activation guide then opens Memory and focuses its page heading. Closing the guide restores the activation button without choosing a Scope.
+
+Opening the global Scope picker elsewhere keeps the current page after selection and restores focus to its selector. Cancelling draft confirmation preserves the current input. Confirming a successful Scope switch discards the old Memory or connection-editor draft. Native states rejected as stale cannot open the activation guide or finish Scope navigation. Empty results offer another title, an access request or another connection; loading, permission, authentication and compatibility failures remain separate.
+
+Reopening Desktop loads saved profiles without activating a private session. The local setup entry continues to point to Local Server guidance; approved installer results and default-Scope handoff remain owned with #2117.
+
 ## Local Server preparation
 
 Overview remains the initial page. In disconnected Memories, **Set up locally** opens and focuses **Settings & diagnostics → Local Server**; **Connect an existing Server** opens the existing connection editor. Selecting either path does not install software, activate a connection, run diagnostics or probe readiness.
@@ -83,7 +91,7 @@ The unsigned installer is for internal verification. If WebView2 is absent, its 
 ## Connect an existing Server
 
 1. Open Connections and add a named profile. HTTP is restricted to literal loopback hosts; other addresses require HTTPS. A reverse-proxy path prefix is preserved.
-2. Explicitly choose unauthenticated loopback access or Bearer authentication. Bearer storage is either Windows Credential Manager or this session only. Trust/address changes require credential reconfiguration. An optional CA augments system trust without disabling certificate checks.
+2. Explicitly choose unauthenticated loopback access or Bearer authentication. Bearer storage uses Windows Credential Manager, macOS Keychain, or Linux Secret Service (GNOME Keyring/KWallet); session-only storage is also available only when explicitly selected. If the native credential store is unavailable or locked, saving fails without writing the secret to profile JSON; choose session-only storage or cancel. Trust/address changes require credential reconfiguration. An optional CA augments system trust without disabling certificate checks.
 3. Select a qualified compatibility profile after comparing its tested build with your deployment. The selection does not prove the remote binary identity. See [validation guide](VALIDATION.md) for the exact fixture and supported combinations.
 4. Save, then explicitly use the connection. Merely selecting a saved profile does not activate it. Review liveness, readiness, identity and capabilities separately; none implies resource authorization.
 5. Open the Scope dropdown and find an authorized Scope by title (50 per page). Selecting a result updates the active Scope and closes the dialog. Selection never creates a Scope or changes Agent bindings. Editing a query cancels its old read; connection and identity changes invalidate old results.
@@ -124,7 +132,7 @@ The canonical brand source is `website/assets/powercontext-color.png`, which is 
 cargo run --locked --manifest-path desktop/src-tauri/Cargo.toml --example credential_probe
 ```
 
-This explicit probe creates a uniquely named synthetic credential in the preview namespace, loads it in another process and deletes it. It never reads another application's credential or prints a secret. Normal tests simulate unavailable storage and require an explicit session-only choice. Do not treat the probe as end-to-end S2 credential-form verification.
+This explicit probe creates a uniquely named synthetic credential in the preview namespace, loads it in another process and deletes it. It never reads another application's credential or prints a secret. Normal tests simulate unavailable storage and require an explicit session-only choice; a native-store failure never downgrades a persistent request or writes the secret to profile JSON. Do not treat the probe as end-to-end S2 credential-form verification.
 
 The Windows CI workflow runs on PRs and the preview branch, verifies native vault persistence, builds an unsigned internal installer, and tests Chinese-path installation/uninstallation on its disposable runner. It uploads the installer and a JSON smoke report. CI and mocked IPC tests do not prove clean-machine installation, notification activation, independent service login or Agent capture/recall.
 
@@ -164,7 +172,7 @@ Installed boundary checks exercise an 8192-byte Unicode note, reject over-budget
 
 After upgrading from an earlier preview, open Connections and select your saved connection. Profiles matching the bundled API contract appear under “Available for this Desktop build”; compare their tested Server builds with your deployment before selecting one, saving, checking and explicitly using the connection again. New connections start with no compatibility selection.
 
-Historical profiles appear as disabled records. A saved incompatible or unavailable selection remains visible with an explanation until explicitly replaced; it is never silently upgraded. For qualified current Server sources, explicitly choose `sqlite-atomic-dd62723d-v1` or `sqlite-atomic-4ffdf4e9-v1` according to the recorded Server sources and wheel, then check the connection before selecting a Scope. Both records match this bundled contract and retain their independently verified operation sets. Historical profiles, including `sqlite-atomic-c535d816-v1`, retain their original Server sources, contracts and operation sets and do not match this bundled contract. The recorded Server source and wheel identities must match the deployment you intend to use. The independently qualified `ci-fixtures` build is for disposable acceptance tests. Historical qualification evidence and remaining requirements are documented in the [validation guide](VALIDATION.md).
+Historical profiles appear as disabled records. A saved incompatible or unavailable selection remains visible with an explanation until explicitly replaced; it is never silently upgraded. For the qualified current Server sources, explicitly choose `sqlite-atomic-68491568-v1` and check the connection before selecting a Scope; that record's contract digest matches this build's bundled contract, while `sqlite-atomic-dd62723d-v1`, `sqlite-atomic-98275dbb-v1`, `sqlite-atomic-1da99747-v1`, `sqlite-atomic-8f10c560-v1`, `sqlite-atomic-d9a78567-v1`, `sqlite-atomic-caf2a35a-v1`, `sqlite-atomic-683e2db0-v1` and `sqlite-atomic-cab054db-v1` qualify their corresponding Server source deployments and do not match it. The recorded Server source and wheel identities must match the deployment you intend to use. The independently qualified `ci-fixtures` build is for disposable acceptance tests. Historical qualification evidence and remaining requirements are documented in the [validation guide](VALIDATION.md).
 
 ## Build on macOS
 

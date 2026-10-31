@@ -175,7 +175,7 @@ def test_oceanbase_observer_crash_resumes_original_migration_and_preserves_histo
         _apply(_full_server_runner(backend), policy="manual")
     resumed = _full_server_runner(backend, acknowledge_previous_run=token)
     result = _apply(resumed, policy="manual")
-    assert result.state == "ready" and result.revision == "v1_4_1_004" and result.readiness_scope == "server"
+    assert result.state == "ready" and result.revision == "v1_4_1_006" and result.readiness_scope == "server"
     assert result.backup_state == "user_confirmed" and result.backup_ref == interrupted["manual_ref"]
     assert resumed.verify().state == "ready"
     completed = json.loads(journal.read_text())

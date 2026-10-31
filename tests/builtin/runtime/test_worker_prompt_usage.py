@@ -91,6 +91,7 @@ class _InferenceHandler(BaseHTTPRequestHandler):
                         "content": {
                             "kind": request["proposal"]["kind"],
                             "text": request["proposal"]["text"],
+                            "description": "Spawned Worker validation preference",
                         },
                         "evidence_ids": request["proposal"]["evidence_ids"],
                         "reason": "Retain this independent fixture preference.",
@@ -101,6 +102,7 @@ class _InferenceHandler(BaseHTTPRequestHandler):
                             {
                                 "kind": "preference",
                                 "text": "The user requires spawned Worker validation.",
+                                "description": "Spawned Worker validation preference",
                                 "evidence_ids": [item["evidence_id"] for item in request["evidence"]],
                             }
                         ]

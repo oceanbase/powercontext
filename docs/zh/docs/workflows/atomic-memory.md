@@ -20,7 +20,8 @@ Atomic Memory 将每条事实、偏好或决策保存为独立的 `atomic-memory
   "content": {
     "schema": "powercontext.atomic-memory.v1",
     "kind": "decision",
-    "text": "公开 API 保持异步。"
+    "text": "公开 API 保持异步。",
+    "description": "公开 API 保持异步"
   }
 }
 ```
@@ -40,7 +41,8 @@ Atomic Memory 将每条事实、偏好或决策保存为独立的 `atomic-memory
 {
   "content": {
     "kind": "decision",
-    "text": "公开 API 保持异步，内部同步适配器另行提供。"
+    "text": "公开 API 保持异步，内部同步适配器另行提供。",
+    "description": "公开 API 异步，内部同步适配器独立提供"
   }
 }
 ```
@@ -251,3 +253,49 @@ unsupported 通过 `ServerResponseError.status_code`、`.code`、`.details` 检�
 
 使用同一数据库的受支持 Builtin 或 Casbin 服务进行 Scope 检查时，授权读取与业务数据共享快照。
 独立的决策存储和自定义服务保留各自配置的读取一致性契约。
+
+
+## 只读元数据的召回清单
+
+`POST /v1/recall/manifest`（MCP/Python 客户端：`get_recall_manifest`）只列出当前活跃 Atomic Memory 的元数据，
+不覆盖 Topic Memory、Experience、Skill 或 Source，也不替代 `prepare_context`。
+
+```json
+{"scope_id": "S", "limit": 50, "kind": "decision"}
+```
+
+响应包含 `items`、`next_cursor` 和 `code`（`page` 或 `empty_inventory`）。每项包含精确版本引用 `ref`、
+`kind`、`description` 和 `state_version`。选择相关引用后，通过 `get_artifact_revision` 读取正文并引用证据。
+摘要只帮助选择，不是证据。筛选后的空清单不能证明 Scope 为空，也不允许跳过 `prepare_context`。
+
+游标通过固定长度指纹绑定请求身份和筛选条件，长 Unicode 标签不会使返回的游标超出请求允许的 4,096 字符上限。
+指纹保留 Unicode 筛选值的原始形式，包括组合形式与分解形式之间的区别。
+游标格式升级前签发的游标会被拒绝，需要从第一页重新分页。
+
+每页默认 50 条，允许 1–100 条，超限明确报错。翻页时携带 `next_cursor`，保持 Scope、调用主体、类型和标签筛选一致。
+游标带签名并绑定接口，按 Artifact ID 进行实时键集分页，不是跨请求快照；并发新增且 ID 排在游标之前的记录需要重新遍历。
+`next_cursor: null` 明确表示末页。清单读取要求 Scope 读取权限。主键按 Scope 和 ID 限定遍历范围；类型或标签筛选可能扫描多于返回数量的元数据行，
+此接口不承诺任务成功率或延迟收益。
+
+新增、修订、合并和 `remember_memory` 成功写入时都包含 `description`：与最终正文同语言、非纯空白、单行、1–200 个 Unicode 字符。
+调用者可以提供摘要；省略时，写入路径将最终规范化正文中的连续空白折叠为空格，保存最多 200 个 Unicode 字符的前缀，
+超长时末尾用 `…` 标记截断，省略号计入长度上限。这是默认文本简介，不是模型生成的语义摘要。
+显式写入不会调用生成模型，即使已经配置模型也一样；旧集成仍可只提交正文。
+自动抽取和协调在原有模型调用中同时生成正文和摘要，不增加额外摘要请求；格式不合格时拒绝生成结果，不静默发布不完整数据。自定义 Atomic Memory 提示词示例需要适配 v2 抽取和协调定义。
+
+默认文本简介在写入准备阶段补齐，之后才固定内容哈希和搜索投影。提交边界拒绝仍缺少简介的
+已准备新增写入，不会在提交时再次补默认值或改动已准备内容。恢复历史版本保留已保存的内容，不补写摘要。
+
+权威摘要保存在对应 Artifact 内容版本中，并在同一事务中复制到 `pc_atomic_memory_current.description`。
+清单查询只选择窄元数据列，不读取 `text`、`searchable_text`、向量或 `pc_artifacts.content`。
+清单读取和数据库启动都不会生成摘要。已登记迁移 `v1_4_1_005` 添加可空投影列，不扫描正文；已有受管库需要显式迁移。
+已有投影行在显式修复或新写入前保持空值。
+Topic 恢复初始化同时识别原始的空 Atomic 维护结构和仅新增可空简介列的结构；未知列、改动的 FTS 对象和已有 Atomic 证据仍被拒绝。
+现有离线 `atomic-memory-rebuild-projection` 命令只复制已保存的摘要，不生成新摘要；完整校验和重建会扫描权威历史和当前行，
+并可能重新生成活跃记忆的向量，属于维护工作，不在增量写入或清单查询中执行。
+
+没有摘要的历史版本仍可读取，序列化不会多出空摘要字段。清单中的空摘要表示元数据尚未补齐，不表示记忆不存在。
+补齐时，由有权限的写入者读取当前版本，携带当前 `If-Match` ETag，通过普通替换接口提交原有类型和正文。
+可以提供已检查的摘要，或省略摘要以保存有界的正文简介。
+这会创建新版本，过期 ETag 会被拒绝；不得原地修改历史 JSON 或内容哈希。恢复旧版本会保留当时缺少摘要的状态。
+大小、Token 估算、时间戳、来源概要和其他记忆类型不在第一版契约中，不通过读取正文临时计算。

@@ -77,6 +77,9 @@ JSON formatting deliberately ignores unknown extras. When a new field is require
 4. Update the operational field contract in both locales and add a focused observable-output regression test.
    Review compatibility before renaming or removing published fields or event names.
 
+See [Processing failure diagnostics](processing-failures.md) for the shared failure vocabulary and the
+per-Family coverage matrix.
+
 Service identity comes from `src/powercontext/server/telemetry.py`; logs and traces use the same resource identity.
 Error classification comes from `powercontext._logging.error_category`, with domain-owned categories such as `blocked`
 set at their owning boundary. Do not create independent vocabularies in each adapter.

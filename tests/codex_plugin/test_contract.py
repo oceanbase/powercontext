@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import threading
 import time
@@ -267,13 +268,20 @@ def test_codex_hooks_fix_session_and_data_plane_bindings() -> None:
     configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text())
 
     session_start = configuration["hooks"]["SessionStart"][0]
-    assert session_start["matcher"] == "startup|resume|clear|compact"
     session_hook = session_start["hooks"][0]
     assert "session_binding.py" in session_hook["command"]
     assert session_hook["additionalContextLimit"] == 8192
     pre_tool_use = configuration["hooks"]["PreToolUse"][0]
     assert pre_tool_use["matcher"] == "mcp__powercontext__.*"
     assert "bind_tools.py" in pre_tool_use["hooks"][0]["command"]
+
+
+@pytest.mark.parametrize("source", ["startup", "resume", "clear", "compact", "fork"])
+def test_codex_session_start_hook_runs_for_every_lifecycle_codex_sends(source: str) -> None:
+    configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text())
+
+    (session_start,) = configuration["hooks"]["SessionStart"]
+    assert re.fullmatch(session_start["matcher"], source)
 
 
 def test_customer_artifact_workflow_does_not_parse_plugin_root_as_an_actions_expression() -> None:

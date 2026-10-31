@@ -94,6 +94,9 @@
     "get_memory_entry": {
       "error": "unexpected"
     },
+    "get_recall_manifest": {
+      "error": "unexpected"
+    },
     "get_scope": {
       "default": {
         "scope_id": "skill-up-fixture-scope",
@@ -244,6 +247,24 @@
       "error": "unexpected"
     },
     "set_scope_binding": {
+      "error": "unexpected"
+    },
+    "pc_source_add": {
+      "error": "unexpected"
+    },
+    "pc_source_capabilities": {
+      "error": "unexpected"
+    },
+    "pc_source_instance_set_enabled": {
+      "error": "unexpected"
+    },
+    "pc_source_instances": {
+      "error": "unexpected"
+    },
+    "pc_source_status": {
+      "error": "unexpected"
+    },
+    "pc_source_target_set_enabled": {
       "error": "unexpected"
     }
   }

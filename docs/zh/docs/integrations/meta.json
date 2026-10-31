@@ -4,6 +4,8 @@
     "index",
     "---Plugins, MCP & Skills---",
     "agent-plugin",
+    "---实验性 MCP 接入---",
+    "cindy",
     "---Agent Hosts---",
     "codex",
     "claude-code",

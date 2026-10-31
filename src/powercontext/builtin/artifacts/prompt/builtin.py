@@ -105,7 +105,7 @@ def builtin_prompt_definitions(
     return (
         PromptDefinition(
             key="atomic_memory.extract",
-            definition_version="powercontext.prompt.atomic-memory.extract.v1",
+            definition_version="powercontext.prompt.atomic-memory.extract.v2",
             input_type=AtomicMemoryExtractionInput,
             output_type=AtomicMemoryExtractionOutput,
             builtin_version=atomic_memory_extraction_instructions_version(profile),
@@ -116,10 +116,10 @@ def builtin_prompt_definitions(
         ),
         PromptDefinition(
             key="atomic_memory.reconcile",
-            definition_version="powercontext.prompt.atomic-memory.reconcile.v1",
+            definition_version="powercontext.prompt.atomic-memory.reconcile.v2",
             input_type=AtomicMemoryReconciliationInput,
             output_type=AtomicMemoryReconciliationOutput,
-            builtin_version="powercontext.atomic-memory.reconcile.v1",
+            builtin_version="powercontext.atomic-memory.reconcile.v2",
             invariant_instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
             default_instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
         ),

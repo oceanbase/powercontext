@@ -23,7 +23,7 @@ import { PLUGIN_NAME } from './errors.ts'
 import { invokeOperation, operationMutates } from './invoke.ts'
 import type { JsonObject } from './client.ts'
 import type { OperationId } from './operations.generated.ts'
-import { validatePreparedContext } from './prepared-context.ts'
+import { boundedRecallQuery, validatePreparedContext } from './prepared-context.ts'
 import { resolveScopeId } from './scope.ts'
 import { containsSecret, scrubSecrets } from './secrets.ts'
 
@@ -183,7 +183,7 @@ async function prepareTurn(
     try {
       const result = await runtime.client.request('prepare_context', {
         scope_id: context.scopeId,
-        query: scrubSecrets(input.prompt, runtime.config.authorization),
+        query: boundedRecallQuery(scrubSecrets(input.prompt, runtime.config.authorization)),
         max_bytes: runtime.config.maxBytes,
         ...(runtime.config.contextAssembly === undefined ? {} : { assembly: runtime.config.contextAssembly }),
       }, signal)

@@ -56,15 +56,29 @@ class _Provider:
             evidence = value["evidence"][0]["evidence_id"]
             output = {
                 "candidates": [
-                    {"kind": "decision", "text": "Billing uses PostgreSQL 16.", "evidence_ids": [evidence]},
-                    {"kind": "decision", "text": "MySQL is no longer an option.", "evidence_ids": [evidence]},
+                    {
+                        "kind": "decision",
+                        "text": "Billing uses PostgreSQL 16.",
+                        "description": "Billing database is PostgreSQL 16",
+                        "evidence_ids": [evidence],
+                    },
+                    {
+                        "kind": "decision",
+                        "text": "MySQL is no longer an option.",
+                        "description": "MySQL is excluded",
+                        "evidence_ids": [evidence],
+                    },
                 ]
             }
             return _json(output)
         related = [item["item_id"] for item in value["related"]]
         evidence = value["proposal"]["evidence_ids"]
         if not related:
-            content = {"kind": "decision", "text": value["proposal"]["text"]}
+            content = {
+                "kind": "decision",
+                "text": value["proposal"]["text"],
+                "description": value["proposal"]["description"],
+            }
             return _json({
                 "action": "create",
                 "compared_ids": [],
@@ -79,7 +93,7 @@ class _Provider:
             "action": action,
             "compared_ids": related,
             "target_ids": related[:1],
-            "content": {"kind": "decision", "text": merged},
+            "content": {"kind": "decision", "text": merged, "description": "PostgreSQL selected; MySQL excluded"},
             "evidence_ids": evidence,
             "reason": "Same decision.",
         })

@@ -155,6 +155,25 @@ jobs:
           uv lock --check
           uv run --locked prek run -a
 
+      - name: Run real OceanBase database bootstrap without skips
+        timeout-minutes: 5
+        env:
+          POWERCONTEXT_TEST_BOOTSTRAP_OCEANBASE_URL: ${{ env.POWERCONTEXT_TEST_OCEANBASE_URL }}
+          POWERCONTEXT_TEST_BOOTSTRAP_OCEANBASE_DEFAULT: "1"
+          POWERCONTEXT_TEST_BOOTSTRAP_PRIVILEGES: "1"
+        run: |
+          mkdir -p .powercontext/recall-effort-ci
+          uv run --locked python -m pytest tests/e2e/test_database_bootstrap.py -k oceanbase -q -rs \
+            --junitxml=.powercontext/recall-effort-ci/bootstrap.xml
+          uv run --locked python - <<'PYCODE'
+          from xml.etree import ElementTree
+
+          suites = ElementTree.parse(".powercontext/recall-effort-ci/bootstrap.xml").getroot()
+          cases = list(suites.iter("testcase"))
+          if not cases or any(case.find("skipped") is not None for case in cases):
+              raise SystemExit("Real OceanBase bootstrap contracts must execute; skipped tests are not acceptance.")
+          PYCODE
+
       - name: Run OceanBase contracts and Jev integration without skips
         run: |
           mkdir -p .powercontext/recall-effort-ci

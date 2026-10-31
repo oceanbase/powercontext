@@ -18,7 +18,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -357,3 +357,48 @@ def test_composition_opens_one_global_or_four_dedicated_controllers(
         launch.assert_not_called()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("missing_profile", [False, True])
+def test_injected_components_skip_unneeded_provider_initialization(tmp_path, monkeypatch, missing_profile):
+    from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryGenerationPipeline
+    from powercontext.builtin.inference import character_token_estimator
+    from tests.builtin.runtime.test_decision_composition import _FakeDecisionModel
+
+    async def open_provider(*args, **kwargs):
+        raise RuntimeError("default provider initialization requested")  # noqa: TRY003
+
+    monkeypatch.setattr(composition, "_open_pydantic_ai_model", open_provider)
+    component = cast(Any, SimpleNamespace(supports_atomic_memory=True))
+    pipeline = AtomicMemoryGenerationPipeline(
+        extractor=component, reconciler=component, estimator=character_token_estimator()
+    )
+    config = BuiltinConfig(
+        database=_sqlite(tmp_path / "injected.db"),
+        inference=InferenceConfig(generation_model="openai:unused"),
+        runtime=RuntimeConfig(
+            artifact_processing_families=(), memory_rerank_enabled=True, decision_assistance_enabled=True
+        ),
+    )
+
+    async def scenario():
+        async with open_builtin_runtime(
+            config,
+            candidate_pipeline=pipeline,
+            profile_generator=None if missing_profile else component,
+            experience_pipeline=component,
+            experience_generator=component,
+            skill_generator=component,
+            handoff_pipeline=component,
+            memory_reranker=component,
+            decision_model=_FakeDecisionModel(),
+            scheduler_path=tmp_path / "injected.scheduler.db",
+        ) as runtime:
+            assert runtime.decision_model is not None
+            assert await runtime.readiness()
+
+    if missing_profile:
+        with pytest.raises(RuntimeError, match="default provider initialization requested"):
+            asyncio.run(scenario())
+    else:
+        asyncio.run(scenario())

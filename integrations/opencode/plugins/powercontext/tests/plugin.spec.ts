@@ -203,6 +203,37 @@ describe('PowerContextPlugin', () => {
     expect(calls.find((call) => call.url.endsWith('/v1/sources/content'))?.body.content).toBe('"preserve these quotes"')
   })
 
+  it('sends the end of a long prompt as the recall query and captures the whole prompt', async () => {
+    process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
+    const calls: Array<{ url: string; body: any }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, body: JSON.parse(String(init.body)) })
+      const binding = bindingResponse(url, calls.at(-1)?.body)
+      if (binding) return binding
+      if (url.endsWith('/v1/context/prepare')) {
+        return Response.json({
+          schema: 'powercontext.prepared-context.v1',
+          status: 'empty',
+          content: null,
+          content_bytes: 0,
+        })
+      }
+      return Response.json({ position: 7 }, { status: 202 })
+    }))
+    const hooks = await PowerContextPlugin(pluginInput())
+    const incoming = userMessage()
+    const prompt = `${'earlier context '.repeat(1_000)}Which service owns the retry?`
+    incoming.parts[0]!.text = prompt
+
+    await hooks['chat.message']?.(
+      { sessionID: 'session-1', messageID: 'msg-1' },
+      { message: incoming.info, parts: incoming.parts } as any,
+    )
+
+    expect(calls.find((call) => call.url.endsWith('/v1/context/prepare'))?.body.query).toBe(prompt.slice(-8_192))
+    expect(calls.find((call) => call.url.endsWith('/v1/sources/content'))?.body.content).toBe(prompt)
+  })
+
   it('asks before a durable tool operation', async () => {
     process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {

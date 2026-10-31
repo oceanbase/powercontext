@@ -8,7 +8,7 @@ description: 使用独立 Ops 工具配置和管理已准备好的个人 Server 
 Ops 为个人 Server 提供非交互的配置和服务管理入口，复用 `powercontext service` 使用的当前用户服务控制器，调用时不需要已有的 Server HTTP 会话。
 Ops 自带的 Python 与依赖必须和受管 Server 的运行环境分开分发。因此，Server 解释器缺失不会妨碍工具自身启动和检查服务注册。
 
-此服务入口管理已准备好的 Server 环境。固定受管资源及安装、修复策略见[受管本地 Server 安装](managed-local-server.md)。Desktop 原生桥接和安装界面是另外的能力，原有的人用 CLI 命令继续可用。
+此服务入口管理已准备好的 Server 环境。固定受管资源及安装、修复策略见[受管本地 Server 安装](managed-local-server.md)。受约束的 Desktop 原生桥接见下文；安装界面是另外的能力，原有的人用 CLI 命令继续可用。
 Ops 不是 HTTP API，也不新增常驻进程。
 包含 `isolated_runtime=true` 的受管注册需使用随包 Ops 或匹配版本的服务工具；不支持该定义字段的旧 CLI 会拒绝它，不再继续管理该注册。
 
@@ -141,9 +141,93 @@ macOS 使用对应的运行环境目录，并设置 `--python-relative bin/pytho
 清单记录运行环境身份、启动参数、requirements 摘要、安装文件字节数和文件摘要。它是产物清单，不是信任锚或签名，不能把不可信运行环境或 wheel 变成可信输入。
 已有输出目录不会被覆盖，构建失败后应检查残留产物，再决定清理或换目录构建。
 
-资源生产方（#2112）负责固定输入版本、摘要、平台与架构身份、再分发许可和来源信息。
+[候选资源生产器](../../development/managed-resource-production.md)为 Windows/macOS 三个目标固定输入版本、摘要、平台与架构身份，
+保留许可说明并记录来源；输出始终是未资格验收的候选资源。
 Windows/macOS 打包（#2108/#2109）需要将 Ops 发布到受用户权限保护、独立于 Desktop 和受管 Server 的稳定目录。
 卸载 Desktop 不应悄悄删除维护工具或用户数据。
 签名、macOS notarization、干净机器执行以及原生服务、登录和重启验收是单独的发布检查，构建成功不能代替这些证据。
 
 原有服务行为与平台限制见[部署 Server](deploy-server.md)。
+
+## Desktop 原生桥接
+
+Desktop 仅向随包主窗口开放类型化的 `ops_inspect`、`ops_config_validate`、`ops_preflight`、`ops_apply`、
+`ops_operation_status`、`ops_cancel`、`ops_resume` 和 `ops_references` 命令。
+`desktop/ui/src/shared/ops.ts` 提供类型化客户端及 `subscribeOpsProgress` 订阅；应先订阅，再执行批准的计划。
+通过校验的 `accepted` 和 `progress` JSONL 消息会在工具运行期间实时到达，包含原生请求 ID、操作 ID、尝试编号、阶段及序号。
+检查不依赖目标 Server 的 Python 是否存在。Linux 返回 `unsupported_platform`。
+
+Renderer 只能选择支持的操作与选项，不能提供命令、解释器、服务名、配置路径、下载 URL、catalog 或完整计划。
+原生 preflight 保存 Ops 返回的完整计划，只返回供核对的摘要、`planId` 和不透明的 `approvalId`。
+批准十分钟后过期，且只能使用一次。Apply 要求准确匹配批准 ID 与计划 ID。
+Resume 先通过包含 `resume: { operationId, expectedAttempt }` 的新 preflight 获取计划，再把新批准传给 `ops_resume`。
+绑定变化会使批准失效，也不能把旧操作引用用于查询或恢复另一目标。
+
+原生端在派发修改前，将操作 ID 与绑定摘要原子写入私有的 `PowerContext/Ops/bridge-operations.json`。
+窗口或 Desktop 重开后，`ops_references` 找回引用，再由 `ops_operation_status` 查询原 Ops 日志。
+引用文件不保存计划、结果、凭据，也不建立第二套恢复状态机；文件损坏时拒绝新修改，不会静默重置。
+引用不会自动清除，上限为 4096 条。尝试、锁、取消、恢复判断和原生服务效果仍由 Ops 管理。
+修改 target 文件不构成受支持的操作日志迁移。
+
+有效的结构化非零退出结果仍会保留被拒绝或不健康的事实。超时、响应格式错误、响应丢失或退出会返回结果未知及保留的操作 ID。
+应先查询原操作，再请求新的恢复计划；不能推断已回滚，也不能自动重放修改。
+查询与取消通过独立工具进程执行，并保留两个专用并发名额；其他请求最多同时运行四个工具进程。
+超时的工具在退出前继续占用名额。原生端不向 Ops、Server 或服务管理器进程发送终止信号。
+正常退出 Desktop 时停止接收新请求，最多等待两秒。关闭管道可能使 Ops 在安全边界记录进度通道失败；
+已经接受的原生工作仍可能继续并保存结果。取消是 Ops 协议请求，不等于杀进程，也不承诺回滚。
+
+每个工具接收一条有界 stdin 请求、隔离的环境及固定 `-I -S -B <绝对 entry.py>` 参数。
+被动查询的进程时限为 30 秒，preflight 为 180 秒以容纳有界的目标数据库准入检查，修改为 30 分钟；每条 JSONL 上限 64 KiB，stdout/stderr 合计上限 1 MiB，消息数上限 128。
+两条输出流持续读取，不转发原始文本。完成以工具进程退出为边界，不会因后代保留管道句柄而无限等待 EOF。
+协议版本、请求／操作身份、尝试编号、阶段序列、结果和允许字段在展示前校验。
+原始 stderr、提供方异常、配置内容和凭据不会进入 renderer。
+
+### 配置桥接资源
+
+可信原生安装器或打包器将独立 Ops 分发包发布到固定当前用户目录：
+
+- Windows：`%LOCALAPPDATA%\PowerContext\Ops\bundle`。
+- macOS：`~/Library/Application Support/PowerContext/Ops/bundle`。
+
+该目录与 Desktop、Server 保持独立；卸载 Desktop 时保留工具、引用和 Ops 日志。
+桥接直接使用现有 `scripts/build_ops_bundle.py` 的 `runtime/`、`packages/`、`entry.py` 和 `bundle.json` 格式。
+每次启动校验准确清单摘要、平台／架构、完整文件清单和文件内容。原始构建器的相对 runtime 文件别名，仅在解析结果仍位于
+runtime 内、指向单独列出的普通文件且摘要一致时允许。外部／绝对链接、目录别名、reparse point、额外文件和依赖损坏均被拒绝。
+生产方规范化的分发包可以全部为普通文件。每次启动都会读取完整分发包，此处不宣称性能提升或满足发布性能预算。
+
+随包资源目录提供 `ops-provision.json`：
+
+```json
+{
+  "format_version": 1,
+  "bundle_manifest_sha256": "<已批准 bundle.json 原始字节的 SHA-256>",
+  "binding_mode": "managed_catalog",
+  "catalog_sha256": "<已批准 server/catalog.json 原始字节的 SHA-256>"
+}
+```
+
+两个占位符必须替换为可信生产方和打包器固定的 64 位小写十六进制摘要。候选分发包自己的清单或校验文件不能自行授予信任。
+Desktop 随包资源中的固定摘要是信任起点；生产分发的真实性仍要求合格的发布和签名流程。
+原生端校验随包 `server/catalog.json`，原子写入私有 `PowerContext/Ops/catalog-<digest>.json`，再把不可变副本及摘要传给独立 Ops 入口。
+Renderer 不能替换它们。受管目录仍由 Ops 的 `ManagedLayout.current_user()` 决定。
+
+可选的真实 Tauri 合并配置 `desktop/src-tauri/tauri.ops.conf.json` 从 `desktop/.artifacts/ops-resource/` 打包上述两个文件。
+打包器将已批准生产产物中的 `ops-provision.json` 和 `server/catalog.json` 放到该目录，另行将准确 Ops 分发包配置到固定位置，
+然后在 `desktop/` 中运行：
+
+```sh
+pnpm tauri build --config src-tauri/tauri.ops.conf.json --ci -- --locked
+```
+
+此构建入口不下载资源、不安装独立工具，也不对候选产物作资格认定。
+默认构建不包含这些可选资源，返回 `unavailable`，不会启动系统 Python。
+固定摘要无效或文件变化时返回 `integrity_failure`，不会退回目标 Server 环境执行。
+
+对于由操作者准备的 Server，使用 `binding_mode: "target_file"` 并省略 `catalog_sha256`，在私有的
+`PowerContext/Ops/target.json` 放置前文定义的绑定。原生端传递校验后的摘要命名私有快照及固定 `PowerContext/Ops/state`。
+提供的合并配置面向受管 catalog；target-file 打包器仅把 `ops-provision.json` 加入 Tauri 资源映射。
+原生路径来自操作系统，并明确传入用户 home；不继承环境中的 Python／Server 配置变量。
+
+桥接不提供安装向导，也不自动建立连接或选择 Scope。真实 Windows Task Scheduler、macOS LaunchAgent 修改、正式资源发布、
+签名／公证、干净机器安装和发布验收仍是单独工作。合成工具进程及真实的源码 Ops 只读子进程分别验证对应协议和进程边界，
+不能证明这些平台或发布结果。

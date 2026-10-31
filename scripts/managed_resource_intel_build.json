@@ -1,0 +1,29 @@
+{
+  "format_version": 1,
+  "target": "macos-x86_64",
+  "package": "cryptography",
+  "version": "50.0.0",
+  "upstream_support": "x86_64 macOS support removed upstream; native candidate build requires separate qualification",
+  "xcode_version": "16.4",
+  "xcode_build": "16F6",
+  "sdk_version": "15.5",
+  "deployment_target": "10.13",
+  "artifacts": {
+    "rust": {
+      "filename": "rust-1.95.0-x86_64-apple-darwin.tar.xz",
+      "url": "https://static.rust-lang.org/dist/rust-1.95.0-x86_64-apple-darwin.tar.xz",
+      "sha256": "998af750fe2c28f0dbf193edc496c9a7407850486968f40ac11a8c8adfb7cfa6"
+    },
+    "openssl": {
+      "filename": "openssl-4.0.3.tar.gz",
+      "url": "https://github.com/openssl/openssl/releases/download/openssl-4.0.3/openssl-4.0.3.tar.gz",
+      "sha256": "325b5c806167c13b40b1ffeadfe0248197c00eccc4cf123ec1e28d2d2fd216d9"
+    },
+    "maturin": {
+      "filename": "maturin-1.14.1-py3-none-macosx_10_12_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/43/b6/79c881410a3b1c187f7eb3d407aecae646c6a4433d630d72200359015e83/maturin-1.14.1-py3-none-macosx_10_12_x86_64.whl",
+      "sha256": "f3306078070c1508fd715b9116070cbcaff5959024272a9f1e6f5cb29768b86c",
+      "size": 10169205
+    }
+  }
+}

@@ -437,7 +437,7 @@ Fork 是同实例／同集群迁移恢复点，不是独立物理副本或存储
 
 启用前须验证全部 PC 对象、触发器／外键、全文／向量能力是否保留或可安全重建，Fork 后计划中的源表重命名／结构变更是否允许，以及中断、重启后的恢复。若 Fork 关系阻止计划 DDL，应提供经过验证且保留旧数据的替代表切换方案，否则返回 `backup_unsupported`；不能先删除恢复点来使 DDL 成功。参考 [OceanBase Fork 概述](https://www.oceanbase.com/docs/common-oceanbase-database-ai-1000000006779059)。
 
-恢复保持停写、保留原 Fork，并按已验证方案恢复到 PC 实际使用的目标。当前嵌入式 `SeekDBConfig.database` 固定为 `test`，适配器须交付原库名恢复，或单独实现可配置目标及统一切换；不能把切换到 Fork 库写成现有能力。OceanBase 恢复限定已确认的数据库／表及依赖，不默认覆盖整个共享租户。`MERGE TABLE` 不作为自动撤销不兼容 DDL 的协议。
+恢复保持停写、保留原 Fork，并按已验证方案恢复到 PC 实际使用的目标。嵌入式 `SeekDBConfig.database` 默认为 `powercontext`，支持显式名称，包括旧库 `test`。适配器须交付配置库名的恢复，或经过验证的目标协调切换；库名可配置本身不能证明切换到 Fork 库可用。OceanBase 恢复限定已确认的数据库／表及依赖，不默认覆盖整个共享租户。`MERGE TABLE` 不作为自动撤销不兼容 DDL 的协议。
 
 ### 旧表保留与后续版本清理
 

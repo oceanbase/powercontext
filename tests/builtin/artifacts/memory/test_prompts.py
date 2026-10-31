@@ -47,14 +47,15 @@ def test_conversation_profile_selects_its_versioned_policy() -> None:
     assert CONVERSATION_MEMORY_EXTRACTION_INSTRUCTIONS != MEMORY_EXTRACTION_INSTRUCTIONS
 
 
-def test_atomic_memory_profiles_share_the_subject_bound_v2_contract() -> None:
+def test_atomic_memory_profiles_share_the_subject_bound_description_contract() -> None:
     for profile in MemoryExtractionProfile:
         instructions = atomic_memory_extraction_instructions(profile)
 
         assert atomic_memory_extraction_instructions_version(profile) == (
-            f"powercontext.atomic-memory.extract.{profile.value}.v2"
+            f"powercontext.atomic-memory.extract.{profile.value}.v3"
         )
         assert "subject-bound declarative proposition" in instructions
+        assert "kind, text and description" in instructions
         assert 'Do not address a future agent as "you"' in instructions
         assert "not Atomic Memory" in instructions
         assert "Preserve literal commands, code, paths, configuration keys" in instructions

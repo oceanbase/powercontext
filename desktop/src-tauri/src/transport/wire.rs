@@ -1232,6 +1232,16 @@ pub struct RememberMemoryRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub expected_revision: Option<Option<i64>>,
+    /// Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "description",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub description: Option<Option<String>>,
 }
 
 impl RememberMemoryRequest {
@@ -1243,6 +1253,7 @@ impl RememberMemoryRequest {
             text,
             reason: None,
             expected_revision: None,
+            description: None,
         }
     }
 }

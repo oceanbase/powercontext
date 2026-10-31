@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Only the packaged main window can use typed connection, Scope and local diagnostic commands.",
+  "description": "Only the packaged main window can use typed connection, Scope, diagnostics and constrained Ops commands.",
   "windows": [
     "main"
   ],
@@ -24,6 +24,16 @@
     "allow-select-scope",
     "allow-session-summary",
     "allow-reset-session-observations",
-    "allow-preview-session-diagnostics"
+    "allow-preview-session-diagnostics",
+    "allow-ops-references",
+    "allow-ops-inspect",
+    "allow-ops-config-validate",
+    "allow-ops-preflight",
+    "allow-ops-apply",
+    "allow-ops-operation-status",
+    "allow-ops-cancel",
+    "allow-ops-resume",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
   ]
 }

@@ -205,6 +205,31 @@ def test_a_failing_provider_keeps_lexical_recall_and_classifies_the_failure(
     _assert_fallback_record(record, expected)
 
 
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (InferenceUnavailableError("embed"), "inference_unavailable"),
+        (InferenceTimeoutError("embed", 1.0), "inference_timeout"),
+    ],
+)
+def test_atomic_search_returns_the_logged_embedding_fallback_reason(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, error: Exception, expected: str
+) -> None:
+    async def scenario() -> Any:
+        async with _runtime(tmp_path / "search.db", 5.0, _FailingQueryEmbedding(error)) as runtime:
+            scope_id = await _scope_with_memory(runtime, "search-fallback")
+            assert runtime.atomic_memory is not None
+            return await runtime.atomic_memory.for_scope(scope_id).search(_QUERY, mode="auto")
+
+    page = asyncio.run(scenario())
+
+    assert page.mode == "text"
+    assert page.hits
+    assert page.embedding_fallback == expected
+    (record,) = _fallbacks(caplog)
+    _assert_fallback_record(record, expected)
+
+
 def test_one_budget_bounds_the_embedding_waits_of_a_preparation_across_scopes(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

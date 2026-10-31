@@ -19,6 +19,7 @@ from __future__ import annotations
 import copy
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,26 @@ class ServerVectorProfile:
             owner = json.loads((directory / "schemas/sqlite-v1_4_1_004.json").read_text(encoding="utf-8"))["create"]
             layouts["v1_4_1_004"] = layouts["s1402"] + [
                 ["table", "pc_access_owner_recovery", "pc_access_owner_recovery", owner]
+            ]
+        if "v1_4_1_005" in manifest["revision_resources"]:
+            layouts["v1_4_1_005"] = copy.deepcopy(layouts["v1_4_1_004"])
+            statement = json.loads((directory / "schemas/sqlite-v1_4_1_005.json").read_text(encoding="utf-8"))[
+                "statement"
+            ]
+            for row in layouts["v1_4_1_005"]:
+                if row[0] == "table" and row[1] == "pc_atomic_memory_current":
+                    # SQLite records ALTER TABLE's exact rewritten definition.
+                    # Render it with SQLite while retaining every vector object.
+                    with closing(sqlite3.connect(":memory:")) as connection:
+                        connection.execute(row[3])
+                        connection.execute(statement)
+                        row[3] = connection.execute(
+                            "SELECT sql FROM sqlite_schema WHERE name='pc_atomic_memory_current'"
+                        ).fetchone()[0]
+        if "v1_4_1_006" in manifest["revision_resources"]:
+            plugin = json.loads((directory / "schemas/sqlite-v1_4_1_006.json").read_text(encoding="utf-8"))["create"]
+            layouts["v1_4_1_006"] = layouts["v1_4_1_005"] + [
+                ["table", "pc_source_write_plugins", "pc_source_write_plugins", plugin]
             ]
         for entries in layouts.values():
             entries.sort(key=lambda row: (row[0], row[1]))

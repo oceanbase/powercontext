@@ -26,6 +26,7 @@ from contextlib import closing, nullcontext
 
 import pytest
 from sqlalchemy import Engine, event
+from sqlalchemy.ext.asyncio import create_async_engine
 from typer.testing import CliRunner
 
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
@@ -34,7 +35,7 @@ from powercontext.builtin.persistence.migrations.topic_memory_recovery import To
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
-from powercontext.builtin.persistence.topic_memory_recovery_schema import recovery_statements
+from powercontext.builtin.persistence.topic_memory_recovery_schema import recovery_resource, recovery_statements
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.topic_memory_recovery import TopicMemoryRecoveryService
@@ -196,6 +197,69 @@ def test_atomic_maintenance_continuation_preserves_backup_and_remains_writable(a
     asyncio.run(write_and_reopen(SQLiteConfig(url=f"sqlite+aiosqlite:///{restored}")))
 
 
+@pytest.mark.parametrize("upgrade", ["none", "startup", "offline"])
+def test_legacy_atomic_maintenance_without_description_still_initializes(tmp_path, upgrade):
+    path = tmp_path / "legacy-atomic.db"
+    baseline = recovery_resource()["atomic_maintenance_sqlite_v1"]
+    with closing(sqlite3.connect(path)) as connection, connection:
+        for kind, name, _table, ddl in baseline["schema"]:
+            # SQLite creates FTS shadow tables when the virtual table is created.
+            if kind == "table" and name.startswith("pc_atomic_memory_current_fts_"):
+                continue
+            connection.execute(ddl)
+    config = SQLiteConfig(url=f"sqlite+aiosqlite:///{path}")
+    if upgrade == "startup":
+        from powercontext.builtin.persistence.atomic_memory_index import RelationalAtomicMemoryIndex
+        from powercontext.builtin.persistence.atomic_memory_index_schema import atomic_memory_current_table
+
+        async def upgrade_projection():
+            engine = create_async_engine(config.url)
+            try:
+                async with engine.begin() as connection:
+                    await RelationalAtomicMemoryIndex(atomic_memory_current_table(), None).require_current_schema(
+                        connection
+                    )
+            finally:
+                await engine.dispose()
+
+        asyncio.run(upgrade_projection())
+    elif upgrade == "offline":
+        environment = tmp_path / "maintenance.env"
+        environment.write_text(
+            f"POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_DATABASE_URL={config.url}\n",
+            encoding="utf-8",
+        )
+        migrated = CliRunner().invoke(
+            create_cli([app]),
+            [
+                "server",
+                "atomic-memory-migrate",
+                "--action",
+                "apply",
+                "--maintenance-confirmed",
+                "--env-file",
+                str(environment),
+            ],
+        )
+        assert migrated.exit_code == 0, migrated.output
+        assert json.loads(migrated.output)["ready"] is True
+    runner = TopicMemoryRecoveryMigrationRunner(config)
+    assert runner.plan().state == "uninitialized"
+    assert _apply(runner).backup_state == "completed"
+    assert runner.verify().state == "ready"
+
+    async def reopen():
+        async with open_builtin_contexts(BuiltinConfig(database=config)) as contexts:
+            await contexts.get("scope-a")
+            created = await contexts.records.create_artifact(
+                "scope-a", "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": "Legacy continuation"})
+            )
+            record = await contexts.atomic_memory.for_scope("scope-a").get(created.artifact_id)
+            assert record.artifact.content.description == "Legacy continuation"
+
+    asyncio.run(reopen())
+
+
 @pytest.mark.parametrize("continuation", ["startup", "migration"])
 def test_atomic_maintenance_continuation_rolls_back_before_retry(atomic_maintenance_database, continuation):
     path, config = atomic_maintenance_database
@@ -226,12 +290,15 @@ def test_atomic_maintenance_continuation_rolls_back_before_retry(atomic_maintena
     assert runner.verify().state == "ready"
 
 
-@pytest.mark.parametrize("damage", ["column", "missing_fts", "trigger", "archive", "unknown_table"])
+@pytest.mark.parametrize("damage", ["column", "description_type", "missing_fts", "trigger", "archive", "unknown_table"])
 def test_unknown_atomic_maintenance_output_is_rejected_before_writes(atomic_maintenance_database, damage):
     path, config = atomic_maintenance_database
     with closing(sqlite3.connect(path)) as connection, connection:
         if damage == "column":
             connection.execute("ALTER TABLE pc_atomic_memory_current ADD COLUMN unexpected TEXT")
+        elif damage == "description_type":
+            connection.execute("ALTER TABLE pc_atomic_memory_current DROP COLUMN description")
+            connection.execute("ALTER TABLE pc_atomic_memory_current ADD COLUMN description INTEGER")
         elif damage == "missing_fts":
             connection.execute("DROP TABLE pc_atomic_memory_current_fts")
         elif damage == "trigger":

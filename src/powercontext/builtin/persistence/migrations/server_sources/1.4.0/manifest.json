@@ -23,6 +23,14 @@
     "v1_4_1_004": [
       "schemas/sqlite-v1_4_1_004.json",
       "schemas/mysql-v1_4_1_004.json"
+    ],
+    "v1_4_1_005": [
+      "schemas/sqlite-v1_4_1_005.json",
+      "schemas/mysql-v1_4_1_005.json"
+    ],
+    "v1_4_1_006": [
+      "schemas/sqlite-v1_4_1_006.json",
+      "schemas/mysql-v1_4_1_006.json"
     ]
   },
   "sqlite_baselines": {
@@ -43,6 +51,12 @@
     ],
     "v1_4_1_004": [
       "84d736b5e722a56ebe8a32318732543d43548a63a43709dbf0c571e7e4af83b5"
+    ],
+    "v1_4_1_005": [
+      "2e24be9f699c202cb9d7985690b2be947bdc98f8f64c1c4e4b8e16e35a580fc4"
+    ],
+    "v1_4_1_006": [
+      "cacce80bdfb14aff889b7babebc9ab8487b7f0a11d2dbbd3d77a3717a23df74c"
     ]
   },
   "affected_objects": [
@@ -137,7 +151,8 @@
     "pc_retained_dream_candidate_versions",
     "pc_memory_artifact_archive",
     "pc_portable_restore_receipts",
-    "pc_access_owner_recovery"
+    "pc_access_owner_recovery",
+    "pc_source_write_plugins"
   ],
   "readiness_scope": "server",
   "retained_objects": [
@@ -199,6 +214,14 @@
     "v1_4_1_004": [
       "server_upgrade",
       "portable_storage"
+    ],
+    "v1_4_1_005": [
+      "server_upgrade",
+      "portable_storage"
+    ],
+    "v1_4_1_006": [
+      "server_upgrade",
+      "portable_storage"
     ]
   },
   "retained_fingerprints": {
@@ -214,7 +237,9 @@
     "schemas/mysql-s1400.json",
     "schemas/mysql-s1401.json",
     "schemas/mysql-s1402.json",
-    "schemas/mysql-v1_4_1_004.json"
+    "schemas/mysql-v1_4_1_004.json",
+    "schemas/mysql-v1_4_1_005.json",
+    "schemas/mysql-v1_4_1_006.json"
   ],
   "mysql_history": "mysql",
   "mysql_schema_extensions": {

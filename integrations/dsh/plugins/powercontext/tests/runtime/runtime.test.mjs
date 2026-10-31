@@ -21,7 +21,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { setTimeout } from 'node:timers/promises'
 import { test } from 'node:test'
-import { environment, injected, CANARY, NATIVE_ERROR_CANARY } from './fixture.mjs'
+import { environment, injected, CANARY, CANARY_DESCRIPTION, NATIVE_ERROR_CANARY } from './fixture.mjs'
 import { installIntoHome } from './setup-fixture.mjs'
 import { registerSkill } from '../../src/skill.ts'
 import { MCP_OPERATIONS } from '../../src/mcp-operations.generated.ts'
@@ -79,6 +79,8 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     assert.ok(env.calls.some(call => call.path === '/v1/memory/flush' && call.status === 200), JSON.stringify(env.calls))
     const memory = await env.api('/v1/memory/entries/list', { scope_id: env.scopeId })
     assert.ok(JSON.stringify(memory).includes(CANARY))
+    const manifest = await env.api('/v1/recall/manifest', { scope_id: env.scopeId })
+    assert.deepEqual(manifest.items.map(item => item.description), [CANARY_DESCRIPTION])
     const diagnosedAt = env.calls.length
     const firstStatus = await status(first.sessionId)
     assert.equal(firstStatus.freshness, 'current')

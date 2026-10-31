@@ -42,6 +42,11 @@ powercontext setup
 
 使用与 Server 相同的 ref。`powercontext setup codex dsh` 会安装、配置并诊断两个 Agent。更新已安装连接时使用 `powercontext config agent codex dsh`，不会重新安装或启用插件；原生要求见各 Agent 文档。
 
+## 实验性 MCP 接入
+
+[Cindy](cindy.md)提供统一 Scope 的 Ghost 召回工具，以及可选的自动召回和原始 Prompt 采集，
+通过独立原生 MCP 连接访问完整 Server 工具目录。用户无需安装 DSH，目前仍用于评估，不计入已验证 Agent Host 列表。
+
 ## 自动 prompt 隐私策略
 
 以下 prompt 适配器默认开启捕获。更新插件时保留已有捕获偏好；本策略增加凭据检查，不改变捕获默认值。

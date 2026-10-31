@@ -1,0 +1,120 @@
+name: Managed resource candidates
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/*managed_resource*'
+      - 'scripts/build_ops_bundle.py'
+      - 'scripts/ci_ops_bundle_smoke.py'
+      - 'scripts/build_intel_managed_wheel.py'
+      - 'scripts/managed_resource_intel_build.json'
+      - 'tests/test_managed_resource_producer.py'
+      - 'tests/test_ops_resources.py'
+      - 'src/powercontext/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/managed-resource-candidates.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: managed-resource-candidates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    name: Candidate ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x86_64
+            runner: windows-2025
+          - target: macos-arm64
+            runner: macos-15
+          - target: macos-x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      RESOURCE_TARGET: ${{ matrix.target }}
+      PACKAGE_SOURCE_SHA: ${{ github.sha }}
+      PACKAGE_VERSION: 0.0.0+candidate.${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+          enable-cache: true
+      - name: Install locked build-host checks
+        run: uv sync --locked --no-dev --group resource-build --python 3.12 --no-build-package cryptography --no-build-package jieba
+      - name: Verify native source builders are not bootstrapped through Server extras
+        run: |
+          uv run --no-sync python - <<'PY'
+          import importlib.util
+          for module in ('cryptography', 'jieba', 'maturin'):
+              if importlib.util.find_spec(module) is not None:
+                  raise RuntimeError(f'{module} must be acquired by pinned input preparation')
+          PY
+      - name: Select pinned Intel native compiler and SDK
+        if: matrix.target == 'macos-x86_64'
+        run: echo 'DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer' >> "$GITHUB_ENV"
+      - name: Check producer sources
+        run: |
+          uv run --no-sync ruff check --no-fix scripts/prepare_managed_resources.py scripts/produce_managed_resources.py scripts/ci_managed_resource_smoke.py scripts/build_intel_managed_wheel.py tests/test_managed_resource_producer.py
+          uv run --no-sync ruff format --check scripts/prepare_managed_resources.py scripts/produce_managed_resources.py scripts/ci_managed_resource_smoke.py scripts/build_intel_managed_wheel.py tests/test_managed_resource_producer.py
+          uv run --no-sync ty check scripts/prepare_managed_resources.py scripts/produce_managed_resources.py scripts/ci_managed_resource_smoke.py scripts/build_intel_managed_wheel.py tests/test_managed_resource_producer.py
+      - name: Acquire pinned interpreter and freeze native wheel closure
+        run: |
+          uv run --no-sync python scripts/prepare_managed_resources.py --target "$RESOURCE_TARGET" --source-ref "$PACKAGE_SOURCE_SHA" --server-version "$PACKAGE_VERSION" --output build/resource-inputs --download-cache build/resource-downloads
+          uv run --no-sync python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          inputs = Path('build/resource-inputs').resolve()
+          digest = hashlib.sha256((inputs / 'inputs.json').read_bytes()).hexdigest()
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as output:
+              output.write(f'POWERCONTEXT_RESOURCE_TEST_INPUTS={inputs}\n')
+              output.write(f'POWERCONTEXT_RESOURCE_TEST_INPUTS_SHA256={digest}\n')
+              output.write(f'POWERCONTEXT_RESOURCE_TEST_OUTPUT={Path("build/resource-candidate").resolve()}\n')
+              output.write(f'POWERCONTEXT_RESOURCE_TEST_EVIDENCE={Path("build/resource-evidence").resolve()}\n')
+          PY
+      - name: Produce twice, compare bytes, consume catalog, and run bundled launcher/Ops
+        run: uv run --no-sync pytest -q tests/test_managed_resource_producer.py tests/test_ops_resources.py --junitxml build/resource-tests.xml
+      - name: Retain unqualified candidate evidence
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: unqualified-managed-resource-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            build/resource-candidate/
+            build/resource-inputs/inputs.json
+            build/resource-inputs/requirements.lock
+            build/resource-inputs/upstream-requirements.lock
+            build/resource-tests.xml
+          if-no-files-found: error
+          retention-days: 7
+      - name: Record workflow diagnostics status
+        if: always()
+        run: |
+          mkdir -p build/resource-evidence
+          printf '%s\n' '{"status":"${{ job.status }}","target":"${{ matrix.target }}","qualification":"unqualified_candidate"}' > build/resource-evidence/workflow-status.json
+      - name: Retain bounded diagnostics and input identities
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: managed-resource-diagnostics-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            build/resource-evidence/
+            build/resource-tests.xml
+            build/resource-inputs/inputs.json
+            build/resource-inputs/requirements.lock
+          if-no-files-found: warn
+          retention-days: 7

@@ -49,6 +49,7 @@ _PHYSICAL_VALUES = frozenset({
     "tablet_size",
     "pctfree",
     "auto_increment",
+    "fts_index_type",  # OceanBase 4.6 reflects its server-selected FULLTEXT storage type.
 })
 
 
@@ -308,7 +309,13 @@ class MySQLSchema:
         for revision in self.revisions:
             for state in [*self._prefixes[revision], self._schemas[revision]]:
                 if atomic_name in state["tables"]:
+                    columns = state["tables"][atomic_name]["columns"]
                     state["tables"][atomic_name] = copy.deepcopy(atomic)
+                    # Retain columns introduced after the frozen vector profile
+                    # while preserving its released vector and charset metadata.
+                    state["tables"][atomic_name]["columns"].update({
+                        name: copy.deepcopy(column) for name, column in columns.items() if name not in atomic["columns"]
+                    })
                 if revision != source:
                     state["tables"].update(copy.deepcopy(tables))
         self._statements[source] = tuple(
@@ -331,9 +338,13 @@ class MySQLSchema:
         self.affected_objects = tuple(dict.fromkeys([*self.affected_objects, *tables, declaration_name]))
 
     def _matches(self, inventory: dict[str, Any], expected: dict[str, Any]) -> bool:
+        # Most DDL recovery prefixes have different table sets. Reject them
+        # before normalizing backend defaults for every table.
+        if inventory.keys() != expected.keys() or inventory["tables"].keys() != expected["tables"].keys():
+            return False
         # Captured backends may expose an explicit default that another backend
         # omits. Only registered values may be absent; retain it in fingerprints.
-        actual = copy.deepcopy(inventory)
+        actual = {**inventory, "tables": dict(inventory["tables"])}
         for name, options in self.optional_table_options.items():
             table = actual["tables"].get(name)
             target = expected["tables"].get(name)
@@ -341,6 +352,8 @@ class MySQLSchema:
                 continue
             for option, allowed in options.items():
                 if option not in target and table.get(option) in allowed:
+                    table = dict(table)
+                    actual["tables"][name] = table
                     del table[option]
         return _matches(actual, expected)
 
@@ -522,7 +535,13 @@ def _physical(tokens: list[str]) -> dict[str, str | None]:
 
 
 def _validate_physical_value(option: str, value: str) -> None:
-    supported = {"engine": {"innodb"}, "using": {"btree"}, "organization": {"index", "heap"}}
+    supported = {
+        "engine": {"innodb"},
+        "using": {"btree"},
+        "organization": {"index", "heap"},
+        # PHRASE_MATCH also supports the term matching used by the registered layouts.
+        "fts_index_type": {"match", "phrase_match"},
+    }
     if option in supported and value not in supported[option]:
         raise MigrationError("incompatible_schema", "An unsupported table engine or index organization was discovered.")
 
@@ -863,34 +882,44 @@ def _apply_statement(inventory: dict[str, Any], statement: str) -> None:
 
 
 def _matches(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
-    normalized = copy.deepcopy(actual)
-    if set(normalized) != set(expected) or set(normalized["tables"]) != set(expected["tables"]):
+    if actual.keys() != expected.keys() or actual["tables"].keys() != expected["tables"].keys():
         return False
-    for name, table in normalized["tables"].items():
-        expected_table = expected["tables"][name]
-        if set(table["columns"]) != set(expected_table["columns"]):
-            return False
-        for column, specification in table["columns"].items():
-            # The frozen SQL inherits backend defaults for display text only.
-            # Identity columns explicitly require utf8mb4_bin and remain exact.
-            for option in ("charset", "collation"):
-                if expected_table["columns"][column][option] is None:
-                    specification[option] = None
-        automatic_keys: set[tuple[str, ...]] = set()
-        for index_name, index in tuple(table["indexes"].items()):
-            if index_name in expected_table["indexes"] or index["unique"] or index.get("kind") is not None:
-                continue
-            columns = tuple(key[0] for key in index["columns"])
-            foreign_columns = {tuple(key["columns"]) for key in table["foreign_keys"]}
-            if (
-                columns in foreign_columns
-                and columns not in automatic_keys
-                and all(prefix is None and order == "asc" for _, prefix, order in index["columns"])
-            ):
-                # MySQL can generate one child-key index; OceanBase need not.
-                # Ignore its generated name, not arbitrary prefixes/unique keys.
-                del table["indexes"][index_name]
-                automatic_keys.add(columns)
+    if any(value != expected[key] for key, value in actual.items() if key != "tables"):
+        return False
+    return all(_table_matches(table, expected["tables"][name]) for name, table in actual["tables"].items())
+
+
+def _table_matches(table: dict[str, Any], expected: dict[str, Any]) -> bool:
+    if table["columns"].keys() != expected["columns"].keys():
+        return False
+    # Copy only the maps whose backend-generated defaults can be ignored.
+    # Constraints and index definitions remain unchanged and compare exactly.
+    normalized = {
+        **table,
+        "columns": {column: dict(specification) for column, specification in table["columns"].items()},
+        "indexes": dict(table["indexes"]),
+    }
+    for column, specification in normalized["columns"].items():
+        # The frozen SQL inherits backend defaults for display text only.
+        # Identity columns explicitly require utf8mb4_bin and remain exact.
+        for option in ("charset", "collation"):
+            if expected["columns"][column][option] is None:
+                specification[option] = None
+    automatic_keys: set[tuple[str, ...]] = set()
+    for index_name, index in table["indexes"].items():
+        if index_name in expected["indexes"] or index["unique"] or index.get("kind") is not None:
+            continue
+        columns = tuple(key[0] for key in index["columns"])
+        foreign_columns = {tuple(key["columns"]) for key in table["foreign_keys"]}
+        if (
+            columns in foreign_columns
+            and columns not in automatic_keys
+            and all(prefix is None and order == "asc" for _, prefix, order in index["columns"])
+        ):
+            # MySQL can generate one child-key index; OceanBase need not.
+            # Ignore its generated name, not arbitrary prefixes/unique keys.
+            del normalized["indexes"][index_name]
+            automatic_keys.add(columns)
     return normalized == expected
 
 

@@ -155,6 +155,15 @@ async fn main() {
         "authentication":if has_token { "bearer" } else { "unauthenticated_loopback" },
         "caPem":fixture.ca_pem,"compatibility":compatibility,"keepCredential":false,"credential":credential
     })).unwrap()).unwrap().profiles[0].id.clone();
+    assert!(manager.state().unwrap().active.is_none());
+    let checked = manager.check(&profile, false).await.unwrap();
+    assert!(checked.active.is_none());
+    assert!(
+        checked
+            .reports
+            .iter()
+            .any(|report| report.connection_id == profile)
+    );
     let generation = manager.check(&profile, true).await.unwrap().generation;
     let generation = manager
         .select_scope(generation, &fixture.scope_id)

@@ -130,7 +130,7 @@ async def _observe_case(
     try:
         result = await generator.generate(_extraction_input(case))
         for candidate in result.output.candidates:
-            AtomicMemoryContent(kind=candidate.kind, text=candidate.text)
+            AtomicMemoryContent(kind=candidate.kind, text=candidate.text, description=candidate.description)
         return CaseObservation(
             case_id=case.case_id,
             status="succeeded",

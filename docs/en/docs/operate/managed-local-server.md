@@ -174,8 +174,10 @@ Scope ID, select an arbitrary Scope, or prove that a Memory operation has succee
 
 ## Release and platform acceptance
 
-This implementation requires producer-supplied, fixed resources. The formal platform resource catalog and qualified
-artifacts belong to [#2112](https://github.com/oceanbase/powercontext/issues/2112); the implementation does not supply a
+This implementation requires producer-supplied, fixed resources. The
+[candidate producer](../../development/managed-resource-production.md) builds pinned native Server/Ops resources for
+Windows x86_64 and macOS arm64/x86_64 with real consumer readback. Its catalogs remain unqualified.
+The formal platform resource catalog and qualified artifacts belong to [#2112](https://github.com/oceanbase/powercontext/issues/2112); the implementation does not supply a
 public production download URL or infer one from a version string. Development fixtures and locally built bundles
 verify implementation behavior, not production distribution trust.
 

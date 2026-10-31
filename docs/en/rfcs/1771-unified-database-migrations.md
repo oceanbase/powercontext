@@ -771,9 +771,9 @@ relationships prevent planned DDL, provide a validated table-switch procedure th
 See the [OceanBase Fork overview](https://www.oceanbase.com/docs/common-oceanbase-database-ai-1000000006779059).
 
 Restoration keeps writes stopped, preserves the original Fork, and restores the actual PC target using a validated
-procedure. Embedded `SeekDBConfig.database` currently fixes the name to `test`: deliver restoration to that name or
-separately implement configurable targets and coordinated switching, rather than claiming that switching to a Fork database
-already works. OceanBase restoration is limited to confirmed databases/tables and dependencies, never an entire shared
+procedure. Embedded `SeekDBConfig.database` defaults to `powercontext` and supports explicit names, including legacy
+`test`. Deliver restoration to the configured name or a validated coordinated target switch; configurable names alone
+do not establish that switching to a Fork database works. OceanBase restoration is limited to confirmed databases/tables and dependencies, never an entire shared
 tenant by default. `MERGE TABLE` is not an automatic rollback protocol for incompatible DDL.
 
 ### Retained tables and cleanup in later releases

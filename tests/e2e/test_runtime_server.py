@@ -144,7 +144,12 @@ class ContentCandidatePipeline:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="decision", text=text, evidence_ids=(evidence.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="decision",
+                        text=text,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
                     for evidence in request.evidence
                     if (text := memory_source_text(evidence)) is not None
                 )
@@ -469,7 +474,9 @@ def test_server_databases_keep_case_and_accent_variant_identities_distinct(
             }
             assert len(scope_ids) == 5
             await client.remember_memory(
-                RememberMemoryRequest(scope_id=writer_scope.scope_id, kind="fact", text=memory_text)
+                RememberMemoryRequest(
+                    scope_id=writer_scope.scope_id, kind="fact", text=memory_text, description="Explicit fixture memory"
+                )
             )
             leaked = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=reader_scope.scope_id))
             await client.remember_memory(
@@ -477,6 +484,7 @@ def test_server_databases_keep_case_and_accent_variant_identities_distinct(
                     scope_id=accent_scope.scope_id,
                     kind="fact",
                     text="Espresso is on the third floor.",
+                    description="Explicit fixture memory",
                 )
             )
             accent_leaked = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=plain_scope.scope_id))
@@ -924,7 +932,12 @@ def test_sdk_memory_lifecycle_reaches_one_composed_runtime(tmp_path: Path) -> No
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             scope_id = (await client.get_default_scope()).scope_id
             remembered = await client.remember_memory(
-                RememberMemoryRequest(scope_id=scope_id, kind="decision", text="Use strict transport models.")
+                RememberMemoryRequest(
+                    scope_id=scope_id,
+                    kind="decision",
+                    text="Use strict transport models.",
+                    description="Explicit fixture memory",
+                )
             )
             assert len(remembered.records) == 1
             original = remembered.records[0]
@@ -937,7 +950,11 @@ def test_sdk_memory_lifecycle_reaches_one_composed_runtime(tmp_path: Path) -> No
                 ref.family,
                 ref.artifact_id,
                 ReplaceArtifactRequest.model_validate({
-                    "content": {"kind": "decision", "text": "Keep strict Pydantic transport models."}
+                    "content": {
+                        "kind": "decision",
+                        "text": "Keep strict Pydantic transport models.",
+                        "description": "Explicit fixture memory",
+                    }
                 }),
                 expected_etag=head.headers["ETag"],
             )
@@ -1031,7 +1048,9 @@ def test_runtime_conflicts_keep_http_and_sdk_error_context(tmp_path: Path) -> No
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             remembered = await client.remember_memory(
-                RememberMemoryRequest(scope_id=scope_id, kind="decision", text="first")
+                RememberMemoryRequest(
+                    scope_id=scope_id, kind="decision", text="first", description="Explicit fixture memory"
+                )
             )
             with pytest.raises(ServerResponseError) as caught:
                 await client.remember_memory(
@@ -1040,6 +1059,7 @@ def test_runtime_conflicts_keep_http_and_sdk_error_context(tmp_path: Path) -> No
                         kind="decision",
                         text="stale",
                         expected_revision=remembered.records[0].artifact.revision + 1,
+                        description="Explicit fixture memory",
                     )
                 )
         assert caught.value.status_code == 422
@@ -1096,7 +1116,12 @@ def test_runtime_server_rejects_non_strict_transport_values(tmp_path: Path) -> N
             ),
             transport.post(
                 "/v1/memory/remember",
-                json={"scope_id": scope_id, "kind": "decision", "text": "🧠" * 3_000},
+                json={
+                    "scope_id": scope_id,
+                    "kind": "decision",
+                    "text": "🧠" * 3_000,
+                    "description": "Explicit fixture memory",
+                },
             ),
         ]
 
@@ -1114,7 +1139,12 @@ def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path, t
         scope_id = default_scope.json()["scope_id"]
         remembered = transport.post(
             "/v1/memory/remember",
-            json={"scope_id": scope_id, "kind": "decision", "text": "Keep canonical errors actionable."},
+            json={
+                "scope_id": scope_id,
+                "kind": "decision",
+                "text": "Keep canonical errors actionable.",
+                "description": "Explicit fixture memory",
+            },
         )
         remembered.raise_for_status()
         before = transport.post("/v1/memory/entries/list", json={"scope_id": scope_id})
@@ -1122,7 +1152,7 @@ def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path, t
         responses = [
             transport.post(
                 "/v1/memory/remember",
-                json={"scope_id": scope_id, "kind": "decision", "text": text},
+                json={"scope_id": scope_id, "kind": "decision", "text": text, "description": "Explicit fixture memory"},
             ),
             transport.post(
                 "/v1/memory/entries/revise",
@@ -1176,14 +1206,19 @@ def test_runtime_server_accepts_normalized_memory_byte_limit(tmp_path: Path, tex
     with TestClient(app) as transport:
         scope = transport.get("/v1/scopes/default")
         scope.raise_for_status()
-        payload = {"scope_id": scope.json()["scope_id"], "kind": "decision", "text": text}
+        payload = {
+            "scope_id": scope.json()["scope_id"],
+            "kind": "decision",
+            "text": text,
+            "description": "Explicit fixture memory",
+        }
         remembered = transport.post("/v1/memory/remember", json=payload)
         remembered.raise_for_status()
         assert remembered.json()["records"][0]["text"] == normalized
         revised = transport.post(
             "/v1/memory/entries/revise",
             json={
-                **payload,
+                **{key: value for key, value in payload.items() if key != "description"},
                 "citation": {
                     "memory_ref": {"family": "memory", "artifact_id": "legacy-collection", "revision": 1},
                     "entry_id": "legacy-entry",
@@ -1205,7 +1240,13 @@ def test_runtime_server_rejects_legacy_memory_tag_targets(tmp_path: Path) -> Non
         scope.raise_for_status()
         scope_id = scope.json()["scope_id"]
         remembered = transport.post(
-            "/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": "Tagged migrations."}
+            "/v1/memory/remember",
+            json={
+                "scope_id": scope_id,
+                "kind": "fact",
+                "text": "Tagged migrations.",
+                "description": "Explicit fixture memory",
+            },
         )
         remembered.raise_for_status()
         artifact_id = remembered.json()["records"][0]["artifact"]["artifact_id"]
@@ -1258,6 +1299,7 @@ def test_runtime_server_keeps_unstructured_memory_errors_private(
                 "scope_id": default_scope.json()["scope_id"],
                 "kind": "decision",
                 "text": "valid text",
+                "description": "Explicit fixture memory",
             },
         )
 

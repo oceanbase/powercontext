@@ -136,7 +136,7 @@ a few Memory entries. Read [Memory and Handoff](../workflows/memory-and-handoff.
 ## Opt in to Session bootstrap context
 
 Bootstrap context is off by default. To load a small, deterministic package before Codex's first prompt on
-`startup`, `resume`, `clear`, or `compact`, start Codex with:
+`startup`, `resume`, `clear`, `compact`, or `fork`, start Codex with:
 
 ```bash
 export POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=true

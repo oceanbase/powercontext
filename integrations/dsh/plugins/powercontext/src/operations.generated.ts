@@ -17,6 +17,7 @@
 // generated from openapi/powercontext.yaml; do not edit.
 
 export const OPERATIONS = {
+  get_recall_manifest: { method: 'POST', path: '/v1/recall/manifest', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   list_atomic_memories: { method: 'POST', path: '/v1/atomic-memory/list', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   search_atomic_memory: { method: 'POST', path: '/v1/atomic-memory/search', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   merge_atomic_memories: { method: 'POST', path: '/v1/atomic-memory/merges', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
@@ -143,6 +144,20 @@ export const OPERATIONS = {
   revoke_access_binding: { method: 'POST', path: '/v1/access/bindings/revoke', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   replace_access_binding: { method: 'POST', path: '/v1/access/bindings/replace', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   list_access_audit: { method: 'POST', path: '/v1/access/audit/list', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  pc_source_capabilities: { method: 'POST', path: '/v1/source-management/capabilities', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  pc_source_add: { method: 'POST', path: '/v1/source-management/add', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  pc_source_status: { method: 'POST', path: '/v1/source-management/status', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  pc_source_target_set_enabled: { method: 'POST', path: '/v1/source-management/target-set-enabled', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  pc_source_instances: { method: 'POST', path: '/v1/source-management/instances', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  pc_source_instance_set_enabled: { method: 'POST', path: '/v1/source-management/instance-set-enabled', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  source_configure: { method: 'POST', path: '/v1/source-management/configure', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  load_source_write_plugin: { method: 'POST', path: '/v1/source-management/write/load', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  source_channel_open: { method: 'POST', path: '/v1/source-management/channel/open', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  source_channel_catalog: { method: 'POST', path: '/v1/source-management/channel/catalog', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  source_channel_poll: { method: 'POST', path: '/v1/source-management/channel/poll', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  source_channel_reply: { method: 'POST', path: '/v1/source-management/channel/reply', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  source_channel_close: { method: 'POST', path: '/v1/source-management/channel/close', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  source_instance_exchange: { method: 'POST', path: '/v1/source-management/instances/{instance_id}/{operation}', location: "body", scopeMode: 'none', pathParameters: ['instance_id', 'operation'], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
 } as const
 
 export type OperationId = keyof typeof OPERATIONS

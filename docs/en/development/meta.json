@@ -4,11 +4,13 @@
   "defaultOpen": false,
   "pages": [
     "releasing",
+    "managed-resource-production",
     "core-protocol",
     "memory-layer",
     "plugin-contract",
     "pydantic-ai-inference",
     "observability",
+    "processing-failures",
     "remote-access-implementation",
     "dashboard",
     "desktop-delivery-plan",

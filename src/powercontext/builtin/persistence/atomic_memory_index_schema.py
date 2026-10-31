@@ -16,7 +16,7 @@
 
 from typing import Any
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, LargeBinary, MetaData, Table, Text
+from sqlalchemy import BigInteger, CheckConstraint, Column, LargeBinary, MetaData, String, Table, Text
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.types import TypeEngine
 
@@ -46,6 +46,7 @@ def atomic_memory_current_table(embedding_type: TypeEngine[Any] | None = None, /
         Column("projection_format", identity_string(64), nullable=False),
         Column("kind", body_type, nullable=False),
         Column("text", body_type, nullable=False),
+        Column("description", String(200), nullable=True),
         Column("searchable_text", body_type, nullable=False),
         Column("tag_keys", body_type, nullable=False),
         Column("embedding", LargeBinary() if embedding_type is None else embedding_type),

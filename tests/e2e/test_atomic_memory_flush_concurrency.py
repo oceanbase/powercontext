@@ -59,7 +59,9 @@ class _PausedExtractor:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(item.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="fact", text=text, description="Rollout budget", evidence_ids=(item.evidence_id,)
+                    )
                     for item in request.evidence
                     if (text := memory_source_text(item)) is not None
                 )
@@ -83,7 +85,9 @@ class _PausedReconciler:
                 action="revise",
                 compared_ids=(target.item_id,),
                 target_ids=(target.item_id,),
-                content=AtomicMemoryReconciliationContent(kind="fact", text=request.proposal.text),
+                content=AtomicMemoryReconciliationContent(
+                    kind="fact", text=request.proposal.text, description="Updated rollout budget"
+                ),
                 evidence_ids=(*request.proposal.evidence_ids, *target.evidence_ids),
                 reason="Update the supplied rollout budget using the new Source evidence.",
             )

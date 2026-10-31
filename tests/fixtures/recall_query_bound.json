@@ -1,0 +1,158 @@
+{
+  "schema": "powercontext.recall-query-bound.v1",
+  "description": "The recall query sent to POST /v1/context/prepare by the hosts that recall with the end of a long prompt. A prompt within both bounds is sent trimmed. A longer prompt keeps the longest trailing text that fits both bounds without splitting a character, trimmed again. Each host trims as its language does: JavaScript also trims U+FEFF and Python also trims U+001C to U+001F and U+0085, so no case puts those characters where a query is trimmed. Each segment expands to its text repeated `repeat` times (default 1); a prompt or query is its segments joined in order.",
+  "max_characters": 8192,
+  "max_bytes": 8192,
+  "cases": [
+    {
+      "id": "within-the-bounds",
+      "prompt": [
+        {
+          "text": "  Continue the cache migration.  "
+        }
+      ],
+      "query": [
+        {
+          "text": "Continue the cache migration."
+        }
+      ]
+    },
+    {
+      "id": "exactly-at-the-bounds",
+      "prompt": [
+        {
+          "text": "a",
+          "repeat": 8192
+        }
+      ],
+      "query": [
+        {
+          "text": "a",
+          "repeat": 8192
+        }
+      ]
+    },
+    {
+      "id": "over-the-character-bound",
+      "prompt": [
+        {
+          "text": "a",
+          "repeat": 9000
+        },
+        {
+          "text": "latest request"
+        }
+      ],
+      "query": [
+        {
+          "text": "a",
+          "repeat": 8178
+        },
+        {
+          "text": "latest request"
+        }
+      ]
+    },
+    {
+      "id": "two-byte-characters-over-the-byte-bound",
+      "prompt": [
+        {
+          "text": "é",
+          "repeat": 5000
+        },
+        {
+          "text": "latest"
+        }
+      ],
+      "query": [
+        {
+          "text": "é",
+          "repeat": 4093
+        },
+        {
+          "text": "latest"
+        }
+      ]
+    },
+    {
+      "id": "three-byte-characters-over-the-byte-bound",
+      "prompt": [
+        {
+          "text": "中",
+          "repeat": 3000
+        },
+        {
+          "text": "ab"
+        }
+      ],
+      "query": [
+        {
+          "text": "中",
+          "repeat": 2730
+        },
+        {
+          "text": "ab"
+        }
+      ]
+    },
+    {
+      "id": "three-byte-character-at-the-cut",
+      "prompt": [
+        {
+          "text": "中",
+          "repeat": 2731
+        }
+      ],
+      "query": [
+        {
+          "text": "中",
+          "repeat": 2730
+        }
+      ]
+    },
+    {
+      "id": "four-byte-character-at-the-cut",
+      "prompt": [
+        {
+          "text": "😀",
+          "repeat": 3000
+        },
+        {
+          "text": "a"
+        }
+      ],
+      "query": [
+        {
+          "text": "😀",
+          "repeat": 2047
+        },
+        {
+          "text": "a"
+        }
+      ]
+    },
+    {
+      "id": "whitespace-at-the-cut",
+      "prompt": [
+        {
+          "text": "a",
+          "repeat": 9000
+        },
+        {
+          "text": " ",
+          "repeat": 100
+        },
+        {
+          "text": "b",
+          "repeat": 8092
+        }
+      ],
+      "query": [
+        {
+          "text": "b",
+          "repeat": 8092
+        }
+      ]
+    }
+  ]
+}

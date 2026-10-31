@@ -691,6 +691,15 @@ output_schema:
                       minLength: 1
                       description: Memory text is NFC-normalized and trimmed before
                         enforcing an 8192 UTF-8 byte limit.
+                    description:
+                      anyOf:
+                      - type: string
+                        minLength: 1
+                        maxLength: 200
+                        pattern: ^[^\r\n\u0085\u2028\u2029]*\S[^\r\n\u0085\u2028\u2029]*$
+                        description: A concise single-line summary of final text,
+                          in the same language. Required for new writes.
+                      - type: 'null'
                 - type: object
                   additionalProperties: false
                   required:

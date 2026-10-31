@@ -167,12 +167,20 @@ class SuiteValidationTests(unittest.TestCase):
             validate_suite.validate(self.project)
 
     def test_mock_cannot_omit_a_current_atomic_tool(self):
-        reference = "evals/fixtures/mcp/powercontext-default.json"
-        fixture = self.read(reference)
-        fixture["tool_responses"].pop("list_atomic_memories")
-        self.write(reference, fixture)
-        with self.assertRaisesRegex(ValueError, "current MCP tools"):
-            validate_suite.validate(self.project)
+        for name, message in (
+            ("powercontext-default.json", "current MCP tools"),
+            ("powercontext-failed-save.json", "complete tool catalog"),
+        ):
+            reference = "evals/fixtures/mcp/" + name
+            original = self.read(reference)
+            for tool in ("list_atomic_memories", "get_recall_manifest"):
+                with self.subTest(fixture=name, missing=tool):
+                    fixture = json.loads(json.dumps(original))
+                    fixture["tool_responses"].pop(tool)
+                    self.write(reference, fixture)
+                    with self.assertRaisesRegex(ValueError, message):
+                        validate_suite.validate(self.project)
+                    self.write(reference, original)
 
     def test_skill_copy_drift_fails_before_model_execution(self):
         skill = self.project / "vendor/powercontext-project-context/SKILL.md"

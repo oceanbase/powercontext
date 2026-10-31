@@ -58,6 +58,7 @@ from powercontext.builtin.persistence.supervision import (
     database_utc_now,
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_LEASES_TABLE
+from powercontext.builtin.processing_diagnostics import safe_classify_processing_error, safe_log_fields
 from powercontext.builtin.runtime.observations import DurationObservations, DurationObservationSnapshot
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingBlock,
@@ -1563,12 +1564,18 @@ class ArtifactProcessingSupervisor:
         cancelled = isinstance(error, asyncio.CancelledError) or (
             isinstance(error, _WorkerExecutionError) and error.failure.cancelled
         )
+        diagnostics = (
+            error.failure.diagnostics
+            if isinstance(error, _WorkerExecutionError) and error.failure.diagnostics is not None
+            else safe_classify_processing_error(error)
+        )
         log_safely(
             logger,
             logging.INFO if cancelled else logging.ERROR,
             "Artifact processing cancelled" if cancelled else "Artifact processing failed",
             extra={
                 "event": "artifact_processing.failed",
+                **safe_log_fields(diagnostics),
                 "stage": error.failure.stage
                 if isinstance(error, _WorkerExecutionError)
                 else _safe_error_attribute(error, "stage", stage),
@@ -1720,6 +1727,7 @@ def _run_spawned_worker(
             )
         except BaseException as error:
             error_code = processing_error_code(type(error), _safe_error_attribute(error, "error_code", ""))
+            diagnostics = safe_classify_processing_error(error)
             block = error.block if isinstance(error, ArtifactProcessingBlockedError) else None
             level = logging.ERROR
             outcome = "failure"
@@ -1745,6 +1753,7 @@ def _run_spawned_worker(
                     "stage": None if block is None else block.stage,
                     "exception_type": type(error).__name__,
                     "duration_ms": max(time.perf_counter() - started_at, 0) * 1000,
+                    **safe_log_fields(diagnostics),
                 },
             )
             sender.send(
@@ -1760,6 +1769,7 @@ def _run_spawned_worker(
                     block=error.block if isinstance(error, ArtifactProcessingBlockedError) else None,
                     cancelled=isinstance(error, asyncio.CancelledError),
                     model_usage=None if collector is None else collector.snapshot(),
+                    diagnostics=diagnostics,
                 )
             )
         finally:

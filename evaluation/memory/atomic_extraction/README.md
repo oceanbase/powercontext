@@ -45,6 +45,9 @@ The runner records the exact built-in Prompt versions, instruction SHA-256 value
 SHA-256, provider/model identity, safe model settings, timeout, request limit, candidate kind/text/evidence IDs, and
 portable usage. Provider credentials and raw provider responses are never recorded.
 
+Candidate descriptions are validated against the production content contract. Private observations retain the
+kind, text and evidence IDs used by the factual-retention and instruction-leakage scorer.
+
 `results/` is ignored because `observations.private.jsonl` contains generated candidate text. `report.json` and
 `report.md` contain aggregate counts only. A provider failure is `incomplete`, not an instruction-safety pass.
 
@@ -66,3 +69,9 @@ uv run python -m evaluation.memory.atomic_extraction pin \
 The `pin` command validates the strict run manifest, re-scores the private observations, requires a complete passing
 run, and regenerates the public report rather than copying it. The PR description should link the pinned directory and
 summarize the provider/model/settings and two quality gates. Do not copy or commit `observations.private.jsonl`.
+
+Top-level directories under `reports/` are the current evaluation baseline and must match the current dataset and
+exact Prompt identities. When either contract changes, archive the previous report directory unchanged under
+`reports/archive/` and pin a new passing real-provider run. Archived reports remain bound to their original run
+manifests; they do not establish acceptance of the current contract. A changed version string or digest without a
+new run is not evaluation evidence.

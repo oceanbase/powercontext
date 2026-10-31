@@ -32,7 +32,10 @@ _PREPARE = {"query": "alpha", "assembly": {"sections": [{"family": "memory", "li
 
 
 async def _remember(client, scope_id, text):
-    response = await client.post("/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": text})
+    response = await client.post(
+        "/v1/memory/remember",
+        json={"scope_id": scope_id, "kind": "fact", "text": text, "description": "Fixture memory summary"},
+    )
     assert response.status_code == 200, response.text
     return response.json()["records"][0]
 
@@ -54,7 +57,9 @@ async def _change(client, scope_id, record, operation):
         response = await client.put(
             f"/v1/scopes/{scope_id}/artifacts/atomic-memory/{record['artifact']['artifact_id']}",
             headers={"If-Match": '"revision:1"'},
-            json={"content": {"kind": "fact", "text": "Alpha replacement body."}},
+            json={
+                "content": {"kind": "fact", "text": "Alpha replacement body.", "description": "Fixture memory summary"}
+            },
         )
     elif operation == "forget":
         response = await client.post(
@@ -74,7 +79,11 @@ async def _change(client, scope_id, record, operation):
                 "inputs": [
                     {"artifact": item["artifact"], "state_version": item["state_version"]} for item in (record, other)
                 ],
-                "content": {"kind": "fact", "text": "Merged replacement body."},
+                "content": {
+                    "kind": "fact",
+                    "text": "Merged replacement body.",
+                    "description": "Fixture memory summary",
+                },
             },
         )
     assert response.status_code == 200, response.text

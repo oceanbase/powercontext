@@ -181,6 +181,14 @@ dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a
 	@pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
 	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
 
+.PHONY: cindy-test
+cindy-test: ## Build and test the standalone Cindy hook adapter; no DSH runtime is packaged.
+	@pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+	@pnpm --dir integrations/dsh/plugins/powercontext exec tsdown --config ../../../cindy/tsdown.config.ts
+	@git diff --exit-code -- integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+	@node --test integrations/cindy/tests/*.test.cjs
+	@uv run python integrations/cindy/scripts/package.py
+
 .PHONY: openclaw-plugin-build
 openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext build

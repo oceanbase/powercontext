@@ -92,7 +92,10 @@ Apply 会重新执行准入，并比较获批计划中的数据库、配置、�
 
 ## 发布与平台验收
 
-实现要求生产者提供固定资源。正式平台资源目录及合格产物归 [#2112](https://github.com/oceanbase/powercontext/issues/2112) 负责；实现不提供公共生产下载 URL，也不会根据版本号猜测地址。开发 fixture 和本地构建包验证的是实现行为，不能证明生产分发可信。
+实现要求生产者提供固定资源。[候选生产器](../../development/managed-resource-production.md)为 Windows x86_64 和 macOS arm64/x86_64
+原生构建固定的 Server/Ops 资源，并通过真实消费者回读；其 catalog 仍未资格验收。正式平台资源目录及合格产物归
+[#2112](https://github.com/oceanbase/powercontext/issues/2112) 负责；实现不提供公共生产下载 URL，也不会根据版本号猜测地址。
+开发 fixture 和本地构建包验证的是实现行为，不能证明生产分发可信。
 
 Windows 预检会根据实际最终目录和固定暂存路径预算检查资源布局，获取资源时还会在下载前核对本次暂存目录。普通路径必须满足 Windows 文件和目录长度限制，不支持的布局返回 `resource_path_unsupported`。Ops 不修改系统长路径设置，也不假定 Task Scheduler 支持扩展路径形式的可执行文件名。生产者需提供适合目标用户目录的合格布局；完整开发包在较短测试目录中启动成功，不能证明默认安装布局可用。
 

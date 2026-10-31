@@ -154,9 +154,16 @@ class SeekDBGraphReader:
 
 
 class SeekDBGraphStore:
-    def __init__(self, path: Path, connection_options: Mapping[str, object]) -> None:
-        self.identity = "seekdb:" + digest_bytes(str(path.expanduser().resolve()).encode())
+    def __init__(self, path: Path, connection_options: Mapping[str, object], *, database: str) -> None:
+        # Retain legacy graph references for explicitly selected test databases.
+        location = str(path.expanduser().resolve())
+        self.identity = "seekdb:" + digest_bytes(location.encode())
+        if database != "test":
+            self.identity += ":" + digest_bytes(database.encode())
+        self.database_name = database
         self.options = dict(connection_options)
+        self.options.pop("database", None)
+        self.options.pop("db", None)
         self._condition = threading.Condition()
         self._active = 0
         self._closed = False
@@ -172,7 +179,7 @@ class SeekDBGraphStore:
             remaining = max(1, deadline - time.monotonic())
             with pymysql.connect(
                 **self.options,
-                database="test",
+                database=self.database_name,
                 charset="utf8mb4",
                 autocommit=False,
                 connect_timeout=min(10, int(remaining) + 1),
@@ -246,10 +253,24 @@ class SeekDBGraphStore:
         return reference
 
     def create(
-        self, directory: Path, nodes: list[dict[str, Any]], edges: list[dict[str, Any]], deadline: float
+        self,
+        directory: Path,
+        nodes: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+        deadline: float,
+        *,
+        generation_id: str | None = None,
     ) -> dict[str, Any]:
         self.initialize(deadline)
-        reference = {"backend": self.identity, "binding": directory.parent.name, "id": uuid.uuid4().hex}
+        if generation_id is not None and (
+            len(generation_id) != 32 or any(character not in "0123456789abcdef" for character in generation_id)
+        ):
+            raise CodeError("index_integrity_failed")
+        reference = {
+            "backend": self.identity,
+            "binding": directory.parent.name,
+            "id": generation_id or uuid.uuid4().hex,
+        }
         # Persist the cleanup handle before any database commit can leave orphan rows.
         # A killed writer may leave the temporary file incomplete, but remove() must
         # only see a complete descriptor or no committed database work at all.
@@ -408,6 +429,39 @@ class SeekDBGraphStore:
                 (reference["id"], reference["binding"]),
             )
             connection.commit()
+
+    def remove_generation(self, generation_id: str, binding: str, deadline: float) -> None:
+        """Delete a commit whose directory is gone; the identifier is the only handle left.
+
+        The identifier arrives from a local publication record, so it is validated
+        like :meth:`create` validates one before committing, and the node and edge
+        deletes are scoped to the binding through ``pc_code_generations``. A
+        corrupted or tampered record must not be able to delete another binding's
+        rows by quoting an identifier that binding also happens to use.
+        """
+
+        if len(generation_id) != 32 or any(character not in "0123456789abcdef" for character in generation_id):
+            raise CodeError("index_integrity_failed")
+        with self.connection(deadline) as connection, connection.cursor() as cursor:
+            try:
+                for table in ("pc_code_edges", "pc_code_nodes"):
+                    check_deadline(deadline)
+                    cursor.execute(
+                        f"DELETE FROM {table} WHERE generation_id IN "  # noqa: S608 - constant tables.
+                        "(SELECT id FROM pc_code_generations WHERE id = %s AND binding = %s)",
+                        (generation_id, binding),
+                    )
+                cursor.execute(
+                    "DELETE FROM pc_code_generations WHERE id = %s AND binding = %s", (generation_id, binding)
+                )
+                connection.commit()
+            except pymysql.MySQLError as error:
+                # A binding whose first build was interrupted before initialize() has no
+                # tables yet, so nothing can be committed under this identifier. Handled
+                # inside the context because connection() turns MySQL errors into
+                # CodeError on exit, which would fail the retry this call exists to allow.
+                if error.args[0] != 1146:
+                    raise
 
     def _incomplete_staging(self, directory: Path, deadline: float) -> bool:
         # Older builders wrote graph.json in place before opening the transaction.

@@ -606,6 +606,39 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_topic_memory_processing_status: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/status",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_topic_memory_processing_block: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/blocks/get",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	retry_topic_memory_processing: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/retry",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	search_topic_memory: {
 		method: "POST",
 		path: "/v1/topic-memory/search",

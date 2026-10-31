@@ -216,7 +216,7 @@ def test_prompt_http_history_generation_and_scoped_inference(
             value = {
                 "action": "create",
                 "compared_ids": [item["item_id"] for item in request["related"]],
-                "content": {"kind": proposal["kind"], "text": proposal["text"]},
+                "content": {"kind": proposal["kind"], "text": proposal["text"], "description": "Scoped preference"},
                 "evidence_ids": proposal["evidence_ids"],
                 "reason": "Retain the independently scoped preference.",
             }
@@ -230,6 +230,7 @@ def test_prompt_http_history_generation_and_scoped_inference(
                     {
                         "kind": "preference",
                         "text": text,
+                        "description": "Scoped preference",
                         "evidence_ids": [request["evidence"][0]["evidence_id"]],
                     }
                 ]

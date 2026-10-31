@@ -130,6 +130,11 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `scope_id: string`.
 - Optional: `citation: object`, `target: LegacyMemoryTarget`.
 
+## mcp__powercontext__get_recall_manifest
+
+- Required: `scope_id: string`.
+- Optional: `cursor: string | null`, `kind: string | null`, `limit: integer = 50`, `tag_match: "all" | "any"`, `tags: array<string>`.
+
 ## mcp__powercontext__get_scope
 
 - Required: `scope_id: string`.
@@ -195,6 +200,36 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 - Required: `content: AtomicMemoryWriteContent`, `inputs: array<AtomicMemoryInput>`, `scope_id: string`.
 - Optional: `artifact_refs: array<ArtifactReference>`, `source_refs: array<SourceReference>`.
 
+## mcp__powercontext__pc_source_add
+
+- Required: `capability: string`, `capability_version: string`, `input: object`, `scope_id: string`.
+- Optional: `instance_id: string`.
+
+## mcp__powercontext__pc_source_capabilities
+
+- Required: `scope_id: string`.
+- Optional: `capability: string`, `input: object`, `instance_id: string`.
+
+## mcp__powercontext__pc_source_instance_set_enabled
+
+- Required: `enabled: boolean`, `instance_id: string`.
+- Optional: (none).
+
+## mcp__powercontext__pc_source_instances
+
+- Required: (none).
+- Optional: `capability: string`, `input: object`, `instance_id: string`, `scope_id: string`, `view: "discovery" | "control" = "discovery"`.
+
+## mcp__powercontext__pc_source_status
+
+- Required: `scope_id: string`, `target_id: string`.
+- Optional: `view: "result" | "control" = "result"`.
+
+## mcp__powercontext__pc_source_target_set_enabled
+
+- Required: `enabled: boolean`, `scope_id: string`, `target_id: string`.
+- Optional: (none).
+
 ## mcp__powercontext__prepare_handoff_hint
 
 - Required: `scope_id: string`, `selection: "prepared" | "exact" | "latest"`.
@@ -238,7 +273,7 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 ## mcp__powercontext__remember_memory
 
 - Required: `kind: string`, `scope_id: string`, `text: string`.
-- Optional: `expected_revision: integer | null`, `reason: string | null`.
+- Optional: `description: string | null`, `expected_revision: integer | null`, `reason: string | null`.
 
 ## mcp__powercontext__replace_artifact
 

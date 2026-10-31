@@ -62,6 +62,7 @@ including code stages. Code-specific diagnostic fields are included only for `co
 | `request_id`, `trace_id`, `span_id` | Bound ingress request and current trace context, when available |
 | `worker_id`, `family`, `binding`, `request_generation`, `supervisor_group`, `supervisor_generation` | One worker attempt and its accepted work/fence; correlate child output with supervisor diagnostics |
 | `duration_ms`, `error_code`, `error_category` | Duration in milliseconds, diagnostic code, and bounded operational error classification |
+| `stage`, `processing_stage`, `failure_reason`, `input_item_count`, `estimated_input_tokens`, `token_estimator_id`, `effective_budget`, `provider_request_id`, `finish_reason`, `failure_location`, `cause_exception_type` | Processing failure stage/reason and safe accounting fields; `stage` names the emitting boundary or domain location (Worker/supervisor stage, domain block name, or `worker` fallback), `processing_stage` the bounded domain stage. See [Processing failure diagnostics](../../development/processing-failures.md) |
 
 Server roles are `all` (API and supervisor), `api`, and `background`; child processes use `worker`. Explicit logging
 configuration without a deployment role uses `server`. JSON identity fields correspond to trace resource attributes

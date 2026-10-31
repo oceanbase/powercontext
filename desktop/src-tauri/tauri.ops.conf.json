@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "../.artifacts/ops-resource/ops-provision.json": "ops-provision.json",
+      "../.artifacts/ops-resource/server/catalog.json": "server/catalog.json"
+    }
+  }
+}

@@ -41,6 +41,11 @@ PARAMETERS = {
     "if_match": ("当前内容 ETag", "Real content ETag returned by pc_memory_get for this exact current revision."),
     "kind": ("记忆类型", "One of the six supported curated Memory kinds."),
     "text": ("记忆正文", "Curated Memory text: nonblank after NFC/trim and at most 8192 UTF-8 bytes."),
+    "description": (
+        "记忆简介",
+        "Optional single-line Memory description of at most 200 characters. "
+        "When omitted, the Server stores a bounded text preview without calling a generation model.",
+    ),
     "reason": ("操作原因", "Reason for this explicit operation; preserve the user's intent."),
     "source_id": ("稳定 Source ID", "Stable caller-selected Source ID for explicitly retained evidence."),
     "content": (

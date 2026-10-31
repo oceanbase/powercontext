@@ -161,6 +161,17 @@ function writeFailureConfirmation(error) {
 //#endregion
 //#region src/operations.generated.ts
 const OPERATIONS = {
+	get_recall_manifest: {
+		method: "POST",
+		path: "/v1/recall/manifest",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_atomic_memories: {
 		method: "POST",
 		path: "/v1/atomic-memory/list",
@@ -1610,6 +1621,160 @@ const OPERATIONS = {
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
+	},
+	pc_source_capabilities: {
+		method: "POST",
+		path: "/v1/source-management/capabilities",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_add: {
+		method: "POST",
+		path: "/v1/source-management/add",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_status: {
+		method: "POST",
+		path: "/v1/source-management/status",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_target_set_enabled: {
+		method: "POST",
+		path: "/v1/source-management/target-set-enabled",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_instances: {
+		method: "POST",
+		path: "/v1/source-management/instances",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_instance_set_enabled: {
+		method: "POST",
+		path: "/v1/source-management/instance-set-enabled",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_configure: {
+		method: "POST",
+		path: "/v1/source-management/configure",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	load_source_write_plugin: {
+		method: "POST",
+		path: "/v1/source-management/write/load",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_open: {
+		method: "POST",
+		path: "/v1/source-management/channel/open",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_catalog: {
+		method: "POST",
+		path: "/v1/source-management/channel/catalog",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_poll: {
+		method: "POST",
+		path: "/v1/source-management/channel/poll",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_reply: {
+		method: "POST",
+		path: "/v1/source-management/channel/reply",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_close: {
+		method: "POST",
+		path: "/v1/source-management/channel/close",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_instance_exchange: {
+		method: "POST",
+		path: "/v1/source-management/instances/{instance_id}/{operation}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["instance_id", "operation"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	}
 };
 const OPERATION_IDS = Object.keys(OPERATIONS);
@@ -1835,11 +2000,13 @@ function isRedirect(status) {
 }
 var PowerContextClient = class {
 	baseUrl;
+	userAgent;
 	authorization;
 	requestTimeoutMs;
 	fetchImpl;
 	constructor(options) {
 		this.baseUrl = normalizeServerUrl(options.baseUrl, options.allowInsecureHttp);
+		this.userAgent = options.userAgent ?? PLUGIN_USER_AGENT;
 		this.authorization = options.authorization;
 		this.requestTimeoutMs = options.requestTimeoutMs;
 		this.fetchImpl = options.fetch ?? fetch;
@@ -1888,7 +2055,7 @@ var PowerContextClient = class {
 		const headers = {
 			"X-PowerContext-Dream-Contract": "2",
 			Accept: "application/json",
-			"User-Agent": PLUGIN_USER_AGENT,
+			"User-Agent": this.userAgent,
 			...request$2.headers
 		};
 		if (this.authorization) headers.Authorization = this.authorization;
@@ -2205,6 +2372,25 @@ function validatePreparedContext(response, path = "/v1/context/prepare", maxByte
 		content,
 		content_bytes: contentBytes
 	};
+}
+const MAX_QUERY_CHARACTERS = 8192;
+const MAX_QUERY_BYTES = 8192;
+/**
+* Reduce a prompt to the recall query. A prompt within both bounds is sent as submitted, trimmed.
+* A longer prompt keeps its most recent text, which holds the turn in hand, cut between characters
+* so that the query fits both bounds and splits no character.
+*/
+function boundedRecallQuery(prompt) {
+	const characters = Array.from(prompt.trim());
+	let start = characters.length;
+	let bytes = 0;
+	while (start > 0 && characters.length - start < MAX_QUERY_CHARACTERS) {
+		const size = Buffer.byteLength(characters[start - 1], "utf8");
+		if (bytes + size > MAX_QUERY_BYTES) break;
+		bytes += size;
+		start -= 1;
+	}
+	return characters.slice(start).join("").trim();
 }
 
 //#endregion
@@ -2647,6 +2833,7 @@ const PAYLOAD_WRITES = new Set([
 	"change_atomic_memory_lifecycle"
 ]);
 const CONTENT_FIELDS = new Map([
+	["pc_source_add", ["input"]],
 	["create_scope", [
 		"title",
 		"summary",
@@ -3373,6 +3560,7 @@ const MCP_OPERATIONS = {
 	"get_experience": { "readOnly": true },
 	"get_handoff_report": { "readOnly": true },
 	"get_memory_entry": { "readOnly": true },
+	"get_recall_manifest": { "readOnly": true },
 	"get_scope": { "readOnly": true },
 	"get_skill": { "readOnly": true },
 	"get_topic_memory": { "readOnly": true },
@@ -3386,6 +3574,12 @@ const MCP_OPERATIONS = {
 	"list_memory_entries": { "readOnly": true },
 	"list_scopes": { "readOnly": true },
 	"merge_atomic_memories": { "readOnly": false },
+	"pc_source_add": { "readOnly": false },
+	"pc_source_capabilities": { "readOnly": true },
+	"pc_source_instance_set_enabled": { "readOnly": false },
+	"pc_source_instances": { "readOnly": true },
+	"pc_source_status": { "readOnly": true },
+	"pc_source_target_set_enabled": { "readOnly": false },
 	"prepare_handoff_hint": { "readOnly": true },
 	"preview_atomic_memory_restoration": { "readOnly": true },
 	"propose_experience": { "readOnly": false },
@@ -3551,7 +3745,14 @@ function rawOperation(name$1) {
 	const operation = name$1.slice(MCP_TOOL_PREFIX.length);
 	return Object.prototype.hasOwnProperty.call(MCP_OPERATIONS, operation) ? operation : void 0;
 }
-function usesScope(operation) {
+function usesScope(operation, args) {
+	if ([
+		"pc_source_capabilities",
+		"pc_source_add",
+		"pc_source_status",
+		"pc_source_target_set_enabled"
+	].includes(operation)) return "current";
+	if (operation === "pc_source_instances") return isRecord(args) && args.view === "control" ? "none" : "current";
 	const metadata = OPERATIONS[operation];
 	if (metadata.pathParameters.some((parameter) => parameter === "scope_id")) return "current";
 	return metadata.scopeMode;
@@ -3574,7 +3775,7 @@ function registerMcpPolicy(ctx, resolveScope) {
 			kind: "deny",
 			reason: "secret_rejected: PowerContext refuses to send likely secret content. No MCP request was sent."
 		};
-		const mode = usesScope(operation);
+		const mode = usesScope(operation, exec.arguments);
 		if (mode !== "none") {
 			const cwd = exec.agent?.session?.header?.cwd;
 			let scopeId;
@@ -3785,7 +3986,7 @@ async function recallContent(input, query, scopeId, observation) {
 		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
 		const result = await input.client.request("prepare_context", {
 			scope_id: scopeId,
-			query,
+			query: boundedRecallQuery(query),
 			max_bytes: input.config.maxBytes,
 			...input.config.contextAssembly === void 0 ? {} : { assembly: input.config.contextAssembly }
 		}, input.signal);

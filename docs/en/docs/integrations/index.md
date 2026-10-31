@@ -45,6 +45,12 @@ powercontext setup
 
 Use the same ref as the Server. `powercontext setup codex dsh` installs, configures, and diagnoses both agents. Use `powercontext config agent codex dsh` to update installed connections without reinstalling or enabling them; consult each Agent guide for native requirements.
 
+## Experimental MCP connections
+
+[Cindy](cindy.md) offers scoped Ghost recall tools and optional automatic recall and original-prompt capture,
+with a separate native MCP connection for the full Server tool catalog. Users do not need DSH. It remains under
+evaluation and is not counted in the qualified Agent Host list.
+
 ## Automatic prompt privacy
 
 The following prompt adapters enable capture by default. Existing capture preferences remain effective

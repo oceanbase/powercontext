@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -47,6 +49,7 @@ from powercontext.http import (
     CreateSourceRequest,
     FinalizeHandoffRequest,
     HandoffSelection,
+    ListAccessBindingsRequest,
     ListAccessResourcesRequest,
     ListArtifactsRequest,
     ListMemoryEntriesRequest,
@@ -65,6 +68,7 @@ from powercontext.server.settings import (
     McpConfig,
     MetricsConfig,
     ServerSettings,
+    SourceManagementConfig,
 )
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 from tests.e2e.server_storage import prepare_server_database
@@ -91,7 +95,12 @@ class _ContentMemoryPipeline:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="fact",
+                        text=text,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
                     for evidence in request.evidence
                     if (text := memory_source_text(evidence)) is not None
                 )
@@ -340,7 +349,11 @@ def test_base_source_and_artifact_routes_preserve_access_boundaries(tmp_path: Pa
                     scope.scope_id,
                     CreateArtifactRequest.model_validate({
                         "family": "atomic-memory",
-                        "content": {"kind": "preference", "text": "Use concise answers."},
+                        "content": {
+                            "kind": "preference",
+                            "text": "Use concise answers.",
+                            "description": "Explicit fixture memory",
+                        },
                     }),
                 )
                 memory_head = await owner.get_artifact(scope.scope_id, "atomic-memory", memory.artifact_id)
@@ -350,7 +363,11 @@ def test_base_source_and_artifact_routes_preserve_access_boundaries(tmp_path: Pa
                     "atomic-memory",
                     memory.artifact_id,
                     ReplaceArtifactRequest.model_validate({
-                        "content": {"kind": "preference", "text": "Use concise Chinese answers."}
+                        "content": {
+                            "kind": "preference",
+                            "text": "Use concise Chinese answers.",
+                            "description": "Explicit fixture memory",
+                        }
                     }),
                     expected_etag='"revision:1"',
                 )
@@ -514,6 +531,102 @@ def _scheduled_content_memory_worker(spec, assignment):
             return await process_family_invocation(contexts, assignment, config=spec.config, security=security)
 
     return asyncio.run(run())
+
+
+@pytest.mark.parametrize("authentication", ["legacy", "identity-one", "identity-two"])
+@pytest.mark.parametrize("source_plugins", [False, True])
+def test_scope_access_does_not_depend_on_server_administrator_count(
+    tmp_path: Path, authentication: str, source_plugins: bool
+) -> None:
+    async def scenario() -> None:
+        seed_settings = ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scope-access.db'}"),
+            runtime=RuntimeConfig(artifact_processing_families=()),
+            metrics=MetricsConfig(enabled=False),
+            mcp=McpConfig(enabled=False),
+        )
+        seed_app = create_server_app(settings=seed_settings)
+        async with _client(seed_app, "unused-seed-token") as seed:
+            scope = await seed.create_scope(
+                CreateScopeRequest(title="Private Scope", summary="Existing data", idempotency_key="private-scope")
+            )
+            source = await seed.create_source(scope.scope_id, CreateSourceRequest(content="private evidence"))
+
+        token = "scope-access-test-token"  # noqa: S105 - test credential.
+        principal = PrincipalRef(type="service", id="server-token" if authentication == "legacy" else "admin")
+        auth = BearerAuthConfig(token=SecretStr(token))
+        if authentication != "legacy":
+            identities = tmp_path / "identities.json"
+            identities.write_text(
+                json.dumps({
+                    "identities": [
+                        {
+                            "credential_id": name,
+                            "token_digest": hashlib.sha256(
+                                (token if name == "admin" else token + "-other").encode()
+                            ).hexdigest(),
+                            "subject": {"type": "service", "id": name},
+                        }
+                        for name in (("admin", "other-admin") if authentication == "identity-two" else ("admin",))
+                    ]
+                })
+            )
+            identities.chmod(0o600)
+            auth = BearerAuthConfig(
+                identities_file=identities,
+                administrators=("service:admin", "service:other-admin")
+                if authentication == "identity-two"
+                else ("service:admin",),
+            )
+        directory = tmp_path / "plugins" if source_plugins else None
+        if directory is not None:
+            directory.mkdir()
+        app = create_server_app(
+            settings=ServerSettings(
+                database=seed_settings.database,
+                runtime=seed_settings.runtime,
+                metrics=seed_settings.metrics,
+                mcp=seed_settings.mcp,
+                access=AccessControlConfig(mode="enforced", deployment_id=DEPLOYMENT_ID),
+                auth=auth,
+                source_plugins_dir=directory,
+                source_management=SourceManagementConfig(state_dir=tmp_path / "deployment"),
+            )
+        )
+        query = ListAccessBindingsRequest.model_validate({
+            "management_resource": {"type": "scope", "scope_id": scope.scope_id},
+            "subject": {"type": principal.type, "id": principal.id},
+        })
+        async with _client(app, token) as client:
+            assert not (await client.list_access_bindings(query)).items
+            if authentication == "legacy":
+                assert await client.get_source(scope.scope_id, "content", source.source_id) == source
+                assert {binding.role for binding in (await client.list_access_bindings(query)).items} == {
+                    "scope.viewer",
+                    "scope.contributor",
+                    "scope.reviewer",
+                    "scope.delegator",
+                }
+            else:
+                with pytest.raises(ForbiddenResponseError):
+                    await client.get_source(scope.scope_id, "content", source.source_id)
+                assert not (await client.list_access_bindings(query)).items
+                await client.create_access_binding(
+                    CreateAccessBindingRequest.model_validate({
+                        "subject": {"type": principal.type, "id": principal.id},
+                        "resource": {"type": "scope", "scope_id": scope.scope_id},
+                        "role": "scope.viewer",
+                        "idempotency_key": "explicit-scope-viewer",
+                    })
+                )
+                assert await client.get_source(scope.scope_id, "content", source.source_id) == source
+                with pytest.raises(ForbiddenResponseError):
+                    await client.create_source(scope.scope_id, CreateSourceRequest(content="viewer cannot write"))
+                assert {binding.role for binding in (await client.list_access_bindings(query)).items} == {
+                    "scope.viewer"
+                }
+
+    asyncio.run(scenario())
 
 
 def test_scheduled_memory_processing_uses_the_static_service_principal_as_owner(tmp_path: Path, monkeypatch) -> None:
@@ -807,7 +920,11 @@ def test_tag_owners_and_exact_viewers_preserve_scope_boundaries(tmp_path: Path, 
                 source = await owner.create_source(scope.scope_id, CreateSourceRequest(content="Tag access evidence"))
                 content = {
                     "profile": {"content": "# Profile\n\nTest before release."},
-                    "atomic-memory": {"kind": "fact", "text": "Private release rule"},
+                    "atomic-memory": {
+                        "kind": "fact",
+                        "text": "Private release rule",
+                        "description": "Explicit fixture memory",
+                    },
                     "experience": {
                         "situation": "Release",
                         "action": "Test",

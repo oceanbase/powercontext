@@ -24,7 +24,7 @@ from powercontext.client.errors import (
     UnauthorizedResponseError,
     UnavailableResponseError,
 )
-from powercontext.client.ingestion import RemoteConnectorWorker
+from powercontext.client.ingestion import RemoteConnectorWorker, register_source_definitions
 from powercontext.client.skill_receiver import (
     RECEIVER_VERSION,
     ReceiverSyncResult,
@@ -55,5 +55,6 @@ __all__ = [
     "TransportError",
     "UnauthorizedResponseError",
     "UnavailableResponseError",
+    "register_source_definitions",
     "require_remote_skill_server_url",
 ]

@@ -22,7 +22,7 @@ PREPARED_CONTEXT_SCHEMA = "powercontext.prepared-context.v1"
 MAX_CONTEXT_BYTES = 8_000
 # ``POST /v1/context/prepare`` bounds a query in characters. The byte bound is the Hook's own
 # margin, so a recall also stays acceptable to a server version that measures the storage layer's
-# limit. Both hosts sharing this module recall under the same bounds.
+# limit. Every host that ships this module recalls under the same bounds.
 MAX_QUERY_CHARACTERS = 8_192
 MAX_QUERY_BYTES = 8_192
 

@@ -1097,6 +1097,7 @@ def test_parallel_workers_reject_changed_preparation_inputs(parallel_reports, mo
         parallel.write_json(root / gate.MANIFEST, policy)
     elif changed == "checkout":
         monkeypatch.setenv("GITHUB_SHA", "another-commit")
+        monkeypatch.setenv("PC_UPGRADE_SOURCE_SHA", "another-commit")
     else:
         plan = json.loads((prepared / "plan.json").read_text())
         plan["resolved_matrix"]["required_cases"].pop()
