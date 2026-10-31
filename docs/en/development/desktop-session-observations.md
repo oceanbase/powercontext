@@ -19,16 +19,16 @@ Every record declares `unit` and the owning operation ID in `operation`.
 | Unit | Counted work | Duration in milliseconds |
 | --- | --- | --- |
 | `http_request` | One request handed to the native HTTP client | Monotonic time from dispatch through bounded response reading and JSON decoding, or failure/cancellation |
-| `user_operation` | One native Memory or Scope action invocation, including rejected invocations | Monotonic time from entering the native action through context/identity checks, response validation and result construction, or failure/cancellation |
+| `user_operation` | One native Memory, Scope or statistics action invocation, including rejected invocations | Monotonic time from entering the native action through context/identity checks, response validation and result construction, or failure/cancellation |
 
 HTTP coverage includes `get_server_info`, `get_liveness`, `get_readiness`, `get_capabilities`,
-`get_access_principal`, `list_scopes`, `get_scope`, `get_default_scope`, `remember_memory`, `search_memory`, and `get_artifact_revision`. Native connection
+`get_access_principal`, `list_scopes`, `get_scope`, `get_default_scope`, `get_stats`, `remember_memory`, `search_memory`, and `get_artifact_revision`. Native connection
 checks contribute their individual HTTP requests, not an additional user operation. Identity revalidation and its
 existing anonymous-access readiness fallback also contribute HTTP requests. A user action can therefore issue multiple
 HTTP requests. The summary's `coverage.httpOperations` and `coverage.identityChecksIncluded` disclose that coverage.
 
-User-operation coverage is the six Memory/Scope operations listed in `coverage.userOperations`: `list_scopes`,
-`get_scope`, `get_default_scope`, `remember_memory`, `search_memory`, and `get_artifact_revision`. It does not include
+User-operation coverage is the seven Memory/Scope/statistics operations listed in `coverage.userOperations`: `list_scopes`,
+`get_scope`, `get_default_scope`, `get_stats`, `remember_memory`, `search_memory`, and `get_artifact_revision`. It does not include
 profile editing, connection checks, renderer debounce, UI confirmation time, or clipboard actions. Native pre-dispatch
 validation/concurrency refusals can produce a failed user operation without an HTTP record. HTTP latency is client
 request time, not Server processing time; user-operation latency is native action time, not the entire UI journey.

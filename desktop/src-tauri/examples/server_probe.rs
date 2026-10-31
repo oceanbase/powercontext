@@ -22,13 +22,17 @@ use powercontext_desktop::{
     },
     credentials::{NativeVault, Secret},
     error::SafeError,
-    transport::{DiscoveryDocument, Endpoint, ServerApi, wire::ArtifactReference},
+    transport::{
+        DiscoveryDocument, Endpoint, ServerApi,
+        wire::{ArtifactReference, StatsPeriod},
+    },
 };
 use serde::Deserialize;
 #[derive(Deserialize)]
 struct Fixture {
     compatibility_profile: CompatibilityProfile,
     response_loss_path: Option<String>,
+    statistics_usage_path: Option<String>,
     identity_change_path: Option<String>,
     endpoint: String,
     scope_id: String,
@@ -119,6 +123,14 @@ async fn main() {
         fixture.scope_id
     );
     let keyword = format!("desktop{}", uuid::Uuid::new_v4().simple());
+    // No model is configured: a fresh Scope must expose real empty inventory
+    // and the Server's zero-filled usage, through the reviewed stats contract.
+    let empty_stats = api
+        .stats(&fixture.scope_id, StatsPeriod::Today)
+        .await
+        .unwrap();
+    assert_eq!(empty_stats.inventory.memory.entries.total, 0);
+    assert_eq!(empty_stats.usage.totals.generation.requests, 0);
     let text = format!("{keyword} 中文记录 café\nSecond line.");
     let saved = api.remember(&fixture.scope_id, &text).await.unwrap();
     assert_eq!(saved.records.len(), 1);
@@ -171,6 +183,36 @@ async fn main() {
         .unwrap()
         .generation;
     let keyword = format!("context{}", uuid::Uuid::new_v4().simple());
+    for period in [
+        StatsPeriod::Today,
+        StatsPeriod::Variant7d,
+        StatsPeriod::Variant30d,
+    ] {
+        let stats = manager.stats(generation, period).await.unwrap();
+        assert_eq!(stats.scope_ids, [fixture.scope_id.clone()]);
+        assert_eq!(stats.inventory.memory.entries.total, 1);
+        assert_eq!(stats.usage.period.preset, period);
+        assert_eq!(stats.usage.totals.generation.requests, 0);
+        assert_eq!(stats.usage.totals.generation.input_tokens, Some(0));
+        assert_eq!(stats.usage.totals.embedding.requests, 0);
+        assert_eq!(stats.recall.totals.preparations, 0);
+        assert_eq!(
+            stats.usage.daily.len(),
+            match period {
+                StatsPeriod::Today => 1,
+                StatsPeriod::Variant7d => 7,
+                StatsPeriod::Variant30d => 30,
+            }
+        );
+    }
+    if let Some(path) = &fixture.statistics_usage_path {
+        std::fs::write(path, b"seed-partial-usage").unwrap();
+        let partial = manager.stats(generation, StatsPeriod::Today).await.unwrap();
+        assert_eq!(partial.usage.totals.generation.requests, 2);
+        assert_eq!(partial.usage.totals.generation.input_tokens, None);
+        assert_eq!(partial.usage.totals.generation.output_tokens, Some(9));
+        assert_eq!(partial.usage.daily.last().unwrap().generation.requests, 2);
+    }
     let submitted = format!("  {keyword} 中文 café\nSecond line.  ");
     let expected = format!("{keyword} 中文 café\nSecond line.");
     let saved = manager.remember(generation, &submitted).await.unwrap();
@@ -358,6 +400,10 @@ async fn verify_revocation(
     )
     .unwrap();
     let principal = reader.principal().await.unwrap();
+    reader
+        .stats(&fixture.scope_id, StatsPeriod::Today)
+        .await
+        .unwrap();
     assert_eq!(
         reader
             .atomic_entry(&fixture.scope_id, artifact)
@@ -379,6 +425,15 @@ async fn verify_revocation(
         .error_for_status()
         .unwrap();
     assert_eq!(reader.principal().await.unwrap(), principal);
+    assert_eq!(
+        reader
+            .stats(&fixture.scope_id, StatsPeriod::Today)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::Forbidden
+    );
     assert_eq!(
         reader
             .atomic_entry(&fixture.scope_id, artifact)

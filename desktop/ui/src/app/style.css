@@ -792,6 +792,75 @@ dd {
   gap: 16px;
   align-items: start;
 }
+.statistics {
+  min-width: 0;
+}
+.statistics-controls {
+  flex-wrap: wrap;
+}
+.statistics .fact-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+}
+.statistics .fact {
+  display: block;
+}
+.statistics .fact dd {
+  margin: 6px 0 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.statistics-table,
+.statistics-chart {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.statistics-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.statistics-table caption {
+  text-align: left;
+  padding: 12px;
+  font-weight: 600;
+}
+.statistics-table th,
+.statistics-table td {
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-top: 1px solid var(--border);
+}
+.statistics-table td {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.statistics-table th {
+  white-space: nowrap;
+}
+.statistics-table td[colspan] {
+  white-space: normal;
+}
+.statistics-chart {
+  max-height: 340px;
+  padding: 12px;
+}
+.statistics-chart svg {
+  width: 100%;
+  min-width: 560px;
+  display: block;
+}
+.statistics-chart text {
+  fill: var(--text);
+  font-size: 12px;
+}
+.statistics-chart rect {
+  fill: var(--accent);
+}
+.statistics-zero {
+  stroke: var(--border);
+}
 .memory-hits,
 .saved-hits {
   list-style: none;

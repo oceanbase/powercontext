@@ -134,6 +134,40 @@ async def forward_with_response_gate(app, scope, receive, send, gate):
         await send(message)
 
 
+async def forward_with_statistics_usage(app, scope, receive, send, control_path):
+    """Seed a partial provider report through the real Runtime's usage recorder.
+
+    This is explicit fixture input, not evidence of an actual provider call.
+    The HTTP stats response, aggregation, persistence and native parsing are real.
+    """
+    control = Path(control_path) if control_path else None
+    if scope["type"] != "http" or scope["path"] != "/v1/stats" or control is None or not control.exists():
+        await app(scope, receive, send)
+        return
+    from powercontext.builtin.inference import InferenceUsage
+    from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
+
+    messages = []
+    while True:
+        message = await receive()
+        messages.append(message)
+        if not message.get("more_body", False):
+            break
+    request = json.loads(b"".join(message.get("body", b"") for message in messages))
+    scope_id = request["selection"]["scope_ids"][0]
+    await app.state.application.statistics.for_scope(scope_id).record_model_usage(
+        ModelUsagePurpose.MEMORY_RECALL,
+        ModelUsageOperation.GENERATION,
+        InferenceUsage(requests=2, input_tokens=None, output_tokens=9),
+    )
+    control.unlink()
+
+    async def replay():
+        return messages.pop(0) if messages else await receive()
+
+    await app(scope, replay, send)
+
+
 def measured_requests(app):
     """Observe synthetic HTTP completion without recording request content."""
     request_number = 0
@@ -212,6 +246,9 @@ def serve(config_path: Path) -> None:
         gate = config.get("response_gate_path")
         if gate and scope["type"] == "http" and scope["path"] == "/v1/memory/remember":
             await forward_with_response_gate(app, scope, receive, send, gate)
+            return
+        if config.get("statistics_usage_path") and scope["type"] == "http" and scope["path"] == "/v1/stats":
+            await forward_with_statistics_usage(app, scope, receive, send, config["statistics_usage_path"])
             return
         await forward_with_response_loss(app, scope, receive, send, config.get("response_loss_path"))
 
@@ -364,6 +401,7 @@ def main() -> None:
             endpoint = f"{'https' if tls else 'http'}://127.0.0.1:{port}{prefix}"
             config = {
                 "response_loss_path": str(case / "response-loss-count"),
+                "statistics_usage_path": str(case / "statistics-partial-usage"),
                 "reader_token": secrets.token_urlsafe(32),
                 "provider": mode == "loopback-provider",
                 "identity_change_path": str(case / "identity-changed"),
@@ -439,6 +477,7 @@ def main() -> None:
                     fixture = {
                         "compatibility_profile": compatibility,
                         "response_loss_path": config["response_loss_path"],
+                        "statistics_usage_path": config["statistics_usage_path"],
                         "reader_token": config["reader_token"] if config["provider"] else None,
                         "identity_change_path": config["identity_change_path"] if config["provider"] else None,
                         "endpoint": endpoint,

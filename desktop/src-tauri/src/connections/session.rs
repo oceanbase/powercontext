@@ -169,6 +169,7 @@ pub struct ConnectionManager {
     probes: tokio::sync::Semaphore,
     writes: tokio::sync::Semaphore,
     memory_reads: watch::Sender<u32>,
+    stats_reads: watch::Sender<u32>,
 }
 impl ConnectionManager {
     pub fn new(profiles: ProfileRepository) -> Self {
@@ -212,6 +213,7 @@ impl ConnectionManager {
             probes: tokio::sync::Semaphore::new(1),
             writes: tokio::sync::Semaphore::new(1),
             memory_reads: watch::channel(0).0,
+            stats_reads: watch::channel(0).0,
         }
     }
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Inner>, SafeError> {
@@ -602,6 +604,49 @@ impl ConnectionManager {
     }
     pub fn cancel_memory_reads(&self, generation: u32) -> Result<(), SafeError> {
         self.begin_memory_read(generation).map(|_| ())
+    }
+    fn begin_stats_read(&self, generation: u32) -> Result<watch::Receiver<u32>, SafeError> {
+        let inner = self.lock()?;
+        if inner.generation != generation {
+            return Err(SafeError::StaleContext);
+        }
+        let next = self
+            .stats_reads
+            .borrow()
+            .checked_add(1)
+            .ok_or(SafeError::Storage)?;
+        self.stats_reads.send_replace(next);
+        Ok(self.stats_reads.subscribe())
+    }
+    pub fn cancel_stats_reads(&self, generation: u32) -> Result<(), SafeError> {
+        self.begin_stats_read(generation).map(|_| ())
+    }
+    pub async fn stats(
+        &self,
+        generation: u32,
+        period: crate::transport::wire::StatsPeriod,
+    ) -> Result<crate::transport::ExactScopeStatistics, ApiFailure> {
+        self.observations
+            .user_operation(ObservedOperation::GetStats, async {
+                let (
+                    ReadSnapshot {
+                        api,
+                        identity,
+                        mut cancelled,
+                    },
+                    context,
+                ) = self.memory_snapshot(generation, "get_stats")?;
+                let mut query_cancelled = self.begin_stats_read(generation)?;
+                Self::cancellable(
+                    &mut cancelled,
+                    Self::cancellable(&mut query_cancelled, async {
+                        self.identity_unchanged(&api, &identity, generation).await?;
+                        api.stats(&context.scope_id, period).await
+                    }),
+                )
+                .await
+            })
+            .await
     }
     pub async fn search_memory(
         &self,

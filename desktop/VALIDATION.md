@@ -47,7 +47,7 @@ The native `get_server_info` adapter and full real-Server harness were exercised
 
 The native suite passed all 61 tests, including synthetic HTTP regressions for missing/denied/unavailable/invalid/incompatible discovery, optional-field additions, operation membership, duplicate deployment-identity fields, qualification isolation, cancellation, credentials and uncertain writes. A synthetic HTTP regression verifies that a qualified connection blocks Scope requests after discovery returns 503 and allows them again after an explicit successful recheck. The bundled-product qualification test also exercised explicit Scope browsing through the normal manager. All 116 frontend tests passed, including distinct bilingual discovery diagnostics, replacement of a temporary-failure diagnostic after a successful recheck, and per-operation Memory/Scope gating with restriction reasons while independently supported operations remain available, including exact-read gating for records returned by a save. Clippy with `--all-targets -- -D warnings`, Rust formatting, generated contract drift, IPC export drift, frontend lint/type checks/build and seven focused Python contract/fixture tests passed. Generation was executed from a Windows checkout whose path contains a space. Repository hooks passed except default Windows `ty check`, which reported POSIX-only attributes in unchanged Python modules; `ty check --python-platform linux` passed. Synthetic HTTP and UI fixtures establish local status/recovery handling, not installed-host or release acceptance.
 
-The historical Server c535d816 protocol qualification below records the specific source, wheel and operation identities independently of the CI-only fixture. It does not establish installed UI or release acceptance. The focused `server_probe <fixture.json> discovery-only` mode calls discovery without readiness or Memory requests and accepts the full probe's fixture format. Historical product records remain unchanged; the locally generated qualification file is a CI-only fixture. This historical discovery qualification retains its original contract digest; the `cc5980f0`, `dd62723d` and `4ffdf4e9` records retain their ten independently qualified operations and do not add discovery qualification. The `cc5980f0` acceptance predates the native discovery adapter and does not establish real-Server acceptance of the combined client and Server sources. Deployment-aware read/write fencing, explicit readiness separation, local setup approval handoff and installed Windows/macOS qualification remain separate acceptance requirements.
+The historical Server c535d816 protocol qualification below records the specific source, wheel and operation identities independently of the CI-only fixture. It does not establish installed UI or release acceptance. The focused `server_probe <fixture.json> discovery-only` mode calls discovery without readiness or Memory requests and accepts the full probe's fixture format. Historical product records remain unchanged; the locally generated qualification file is a CI-only fixture. This historical discovery qualification retains its original contract digest; the `cc5980f0`, `dd62723d` and `4ffdf4e9` records retain their ten independently qualified operations and do not add discovery qualification. The `cc5980f0` acceptance predates the native discovery adapter and does not establish real-Server acceptance of the combined client and Server sources. The combined statistics/discovery records below retain their own source-specific qualification evidence and original contract digests. Deployment-aware read/write fencing, explicit readiness separation, local setup approval handoff and installed Windows/macOS qualification remain separate acceptance requirements.
 
 ## Compatibility scope
 
@@ -56,6 +56,137 @@ The historical Server c535d816 protocol qualification below records the specific
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit.
 
 Selecting a compatibility profile does not attest the remote binary identity. Existing `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` / `sqlite-6e237568-v1` / `sqlite-legacy-58f7f4f6-v1` selections require explicitly choosing an available matching profile and rechecking the connection. Desktop reads memories only through Atomic Memory references, so Servers that answer only with Memory entry citations are not qualified. CLI diagnostics separately verify the registered executable path and digest, then validate the diagnostic response schema. The observed version is optional report information; a registration does not require a version.
+
+### Current-Scope statistics qualification
+
+#### Server 27404931 statistics and discovery qualification
+
+`sqlite-stats-27404931-v1` qualifies Server sources at
+`274049318d1ed61885b2f75b202c261e6c60715b`, normalized contract digest
+`c12901b88b8e958c9cd63469298b9a04b9d5e2b0b4564d83b50f7ae95542519a`, and wheel
+`powercontext-1.4.1.dev185+g434859f8d.d20261028-py3-none-any.whl`, SHA-256
+`e944f46e2a04c0101c47667700667a34b805ca625f3ef8c69e73837784040d3b`.
+All 617 packaged runtime files match that Server commit byte for byte. The sorted
+`path sha256` manifest, newline terminated, hashes to
+`31cf15628d1a45127b2c93a06ce0ea2df34efb195218075b501f22fca4b30853`.
+The build included local Desktop merge changes; Server runtime, OpenAPI and
+lockfile sources match the recorded commit.
+
+On 2026-10-28, macOS ARM64, Python 3.12.13 and Rust 1.95.0 exercised all twelve
+native operations, including `get_server_info` and `get_stats`, against that
+wheel in anonymous loopback, Bearer loopback, explicit-CA HTTPS/base path and
+enforced-provider modes. All four passed, preserving discovery qualification,
+exact-Scope statistics, partial token reports, context isolation, authorization,
+exact reads and unknown-write handling. Partial reports are explicit Runtime
+recorder fixture inputs, not actual provider calls. Reports and source comparison
+are generated under `.artifacts/stats-27404931/` and `.artifacts/real-server.json`.
+
+The App mounts Statistics through `Observation.panels.inventory`; bilingual
+App navigation regressions exercise the named tab, exact Scope and explicit load.
+The Windows installed journey uses that same tab for its real Server table
+comparisons. Local App tests use mocked IPC; installed-platform execution on the
+current Desktop head and full upgrade acceptance retain their separate CI gates.
+
+#### Server bad4c0c2 statistics qualification
+
+`sqlite-stats-bad4c0c2-v1` qualifies Server sources at
+`bad4c0c23fb6f8febbb91d5da050a6765a5887a2`, normalized contract digest
+`c12901b88b8e958c9cd63469298b9a04b9d5e2b0b4564d83b50f7ae95542519a`, and wheel
+`powercontext-1.4.1.dev180+g7f6ef3c02.d20261027-py3-none-any.whl`, SHA-256
+`0f5e5be815b143a63dc605d93c741b0251717e1db0af2c32fe1a98acad758c7d`.
+All 609 packaged runtime files match the recorded Server commit byte for byte.
+The sorted `path sha256` manifest, newline terminated, hashes to
+`4d0dc40f50bdd5bfb151c1169ad6c41af3466ad777d7ee65a26a39f7852fb083`.
+The wheel was built with local Desktop merge changes; Server runtime, OpenAPI
+and dependency-lock sources match the recorded commit.
+
+On 2026-10-27, macOS ARM64 with Python 3.12.13 and Rust 1.95.0 ran the native
+`ConnectionManager` / `server_probe` against independent SQLite Server processes
+from that wheel. Anonymous loopback, Bearer loopback, HTTPS with CA/base path and
+enforced-provider modes passed. Exact-Scope statistics cover empty and persisted
+inventory, today/7d/30d UTC periods, zero usage, partial token reports and permission
+revocation without fallback. The partial reports are explicit inputs to the real
+Runtime recorder, not evidence of model-provider calls. The merged harness retains
+bounded request-completion diagnostics and Server cleanup; the four runs completed.
+Source identity and harness output are generated under `.artifacts/stats-bad4c0c2/`
+and `.artifacts/real-server.json`. This is protocol qualification for the recorded
+sources and wheel; installed-platform and release acceptance remain separate.
+
+#### Server 31ecdd61 statistics qualification
+
+`sqlite-stats-31ecdd61-v1` qualifies Server sources at
+`31ecdd61beadb7ac8de5da20998dead9a9e07845`, normalized contract digest
+`3165f114185aa403b563c936d5fbd0829388628f4a37540d9d1519202a07871c`, and wheel
+`powercontext-1.4.1.dev157+g0cc9036b0.d20261026-py3-none-any.whl`, SHA-256
+`7a17cf9c641d1fa7ae9635204b605aedca8e33f0ceddc0bf8fcd9dd02667cb4b`.
+All 552 packaged runtime files match that Server commit byte for byte. The sorted
+`path sha256` manifest, newline terminated, hashes to
+`9dbada6473027441b6b4934803d9efe718e84a48b4f77723d41b0de414eea125`.
+The wheel was built with local Desktop merge changes; its Server runtime,
+OpenAPI contract and dependency lock match the recorded sources.
+
+On 2026-10-26, macOS ARM64 with Python 3.12.13 and Rust 1.95.0 ran the native
+`ConnectionManager` / `server_probe` against independent SQLite processes from
+that wheel. Anonymous loopback, Bearer loopback, HTTPS with CA/base path and
+enforced-provider modes passed. The eleven operations include exact-Scope
+statistics: empty and persisted inventory, today/7d/30d UTC periods, zero usage,
+partial token reports and permission revocation. Partial reports are seeded via
+the real Runtime recorder, not observed model-provider calls. Identity changes,
+exact reads and ambiguous writes retain the existing harness checks.
+Evidence is generated under `.artifacts/stats-31ecdd61/` and `.artifacts/real-server.json`.
+This qualifies the recorded protocol and sources; installed UI and release
+acceptance require the checks for their corresponding Desktop head.
+
+#### Server 1da99747 statistics qualification (historical)
+
+`sqlite-stats-1da99747-v1` records Server commit
+`1da997476651c2850ff7141e2b7cd512d0152a90`, contract digest
+`5878999ce9e239d6642e4da858074b281ed465629432c578b3584eec47cbce6c`, and wheel
+`powercontext-1.4.1.dev139+g1da997476.d20261024-py3-none-any.whl` with SHA-256
+`4eda168954bb5950aa4f0bbc0d534b2b2bdb15ff43f97de7df279963c46c70a8`.
+All 457 Python runtime files in that wheel match the checkout's runtime sources;
+their sorted `path sha256` manifest, newline terminated, hashes to
+`49fe8325db1955ee250c3a76a8efad3d87fc393dc1007a95817524f38ded41ad`.
+The Desktop adapter and harness had local changes during this run; the Server
+runtime, OpenAPI contract and dependency lock matched the recorded commit.
+
+On macOS 26.7 ARM64, Python 3.12.13 and Rust 1.95.0, the native `ConnectionManager`
+and `ServerApi` passed the isolated built-wheel harness in anonymous loopback,
+Bearer loopback, HTTPS with explicit CA/base path, and enforced-provider modes.
+The eleven recorded operations include `get_stats`. Statistics checks exercise
+the exact Scope, genuine empty inventory, `today`/`7d`/`30d` UTC periods,
+persisted Memory inventory, no-model zero usage, and same-Principal permission
+revocation without selection fallback. Partial provider usage is explicitly
+seeded through the real Runtime recorder: two generation requests, unknown input
+tokens and nine output tokens survive persistence, aggregation and native parsing.
+This seeded input does not establish that an actual model provider emitted it.
+
+Synthetic native tests separately cover cancellation, changed Scope, independent
+Memory cancellation, response bounds, and invalid response selection/period.
+The harness reports are generated under `.artifacts/`; reproduce them with
+`fixture_qualification.py`, the `server_probe` example and `real_server.py`.
+These results qualify the observed Server protocol.
+
+The bundled macOS ARM64 debug app was also exercised against two isolated real
+Servers on this host, using an isolated application identifier and an 800 × 600
+window. The build used Desktop `34c61c5f` plus the main-window zoom permission
+in this PR; its executable SHA-256 is
+`43d0d149d3194739171ffb70a57736280c14d2cd3d63fe47001c8f2b3381065d`.
+Observed results include explicit activation after restart, empty inventory,
+Chinese and English partial-token displays, clearing on Scope/connection changes,
+and the second Server's independent one-entry inventory with zero usage.
+Command+0 followed by five Command+= steps exercised 200% webview zoom, including
+a successful statistics reload. The zoom IPC permission is restricted to the
+trusted local main window. This was a bundled debug-app check, not installer,
+IME, screen-reader, signing or complete accessibility acceptance.
+
+`installed_statistics.py` extends the Windows installed WebDriver journey with
+independent real `/v1/stats` table comparisons, all three UTC periods, bilingual
+unknown-token handling, and Scope/connection isolation. Its fixture and Python
+checks ran locally; the Windows UI journey requires actual Windows execution.
+Hosted workflows at `34c61c5f` required maintainer approval (`action_required`),
+so that head had no Windows acceptance result. Intel and release gates remain
+separate.
 
 <a id="current-server-protocol-qualification"></a>
 

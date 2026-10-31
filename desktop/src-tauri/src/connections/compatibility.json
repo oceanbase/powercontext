@@ -306,6 +306,126 @@
     "evidence": "desktop/VALIDATION.md#server-c535d816-protocol-qualification"
   },
   {
+    "id": "sqlite-stats-1da99747-v1",
+    "serverCommit": "1da997476651c2850ff7141e2b7cd512d0152a90",
+    "contractSha256": "5878999ce9e239d6642e4da858074b281ed465629432c578b3584eec47cbce6c",
+    "artifactSha256": "4eda168954bb5950aa4f0bbc0d534b2b2bdb15ff43f97de7df279963c46c70a8",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_stats",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#current-scope-statistics-qualification"
+  },
+  {
+    "id": "sqlite-stats-31ecdd61-v1",
+    "serverCommit": "31ecdd61beadb7ac8de5da20998dead9a9e07845",
+    "contractSha256": "3165f114185aa403b563c936d5fbd0829388628f4a37540d9d1519202a07871c",
+    "artifactSha256": "7a17cf9c641d1fa7ae9635204b605aedca8e33f0ceddc0bf8fcd9dd02667cb4b",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_stats",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-31ecdd61-statistics-qualification"
+  },
+  {
+    "id": "sqlite-stats-bad4c0c2-v1",
+    "serverCommit": "bad4c0c23fb6f8febbb91d5da050a6765a5887a2",
+    "contractSha256": "c12901b88b8e958c9cd63469298b9a04b9d5e2b0b4564d83b50f7ae95542519a",
+    "artifactSha256": "0f5e5be815b143a63dc605d93c741b0251717e1db0af2c32fe1a98acad758c7d",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_stats",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-bad4c0c2-statistics-qualification"
+  },
+  {
+    "id": "sqlite-stats-27404931-v1",
+    "serverCommit": "274049318d1ed61885b2f75b202c261e6c60715b",
+    "contractSha256": "c12901b88b8e958c9cd63469298b9a04b9d5e2b0b4564d83b50f7ae95542519a",
+    "artifactSha256": "e944f46e2a04c0101c47667700667a34b805ca625f3ef8c69e73837784040d3b",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_server_info",
+      "get_stats",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-27404931-statistics-and-discovery-qualification"
+  },
+  {
+    "id": "sqlite-atomic-68491568-v1",
+    "serverCommit": "68491568359fd9f5723208bbeeec2f808fd2bcc9",
+    "contractSha256": "b89e721f9fba1c4ef4267b4420af417e5a88a7f7fbe893f639df913b77d24dc0",
+    "artifactSha256": "91c54cfd8551cc1590abcedb8bbd7bf9865ffc41667fee7b3ac015c249f8bbfb",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-68491568-protocol-qualification"
+  },
+  {
+    "id": "sqlite-atomic-0a49db9b-v1",
+    "serverCommit": "0a49db9bf640703e1067ecda67650f20612d3427",
+    "contractSha256": "bce4e0d3deec56590a29c3c06af4d853fc8cad2917d8832b23c92dd160472ccd",
+    "artifactSha256": "8e57881de55502f99f44a6076bcffee2935f3d3666a00330664f4bcb0fb92150",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_server_info",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-0a49db9b-protocol-qualification"
+  },
+  {
     "id": "sqlite-artifact-d6820d88-v1",
     "serverCommit": "d6820d884ccd240712df477e459622f60fd6f5f5",
     "contractSha256": "f571a95d193f0dae91694ffcd6b37c93603a5ae731fddefbcdbfa9a5914762ae",
@@ -361,45 +481,6 @@
       "search_memory"
     ],
     "evidence": "desktop/VALIDATION.md#artifact-framework-merge-87d01f68-protocol-qualification"
-  },
-  {
-    "id": "sqlite-atomic-68491568-v1",
-    "serverCommit": "68491568359fd9f5723208bbeeec2f808fd2bcc9",
-    "contractSha256": "b89e721f9fba1c4ef4267b4420af417e5a88a7f7fbe893f639df913b77d24dc0",
-    "artifactSha256": "91c54cfd8551cc1590abcedb8bbd7bf9865ffc41667fee7b3ac015c249f8bbfb",
-    "operations": [
-      "get_access_principal",
-      "get_artifact_revision",
-      "get_capabilities",
-      "get_default_scope",
-      "get_liveness",
-      "get_readiness",
-      "get_scope",
-      "list_scopes",
-      "remember_memory",
-      "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-68491568-protocol-qualification"
-  },
-  {
-    "id": "sqlite-atomic-0a49db9b-v1",
-    "serverCommit": "0a49db9bf640703e1067ecda67650f20612d3427",
-    "contractSha256": "bce4e0d3deec56590a29c3c06af4d853fc8cad2917d8832b23c92dd160472ccd",
-    "artifactSha256": "8e57881de55502f99f44a6076bcffee2935f3d3666a00330664f4bcb0fb92150",
-    "operations": [
-      "get_access_principal",
-      "get_artifact_revision",
-      "get_capabilities",
-      "get_default_scope",
-      "get_liveness",
-      "get_readiness",
-      "get_scope",
-      "get_server_info",
-      "list_scopes",
-      "remember_memory",
-      "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-0a49db9b-protocol-qualification"
   },
   {
     "id": "sqlite-source-artifact-87b6fae2-v1",

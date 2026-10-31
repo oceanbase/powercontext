@@ -47,6 +47,8 @@ fn main() {
             "search_memory",
             "atomic_memory_entry",
             "cancel_memory_reads",
+            "get_stats",
+            "cancel_stats_reads",
             "desktop_state",
             "save_profile",
             "remove_profile",

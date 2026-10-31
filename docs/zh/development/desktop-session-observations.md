@@ -18,15 +18,15 @@ Desktop 为 [#2107](https://github.com/oceanbase/powercontext/issues/2107) 提�
 | 单位 | 计数对象 | 耗时口径，单位为毫秒 |
 | --- | --- | --- |
 | `http_request` | 一次交给原生 HTTP 客户端的请求 | 从派发到完成有界响应读取、JSON 解码，或失败、取消的单调时钟耗时 |
-| `user_operation` | 一次原生 Memory 或 Scope 操作调用，包括被拒绝的调用 | 从进入原生操作到完成上下文与身份检查、响应校验及结果构造，或失败、取消的单调时钟耗时 |
+| `user_operation` | 一次原生 Memory、Scope 或统计操作调用，包括被拒绝的调用 | 从进入原生操作到完成上下文与身份检查、响应校验及结果构造，或失败、取消的单调时钟耗时 |
 
 HTTP 覆盖 `get_server_info`、`get_liveness`、`get_readiness`、`get_capabilities`、`get_access_principal`、`list_scopes`、
-`get_scope`、`get_default_scope`、`remember_memory`、`search_memory` 和 `get_artifact_revision`。
+`get_scope`、`get_default_scope`、`get_stats`、`remember_memory`、`search_memory` 和 `get_artifact_revision`。
 连接检查只计入它实际发出的各项 HTTP 请求，不额外产生用户操作。身份复核及现有匿名访问的就绪检查回退也计入 HTTP 请求。
 因此，一次用户操作可能产生多个请求；`coverage.httpOperations` 和 `coverage.identityChecksIncluded` 明确说明该范围。
 
-用户操作覆盖 `coverage.userOperations` 中的六项 Memory/Scope 操作：`list_scopes`、`get_scope`、
-`get_default_scope`、`remember_memory`、`search_memory` 和 `get_artifact_revision`。不包含配置编辑、连接检查、
+用户操作覆盖 `coverage.userOperations` 中的七项 Memory/Scope/统计操作：`list_scopes`、`get_scope`、
+`get_default_scope`、`get_stats`、`remember_memory`、`search_memory` 和 `get_artifact_revision`。不包含配置编辑、连接检查、
 渲染层防抖、界面确认等待或剪贴板操作。派发前的本地校验和并发限制可能产生失败的用户操作，而没有 HTTP 记录。
 HTTP 延迟是客户端请求耗时，不能解释为 Server 内部处理耗时；用户操作延迟是原生操作耗时，不代表完整界面旅程。
 

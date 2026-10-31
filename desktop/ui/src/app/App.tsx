@@ -27,6 +27,7 @@ import observationIcon from "../assets/retrieval.svg";
 
 import { TopBar } from "./TopBar";
 import { Overview } from "./Overview";
+import { Statistics } from "./Statistics";
 import { MemoryWorkspace } from "./MemoryWorkspace";
 import { LocalServerSettings } from "./LocalServerSettings";
 import { Help } from "./Help";
@@ -359,6 +360,17 @@ export function App() {
               language={language}
               tab={observationTab}
               onTabChange={setObservationTab}
+              panels={{
+                inventory: (
+                  <Statistics
+                    key={`statistics-${desktop?.active?.generation ?? "none"}`}
+                    state={desktop}
+                    language={language}
+                    onState={receiveState}
+                    contextPending={contextPending}
+                  />
+                ),
+              }}
             />
           )}
           {page === "settings" && (

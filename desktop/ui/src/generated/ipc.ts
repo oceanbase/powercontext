@@ -100,8 +100,11 @@ export type MemorySaveResponse = { changed: boolean, records: Array<AtomicMemory
 export type MemorySearchHit = { artifact: ArtifactReference, text: string, score: number, matched_by: Array<string>, };
 export type MemorySearchResponse = { hits: Array<MemorySearchHit>, };
 export type AtomicMemoryDetail = { artifact: ArtifactReference, kind: string, text: string, source_refs: Array<SourceTypeReference>, };
+export type ExactScopeStatistics = { selection: ExactScopeSelection, scope_ids: Array<string>, as_of: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: ExactRecallTokenStatistics, by_scope: Array<ExactScopeStatisticsItem>, };
+export type ExactRecallTokenStatistics = { period: ResolvedUsagePeriod, estimator: TokenEstimatorProfile | null, totals: RecallTokenValue, daily: Array<RecallTokenDay>, };
+export type ExactScopeStatisticsItem = { scope_id: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: ExactRecallTokenStatistics, recurrence: RecurrenceStatistics, };
 export type ObservationUnit = "http_request" | "user_operation";
-export type ObservedOperation = "get_liveness" | "get_server_info" | "get_readiness" | "get_capabilities" | "get_access_principal" | "list_scopes" | "get_scope" | "get_default_scope" | "remember_memory" | "search_memory" | "get_artifact_revision";
+export type ObservedOperation = "get_liveness" | "get_server_info" | "get_readiness" | "get_capabilities" | "get_access_principal" | "list_scopes" | "get_scope" | "get_default_scope" | "get_stats" | "remember_memory" | "search_memory" | "get_artifact_revision";
 export type ObservationOutcome = "success" | "failure" | "cancelled" | "unknown";
 export type SessionObservation = { unit: ObservationUnit, operation: ObservedOperation, outcome: ObservationOutcome, completedAtMs: number, durationMs: number, httpStatus: number | null, errorCode: SafeError | null, };
 export type OutcomeCounts = { success: number, failure: number, cancelled: number, unknown: number, };
@@ -119,8 +122,11 @@ export type AccessPrincipal = { type: Type, id: string, description?: string | n
 export type AccessProviderCapabilities = { safe_resource_filtering: boolean, multi_requirement_check: boolean, relationship_management: boolean, group_subjects: boolean, multi_principal: boolean, max_direct_resource_keys: number, };
 export type AccessResourceType = "server" | "scope" | "artifact";
 export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "server.observer" | "server.admin";
+export type AllScopeSelection = { mode: AllScopeSelectionMode, };
+export type AllScopeSelectionMode = "all";
 export type ArtifactDreamingOperationCapability = { operation: DreamOperation, output_kind: OutputKind, effect: Effect, };
 export type ArtifactFamilyAccessCapability = { family: string, enabled: boolean, share_unit: ShareUnit, actions: Array<AccessAction>, grantable_roles: Array<AccessRole>, };
+export type ArtifactInventoryStatistics = { total: number, by_family: Array<FamilyCount>, };
 export type ArtifactReadFamily = string;
 export type ArtifactReference = { family: string, artifact_id: string, revision: number, };
 export type ArtifactRevision = { scope_id: string, family: string, artifact_id: string,
@@ -153,6 +159,9 @@ score: number, matched_by: Array<MatchedBy>, };
 export type AtomicMemorySearchMode = "text" | "vector" | "hybrid";
 export type AtomicMemoryState = "active" | "forgotten" | "merged" | "retired";
 export type BuiltinProfile = "coding" | "conversation";
+export type CandidateFamily = "experience" | "skill" | "profile" | "atomic-memory" | "topic-memory" | "handoff" | "prompt";
+export type CandidateFamilyCount = { family: CandidateFamily, total: number, pending: number, approved: number, rejected: number, };
+export type CandidateInventoryStatistics = { total: number, pending: number, approved: number, rejected: number, by_family: Array<CandidateFamilyCount>, };
 export type Capabilities = { custom_artifact_schemas?: Array<CustomArtifactFamilySchema>, prompts?: { [key in string]: PromptCapability },
 /**
  * Whether asynchronous Artifact Dream execution is configured.
@@ -195,6 +204,8 @@ search_fields: Array<string>,
 search?: Record<string, unknown>, };
 export type DreamOperation = "refine_experience" | "derive_skill" | "revise_skill" | "revise_profile" | "revise_memory" | "revise_topic_memory" | "refresh_handoff" | "revise_prompt" | "revise_tags";
 export type Effect = "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
+export type ExactScopeSelection = { mode: ExactScopeSelectionMode, scope_ids: Array<string>, };
+export type ExactScopeSelectionMode = "exact";
 export type ExtractionBackground = {
 /**
  * Placement of the Memory Supervisor. None means no background executor; synchronous flush may still work.
@@ -244,12 +255,22 @@ export type ExtractionStatus = {
  * Whether a local extraction model or custom pipeline is assembled. Configured does not verify credentials or connectivity. Unknown means execution is external and its configuration is not observed.
  */
 configuration: Configuration, background: ExtractionBackground, observation: ExtractionObservation, };
+export type FamilyCount = { family: string, total: number, };
 export type FeatureContract = { version: ContractVersion, operations: Array<string>, };
+export type GetStatsRequest = { selection: ScopeSelection, period?: StatsPeriod, };
 export type HealthResponse = { status: string, };
+export type InventoryStatistics = { sources: SourceInventoryStatistics, artifacts: ArtifactInventoryStatistics, candidates: CandidateInventoryStatistics, memory: MemoryInventoryStatistics, };
 export type Location = "local" | "external" | "none";
 export type MatchedBy = "text" | "vector";
+export type MemoryEntryInventoryStatistics = { total: number, active: number, inactive: number, by_kind: Array<MemoryKindCount>, };
+export type MemoryInventoryStatistics = { entries: MemoryEntryInventoryStatistics, };
+export type MemoryKindCount = { kind: string, total: number, active: number, inactive: number, };
 export type MemoryMutationResponse = { changed: boolean, records: Array<AtomicMemoryRecord>, };
 export type MemorySearchMode = "auto" | "fts" | "vector" | "hybrid";
+export type ModelUsageDay = { date: string, generation: ModelUsageValue, embedding: ModelUsageValue, by_purpose: Array<ModelUsagePurposeBreakdown>, };
+export type ModelUsagePurposeBreakdown = { purpose: string, generation: ModelUsageValue, embedding: ModelUsageValue, };
+export type ModelUsageStatistics = { generation: ModelUsageValue, embedding: ModelUsageValue, };
+export type ModelUsageValue = { requests: number, input_tokens: number | null, output_tokens: number | null, };
 export type OutputKind = "candidate" | "tag_candidate";
 export type PreparedContextSchema = "powercontext.prepared-context.v1";
 export type Product = "powercontext";
@@ -258,6 +279,11 @@ export type PromptCapabilityStatus = "supported" | "disabled" | "unsupported";
 export type ReadinessResponse = { status: ReadinessStatus, checks: { [key in string]: string }, };
 export type ReadinessStatus = "ready" | "degraded" | "not_ready";
 export type Reason = "operation_disabled" | "provider_not_configured" | "injected_component";
+export type RecallTokenDay = { date: string, preparations: number, ready_preparations: number, comparable_preparations: number, baseline_tokens: number, recalled_tokens: number, token_reduction: number, };
+export type RecallTokenStatistics = { period: ResolvedUsagePeriod, estimator: TokenEstimatorProfile, totals: RecallTokenValue, daily: Array<RecallTokenDay>, };
+export type RecallTokenValue = { preparations: number, ready_preparations: number, comparable_preparations: number, baseline_tokens: number, recalled_tokens: number, token_reduction: number, };
+export type RecurrenceStatistics = { selected: number, recurred: number, avoided: number, unknown: number, unlinked_handoff_citations: number, needing_review: number, top_revisions: Array<RecurrenceStreak>, };
+export type RecurrenceStreak = { artifact_ref: ArtifactReference, signature_key: string, terminal_recurred_streak: number, };
 export type RememberMemoryRequest = { scope_id: string, kind: string,
 /**
  * Must not exceed 8192 UTF-8 bytes after normalization.
@@ -267,11 +293,15 @@ text: string, reason?: string | null, expected_revision?: number | null,
  * Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model.
  */
 description?: string | null, };
+export type ResolvedUsagePeriod = { preset: StatsPeriod, start_date: string, end_date: string, timezone: Timezone, };
 export type Role = "leader" | "standby";
 export type ScopeDescriptor = { scope_id: string, title: string, summary: string, parent_scope_id?: string | null, context_references: Array<string>, external_references: Array<ScopeExternalReference>, version: number, };
 export type ScopeExternalReference = { kind: string, value: string, };
 export type ScopePage = { items: Array<ScopeDescriptor>, next_cursor?: string | null, };
 export type ScopeQueryField = "scope_id" | "title" | "summary" | "external_reference_value" | "binding_external_id";
+export type ScopeSelection = { "mode": "AllScopeSelection" } & AllScopeSelection | { "mode": "ExactScopeSelection" } & ExactScopeSelection | { "mode": "SubtreeScopeSelection" } & SubtreeScopeSelection;
+export type ScopeStats = { scope_id: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: RecallTokenStatistics, recurrence: RecurrenceStatistics, };
+export type ScopedStats = { selection: ScopeSelection, scope_ids: Array<string>, as_of: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: RecallTokenStatistics, by_scope: Array<ScopeStats>, };
 export type SearchMemoryRequest = { tag_filter?: TagFilter, scope_id: string, query: string, limit?: number, mode?: MemorySearchMode, };
 export type SearchMemoryResponse = { mode: AtomicMemorySearchMode, hits: Array<AtomicMemorySearchHit>, };
 export type ServerInfo = {
@@ -292,6 +322,7 @@ api_contract_version: ContractVersion,
  */
 feature_contracts: { [key in string]: FeatureContract }, };
 export type ShareUnit = "artifact" | "memory_entry";
+export type SourceInventoryStatistics = { total: number, memory_processed: number, memory_pending: number, };
 export type SourceTypeReference = {
 /**
  * Stable Source type, including dynamically registered Source names.
@@ -303,6 +334,12 @@ source_type: string,
 source_id: string, };
 export type Stage = "inference" | "flush" | "worker" | "supervisor" | "lease_renewal" | "scope_discovery";
 export type State = "running" | "degraded" | "stopped" | "unknown";
+export type StatsPeriod = "today" | "7d" | "30d";
+export type SubtreeScopeSelection = { mode: SubtreeScopeSelectionMode, root_scope_id: string, };
+export type SubtreeScopeSelectionMode = "subtree";
 export type TagFilter = { tags: Array<string>, match?: TagMatch, };
 export type TagMatch = "all" | "any";
+export type Timezone = "UTC";
+export type TokenEstimatorProfile = { estimator_id: string, version: string, };
 export type Type = "user" | "service";
+export type UsageStatistics = { period: ResolvedUsagePeriod, totals: ModelUsageStatistics, by_purpose: Array<ModelUsagePurposeBreakdown>, daily: Array<ModelUsageDay>, };

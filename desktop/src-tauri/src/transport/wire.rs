@@ -278,6 +278,28 @@ impl std::fmt::Display for AccessRole {
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
+pub struct AllScopeSelection {
+    #[serde(rename = "mode")]
+    pub mode: AllScopeSelectionMode,
+}
+
+impl AllScopeSelection {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(mode: AllScopeSelectionMode) -> AllScopeSelection {
+        AllScopeSelection { mode }
+    }
+}
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum AllScopeSelectionMode {
+    #[serde(rename = "all")]
+    #[default]
+    All,
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 pub struct ArtifactDreamingOperationCapability {
     #[serde(rename = "operation")]
     pub operation: DreamOperation,
@@ -367,6 +389,22 @@ pub enum ShareUnit {
     Artifact,
     #[serde(rename = "memory_entry")]
     MemoryEntry,
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactInventoryStatistics {
+    #[serde(rename = "total")]
+    pub total: i64,
+    #[serde(rename = "by_family")]
+    pub by_family: Vec<FamilyCount>,
+}
+
+impl ArtifactInventoryStatistics {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(total: i64, by_family: Vec<FamilyCount>) -> ArtifactInventoryStatistics {
+        ArtifactInventoryStatistics { total, by_family }
+    }
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -618,6 +656,109 @@ impl std::fmt::Display for AtomicMemoryState {
     }
 }
 
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum CandidateFamily {
+    #[serde(rename = "experience")]
+    #[default]
+    Experience,
+    #[serde(rename = "skill")]
+    Skill,
+    #[serde(rename = "profile")]
+    Profile,
+    #[serde(rename = "atomic-memory")]
+    AtomicMemory,
+    #[serde(rename = "topic-memory")]
+    TopicMemory,
+    #[serde(rename = "handoff")]
+    Handoff,
+    #[serde(rename = "prompt")]
+    Prompt,
+}
+
+impl std::fmt::Display for CandidateFamily {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Experience => write!(f, "experience"),
+            Self::Skill => write!(f, "skill"),
+            Self::Profile => write!(f, "profile"),
+            Self::AtomicMemory => write!(f, "atomic-memory"),
+            Self::TopicMemory => write!(f, "topic-memory"),
+            Self::Handoff => write!(f, "handoff"),
+            Self::Prompt => write!(f, "prompt"),
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateFamilyCount {
+    #[serde(rename = "family")]
+    pub family: CandidateFamily,
+    #[serde(rename = "total")]
+    pub total: i64,
+    #[serde(rename = "pending")]
+    pub pending: i64,
+    #[serde(rename = "approved")]
+    pub approved: i64,
+    #[serde(rename = "rejected")]
+    pub rejected: i64,
+}
+
+impl CandidateFamilyCount {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        family: CandidateFamily,
+        total: i64,
+        pending: i64,
+        approved: i64,
+        rejected: i64,
+    ) -> CandidateFamilyCount {
+        CandidateFamilyCount {
+            family,
+            total,
+            pending,
+            approved,
+            rejected,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateInventoryStatistics {
+    #[serde(rename = "total")]
+    pub total: i64,
+    #[serde(rename = "pending")]
+    pub pending: i64,
+    #[serde(rename = "approved")]
+    pub approved: i64,
+    #[serde(rename = "rejected")]
+    pub rejected: i64,
+    #[serde(rename = "by_family")]
+    pub by_family: Vec<CandidateFamilyCount>,
+}
+
+impl CandidateInventoryStatistics {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        total: i64,
+        pending: i64,
+        approved: i64,
+        rejected: i64,
+        by_family: Vec<CandidateFamilyCount>,
+    ) -> CandidateInventoryStatistics {
+        CandidateInventoryStatistics {
+            total,
+            pending,
+            approved,
+            rejected,
+            by_family,
+        }
+    }
+}
+
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Capabilities {
@@ -804,6 +945,30 @@ impl std::fmt::Display for DreamOperation {
             Self::ReviseTags => write!(f, "revise_tags"),
         }
     }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExactScopeSelection {
+    #[serde(rename = "mode")]
+    pub mode: ExactScopeSelectionMode,
+    #[serde(rename = "scope_ids")]
+    pub scope_ids: Vec<String>,
+}
+
+impl ExactScopeSelection {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(mode: ExactScopeSelectionMode, scope_ids: Vec<String>) -> ExactScopeSelection {
+        ExactScopeSelection { mode, scope_ids }
+    }
+}
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum ExactScopeSelectionMode {
+    #[serde(rename = "exact")]
+    #[default]
+    Exact,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -1015,6 +1180,22 @@ pub enum Configuration {
     Unknown,
 }
 
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct FamilyCount {
+    #[serde(rename = "family")]
+    pub family: String,
+    #[serde(rename = "total")]
+    pub total: i64,
+}
+
+impl FamilyCount {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(family: String, total: i64) -> FamilyCount {
+        FamilyCount { family, total }
+    }
+}
+
 /// FeatureContract : Compatibility version for exactly the listed OpenAPI operation IDs. Adding operations or compatible semantics increments minor; removing, renaming or incompatibly changing a listed operation increments major.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 pub struct FeatureContract {
@@ -1037,6 +1218,26 @@ impl FeatureContract {
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
+pub struct GetStatsRequest {
+    #[serde(rename = "selection")]
+    pub selection: ScopeSelection,
+    #[ts(optional)]
+    #[serde(rename = "period", skip_serializing_if = "Option::is_none")]
+    pub period: Option<StatsPeriod>,
+}
+
+impl GetStatsRequest {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(selection: ScopeSelection) -> GetStatsRequest {
+        GetStatsRequest {
+            selection,
+            period: None,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 pub struct HealthResponse {
     #[serde(rename = "status")]
     pub status: String,
@@ -1046,6 +1247,105 @@ impl HealthResponse {
     #[allow(clippy::too_many_arguments)]
     pub fn new(status: String) -> HealthResponse {
         HealthResponse { status }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct InventoryStatistics {
+    #[serde(rename = "sources")]
+    pub sources: SourceInventoryStatistics,
+    #[serde(rename = "artifacts")]
+    pub artifacts: ArtifactInventoryStatistics,
+    #[serde(rename = "candidates")]
+    pub candidates: CandidateInventoryStatistics,
+    #[serde(rename = "memory")]
+    pub memory: MemoryInventoryStatistics,
+}
+
+impl InventoryStatistics {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        sources: SourceInventoryStatistics,
+        artifacts: ArtifactInventoryStatistics,
+        candidates: CandidateInventoryStatistics,
+        memory: MemoryInventoryStatistics,
+    ) -> InventoryStatistics {
+        InventoryStatistics {
+            sources,
+            artifacts,
+            candidates,
+            memory,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryEntryInventoryStatistics {
+    #[serde(rename = "total")]
+    pub total: i64,
+    #[serde(rename = "active")]
+    pub active: i64,
+    #[serde(rename = "inactive")]
+    pub inactive: i64,
+    #[serde(rename = "by_kind")]
+    pub by_kind: Vec<MemoryKindCount>,
+}
+
+impl MemoryEntryInventoryStatistics {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        total: i64,
+        active: i64,
+        inactive: i64,
+        by_kind: Vec<MemoryKindCount>,
+    ) -> MemoryEntryInventoryStatistics {
+        MemoryEntryInventoryStatistics {
+            total,
+            active,
+            inactive,
+            by_kind,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryInventoryStatistics {
+    #[serde(rename = "entries")]
+    pub entries: MemoryEntryInventoryStatistics,
+}
+
+impl MemoryInventoryStatistics {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(entries: MemoryEntryInventoryStatistics) -> MemoryInventoryStatistics {
+        MemoryInventoryStatistics { entries }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryKindCount {
+    #[serde(rename = "kind")]
+    pub kind: String,
+    #[serde(rename = "total")]
+    pub total: i64,
+    #[serde(rename = "active")]
+    pub active: i64,
+    #[serde(rename = "inactive")]
+    pub inactive: i64,
+}
+
+impl MemoryKindCount {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(kind: String, total: i64, active: i64, inactive: i64) -> MemoryKindCount {
+        MemoryKindCount {
+            kind,
+            total,
+            active,
+            inactive,
+        }
     }
 }
 
@@ -1087,6 +1387,109 @@ impl std::fmt::Display for MemorySearchMode {
             Self::Fts => write!(f, "fts"),
             Self::Vector => write!(f, "vector"),
             Self::Hybrid => write!(f, "hybrid"),
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ModelUsageDay {
+    #[serde(rename = "date")]
+    pub date: String,
+    #[serde(rename = "generation")]
+    pub generation: ModelUsageValue,
+    #[serde(rename = "embedding")]
+    pub embedding: ModelUsageValue,
+    #[serde(rename = "by_purpose")]
+    pub by_purpose: Vec<ModelUsagePurposeBreakdown>,
+}
+
+impl ModelUsageDay {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        date: String,
+        generation: ModelUsageValue,
+        embedding: ModelUsageValue,
+        by_purpose: Vec<ModelUsagePurposeBreakdown>,
+    ) -> ModelUsageDay {
+        ModelUsageDay {
+            date,
+            generation,
+            embedding,
+            by_purpose,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ModelUsagePurposeBreakdown {
+    #[serde(rename = "purpose")]
+    pub purpose: String,
+    #[serde(rename = "generation")]
+    pub generation: ModelUsageValue,
+    #[serde(rename = "embedding")]
+    pub embedding: ModelUsageValue,
+}
+
+impl ModelUsagePurposeBreakdown {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        purpose: String,
+        generation: ModelUsageValue,
+        embedding: ModelUsageValue,
+    ) -> ModelUsagePurposeBreakdown {
+        ModelUsagePurposeBreakdown {
+            purpose,
+            generation,
+            embedding,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ModelUsageStatistics {
+    #[serde(rename = "generation")]
+    pub generation: ModelUsageValue,
+    #[serde(rename = "embedding")]
+    pub embedding: ModelUsageValue,
+}
+
+impl ModelUsageStatistics {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(generation: ModelUsageValue, embedding: ModelUsageValue) -> ModelUsageStatistics {
+        ModelUsageStatistics {
+            generation,
+            embedding,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ModelUsageValue {
+    #[serde(rename = "requests")]
+    pub requests: i64,
+    #[ts(type = "number | null")]
+    #[serde(rename = "input_tokens", deserialize_with = "Option::deserialize")]
+    pub input_tokens: Option<i64>,
+    #[ts(type = "number | null")]
+    #[serde(rename = "output_tokens", deserialize_with = "Option::deserialize")]
+    pub output_tokens: Option<i64>,
+}
+
+impl ModelUsageValue {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        requests: i64,
+        input_tokens: Option<i64>,
+        output_tokens: Option<i64>,
+    ) -> ModelUsageValue {
+        ModelUsageValue {
+            requests,
+            input_tokens,
+            output_tokens,
         }
     }
 }
@@ -1224,6 +1627,184 @@ impl std::fmt::Display for ReadinessStatus {
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
+pub struct RecallTokenDay {
+    #[serde(rename = "date")]
+    pub date: String,
+    #[serde(rename = "preparations")]
+    pub preparations: i64,
+    #[serde(rename = "ready_preparations")]
+    pub ready_preparations: i64,
+    #[serde(rename = "comparable_preparations")]
+    pub comparable_preparations: i64,
+    #[serde(rename = "baseline_tokens")]
+    pub baseline_tokens: i64,
+    #[serde(rename = "recalled_tokens")]
+    pub recalled_tokens: i64,
+    #[serde(rename = "token_reduction")]
+    pub token_reduction: i64,
+}
+
+impl RecallTokenDay {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        date: String,
+        preparations: i64,
+        ready_preparations: i64,
+        comparable_preparations: i64,
+        baseline_tokens: i64,
+        recalled_tokens: i64,
+        token_reduction: i64,
+    ) -> RecallTokenDay {
+        RecallTokenDay {
+            date,
+            preparations,
+            ready_preparations,
+            comparable_preparations,
+            baseline_tokens,
+            recalled_tokens,
+            token_reduction,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct RecallTokenStatistics {
+    #[serde(rename = "period")]
+    pub period: ResolvedUsagePeriod,
+    #[serde(rename = "estimator")]
+    pub estimator: TokenEstimatorProfile,
+    #[serde(rename = "totals")]
+    pub totals: RecallTokenValue,
+    #[serde(rename = "daily")]
+    pub daily: Vec<RecallTokenDay>,
+}
+
+impl RecallTokenStatistics {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        period: ResolvedUsagePeriod,
+        estimator: TokenEstimatorProfile,
+        totals: RecallTokenValue,
+        daily: Vec<RecallTokenDay>,
+    ) -> RecallTokenStatistics {
+        RecallTokenStatistics {
+            period,
+            estimator,
+            totals,
+            daily,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct RecallTokenValue {
+    #[serde(rename = "preparations")]
+    pub preparations: i64,
+    #[serde(rename = "ready_preparations")]
+    pub ready_preparations: i64,
+    #[serde(rename = "comparable_preparations")]
+    pub comparable_preparations: i64,
+    #[serde(rename = "baseline_tokens")]
+    pub baseline_tokens: i64,
+    #[serde(rename = "recalled_tokens")]
+    pub recalled_tokens: i64,
+    #[serde(rename = "token_reduction")]
+    pub token_reduction: i64,
+}
+
+impl RecallTokenValue {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        preparations: i64,
+        ready_preparations: i64,
+        comparable_preparations: i64,
+        baseline_tokens: i64,
+        recalled_tokens: i64,
+        token_reduction: i64,
+    ) -> RecallTokenValue {
+        RecallTokenValue {
+            preparations,
+            ready_preparations,
+            comparable_preparations,
+            baseline_tokens,
+            recalled_tokens,
+            token_reduction,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct RecurrenceStatistics {
+    #[serde(rename = "selected")]
+    pub selected: i64,
+    #[serde(rename = "recurred")]
+    pub recurred: i64,
+    #[serde(rename = "avoided")]
+    pub avoided: i64,
+    #[serde(rename = "unknown")]
+    pub unknown: i64,
+    #[serde(rename = "unlinked_handoff_citations")]
+    pub unlinked_handoff_citations: i64,
+    #[serde(rename = "needing_review")]
+    pub needing_review: i64,
+    #[serde(rename = "top_revisions")]
+    pub top_revisions: Vec<RecurrenceStreak>,
+}
+
+impl RecurrenceStatistics {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        selected: i64,
+        recurred: i64,
+        avoided: i64,
+        unknown: i64,
+        unlinked_handoff_citations: i64,
+        needing_review: i64,
+        top_revisions: Vec<RecurrenceStreak>,
+    ) -> RecurrenceStatistics {
+        RecurrenceStatistics {
+            selected,
+            recurred,
+            avoided,
+            unknown,
+            unlinked_handoff_citations,
+            needing_review,
+            top_revisions,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct RecurrenceStreak {
+    #[serde(rename = "artifact_ref")]
+    pub artifact_ref: ArtifactReference,
+    #[serde(rename = "signature_key")]
+    pub signature_key: String,
+    #[serde(rename = "terminal_recurred_streak")]
+    pub terminal_recurred_streak: i64,
+}
+
+impl RecurrenceStreak {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        artifact_ref: ArtifactReference,
+        signature_key: String,
+        terminal_recurred_streak: i64,
+    ) -> RecurrenceStreak {
+        RecurrenceStreak {
+            artifact_ref,
+            signature_key,
+            terminal_recurred_streak,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 pub struct RememberMemoryRequest {
     #[serde(rename = "scope_id")]
     pub scope_id: String,
@@ -1274,6 +1855,44 @@ impl RememberMemoryRequest {
             description: None,
         }
     }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ResolvedUsagePeriod {
+    #[serde(rename = "preset")]
+    pub preset: StatsPeriod,
+    #[serde(rename = "start_date")]
+    pub start_date: String,
+    #[serde(rename = "end_date")]
+    pub end_date: String,
+    #[serde(rename = "timezone")]
+    pub timezone: Timezone,
+}
+
+impl ResolvedUsagePeriod {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        preset: StatsPeriod,
+        start_date: String,
+        end_date: String,
+        timezone: Timezone,
+    ) -> ResolvedUsagePeriod {
+        ResolvedUsagePeriod {
+            preset,
+            start_date,
+            end_date,
+            timezone,
+        }
+    }
+}
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum Timezone {
+    #[serde(rename = "UTC")]
+    #[default]
+    Utc,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -1395,6 +2014,99 @@ impl std::fmt::Display for ScopeQueryField {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "mode")]
+pub enum ScopeSelection {
+    #[serde(rename = "AllScopeSelection")]
+    AllScopeSelection(AllScopeSelection),
+    #[serde(rename = "ExactScopeSelection")]
+    ExactScopeSelection(ExactScopeSelection),
+    #[serde(rename = "SubtreeScopeSelection")]
+    SubtreeScopeSelection(SubtreeScopeSelection),
+}
+
+impl Default for ScopeSelection {
+    fn default() -> Self {
+        Self::AllScopeSelection(Default::default())
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ScopeStats {
+    #[serde(rename = "scope_id")]
+    pub scope_id: String,
+    #[serde(rename = "inventory")]
+    pub inventory: InventoryStatistics,
+    #[serde(rename = "usage")]
+    pub usage: UsageStatistics,
+    #[serde(rename = "recall")]
+    pub recall: RecallTokenStatistics,
+    #[serde(rename = "recurrence")]
+    pub recurrence: RecurrenceStatistics,
+}
+
+impl ScopeStats {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        scope_id: String,
+        inventory: InventoryStatistics,
+        usage: UsageStatistics,
+        recall: RecallTokenStatistics,
+        recurrence: RecurrenceStatistics,
+    ) -> ScopeStats {
+        ScopeStats {
+            scope_id,
+            inventory,
+            usage,
+            recall,
+            recurrence,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ScopedStats {
+    #[serde(rename = "selection")]
+    pub selection: ScopeSelection,
+    #[serde(rename = "scope_ids")]
+    pub scope_ids: Vec<String>,
+    #[serde(rename = "as_of")]
+    pub as_of: String,
+    #[serde(rename = "inventory")]
+    pub inventory: InventoryStatistics,
+    #[serde(rename = "usage")]
+    pub usage: UsageStatistics,
+    #[serde(rename = "recall")]
+    pub recall: RecallTokenStatistics,
+    #[serde(rename = "by_scope")]
+    pub by_scope: Vec<ScopeStats>,
+}
+
+impl ScopedStats {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        selection: ScopeSelection,
+        scope_ids: Vec<String>,
+        as_of: String,
+        inventory: InventoryStatistics,
+        usage: UsageStatistics,
+        recall: RecallTokenStatistics,
+        by_scope: Vec<ScopeStats>,
+    ) -> ScopedStats {
+        ScopedStats {
+            selection,
+            scope_ids,
+            as_of,
+            inventory,
+            usage,
+            recall,
+            by_scope,
+        }
+    }
+}
+
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct SearchMemoryRequest {
@@ -1498,6 +2210,32 @@ pub enum Product {
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
+pub struct SourceInventoryStatistics {
+    #[serde(rename = "total")]
+    pub total: i64,
+    #[serde(rename = "memory_processed")]
+    pub memory_processed: i64,
+    #[serde(rename = "memory_pending")]
+    pub memory_pending: i64,
+}
+
+impl SourceInventoryStatistics {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        total: i64,
+        memory_processed: i64,
+        memory_pending: i64,
+    ) -> SourceInventoryStatistics {
+        SourceInventoryStatistics {
+            total,
+            memory_processed,
+            memory_pending,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 pub struct SourceTypeReference {
     /// Stable Source type, including dynamically registered Source names.
     #[serde(rename = "source_type")]
@@ -1515,6 +2253,56 @@ impl SourceTypeReference {
             source_id,
         }
     }
+}
+
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum StatsPeriod {
+    #[serde(rename = "today")]
+    #[default]
+    Today,
+    #[serde(rename = "7d")]
+    Variant7d,
+    #[serde(rename = "30d")]
+    Variant30d,
+}
+
+impl std::fmt::Display for StatsPeriod {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Today => write!(f, "today"),
+            Self::Variant7d => write!(f, "7d"),
+            Self::Variant30d => write!(f, "30d"),
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SubtreeScopeSelection {
+    #[serde(rename = "mode")]
+    pub mode: SubtreeScopeSelectionMode,
+    #[serde(rename = "root_scope_id")]
+    pub root_scope_id: String,
+}
+
+impl SubtreeScopeSelection {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(mode: SubtreeScopeSelectionMode, root_scope_id: String) -> SubtreeScopeSelection {
+        SubtreeScopeSelection {
+            mode,
+            root_scope_id,
+        }
+    }
+}
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum SubtreeScopeSelectionMode {
+    #[serde(rename = "subtree")]
+    #[default]
+    Subtree,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -1557,6 +2345,55 @@ impl std::fmt::Display for TagMatch {
     }
 }
 
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct TokenEstimatorProfile {
+    #[serde(rename = "estimator_id")]
+    pub estimator_id: String,
+    #[serde(rename = "version")]
+    pub version: String,
+}
+
+impl TokenEstimatorProfile {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(estimator_id: String, version: String) -> TokenEstimatorProfile {
+        TokenEstimatorProfile {
+            estimator_id,
+            version,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct UsageStatistics {
+    #[serde(rename = "period")]
+    pub period: ResolvedUsagePeriod,
+    #[serde(rename = "totals")]
+    pub totals: ModelUsageStatistics,
+    #[serde(rename = "by_purpose")]
+    pub by_purpose: Vec<ModelUsagePurposeBreakdown>,
+    #[serde(rename = "daily")]
+    pub daily: Vec<ModelUsageDay>,
+}
+
+impl UsageStatistics {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        period: ResolvedUsagePeriod,
+        totals: ModelUsageStatistics,
+        by_purpose: Vec<ModelUsagePurposeBreakdown>,
+        daily: Vec<ModelUsageDay>,
+    ) -> UsageStatistics {
+        UsageStatistics {
+            period,
+            totals,
+            by_purpose,
+            daily,
+        }
+    }
+}
+
 #[rustfmt::skip]
 pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
     vec![
@@ -1567,8 +2404,11 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <AccessProviderCapabilities as ts_rs::TS>::decl(config),
         <AccessResourceType as ts_rs::TS>::decl(config),
         <AccessRole as ts_rs::TS>::decl(config),
+        <AllScopeSelection as ts_rs::TS>::decl(config),
+        <AllScopeSelectionMode as ts_rs::TS>::decl(config),
         <ArtifactDreamingOperationCapability as ts_rs::TS>::decl(config),
         <ArtifactFamilyAccessCapability as ts_rs::TS>::decl(config),
+        <ArtifactInventoryStatistics as ts_rs::TS>::decl(config),
         format!("type ArtifactReadFamily = {};", <String as ts_rs::TS>::name(config)),
         <ArtifactReference as ts_rs::TS>::decl(config),
         <ArtifactRevision as ts_rs::TS>::decl(config),
@@ -1577,23 +2417,38 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <AtomicMemorySearchMode as ts_rs::TS>::decl(config),
         <AtomicMemoryState as ts_rs::TS>::decl(config),
         <BuiltinProfile as ts_rs::TS>::decl(config),
+        <CandidateFamily as ts_rs::TS>::decl(config),
+        <CandidateFamilyCount as ts_rs::TS>::decl(config),
+        <CandidateInventoryStatistics as ts_rs::TS>::decl(config),
         <Capabilities as ts_rs::TS>::decl(config),
         <Configuration as ts_rs::TS>::decl(config),
         <ContractVersion as ts_rs::TS>::decl(config),
         <CustomArtifactFamilySchema as ts_rs::TS>::decl(config),
         <DreamOperation as ts_rs::TS>::decl(config),
         <Effect as ts_rs::TS>::decl(config),
+        <ExactScopeSelection as ts_rs::TS>::decl(config),
+        <ExactScopeSelectionMode as ts_rs::TS>::decl(config),
         <ExtractionBackground as ts_rs::TS>::decl(config),
         <ExtractionFailure as ts_rs::TS>::decl(config),
         <ExtractionObservation as ts_rs::TS>::decl(config),
         <ExtractionObservationStatus as ts_rs::TS>::decl(config),
         <ExtractionStatus as ts_rs::TS>::decl(config),
+        <FamilyCount as ts_rs::TS>::decl(config),
         <FeatureContract as ts_rs::TS>::decl(config),
+        <GetStatsRequest as ts_rs::TS>::decl(config),
         <HealthResponse as ts_rs::TS>::decl(config),
+        <InventoryStatistics as ts_rs::TS>::decl(config),
         <Location as ts_rs::TS>::decl(config),
         <MatchedBy as ts_rs::TS>::decl(config),
+        <MemoryEntryInventoryStatistics as ts_rs::TS>::decl(config),
+        <MemoryInventoryStatistics as ts_rs::TS>::decl(config),
+        <MemoryKindCount as ts_rs::TS>::decl(config),
         <MemoryMutationResponse as ts_rs::TS>::decl(config),
         <MemorySearchMode as ts_rs::TS>::decl(config),
+        <ModelUsageDay as ts_rs::TS>::decl(config),
+        <ModelUsagePurposeBreakdown as ts_rs::TS>::decl(config),
+        <ModelUsageStatistics as ts_rs::TS>::decl(config),
+        <ModelUsageValue as ts_rs::TS>::decl(config),
         <OutputKind as ts_rs::TS>::decl(config),
         <PreparedContextSchema as ts_rs::TS>::decl(config),
         <Product as ts_rs::TS>::decl(config),
@@ -1602,21 +2457,37 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <ReadinessResponse as ts_rs::TS>::decl(config),
         <ReadinessStatus as ts_rs::TS>::decl(config),
         <Reason as ts_rs::TS>::decl(config),
+        <RecallTokenDay as ts_rs::TS>::decl(config),
+        <RecallTokenStatistics as ts_rs::TS>::decl(config),
+        <RecallTokenValue as ts_rs::TS>::decl(config),
+        <RecurrenceStatistics as ts_rs::TS>::decl(config),
+        <RecurrenceStreak as ts_rs::TS>::decl(config),
         <RememberMemoryRequest as ts_rs::TS>::decl(config),
+        <ResolvedUsagePeriod as ts_rs::TS>::decl(config),
         <Role as ts_rs::TS>::decl(config),
         <ScopeDescriptor as ts_rs::TS>::decl(config),
         <ScopeExternalReference as ts_rs::TS>::decl(config),
         <ScopePage as ts_rs::TS>::decl(config),
         <ScopeQueryField as ts_rs::TS>::decl(config),
+        <ScopeSelection as ts_rs::TS>::decl(config),
+        <ScopeStats as ts_rs::TS>::decl(config),
+        <ScopedStats as ts_rs::TS>::decl(config),
         <SearchMemoryRequest as ts_rs::TS>::decl(config),
         <SearchMemoryResponse as ts_rs::TS>::decl(config),
         <ServerInfo as ts_rs::TS>::decl(config),
         <ShareUnit as ts_rs::TS>::decl(config),
+        <SourceInventoryStatistics as ts_rs::TS>::decl(config),
         <SourceTypeReference as ts_rs::TS>::decl(config),
         <Stage as ts_rs::TS>::decl(config),
         <State as ts_rs::TS>::decl(config),
+        <StatsPeriod as ts_rs::TS>::decl(config),
+        <SubtreeScopeSelection as ts_rs::TS>::decl(config),
+        <SubtreeScopeSelectionMode as ts_rs::TS>::decl(config),
         <TagFilter as ts_rs::TS>::decl(config),
         <TagMatch as ts_rs::TS>::decl(config),
+        <Timezone as ts_rs::TS>::decl(config),
+        <TokenEstimatorProfile as ts_rs::TS>::decl(config),
         <Type as ts_rs::TS>::decl(config),
+        <UsageStatistics as ts_rs::TS>::decl(config),
     ]
 }

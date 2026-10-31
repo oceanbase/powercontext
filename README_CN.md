@@ -261,6 +261,7 @@ make test
 
 ## 进一步了解
 
+- [桌面预览：精确范围的存量与用量](desktop/README.zh.md#当前范围的存量与用量)
 - [开始使用](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)
 - [接入 Agent](https://powercontext.oceanbase.io/zh/docs/integrations/)
 - [管理上下文](https://powercontext.oceanbase.io/zh/docs/workflows/)

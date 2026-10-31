@@ -36,6 +36,8 @@ vi.mock("../src/shared/ipc", () => ({
     check: vi.fn(),
     cancelMemory: vi.fn().mockResolvedValue(undefined),
     diagnostics: vi.fn(),
+    stats: vi.fn(),
+    cancelStats: vi.fn().mockResolvedValue(undefined),
   },
 }));
 const disconnected: DesktopState = {
@@ -98,7 +100,7 @@ test("Observation tabs support the keyboard and stay unavailable without startin
     screen.getByRole("tab", { name: "当前 Scope 库存与用量" }),
   );
   expect(screen.getByRole("tabpanel").textContent).toContain(
-    "未知值不表示为零",
+    "请启用连接并选择精确范围后查看统计。",
   );
   await user.keyboard("{End}");
   expect(document.activeElement).toBe(
@@ -138,6 +140,82 @@ test("Observation follows the existing language setting and retains its selected
     screen.getByRole("button", { name: "Settings & diagnostics" }),
   ).toBeTruthy();
 });
+
+test.each(["en", "zh"] as const)(
+  "qualified exact-Scope statistics are reachable through App Observation in %s",
+  async (language) => {
+    const user = userEvent.setup();
+    const fact = { value: null, error: null };
+    vi.mocked(desktopApi.state).mockResolvedValue({
+      ...disconnected,
+      generation: 1,
+      active: {
+        connectionId: "fixture",
+        generation: 1,
+        scope: {
+          scope_id: "scope-a",
+          title: "Scope A",
+          summary: "",
+          version: 1,
+          context_references: [],
+          external_references: [],
+        },
+        report: {
+          connectionId: "fixture",
+          revision: 1,
+          checkedAt: 1,
+          liveness: fact,
+          readiness: fact,
+          identity: fact,
+          capabilities: fact,
+          compatibilityVerified: true,
+          anonymousAccess: true,
+          supportedOperations: ["get_stats"],
+        },
+      },
+    });
+    vi.mocked(desktopApi.stats).mockRejectedValueOnce({ code: "network" });
+    render(<App />);
+    await screen.findByRole("button", { name: /Scope A/ });
+    if (language === "en") {
+      await user.click(screen.getByRole("button", { name: "设置与诊断" }));
+      await user.selectOptions(screen.getByLabelText("语言"), "en");
+    }
+    expect(
+      screen.queryByRole("button", { name: /^(Load statistics|加载统计)$/ }),
+    ).toBeNull();
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Observation" : "观察",
+      }),
+    );
+    await user.click(
+      screen.getByRole("tab", {
+        name:
+          language === "en"
+            ? "Current-Scope inventory & usage"
+            : "当前 Scope 库存与用量",
+      }),
+    );
+    const panel = within(screen.getByRole("tabpanel"));
+    expect(panel.getByText("scope-a", { selector: "code" })).toBeTruthy();
+    expect(
+      panel.queryByText(
+        /此观察视图尚未可用|This observation view is not available yet/,
+      ),
+    ).toBeNull();
+    expect(desktopApi.stats).not.toHaveBeenCalled();
+    await user.click(
+      panel.getByRole("button", {
+        name: language === "en" ? "Load statistics" : "加载统计",
+      }),
+    );
+    await waitFor(() =>
+      expect(desktopApi.stats).toHaveBeenCalledWith(1, "30d"),
+    );
+    expect(await panel.findByRole("alert")).toBeTruthy();
+  },
+);
 
 test("entering Observation respects the existing Memory draft confirmation", async () => {
   const user = userEvent.setup();

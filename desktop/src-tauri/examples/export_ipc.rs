@@ -36,8 +36,8 @@ use powercontext_desktop::{
         SessionCoverage, SessionObservation, SessionSummary,
     },
     transport::{
-        ApiFailure, AtomicMemoryDetail, MemorySaveResponse, MemorySearchHit, MemorySearchResponse,
-        wire,
+        ApiFailure, AtomicMemoryDetail, ExactRecallTokenStatistics, ExactScopeStatistics,
+        ExactScopeStatisticsItem, MemorySaveResponse, MemorySearchHit, MemorySearchResponse, wire,
     },
 };
 use ts_rs::TS;
@@ -135,6 +135,9 @@ fn main() {
         MemorySearchHit::decl(&config),
         MemorySearchResponse::decl(&config),
         AtomicMemoryDetail::decl(&config),
+        ExactScopeStatistics::decl(&config),
+        ExactRecallTokenStatistics::decl(&config),
+        ExactScopeStatisticsItem::decl(&config),
         ObservationUnit::decl(&config),
         ObservedOperation::decl(&config),
         ObservationOutcome::decl(&config),

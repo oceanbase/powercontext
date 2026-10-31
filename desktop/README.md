@@ -6,7 +6,7 @@ See [中文说明](README.zh.md), [security boundary](SECURITY.md), and [validat
 
 ## Observation
 
-The sidebar provides Overview, Connections, Memories, and Observation, with Settings & diagnostics at the bottom. Overview is the initial page. Observation contains Runtime state, Current-Scope inventory & usage, and This session tabs. Their data views are explicitly unavailable until integrated; opening the page or switching tabs does not run connection checks or local diagnostics. English/Chinese and existing theme settings apply to Observation.
+The sidebar provides Overview, Connections, Memories, and Observation, with Settings & diagnostics at the bottom. Overview is the initial page. Observation contains Runtime state, Current-Scope inventory & usage, and This session tabs. Inventory & usage hosts the qualified Statistics view; Runtime state and This session remain unavailable until integrated; opening the page or switching tabs does not run connection checks or local diagnostics. English/Chinese and existing theme settings apply to Observation.
 
 The native host collects a bounded, in-memory window of HTTP requests and Memory/Scope user operations independently of page navigation. Trusted typed IPC provides an allowlisted summary, reset and safe JSON preview. The window retains at most 512 terminal records; it preserves cancellation and unknown-write outcomes and contains no content or target identities. See the [session observation contract](../docs/en/development/desktop-session-observations.md) for measurement units, coverage, reset and failure isolation. The This session page and clipboard flow require separate UI integration.
 
@@ -105,6 +105,20 @@ After explicitly activating a qualified connection and choosing a Scope, use Hom
 Search uses FTS in the selected Scope and returns at most 10 matches. This is not a full directory or history, and ten matches do not establish a total count. **Read exact version** reads the returned Atomic Memory reference (`{family: "atomic-memory", artifact_id, revision}`) at that exact revision; it never substitutes the latest version. Copy buttons explicitly copy either the full plain text or the reference JSON.
 
 A successful save that returns no memory record is reported as an operation success without inventing a reference. A timeout or interrupted dispatched write is **unknown**, not a safe invitation to retry: inspect the original Server/Scope before deciding whether to submit again. Identical text alone cannot identify that operation. Desktop does not automatically replay writes or keep an offline queue. Switching context hides old results while retaining minimal original-operation metadata for this session. See [validation guide](VALIDATION.md) for tested behavior and qualification gaps.
+
+## Current-Scope inventory and usage
+
+In **Observation → Current-Scope inventory & usage**, explicitly activate a qualified connection, select an exact Scope,
+choose **Today**, **Last 7 days** or **Last 30 days**, then press **Load statistics**.
+The view displays the Server timestamp, Scope coverage, inventory snapshot,
+recorded UTC model usage and recall token estimates. Missing token counts remain
+**Unknown**; estimates are not billing savings or quality scores. Every chart has
+an equivalent table and keyboard-scrollable region. A statistics error does not
+disable independent Memory actions. See the [developer contract](../docs/en/development/desktop-statistics.md)
+and [qualification evidence](VALIDATION.md#current-scope-statistics-qualification).
+
+Statistics require the explicit `sqlite-stats-27404931-v1` profile; the separately
+qualified `sqlite-atomic-dd62723d-v1` profile covers Memory operations only.
 
 ## Native discovery results
 

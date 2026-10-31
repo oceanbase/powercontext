@@ -82,7 +82,9 @@ def wait_ready(client: httpx.Client, process: subprocess.Popen[bytes]) -> None:
 
 @contextmanager
 def isolated_server(
-    response_loss_counter: Path | None = None, response_gate: Path | None = None
+    response_loss_counter: Path | None = None,
+    response_gate: Path | None = None,
+    statistics_usage_control: Path | None = None,
 ) -> Iterator[tuple[httpx.Client, str, str]]:
     desktop = Path(__file__).resolve().parents[1]
     wheels = list((desktop / ".artifacts/server-wheel").glob("*.whl"))
@@ -109,6 +111,7 @@ def isolated_server(
             "uvicorn_log_level": "warning",
             "response_gate_path": str(response_gate) if response_gate else None,
             "response_loss_path": str(response_loss_counter) if response_loss_counter else None,
+            "statistics_usage_path": str(statistics_usage_control) if statistics_usage_control else None,
         }
         config_path = temp / "server.json"
         config_path.write_text(json.dumps(config), encoding="utf-8")

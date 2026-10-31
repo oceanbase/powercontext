@@ -56,6 +56,8 @@ pub fn run() {
             commands::search_memory,
             commands::atomic_memory_entry,
             commands::cancel_memory_reads,
+            commands::get_stats,
+            commands::cancel_stats_reads,
             commands::desktop_state,
             commands::save_profile,
             commands::remove_profile,
