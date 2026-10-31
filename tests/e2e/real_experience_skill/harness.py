@@ -31,23 +31,29 @@ import tempfile
 import threading
 import time
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Never
 
 import uvicorn
 from dotenv import load_dotenv
+from pydantic import AnyHttpUrl
 from sqlalchemy import bindparam, inspect, text
 
-from powercontext.builtin.artifacts.experience import ExperienceCandidateInput, ExperienceContent
+from powercontext.builtin.artifacts.experience import (
+    ExperienceContent,
+    ExperienceIncubationCandidate,
+    ExperienceIncubationInput,
+    ExperienceIncubationOutput,
+)
 from powercontext.builtin.artifacts.skill import CodexSkillRoot
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.runtime import DatabaseConfig, ExternalSkillsConfig, RuntimeConfig
-from powercontext.builtin.sources import ContentSource
+from powercontext.builtin.runtime import DatabaseConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
     ApproveCandidateRequest,
@@ -88,7 +94,6 @@ from powercontext.http import (
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
-from powercontext.sources import Source, SourceRef
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / ".powercontext-e2e"
@@ -159,25 +164,65 @@ CONSUMER_SCHEMA = {
 }
 
 
-class TaskOutcomeExperiencePipeline:
-    """Deterministically map the harness's typed Task Outcome into Review."""
+def _task_outcome_completion(body: Mapping[str, Any]) -> dict[str, Any]:
+    """Serve deterministic Task Outcome output to the baseline's spawned Workers."""
 
-    async def incubate(self, sources: tuple[Source, ...], /) -> tuple[ExperienceCandidateInput, ...]:
-        candidates: list[ExperienceCandidateInput] = []
-        for source in sources:
-            if not isinstance(source, ContentSource) or source.metadata.get("kind") != "task-outcome":
-                continue
-            payload = json.loads(source.content)
+    prompt = next(message["content"] for message in reversed(body["messages"]) if message["role"] == "user")
+    if prompt == "Reply with one token.":
+        content = "ready"
+    else:
+        inputs = ExperienceIncubationInput.model_validate_json(prompt)
+        candidates = []
+        for evidence in inputs.evidence:
+            payload = json.loads(evidence.content)
             if not isinstance(payload, dict):
                 _fail("real Codex Task Outcome payload is not an object")
-            proposal = ExperienceContent.model_validate(payload.get("codex_result"))
             candidates.append(
-                ExperienceCandidateInput(
-                    proposal=proposal,
-                    sources=(SourceRef(source_type="content", source_id=source.name),),
+                ExperienceIncubationCandidate(
+                    proposal=ExperienceContent.model_validate(payload.get("codex_result")),
+                    evidence_ids=(evidence.evidence_id,),
                 )
             )
-        return tuple(candidates)
+        content = ExperienceIncubationOutput(candidates=tuple(candidates)).model_dump_json()
+    return {
+        "id": "baseline-task-outcome",
+        "object": "chat.completion",
+        "created": 0,
+        "model": body["model"],
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+    }
+
+
+class _TaskOutcomeInferenceHandler(BaseHTTPRequestHandler):
+    def do_POST(self) -> None:
+        if self.path != "/v1/chat/completions":
+            self.send_error(404)
+            return
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        encoded = json.dumps(_task_outcome_completion(body), ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - stdlib parameter
+        pass
+
+
+@contextmanager
+def _task_outcome_provider() -> Iterator[AnyHttpUrl]:
+    # Startup probes the provider before the PowerContext listener accepts requests.
+    with ThreadingHTTPServer(("127.0.0.1", 0), _TaskOutcomeInferenceHandler) as provider:
+        thread = threading.Thread(target=provider.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield AnyHttpUrl(f"http://127.0.0.1:{provider.server_port}/v1")
+        finally:
+            provider.shutdown()
+            thread.join(timeout=5)
+            if thread.is_alive():
+                _fail("baseline inference provider did not stop")
 
 
 class RealCodexE2EError(RuntimeError):
@@ -283,13 +328,18 @@ class RunningServer:
     thread: threading.Thread
     listener: socket.socket
     base_url: str
+    resources: ExitStack | None = None
 
     def stop(self) -> None:
-        self.server.should_exit = True
-        self.thread.join(timeout=15)
-        self.listener.close()
-        if self.thread.is_alive():
-            _fail("PowerContext Server did not stop")
+        try:
+            self.server.should_exit = True
+            self.thread.join(timeout=15)
+            self.listener.close()
+            if self.thread.is_alive():
+                _fail("PowerContext Server did not stop")
+        finally:
+            if self.resources is not None:
+                self.resources.close()
 
 
 def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exception-safe harness lifecycle
@@ -332,13 +382,13 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
         "branch": _run([git, "branch", "--show-current"], cwd=PROJECT_ROOT).stdout.strip(),
         "mode": "configured-real-services" if arguments.configured else "deterministic-runtime",
         "codex_home": "isolated temporary directory with a mode-0600 auth copy only",
-        "scheduler": "isolated APScheduler SQLite sidecar",
+        "scheduler": "Artifact Processing Supervisor",
         "preflight_output_directories_removed": removed_existing_outputs,
     })
     if configured_settings is None:
         recorder.environment.update({
-            "runtime_generation_model": "not configured",
-            "experience_incubation": "APScheduler with a deterministic typed Task Outcome adapter",
+            "runtime_generation_model": "deterministic loopback Task Outcome provider",
+            "experience_incubation": "Supervisor with reconstructed generation resources",
             "database": "isolated SQLite",
         })
     else:
@@ -535,7 +585,7 @@ async def _run_journey(
             _require("passed" in proposal.outcome.lower(), "Codex Experience outcome did not report the verified pass")
 
         with recorder.scenario(
-            "APScheduler incubates an Experience Candidate that stays gated until Review approval",
+            "Supervisor incubates an Experience Candidate that stays gated until Review approval",
             "api/experience-candidate.json",
             "api/experience-approved.json",
         ):
@@ -1998,30 +2048,41 @@ def _prepare_repositories(
 
 
 def _start_server(database: Path, scheduler: Path) -> RunningServer:
-    app = create_server_app(
-        settings=ServerSettings(
-            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
-            runtime=RuntimeConfig(experience_schedule_seconds=0.05),
-            mcp=McpConfig(enabled=False),
-        ),
-        scheduler_path=scheduler,
-        experience_pipeline=TaskOutcomeExperiencePipeline(),
-    )
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen(128)
-    port = int(listener.getsockname()[1])
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 15
-    while not server.started and thread.is_alive() and time.monotonic() < deadline:
-        time.sleep(0.05)
-    if not server.started:
-        listener.close()
-        _fail("PowerContext Server did not start")
-    return RunningServer(server=server, thread=thread, listener=listener, base_url=f"http://127.0.0.1:{port}")
+    with ExitStack() as resources:
+        endpoint = resources.enter_context(_task_outcome_provider())
+        app = create_server_app(
+            settings=ServerSettings(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
+                runtime=RuntimeConfig(experience_schedule_seconds=0.05, artifact_processing_families=("experience",)),
+                inference=InferenceConfig(
+                    generation_model="openai-chat:gpt-4o-mini",
+                    generation_base_url=endpoint,
+                ),
+                mcp=McpConfig(enabled=False),
+            ),
+            scheduler_path=scheduler,
+        )
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        resources.callback(listener.close)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(128)
+        port = int(listener.getsockname()[1])
+        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 15
+        while not server.started and thread.is_alive() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if not server.started:
+            _fail("PowerContext Server did not start")
+        return RunningServer(
+            server=server,
+            thread=thread,
+            listener=listener,
+            base_url=f"http://127.0.0.1:{port}",
+            resources=resources.pop_all(),
+        )
 
 
 def _start_configured_server(settings: ServerSettings, scheduler_path: Path) -> RunningServer:
