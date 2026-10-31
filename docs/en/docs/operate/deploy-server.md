@@ -185,6 +185,52 @@ A shared static token does not enforce human review or prevent an Agent from app
 submission and approval, use distinct authenticated Principals and grant review permission only to the reviewer.
 See [Separate Agent submission from review](../workflows/review-candidates.md#separate-agent-submission-from-review).
 
+### Migrate data written before enforcement
+
+Data accepted while `ACCESS_MODE=disabled` has no Artifact owner and no Candidate owner attestation. After switching to
+`enforced`, that data stays readable, but modifying it returns `403` and approving its pending Candidates returns
+`503 artifact_owner_pending`, while data created under enforcement keeps working. The Server never derives ownership,
+so an administrator migrates the missing attribution explicitly:
+
+1. Back up the database. The offline command below works while the Server is stopped, before or after the switch:
+2. Inventory the affected data with `powercontext server access-ownership-migrate --action plan`. The same command
+   also runs before the switch, while `ACCESS_MODE=disabled`. Add
+   `--background-principal service:BACKGROUND_ID` with the future `ACCESS_BACKGROUND_PRINCIPAL_ID` to check
+   every selected Scope for `scope.contribute` and existing Profile write permission. These checks still run
+   after all ownership gaps have been filled. HTTP planning accepts `background_principal` when an Access
+   store is available; otherwise it returns `503 relationship_management_unavailable`. Use the offline
+   command for this check before enabling enforcement.
+3. Backfill with an explicitly named owning Principal — for a single-user static-token deployment that is the
+   `server-token` service Principal:
+
+   ```bash
+   powercontext server access-ownership-migrate \
+     --action apply --owner service:server-token --maintenance-confirmed
+   ```
+
+   `apply` requires `--maintenance-confirmed` after stopping every Server process. Pass `--scope-id` to migrate
+   Scopes incrementally on large deployments. Every item is one idempotent write, so interrupted or repeated runs
+   refill only still-missing items. Existing owners and Candidate attestations are preserved and reported as
+   conflicts, never overwritten. Run `apply` again with another `--owner` when different identities must own
+   different Scopes; multi-user deployments keep this identity boundary explicit.
+
+   The inventory includes merged and retired Artifact identities so supported restoration remains authorized.
+   Offline `apply`, HTTP `apply`, and the HTTP preview report `owner-recovery-pending` or
+   `owner-recovery-delivered_relation_missing` when durable recovery evidence already records an identity.
+   They preserve that evidence and do not replace its owner. Complete pending ownership delivery through the
+   [ownership recovery procedure](../workflows/scopes-and-access.md#recover-external-ownership-writes).
+   With an external Access store, migration retains durable ownership delivery work if its audit write fails.
+   Repeating the same HTTP `apply` completes that original audit before reporting success, even if the owner
+   relation already exists. A preview does not replay pending work.
+
+   Without a stopped-deployment window, the same flow is available over HTTP on a running Server:
+   `POST /v1/access/ownership/apply` with `{"owner": {"type": "service", "id": "server-token"}, "dry_run": true}`
+   previews first; in enforced mode both HTTP operations require `server.admin`, and `apply` reports
+   `503 ownership_migration_unavailable` while `ACCESS_MODE=disabled`.
+4. Verify: modify a previously immutable Artifact, approve a previously blocked Candidate, and confirm `plan` now
+   reports no ownership gaps. Include the background Principal in the plan and check that `background` is empty.
+   Identities without the required Artifact write or Candidate review authority still receive `403`.
+
 ## Check the deployment
 
 Use liveness to determine whether the process can answer HTTP requests:

@@ -6424,6 +6424,103 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/access/ownership/plan": {
+            "post": {
+                "tags": ["access"],
+                "summary": "Inventory ownership data missing after switching Access enforcement on",
+                "description": "Inspect the Scopes that were "
+                "written while Access was "
+                "disabled: missing Artifact "
+                "owners, pending Review "
+                "Candidates without an owner "
+                "attestation, and, when named, "
+                "the background Principal's "
+                "per-Scope write authority. "
+                "Produces no change. In enforced "
+                "mode completes as a deployment "
+                "administrator; in disabled mode "
+                "completes without authentication "
+                "because the Server cannot yet "
+                "protect anything. A background "
+                "Principal check requires an "
+                "available Access store; "
+                "otherwise it reports 503 "
+                "relationship_management_unavailable. "
+                "Use the offline ownership "
+                "command to check the proposed "
+                "background Principal before "
+                "enforcement is enabled.",
+                "operationId": "plan_access_ownership",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/PlanAccessOwnershipRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The missing-attribution inventory for the requested Scopes.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/AccessOwnershipPlan"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
+            }
+        },
+        "/v1/access/ownership/apply": {
+            "post": {
+                "tags": ["access"],
+                "summary": "Backfill missing Artifact owners and Candidate owner attestations",
+                "description": "Grant the missing ownership "
+                "data to the explicitly named "
+                "Principal; the Server never "
+                "derives it. Existing Artifact "
+                "owners and Candidate "
+                "attestations are preserved and "
+                "reported as conflicts when they "
+                "disagree with the named "
+                "Principal. Identities with "
+                "recorded ownership recovery "
+                "evidence are reported as "
+                "conflicts and must retain their "
+                "original attribution. Every "
+                "item is one idempotent write, "
+                "so interrupted or repeated runs "
+                "refill only still-missing "
+                "items. Set dry_run first to "
+                "preview the exact items. "
+                "Requires a deployment "
+                "administrator; while Access is "
+                "disabled the Server has no "
+                "ownership store and reports 503 "
+                "ownership_migration_unavailable.",
+                "operationId": "apply_access_ownership",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ApplyAccessOwnershipRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The applied, or, in dry-run, previewed ownership backfill.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/AccessOwnershipApplyResult"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
+            }
+        },
     },
     "components": {
         "schemas": {
@@ -14171,6 +14268,153 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
                 "additionalProperties": False,
                 "type": "object",
+            },
+            "PlanAccessOwnershipRequest": {
+                "properties": {
+                    "scope_ids": {
+                        "items": {"type": "string", "maxLength": 256, "minLength": 1},
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "Scopes "
+                        "to "
+                        "inspect; "
+                        "every "
+                        "Scope "
+                        "when "
+                        "omitted. "
+                        "Pass "
+                        "Scopes "
+                        "incrementally "
+                        "for "
+                        "large "
+                        "deployments.",
+                    },
+                    "background_principal": {
+                        "allOf": [{"$ref": "#/components/schemas/AccessPrincipal"}],
+                        "description": "Optional "
+                        "background "
+                        "processing "
+                        "Principal, "
+                        "such "
+                        "as "
+                        "ACCESS_BACKGROUND_PRINCIPAL_ID; "
+                        "each "
+                        "selected "
+                        "Scope "
+                        "is "
+                        "checked "
+                        "for "
+                        "scope.contribute "
+                        "and "
+                        "write "
+                        "permission "
+                        "on "
+                        "an "
+                        "existing "
+                        "Profile, "
+                        "including "
+                        "after "
+                        "all "
+                        "ownership "
+                        "gaps "
+                        "have "
+                        "been "
+                        "filled. "
+                        "An "
+                        "available "
+                        "Access "
+                        "store "
+                        "is "
+                        "required.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "OwnershipGapKind": {"type": "string", "enum": ["artifact_owner", "candidate_attestation"]},
+            "OwnershipGapItem": {
+                "properties": {
+                    "kind": {"$ref": "#/components/schemas/OwnershipGapKind"},
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "family": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "artifact_id": {"type": "string", "maxLength": 256, "nullable": True},
+                    "entry_id": {"type": "string", "maxLength": 256, "nullable": True},
+                    "candidate_id": {"type": "string", "maxLength": 128, "nullable": True},
+                    "version": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "conflict_code": {"type": "string", "maxLength": 64, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "scope_id", "family"],
+            },
+            "AccessOwnershipScopePlan": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "artifact_gaps": {"items": {"$ref": "#/components/schemas/OwnershipGapItem"}, "type": "array"},
+                    "candidate_gaps": {"items": {"$ref": "#/components/schemas/OwnershipGapItem"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact_gaps", "candidate_gaps"],
+            },
+            "BackgroundPermissionGap": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "principal_id": {"type": "string", "maxLength": 255, "minLength": 1},
+                    "allowed": {"type": "boolean", "enum": [False]},
+                    "reason_code": {"type": "string", "maxLength": 64, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "principal_id", "allowed", "reason_code"],
+            },
+            "AccessOwnershipPlan": {
+                "properties": {
+                    "mode": {"$ref": "#/components/schemas/AccessControlMode"},
+                    "scopes": {"items": {"$ref": "#/components/schemas/AccessOwnershipScopePlan"}, "type": "array"},
+                    "background": {"items": {"$ref": "#/components/schemas/BackgroundPermissionGap"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["mode", "scopes", "background"],
+            },
+            "ApplyAccessOwnershipRequest": {
+                "properties": {
+                    "owner": {"$ref": "#/components/schemas/AccessPrincipal"},
+                    "scope_ids": {
+                        "items": {"type": "string", "maxLength": 256, "minLength": 1},
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "Scopes "
+                        "to "
+                        "migrate; "
+                        "every "
+                        "Scope "
+                        "when "
+                        "omitted. "
+                        "Pass "
+                        "Scopes "
+                        "incrementally "
+                        "for "
+                        "large "
+                        "deployments.",
+                    },
+                    "dry_run": {"type": "boolean", "default": False},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["owner"],
+            },
+            "AccessOwnershipApplyResult": {
+                "properties": {
+                    "dry_run": {"type": "boolean"},
+                    "applied": {"items": {"$ref": "#/components/schemas/OwnershipGapItem"}, "type": "array"},
+                    "conflicts": {"items": {"$ref": "#/components/schemas/OwnershipGapItem"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["dry_run", "applied", "conflicts"],
             },
         },
         "responses": {

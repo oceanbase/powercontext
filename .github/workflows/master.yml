@@ -647,6 +647,14 @@ jobs:
       - name: Verify spawned worker logging on Windows
         run: uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py
 
+      - name: Verify offline ownership migration on Windows
+        run: >-
+          uv run --locked --no-sync pytest -q
+          tests/e2e/test_access_ownership_migration.py::test_offline_cli_checks_future_background_principal_before_enforcement
+          tests/e2e/test_access_ownership_migration.py::test_migration_audit_preserves_request_context
+          tests/e2e/test_ownership_maintenance_dispatch.py
+          tests/e2e/test_owner_recovery_http.py::test_offline_migration_preserves_external_owner_evidence
+
       - name: Verify bootstrap receipt persistence and failure recovery on Windows
         run: >-
           uv run --locked --no-sync pytest -q

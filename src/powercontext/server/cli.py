@@ -19,10 +19,11 @@ from __future__ import annotations
 import asyncio
 import json
 import signal
+from collections.abc import Sequence
 from contextlib import AsyncExitStack, nullcontext
 from pathlib import Path
 from sqlite3 import SQLITE_CANTOPEN
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Never
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Never, cast
 
 import typer
 from pydantic import ValidationError
@@ -60,6 +61,7 @@ from powercontext.server import database_migration
 from powercontext.server.app import access_readiness_checks
 from powercontext.server.authz import PrincipalRef
 from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.server.authz.owner_recovery import OwnerRecovery
 from powercontext.server.background_metrics import serve_background_metrics
 from powercontext.server.configuration import (
     ServerConfigurationError,
@@ -71,6 +73,11 @@ from powercontext.server.factory import _ServerReadinessProbe, create_background
 from powercontext.server.identity import open_server_identity_repository
 from powercontext.server.logging import configure_server_logging, shutdown_server_logging, worker_logging
 from powercontext.server.metrics import ServerMetrics
+from powercontext.server.ownership import (
+    apply_ownership_migration,
+    ownership_report,
+    plan_ownership_migration,
+)
 from powercontext.server.processing_security import build_worker_security
 from powercontext.server.settings import (
     MissingAuthenticationProviderError,
@@ -562,6 +569,117 @@ def atomic_memory_rebuild_projection(
             _report_database_guidance(error)
     if not ready:
         raise typer.Exit(code=1)
+
+
+@app.command("access-ownership-migrate")
+def access_ownership_migrate(
+    action: Annotated[Literal["plan", "apply"], typer.Option(help="Ownership migration action.")] = "plan",
+    env_file: Annotated[Path | None, typer.Option(help="Load deployment settings from this environment file.")] = None,
+    owner: Annotated[
+        str | None,
+        typer.Option(help="Owning Principal as TYPE:ID, e.g. service:server-token. Required for apply."),
+    ] = None,
+    scope_id: Annotated[
+        list[str] | None,
+        typer.Option(help="Scope to migrate; repeat the option for several Scopes. Every Scope when omitted."),
+    ] = None,
+    background_principal: Annotated[
+        str | None,
+        typer.Option(help="Background Principal as TYPE:ID to check while planning."),
+    ] = None,
+    maintenance_confirmed: Annotated[
+        bool,
+        typer.Option(help="Confirm every Server process using the deployment database is stopped."),
+    ] = False,
+) -> None:
+    """Inventory or backfill ownership data written before Access enforcement.
+
+    Works while ACCESS_MODE is disabled, before switching to enforced mode, and against a database whose
+    Server ran either mode. Apply names one owning Principal explicitly; the Server never derives ownership.
+    """
+
+    if action == "apply":
+        if owner is None or ":" not in owner:
+            raise typer.BadParameter("apply requires --owner TYPE:ID, e.g. --owner service:server-token")  # noqa: TRY003
+        if not maintenance_confirmed:
+            raise typer.BadParameter(  # noqa: TRY003
+                "apply requires --maintenance-confirmed after stopping every Server process"
+            )
+    background_ref = None
+    if background_principal is not None:
+        principal_type, separator, principal_id = background_principal.partition(":")
+        if (
+            not separator
+            or principal_type not in {"user", "service"}
+            or not principal_id
+            or principal_id != principal_id.strip()
+            or len(principal_id) > 255
+        ):
+            raise typer.BadParameter("background Principal must use TYPE:ID")  # noqa: TRY003
+        background_ref = PrincipalRef(type=principal_type, id=principal_id)
+    env_file = resolve_server_environment_file(env_file, discover=True)
+    with server_settings_context(env_file=env_file) as settings:
+        ready = asyncio.run(
+            _access_ownership_maintenance(
+                settings,
+                action,
+                owner=owner,
+                scope_ids=scope_id or (),
+                background_principal=background_ref,
+            )
+        )
+    if not ready:
+        raise typer.Exit(code=1)
+
+
+async def _access_ownership_maintenance(
+    settings: ServerSettings,
+    action: Literal["plan", "apply"],
+    *,
+    owner: str | None,
+    scope_ids: Sequence[str],
+    background_principal: PrincipalRef | None = None,
+) -> bool:
+    config = BuiltinConfig(
+        code=settings.code,
+        runtime=settings.runtime,
+        database=settings.database,
+        handoff_report=settings.handoff_report,
+        inference=settings.inference,
+        external_skills=settings.external_skills,
+    )
+    async with AsyncExitStack() as resources:
+        access = await resources.enter_async_context(
+            open_builtin_access_control(settings.database, deployment_id=settings.access.deployment_id)
+        )
+        runtime = await resources.enter_async_context(open_builtin_runtime(config, dispatch_processing=False))
+        if runtime.scopes is None:
+            raise typer.BadParameter("ownership migration requires a runtime with Scope support")  # noqa: TRY003
+        recovery = OwnerRecovery(runtime.primary_database, access)
+        await recovery.initialize()
+        scopes = list(scope_ids) or [scope.scope_id for scope in await runtime.scopes.list()]
+        if action == "plan":
+            plan = await plan_ownership_migration(
+                runtime,
+                access,
+                scopes,
+                background_principal=background_principal,
+                transport="background",
+            )
+            typer.echo(json.dumps(ownership_report(plan)))
+            return True
+        owner_type, _, owner_id = cast(str, owner).partition(":")
+        result = await apply_ownership_migration(
+            runtime,
+            access,
+            scopes,
+            owner=PrincipalRef(type=owner_type, id=owner_id),
+            transport="background",
+            owner_recovery=recovery,
+        )
+        report = ownership_report(result)
+        typer.echo(json.dumps(report))
+        return not report["conflicts"]
 
 
 async def _sqlite_snapshot_budget_preflight(database: SQLiteConfig, snapshot_budget_bytes: int) -> bool:

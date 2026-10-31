@@ -5819,6 +5819,77 @@ paths:
           $ref: '#/components/responses/InvalidRequest'
         '503':
           $ref: '#/components/responses/Unavailable'
+  /v1/access/ownership/plan:
+    post:
+      tags: [access]
+      summary: Inventory ownership data missing after switching Access enforcement on
+      operationId: plan_access_ownership
+      description: >-
+        Inspect the Scopes that were written while Access was disabled: missing Artifact owners, pending
+        Review Candidates without an owner attestation, and, when named, the background Principal's
+        per-Scope write authority. Produces no change. In enforced mode completes as a deployment
+        administrator; in disabled mode completes without authentication because the Server cannot yet
+        protect anything. A background Principal check requires an available Access store; otherwise it
+        reports 503 relationship_management_unavailable. Use the offline ownership command to check the
+        proposed background Principal before enforcement is enabled.
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanAccessOwnershipRequest"
+      responses:
+        "200":
+          description: The missing-attribution inventory for the requested Scopes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessOwnershipPlan"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/access/ownership/apply:
+    post:
+      tags: [access]
+      summary: Backfill missing Artifact owners and Candidate owner attestations
+      operationId: apply_access_ownership
+      description: >-
+        Grant the missing ownership data to the explicitly named Principal; the Server never derives it.
+        Existing Artifact owners and Candidate attestations are preserved and reported as conflicts when
+        they disagree with the named Principal. Identities with recorded ownership recovery evidence
+        are reported as conflicts and must retain their original attribution. Every item is one idempotent
+        write, so interrupted or
+        repeated runs refill only still-missing items. Set dry_run first to preview the exact items.
+        Requires a deployment administrator; while Access is disabled the Server has no ownership store
+        and reports 503 ownership_migration_unavailable.
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyAccessOwnershipRequest"
+      responses:
+        "200":
+          description: The applied, or, in dry-run, previewed ownership backfill.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessOwnershipApplyResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 components:
   securitySchemes:
     BearerAuth:
@@ -14063,3 +14134,102 @@ components:
           - discovery
           - control
           default: discovery
+    PlanAccessOwnershipRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scope_ids:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1, maxLength: 256}
+          description: Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments.
+        background_principal:
+          allOf:
+            - $ref: "#/components/schemas/AccessPrincipal"
+          nullable: true
+          description: >-
+            Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each
+            selected Scope is checked for scope.contribute and write permission on an existing Profile,
+            including after all ownership gaps have been filled. An available Access store is required.
+    OwnershipGapKind:
+      type: string
+      enum: [artifact_owner, candidate_attestation]
+    OwnershipGapItem:
+      type: object
+      additionalProperties: false
+      required: [kind, scope_id, family]
+      properties:
+        kind:
+          $ref: "#/components/schemas/OwnershipGapKind"
+        scope_id: {type: string, minLength: 1, maxLength: 256}
+        family: {type: string, minLength: 1, maxLength: 128}
+        artifact_id: {type: string, maxLength: 256, nullable: true}
+        entry_id: {type: string, maxLength: 256, nullable: true}
+        candidate_id: {type: string, maxLength: 128, nullable: true}
+        version: {type: integer, minimum: 1, nullable: true}
+        conflict_code: {type: string, maxLength: 64, nullable: true}
+    AccessOwnershipScopePlan:
+      type: object
+      additionalProperties: false
+      required: [scope_id, artifact_gaps, candidate_gaps]
+      properties:
+        scope_id: {type: string, minLength: 1, maxLength: 256}
+        artifact_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"
+        candidate_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"
+    BackgroundPermissionGap:
+      type: object
+      additionalProperties: false
+      required: [scope_id, principal_id, allowed, reason_code]
+      properties:
+        scope_id: {type: string, minLength: 1, maxLength: 256}
+        principal_id: {type: string, minLength: 1, maxLength: 255}
+        allowed: {type: boolean, enum: [false]}
+        reason_code: {type: string, maxLength: 64, nullable: true}
+    AccessOwnershipPlan:
+      type: object
+      additionalProperties: false
+      required: [mode, scopes, background]
+      properties:
+        mode:
+          $ref: "#/components/schemas/AccessControlMode"
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessOwnershipScopePlan"
+        background:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackgroundPermissionGap"
+    ApplyAccessOwnershipRequest:
+      type: object
+      additionalProperties: false
+      required: [owner]
+      properties:
+        owner:
+          $ref: "#/components/schemas/AccessPrincipal"
+        scope_ids:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1, maxLength: 256}
+          description: Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments.
+        dry_run: {type: boolean, default: false}
+    AccessOwnershipApplyResult:
+      type: object
+      additionalProperties: false
+      required: [dry_run, applied, conflicts]
+      properties:
+        dry_run: {type: boolean}
+        applied:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"
+        conflicts:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"

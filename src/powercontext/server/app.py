@@ -213,6 +213,9 @@ from powercontext.builtin.records import (
     ArtifactWrite as RuntimeArtifactWrite,
 )
 from powercontext.builtin.records import (
+    LogicalArtifactRecord as RuntimeLogicalArtifactRecord,
+)
+from powercontext.builtin.records import (
     SourceRecord as RuntimeSourceRecord,
 )
 from powercontext.builtin.records import (
@@ -410,6 +413,7 @@ from powercontext.http import (
     AccessRolePage,
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
+    ApplyAccessOwnershipRequest,
     ApproveCandidateRequest,
     ArtifactAccessResource,
     ArtifactCollectionItem,
@@ -516,6 +520,7 @@ from powercontext.http import (
     MemoryCapacity,
     MemoryEntryAccessSelector,
     MemoryMutationResponse,
+    PlanAccessOwnershipRequest,
     PrepareContextRequest,
     PreparedContext,
     PreparedWorkHandoff,
@@ -658,12 +663,14 @@ from powercontext.http._generated.models import (
     AccessControlMode as TransportAccessControlMode,
 )
 from powercontext.http._generated.models import (
-    ArtifactFamily as TransportArtifactFamily,
-)
-from powercontext.http._generated.models import (
+    AccessOwnershipApplyResult,
+    AccessOwnershipPlan,
+    AccessOwnershipScopePlan,
     ArtifactTagPage,
     ArtifactTagSet,
+    BackgroundPermissionGap,
     GetTopicMemoryProcessingBlockRequest,
+    OwnershipGapItem,
     QueryArtifactTagsRequest,
     ReplaceArtifactTagsRequest,
     RetryTopicMemoryProcessingRequest,
@@ -675,6 +682,12 @@ from powercontext.http._generated.models import (
     TopicMemoryProcessingStatus,
     TopicMemoryProcessingStatusRequest,
 )
+from powercontext.http._generated.models import Allowed as TransportOwnershipAllowed
+from powercontext.http._generated.models import (
+    ArtifactFamily as TransportArtifactFamily,
+)
+from powercontext.http._generated.models import OwnershipGapKind as TransportOwnershipGapKind
+from powercontext.http._generated.models import ScopeId1 as TransportScopeId
 from powercontext.http._generated.models import (
     ShareUnit as TransportShareUnit,
 )
@@ -685,6 +698,7 @@ from powercontext.http._generated.operations import (
     API_DESCRIPTION,
     API_TITLE,
     API_VERSION,
+    APPLY_ACCESS_OWNERSHIP,
     APPROVE_CANDIDATE,
     BIND_ARTIFACT_HANDLE,
     CAPTURE_CONTENT_SOURCE,
@@ -763,6 +777,7 @@ from powercontext.http._generated.operations import (
     LIST_SCOPES,
     LIST_SOURCES,
     OPENAPI_VERSION,
+    PLAN_ACCESS_OWNERSHIP,
     PREPARE_BOOTSTRAP_CONTEXT,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
@@ -881,6 +896,12 @@ from powercontext.server.dream_compatibility import (
     negotiate_dream_contract,
     require_extended_dream,
 )
+from powercontext.server.ownership import (
+    ArtifactOwnershipGap,
+    CandidateOwnershipGap,
+    apply_ownership_migration,
+    plan_ownership_migration,
+)
 from powercontext.server.request_id import REQUEST_ID_HEADER
 from powercontext.server.tracing import request_id_from_span
 from powercontext.sources import ConnectorBinding as RuntimeConnectorBinding
@@ -967,6 +988,8 @@ class _ScopedRecordApplication(Protocol):
         *,
         execution_context: Any = None,
     ) -> RuntimeArtifactRecord: ...
+
+    async def logical_artifacts(self) -> tuple[RuntimeLogicalArtifactRecord, ...]: ...
 
     async def query_artifacts(
         self,
@@ -1516,6 +1539,8 @@ def create_app(
     _add_route(app, REVOKE_ACCESS_BINDING, revoke_access_binding)
     _add_route(app, REPLACE_ACCESS_BINDING, replace_access_binding)
     _add_route(app, LIST_ACCESS_AUDIT, list_access_audit)
+    _add_route(app, PLAN_ACCESS_OWNERSHIP, plan_access_ownership)
+    _add_route(app, APPLY_ACCESS_OWNERSHIP, apply_access_ownership)
     if handoff_report_enabled:
         _add_route(app, GET_HANDOFF_REPORT, get_handoff_report)
     _add_route(app, LIST_SOURCES, list_sources)
@@ -2143,6 +2168,112 @@ async def list_access_audit(payload: ListAccessAuditRequest, request: Request) -
     return AccessAuditPage(
         items=[_access_audit_response(event) for event in page.items],
         next_cursor=page.next_cursor,
+    )
+
+
+async def plan_access_ownership(payload: PlanAccessOwnershipRequest, request: Request) -> AccessOwnershipPlan:
+    application = _require_application(request)
+    scope_ids = await _migration_scope_ids(payload.scope_ids, request)
+    access = request.app.state.access_control
+    background = None if payload.background_principal is None else _access_principal(payload.background_principal)
+    if request.app.state.access_mode == "enforced":
+        access = _require_access_control(request)
+        await access.require(
+            _require_principal(),
+            *_binding_administrative_check(None, deployment_id=access.deployment_id),
+            context=_access_audit_context(PLAN_ACCESS_OWNERSHIP.operation_id),
+        )
+    plan = await plan_ownership_migration(
+        application,
+        access,
+        scope_ids,
+        background_principal=background,
+        context=_access_audit_context(PLAN_ACCESS_OWNERSHIP.operation_id),
+    )
+    return AccessOwnershipPlan(
+        mode=TransportAccessControlMode(request.app.state.access_mode),
+        scopes=[
+            AccessOwnershipScopePlan(
+                scope_id=scope.scope_id,
+                artifact_gaps=[_ownership_gap_item(gap) for gap in scope.artifact_gaps],
+                candidate_gaps=[_ownership_gap_item(gap) for gap in scope.candidate_gaps],
+            )
+            for scope in plan.scopes
+        ],
+        background=[
+            BackgroundPermissionGap(
+                scope_id=gap.scope_id,
+                principal_id=gap.principal_id,
+                allowed=TransportOwnershipAllowed.BOOLEAN_FALSE,
+                reason_code=gap.reason_code,
+            )
+            for gap in plan.background
+        ],
+    )
+
+
+async def apply_access_ownership(payload: ApplyAccessOwnershipRequest, request: Request) -> AccessOwnershipApplyResult:
+    application = _require_application(request)
+    if request.app.state.access_mode != "enforced":
+        raise AccessUnavailableError("ownership_migration_unavailable")
+    access = _require_access_control(request)
+    scope_ids = await _migration_scope_ids(payload.scope_ids, request)
+    await access.require(
+        _require_principal(),
+        *_binding_administrative_check(None, deployment_id=access.deployment_id),
+        context=_access_audit_context(APPLY_ACCESS_OWNERSHIP.operation_id),
+    )
+    result = await apply_ownership_migration(
+        application,
+        access,
+        scope_ids,
+        owner=_access_principal(payload.owner),
+        dry_run=payload.dry_run,
+        owner_recovery=request.app.state.owner_recovery,
+        context=_access_audit_context(APPLY_ACCESS_OWNERSHIP.operation_id),
+    )
+    return AccessOwnershipApplyResult(
+        dry_run=payload.dry_run,
+        applied=[_ownership_gap_item(item.gap, item.detail) for item in result.applied],
+        conflicts=[_ownership_gap_item(item.gap, item.detail) for item in result.conflicts],
+    )
+
+
+async def _migration_scope_ids(
+    requested: Sequence[str | TransportScopeId] | None,
+    request: Request,
+) -> list[str]:
+    if requested is None:
+        return [scope.scope_id for scope in await _require_scope_application(request).list()]
+    unique: list[str] = []
+    for value in requested:
+        scope_id = value.root if isinstance(value, TransportScopeId) else str(value)
+        if scope_id not in unique:
+            unique.append(scope_id)
+    return unique
+
+
+def _ownership_gap_item(
+    gap: ArtifactOwnershipGap | CandidateOwnershipGap,
+    conflict_code: str | None = None,
+) -> OwnershipGapItem:
+    if isinstance(gap, ArtifactOwnershipGap):
+        return OwnershipGapItem(
+            kind=TransportOwnershipGapKind.ARTIFACT_OWNER,
+            scope_id=gap.scope_id,
+            family=gap.family,
+            artifact_id=gap.artifact_id,
+            entry_id=gap.entry_id,
+            conflict_code=conflict_code,
+        )
+    return OwnershipGapItem(
+        kind=TransportOwnershipGapKind.CANDIDATE_ATTESTATION,
+        scope_id=gap.scope_id,
+        family=gap.family,
+        candidate_id=gap.candidate_id,
+        version=gap.version,
+        artifact_id=gap.target_artifact_id,
+        conflict_code=conflict_code,
     )
 
 

@@ -2687,6 +2687,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/access/ownership/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Inventory ownership data missing after switching Access enforcement on
+         * @description Inspect the Scopes that were written while Access was disabled: missing Artifact owners, pending Review Candidates without an owner attestation, and, when named, the background Principal's per-Scope write authority. Produces no change. In enforced mode completes as a deployment administrator; in disabled mode completes without authentication because the Server cannot yet protect anything. A background Principal check requires an available Access store; otherwise it reports 503 relationship_management_unavailable. Use the offline ownership command to check the proposed background Principal before enforcement is enabled.
+         */
+        post: operations["plan_access_ownership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/access/ownership/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Backfill missing Artifact owners and Candidate owner attestations
+         * @description Grant the missing ownership data to the explicitly named Principal; the Server never derives it. Existing Artifact owners and Candidate attestations are preserved and reported as conflicts when they disagree with the named Principal. Identities with recorded ownership recovery evidence are reported as conflicts and must retain their original attribution. Every item is one idempotent write, so interrupted or repeated runs refill only still-missing items. Set dry_run first to preview the exact items. Requires a deployment administrator; while Access is disabled the Server has no ownership store and reports 503 ownership_migration_unavailable.
+         */
+        post: operations["apply_access_ownership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -5902,6 +5942,53 @@ export interface components {
              * @enum {string}
              */
             view: "discovery" | "control";
+        };
+        PlanAccessOwnershipRequest: {
+            /** @description Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments. */
+            scope_ids?: string[];
+            /** @description Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each selected Scope is checked for scope.contribute and write permission on an existing Profile, including after all ownership gaps have been filled. An available Access store is required. */
+            background_principal?: components["schemas"]["AccessPrincipal"] | null;
+        };
+        /** @enum {string} */
+        OwnershipGapKind: "artifact_owner" | "candidate_attestation";
+        OwnershipGapItem: {
+            kind: components["schemas"]["OwnershipGapKind"];
+            scope_id: string;
+            family: string;
+            artifact_id?: string | null;
+            entry_id?: string | null;
+            candidate_id?: string | null;
+            version?: number | null;
+            conflict_code?: string | null;
+        };
+        AccessOwnershipScopePlan: {
+            scope_id: string;
+            artifact_gaps: components["schemas"]["OwnershipGapItem"][];
+            candidate_gaps: components["schemas"]["OwnershipGapItem"][];
+        };
+        BackgroundPermissionGap: {
+            scope_id: string;
+            principal_id: string;
+            /** @enum {boolean} */
+            allowed: false;
+            reason_code: string | null;
+        };
+        AccessOwnershipPlan: {
+            mode: components["schemas"]["AccessControlMode"];
+            scopes: components["schemas"]["AccessOwnershipScopePlan"][];
+            background: components["schemas"]["BackgroundPermissionGap"][];
+        };
+        ApplyAccessOwnershipRequest: {
+            owner: components["schemas"]["AccessPrincipal"];
+            /** @description Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments. */
+            scope_ids?: string[];
+            /** @default false */
+            dry_run: boolean;
+        };
+        AccessOwnershipApplyResult: {
+            dry_run: boolean;
+            applied: components["schemas"]["OwnershipGapItem"][];
+            conflicts: components["schemas"]["OwnershipGapItem"][];
         };
     };
     responses: {
@@ -10704,6 +10791,62 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    plan_access_ownership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanAccessOwnershipRequest"];
+            };
+        };
+        responses: {
+            /** @description The missing-attribution inventory for the requested Scopes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessOwnershipPlan"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    apply_access_ownership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyAccessOwnershipRequest"];
+            };
+        };
+        responses: {
+            /** @description The applied, or, in dry-run, previewed ownership backfill. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessOwnershipApplyResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };

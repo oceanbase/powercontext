@@ -54,6 +54,7 @@ class AccessUnavailableError(AccessControlError, RuntimeError):
             "relationship_management_unavailable": "Access relationship management is unavailable",
             "resource_filter_limit_exceeded": "the complete authorized resource filter exceeds its configured limit",
             "safe_resource_filtering_unavailable": "safe Access resource filtering is unavailable",
+            "ownership_migration_unavailable": "ownership migration requires enforced Access mode",
         }
         super().__init__(messages.get(code, messages["access_unavailable"]))
 
