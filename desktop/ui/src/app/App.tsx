@@ -17,7 +17,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { messages, type Language } from "./messages";
 import { getFoundationInfo, desktopApi } from "../shared/ipc";
-import type { FoundationInfo, DesktopState } from "../generated/ipc";
+import type {
+  FoundationInfo,
+  DesktopState,
+  WriteRecord,
+} from "../generated/ipc";
 import logo from "../../../src-tauri/icons/brand.png";
 import homeIcon from "../assets/overview.svg";
 import connectionsIcon from "../assets/connections.svg";
@@ -32,7 +36,7 @@ import { Overview } from "./Overview";
 import {
   MemoryWorkspace,
   SubmittedDraftRecovery,
-  type UncertainDraft,
+  type SubmittedDraft,
 } from "./MemoryWorkspace";
 import { LocalServerSettings } from "./LocalServerSettings";
 import { Help } from "./Help";
@@ -64,9 +68,37 @@ export function App() {
   const [stateLoading, setStateLoading] = useState(true);
   const stateRequest = useRef(0);
   const [dirty, setDirty] = useState(false);
-  const [uncertainDraft, setUncertainDraft] = useState<UncertainDraft | null>(
-    null,
-  );
+  const uiIntent = useRef(0);
+  function editorDirty(next: boolean) {
+    uiIntent.current++;
+    setDirty(next);
+  }
+  const [submittedDrafts, setSubmittedDrafts] = useState<SubmittedDraft[]>([]);
+  const submissionSequence = useRef(0);
+  function beginSubmission(text: string, target: SubmittedDraft["target"]) {
+    const id = ++submissionSequence.current;
+    setSubmittedDrafts((current) => [
+      ...current,
+      { id, text, target, phase: "pending" },
+    ]);
+    return (record: WriteRecord | null) => {
+      // Update only a retained intent. Explicit discard removes its identity,
+      // so late receipts cannot revive it or clear a different submission.
+      setSubmittedDrafts((current) =>
+        current.flatMap((draft) => {
+          if (draft.id !== id) return [draft];
+          if (record?.status === "succeeded") return [];
+          return [
+            {
+              ...draft,
+              target: record?.context ?? draft.target,
+              phase: record?.status ?? "unconfirmed",
+            },
+          ];
+        }),
+      );
+    };
+  }
   const [scopeOpen, setScopeOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [connectionSelection, setConnectionSelection] = useState<{
@@ -94,11 +126,11 @@ export function App() {
   const { confirm, confirmation } = useConfirmation(language);
   async function confirmSwitch() {
     if (
-      (dirty || uncertainDraft) &&
+      (dirty || submittedDrafts.length > 0) &&
       !(await confirm(connectionMessages[language].discard))
     )
       return false;
-    setUncertainDraft(null);
+    setSubmittedDrafts([]);
     return true;
   }
   const activeProfile = desktop?.profiles.find(
@@ -143,6 +175,7 @@ export function App() {
     if (localServer) target?.scrollIntoView?.({ block: "start" });
   }, [page, connectionSelection]);
   function openScopes(trigger: HTMLElement) {
+    uiIntent.current++;
     scopeReturnFocus.current = trigger;
     setScopeOpen(true);
   }
@@ -155,6 +188,7 @@ export function App() {
       !(await confirmSwitch())
     )
       return;
+    uiIntent.current++;
     settingsSection.current = target?.section;
     setConnectionSelection((current) =>
       target?.profileId === undefined
@@ -354,22 +388,30 @@ export function App() {
           )}
           {page === "memories" && (
             <>
-              {uncertainDraft &&
-                uncertainDraft.record.context.generation !==
-                  desktop?.active?.generation && (
+              {submittedDrafts
+                .filter(
+                  (draft) =>
+                    draft.target.generation !== desktop?.active?.generation,
+                )
+                .map((draft) => (
                   <SubmittedDraftRecovery
-                    draft={uncertainDraft}
+                    key={draft.id}
+                    draft={draft}
                     language={language}
-                    onDiscard={() => setUncertainDraft(null)}
+                    onDiscard={() =>
+                      setSubmittedDrafts((current) =>
+                        current.filter((item) => item.id !== draft.id),
+                      )
+                    }
                   />
-                )}
+                ))}
               <MemoryWorkspace
                 key={`memory-${desktop?.active?.generation ?? "none"}`}
                 state={desktop}
                 language={language}
                 onState={receiveState}
-                onDirty={setDirty}
-                onUncertainDraft={setUncertainDraft}
+                onDirty={editorDirty}
+                onSubmission={beginSubmission}
                 onManageConnections={() => navigate("connections")}
                 onOpenScopes={openScopes}
                 onOpenLocalServer={() =>
@@ -386,7 +428,7 @@ export function App() {
               state={desktop}
               language={language}
               onState={receiveState}
-              onDirty={setDirty}
+              onDirty={editorDirty}
               onPendingChange={connectionPending}
             />
           )}
@@ -451,15 +493,21 @@ export function App() {
                   return true;
                 }}
                 onConnect={async () => {
+                  const intent = uiIntent.current;
                   if (!desktop || connectingLocal || !(await confirmSwitch()))
                     return;
+                  if (intent !== uiIntent.current) return;
                   setConnectingLocal(true);
                   connectionPending(true);
                   setNativeError(null);
                   try {
                     const next = await opsApi.connect(desktop.generation);
                     const accepted = receiveState(next);
-                    if (accepted && next.active?.scope) {
+                    if (
+                      accepted &&
+                      next.active?.scope &&
+                      intent === uiIntent.current
+                    ) {
                       setDirty(false);
                       setPage("memories");
                     }

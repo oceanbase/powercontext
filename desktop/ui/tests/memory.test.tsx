@@ -447,6 +447,226 @@ test.each(["en", "zh"] as const)(
     expect(desktopApi.remember).toHaveBeenCalledTimes(1);
   },
 );
+test.each(["en", "zh"] as const)(
+  "%s preserves the original uncertain input when a retry disconnects before dispatch",
+  async (language) => {
+    const user = userEvent.setup();
+    vi.mocked(desktopApi.state).mockResolvedValue(state);
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "设置与诊断" }));
+    await user.selectOptions(screen.getByLabelText("语言"), language);
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Memories" : "记忆",
+      }),
+    );
+    const original = outcome("unknown");
+    vi.mocked(desktopApi.remember).mockResolvedValueOnce(original);
+    vi.mocked(desktopApi.state).mockResolvedValue({
+      ...state,
+      lastWrite: original.record,
+    });
+    const input = screen.getByLabelText(
+      language === "en" ? "Memory text" : "记忆内容",
+    );
+    await user.type(input, "original uncertain submission");
+    await user.click(
+      screen.getByRole("button", { name: language === "en" ? "Save" : "保存" }),
+    );
+    await user.clear(input);
+    await user.type(input, "edited retry input");
+    vi.mocked(desktopApi.remember).mockRejectedValueOnce({
+      code: "runtime_not_ready",
+      requestId: null,
+      dispatched: true,
+    });
+    vi.mocked(desktopApi.state).mockResolvedValue({
+      ...state,
+      generation: 2,
+      active: null,
+      lastWrite: original.record,
+    });
+    await user.click(
+      screen.getByRole("button", { name: language === "en" ? "Save" : "保存" }),
+    );
+    await answerConfirmation(user, true);
+    const copies = await screen.findAllByRole("textbox", {
+      name: language === "en" ? "Original submitted text" : "原始提交文本",
+    });
+    expect(
+      copies.map((input) => (input as HTMLTextAreaElement).value),
+    ).toContain("original uncertain submission");
+    expect(
+      copies.map((input) => (input as HTMLTextAreaElement).value),
+    ).toContain("edited retry input");
+    expect(
+      copies.every((input) => (input as HTMLTextAreaElement).readOnly),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: language === "en" ? "Save" : "保存" })
+        .matches(":disabled"),
+    ).toBe(true);
+    expect(desktopApi.remember).toHaveBeenCalledTimes(2);
+    const retryRegion = copies
+      .find(
+        (input) =>
+          (input as HTMLTextAreaElement).value === "edited retry input",
+      )!
+      .closest("section")!;
+    await user.click(
+      within(retryRegion).getByRole("button", {
+        name: language === "en" ? "Discard submitted text" : "丢弃提交文本",
+      }),
+    );
+    await answerConfirmation(user, true);
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: language === "en" ? "Original submitted text" : "原始提交文本",
+        }) as HTMLTextAreaElement
+      ).value,
+    ).toBe("original uncertain submission");
+  },
+);
+
+test.each([
+  ["en", "keep"],
+  ["zh", "keep"],
+  ["en", "discard"],
+  ["zh", "discard"],
+  ["en", "success"],
+  ["zh", "success"],
+  ["en", "failed"],
+  ["zh", "failed"],
+] as const)(
+  "%s retains an in-flight submission across read disconnection and honors %s",
+  async (language, action) => {
+    const user = userEvent.setup();
+    vi.mocked(desktopApi.state).mockResolvedValue(state);
+    let finish!: (result: WriteOutcome) => void;
+    vi.mocked(desktopApi.remember).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "设置与诊断" }));
+    await user.selectOptions(screen.getByLabelText("语言"), language);
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Memories" : "记忆",
+      }),
+    );
+    await user.type(
+      screen.getByLabelText(language === "en" ? "Memory text" : "记忆内容"),
+      "in-flight original input",
+    );
+    await user.click(
+      screen.getByRole("button", { name: language === "en" ? "Save" : "保存" }),
+    );
+    const unknown = outcome("unknown");
+    vi.mocked(desktopApi.state).mockResolvedValue({
+      ...state,
+      generation: 2,
+      active: null,
+      lastWrite: { ...unknown.record, status: "pending" },
+    });
+    vi.mocked(desktopApi.search).mockRejectedValueOnce({
+      code: "runtime_not_ready",
+      requestId: null,
+      dispatched: true,
+    });
+    await user.type(
+      screen.getByLabelText(
+        language === "en" ? "Keyword search" : "关键词搜索",
+      ),
+      "query",
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Search" : "搜索",
+      }),
+    );
+    const label =
+      language === "en" ? "Original submitted text" : "原始提交文本";
+    expect(
+      (
+        (await screen.findByRole("textbox", {
+          name: label,
+        })) as HTMLTextAreaElement
+      ).value,
+    ).toBe("in-flight original input");
+    if (action === "discard") {
+      await user.click(
+        screen.getByRole("button", {
+          name: language === "en" ? "Discard submitted text" : "丢弃提交文本",
+        }),
+      );
+      await answerConfirmation(user, true);
+    }
+    const result =
+      action === "success"
+        ? makeSaved(1).outcome
+        : action === "failed"
+          ? outcome("failed")
+          : unknown;
+    if (action === "failed")
+      result.record.error = {
+        code: "forbidden",
+        requestId: null,
+        dispatched: true,
+      };
+    vi.mocked(desktopApi.state).mockResolvedValue({
+      ...state,
+      generation: 2,
+      active: null,
+      lastWrite: result.record,
+    });
+    await act(async () => {
+      finish(result);
+    });
+    if (action === "keep" || action === "failed") {
+      const copy = screen.getByRole("textbox", {
+        name: label,
+      }) as HTMLTextAreaElement;
+      expect(copy.value).toBe("in-flight original input");
+      expect(copy.readOnly).toBe(true);
+      expect(
+        screen.getByRole("region", {
+          name: language === "en" ? "Submitted draft recovery" : "提交草稿恢复",
+        }).textContent,
+      ).toContain("server-a");
+      if (action === "failed") {
+        const discard = screen.getByRole("button", {
+          name: language === "en" ? "Discard submitted text" : "丢弃提交文本",
+        });
+        await user.click(discard);
+        await answerConfirmation(user, false);
+        expect(copy.value).toBe("in-flight original input");
+        const clipboard = vi
+          .spyOn(navigator.clipboard, "writeText")
+          .mockResolvedValue();
+        await user.click(
+          screen.getByRole("button", {
+            name: language === "en" ? "Copy text" : "复制正文",
+          }),
+        );
+        expect(clipboard).toHaveBeenCalledWith("in-flight original input");
+        await user.click(discard);
+        await answerConfirmation(user, true);
+        expect(screen.queryByRole("textbox", { name: label })).toBeNull();
+      }
+    } else {
+      expect(screen.queryByRole("textbox", { name: label })).toBeNull();
+    }
+    expect(screen.queryByText("private result")).toBeNull();
+    expect(screen.queryByText("Atomic note 0")).toBeNull();
+    expect(desktopApi.remember).toHaveBeenCalledTimes(1);
+  },
+);
+
 test("leaving a cleared unknown-write form explicitly discards retained input without clearing the receipt", async () => {
   const user = userEvent.setup();
   vi.mocked(desktopApi.state).mockResolvedValue(state);

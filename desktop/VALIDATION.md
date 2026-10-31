@@ -714,3 +714,10 @@ The source Ops opt-in was separately executed with `POWERCONTEXT_OPS_TEST_PYTHON
 `make check`, Rust formatting/all-target Clippy with `-D warnings`, IPC export drift, frontend lint/typecheck/production build and `make docs-test` pass. The focused Python contract/fixture/Ops/installer/local-policy selection passes 89 tests with one platform skip. The commands at the top of this guide reproduce the checks; the setup behavior and supported recovery choices are documented in both locales under [Desktop local setup](../docs/en/development/desktop-local-server.md).
 
 UI tests mock native IPC; HTTP fixtures simulate Server responses. These results do not establish actual managed installation/apply, Windows execution, signed/notarized packages, clean-machine bootstrap, login/reboot, real IME, screen readers or installed credential/clipboard behavior. Product qualification records are unchanged. Required installed acceptance uses the exact published resources and final Windows/macOS packages under #2108/#2109/#2112; #2117 remains open until that evidence is linked.
+
+
+## Local handoff and submitted-input retention
+
+Local macOS arm64 UI checks use Node 24.22.1 and pnpm 11.13.1; Node differs from the 24.14.1 engine pin. The 176 frontend tests pass, including English/Chinese deferred local handoff, preserved newer connection input and discard confirmation, navigation without editing, concurrent read disconnection before a write receipt, unknown-write retry failure, independent recovery copies, explicit discard and late success/unknown/rejected receipts. The three local-handoff regressions fail against the prior App implementation. IPC is mocked; these checks do not qualify installed WebView, clipboard, actual managed apply or service lifecycle behavior.
+
+本地 macOS arm64 使用 Node 24.22.1、pnpm 11.13.1，Node 与固定的 24.14.1 不同。176 项前端测试通过，覆盖中英文延迟本地交接、新连接输入及丢弃确认保护、未编辑时的页面导航、写入回执前并发读取断连、未知写入重试失败、独立恢复副本、明确丢弃和晚到的成功／未知／拒绝回执。三项本地交接回归在原 App 实现上失败。IPC 使用模拟响应；这些检查不代表安装版 WebView、剪贴板、真实受管安装或服务生命周期验收。

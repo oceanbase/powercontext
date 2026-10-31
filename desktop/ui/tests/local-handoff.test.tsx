@@ -15,6 +15,7 @@
  */
 
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -24,6 +25,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "../src/app/App";
+import { answerConfirmation } from "./confirmation";
 import { opsApi } from "../src/shared/ops";
 import { desktopApi } from "../src/shared/ipc";
 import type { DesktopState } from "../src/generated/ipc";
@@ -237,4 +239,77 @@ test("local handoff integrity failure is explicit and cannot activate or replay"
   expect(screen.queryByText("server-returned-default")).toBeNull();
   expect(opsApi.apply).not.toHaveBeenCalled();
   expect(opsApi.connect).toHaveBeenCalledOnce();
+});
+
+test.each(["zh", "en"] as const)(
+  "a late local handoff preserves a newer connection draft and its discard guard (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    let finish!: (state: DesktopState) => void;
+    vi.mocked(opsApi.connect).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "本地设置" }));
+    await user.selectOptions(screen.getByLabelText("语言"), language);
+    await user.click(
+      screen.getByRole("button", {
+        name:
+          language === "en"
+            ? "Connect and open default Scope"
+            : "连接并进入默认 Scope",
+      }),
+    );
+    await answerConfirmation(user, true);
+    await waitFor(() => expect(opsApi.connect).toHaveBeenCalledOnce());
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Connections" : "连接",
+      }),
+    );
+    const input = screen.getByRole("textbox", {
+      name: language === "en" ? "Connection name" : "连接名称",
+    });
+    await user.type(input, "new unsaved profile");
+    await act(async () => finish(connected()));
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: language === "en" ? "Connections" : "连接",
+      }),
+    ).toBeTruthy();
+    expect((input as HTMLInputElement).value).toBe("new unsaved profile");
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Overview" : "总览",
+      }),
+    );
+    await answerConfirmation(user, false);
+    expect((input as HTMLInputElement).value).toBe("new unsaved profile");
+    expect(opsApi.connect).toHaveBeenCalledOnce();
+  },
+);
+
+test("a late local handoff respects navigation even without a new draft", async () => {
+  const user = userEvent.setup();
+  let finish!: (state: DesktopState) => void;
+  vi.mocked(opsApi.connect).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(<App />);
+  await user.click(screen.getByRole("button", { name: "本地设置" }));
+  await user.click(
+    screen.getByRole("button", { name: "连接并进入默认 Scope" }),
+  );
+  await answerConfirmation(user, true);
+  await waitFor(() => expect(opsApi.connect).toHaveBeenCalledOnce());
+  await user.click(screen.getByRole("button", { name: "总览" }));
+  await act(async () => finish(connected()));
+  expect(screen.getByRole("heading", { level: 1, name: "总览" })).toBeTruthy();
 });

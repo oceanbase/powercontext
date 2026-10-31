@@ -42,12 +42,22 @@ type Props = {
   onOpenScopes?: (trigger: HTMLElement) => void;
   onOpenLocalServer?: () => void;
   contextPending?: boolean;
-  onUncertainDraft?: (draft: UncertainDraft | null) => void;
+  onSubmission?: (
+    text: string,
+    target: SubmittedTarget,
+  ) => (record: WriteRecord | null) => void;
 };
-export type UncertainDraft = { text: string; record: WriteRecord };
+type SubmittedTarget = Pick<MemoryContext, "generation" | "scopeId"> &
+  Partial<Pick<MemoryContext, "endpoint" | "serverId">>;
+export type SubmittedDraft = {
+  id: number;
+  text: string;
+  target: SubmittedTarget;
+  phase: "pending" | "unknown" | "unconfirmed" | "failed";
+};
 export const textBytes = (value: string) =>
   new TextEncoder().encode(value).length;
-function WriteTarget({ context }: { context: MemoryContext }) {
+function WriteTarget({ context }: { context: SubmittedTarget }) {
   return (
     <code>
       {context.endpoint} · {context.serverId && <>{context.serverId} · </>}
@@ -61,7 +71,7 @@ export function SubmittedDraftRecovery({
   language,
   onDiscard,
 }: {
-  draft: UncertainDraft;
+  draft: SubmittedDraft;
   language: Language;
   onDiscard: () => void;
 }) {
@@ -80,9 +90,10 @@ export function SubmittedDraftRecovery({
     <section className="card stack" role="region" aria-label={t.recovery}>
       {confirmation}
       <h2>{t.recovery}</h2>
+      <p>{t[draft.phase]}</p>
       <p>{t.recoveryHint}</p>
       <p>
-        {t.original}: <WriteTarget context={draft.record.context} />
+        {t.original}: <WriteTarget context={draft.target} />
       </p>
       <label>
         {t.submittedText}
@@ -118,7 +129,7 @@ export function NoteForm({
   contextPending = false,
   onReadSaved,
   invalidateSaved,
-  onUncertainDraft,
+  onSubmission,
 }: NoteFormProps) {
   const t = memoryMessages[language];
   const { confirm, confirmation } = useConfirmation(language);
@@ -182,7 +193,6 @@ export function NoteForm({
     )
       return;
     if (ticket !== lifetime.current || generation.current !== original) return;
-    onUncertainDraft?.(null);
     const contentTicket = contentInvalidation.current;
     const isCurrent = () =>
       ticket === lifetime.current && generation.current === original;
@@ -192,13 +202,19 @@ export function NoteForm({
     setOutcome(null);
     setSaved([]);
     setReturnedCount(null);
+    // Retain intent before IPC. A concurrent read can disconnect and unmount
+    // this form while the native write is still awaiting its response.
+    const finishSubmission = onSubmission?.(text, {
+      generation: original,
+      scopeId: active.scope.scope_id,
+      endpoint: profile?.endpoint,
+      serverId: active.report.discovery?.server?.server_id ?? null,
+    });
     try {
       const result = await desktopApi.remember(original, text);
+      finishSubmission?.(result.record);
       if (isCurrent()) {
         setOutcome(result);
-        if (result.record.status === "unknown") {
-          onUncertainDraft?.({ text, record: result.record });
-        }
         if (result.record.status === "succeeded") {
           // Zero, one, or multiple returned records: represent each honestly.
           const records = result.result?.records ?? [];
@@ -211,6 +227,7 @@ export function NoteForm({
         }
       }
     } catch (e) {
+      finishSubmission?.(null);
       if (isCurrent()) setError(e);
     } finally {
       if (isCurrent()) {
@@ -550,7 +567,7 @@ export function MemoryWorkspace(props: Props) {
         onReadSaved={(artifact, trigger) => void readSaved(artifact, trigger)}
         invalidateSaved={invalidateSaved}
         contextPending={contextPending}
-        onUncertainDraft={props.onUncertainDraft}
+        onSubmission={props.onSubmission}
       />
       <section className="card stack">
         <h2>{t.query}</h2>
