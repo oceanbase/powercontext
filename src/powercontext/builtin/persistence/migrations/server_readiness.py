@@ -23,8 +23,8 @@ from .bundle import sqlite_inventory
 from .models import MigrationError, digest
 
 
-def check_server_schema(connection, *, _archive_recovery=False, _startup=False):
-    bundle = check_server_layout(connection, allow_declared_spaces=_startup)
+def check_server_schema(connection, *, _archive_recovery=False, _startup=False, allow_declared_spaces=False):
+    bundle = check_server_layout(connection, allow_declared_spaces=_startup or allow_declared_spaces)
     if _startup and connection.dialect.name == "sqlite":
         _check_sqlite_startup_history(connection, bundle)
     pending_restore = connection.exec_driver_sql(

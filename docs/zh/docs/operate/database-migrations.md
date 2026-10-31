@@ -195,6 +195,33 @@ apply 只修复派生行，完整 Server 校验通过后才提交。权威数据
 兼容命令 `server atomic-memory-rebuild-projection` 在受管数据库上转发到此 bundle，
 支持 `--action plan/apply/verify` 和同样的确认、备份选项。
 
+## 词法投影维护
+
+`--bundle lexical-projection` 在已经达到当前受管 Server 结构的数据库上升级搜索分析器，修复 Atomic Memory、
+Topic Memory、Experience、Skill 和自定义 Artifact 文本索引的派生文本。原生全文索引的停用词表不能丢弃
+明确加引号的词（如 `"the"`）或 `www` 等标识符；分析器会先编码文档与查询中的词，再交给数据库检索。
+
+应用计划前停止所有写入者。启用向量的部署仍须提供原有 embedding profile；词法维护保留向量值，不调用模型
+服务。使用对应后端已有的备份策略：SQLite 可用 `auto`，原生数据库使用明确确认的 `manual` 或 `skip` 策略。
+
+OceanBase 的三个命令还须使用相同的 `--evidence-dir` 和 `--lock-coordination single-host` 参数，
+与其他受管维护操作的要求一致。
+
+```bash
+powercontext server db-migrate plan --bundle lexical-projection --env-file .env --backup auto
+powercontext server db-migrate apply --bundle lexical-projection --env-file .env \
+  --backup auto --plan-id PLAN_ID --maintenance-confirmed --yes
+powercontext server db-migrate verify --bundle lexical-projection --env-file .env
+```
+
+该操作保留结构版本历史，以及权威 Artifact 的身份、修订和来源关系。计划阶段扫描权威 Artifact 历史、heads、
+Skill 包和相关投影，以绑定确认时的状态；应用阶段重写过期派生文本。需要为这些全量扫描安排维护时间，
+并按完整文本规模安排存储容量。最多 40 个 UTF-8 字节的词编码为 `3 + 2n` 个 ASCII
+字节；更长的词使用 67 个字符的摘要 token。重复执行已完成的维护计划是只读的空操作。
+
+普通启动会拒绝分析器过期的受管数据库，重启不会修复它。此 bundle 不接纳旧版结构；旧受管结构须先使用拥有
+原分析器的软件完成结构升级，再安装本软件并执行词法维护。未受管 SDK 数据库保留既有的启动投影刷新行为。
+
 ## Topic Memory 恢复 bundle
 
 选择 `--bundle topic-memory-recovery` 执行版本化的 `powercontext.topic-memory-recovery.v1` 转换。它识别恢复功能之前的

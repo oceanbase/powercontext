@@ -57,6 +57,7 @@ from powercontext.builtin.persistence.artifact_indexes import (
     key,
     parse_index,
     projection_table,
+    require_current_text_analyzer,
     search_declaration,
     vector_bytes,
 )
@@ -201,6 +202,7 @@ class CustomArtifactSearcher:
             )
             if definition["index_name"] not in kinds:
                 continue
+            require_current_text_analyzer(definition)
             await projection_table(connection, definition)
             index = parse_index(definition)
             if index.kind != kinds[index.name]:

@@ -104,11 +104,17 @@ def test_upgrade_preserves_search_exact_records_and_vectors(migration_backend):
     config = BuiltinConfig(database=migration_backend.config, runtime=RuntimeConfig(artifact_processing_families=()))
     embedding = _Embedding()
     marker = "部署地址"
+    evidence = f"{marker} the www com"
     contents: dict[str, dict[str, JsonValue]] = {
-        "atomic-memory": {"kind": "fact", "text": marker + " 127.0.0.1:8000"},
-        "experience": {"situation": marker, "action": "配置服务", "outcome": "可访问", "lesson": "核对端口"},
-        "skill": {"name": "deployment", "description": marker, "instructions": "配置服务", "validation": ["核对端口"]},
-        "topic-memory": {"title": marker, "summary": "服务配置", "detail": "地址固定在 127.0.0.1:8000"},
+        "atomic-memory": {"kind": "fact", "text": evidence + " 127.0.0.1:8000"},
+        "experience": {"situation": evidence, "action": "配置服务", "outcome": "可访问", "lesson": "核对端口"},
+        "skill": {
+            "name": "deployment",
+            "description": evidence,
+            "instructions": "配置服务",
+            "validation": ["核对端口"],
+        },
+        "topic-memory": {"title": evidence, "summary": "服务配置", "detail": "地址固定在 127.0.0.1:8000"},
     }
 
     async def scenario():
@@ -138,7 +144,14 @@ def test_upgrade_preserves_search_exact_records_and_vectors(migration_backend):
 
         async with migration_profile(migration_backend.config) as profile, profile.database.transaction() as connection:
             # Canonical revisions, states and vectors survive an analyzer change.
-            await connection.execute(LEXICAL_PROJECTION_VERSIONS_TABLE.delete())
+            await connection.execute(
+                update(LEXICAL_PROJECTION_VERSIONS_TABLE).values(analyzer_version="jieba-0.42.1-words-v1")
+            )
+            await connection.execute(
+                update(LEXICAL_PROJECTION_VERSIONS_TABLE)
+                .where(LEXICAL_PROJECTION_VERSIONS_TABLE.c.projection == ARTIFACT_HEADS_TABLE.name)
+                .values(analyzer_version="jieba-0.42.1-words-v1:approved-v1")
+            )
             for table in (
                 atomic_memory_current_table(),
                 TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
@@ -155,8 +168,12 @@ def test_upgrade_preserves_search_exact_records_and_vectors(migration_backend):
         ) as runtime:
             application = runtime.artifacts.for_scope(scope)
             for family, original in originals.items():
-                result = await application.search(family, {"query": "请告诉我部署地址是什么", "mode": "text"})
-                assert [match.artifact_ref.artifact_id for match in result.matches] == [original.artifact_id]
+                for query in ("请告诉我部署地址是什么", '"the"', '"www"', '"com"'):
+                    result = await application.search(family, {"query": query, "mode": "text"})
+                    assert [match.artifact_ref.artifact_id for match in result.matches] == [original.artifact_id], (
+                        family,
+                        query,
+                    )
                 assert (
                     await runtime.records.for_scope(scope).get_artifact_revision(
                         family, original.artifact_id, original.revision
@@ -178,8 +195,9 @@ def test_upgrade_preserves_search_exact_records_and_vectors(migration_backend):
             config, embedding_model=embedding, scheduler_path=migration_backend.directory / "scheduler"
         ) as runtime:
             for family, original in originals.items():
-                result = await runtime.artifacts.for_scope(scope).search(family, {"query": marker, "mode": "text"})
-                assert [match.artifact_ref.artifact_id for match in result.matches] == [original.artifact_id]
+                for query in (marker, '"the"'):
+                    result = await runtime.artifacts.for_scope(scope).search(family, {"query": query, "mode": "text"})
+                    assert [match.artifact_ref.artifact_id for match in result.matches] == [original.artifact_id]
             assert runtime.atomic_memory is not None
             assert await runtime.atomic_memory.for_scope(scope).search(marker, mode="vector") == current_vectors
 

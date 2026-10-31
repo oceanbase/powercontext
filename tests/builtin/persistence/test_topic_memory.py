@@ -798,7 +798,7 @@ def test_fts_search_bounds_query_length_and_deduplicates_repeated_terms() -> Non
 
             assert tuple(hit.artifact_ref.artifact_id for hit in repeated.hits) == ("topic-repeated",)
             assert len(repeated_query) <= MAX_TOPIC_MEMORY_QUERY_LENGTH
-            assert fts_match_query(repeated_query) == '"needle"'
+            assert fts_match_query(repeated_query) == fts_match_query("needle")
 
     asyncio.run(scenario())
 

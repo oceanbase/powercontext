@@ -224,6 +224,39 @@ bound row buffering; this is an offline whole-projection operation. It does not 
 embedded seekDB Code configurations. The compatibility command `server atomic-memory-rebuild-projection` delegates managed
 databases to this bundle and supports `--action plan/apply/verify` with the same confirmation and backup options.
 
+## Lexical projection maintenance
+
+`--bundle lexical-projection` upgrades the search analyzer on a database already at the current managed Server
+schema. It repairs the derived text for Atomic Memory, Topic Memory, Experience, Skill, and custom Artifact text
+indexes. Native FULLTEXT stopword lists must not discard explicitly quoted words such as `"the"`, or identifiers
+such as `www`. The analyzer encodes document and query words before passing them to the database.
+
+Stop all writers before applying the plan. Keep the deployment's embedding profile configured when vectors are
+enabled; lexical maintenance preserves vector values and does not call model providers. Use the existing backup
+policy appropriate to the backend (`auto` for SQLite, or an explicitly acknowledged `manual`/`skip` policy for
+native databases):
+
+For OceanBase, also pass the same `--evidence-dir` and `--lock-coordination single-host` arguments to all three
+commands, as required for other managed maintenance operations.
+
+```bash
+powercontext server db-migrate plan --bundle lexical-projection --env-file .env --backup auto
+powercontext server db-migrate apply --bundle lexical-projection --env-file .env \
+  --backup auto --plan-id PLAN_ID --maintenance-confirmed --yes
+powercontext server db-migrate verify --bundle lexical-projection --env-file .env
+```
+
+This operation preserves schema revision history and authoritative Artifact identities, revisions, and lineage.
+Planning scans authoritative Artifact history, heads, Skill packages, and affected projections to bind the accepted
+state; apply rewrites stale derived text. Allow maintenance time for those full scans and storage for the full text
+corpus. A word with up to 40 UTF-8 bytes is encoded as `3 + 2n` ASCII bytes; longer words use a
+67-character digest token. Repeating a completed maintenance plan is a read-only no-op.
+
+Ordinary startup rejects a managed database whose analyzer is stale; restarting does not repair it. This bundle
+does not adopt an older schema. Upgrade an older managed schema with the software that owns its analyzer first,
+then install this software and run lexical maintenance. Unmanaged SDK databases retain their existing startup
+projection refresh behavior.
+
 ## Topic Memory recovery bundle
 
 Select `--bundle topic-memory-recovery` for the versioned `powercontext.topic-memory-recovery.v1` conversion. It recognizes

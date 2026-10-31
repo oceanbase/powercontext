@@ -20,6 +20,7 @@ maintenance connection and its lock.
 """
 
 from collections.abc import Coroutine
+from contextlib import asynccontextmanager
 from typing import Any, cast
 
 from sqlalchemy import Connection
@@ -45,6 +46,23 @@ class _PinnedConnection:
 
     async def run_sync(self, function, *args, **kwargs):
         return function(self.connection, *args, **kwargs)
+
+    @asynccontextmanager
+    async def stream(self, *args, **kwargs):
+        result = self.connection.execute(*args, **kwargs)
+        try:
+            yield _PinnedStream(result)
+        finally:
+            result.close()
+
+
+class _PinnedStream:
+    def __init__(self, result):
+        self.result = result
+
+    async def mappings(self):
+        for row in self.result.mappings():
+            yield row
 
 
 def pinned(connection: Connection) -> AsyncConnection:

@@ -143,7 +143,7 @@ def require_completed_domain_maintenance(
     directory: Path, identity: BackendIdentity, *, excluding: str | None = None
 ) -> None:
     """Block admission until recorded domain work completes; its own runner may resume it."""
-    for operation in ("processing_configuration", "atomic_projection"):
+    for operation in ("processing_configuration", "atomic_projection", "lexical_projection"):
         if operation == excluding:
             continue
         evidence = _Journal(directory / operation, identity).read()

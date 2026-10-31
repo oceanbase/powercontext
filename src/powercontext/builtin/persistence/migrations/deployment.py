@@ -32,6 +32,7 @@ from powercontext.builtin.runtime.processing_registry import canonical_processin
 from .atomic_projection import AtomicProjectionMigrationRunner
 from .bundle import MigrationBundle
 from .connections import MaintenanceConnections
+from .lexical_projection import LexicalProjectionMigrationRunner
 from .models import MigrationError
 from .mysql import MySQLMigrationRunner
 from .processing_configuration import ProcessingConfigurationMigrationRunner
@@ -65,6 +66,7 @@ MigrationRunner = (
     | TopicMemoryRecoveryMigrationRunner
     | ProcessingConfigurationMigrationRunner
     | AtomicProjectionMigrationRunner
+    | LexicalProjectionMigrationRunner
 )
 
 
@@ -105,7 +107,9 @@ def deployment_runner(  # noqa: C901 -- Ordered backend admission checks.
     evidence_dir: Path | None = None,
     lock_coordination: Literal["single-host"] | None = None,
     acknowledge_previous_run: str | None = None,
-    bundle: Literal["server", "artifacts", "topic-memory-recovery", "processing", "atomic-projection"] = "server",
+    bundle: Literal[
+        "server", "artifacts", "topic-memory-recovery", "processing", "atomic-projection", "lexical-projection"
+    ] = "server",
     migration_id: str = "rfc1515",
     batch_size: int = 100,
     embedding_profile: EmbeddingProfile | None = None,
@@ -114,8 +118,8 @@ def deployment_runner(  # noqa: C901 -- Ordered backend admission checks.
     database = settings.database
     configuration = _migration_configuration(settings)
     profile = embedding_profile or configured_embedding_profile(settings)
-    if bundle in {"server", "processing", "atomic-projection"}:
-        if profile is not None and bundle != "server":
+    if bundle in {"server", "processing", "atomic-projection", "lexical-projection"}:
+        if profile is not None and bundle not in {"server", "lexical-projection"}:
             raise MigrationError(
                 "unsupported_upgrade_configuration",
                 "This partial maintenance bundle has no registered vector configuration path.",
@@ -127,17 +131,18 @@ def deployment_runner(  # noqa: C901 -- Ordered backend admission checks.
             configuration["embedded_code_enabled"] = True
     selected = (
         server_bundle(embedding_profile=profile)
-        if bundle in {"server", "processing", "atomic-projection"}
+        if bundle in {"server", "processing", "atomic-projection", "lexical-projection"}
         else production_bundle()
     )
     sources = (
         (server_bundle(embedding_profile=profile, source_release="1.4.0"),)
-        if bundle in {"server", "processing", "atomic-projection"}
+        if bundle in {"server", "processing", "atomic-projection", "lexical-projection"}
         else ()
     )
-    maintenance_runner = (
-        AtomicProjectionMigrationRunner if bundle == "atomic-projection" else ProcessingConfigurationMigrationRunner
-    )
+    maintenance_runner = {
+        "atomic-projection": AtomicProjectionMigrationRunner,
+        "lexical-projection": LexicalProjectionMigrationRunner,
+    }.get(bundle, ProcessingConfigurationMigrationRunner)
     if bundle == "topic-memory-recovery":
         if not isinstance(database, (SQLiteConfig, SeekDBConfig, OceanBaseConfig)):
             raise MigrationError("unsupported_backend", "The database has no Topic recovery migration adapter.")
@@ -169,7 +174,7 @@ def deployment_runner(  # noqa: C901 -- Ordered backend admission checks.
             lock_coordination=lock_coordination,
             acknowledge_previous_run=acknowledge_previous_run,
         )
-        if bundle in {"processing", "atomic-projection"}:
+        if bundle in {"processing", "atomic-projection", "lexical-projection"}:
             return maintenance_runner(
                 connections,
                 selected,
@@ -195,7 +200,7 @@ def deployment_runner(  # noqa: C901 -- Ordered backend admission checks.
         )
     # Match SQLite's URL normalization before the runner expands standalone Path inputs.
     target = Path(os.path.abspath(url.database))
-    if bundle in {"processing", "atomic-projection"}:
+    if bundle in {"processing", "atomic-projection", "lexical-projection"}:
         directory = evidence_dir or target.with_name(target.name + ".pc-migration-state")
         return maintenance_runner(
             MaintenanceConnections(database),

@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     import jieba
 
 # Bump when document segmentation or token encoding changes; query stopwords do not affect projections.
-TEXT_ANALYZER_VERSION = "jieba-0.42.1-words-v1"
+TEXT_ANALYZER_VERSION = "jieba-0.42.1-words-v2"
 
 _FTS_MIN_QUERY_COVERAGE = 0.25
 _FTS_MIN_MATCHED_TERMS = 2
@@ -355,10 +355,8 @@ def lexical_terms_with_spans(value: str) -> tuple[tuple[str, int, int], ...]:
 
 
 def _encode_term(word: str) -> str:
-    # Keep ordinary Latin words compatible. Encode terms that unicode61/SPACE
-    # would split or discard, and escape literal identifiers using our prefixes.
-    if word.isascii() and word.isalnum() and 3 <= len(word) <= 80 and not word.startswith(("pcu", "pch")):
-        return word
+    # Native FULLTEXT stopword lists also discard ordinary Latin words such as
+    # "the" and "www". Encode every word so only our query analyzer filters it.
     raw = word.encode("utf-8")
     return "pcu" + raw.hex() if len(raw) <= 40 else "pch" + sha256(raw).hexdigest()
 

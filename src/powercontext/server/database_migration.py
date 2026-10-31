@@ -42,7 +42,7 @@ from powercontext.service.model import ServiceError
 
 BackupPolicy = Literal["auto", "manual", "skip"]
 Bundle = Annotated[
-    Literal["server", "artifacts", "topic-memory-recovery", "processing", "atomic-projection"],
+    Literal["server", "artifacts", "topic-memory-recovery", "processing", "atomic-projection", "lexical-projection"],
     typer.Option(help="Select the registered domain bundle; readiness covers only that bundle."),
 ]
 EnvFile = Annotated[Path | None, typer.Option(help="Read the same environment file as the deployed Server.")]
@@ -247,7 +247,9 @@ def _inspect(
     evidence_dir: Path | None,
     lock_coordination: Literal["single-host"] | None,
     verify: bool,
-    bundle: Literal["server", "artifacts", "topic-memory-recovery", "processing", "atomic-projection"] = "server",
+    bundle: Literal[
+        "server", "artifacts", "topic-memory-recovery", "processing", "atomic-projection", "lexical-projection"
+    ] = "server",
     migration_id: str = "rfc1515",
     batch_size: int = 100,
 ) -> None:

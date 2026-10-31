@@ -14,6 +14,7 @@
 
 from itertools import pairwise
 
+from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.topic_memory import (
     TOPIC_MEMORY_CHUNK_MAX_CHARACTERS,
     TOPIC_MEMORY_CHUNK_MAX_COUNT,
@@ -64,7 +65,7 @@ def test_projection_indexes_title_summary_and_every_detail_chunk() -> None:
     projection = prepare_topic_memory_projection(content)
 
     assert projection.content == content
-    assert projection.topic_searchable_text == "lease recovery stale workers are fenced"
+    assert projection.topic_searchable_text == analyze_text("lease recovery stale workers are fenced")
     assert "".join(chunk.text for chunk in projection.chunks) == content.detail
 
 

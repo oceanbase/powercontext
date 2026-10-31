@@ -18,6 +18,7 @@ from powercontext.builtin.artifacts.experience.search import (
     experience_searchable_text,
     render_experience,
 )
+from powercontext.builtin.artifacts.search import analyze_fts_query
 
 CUE = "OpenAPI contract changed without regenerating the Client"
 SYMPTOM = "Contract tests report a missing generated operation."
@@ -61,7 +62,7 @@ def test_search_text_matches_the_failure_cue() -> None:
 
 
 def test_searchable_text_exposes_the_cue_to_lexical_search() -> None:
-    assert "regenerating" in experience_searchable_text(_content())
+    assert analyze_fts_query("regenerating") in experience_searchable_text(_content()).split()
 
 
 def test_search_text_without_a_failure_block_only_projects_the_judgment() -> None:

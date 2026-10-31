@@ -19,7 +19,9 @@ import asyncio
 
 import httpx
 import pytest
+from pydantic import JsonValue
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import BuiltinConfig, PrepareContextRequest, RuntimeConfig, open_builtin_runtime
 from powercontext.builtin.scope import ScopeDraft
@@ -73,6 +75,76 @@ def test_prepared_topic_recall_preserves_evidence_after_stopwords(migration_back
 
             assert result.status == "ready"
             assert result.content is not None and original.artifact_id in result.content
+
+    asyncio.run(scenario())
+
+
+def test_public_artifact_search_preserves_native_stopwords_and_literal_identifiers(migration_backend):
+    async def scenario():
+        config = BuiltinConfig(
+            database=migration_backend.config, runtime=RuntimeConfig(artifact_processing_families=())
+        )
+        async with open_builtin_runtime(config, scheduler_path=migration_backend.directory / "scheduler") as runtime:
+            assert runtime.scopes is not None
+            scope = (
+                await runtime.scopes.create(
+                    ScopeDraft(
+                        title="Literal evidence", summary="Search requested words", idempotency_key="literal-evidence"
+                    )
+                )
+            ).scope_id
+            evidence_refs: dict[str, ArtifactRef] = {}
+            literal_refs: dict[str, ArtifactRef] = {}
+            for evidence, references in (
+                ("the www com not", evidence_refs),
+                ("pcu746865 pcu777777 pcu636f6d pcu6e6f74", literal_refs),
+            ):
+                contents: dict[str, dict[str, JsonValue]] = {
+                    "atomic-memory": {"kind": "fact", "text": evidence},
+                    "topic-memory": {"title": "Lexical evidence", "summary": evidence, "detail": evidence},
+                    "experience": {
+                        "situation": evidence,
+                        "action": "Record evidence",
+                        "outcome": "Available",
+                        "lesson": "Search lexical evidence",
+                    },
+                    "skill": {
+                        "name": "lexical-evidence",
+                        "description": evidence,
+                        "instructions": "Read durable lexical evidence",
+                        "validation": ["Retrieve evidence"],
+                    },
+                }
+                for family, content in contents.items():
+                    created = await runtime.records.for_scope(scope).create_artifact(
+                        family, ArtifactWrite(content=content)
+                    )
+                    references[family] = ArtifactRef(
+                        family=family, artifact_id=created.artifact_id, revision=created.revision
+                    )
+
+            application = runtime.artifacts.for_scope(scope)
+            for family, original in evidence_refs.items():
+                # Native database stopwords also include words absent from the query stopword list.
+                for query in ('"the"', '"www"', '"com"', "www", "com", "not"):
+                    result = await application.search(family, {"query": query, "mode": "text"})
+                    assert [match.artifact_ref for match in result.matches] == [original], (family, query)
+                for query in ("pcu746865", "pcu777777", "pcu636f6d", "pcu6e6f74"):
+                    result = await application.search(family, {"query": query, "mode": "text"})
+                    assert [match.artifact_ref for match in result.matches] == [literal_refs[family]], (family, query)
+                assert (await application.search(family, {"query": "the", "mode": "text"})).matches == ()
+
+            for query in ('"the"', '"www"', '"com"'):
+                result = await runtime.context.for_scope(scope).prepare(
+                    PrepareContextRequest.model_validate({
+                        "query": f"{STOPWORD_PREFIX} {query}",
+                        "max_bytes": 8192,
+                        "assembly": {"sections": [{"family": "topic-memory", "limit": 8}]},
+                    })
+                )
+                assert result.status == "ready"
+                assert result.content is not None and evidence_refs["topic-memory"].artifact_id in result.content
+                assert literal_refs["topic-memory"].artifact_id not in result.content
 
     asyncio.run(scenario())
 

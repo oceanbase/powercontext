@@ -25,7 +25,7 @@ from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, insert, select, text, update
+from sqlalchemy import delete, insert, select, text, tuple_, update
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.artifacts.indexes import ArtifactSearchDeclaration, TextIndex, VectorIndex
@@ -63,6 +63,7 @@ from powercontext.builtin.persistence.tables import (
 )
 
 FORMAT = "float32-le-v1"
+_PREVIOUS_TEXT_ANALYZER_VERSION = "jieba-0.42.1-words-v1"
 
 
 def identity_json(value):
@@ -262,14 +263,168 @@ def parse_index(definition):
     return (TextIndex if spec["kind"] == "text" else VectorIndex).model_validate(spec)
 
 
+def text_analyzer_current(definition):
+    """Recognize supported text encodings without reinterpreting historical definitions."""
+    spec = definition["projection_spec"]
+    if spec["kind"] != "text":
+        return True
+    version = spec.get("analyzer_version")
+    if version not in {_PREVIOUS_TEXT_ANALYZER_VERSION, TEXT_ANALYZER_VERSION}:
+        raise ValueError("custom Artifact text analyzer version is unsupported")  # noqa: TRY003
+    return version == TEXT_ANALYZER_VERSION
+
+
+def require_current_text_analyzer(definition):
+    try:
+        current = text_analyzer_current(definition)
+    except ValueError as error:
+        raise ArtifactSearchUnavailable(definition["family"], "text analyzer version is unsupported") from error
+    if not current:
+        raise ArtifactSearchUnavailable(definition["family"], "text analyzer upgrade is required")
+
+
+async def _manifest_definitions(connection, manifest):
+    identities = {entry["index_def_id"] for _, entry in entries(manifest)}
+    definitions = {}
+    ordered = sorted(identities)
+    for offset in range(0, len(ordered), 100):
+        rows = (
+            await connection.execute(
+                select(DEFINITIONS).where(DEFINITIONS.c.index_def_id.in_(ordered[offset : offset + 100]))
+            )
+        ).mappings()
+        definitions.update((row["index_def_id"], dict(row)) for row in rows)
+    if definitions.keys() != identities:
+        raise ValueError("custom Artifact search definition is missing")  # noqa: TRY003
+    return definitions
+
+
+async def custom_artifact_text_analyzers_current(connection):
+    """Inspect only definitions referenced by current builds; obsolete evidence remains valid."""
+    current = True
+    async for state in _search_states(connection):
+        for definition in (await _manifest_definitions(connection, state["manifest"])).values():
+            current = text_analyzer_current(definition) and current
+    return current
+
+
+async def _search_states(connection):
+    after = None
+    while True:
+        statement = select(STATES).order_by(STATES.c.scope_id, STATES.c.family).limit(100)
+        if after is not None:
+            statement = statement.where(tuple_(STATES.c.scope_id, STATES.c.family) > after)
+        rows = (await connection.execute(statement)).mappings().all()
+        if not rows:
+            return
+        for row in rows:
+            yield row
+        after = (rows[-1]["scope_id"], rows[-1]["family"])
+
+
+async def upgrade_custom_artifact_text_analyzers(connection):
+    """Upgrade materialized text in offline maintenance, preserving vector data and build progress."""
+    async for snapshot in _search_states(connection):
+        scope, family = snapshot["scope_id"], snapshot["family"]
+        state = await lock_state(connection, scope, family)
+        manifest = deepcopy(state["manifest"])
+        definitions = await _manifest_definitions(connection, manifest)
+        changed = False
+        for schema, entry in entries(manifest):
+            previous = definitions[entry["index_def_id"]]
+            if text_analyzer_current(previous):
+                continue
+            definition = await register_definition(connection, family, schema, parse_index(previous))
+            await _upgrade_materialized_text(connection, scope, family, state["build_id"], previous, definition)
+            entry["index_def_id"] = definition["index_def_id"]
+            changed = True
+        if changed:
+            # A validator started before maintenance cannot publish using the old manifest.
+            await connection.execute(
+                update(STATES).where(key(STATES, scope, family)).values(manifest=manifest, validation_token=None)
+            )
+
+
+async def _upgrade_materialized_text(connection, scope, family, build_id, previous, definition):
+    from powercontext.builtin.persistence.custom_artifacts import custom_artifact_repository
+
+    repository = custom_artifact_repository(family)
+    publisher = ArtifactProjectionPublisher(None)
+    # An interrupted build can retain older revisions until its change log is replayed.
+    # Re-encode exactly those revisions, without advancing cursors or claiming new coverage.
+    for table, primary in ((TEXTS, TEXTS.c.text_id), (COVERAGE, COVERAGE.c.artifact_id)):
+        after = ""
+        while True:
+            rows = (
+                (
+                    await connection.execute(
+                        select(table)
+                        .where(
+                            projection_key(table, scope, family, build_id, previous["index_def_id"]), primary > after
+                        )
+                        .order_by(primary)
+                        .limit(100)
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            if not rows:
+                break
+            for row in rows:
+                artifact = await repository.get(
+                    connection,
+                    scope,
+                    ArtifactRef(family=family, artifact_id=row["artifact_id"], revision=row["revision"]),
+                )
+                if artifact.content.schema_version != definition["schema_version"]:
+                    raise ValueError("custom Artifact text projection schema differs from its authority")  # noqa: TRY003
+                prepared = await publisher.prepare_index(definition, artifact.content.content)
+                values = {"index_def_id": definition["index_def_id"]}
+                if table is TEXTS:
+                    fragment = prepared.fragments[0]
+                    values.update(
+                        text_id=digest((
+                            scope,
+                            family,
+                            row["artifact_id"],
+                            row["revision"],
+                            row["schema_version"],
+                            definition["index_def_id"],
+                            build_id,
+                            row["fragment_id"],
+                        )),
+                        searchable_text=fragment["searchable_text"],
+                        input_hash=fragment["input_hash"],
+                    )
+                else:
+                    values["projection_input_hash"] = prepared.input_hash
+                await connection.execute(
+                    update(table)
+                    .where(
+                        projection_key(table, scope, family, build_id, previous["index_def_id"]),
+                        primary == row[primary.name],
+                    )
+                    .values(**values)
+                )
+            after = rows[-1][primary.name]
+
+
 async def target_manifest(connection, scope, family, *, rebuild=False):  # noqa: C901 - Initial build and repair share one fenced state transition.
     """Initialize a fixed target or restart repair from its persisted declaration."""
     state = await lock_state(connection, scope, family)
     manifest = deepcopy(state["manifest"])
     if manifest:
+        definitions = await _manifest_definitions(connection, manifest)
         if not rebuild:
+            for definition in definitions.values():
+                require_current_text_analyzer(definition)
             return manifest
-        for _, entry in entries(manifest):
+        for schema, entry in entries(manifest):
+            definition = definitions[entry["index_def_id"]]
+            if not text_analyzer_current(definition):
+                definition = await register_definition(connection, family, schema, parse_index(definition))
+                entry["index_def_id"] = definition["index_def_id"]
             entry.update(scan_cursor=None, scan_complete=False)
     else:
         rows = (
@@ -400,6 +555,7 @@ class ArtifactProjectionPublisher:
         self.embedding_model = embedding_model
 
     async def prepare_index(self, definition, content):
+        require_current_text_analyzer(definition)
         index = parse_index(definition)
         fragments = []
         texts = []
@@ -455,6 +611,8 @@ class ArtifactProjectionPublisher:
                     )
         projections = {}
         try:
+            for definition in definitions.values():
+                require_current_text_analyzer(definition)
             for identity, definition in definitions.items():
                 projections[identity] = await self.prepare_index(definition, content)
         except Exception:
@@ -641,8 +799,10 @@ class ArtifactIndexBuilder:
         if not rebuild:
             async with self.database.transaction(consistent_snapshot=True) as connection:
                 manifest = await connection.scalar(select(STATES.c.manifest).where(key(STATES, scope, family)))
-            if manifest:
-                return manifest
+                if manifest:
+                    for definition in (await _manifest_definitions(connection, manifest)).values():
+                        require_current_text_analyzer(definition)
+                    return manifest
         async with self.database.transaction() as connection:
             return await target_manifest(connection, scope, family, rebuild=rebuild)
 
@@ -698,6 +858,8 @@ class ArtifactIndexBuilder:
     async def build(self, scope, family):  # noqa: C901 - Resume ordered cleanup, scans, replay and validation.
         async with self.database.transaction(consistent_snapshot=True) as connection:
             state = (await connection.execute(select(STATES).where(key(STATES, scope, family)))).mappings().one()
+            for definition in (await _manifest_definitions(connection, state["manifest"])).values():
+                require_current_text_analyzer(definition)
         if state["state"] == "ready":
             return True
         if not state["manifest"]:

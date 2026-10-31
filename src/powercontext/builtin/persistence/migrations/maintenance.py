@@ -43,6 +43,8 @@ class ManagedMaintenanceRunner:
 
     operation: str
     affected_objects: tuple[str, ...]
+    supports_vectors = False
+    allow_declared_spaces = False
 
     def __init__(
         self,
@@ -83,10 +85,16 @@ class ManagedMaintenanceRunner:
         self.bundle.assert_unchanged()
         if connection is None:
             raise MigrationError("migration_required", "Initialize or upgrade the full Server bundle first.")
-        if read_embedding_profile(connection) is not None:
+        profile = read_embedding_profile(connection)
+        if profile is not None and not self.supports_vectors:
             raise MigrationError(
                 "unsupported_upgrade_configuration",
                 "This partial maintenance bundle has no registered vector configuration path.",
+            )
+        configured = self.bundle.vector_profile
+        if self.supports_vectors and profile != (None if configured is None else configured.profile):
+            raise MigrationError(
+                "embedding_profile_mismatch", "Maintenance requires the database's exact embedding declaration."
             )
         self._check_previous_maintenance(connection, identity)
         fingerprint, required, completed = self._state(connection, identity)
@@ -250,7 +258,7 @@ class ManagedMaintenanceRunner:
                 raise MigrationError("plan_changed", "Maintenance state changed before the write transaction.")
             self._apply_operation(connection, guard)
             guard()
-            check_server_schema(connection)
+            check_server_schema(connection, allow_declared_spaces=self.allow_declared_spaces)
             self.bundle.domains.validate(
                 connection, self.bundle.head, backend=identity.product, configuration=self.configuration
             )
