@@ -213,7 +213,7 @@ impl SessionObservations {
                 let _ = self
                     .0
                     .dropped
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                         Some(n.saturating_add(1))
                     });
             }

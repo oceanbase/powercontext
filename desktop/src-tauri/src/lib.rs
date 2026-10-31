@@ -19,7 +19,7 @@ pub mod connections;
 pub mod credentials;
 #[cfg(windows)]
 mod diagnostic_process;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[path = "diagnostic_process_macos.rs"]
 mod diagnostic_process;
 pub mod diagnostics;

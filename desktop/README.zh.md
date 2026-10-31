@@ -125,7 +125,9 @@ pnpm --dir desktop desktop:dev
 }
 ```
 
-Desktop 在每次诊断前检查固定路径和摘要，然后只允许 `service status --json` 或 `doctor codex claude-code dsh openclaw opencode pi hermes workbuddy kimi-code zcode --json`。收到符合格式的诊断响应后，尝试读取实际 CLI 版本用于显示；版本查询失败时显示“未知”，不阻止有效诊断结果。版本查询最长 15 秒，服务检查最长 20 秒，集成检查最长 60 秒；每次进程调用的 stdout/stderr 合计最多 256 KiB。窗口隐藏，进程及其后代归属于本次专属 Windows Job，结束或超时后清理。界面只显示允许的状态字段，不显示任意 detail、路径或原始输出。合法 JSON 配合退出码 1 仍可显示不健康结果。
+在 Linux 上，配置文件放在 `$XDG_DATA_HOME/com.powercontext.desktop.preview/diagnostic-cli.json`；如果没有设置 `XDG_DATA_HOME`，则使用 `~/.local/share/com.powercontext.desktop.preview/diagnostic-cli.json`。`executable` 必须是名为 `powercontext` 的文件的绝对路径（不是 `powercontext.exe`），`sha256` 必须是经核对的 64 位摘要，`source` 必须为 `explicit_local_installation`。
+
+Desktop 在每次诊断前检查固定路径和摘要，然后只允许 `service status --json` 或 `doctor codex claude-code dsh openclaw opencode pi hermes workbuddy kimi-code zcode --json`。收到符合格式的诊断响应后，尝试读取实际 CLI 版本用于显示；版本查询失败时显示“未知”，不阻止有效诊断结果。版本查询最长 15 秒，服务检查最长 20 秒，集成检查最长 60 秒；每次进程调用的 stdout/stderr 合计最多 256 KiB。Windows 辅助进程运行在专属 Windows Job 中；Linux 和 macOS 辅助进程运行在专属 POSIX 进程组中。完成、超时或取消时会清理辅助进程及其后代，不影响其他无关进程。界面只显示允许的状态字段，不显示任意 detail、路径或原始输出。合法 JSON 配合退出码 1 仍可显示不健康结果。
 
 未配置或未通过核验时，本机诊断不可用，独立远程业务仍可使用。进程树清理和隔离真实 CLI 测试已通过；安装后交互与完整 S2 资格仍待验收。
 

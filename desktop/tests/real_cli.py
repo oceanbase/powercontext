@@ -44,8 +44,55 @@ def main():
             for line in metadata.read_text(encoding="utf-8").splitlines()
             if line.startswith("Version: ")
         )
-        executable = fixture / "powercontext.exe"
-        shutil.copyfile(root / ".venv/Scripts/powercontext.exe", executable)
+        if os.name == "nt":
+            executable = fixture / "powercontext.exe"
+            source_executable = root / ".venv/Scripts/powercontext.exe"
+            probe = root / "desktop/src-tauri/target/debug/examples/diagnostic_cli_probe.exe"
+            system = os.environ["SYSTEMROOT"]
+            environment = {
+                "SYSTEMROOT": system,
+                "WINDIR": system,
+                "PATH": str(Path(system) / "System32"),
+                "USERPROFILE": str(fixture),
+                "HOME": str(fixture),
+                "APPDATA": str(fixture / "roaming"),
+                "LOCALAPPDATA": str(fixture / "local"),
+                "TEMP": str(fixture),
+                "TMP": str(fixture),
+                "PYTHONPATH": str(package),
+                "PYTHONNOUSERSITE": "1",
+                "PYTHONUTF8": "1",
+            }
+        else:
+            executable = fixture / "powercontext"
+            source_executable = root / ".venv/bin/powercontext"
+            probe = root / "desktop/src-tauri/target/debug/examples/diagnostic_cli_probe"
+            environment = {
+                "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "HOME": str(fixture),
+                "XDG_CONFIG_HOME": str(fixture / "config"),
+                "XDG_DATA_HOME": str(fixture / "data"),
+                "XDG_CACHE_HOME": str(fixture / "cache"),
+                "TMPDIR": str(fixture / "tmp"),
+                "PYTHONPATH": str(package),
+                "PYTHONNOUSERSITE": "1",
+                "PYTHONUTF8": "1",
+            }
+        for name in (
+            "HOME",
+            "USERPROFILE",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "TEMP",
+            "TMP",
+            "TMPDIR",
+        ):
+            if name in environment:
+                Path(environment[name]).mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_executable, executable)
         registration = fixture / "diagnostic-cli.json"
         digest = hashlib.sha256(executable.read_bytes()).hexdigest()
         registration.write_text(
@@ -56,29 +103,14 @@ def main():
             }),
             encoding="utf-8",
         )
-        system = os.environ["SYSTEMROOT"]
-        environment = {
-            "SYSTEMROOT": system,
-            "WINDIR": system,
-            "PATH": str(Path(system) / "System32"),
-            "USERPROFILE": str(fixture),
-            "HOME": str(fixture),
-            "APPDATA": str(fixture / "roaming"),
-            "LOCALAPPDATA": str(fixture / "local"),
-            "TEMP": str(fixture),
-            "TMP": str(fixture),
-            "PYTHONPATH": str(package),
-            "PYTHONNOUSERSITE": "1",
-            "PYTHONUTF8": "1",
-        }
         result = subprocess.run(
-            [str(root / "desktop/src-tauri/target/debug/examples/diagnostic_cli_probe.exe"), str(registration)],
+            [str(probe), str(registration)],
             env=environment,
             capture_output=True,
             text=True,
             encoding="utf-8",
             timeout=110,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
         )
         if result.returncode:
             raise RuntimeError(result.stderr[-2000:])

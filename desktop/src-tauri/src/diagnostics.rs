@@ -18,6 +18,7 @@
 use crate::error::SafeError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::Path;
 use ts_rs::TS;
 
 pub const OUTPUT_LIMIT: usize = 256 * 1024;
@@ -243,7 +244,7 @@ pub fn project(
     Ok(report)
 }
 
-#[cfg(any(windows, target_os = "macos", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 fn cli_version_from_output(output: &[u8], exit_code: i32) -> Option<String> {
     if exit_code != 0 {
         return None;
@@ -258,8 +259,8 @@ fn cli_version_from_output(output: &[u8], exit_code: i32) -> Option<String> {
     .then(|| version.to_owned())
 }
 
-#[cfg(any(windows, target_os = "macos"))]
-#[derive(Deserialize)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CliRegistration {
     executable: std::path::PathBuf,
@@ -268,21 +269,84 @@ struct CliRegistration {
     _legacy_version: Option<serde::de::IgnoredAny>,
     source: String,
 }
-#[cfg(any(windows, target_os = "macos"))]
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
+struct VerifiedExecutable {
+    file: std::fs::File,
+    bytes: Vec<u8>,
+}
+
+/// Open only an explicitly registered PowerContext executable and verify its identity.
+/// The caller must keep the returned file alive while launching on Windows; Unix callers
+/// will later execute the verified byte snapshot instead of reopening the path.
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
+fn open_verified_executable(config: &CliRegistration) -> Result<VerifiedExecutable, SafeError> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
+
+    if config.source != "explicit_local_installation"
+        || config.sha256.len() != 64
+        || !config.sha256.bytes().all(|value| value.is_ascii_hexdigit())
+        || !config.executable.is_absolute()
+        || config
+            .executable
+            .file_name()
+            .and_then(|value| value.to_str())
+            != Some(if cfg!(windows) {
+                "powercontext.exe"
+            } else {
+                "powercontext"
+            })
+    {
+        return Err(SafeError::CompatibilityUnverified);
+    }
+
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    options.share_mode(1);
+    let executable = options
+        .open(&config.executable)
+        .map_err(|_| SafeError::NotFound)?;
+    if executable.metadata().map_err(|_| SafeError::Storage)?.len() > 64 * 1024 * 1024 {
+        return Err(SafeError::InvalidInput);
+    }
+
+    let mut bytes = Vec::new();
+    executable
+        .try_clone()
+        .map_err(|_| SafeError::Storage)?
+        .take(64 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| SafeError::Storage)?;
+    if bytes.len() > 64 * 1024 * 1024 {
+        return Err(SafeError::InvalidInput);
+    }
+    if format!("{:x}", Sha256::digest(&bytes)) != config.sha256.to_ascii_lowercase() {
+        return Err(SafeError::CompatibilityUnverified);
+    }
+    Ok(VerifiedExecutable {
+        file: executable,
+        bytes,
+    })
+}
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[derive(Default)]
 struct DiagnosticLifecycle {
     state: std::sync::Mutex<DiagnosticLifecycleState>,
     completed: std::sync::Condvar,
 }
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[derive(Default)]
 struct DiagnosticLifecycleState {
     closed: bool,
     active: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 struct DiagnosticCompletion(std::sync::Arc<DiagnosticLifecycle>);
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 impl Drop for DiagnosticCompletion {
     fn drop(&mut self) {
         let mut state = self.0.state.lock().unwrap();
@@ -291,12 +355,12 @@ impl Drop for DiagnosticCompletion {
     }
 }
 /// Native-only registration. A renderer cannot supply a program, path, arguments, or environment.
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub struct LocalDiagnostics {
     registration: std::path::PathBuf,
     lifecycle: std::sync::Arc<DiagnosticLifecycle>,
 }
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 impl LocalDiagnostics {
     pub fn new(registration: std::path::PathBuf) -> Self {
         Self {
@@ -353,15 +417,12 @@ impl LocalDiagnostics {
         .map_err(|_| SafeError::Storage)?
     }
 }
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn execute(
     registration: &std::path::Path,
     kind: DiagnosticKind,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<DiagnosticReport, SafeError> {
-    use sha2::{Digest, Sha256};
-    #[cfg(windows)]
-    use std::os::windows::fs::OpenOptionsExt;
     use std::{io::Read, time::Duration};
     let file = std::fs::File::open(registration).map_err(|_| SafeError::NotFound)?;
     let mut bytes = Vec::new();
@@ -374,85 +435,49 @@ fn execute(
     let config: CliRegistration =
         serde_json::from_slice(&bytes).map_err(|_| SafeError::InvalidInput)?;
     // This is an explicit local-installation pin, not publisher-signature verification.
-    if config.source != "explicit_local_installation"
-        || config.sha256.len() != 64
-        || !config.sha256.bytes().all(|v| v.is_ascii_hexdigit())
-        || !config.executable.is_absolute()
-        || config.executable.file_name().and_then(|v| v.to_str())
-            != Some(if cfg!(windows) {
-                "powercontext.exe"
-            } else {
-                "powercontext"
-            })
-    {
-        return Err(SafeError::CompatibilityUnverified);
-    }
-    // Windows denies replacement through the open handle; macOS executes the verified snapshot.
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    options.share_mode(1);
-    let mut executable = options
-        .open(&config.executable)
-        .map_err(|_| SafeError::NotFound)?;
-    if executable.metadata().map_err(|_| SafeError::Storage)?.len() > 64 * 1024 * 1024 {
-        return Err(SafeError::InvalidInput);
-    }
-    #[cfg(target_os = "macos")]
+    let verified = open_verified_executable(&config)?;
+    let _ = &verified.file;
+    let _ = &verified.bytes;
+    // Windows keeps the verified file open; macOS executes a verified snapshot.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     let snapshot_directory = tempfile::tempdir().map_err(|_| SafeError::Storage)?;
-    #[cfg(target_os = "macos")]
-    let snapshot_path = snapshot_directory.path().join("powercontext");
-    #[cfg(target_os = "macos")]
-    let mut snapshot = std::fs::File::create(&snapshot_path).map_err(|_| SafeError::Storage)?;
-    let mut digest = Sha256::new();
-    let mut buf = [0; 8192];
-    let mut size = 0usize;
-    loop {
-        let n = executable.read(&mut buf).map_err(|_| SafeError::Storage)?;
-        if n == 0 {
-            break;
-        }
-        size += n;
-        if size > 64 * 1024 * 1024 {
-            return Err(SafeError::InvalidInput);
-        }
-        digest.update(&buf[..n]);
-        #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let executable_path = {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let snapshot_path = snapshot_directory.path().join("powercontext");
         {
-            use std::io::Write;
+            let mut snapshot =
+                std::fs::File::create(&snapshot_path).map_err(|_| SafeError::Storage)?;
             snapshot
-                .write_all(&buf[..n])
+                .write_all(&verified.bytes)
+                .map_err(|_| SafeError::Storage)?;
+            snapshot.sync_all().map_err(|_| SafeError::Storage)?;
+            snapshot
+                .set_permissions(std::fs::Permissions::from_mode(0o500))
                 .map_err(|_| SafeError::Storage)?;
         }
-    }
-    if format!("{:x}", digest.finalize()) != config.sha256.to_ascii_lowercase() {
-        return Err(SafeError::CompatibilityUnverified);
-    }
-    #[cfg(target_os = "macos")]
-    let executable_path = {
-        use std::os::unix::fs::PermissionsExt;
-        snapshot
-            .set_permissions(std::fs::Permissions::from_mode(0o500))
-            .map_err(|_| SafeError::Storage)?;
-        snapshot_path.as_path()
+        snapshot_path
     };
     #[cfg(windows)]
     let executable_path = config.executable.as_path();
-    #[cfg(target_os = "macos")]
-    drop(snapshot);
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let executable: &Path = executable_path.as_path();
+    #[cfg(windows)]
+    let executable: &Path = executable_path;
     let timeout = match kind {
         DiagnosticKind::Service => 20,
         DiagnosticKind::Integrations => 60,
     };
     let result = crate::diagnostic_process::run(
-        executable_path,
+        executable,
         kind.arguments(),
         Duration::from_secs(timeout),
         cancelled.clone(),
     )?;
     let mut report = project(kind, &result.stdout, result.exit_code)?;
     report.cli_version = crate::diagnostic_process::run(
-        executable_path,
+        executable,
         &["--version"],
         Duration::from_secs(15),
         cancelled,
@@ -463,26 +488,26 @@ fn execute(
 }
 
 pub struct DiagnosticHost {
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     pub local: Option<LocalDiagnostics>,
 }
 impl DiagnosticHost {
     /// Finish native process cleanup before Tauri directly exits the process.
     pub fn shutdown(&self) {
-        #[cfg(any(windows, target_os = "macos"))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         if let Some(local) = &self.local {
             local.shutdown();
         }
     }
     pub fn new(directory: Option<std::path::PathBuf>) -> Self {
-        #[cfg(any(windows, target_os = "macos"))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         {
             Self {
                 local: directory
                     .map(|path| LocalDiagnostics::new(path.join("diagnostic-cli.json"))),
             }
         }
-        #[cfg(not(any(windows, target_os = "macos")))]
+        #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
         {
             let _ = directory;
             Self {}
@@ -539,5 +564,47 @@ mod tests {
         );
         assert_eq!(cli_version_from_output(b"1.3.1", 1), None);
         assert_eq!(cli_version_from_output(&[0xff], 0), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_registration_requires_an_explicit_matching_executable() {
+        use super::{CliRegistration, open_verified_executable};
+        use sha2::{Digest, Sha256};
+
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("powercontext");
+        let bytes = b"trusted-linux-cli";
+        std::fs::write(&executable, bytes).unwrap();
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        let registration = CliRegistration {
+            executable: executable.clone(),
+            sha256: digest,
+            _legacy_version: None,
+            source: "explicit_local_installation".into(),
+        };
+        let verified = open_verified_executable(&registration).unwrap();
+        assert_eq!(verified.bytes, bytes);
+        assert_eq!(verified.file.metadata().unwrap().len(), bytes.len() as u64);
+
+        for invalid in [
+            CliRegistration {
+                sha256: "0".repeat(64),
+                ..registration.clone()
+            },
+            CliRegistration {
+                source: "path_lookup".into(),
+                ..registration.clone()
+            },
+            CliRegistration {
+                executable: directory.path().join("other-program"),
+                ..registration.clone()
+            },
+        ] {
+            assert!(matches!(
+                open_verified_executable(&invalid),
+                Err(crate::error::SafeError::CompatibilityUnverified)
+            ));
+        }
     }
 }

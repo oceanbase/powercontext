@@ -288,6 +288,32 @@ jobs:
             eval "$(printf "%s\n" powercontext-ci | gnome-keyring-daemon --daemonize --login --components=secrets)"
             cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
           '
+      - name: Set up Python fixture tooling
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.10.12"
+          enable-cache: true
+          cache-suffix: desktop-${{ github.job }}-py3.12
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            integrations/langchain/pyproject.toml
+            integrations/langgraph/pyproject.toml
+            integrations/opendal/pyproject.toml
+      - name: Install locked Server test dependencies
+        working-directory: .
+        run: uv sync --locked --python 3.12
+      - name: Build Server wheel for isolated acceptance
+        working-directory: .
+        run: uv build --wheel --out-dir desktop/.artifacts/server-wheel
+      - name: Qualify the disposable checkout and built-wheel fixture
+        working-directory: .
+        run: uv run --no-sync python desktop/tests/fixture_qualification.py --server-commit $GITHUB_SHA
+      - name: Build native Linux diagnostic acceptance client
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --example diagnostic_cli_probe
+      - name: Test native diagnostics with isolated real Linux CLI
+        working-directory: .
+        run: uv run --no-sync python desktop/tests/real_cli.py
       - name: Build unsigned Debian package
         run: pnpm tauri build --bundles deb --ci -- --locked
       - name: Verify Debian package
@@ -300,7 +326,10 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: desktop-linux-ubuntu-24.04-internal-unsigned
-          path: desktop/src-tauri/target/release/bundle/deb/*.deb
+          path: |
+            desktop/src-tauri/target/release/bundle/deb/*.deb
+            desktop/.artifacts/ci-compatibility.json
+            desktop/.artifacts/real-cli.json
           if-no-files-found: error
 
   installed-package:
