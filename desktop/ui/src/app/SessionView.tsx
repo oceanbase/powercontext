@@ -74,7 +74,7 @@ export function SessionView({ language }: { language: Language }) {
     }
   }
 
-  const supported = summary?.schemaVersion === 1;
+  const supported = summary?.schemaVersion === 2;
   const number = new Intl.NumberFormat(language, { maximumFractionDigits: 1 });
   function timestamp(value: number) {
     const date = new Date(value);
@@ -210,8 +210,112 @@ export function SessionView({ language }: { language: Language }) {
                   </div>
                 ))}
               </details>
-              <h4>{t.localOps}</h4>
-              <p>{t.localOpsUnavailable}</p>
+            </section>
+            <section className="card stack" aria-label={t.localOps}>
+              <h3>{t.localOps}</h3>
+              {!summary.coverage.installerOps ? (
+                <p>{t.localOpsUnavailable}</p>
+              ) : (
+                <>
+                  <p>{t.localOpsHint}</p>
+                  <p>{t.opsReferenceHint}</p>
+                  <dl className="session-facts">
+                    <div>
+                      <dt>{t.opsRetained}</dt>
+                      <dd>
+                        {number.format(summary.installerOps.recent.length)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t.opsCapacity}</dt>
+                      <dd>{number.format(summary.installerOps.capacity)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t.evicted}</dt>
+                      <dd>{number.format(summary.installerOps.evicted)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t.dropped}</dt>
+                      <dd>
+                        {number.format(summary.installerOps.droppedSinceStart)}
+                      </dd>
+                    </div>
+                  </dl>
+                  {(summary.installerOps.evicted > 0 ||
+                    summary.installerOps.droppedSinceStart > 0) && (
+                    <PageFeedback
+                      compact
+                      kind="warning"
+                      title={t.opsIncomplete}
+                    />
+                  )}
+                  {summary.installerOps.recent.length === 0 ? (
+                    <p>{t.opsEmpty}</p>
+                  ) : (
+                    <div
+                      className="session-table"
+                      role="region"
+                      aria-label={t.localOps}
+                      tabIndex={0}
+                    >
+                      <table>
+                        <caption>{t.localOps}</caption>
+                        <thead>
+                          <tr>
+                            {[
+                              t.opsReference,
+                              t.opsAction,
+                              t.opsAttempt,
+                              t.opsPhase,
+                              t.opsAttemptPhase,
+                              t.opsOutcome,
+                              t.opsError,
+                              t.opsObservedAt,
+                            ].map((label) => (
+                              <th scope="col" key={label}>
+                                {label}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {summary.installerOps.recent.map((record, index) => (
+                            <tr key={index}>
+                              <th scope="row">
+                                <code>{record.operationId}</code>
+                              </th>
+                              <td>{t.opsActions[record.action]}</td>
+                              <td>{record.attempt ?? t.notObserved}</td>
+                              <td>
+                                {record.phase
+                                  ? t.opsPhases[record.phase]
+                                  : t.notObserved}
+                              </td>
+                              <td>
+                                {record.attemptPhase
+                                  ? t.opsAttemptPhases[record.attemptPhase]
+                                  : t.notObserved}
+                              </td>
+                              <td>{t.opsOutcomes[record.outcome]}</td>
+                              <td>
+                                {record.errorCode || record.bridgeError ? (
+                                  <>
+                                    <code>{record.errorCode}</code>{" "}
+                                    <code>{record.bridgeError}</code>
+                                  </>
+                                ) : (
+                                  t.notObserved
+                                )}
+                              </td>
+                              <td>{timestamp(record.observedAtMs)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
             </section>
             {summary.recent.length === 0 && (
               <PageFeedback kind="empty" title={t.empty}>

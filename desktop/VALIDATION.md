@@ -78,6 +78,28 @@ normal product-build qualification record, clean-machine installation/signing ac
 200% zoom, IME or assistive-technology qualification. `installed_session.py` is included in the hosted Windows
 installed-app harness so the same preview/copy/reset assertions also run against its installed artifact.
 
+## Installer/Ops diagnostic projection checks
+
+Session summary schema 2 includes an independent 64-snapshot `installerOps` projection wired to the native Ops
+bridge. Windows x64, Rust 1.95.0, Node 24.14.1 and pnpm 11.13.1 pass all 79 native tests, 150 UI tests, eight focused
+Python contract/fixture tests, Clippy with warnings denied, Rust formatting, generated IPC checks, frontend lint,
+TypeScript checking and the production build. Website lint and bilingual link validation pass.
+
+Native projection tests preserve the existing operation UUID and all eight Ops outcomes, retain a known phase and
+attempt after a lost reply, exclude private target/endpoint/request fields, and keep HTTP/action aggregates empty
+for Ops work. They cover the independent capacity/evictions, reset during an invocation, lifetime losses, contention,
+poisoning and rejection of noncanonical references. Bilingual UI fixtures exercise the distinct phase/outcome table,
+unknown phases, safe codes, empty/unavailable/incomplete coverage and explicit exact-text copying including Ops data.
+These are typed native fixtures and mocked UI/clipboard evidence, not actual installer-failure or service-manager
+acceptance. A macOS-only bridge regression exercises a real synthetic helper failure and supported status lookup
+after session reset; it was not executed on this Windows host.
+
+The installed Windows harness expects schema 2, connected Ops collection and reset/lifetime-loss semantics for both
+windows. The existing installed-app/clipboard evidence above retains its exact executable and Server identities;
+it does not qualify the Ops diagnostic table or clipboard path with installer failures. Actual installed failure flows
+and macOS execution remain platform acceptance work. Repository-wide typing retains the master baseline diagnostics
+described above; focused Windows/Linux typing of the installed harness passes.
+
 ## Native discovery acceptance
 
 The native `get_server_info` adapter and full real-Server harness were exercised on Windows x64 on 2026-10-23 with Rust 1.95.0 and Python 3.11.15. The Server sources, project configuration and lock matched baseline commit `c535d816`; the wheel was built at Desktop commit `f2b442fc41f724e206a50f2415a03476abdcdf76` with an unrelated dirty documentation tree. The wheel `powercontext-1.4.1.dev138+gf2b442fc4.d20261023-py3-none-any.whl` had SHA-256 `677812c860dd6f12866afa3b6b3e2e0529a6d37b427187c0ce4f3cd732349551`; the normalized contract digest was `5878999ce9e239d6642e4da858074b281ed465629432c578b3584eec47cbce6c`. All four isolated SQLite Server configurations passed: anonymous loopback, static Bearer, HTTPS with an explicit CA and reverse-proxy base path, and an enforced authentication Provider. Checks covered discovery, Scope selection, Memory save/search/exact revision reads, Principal changes, same-Principal revocation, uncertain writes without replay, pagination and independent Server survival. The Server environment included the declared `jieba==0.42.1` dependency. Results are recorded under ignored `.artifacts/real-server.json`.

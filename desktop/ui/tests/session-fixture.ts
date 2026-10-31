@@ -18,7 +18,7 @@ import type { OperationSummary, SessionSummary } from "../src/generated/ipc";
 
 export function emptySessionSummary(): SessionSummary {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     sessionStartedAtMs: Date.UTC(2026, 9, 25, 0),
     windowStartedAtMs: Date.UTC(2026, 9, 25, 1),
     generatedAtMs: Date.UTC(2026, 9, 25, 2),
@@ -35,10 +35,16 @@ export function emptySessionSummary(): SessionSummary {
       ],
       userOperations: ["remember_memory", "search_memory"],
       identityChecksIncluded: true,
-      installerOps: false,
+      installerOps: true,
     },
     operations: [],
     recent: [],
+    installerOps: {
+      capacity: 64,
+      evicted: 0,
+      droppedSinceStart: 0,
+      recent: [],
+    },
   };
 }
 

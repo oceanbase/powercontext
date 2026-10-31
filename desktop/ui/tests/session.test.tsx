@@ -36,7 +36,7 @@ vi.mock("../src/shared/ipc", () => ({
     previewSessionDiagnostics: vi.fn(),
   },
 }));
-const safeText = '{\n  "schemaVersion": 1,\n  "note": "安全快照"\n}\n';
+const safeText = '{\n  "schemaVersion": 2,\n  "note": "安全快照"\n}\n';
 beforeEach(() => {
   vi.mocked(desktopApi.sessionSummary).mockResolvedValue(emptySessionSummary());
   vi.mocked(desktopApi.resetSessionObservations).mockResolvedValue();
@@ -63,7 +63,7 @@ for (const language of ["zh", "en"] as const) {
     expect(await screen.findByRole("heading", { name: t.empty })).toBeTruthy();
     expect(screen.getByText(t.scope)).toBeTruthy();
     expect(screen.getByText(t.bounds)).toBeTruthy();
-    expect(screen.getByText(t.localOpsUnavailable)).toBeTruthy();
+    expect(screen.getByText(t.opsEmpty)).toBeTruthy();
     expect(screen.getByText("512")).toBeTruthy();
     expect(screen.getByText("2026-10-25 00:00:00")).toBeTruthy();
     expect(screen.getByText("2026-10-25 01:00:00")).toBeTruthy();
@@ -113,7 +113,7 @@ test("failed or unsupported snapshots never fabricate zero statistics or render 
   expect(screen.queryByText("512")).toBeNull();
   vi.mocked(desktopApi.sessionSummary).mockResolvedValueOnce({
     ...emptySessionSummary(),
-    schemaVersion: 2,
+    schemaVersion: 99,
   });
   await user.click(
     screen.getByRole("button", { name: "Retry reading summary" }),
@@ -227,6 +227,85 @@ test.each(["zh", "en"] as const)(
     expect(clipboard).toHaveBeenLastCalledWith(safeText);
   },
 );
+
+test.each(["zh", "en"] as const)(
+  "local setup diagnostics show safe phases, opaque references and distinct Ops outcomes (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    const snapshot = emptySessionSummary();
+    snapshot.installerOps = {
+      capacity: 64,
+      evicted: 2,
+      droppedSinceStart: 1,
+      recent: (
+        [
+          "failed",
+          "partial_failure",
+          "uncertain",
+          "unknown",
+          "cancelled",
+          "pending",
+          "succeeded",
+          "rejected",
+        ] as const
+      ).map((outcome, index) => ({
+        action: "apply",
+        operationId: `2c597e84-6361-4f20-85aa-${String(index).padStart(12, "0")}`,
+        attempt: 1,
+        phase: index === 3 ? null : "preparing",
+        attemptPhase: "finished",
+        outcome,
+        errorCode: outcome === "failed" ? "resource_prepare_failed" : null,
+        bridgeError: outcome === "unknown" ? "timeout" : null,
+        observedAtMs: snapshot.generatedAtMs,
+      })),
+    };
+    vi.mocked(desktopApi.sessionSummary).mockResolvedValue(snapshot);
+    const text = JSON.stringify(snapshot, null, 2) + "\n";
+    vi.mocked(desktopApi.previewSessionDiagnostics).mockResolvedValue(text);
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    render(<SessionView language={language} />);
+    const t = sessionMessages[language];
+    const table = await screen.findByRole("table", { name: t.localOps });
+    expect(
+      within(table)
+        .getAllByRole("rowheader")
+        .map((item) => item.textContent),
+    ).toEqual(snapshot.installerOps.recent.map((record) => record.operationId));
+    for (const record of snapshot.installerOps.recent) {
+      const row = within(table)
+        .getByRole("rowheader", { name: record.operationId })
+        .closest("tr")!;
+      expect(within(row).getByText(t.opsOutcomes[record.outcome])).toBeTruthy();
+      expect(
+        within(row).getByText(
+          record.phase ? t.opsPhases[record.phase] : t.notObserved,
+        ),
+      ).toBeTruthy();
+    }
+    expect(within(table).getByText("resource_prepare_failed")).toBeTruthy();
+    expect(within(table).getByText("timeout")).toBeTruthy();
+    expect(screen.getByText(t.opsIncomplete)).toBeTruthy();
+    expect(screen.queryByRole("table", { name: t.http })).toBeNull();
+    expect(screen.queryByRole("table", { name: t.actions })).toBeNull();
+    await user.click(screen.getByRole("button", { name: t.preview }));
+    await screen.findByRole("textbox", { name: t.previewText });
+    expect(copy).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: t.copy }));
+    await waitFor(() => expect(copy).toHaveBeenCalledWith(text));
+  },
+);
+
+test("an unattached Ops source is unavailable rather than evidence of zero setup failures", async () => {
+  const snapshot = emptySessionSummary();
+  snapshot.coverage.installerOps = false;
+  vi.mocked(desktopApi.sessionSummary).mockResolvedValue(snapshot);
+  render(<SessionView language="en" />);
+  expect(
+    await screen.findByText(sessionMessages.en.localOpsUnavailable),
+  ).toBeTruthy();
+  expect(screen.queryByText(sessionMessages.en.opsEmpty)).toBeNull();
+});
 
 test("late preview and clipboard responses cannot populate a new view or preview", async () => {
   const user = userEvent.setup();

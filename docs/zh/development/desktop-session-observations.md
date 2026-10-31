@@ -31,9 +31,9 @@ HTTP 覆盖 `get_server_info`、`get_liveness`、`get_readiness`、`get_capabili
 HTTP 延迟是客户端请求耗时，不能解释为 Server 内部处理耗时；用户操作延迟是原生操作耗时，不代表完整界面旅程。
 
 `coverage.desktopSessionOnly` 为 true，`coverage.persistenceEvidence` 为 false。这些数据只覆盖当前 Desktop 进程，
-不是全局 Server/Agent 链路，也不是持久化成功的权威证据。不采集 Installer/Ops 或本地 CLI 诊断，
-`coverage.installerOps` 为 false。后续本地安装诊断区只能投影所属 Installer/Ops 的安全阶段、结果和受支持的不透明操作引用。
-不得引入 stdout、路径、配置或 journal 内容，不得另建 journal，也不能将本地生命周期操作计入 HTTP 延迟。
+不是全局 Server/Agent 链路，也不是持久化成功的权威证据。应用将原生 Ops 桥接接入同一个采集器，
+`coverage.installerOps` 为 true，且不依赖连接状态存储。白名单快照显示在独立的 `installerOps` 区域，契约见下文。
+未接入 Ops 源的独立采集器返回 false，界面显示覆盖不可用，不解释为零次安装失败。本地 CLI 诊断不在采集范围内。
 
 ## 结果语义
 
@@ -72,7 +72,7 @@ HTTP Future 被取消时记录 `cancelled`，不代表远端写入已经取消�
 
 | 字段 | 含义和单位 |
 | --- | --- |
-| `schemaVersion` | 安全摘要模式版本，当前为 1 |
+| `schemaVersion` | 安全摘要模式版本，当前为 2；随包分发的界面和原生宿主必须匹配 |
 | `sessionStartedAtMs`、`windowStartedAtMs`、`generatedAtMs` | UTC Unix epoch 毫秒：进程会话起点、最近重置或启动时间、摘要生成时间 |
 | `capacity`、`evicted`、`droppedSinceStart` | 终态记录上限、重置以来的淘汰数量、进程启动以来的采集丢失数量 |
 | `coverage` | 上述原生采集范围和限制 |
@@ -83,6 +83,11 @@ HTTP Future 被取消时记录 `cancelled`，不代表远端写入已经取消�
 | `operations` | 仅根据 `recent`，按单位和操作计算的分组 |
 | `outcomes`、`sampleCount` | 各类终态的保留数量和样本总数 |
 | `minDurationMs`、`meanDurationMs`、`maxDurationMs` | 分组内所有保留终态的最小、平均及最大耗时，单位为毫秒，包含已取消和未知结果 |
+| `installerOps.capacity`、`installerOps.evicted`、`installerOps.droppedSinceStart` | 独立的 Ops 快照上限、重置后的淘汰数及进程累计采集丢失数 |
+| `installerOps.recent` | 按调用返回顺序保留的原生 Ops 白名单快照；不是 journal 或实时状态 |
+| Ops 的 `action`、`attempt`、`phase`、`attemptPhase`、`outcome` | 现有 `OpsAction`、可空的尝试次数、`OpsServicePhase`、`OpsAttemptPhase`，以及不重新解释的 `OpsOutcome` |
+| Ops 的 `operationId` | 原生生成且由 Ops 引用存储支持的规范 UUID，可交给 `ops_operation_status` 查询，不是目标或绑定身份 |
+| Ops 的 `errorCode`、`bridgeError`、`observedAtMs` | 可空的现有 `OpsErrorCode` / `OpsBridgeError` 枚举，以及调用返回时的 UTC Unix epoch 毫秒 |
 
 采集器不接收自由格式诊断字段。Memory/Source 内容、查询、提示词与响应、凭据、原始 endpoint、配置名称与 ID、
 Principal/Scope/Artifact ID、私有路径、请求头、原始错误和安装输出都不进入记录。
@@ -92,6 +97,27 @@ Server 请求 ID 仍可通过现有操作失败结果获取，但不进入会话
 原生回归检查使用模拟的 loopback HTTP 服务和 mock Tauri IPC，覆盖有界保留、在途写入期间重置、请求与操作计数、
 就绪及写入结果、取消、敏感值排除、权限和采集故障隔离。这些检查不构成真实 Server 或安装包剪贴板验收。
 
+## 本地安装失败诊断
+
+原生 Ops 边界只投影已有持久操作引用的 `apply`、`resume`、`operation_status` 和 `cancel` 调用结果。
+分配引用前的预检、绑定和授权失败仍由安装流程负责，观察不会虚构操作或引用。引用可跨 Desktop 会话保留，
+但摘要只包含本会话及当前窗口实际观测到的调用返回值；分配引用本身不证明任何结果。
+
+每次调用保留最后一个通过校验的进度阶段；有效结果的安装阶段或结构化观察存在时优先使用。
+不从错误或进程退出推断阶段。未观测到的阶段为 null，界面明确显示未观测到。响应丢失时仍可保留已知阶段和尝试次数，
+同时将结果保留为未知。`pending`、`cancelled`、`failed`、`partial_failure`、`uncertain`、`rejected`、`unknown`
+和 `succeeded` 沿用 Ops 原义；请求取消不证明操作已经取消。
+
+独立 FIFO 最多保留 **64 个 Ops 调用快照**。重复的显式状态查询或取消请求是不同观察，不增加安装尝试次数。
+记录只使用非阻塞锁且不执行 I/O；竞争、锁中毒或非规范引用会丢失快照并增加独立的进程累计丢失数。
+插入工作量为常数且有界；摘要最多复制 64 个 Ops 快照和 512 个请求或操作记录。重置同时清空两个窗口及淘汰数，
+保留两个进程累计丢失数和会话起点。重置前已开始的 Ops 调用不能重新填入新窗口，其排除会计为丢失。
+重置不会删除权威 Ops 引用存储或 journal，不取消工作，也不改变服务状态。
+
+此区不包含耗时或请求、用户操作计数，不执行探测、轮询、journal 读取或写入重放，也不存储原始 stdout/stderr、
+目标摘要、路径、endpoint、配置、执行进程 PID 或历史记录。页面和现有逐字预览、复制流程共用原生白名单投影。
+离开页面或切换连接上下文会关闭预览，原生采集仍按进程继续。空窗口不能证明不存在安装失败。
+
 ## 本次会话视图与显式复制
 
 没有活动连接、连接状态加载失败时仍可使用本次会话视图。进入标签页时读取一次原生摘要，不轮询，也不探测 Server 或 CLI。
@@ -100,8 +126,8 @@ Server 请求 ID 仍可通过现有操作失败结果获取，但不进入会话
 显示不可用。
 
 页面展示 UTC 会话起点、窗口起点和摘要生成时间，以及保留数量、上限、淘汰数量和进程采集丢失数量。
-存在淘汰或丢失时提示覆盖不完整，可以展开查看纳入统计的操作。本地安装及运维范围明确显示未接入，不虚构阶段、结果，
-也不抓取 journal。
+存在淘汰或丢失时提示覆盖不完整，可以展开查看纳入统计的操作。本地安装及运维使用单独标明的快照表格、覆盖和丢失计数，
+分别展示空窗口和未接入状态，不抓取 journal。
 
 重置前使用应用内确认，说明不会影响 Memory 或正在执行的操作，且保留进程采集丢失总数。原生重置后重新读取新窗口。
 无法确认重置成功时，提示用户先刷新检查再决定是否重试，不提前清空已有快照，也不自动重复重置。

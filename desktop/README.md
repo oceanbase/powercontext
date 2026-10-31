@@ -11,6 +11,10 @@ The sidebar provides Overview, Connections, Memories, and Observation, with Sett
 The native host collects a bounded, in-memory window of HTTP requests and Memory/Scope user operations independently of page navigation. Trusted typed IPC provides an allowlisted summary, reset and safe JSON preview. The window retains at most 512 terminal records; it preserves cancellation and unknown-write outcomes and contains no content or target identities. See the [session observation contract](../docs/en/development/desktop-session-observations.md) for measurement units, coverage, reset and failure isolation. This session shows separate request/action counts, outcomes and millisecond latency, UTC snapshot/retention coverage, manual refresh and confirmed reset. **Preview safe diagnostic summary** opens the exact native text; copying is a separate explicit action with feedback and selectable text for manual recovery. Leaving the view or changing context closes its preview and discards late UI responses.
 
 
+Local setup and operations have a separate bounded diagnostic table with safe phases, unchanged Ops outcomes,
+error codes and supported opaque operation references. These snapshots are included in explicit safe preview/copy,
+with independent retention/loss coverage, and contribute no HTTP or Memory/Scope action latency.
+
 ## Shared feedback and current context
 
 Every page uses the same loading, empty, unavailable and error presentation. Loading local state is distinct from being disconnected; a local-state failure offers **Reload local state**, without probing Server readiness. Empty search results mean no matches for that query, not an empty Scope inventory. Unimplemented Observation views remain unavailable.

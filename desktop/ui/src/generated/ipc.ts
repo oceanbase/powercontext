@@ -111,7 +111,13 @@ export type SessionSummary = { schemaVersion: number, sessionStartedAtMs: number
 /**
  * Process-lifetime loss count, deliberately not cleared by a window reset.
  */
-droppedSinceStart: number, coverage: SessionCoverage, operations: Array<OperationSummary>, recent: Array<SessionObservation>, };
+droppedSinceStart: number, coverage: SessionCoverage, operations: Array<OperationSummary>, recent: Array<SessionObservation>, installerOps: OpsSessionSummary, };
+export type OpsSessionObservation = { action: OpsAction,
+/**
+ * The existing native-generated UUID, supported by ops_operation_status; never a target ID.
+ */
+operationId: string, attempt: number | null, phase: OpsServicePhase | null, attemptPhase: OpsAttemptPhase | null, outcome: OpsOutcome, errorCode: OpsErrorCode | null, bridgeError: OpsBridgeError | null, observedAtMs: number, };
+export type OpsSessionSummary = { capacity: number, evicted: number, droppedSinceStart: number, recent: Array<OpsSessionObservation>, };
 export type AccessAction = "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
 export type AccessControlMode = "disabled" | "enforced";
 export type AccessMeResponse = { principal: AccessPrincipal, mode: AccessControlMode, resource_kinds: Array<AccessResourceType>, provider_capabilities: AccessProviderCapabilities, artifact_families: Array<ArtifactFamilyAccessCapability>, };

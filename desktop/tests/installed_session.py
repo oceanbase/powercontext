@@ -42,9 +42,9 @@ def exercise_session(client: httpx.Client, prefix: str) -> dict[str, object]:
     field = page.field("将要复制的安全诊断文本", "textarea")
     text = page.observe("return arguments[0].value;", [{ELEMENT: field}])
     snapshot = json.loads(text)
-    if snapshot["schemaVersion"] != 1 or not snapshot["coverage"]["desktopSessionOnly"]:
+    if snapshot["schemaVersion"] != 2 or not snapshot["coverage"]["desktopSessionOnly"]:
         raise HarnessFailure("installed_session_scope_missing")
-    if snapshot["coverage"]["persistenceEvidence"] or snapshot["coverage"]["installerOps"]:
+    if snapshot["coverage"]["persistenceEvidence"] or not snapshot["coverage"]["installerOps"]:
         raise HarnessFailure("installed_session_coverage_misrepresented")
     if {record["unit"] for record in snapshot["recent"]} != {"http_request", "user_operation"}:
         raise HarnessFailure("installed_session_measurement_units_missing")
@@ -68,10 +68,18 @@ def exercise_session(client: httpx.Client, prefix: str) -> dict[str, object]:
     page.button("预览安全诊断摘要")
     reset_field = page.field("将要复制的安全诊断文本", "textarea")
     reset = json.loads(page.observe("return arguments[0].value;", [{ELEMENT: reset_field}]))
-    if reset["recent"] or reset["operations"] or reset["sessionStartedAtMs"] != snapshot["sessionStartedAtMs"]:
+    if (
+        reset["recent"]
+        or reset["operations"]
+        or reset["installerOps"]["recent"]
+        or reset["installerOps"]["evicted"]
+        or reset["sessionStartedAtMs"] != snapshot["sessionStartedAtMs"]
+    ):
         raise HarnessFailure("installed_session_reset_incorrect")
     if reset["droppedSinceStart"] < snapshot["droppedSinceStart"]:
         raise HarnessFailure("installed_session_reset_concealed_losses")
+    if reset["installerOps"]["droppedSinceStart"] < snapshot["installerOps"]["droppedSinceStart"]:
+        raise HarnessFailure("installed_session_reset_concealed_ops_losses")
     page.button("关闭预览")
     page.button("记忆")
     return {

@@ -33,10 +33,10 @@ validation/concurrency refusals can produce a failed user operation without an H
 request time, not Server processing time; user-operation latency is native action time, not the entire UI journey.
 
 `coverage.desktopSessionOnly` is true and `coverage.persistenceEvidence` is false. This is this Desktop process's
-observation, not global Server/Agent tracing or authoritative evidence of persistence. Installer/Ops and local CLI
-diagnostics are not collected (`coverage.installerOps` is false). A future local-setup section must project the owning
-Installer/Ops phase/result and supported opaque operation reference. It must not import stdout, paths, configuration,
-or journal contents, create another journal, or include local lifecycle work in HTTP latency.
+observation, not global Server/Agent tracing or authoritative evidence of persistence. The application connects the
+native Ops bridge to the same collector (`coverage.installerOps` is true), independently of connection-state storage.
+Its allowlisted snapshots appear in the separate `installerOps` section described below. An unattached collector
+reports false and the UI shows unavailable coverage, not zero setup failures. Local CLI diagnostics are excluded.
 
 ## Outcomes
 
@@ -83,7 +83,7 @@ outputs use the same allowlist; no renderer redaction is required for safety.
 
 | Fields | Meaning and units |
 | --- | --- |
-| `schemaVersion` | Safe-summary schema version, currently 1 |
+| `schemaVersion` | Safe-summary schema version, currently 2; the bundled UI and native host must match |
 | `sessionStartedAtMs`, `windowStartedAtMs`, `generatedAtMs` | UTC Unix epoch milliseconds: process session start, last reset/start, snapshot generation |
 | `capacity`, `evicted`, `droppedSinceStart` | Maximum retained terminal records, evictions since reset, recording losses since process start |
 | `coverage` | Declared native coverage and limits described above |
@@ -94,12 +94,43 @@ outputs use the same allowlist; no renderer redaction is required for safety.
 | `operations` | Groups by unit and operation, computed only from `recent` |
 | `outcomes`, `sampleCount` | Retained terminal counts by outcome and total sample count |
 | `minDurationMs`, `meanDurationMs`, `maxDurationMs` | Elapsed milliseconds across all retained outcomes in that group, including cancelled and unknown work |
+| `installerOps.capacity`, `installerOps.evicted`, `installerOps.droppedSinceStart` | Independent Ops snapshot limit, evictions since reset and process-lifetime collection losses |
+| `installerOps.recent` | Bounded snapshots of validated native Ops call replies in return order; not a journal or live status |
+| Ops `action`, `attempt`, `phase`, `attemptPhase`, `outcome` | Existing `OpsAction`, optional attempt number, optional `OpsServicePhase` and `OpsAttemptPhase`, and unchanged `OpsOutcome` |
+| Ops `operationId` | Existing canonical native-generated UUID backed by the Ops reference store; accepted by `ops_operation_status`, never a target/binding identity |
+| Ops `errorCode`, `bridgeError`, `observedAtMs` | Optional existing `OpsErrorCode`/`OpsBridgeError` enums and UTC Unix epoch milliseconds when the call returned |
 
 The collector accepts no free-form diagnostic fields. Memory/Source content, queries, prompts/responses, credentials,
 raw endpoints, profile names/IDs, Principal/Scope/Artifact IDs, private paths, request headers, raw errors and installer
 output never enter records. Server request IDs remain available through existing operation failures but are omitted
 from this export. It creates no correlation IDs or execution-identity metric labels and configures no operational logs,
 metrics, spans or telemetry backend.
+
+## Local setup failure diagnostics
+
+The native Ops boundary projects `apply`, `resume`, `operation_status` and `cancel` replies only after an existing
+durable operation reference is available. Preflight, binding and approval failures before allocation remain owned
+by the setup flow; observations do not invent an operation or a reference. References may outlive this Desktop session,
+but only replies observed during this session/window enter the summary. Reference allocation alone proves no result.
+
+The last validated progress phase is retained for each returning invocation. A validated result's installation stage
+or structured observation takes precedence when present. No phase is inferred from an error or a process exit;
+missing phases are null and displayed as not observed. A lost reply can therefore retain a known phase and attempt
+while its result remains unknown. `pending`, `cancelled`, `failed`, `partial_failure`, `uncertain`, `rejected`, `unknown`
+and `succeeded` retain their Ops meanings; a cancellation request is not proof of cancellation.
+
+At most **64 Ops call snapshots** are retained in a separate FIFO. Repeated explicit status/cancel queries are
+distinct observations, not additional installation attempts. Recording uses nonblocking locks and no I/O; contention,
+poisoning or a rejected noncanonical reference loses a snapshot and increments the independent lifetime loss counter.
+Insertion is constant bounded work; summaries copy at most 64 Ops snapshots alongside at most 512 request/action records.
+Reset clears both windows and their eviction counts together, retaining both lifetime loss counters and the session
+start. An invocation started before reset cannot repopulate the new Ops window; its exclusion is reported as a loss.
+Reset never deletes the authoritative Ops reference store or journal, cancels work or changes service state.
+
+This section has no duration or request/action count. It never probes, polls, reads a journal, replays a write or stores
+raw stdout/stderr, target summaries, paths, endpoints, configuration, executor PIDs or history. Its native allowlist is
+used by the page and the existing exact-text preview/copy flow. Leaving the view or changing connection context closes
+the preview while native collection remains process-wide. An empty window is not evidence of no installation failures.
 
 Native regression checks use synthetic loopback HTTP fixtures and mocked Tauri IPC. They protect bounded retention,
 reset with in-flight writes, request/action counting, readiness and write outcomes, cancellation, sensitive-value
@@ -114,8 +145,8 @@ separately. Empty observations describe the current terminal-record window, not 
 an explicit retry and does not replace unknown data with zeros. Unsupported summary versions are unavailable.
 
 UTC session/window/snapshot timestamps, retained count, capacity, evictions and lifetime collection loss are visible.
-Eviction or loss produces an incomplete-coverage warning. Included operations can be expanded. Local setup/Ops
-coverage remains explicitly unavailable; the page does not invent phase/results or scrape a journal.
+Eviction or loss produces an incomplete-coverage warning. Included operations can be expanded. Local setup/Ops has a
+separate labelled snapshot table, coverage/loss counters and empty/unavailable states; it does not scrape a journal.
 
 Reset requires an application confirmation explaining that Memory and running operations are unaffected and that
 lifetime loss remains. After native reset, the page reads the new window. An unconfirmed reset asks the user to refresh
