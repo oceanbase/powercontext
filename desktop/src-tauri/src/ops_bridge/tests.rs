@@ -158,6 +158,7 @@ else:
     assert signal.exists(), 'test synchronization timed out'
    else:time.sleep(0.4 if behavior!='slow' else 0.9)
    result=dict(outcome='cancelled' if cancel.exists() else 'succeeded',components=components)
+   if behavior=='operation_failure':result=dict(outcome='failed',error=dict(code='operation_failed'))
   final=status(result,n);save(final);emit(**final)
  elif not file.exists():
   emit(outcome='rejected',error=dict(code='operation_missing'));sys.exit(1)
@@ -165,6 +166,46 @@ else:
   if action=='cancel':cancel.write_text('requested')
   emit(**json.loads(file.read_text()))
 "#;
+
+#[test]
+fn session_diagnostics_project_real_helper_failure_without_reading_its_journal() {
+    let f = Fixture::new();
+    let observations = SessionObservations::default();
+    let host = f.host().with_observations(observations.clone());
+    let approval = f.approve(&host);
+    f.behavior("operation_failure");
+    let reply = host.apply(approval, |_| {}).unwrap();
+    assert_eq!(reply.outcome, OpsOutcome::Failed);
+    let summary = observations.summary().unwrap();
+    assert!(summary.coverage.installer_ops);
+    assert!(summary.recent.is_empty() && summary.operations.is_empty());
+    let snapshot = &summary.installer_ops.recent[0];
+    assert_eq!(snapshot.operation_id, reply.operation_id);
+    assert_eq!(snapshot.phase, Some(OpsServicePhase::Service));
+    assert_eq!(snapshot.outcome, OpsOutcome::Failed);
+    assert_eq!(snapshot.error_code, Some(OpsErrorCode::OperationFailed));
+    let references = host.references().unwrap();
+    assert_eq!(references.operations[0].operation_id, reply.operation_id);
+    observations.reset().unwrap();
+    assert!(
+        observations
+            .summary()
+            .unwrap()
+            .installer_ops
+            .recent
+            .is_empty()
+    );
+    let status = host
+        .operation_status(OpsStatusInput {
+            operation_id: reply.operation_id,
+        })
+        .unwrap();
+    assert_eq!(status.outcome, OpsOutcome::Failed);
+    assert_eq!(
+        observations.summary().unwrap().installer_ops.recent[0].operation_id,
+        status.operation_id
+    );
+}
 
 #[test]
 #[cfg(target_os = "macos")]

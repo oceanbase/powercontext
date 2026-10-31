@@ -34,6 +34,7 @@ import { Diagnostics } from "./Diagnostics";
 import { Connections } from "./Connections";
 import { Scopes } from "./Scopes";
 import { Observation, type ObservationTab } from "./Observation";
+import { SessionView } from "./SessionView";
 import { connectionMessages } from "./connection-messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
 import { activeCheckReport } from "./context";
@@ -359,6 +360,14 @@ export function App() {
               language={language}
               tab={observationTab}
               onTabChange={setObservationTab}
+              panels={{
+                session: (
+                  <SessionView
+                    key={`${desktop?.generation ?? "none"}-${contextPending}`}
+                    language={language}
+                  />
+                ),
+              }}
             />
           )}
           {page === "settings" && (

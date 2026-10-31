@@ -109,7 +109,7 @@ export const messages = {
     inventoryDescription:
       "此视图将展示当前精确 Scope 的库存和用量。尚未接入数据；未知值不表示为零。",
     sessionDescription:
-      "此视图将展示本次 Desktop 会话的有限请求汇总。当前尚未提供请求统计或安全诊断摘要复制。",
+      "分别查看本次 Desktop 会话的 HTTP 请求和原生操作汇总，并显式预览、复制安全诊断摘要。",
     home: "总览",
     connections: "连接",
     memories: "记忆",
@@ -321,7 +321,7 @@ export const messages = {
     inventoryDescription:
       "This view will show inventory and usage for the current exact Scope. Data is not connected yet; unknown values are not zero.",
     sessionDescription:
-      "This view will show bounded request summaries for this Desktop session. Request statistics and safe diagnostic summary copying are not available yet.",
+      "Inspect HTTP request and native-operation summaries for this Desktop session, then explicitly preview and copy safe diagnostics.",
     home: "Overview",
     connections: "Connections",
     memories: "Memories",
