@@ -49,6 +49,11 @@ BASE_INSTRUCTIONS = atomic_memory_extraction_instructions(MemoryExtractionProfil
 ATOMICITY_RULES = (
     "Split independently changeable assertions into separate self-contained candidates, even when they share a subject."
 )
+ATOMICITY_EXAMPLES = """For example, "the service listens on port 8080" and "the service requires Node 18" are two
+independently changeable facts about one subject; emit two self-contained candidates, not one combined candidate.
+"the config path is /etc/app.conf" and "the retry limit is 3" are likewise two separate candidates. A candidate may
+use several copy parts when one fact needs several exact values; the number of copy parts never decides atomicity.
+""".strip()
 COPY_RULES = """Evidence strings may contain backtick-delimited code spans; each span is a cell (c0, c1, ...) you
 may copy verbatim. A string without code spans may itself be a cell when it contains raw Unicode or CRLF.
 Return TemplateOutput with text parts for prose and copy parts that name a cell id only. A copy part copies
@@ -59,7 +64,9 @@ secrets, greetings or transient logs. Return no candidates when appropriate.
 """.strip()
 
 INSTRUCTIONS = (
-    BASE_INSTRUCTIONS.replace("Split facts that can change independently.", ATOMICITY_RULES).replace(
+    BASE_INSTRUCTIONS.replace(
+        "Split facts that can change independently.", ATOMICITY_RULES + "\n" + ATOMICITY_EXAMPLES
+    ).replace(
         "Each candidate must cite one or more supplied evidence_ids and contain self-contained kind/text.",
         "Each candidate must cite supplied evidence_id aliases and render self-contained kind/text from its parts.",
     )
