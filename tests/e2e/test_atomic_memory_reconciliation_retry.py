@@ -19,12 +19,14 @@ from __future__ import annotations
 import asyncio
 import json
 
+from pydantic_ai.embeddings import TestEmbeddingModel
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, TextPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
 from powercontext.builtin.inference import InvalidInferenceOutputError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, open_builtin_runtime
+from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, RuntimeConfig, open_builtin_runtime
 from powercontext.builtin.runtime.config import InferenceConfig
 from powercontext.builtin.scope import ScopeDraft
 
@@ -162,3 +164,163 @@ def test_rule_feedback_names_the_rule_without_source_content(monkeypatch, tmp_pa
 
     assert provider.retry_feedback
     assert not any("PostgreSQL" in feedback or "MySQL" in feedback for feedback in provider.retry_feedback)
+
+
+_PUBLISHED_WORKFLOW = "Project Larch uses planning, multiple workers for implementation and multiple reviews."
+_TRANSLATED_WORKFLOW = "Project Larch 采用规划、多个 worker 实施、多个 review 的工作方式。"
+_UPDATED_WORKFLOW = "Project Larch 采用规划、单个 worker 实施、多个 review 的工作方式。"
+
+
+class _PublishedWorkflowProvider:
+    """Repeat the published fact with a new description, or make an actual fact correction."""
+
+    def __init__(self, *, corrects: bool = False, changes_fact: bool = False) -> None:
+        self.corrects = corrects
+        self.changes_fact = changes_fact
+        self.retry_feedback: list[str] = []
+
+    async def respond(self, messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        request = messages[-1]
+        assert isinstance(request, ModelRequest)
+        retries = [part for part in request.parts if isinstance(part, RetryPromptPart)]
+        self.retry_feedback.extend(str(part.content) for part in retries)
+        (prompt,) = (
+            part.content
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        )
+        value = json.loads(str(prompt))
+        if "proposal" not in value:
+            return _json({
+                "candidates": [
+                    {
+                        "kind": "preference",
+                        "text": _UPDATED_WORKFLOW if self.changes_fact else _TRANSLATED_WORKFLOW,
+                        "description": "Project Larch 开发流程",
+                        "evidence_ids": [value["evidence"][0]["evidence_id"]],
+                    }
+                ]
+            })
+
+        # The real vector index must recall the published record before reconciliation.
+        (target,) = value["related"]
+        assert target["text"] == _PUBLISHED_WORKFLOW
+        assert len(target["original_refs"]) == 1
+        corrected = bool(retries) and self.corrects
+        return _json({
+            "action": "noop" if corrected else "revise",
+            "compared_ids": [target["item_id"]],
+            "target_ids": [target["item_id"]],
+            "content": None
+            if corrected
+            else {
+                "kind": "preference",
+                "text": _UPDATED_WORKFLOW if self.changes_fact else _PUBLISHED_WORKFLOW,
+                "description": "Project Larch development workflow",
+            },
+            "evidence_ids": []
+            if corrected
+            else list(dict.fromkeys([*target["evidence_ids"], *value["proposal"]["evidence_ids"]])),
+            "reason": "Retain the existing workflow." if corrected else "Apply the Source evidence to the workflow.",
+        })
+
+
+async def _flush_published_workflow(provider: _PublishedWorkflowProvider, monkeypatch, tmp_path):
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(provider.respond))
+    monkeypatch.setattr(
+        "pydantic_ai.embeddings.infer_embedding_model", lambda _name, **_kwargs: TestEmbeddingModel(dimensions=3)
+    )
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'published-workflow.db'}"),
+        inference=InferenceConfig(
+            generation_model="provider:test-model",
+            embedding_model="test",
+            embedding_profile_id="workflow-fixture",
+            embedding_dimension=3,
+        ),
+        runtime=RuntimeConfig(atomic_memory_related_mode="vector"),
+    )
+    async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        assert runtime.scopes is not None and runtime.atomic_memory is not None
+        scope = await runtime.scopes.create(
+            ScopeDraft(title="Project Larch", summary="Development workflow", idempotency_key="larch")
+        )
+        memory = runtime.atomic_memory.for_scope(scope.scope_id)
+        original = (
+            await memory.create([
+                AtomicMemoryContent(
+                    kind="preference", text=_PUBLISHED_WORKFLOW, description="Published development preference"
+                )
+            ])
+        ).primary
+        receipt = await runtime.sources.for_scope(scope.scope_id).capture(
+            CaptureSource(
+                source_id="workflow-update",
+                content=_UPDATED_WORKFLOW if provider.changes_fact else _TRANSLATED_WORKFLOW,
+                metadata={},
+            )
+        )
+        error = None
+        try:
+            await memory.flush()
+        except InvalidInferenceOutputError as raised:
+            error = raised
+        current = await memory.get(original.ref.artifact_id)
+        (listed,) = (await memory.list()).items
+        assert listed == current
+        historical = await memory.get(original.ref.artifact_id, revision=original.ref.revision)
+        assert historical.artifact == original.artifact
+        history = await runtime.records.for_scope(scope.scope_id).list_artifact_revisions(
+            "atomic-memory", original.ref.artifact_id, limit=10, cursor=None
+        )
+        assert history.next_cursor is None
+        return error, (await memory.cursor()).sequence, original, current, history, receipt
+
+
+def test_translation_noop_after_retry_preserves_published_record_and_advances_cursor(monkeypatch, tmp_path):
+    provider = _PublishedWorkflowProvider(corrects=True)
+
+    error, cursor, original, current, history, receipt = asyncio.run(
+        _flush_published_workflow(provider, monkeypatch, tmp_path)
+    )
+
+    assert error is None
+    assert cursor == receipt.sequence
+    assert current == original
+    assert len(history.items) == 1
+    assert provider.retry_feedback
+
+
+def test_repeated_translation_revision_leaves_published_record_and_cursor_unchanged(monkeypatch, tmp_path):
+    provider = _PublishedWorkflowProvider()
+
+    error, cursor, original, current, history, _receipt = asyncio.run(
+        _flush_published_workflow(provider, monkeypatch, tmp_path)
+    )
+
+    assert isinstance(error, InvalidInferenceOutputError)
+    assert error.operation == "atomic-memory-reconcile"
+    assert cursor == 0
+    assert current == original
+    assert len(history.items) == 1
+    assert provider.retry_feedback
+
+
+def test_changed_workflow_revises_published_fact_and_preserves_history(monkeypatch, tmp_path):
+    provider = _PublishedWorkflowProvider(changes_fact=True)
+
+    error, cursor, original, current, history, receipt = asyncio.run(
+        _flush_published_workflow(provider, monkeypatch, tmp_path)
+    )
+
+    assert error is None
+    assert cursor == receipt.sequence
+    assert current.ref.artifact_id == original.ref.artifact_id
+    assert current.ref.revision == original.ref.revision + 1
+    assert current.artifact.content.text == _UPDATED_WORKFLOW
+    assert current.artifact.lineage.sources == (receipt.source_ref,)
+    assert current.artifact.lineage.artifacts == (original.ref,)
+    assert len(history.items) == 2
+    assert not provider.retry_feedback

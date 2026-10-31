@@ -45,6 +45,7 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryComparisonItem,
     AtomicMemoryReconciliationInput,
     AtomicMemoryReconciliationOutput,
+    validate_reconciliation_decision,
     validate_reconciliation_output,
 )
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
@@ -139,6 +140,7 @@ async def _exercise(profile: MemoryExtractionProfile, env_file: Path) -> None:
                 output_type=AtomicMemoryReconciliationOutput,
                 limits=limits,
                 model_settings=model_settings,
+                output_check=validate_reconciliation_decision,
             )
             pipeline = AtomicMemoryGenerationPipeline(
                 extractor=extractor,
