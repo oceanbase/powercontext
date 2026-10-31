@@ -23,6 +23,7 @@ helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
 tests = [
   "tests/**", "integrations/**", "examples/**", "scripts/generate_js_operations.py",
   "scripts/sync_dsh_plugin_tree.py", "scripts/generate_integration_manifest_docs.py",
+  "scripts/generate_integration_lifecycle.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/scan_e2e_evidence.sh",
   "scripts/check_atomic_memory_migration_shards.py",
   "scripts/ci_role_smoke.py", "scripts/ci_installation_roles.py",
@@ -42,7 +43,7 @@ database = [
   "tests/*migration*.py", "scripts/check_atomic_memory_migration_shards.py",
 ]
 dify = ["integrations/dify/**", "tests/*dify*"]
-hermes = ["integrations/hermes/**", "tests/*hermes*"]
+hermes = ["integrations/hermes/**", "tests/*hermes*", "scripts/generate_integration_lifecycle.py"]
 dsh = ["integrations/dsh/**", "tests/*dsh*", "scripts/generate_js_operations.py", "scripts/sync_dsh_plugin_tree.py"]
 cindy = [
   "integrations/cindy/**", "tests/e2e/*cindy*", "scripts/generate_js_operations.py",

@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Generated from src/powercontext_integration_lifecycle/prompt_privacy.py; do not edit.
+# Edit the source and run `make integration-lifecycle` instead.
+
 """Best-effort credential recognition for automatic host inputs."""
 
 from __future__ import annotations

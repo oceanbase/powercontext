@@ -206,7 +206,7 @@ build-backend = "hatchling.build"
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/powercontext", "src/powercontext_service_bootstrap"]
+packages = ["src/powercontext", "src/powercontext_service_bootstrap", "src/powercontext_integration_lifecycle"]
 
 [tool.ty.environment]
 python = "./.venv"
@@ -279,6 +279,13 @@ fix = true
 [tool.ruff.per-file-target-version]
 # Claude Code runs these hooks with the host's python3, often the macOS system Python 3.9.
 "integrations/claude-code/plugins/powercontext/**/*.py" = "py39"
+# The plugins ship generated copies of these modules. Ruff must check each copy like its source, or a fix that it
+# applies to a copy makes the copy drift.
+"src/powercontext_integration_lifecycle/**/*.py" = "py39"
+"integrations/codex/plugins/powercontext/powercontext_client_config.py" = "py39"
+"integrations/codex/plugins/powercontext/hooks/{bootstrap_context,prepared_context,prompt_privacy}.py" = "py39"
+"integrations/hermes/plugins/powercontext/powercontext_client_config.py" = "py39"
+"integrations/workbuddy/plugins/powercontext/hooks/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
 
 [tool.ruff.lint]
 select = [

@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Generated from src/powercontext_integration_lifecycle/prepared_context.py; do not edit.
+# Edit the source and run `make integration-lifecycle` instead.
+
 """The prepare contract: the recall query a host sends and the context it accepts."""
 
 from __future__ import annotations

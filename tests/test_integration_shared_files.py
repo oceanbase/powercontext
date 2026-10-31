@@ -14,9 +14,10 @@
 
 """Shared plugin sources must stay identical across hosts until they move to one package.
 
-Several hosts ship byte-identical copies of the client configuration, the prepared-context,
-prompt-privacy, and bootstrap-context helpers, the JavaScript prompt-privacy module, and the
-TypeScript transport. Nothing detected drift, and one copy had already diverged.
+Kimi Code and ZCode ship byte-identical copies of the JavaScript prompt-privacy module, and DSH,
+OpenClaw, OpenCode, and Pi ship byte-identical copies of the TypeScript transport. The Python
+helpers that hosts share are generated from ``src/powercontext_integration_lifecycle/`` instead,
+and ``make integration-lifecycle-check`` verifies their copies.
 """
 
 from pathlib import Path
@@ -25,14 +26,7 @@ import pytest
 
 ROOT = Path(__file__).parents[1]
 PLUGINS = "integrations/*/plugins/*"
-SHARED_SOURCES = (
-    "powercontext_client_config.py",
-    "hooks/prepared_context.py",
-    "hooks/prompt_privacy.py",
-    "hooks/bootstrap_context.py",
-    "shared/prompt-privacy.mjs",
-    "src/transport.ts",
-)
+SHARED_SOURCES = ("shared/prompt-privacy.mjs", "src/transport.ts")
 # Installed dependencies are not plugin sources, even when one ships a file with the same name.
 _DEPENDENCY_DIRECTORIES = frozenset({"node_modules", ".venv"})
 

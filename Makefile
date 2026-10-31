@@ -19,7 +19,7 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check ## Run code quality tools.
+check: version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check integration-lifecycle-check ## Run code quality tools.
 
 .PHONY: integration-guidance integration-guidance-check
 integration-guidance: ## Refresh the managed regions of packaged integration guidance.
@@ -27,6 +27,13 @@ integration-guidance: ## Refresh the managed regions of packaged integration gui
 
 integration-guidance-check: ## Reject stale generated guidance without modifying files or calling models.
 	@uv run python scripts/integration_guidance_skills.py --check-generated
+
+.PHONY: integration-lifecycle integration-lifecycle-check
+integration-lifecycle: ## Write the lifecycle helper copies that copy-installed Python plugins ship.
+	@uv run python scripts/generate_integration_lifecycle.py
+
+integration-lifecycle-check: ## Reject a lifecycle helper copy that has drifted from its source.
+	@uv run python scripts/generate_integration_lifecycle.py --check
 
 .PHONY: workflow-actions-check
 workflow-actions-check: ## Verify third-party GitHub Actions use immutable commit pins.
