@@ -424,6 +424,53 @@ def test_render_classifies_stats_http_failures(
     assert expected in rendered
 
 
+@pytest.mark.parametrize("framing", ["chunked", "content-length"])
+def test_render_reports_a_truncated_stats_response_as_offline(
+    statusline_module: ModuleType,
+    monkeypatch,
+    tmp_path: Path,
+    framing: str,
+) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            if self.path == "/v1/scope-bindings/resolve":
+                data = json.dumps({"scope_id": "project:test"}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            # Close the connection inside the body, before the length its framing announced.
+            body = b'{"recall":'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            if framing == "chunked":
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                self.wfile.write(b"%x\r\n" % (len(body) + 32) + body)
+            else:
+                self.send_header("Content-Length", str(len(body) + 32))
+                self.end_headers()
+                self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    monkeypatch.setattr(
+        statusline_module.sys,
+        "stdin",
+        StringIO(json.dumps({"workspace": {"current_dir": str(tmp_path)}})),
+    )
+    with _serve(Handler) as server_url:
+        monkeypatch.setenv("POWERCONTEXT_CLAUDE_SERVER_URL", server_url)
+        rendered = statusline_module.render("http://127.0.0.1:9000")
+
+    assert "PC offline · run powercontext doctor" in rendered
+
+
 def test_render_aborts_a_slow_scope_response_at_the_absolute_budget(
     statusline_module: ModuleType,
     monkeypatch,
