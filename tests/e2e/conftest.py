@@ -29,9 +29,15 @@ from sqlalchemy.engine import make_url
 
 from powercontext.builtin.persistence.migrations.backup import identify_fork_server
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
-from powercontext.builtin.persistence.seekdb import SeekDBConfig
+from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend, migration_profile
+
+
+async def _provision_seekdb_database(config: SeekDBConfig) -> None:
+    # Maintenance connects directly; each scenario still owns its business schema.
+    async with SeekDBProfile.open(config, tables=()):
+        pass
 
 
 @pytest.fixture(params=("sqlite", "seekdb", "oceanbase"))
@@ -55,6 +61,7 @@ def migration_backend(request: pytest.FixtureRequest, short_tmp_path: Path) -> I
         # in test_database_migration_connections.py without this fixture.
         instance = asyncio.run(binding.aopen(str(config.path.resolve())))
         try:
+            asyncio.run(_provision_seekdb_database(config))
             yield MigrationBackend(config, short_tmp_path)
         finally:
             instance.close()
