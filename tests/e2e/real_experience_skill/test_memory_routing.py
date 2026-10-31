@@ -40,7 +40,8 @@ from powercontext.http import (
     ListMemoryEntriesRequest,
 )
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, HttpConfig, McpConfig, ServerSettings
+from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, HttpConfig, McpConfig
+from tests.e2e.real_experience_skill.settings import IsolatedServerSettings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CODEX_PLUGIN = PROJECT_ROOT / "integrations" / "codex"
@@ -62,7 +63,7 @@ class _RunningServer:
         host, port = self._listener.getsockname()
         self.base_url = f"http://{host}:{port}"
         app = create_server_app(
-            settings=ServerSettings(
+            settings=IsolatedServerSettings(
                 http=HttpConfig(host=host, port=port),
                 runtime=RuntimeConfig(),
                 inference=InferenceConfig(),
