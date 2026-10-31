@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import sys
 from decimal import ROUND_HALF_UP, Decimal
+from http.client import HTTPException
 from pathlib import Path
 from time import monotonic
 from typing import Any, cast
@@ -175,9 +176,14 @@ def _load_stats(settings: CodexPluginSettings, scope_id: str, period: str, *, de
         with open_bounded(request, timeout=_remaining_time(request_deadline)) as response:
             result = json.loads(_read_response(response, deadline=request_deadline, chunk_bytes=1))
     except HTTPError as error:
-        code = _decode_error_code(_read_response(error, deadline=request_deadline, chunk_bytes=1))
-        raise _HttpStatusError(error.code, "/v1/stats", code) from error
-    except (TimeoutError, OSError) as error:
+        try:
+            error_body = _read_response(error, deadline=request_deadline, chunk_bytes=1)
+        except (OSError, HTTPException) as failure:
+            # A stalled, reset, or truncated body is a transport failure, as it is for a successful response.
+            raise _ServerUnavailableError from failure
+        raise _HttpStatusError(error.code, "/v1/stats", _decode_error_code(error_body)) from error
+    except (OSError, HTTPException) as error:
+        # http.client reports a truncated or malformed response as HTTPException, not OSError.
         raise _ServerUnavailableError from error
     if not isinstance(result, dict) or token_reduction(result) is None:
         raise TypeError
