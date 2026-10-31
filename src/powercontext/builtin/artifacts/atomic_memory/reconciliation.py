@@ -56,13 +56,16 @@ has no published identity. Revise is invalid when all combined items are unpubli
 Choose merge to combine the proposal and one or more related items, returning full final kind/text and evidence_ids.
 Multiple existing original_refs require merge; multiple unpublished candidates can merge without creating history.
 Choose noop with one target_id when that item already expresses the proposal, without changing the target content.
+Restating the same fact in another language or adding confirming evidence does not justify revise. A new description
+alone also does not justify revise. Use noop when the target already expresses the supported facts and can retain all
+published original_refs.
 Choose noop with no target only when the candidate is unworthy or unsupported and has no published original_refs.
 For noop, return content null and evidence_ids empty; target_ids alone identifies the retained item.
 Never discard or silently transfer published original_refs during noop. If earlier decisions and a later item both
 represent published identities, use merge to reconcile them. Every create/revise/merge must cite supplied evidence.
-For the same enduring fact (same entity, attribute and applicability), prefer revising a supplied existing identity
-over creating an independent memory, including when its values have different effective dates. Use merge when
-multiple existing identities represent that fact. Express the temporal progression clearly: prior values remain
+When new or corrected facts change the same enduring fact (same entity, attribute and applicability), prefer revising
+a supplied existing identity over creating an independent memory, including when values have different effective dates.
+Use merge when multiple existing identities represent that fact. Express the temporal progression clearly: prior values remain
 historical and late old evidence must not become current. Keep facts that can change independently and genuinely
 different applicability separate. Keep each identity's final decision consistent with previously combined working
 content. Preserve independent historical events, conditions, exceptions and effective dates.
@@ -319,7 +322,7 @@ def validate_reconciliation_output(
 def validate_reconciliation_decision(
     request: AtomicMemoryReconciliationInput, output: AtomicMemoryReconciliationOutput
 ) -> None:
-    """Also enforce how a decision may consume or keep the published identities named by ``original_refs``.
+    """Also enforce identity retention and reject revisions that can keep unchanged facts through ``noop``.
 
     The request alone determines these rules, so generation can return them to the model before the workset applies
     the decision. Demonstration validation keeps the structural rules of ``validate_reconciliation_output``.
@@ -338,6 +341,16 @@ def validate_reconciliation_decision(
         identities = {read.ref.artifact_id for item in (request.proposal, *targets) for read in item.original_refs}
         if len(identities) != 1:
             _invalid("revise must have exactly one published identity; use merge for multiple identities")
+        target = targets[0]
+        if (
+            output.content is not None
+            and output.content.kind == target.kind
+            and output.content.text == target.text
+            and proposal_refs <= _published(target)
+        ):
+            _invalid(
+                "unchanged target kind and text require noop; description or supporting evidence alone cannot revise"
+            )
 
 
 def _published(item: AtomicMemoryComparisonItem) -> set[tuple[str, str, int]]:
