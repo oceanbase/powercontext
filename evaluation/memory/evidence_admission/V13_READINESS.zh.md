@@ -1,6 +1,7 @@
 # 显式 thinking 协议的离线验证
 
-总体决策为 `insufficient_evidence`。v13 小样本执行器已实现，尚无本协议下的真实模型质量结论。
+总体决策为 `insufficient_evidence`。本页记录 v13 小样本执行器的模型无关验证。
+真实首例返回候选但质量失败，见 [真实结果](V13_RESULTS.zh.md)；离线通过不代表模型质量通过。
 它保持 v10 指令、schema、评分、候选选择与 2048 输出上限，显式关闭 thinking，验证最终 HTTP 正文，
 分离 Pipeline 进入、成功返回和结构化/协议验证状态，绑定 SDK 预检及历史预算。
 

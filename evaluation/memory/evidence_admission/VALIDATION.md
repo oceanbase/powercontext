@@ -16,7 +16,7 @@ uv run prek run -a
 uv run ty check
 ```
 
-The current evidence admission suite has 388 passing tests, including 18 v10, 16 v11 and 17 v12 regressions. It runs without provider
+The current evidence admission suite has 414 passing tests, including 18 v10, 16 v11, 17 v12 and 26 v13 regressions. It runs without provider
 credentials or live network access. The previously recorded combined LongMemEval-V2 run is not a rerun of the v10/v11 code;
 the native lineage acceptance still requires the `ScopedAtomicMemory.evidence` prerequisite from #1975.
 The 24 related production window-recovery, SQLite wire-evidence and extraction-evidence tests pass separately.
@@ -180,3 +180,10 @@ cancellation preservation and injected SDK failures. The unchanged broader LongM
 Wheel and sdist each include all 11 v13 source/contract files with matching bytes. These checks do not establish provider
 quality, other Python versions, remote cancellation, OceanBase, production workers or physical model snapshot pinning.
 See [V13_READINESS.zh.md](V13_READINESS.zh.md) and [V13_PROTOCOL.zh.md](V13_PROTOCOL.zh.md).
+
+
+The committed v13 diagnostic issued one real request. It returned a valid structured candidate with four legal copy parts,
+but retained zero of four exact literals and failed the bound quality gate. A raw-response SDK/Pipeline replay reproduces
+the same output hash and score without new provider requests; the stopped-session guard prevents advancing to Unicode.
+These results establish neither successful Unicode generation nor formal all-arm acceptance.
+See [V13_RESULTS.zh.md](V13_RESULTS.zh.md) for measured usage, review limits and the unchanged historical results.

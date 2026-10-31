@@ -210,3 +210,7 @@ separate Pipeline entry/return states, and the carried conditional budget. Its C
 failure replay, actual Git freeze checks, one-case live steps, bound reviews, and redacted reports. The literal case must pass
 review before Unicode can run; any failure stops without retries. Even two passing diagnostic cases do not establish formal
 all-arm coverage or authorize production changes.
+
+The [v13 live result](V13_RESULTS.zh.md) returned a structured candidate but retained zero of four exact literals.
+The frozen quality gate failed; Unicode and the formal matrix remain unrun. A recorded-response replay reproduces the
+failure without additional provider calls. The overall decision remains `insufficient_evidence`.

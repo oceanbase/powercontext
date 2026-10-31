@@ -1,0 +1,112 @@
+{
+  "schema": "evidence-admission.v13.literal-audit.v1",
+  "case": "exact-literals",
+  "output_hash": "796e4818a5e6281bcd2565bba941207560750c66342dcd44ba1669114c8bb343",
+  "context_hash": "66380b8261ae5a3d4041568505b08cf5107097d2f69d408b11ae08f70e5c4c8b",
+  "reviewer_kind": "assistant",
+  "candidate_count": 1,
+  "valid_copy_parts": 4,
+  "all_required_literals": 4,
+  "retained_required_literals": 0,
+  "literal_checks": [
+    {
+      "atom_id_hash": "5ac280602d7dc98df1ab5ec09aa9b8cd3ba3abd1b2265c18270331fa59692872",
+      "literal_sha256": "d7daeafa022fcbdbaec63ee0eeea23723eae15b77f352bb2ce11f6e4bc87d79c",
+      "present_byte_for_byte": false
+    },
+    {
+      "atom_id_hash": "81ed79fe667e0e1238f82ff2bc1159e770d42b63ad8a55a87f05a0b6a08a3bda",
+      "literal_sha256": "7687972eaa653ff6b1a42fc106a341218d192410c5c802a425ac69cf6f01c213",
+      "present_byte_for_byte": false
+    },
+    {
+      "atom_id_hash": "5b2d4200f4d31abe7e79a33de819cac87e6f7b4eeb417c434f6d399038bf076a",
+      "literal_sha256": "a335466dc6780543ef1885b962d3cdfb2d8fdd1b509724df6198c725dce19064",
+      "present_byte_for_byte": false
+    },
+    {
+      "atom_id_hash": "f68076d70b7a683b5d76b7746d3c12e03726076718a3c4204be2ecfee417a1d4",
+      "literal_sha256": "b6eb2b84ebe00671b101dff480fe294bed13352b757eefd2d55d29d3085e8977",
+      "present_byte_for_byte": false
+    }
+  ],
+  "quality_gate_passed": false,
+  "independent_human_review": false,
+  "formal_acceptance": false,
+  "expected_literal_ranges": [
+    {
+      "literal_sha256": "d7daeafa022fcbdbaec63ee0eeea23723eae15b77f352bb2ce11f6e4bc87d79c",
+      "admitted_occurrences": [
+        {
+          "quote_id": "q0",
+          "byte_start": 13,
+          "byte_end": 49,
+          "materialization_hash": "50839991d62374b169b03d3e48878120788338e6cfe6a1ec0d80c8a461033dec",
+          "projection_hash": "b2cb4be90704da7e8c0d4726b8fa89123bf625d8d6c0357147b9e2b8a8886a46"
+        }
+      ]
+    },
+    {
+      "literal_sha256": "7687972eaa653ff6b1a42fc106a341218d192410c5c802a425ac69cf6f01c213",
+      "admitted_occurrences": [
+        {
+          "quote_id": "q0",
+          "byte_start": 72,
+          "byte_end": 95,
+          "materialization_hash": "50839991d62374b169b03d3e48878120788338e6cfe6a1ec0d80c8a461033dec",
+          "projection_hash": "b2cb4be90704da7e8c0d4726b8fa89123bf625d8d6c0357147b9e2b8a8886a46"
+        }
+      ]
+    },
+    {
+      "literal_sha256": "a335466dc6780543ef1885b962d3cdfb2d8fdd1b509724df6198c725dce19064",
+      "admitted_occurrences": [
+        {
+          "quote_id": "q0",
+          "byte_start": 103,
+          "byte_end": 113,
+          "materialization_hash": "50839991d62374b169b03d3e48878120788338e6cfe6a1ec0d80c8a461033dec",
+          "projection_hash": "b2cb4be90704da7e8c0d4726b8fa89123bf625d8d6c0357147b9e2b8a8886a46"
+        }
+      ]
+    },
+    {
+      "literal_sha256": "b6eb2b84ebe00671b101dff480fe294bed13352b757eefd2d55d29d3085e8977",
+      "admitted_occurrences": [
+        {
+          "quote_id": "q0",
+          "byte_start": 123,
+          "byte_end": 128,
+          "materialization_hash": "50839991d62374b169b03d3e48878120788338e6cfe6a1ec0d80c8a461033dec",
+          "projection_hash": "b2cb4be90704da7e8c0d4726b8fa89123bf625d8d6c0357147b9e2b8a8886a46"
+        }
+      ]
+    }
+  ],
+  "actual_copy_ranges": [
+    {
+      "quote_id": "q0",
+      "byte_start": 14,
+      "byte_end": 47,
+      "copied_bytes_sha256": "4498eeb4ea9c9f0aedfd75c44e6762a68af572e3c6dd7c1d0317705643b8e408"
+    },
+    {
+      "quote_id": "q0",
+      "byte_start": 70,
+      "byte_end": 93,
+      "copied_bytes_sha256": "3b18208ef56f5a5276bf02d3b1524b2eac5a7cac649802322db55eeda2b62f9d"
+    },
+    {
+      "quote_id": "q0",
+      "byte_start": 100,
+      "byte_end": 110,
+      "copied_bytes_sha256": "64d1b208f9fc1509ddcc899c845fcb7fd2737ed86e5274f1ab6aff6b32dff693"
+    },
+    {
+      "quote_id": "q0",
+      "byte_start": 119,
+      "byte_end": 124,
+      "copied_bytes_sha256": "ec5b5d7fa21cc9f176a5ba75d68649ab9af3d435d9448da75dce187d2be092ac"
+    }
+  ]
+}
