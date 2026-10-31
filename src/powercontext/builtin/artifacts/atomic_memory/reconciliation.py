@@ -27,6 +27,11 @@ from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConf
 from powercontext.builtin.artifacts.atomic_memory.extraction import LANGUAGE_RULES, TIME_RULES, AtomicMemoryEvidence
 from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent, AtomicMemoryRead
 from powercontext.builtin.artifacts.atomic_memory.summary import DESCRIPTION_RULES
+from powercontext.builtin.artifacts.atomic_memory.temporal import (
+    preserves_time_literals,
+    source_time_literals,
+    text_time_literals,
+)
 from powercontext.builtin.inference import InvalidInferenceOutputError
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
@@ -49,6 +54,10 @@ its artifact_ref, without expanding historical lineage. Item kind/text is workin
 combine that published evidence with new Sources. Cite the evidence that supports the final facts and preserve
 their effective/event dates and conditions. Artifact publication time does not date facts.
 Citing Artifact evidence does not by itself consume that published identity.
+Select evidence_ids for facts retained in the final text. Keep the explicit time qualifiers of each selected Source
+and the ISO date/time literals of selected Artifact facts in that text. Do not cite an old Artifact merely to identify
+the predecessor: original_refs already preserves that lineage. A newer complete correction may cite only its new
+Source, without carrying every earlier date into the current text. Never silently remove a selected fact's time basis.
 Choose create to retain an independent proposal without consuming related items; it continues to later batches.
 Choose revise to combine the proposal with exactly one related item, returning full final kind/text and evidence_ids.
 The combined original_refs must contain exactly one distinct published Artifact identity; an empty original_refs
@@ -326,6 +335,19 @@ def validate_reconciliation_decision(
     """
 
     validate_reconciliation_output(request, output)
+    if output.content is not None and any(
+        not preserves_time_literals(
+            output.content.text,
+            (
+                source_time_literals(evidence.content)
+                if isinstance(evidence, AtomicMemoryEvidence)
+                else text_time_literals(evidence.content.text)
+            ),
+        )
+        for evidence in request.evidence
+        if evidence.evidence_id in output.evidence_ids
+    ):
+        _invalid("final text must retain explicit time qualifiers from the selected evidence")
     related = {item.item_id: item for item in request.related}
     targets = tuple(related[identifier] for identifier in output.target_ids)
     proposal_refs = _published(request.proposal)

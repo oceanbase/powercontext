@@ -71,7 +71,7 @@ def test_atomic_memory_auto_uses_the_versioned_subject_bound_contract(profile: M
 
     resolved = definition.resolve("scope-a", None)
 
-    assert definition.builtin_version == f"powercontext.atomic-memory.extract.{profile.value}.v3"
+    assert definition.builtin_version == f"powercontext.atomic-memory.extract.{profile.value}.v4"
     assert definition.definition_version == "powercontext.prompt.atomic-memory.extract.v2"
     assert resolved.compiled_instructions == atomic_memory_extraction_instructions(profile)
     assert resolved.builtin_version == definition.builtin_version
