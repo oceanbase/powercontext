@@ -22,7 +22,7 @@ import { combineSignals, PowerContextClient } from './client.ts'
 import { PC_COMMAND_USAGE, handlePcCommand, type PcCommandResult, type PcCommandRuntime } from './commands.ts'
 import { resolveConfig } from './config.ts'
 import { PLUGIN_NAME, ServerResponseError, UnavailableError } from './errors.ts'
-import { invokeOperation, type ToolResult } from './invoke.ts'
+import { scopedPayload } from './invoke.ts'
 import { resolveScopeId } from './scope.ts'
 
 const COMMAND_NAME = 'powercontext.pc'
@@ -149,25 +149,27 @@ class StatusTimeoutError extends Error {
   }
 }
 
-function httpOutcome(status: number): FailureOutcome {
+function httpOutcome(status: number, code: string | undefined): FailureOutcome {
   if (status === 401) return 'authentication_failed'
-  if (status === 404) return 'version_mismatch'
+  // Only a Server without the route answers 404 without an error code. A coded 404, such as
+  // scope_not_found for a configured Scope that does not exist, comes from a Server that has it.
+  if (status === 404 && code === undefined) return 'version_mismatch'
   if (status === 503) return 'server_unavailable'
   return 'invalid_response'
 }
 
-function scopeFailureOutcome(error: unknown): FailureOutcome {
+function requestFailureOutcome(error: unknown): FailureOutcome {
   if (error instanceof StatusTimeoutError) return 'server_unavailable'
-  if (error instanceof ServerResponseError) return httpOutcome(error.statusCode)
+  if (error instanceof ServerResponseError) return httpOutcome(error.statusCode, error.code)
   if (error instanceof UnavailableError) return 'server_unavailable'
   return 'invalid_response'
 }
 
-function statsFailureOutcome(result: ToolResult): FailureOutcome {
-  if (result.code === 'authentication_failed') return 'authentication_failed'
-  if (result.code === 'unavailable') return 'server_unavailable'
-  if (typeof result.status === 'number') return httpOutcome(result.status)
-  return 'invalid_response'
+// The statusline reads statistics from the client rather than through invokeOperation, whose tool
+// result gives an uncoded 404 the not_found code and so hides whether the Server sent one.
+async function loadStats(client: PowerContextClient, period: string, scopeId: string, signal?: AbortSignal) {
+  const result = await client.request('get_stats', scopedPayload('get_stats', { period }, scopeId), signal)
+  return result.value
 }
 
 function textNode(text: string, color: unknown, onMouseUp?: () => void): any {
@@ -212,26 +214,24 @@ export async function loadStatuslineStatus(
       STATUS_TIMEOUT_MS,
     )
   } catch (error) {
-    return { connected: false, label: failureLabel(scopeFailureOutcome(error)) }
+    return { connected: false, label: failureLabel(requestFailureOutcome(error)) }
   }
   try {
     const [today, month] = await Promise.all([
-      withTimeout(invokeOperation(runtime.client, 'get_stats', { period: 'today' }, scopeId, signal), STATUS_TIMEOUT_MS),
-      withTimeout(invokeOperation(runtime.client, 'get_stats', { period: '30d' }, scopeId, signal), STATUS_TIMEOUT_MS),
+      withTimeout(loadStats(runtime.client, 'today', scopeId, signal), STATUS_TIMEOUT_MS),
+      withTimeout(loadStats(runtime.client, '30d', scopeId, signal), STATUS_TIMEOUT_MS),
     ])
-    if (!today.ok) return { connected: false, label: failureLabel(statsFailureOutcome(today)) }
-    if (!month.ok) return { connected: false, label: failureLabel(statsFailureOutcome(month)) }
-    const todayTotals = tokenTotals(today.data)
-    const monthTotals = tokenTotals(month.data)
+    const todayTotals = tokenTotals(today)
+    const monthTotals = tokenTotals(month)
     if (!todayTotals || !monthTotals) return { connected: false, label: failureLabel('invalid_response') }
     return {
       connected: true,
-      label: formatPowerContextStatus(today.data, month.data),
+      label: formatPowerContextStatus(today, month),
       todayReduction: todayTotals.token_reduction,
       monthReduction: monthTotals.token_reduction,
     }
   } catch (error) {
-    return { connected: false, label: failureLabel(scopeFailureOutcome(error)) }
+    return { connected: false, label: failureLabel(requestFailureOutcome(error)) }
   }
 }
 

@@ -237,9 +237,11 @@ HTTPS certificate verification remains enabled.
   blocks normal WorkBuddy work.
 - For an empty result, authentication failure, version mismatch, unavailable
   Server, or invalid response, the hook writes one diagnostic JSON line to
-  stderr. Diagnostics carry status codes, byte and character counts, and which
-  query source produced them—never the query, scope, content, citation, response
-  body, or authorization value.
+  stderr. Diagnostics carry status codes, the Server's error code, byte and
+  character counts, and which query source produced them—never the query, scope,
+  content, citation, response body, or authorization value. Only an HTTP 404
+  without an error code is a version mismatch; a coded 404 such as
+  `scope_not_found` is reported as an invalid response.
 
 ## Authentication
 

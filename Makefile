@@ -205,11 +205,12 @@ openclaw-plugin-pack: ## Build and pack the external OpenClaw memory plugin.
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext pack:local
 
 .PHONY: opencode-test
-opencode-test: ## Install, test, type-check, and build the OpenCode plugin.
+opencode-test: ## Install, test, type-check, and build the OpenCode plugin; verify the committed bundle is current.
 	@pnpm --dir integrations/opencode/plugins/powercontext install --frozen-lockfile
 	@pnpm --dir integrations/opencode/plugins/powercontext test
 	@pnpm --dir integrations/opencode/plugins/powercontext run typecheck
 	@pnpm --dir integrations/opencode/plugins/powercontext run build
+	@git diff --exit-code -- integrations/opencode/plugins/powercontext/lib
 
 .PHONY: pi-test
 pi-test: ## Install and test the Pi package.

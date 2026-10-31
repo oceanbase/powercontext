@@ -288,7 +288,8 @@ blocking the WorkBuddy session.
 | Server unavailable | Hook recall and capture fail open; the prompt proceeds without injected context. MCP tools report that the service is unavailable |
 | Authentication failure | Hook fails open and emits an `authentication_failed` diagnostic; MCP tools remain unavailable |
 | Empty prepared context | No context is injected; the hook emits an `empty` diagnostic |
-| Version mismatch | Hook fails open and emits a `version_mismatch` diagnostic |
+| Version mismatch: HTTP 404 without an error code | Hook fails open and emits a `version_mismatch` diagnostic |
+| Another HTTP error, including a coded 404 such as `scope_not_found` | Hook fails open and emits an `invalid_response` diagnostic with the status and any error code |
 | Invalid or oversized response | Hook fails open and emits an `invalid_response` diagnostic; nothing is injected |
 | Hook timeout (30 s) | WorkBuddy continues; the hook process is stopped by the outer hook timeout |
 
@@ -299,9 +300,14 @@ blocks normal WorkBuddy work.
 
 For a normal empty result or recall failure, the Hook writes one content-free
 JSON diagnostic to stderr. Outcomes include `empty`, `authentication_failed`,
-`version_mismatch`, `server_unavailable`, and `invalid_response`. The event
-never contains the query, scope, prepared content, citation, response body, or
-authorization value.
+`version_mismatch`, `server_unavailable`, and `invalid_response`. An event for
+an HTTP error can carry `http_status` and, when the Server's error body names
+one, `error_code`. `version_mismatch` means the Server answered HTTP 404 without an
+error code because it does not provide a route the hook requires; install the
+package and plugin from the same ref. An `invalid_response` event with
+`error_code: scope_not_found` means the configured Scope does not exist or no
+binding resolves. The event never contains the query, scope, prepared content,
+citation, response body, or authorization value.
 
 During each prompt you should see the hook's `Syncing PowerContext` status
 message. Verify the whole installation with `powercontext doctor`.

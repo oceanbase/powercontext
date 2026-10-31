@@ -82,6 +82,15 @@ function errorResult(error: unknown): ToolResult {
   return { ok: false, code: 'unavailable', message: 'PowerContext is unavailable; continue the task.' }
 }
 
+export function scopedPayload(operationId: OperationId, payload: JsonObject, scopeId: string): JsonObject {
+  const mode = OPERATIONS[operationId].scopeMode
+  return mode === 'selection'
+    ? { ...payload, selection: { mode: 'exact', scope_ids: [scopeId] } }
+    : mode === 'current' || operationId === 'get_atomic_memory_state'
+      ? { ...payload, scope_id: scopeId }
+      : payload
+}
+
 export async function invokeOperation(
   client: PowerContextClient,
   operationId: OperationId,
@@ -89,12 +98,7 @@ export async function invokeOperation(
   scopeId: string,
   signal?: AbortSignal,
 ): Promise<ToolResult> {
-  const mode = OPERATIONS[operationId].scopeMode
-  const body = mode === 'selection'
-    ? { ...payload, selection: { mode: 'exact', scope_ids: [scopeId] } }
-    : mode === 'current' || operationId === 'get_atomic_memory_state'
-      ? { ...payload, scope_id: scopeId }
-      : payload
+  const body = scopedPayload(operationId, payload, scopeId)
   if (operationMutates(operationId) && hasSecret(body)) {
     return { ok: false, code: 'secret_rejected', message: 'Refused to send secret-like content to PowerContext.' }
   }

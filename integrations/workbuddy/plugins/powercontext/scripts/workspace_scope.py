@@ -25,6 +25,7 @@ import sys
 import threading
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
+from http.client import HTTPException
 from pathlib import Path
 from shutil import which
 from time import monotonic
@@ -63,11 +64,12 @@ class ScopeBindingRejectedError(ScopeBindingError):
 
 
 class ScopeBindingStatusError(ScopeBindingError):
-    """A non-successful HTTP status outside the fixed classifications."""
+    """A non-successful HTTP status outside the fixed classifications, with the error code the Server sent."""
 
-    def __init__(self, status: int, path: str) -> None:
+    def __init__(self, status: int, path: str, code: str | None = None) -> None:
         self.status = status
         self.path = path
+        self.code = code
         super().__init__(f"PowerContext returned HTTP {status}")
 
 
@@ -81,13 +83,7 @@ class ScopeBindingSettings(Protocol):
 
 
 class _Response(Protocol):
-    status: int
-
-    def __enter__(self) -> _Response: ...
-
-    def __exit__(self, *args: object) -> object: ...
-
-    def read(self, amount: int = -1) -> bytes: ...
+    def read(self, amount: int = -1, /) -> bytes: ...
 
 
 class _RejectRedirects(HTTPRedirectHandler):
@@ -247,9 +243,9 @@ def _request_json(
         headers=headers,
         method=method,
     )
+    request_timeout = min(settings.request_timeout_seconds, remaining)
+    request_deadline = min(deadline, monotonic() + request_timeout)
     try:
-        request_timeout = min(settings.request_timeout_seconds, remaining)
-        request_deadline = min(deadline, monotonic() + request_timeout)
         with open_bounded(request, timeout=request_timeout) as response:
             if response.status < 200 or response.status >= 300:
                 raise ScopeBindingStatusError(response.status, path)
@@ -259,7 +255,7 @@ def _request_json(
             raise ScopeBindingRejectedError from error
         if error.code == 503:
             raise ScopeBindingUnavailableError from error
-        raise ScopeBindingStatusError(error.code, path) from error
+        raise ScopeBindingStatusError(error.code, path, _read_error_code(error, deadline=request_deadline)) from error
     except (OSError, TimeoutError) as error:
         raise ScopeBindingUnavailableError from error
     try:
@@ -269,6 +265,28 @@ def _request_json(
     if not isinstance(value, dict):
         raise ScopeBindingError
     return value
+
+
+def _decode_error_code(raw: bytes) -> str | None:
+    """Return the ``error.code`` of one error body, or None when the body carries no code."""
+
+    try:
+        body: Any = json.loads(raw)
+    except (ValueError, RecursionError):
+        # Besides JSONDecodeError, json raises ValueError for an over-long integer and RecursionError for deep nesting.
+        return None
+    detail = body.get("error") if isinstance(body, dict) else None
+    code = detail.get("code") if isinstance(detail, dict) else None
+    return code if isinstance(code, str) else None
+
+
+def _read_error_code(error: HTTPError, *, deadline: float) -> str | None:
+    try:
+        raw = _read_bounded(error, deadline=deadline)
+    except (OSError, HTTPException) as failure:
+        # A stalled, reset, or truncated error body is a transport failure.
+        raise ScopeBindingUnavailableError from failure
+    return _decode_error_code(raw)
 
 
 def _remaining_time(deadline: float) -> float:

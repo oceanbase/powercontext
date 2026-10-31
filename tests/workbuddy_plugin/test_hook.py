@@ -620,13 +620,28 @@ def test_prompt_hook_refuses_redirects(
     assert target_headers == []
 
 
+_UNTRUSTED_BODY = b"untrusted response body"
+_UNCODED_404_BODY = json.dumps({"detail": "Not Found"}).encode()
+_SCOPE_NOT_FOUND_BODY = json.dumps({
+    "error": {"code": "scope_not_found", "message": "The requested Scope was not found.", "details": None}
+}).encode()
+
+
 @pytest.mark.parametrize(
-    ("status", "outcome"),
+    ("status", "body", "outcome", "fields"),
     [
-        (401, "authentication_failed"),
-        (403, "invalid_response"),
-        (404, "version_mismatch"),
-        (503, "server_unavailable"),
+        pytest.param(401, _UNTRUSTED_BODY, "authentication_failed", {}, id="401"),
+        pytest.param(403, _UNTRUSTED_BODY, "invalid_response", {"http_status": 403}, id="403"),
+        pytest.param(404, _UNTRUSTED_BODY, "version_mismatch", {"http_status": 404}, id="404-non-json"),
+        pytest.param(404, _UNCODED_404_BODY, "version_mismatch", {"http_status": 404}, id="404-uncoded"),
+        pytest.param(
+            404,
+            _SCOPE_NOT_FOUND_BODY,
+            "invalid_response",
+            {"http_status": 404, "error_code": "scope_not_found"},
+            id="404-coded",
+        ),
+        pytest.param(503, _UNTRUSTED_BODY, "server_unavailable", {}, id="503"),
     ],
 )
 def test_scope_resolution_failure_emits_the_documented_diagnostic(
@@ -634,8 +649,16 @@ def test_scope_resolution_failure_emits_the_documented_diagnostic(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     status: int,
+    body: bytes,
     outcome: str,
+    fields: dict[str, object],
 ) -> None:
+    """Only a 404 without an error code means the Server lacks the route.
+
+    A configured Scope that does not exist is a coded 404, for which the version-mismatch advice to
+    reinstall from one ref does not help.
+    """
+
     paths: list[str] = []
 
     class RejectedBindingHandler(BaseHTTPRequestHandler):
@@ -644,7 +667,7 @@ def test_scope_resolution_failure_emits_the_documented_diagnostic(
             paths.append(self.path)
             self.send_response(status)
             self.end_headers()
-            self.wfile.write(b"untrusted response body")
+            self.wfile.write(body)
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             pass
@@ -669,5 +692,50 @@ def test_scope_resolution_failure_emits_the_documented_diagnostic(
         "component": "powercontext.workbuddy.recall",
         "event": "context_prepare",
         "outcome": outcome,
-        **({"http_status": status} if status not in {401, 503} else {}),
+        **fields,
+    }
+
+
+@pytest.mark.parametrize(
+    ("body", "outcome", "fields"),
+    [
+        pytest.param(_UNCODED_404_BODY, "version_mismatch", {}, id="uncoded"),
+        pytest.param(_SCOPE_NOT_FOUND_BODY, "invalid_response", {"error_code": "scope_not_found"}, id="coded"),
+    ],
+)
+def test_prepare_404_is_a_version_mismatch_only_without_an_error_code(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    body: bytes,
+    outcome: str,
+    fields: dict[str, object],
+) -> None:
+    class MissingScopeHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            if self.path == "/v1/scope-bindings/resolve":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(_SCOPE_BODY)
+                return
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    with _serve(MissingScopeHandler) as server_url:
+        monkeypatch.setenv("POWERCONTEXT_WORKBUDDY_SERVER_URL", server_url)
+        monkeypatch.setenv("POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS", "false")
+        output, errors = _run_main(hook_module, monkeypatch, {**_payload("what did we decide?"), "cwd": str(tmp_path)})
+
+    assert json.loads(output)["hookSpecificOutput"]["additionalContext"] == ""
+    assert json.loads(errors) == {
+        "component": "powercontext.workbuddy.recall",
+        "event": "context_prepare",
+        "outcome": outcome,
+        "http_status": 404,
+        **fields,
     }
