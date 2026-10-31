@@ -16,3 +16,8 @@ extend = "../longmemeval_v2/ruff.toml"
 
 [lint]
 extend-select = ["I"]
+
+# Preserve the exact fixture-loader bytes used by committed historical identities.
+# Its explicit version branch intentionally retains a nested conditional.
+[lint.per-file-ignores]
+"src/powercontext_eval_evidence_admission/manifests.py" = ["SIM102"]

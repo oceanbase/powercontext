@@ -323,7 +323,7 @@ class Adapter:
             attempt.facts["failure_stage"], category = failure(error, attempt.facts)
             try:
                 attempt.finish("cancelled", category)
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cancellation stays authoritative if audit persistence fails.
                 # Preserve cancellation; missing durable terminal remains an audit failure in the summary.
                 pass
             raise
@@ -342,40 +342,40 @@ class Adapter:
 @asynccontextmanager
 async def open_adapter(config, journal, transport, *, v5_instructions, api_key):
     """Caller injects transport and key; this function never reads credential configuration."""
-    async with httpx.AsyncClient(
-        transport=Transport(transport), follow_redirects=False, timeout=config.timeout_seconds
-    ) as client:
-        async with AsyncOpenAI(
-            api_key=api_key, base_url=config.base_url, http_client=cast(Any, client), max_retries=0
-        ) as sdk:
-            profile = OpenAIModelProfile(openai_chat_supports_max_completion_tokens=False)
-            model = ResponseCaptureModel(
-                OpenAIChatModel(config.model, provider=OpenAIProvider(openai_client=sdk), profile=profile)
-            )
-            limits = InferenceLimits(
-                max_requests=1,
-                max_output_tokens_per_request=2048,
-                output_tokens_limit=2048,
-                timeout_seconds=config.timeout_seconds,
-                allow_continuations=False,
-            )
-            generators = []
-            for instructions, input_type, output_type in (
-                (v5_instructions, AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput),
-                (INSTRUCTIONS, dict, TemplateOutput),
-            ):
-                generators.append(
-                    PydanticAIStructuredGenerator(
-                        model=model,
-                        instructions=instructions,
-                        input_type=input_type,
-                        output_type=output_type,
-                        limits=limits,
-                        model_settings={"temperature": 0},
-                        name="evidence_admission_sdk_preflight",
-                    )
+    async with (
+        httpx.AsyncClient(
+            transport=Transport(transport), follow_redirects=False, timeout=config.timeout_seconds
+        ) as client,
+        AsyncOpenAI(api_key=api_key, base_url=config.base_url, http_client=cast(Any, client), max_retries=0) as sdk,
+    ):
+        profile = OpenAIModelProfile(openai_chat_supports_max_completion_tokens=False)
+        model = ResponseCaptureModel(
+            OpenAIChatModel(config.model, provider=OpenAIProvider(openai_client=sdk), profile=profile)
+        )
+        limits = InferenceLimits(
+            max_requests=1,
+            max_output_tokens_per_request=2048,
+            output_tokens_limit=2048,
+            timeout_seconds=config.timeout_seconds,
+            allow_continuations=False,
+        )
+        generators = []
+        for instructions, input_type, output_type in (
+            (v5_instructions, AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput),
+            (INSTRUCTIONS, dict, TemplateOutput),
+        ):
+            generators.append(
+                PydanticAIStructuredGenerator(
+                    model=model,
+                    instructions=instructions,
+                    input_type=input_type,
+                    output_type=output_type,
+                    limits=limits,
+                    model_settings={"temperature": 0},
+                    name="evidence_admission_sdk_preflight",
                 )
-            yield Adapter(generators[0], generators[1], journal, config)
+            )
+        yield Adapter(generators[0], generators[1], journal, config)
 
 
 def summary(directory):

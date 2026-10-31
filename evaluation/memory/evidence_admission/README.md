@@ -202,3 +202,11 @@ Historical v9 failures and v10/v11 results remain unchanged. No default command 
 The committed v12 first live request stopped with `finish_reason=length`: all 2048 output tokens were reasoning and
 final content was empty. The Unicode case was not run. See [the failed live diagnostic](V12_RESULTS.zh.md);
 `insufficient_evidence` remains the decision.
+
+## Explicit thinking diagnostic
+
+The [v13 execution contract](V13_PROTOCOL.zh.md) pins disabled thinking, a 2048-token output cap, exact HTTP request validation,
+separate Pipeline entry/return states, and the carried conditional budget. Its CLI provides SDK mock preflight, recorded-response
+failure replay, actual Git freeze checks, one-case live steps, bound reviews, and redacted reports. The literal case must pass
+review before Unicode can run; any failure stops without retries. Even two passing diagnostic cases do not establish formal
+all-arm coverage or authorize production changes.

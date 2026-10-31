@@ -165,3 +165,18 @@ The committed v12 live diagnostic issued one request after actual HEAD verificat
 A recorded-response replay through the actual SDK/Pipeline reproduces the category, finish reason, usage and response hash
 with zero new provider requests. Unicode and the formal matrix remain unrun. These results do not turn mock success into
 live quality success. See [V12_RESULTS.zh.md](V12_RESULTS.zh.md) for measured usage, conditional fees and audit-field limits.
+
+
+## Explicit thinking diagnostic validation
+
+The v13 full evidence admission run has 414 passing tests and 1922 warnings in 478.33 seconds on Python 3.11.15,
+including 26 new execution regressions. SDK/Pipeline mock preflight and recorded v12 response replay issue no provider
+requests. The window comparison reexecutes 324 identities, verifies 1296 inherited rows, recovers all six rejections,
+and observes no input-coverage regressions or nondeterministic groups.
+
+Ruff 0.16 and formatting, module/root types, both locks and all tracked-file hooks pass. Six former diagnostics are
+resolved by code cleanup; seven use documented local exceptions for immutable fixture-loader style, sanitized boundaries,
+cancellation preservation and injected SDK failures. The unchanged broader LongMemEval capability diagnostic remains.
+Wheel and sdist each include all 11 v13 source/contract files with matching bytes. These checks do not establish provider
+quality, other Python versions, remote cancellation, OceanBase, production workers or physical model snapshot pinning.
+See [V13_READINESS.zh.md](V13_READINESS.zh.md) and [V13_PROTOCOL.zh.md](V13_PROTOCOL.zh.md).

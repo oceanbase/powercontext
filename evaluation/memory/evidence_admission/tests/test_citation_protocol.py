@@ -202,7 +202,7 @@ def test_smoke_audit_resolves_semantics_without_changing_original_or_entering_fo
 
 
 def test_smoke_audit_cannot_change_original_output_identity(smoke_chain):
-    suite, original, audited, _ = smoke_chain
+    _suite, original, audited, _ = smoke_chain
     parent, rows, _ = load_run(original)
     manifest, samples, _ = load_run(audited)
     changed = (samples[0].model_copy(update={"output_hashes": ("0" * 64,)}), *samples[1:])
@@ -245,7 +245,7 @@ def test_formal_v4_requires_successful_audited_smoke_before_provider_initializat
 
 @pytest.mark.parametrize("defect", ["unsupported", "invalid_support", "required_loss", "usage", "cap"])
 def test_audited_smoke_quality_or_usage_failure_never_allows_formal(smoke_chain, defect):
-    suite, original, audited, _ = smoke_chain
+    suite, _original, audited, _ = smoke_chain
     manifest, samples, _ = load_run(audited)
     cases = {case.case_id: case for case in suite.cases}
     from dataclasses import replace

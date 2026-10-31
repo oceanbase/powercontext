@@ -251,7 +251,7 @@ async def run_next(output_dir, raw_approval, *, transport=None, api_key=None):
                             try:
                                 if len(terminals) == 1:
                                     ledger.settle(call["call_id"], terminals[0], input_budget=call["budget"])
-                            except Exception:
+                            except Exception:  # noqa: BLE001, S110 - never replace cancellation with a ledger failure.
                                 # Keep cancellation authoritative; recovery retains the unsettled reservation.
                                 pass
                             raise

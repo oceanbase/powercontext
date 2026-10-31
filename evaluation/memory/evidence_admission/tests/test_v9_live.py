@@ -204,7 +204,7 @@ def execute(session, transport, approval=None):
 
 
 def review_for(session):
-    output, private, data, _ = session
+    _output, private, data, _ = session
     pair = data["pairs"][0]
     outputs = {c["call_id"]: json.loads((private / f"{c['call_id']}.output.json").read_text()) for c in pair["calls"]}
     packet = review_packet(pair, outputs)
@@ -323,6 +323,7 @@ with exclusive(private):
         [sys.executable, "-c", script, str(private), json.dumps(call), expected_attempt(call, 1)],
         capture_output=True,
         timeout=15,
+        check=False,
     )
     assert result.returncode == 23
     assert status(output)["pending_call_ids"] == [call["call_id"]]
@@ -517,7 +518,10 @@ def handler(request):
 asyncio.run(run_next(Path(sys.argv[1]),json.loads(sys.argv[2]),transport=httpx.MockTransport(handler),api_key='offline-key'))
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, str(session[0]), json.dumps(session[3])], capture_output=True, timeout=20
+        [sys.executable, "-c", script, str(session[0]), json.dumps(session[3])],
+        capture_output=True,
+        timeout=20,
+        check=False,
     )
     assert result.returncode == 24
     observed = status(session[0])

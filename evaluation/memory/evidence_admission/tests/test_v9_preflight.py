@@ -99,7 +99,7 @@ async def execute(directory, handler, *, value=None, review=None, request_hash=N
                 request_hash=value.binding_hash if request_hash is None else request_hash,
                 review=review,
             )
-        except Exception as caught:
+        except Exception as caught:  # noqa: BLE001 - return any injected SDK failure for audit assertions.
             error = caught
     return output, error, summary(directory)
 

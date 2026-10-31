@@ -82,7 +82,7 @@ def main():
         parser.exit(2, "invalid_execution_or_review_contract\n")
     except EvaluationError as error:
         parser.exit(2, str(error) + "\n")
-    except Exception:
+    except Exception:  # noqa: BLE001 - this CLI boundary must not print provider or filesystem values.
         # Provider, filesystem and review values belong in private evidence, not terminal diagnostics.
         parser.exit(2, "execution_boundary_failed_inspect_private_session\n")
     print(json.dumps(result, ensure_ascii=False, indent=2))
