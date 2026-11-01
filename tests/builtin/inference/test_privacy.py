@@ -936,3 +936,74 @@ def test_sse_keeps_distinct_tool_names_separate_but_joins_same_tool() -> None:
     policy = PrivacyPolicy(config(allow_streaming=True))
     assert inspect_sse(policy, payload, "test").decision == "allow"
     assert inspect_sse(policy, payload.replace(b'"index": 1', b'"index": 0'), "test").decision == "block"
+
+
+@pytest.mark.parametrize("metadata_at", ["event", "delta", "function", "event_type"])
+def test_native_stream_rejects_split_secret_despite_extra_metadata(metadata_at: str) -> None:
+    events = []
+    for index, piece in enumerate(("synthetic-forbidden-", "secret")):
+        delta: dict[str, Any] = {"content": piece}
+        if metadata_at == "function":
+            delta = {
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_test",
+                        "type": "function",
+                        "function": {"name": piece, "arguments": "{}" if index == 0 else "", "index": index},
+                    }
+                ]
+            }
+        if metadata_at == "delta":
+            delta["index"] = index
+        event = {
+            "id": "test",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "test-model",
+            "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+        }
+        if metadata_at == "event":
+            event["index"] = index
+        if metadata_at == "event_type":
+            event["type"] = "content_block_delta"
+        events.append(event)
+    finish_reason = "tool_calls" if metadata_at == "function" else "stop"
+    events.append({"choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}]})
+    payload = ("".join(f"data: {json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n").encode()
+
+    async def scenario(endpoint: str) -> None:
+        async with (
+            AsyncOpenAI(base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0) as sdk,
+            sdk.chat.completions.stream(
+                model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
+            ) as stream,
+        ):
+            completion = await stream.get_final_completion()
+        message = completion.choices[0].message
+        if metadata_at == "function":
+            assert message.tool_calls is not None
+            assert message.tool_calls[0].type == "function"
+            assert message.tool_calls[0].function.name == SECRET
+        else:
+            assert message.content == SECRET
+
+        released = []
+        async with (
+            httpx.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
+            AsyncOpenAI(
+                base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0, http_client=http
+            ) as sdk,
+        ):
+            with pytest.raises(APIConnectionError) as caught:
+                async with sdk.chat.completions.stream(
+                    model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
+                ) as stream:
+                    released.extend([event async for event in stream])
+            refusal = find_privacy_error(caught.value)
+            assert refusal is not None and refusal.phase == "before_release"
+            assert refusal.reason_codes == ("forbidden_content",)
+            assert released == []
+
+    with server([(200, "text/event-stream", payload)]) as (_upstream, endpoint):
+        asyncio.run(scenario(endpoint))
