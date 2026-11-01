@@ -44,6 +44,8 @@ def main():
             for line in metadata.read_text(encoding="utf-8").splitlines()
             if line.startswith("Version: ")
         )
+        node = shutil.which("node")
+        node_directory = str(Path(node).parent) if node else ""
         if os.name == "nt":
             executable = fixture / "powercontext.exe"
             source_executable = root / ".venv/Scripts/powercontext.exe"
@@ -52,11 +54,12 @@ def main():
             environment = {
                 "SYSTEMROOT": system,
                 "WINDIR": system,
-                "PATH": str(Path(system) / "System32"),
+                "PATH": os.pathsep.join(value for value in (node_directory, str(Path(system) / "System32")) if value),
                 "USERPROFILE": str(fixture),
                 "HOME": str(fixture),
                 "APPDATA": str(fixture / "roaming"),
                 "LOCALAPPDATA": str(fixture / "local"),
+                "KIMI_CODE_HOME": str(fixture / "kimi"),
                 "TEMP": str(fixture),
                 "TMP": str(fixture),
                 "PYTHONPATH": str(package),
@@ -68,11 +71,14 @@ def main():
             source_executable = root / ".venv/bin/powercontext"
             probe = root / "desktop/src-tauri/target/debug/examples/diagnostic_cli_probe"
             environment = {
-                "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "PATH": os.pathsep.join(
+                    filter(None, [node_directory, "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"])
+                ),
                 "HOME": str(fixture),
                 "XDG_CONFIG_HOME": str(fixture / "config"),
                 "XDG_DATA_HOME": str(fixture / "data"),
                 "XDG_CACHE_HOME": str(fixture / "cache"),
+                "KIMI_CODE_HOME": str(fixture / "kimi"),
                 "TMPDIR": str(fixture / "tmp"),
                 "PYTHONPATH": str(package),
                 "PYTHONNOUSERSITE": "1",
@@ -92,6 +98,43 @@ def main():
         ):
             if name in environment:
                 Path(environment[name]).mkdir(parents=True, exist_ok=True)
+        fake_kimi = fixture / "bin" / ("kimi.cmd" if os.name == "nt" else "kimi")
+        fake_kimi.parent.mkdir(parents=True, exist_ok=True)
+        fake_kimi.write_text(
+            "@echo off\r\nexit /b 0\r\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8"
+        )
+        if os.name != "nt":
+            fake_kimi.chmod(0o700)
+        environment["KIMI_CLI_BIN"] = str(fake_kimi)
+        setup = subprocess.run(
+            [
+                str(source_executable),
+                "setup",
+                "kimi-code",
+                "--source",
+                str(root),
+                "--scope-id",
+                "desktop-ci-scope",
+                "--server-url",
+                "http://127.0.0.1:1",
+                "--allow-insecure-http",
+                "--profile",
+                "full",
+                "--json",
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=45,
+            **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
+        )
+        configured = Path(environment["KIMI_CODE_HOME"]) / "plugins/managed/powercontext/powercontext.json"
+        if not configured.is_file():
+            raise RuntimeError(
+                "configured Kimi fixture setup failed: "
+                + (setup.stderr[-2000:] or setup.stdout[-2000:] or f"exit code {setup.returncode}")
+            )
         shutil.copyfile(source_executable, executable)
         registration = fixture / "diagnostic-cli.json"
         digest = hashlib.sha256(executable.read_bytes()).hexdigest()

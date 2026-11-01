@@ -38,11 +38,11 @@ fn unhealthy_service_json_survives_exit_one_without_leaking_private_details() {
 }
 #[test]
 fn integration_status_is_projected_without_details_or_checks_text() {
-    let result = project(DiagnosticKind::Integrations, br#"{"ok":false,"hosts":{"codex":{"status":"failed","ok":false,"checks":{"codex":{"ok":true,"status":"ok","detail":"private-path"},"mcp":{"ok":false,"status":"failed","detail":"secret","checks":{"token":"secret"}}}},"kimi-code":{"status":"failed","ok":false,"error":"private-path secret-token"}}}"#, 1).unwrap();
+    let result = project(DiagnosticKind::Integrations, br#"{"ok":false,"hosts":{"codex":{"status":"failed","ok":false,"checks":{"codex":{"ok":true,"status":"ok","detail":"private-path"},"mcp":{"ok":false,"status":"failed","detail":"secret","checks":{"token":"secret"}}}},"kimi-code":{"status":"failed","ok":false,"checks":{"profile":{"ok":true,"status":"ok","detail":"full"}},"error":"private-path secret-token"}}}"#, 1).unwrap();
     assert_eq!(result.hosts[0].host, "codex");
     assert_eq!(result.hosts[0].checks.len(), 2);
     assert_eq!(result.hosts[1].status, "failed");
-    assert!(result.hosts[1].checks.is_empty());
+    assert_eq!(result.hosts[1].checks[0].field, "profile");
     let output = serde_json::to_string(&result).unwrap();
     assert!(!output.contains("private"));
     assert!(!output.contains("secret"));

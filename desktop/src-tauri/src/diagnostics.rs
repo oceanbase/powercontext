@@ -186,6 +186,7 @@ pub fn project(
                         "hermes",
                         "hooks",
                         "plugin",
+                        "profile",
                         "package",
                         "skill",
                         "settings",

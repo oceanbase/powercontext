@@ -130,6 +130,15 @@ async fn main() {
             ]
         );
     }
+    let kimi = integrations
+        .hosts
+        .iter()
+        .find(|host| host.host == "kimi-code")
+        .expect("Kimi diagnostics host");
+    assert!(
+        kimi.checks.iter().any(|item| item.field == "profile"),
+        "configured Kimi diagnostics must preserve the profile check"
+    );
     let mut legacy = registration.clone();
     legacy["version"] = "0.0.0".into();
     let legacy_path = invalid_directory.path().join("legacy.json");
