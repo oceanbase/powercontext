@@ -21,9 +21,8 @@ HIDDEN_PARAMETERS = frozenset(
         "expected_revision",
         "max_bytes",
         "include_code",
-        # Diagnostics stay off the model-facing surface: a Workflow routes `result.content`, and
-        # `reason` is for an operator or an evaluation harness, not for the model to react to.
-        "explain",
+        # Diagnostics stay off the model-facing surface: a Workflow routes `result.content`.
+        "include_receipt",
         "assembly",
         "bootstrap_receipt_id",
     }

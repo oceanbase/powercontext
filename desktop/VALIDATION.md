@@ -51,8 +51,7 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves every recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The bundled contract is qualified by `sqlite-atomic-581be595-v1` for the eleven protocol operations recorded below, using real SQLite Servers on macOS ARM64. All twenty-four historical records retain their original identities, operation sets and evidence. Ordinary builds require explicitly selecting the record whose tested Server source, wheel and contract match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify another Server source. CI fixture evidence is separate from product qualification.
-
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. `sqlite-atomic-bae5d714-v1` records the current bundled contract's eleven protocol operations qualified below. Historical records retain their exact identities and evidence, including `sqlite-source-artifact-87b6fae2-v1` and the preceding `sqlite-artifact-merge-87d01f68-v1` record. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit.
 
 Selecting a compatibility profile does not attest the remote binary identity. Existing `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` / `sqlite-6e237568-v1` / `sqlite-legacy-58f7f4f6-v1` selections require explicitly choosing an available matching profile and rechecking the connection. Desktop reads memories only through Atomic Memory references, so Servers that answer only with Memory entry citations are not qualified. CLI diagnostics separately verify the registered executable path and digest, then validate the diagnostic response schema. The observed version is optional report information; a registration does not require a version.
@@ -193,6 +192,31 @@ and accessibility require their separate checks. Historical records retain their
 本记录绑定上述源码、契约和 wheel。四种真实 SQLite／HTTP 连接模式均已通过，覆盖发现、
 Scope、Atomic Memory、身份变化、撤权及响应丢失后的不确定写入。该结果不替代安装后 GUI、
 原生凭据持久化、Windows／Intel、签名或无障碍验收；历史资格记录保留原始身份。
+#### Server bae5d714 protocol qualification
+
+`sqlite-atomic-bae5d714-v1` qualifies Server source
+`bae5d714d577c10fa71d7bf43d40d4f8a61d628b` for OpenAPI digest
+`0f6befcd87645b83e63ea6393ba57002387302b4e53cf85fc474a218292f4104`.
+The wheel `powercontext-1.3.1.dev389+gbae5d714d-py3-none-any.whl` has SHA-256
+`6ed5b4dd83bac3ba8b2ca9a9d89dcd4bc016a796f2cf13d0c45b8f103e1c680d`.
+
+On 2026-11-01, macOS 15.7.4 ARM64, Python 3.11.15 and Rust 1.97.1 ran
+`desktop/tests/real_server.py` against that wheel in independent SQLite Server
+processes. Anonymous loopback, static Bearer, HTTPS with an explicit CA and
+base path, and injected-provider/enforced access all passed. The eleven
+recorded operations cover Server identity, health/readiness, principal and
+capabilities,
+Scope listing/detail/default, Atomic Memory save/search and exact Artifact
+revision reads. The native probe also verified Scope pagination, identity
+changes, same-identity revocation, committed writes with lost responses
+without replay, and independent Server survival after the client exited.
+The report is retained in ignored `desktop/.artifacts/real-server.json`.
+
+This qualifies the listed SQLite protocol operations for the recorded source
+and wheel. It does not establish Windows or macOS installed-application
+qualification, native credential persistence, signing, notarization or
+release acceptance.
+
 #### Server 0a49db9b protocol qualification
 
 `sqlite-atomic-0a49db9b-v1` qualifies Server sources at `0a49db9bf640703e1067ecda67650f20612d3427`

@@ -12,22 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A preparation names the retrieval channel it lost, so a caller can tell it apart from an empty scope.
-
-``PreparedContext.status`` alone cannot distinguish "nothing matched" from "semantic retrieval never
-ran", and the fallback is only a WARNING in the server log. ``reason`` carries that fact to the caller,
-and one fold decides which cause is reported when a preparation loses more than one channel.
-"""
+"""Internal channel loss remains observable after removing the public reason field."""
 
 from __future__ import annotations
-
-from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
 
 from powercontext.builtin.runtime.application import _degradation
-from powercontext.builtin.runtime.models import PreparedContext
+from powercontext.builtin.runtime.models import PrepareContextRequest, PreparedContext
 from powercontext.server.mapping import prepared_context_response
 
 
@@ -55,26 +48,11 @@ def test_a_timeout_outranks_an_unavailable_provider(
     assert _degradation(current, observed) == expected
 
 
-def test_a_preparation_that_kept_every_channel_carries_no_reason() -> None:
+def test_default_preparation_has_no_receipt() -> None:
     prepared = PreparedContext(status="ready", content="alpha", content_bytes=5)
 
-    assert prepared.reason is None
-
-
-def test_a_degraded_preparation_survives_serialization() -> None:
-    prepared = PreparedContext(status="ready", content="alpha", content_bytes=5, reason="inference_timeout")
-
-    assert prepared.model_dump(mode="json", by_alias=True)["reason"] == "inference_timeout"
-
-
-def test_the_transport_response_publishes_the_reason() -> None:
-    """A named field rather than a model dump: an omission here would drop the reason silently."""
-
-    prepared = PreparedContext(status="ready", content="alpha", content_bytes=5, reason="inference_unavailable")
-
-    published = prepared_context_response(prepared)
-
-    assert published.model_dump(mode="json", by_alias=True, exclude_unset=True)["reason"] == "inference_unavailable"
+    assert prepared.receipt is None
+    assert "reason" not in prepared.model_dump(mode="json", by_alias=True)
 
 
 def test_the_transport_response_keeps_the_four_fields_a_host_validates() -> None:
@@ -94,7 +72,12 @@ def test_the_transport_response_keeps_the_four_fields_a_host_validates() -> None
     }
 
 
-@pytest.mark.parametrize("reason", ["timeout", "", "inference_degraded"])
-def test_reason_rejects_causes_outside_the_published_enum(reason: str) -> None:
+@pytest.mark.parametrize("reason", ["timeout", "", "inference_degraded", "inference_timeout"])
+def test_legacy_public_reason_is_rejected(reason: str) -> None:
     with pytest.raises(ValidationError):
-        PreparedContext(status="ready", content="alpha", content_bytes=5, reason=cast("Any", reason))
+        PreparedContext.model_validate({"status": "ready", "content": "alpha", "content_bytes": 5, "reason": reason})
+
+
+def test_legacy_public_explain_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        PrepareContextRequest.model_validate({"query": "alpha", "explain": True})
