@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from collections import Counter
 from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
@@ -91,7 +93,10 @@ def test_judge_applies_protection_and_output_budget_before_opening_provider(tmp_
     def settings_context(**kwargs):
         yield SimpleNamespace(
             inference=InferenceConfig(
-                generation_model="openai-chat:example", generation_model_settings={"max_tokens": 7}
+                generation_model="openai-chat:example",
+                generation_model_settings={"max_tokens": 7},
+                generation_streaming="auto",
+                generation_stream_idle_timeout_seconds=17.5,
             )
         )
 
@@ -111,6 +116,8 @@ def test_judge_applies_protection_and_output_budget_before_opening_provider(tmp_
     assert opened[0]["protection"].mode == "enforcing"
     assert opened[0]["protection"].policy_version == "test-policy"
     assert opened[0]["disable_provider_retries"] is True
+    assert opened[0]["streaming"] == "auto"
+    assert opened[0]["stream_idle_timeout_seconds"] == 17.5
     assert all(item["limits"].max_output_tokens_per_request == 4096 for item in generators)
     assert all(item["model_settings"]["max_tokens"] == 4096 for item in generators)
     saved = json.loads((tmp_path / "judge/manifest.json").read_text())
@@ -215,3 +222,118 @@ def test_automatic_judge_grades_successful_outputs_despite_oversized_failed_case
     assert report["arms"]["active"]["assessed_attempts"] == 0
     assert report["arms"]["active"]["planned_attempts"] == 1
     assert report["arms"]["active"]["transfer_questions_all_planned"] == 3
+
+
+@pytest.mark.parametrize("streaming", ["auto", "disabled"])
+def test_judge_uses_configured_streaming_for_real_provider_requests(tmp_path, monkeypatch, streaming):
+    instance = SimpleNamespace(
+        instance_id="fixture-case",
+        repo="synthetic/repository",
+        problem_statement="Repair validation.",
+        patch="+validate(value)\n",
+        test_patch="+assert validation_rejects_invalid\n",
+    )
+    monkeypatch.setattr(judging, "load_catalog", lambda path: SimpleNamespace(require=lambda name: instance))
+    job = {"instance_id": instance.instance_id, "mode": "off", "repeat": 0}
+    (tmp_path / "manifest.json").write_text(json.dumps({"model": "openai-chat:example", "jobs": [job]}))
+    (tmp_path / "attempts").mkdir()
+    attempt_id = digest(job)[:24]
+    (tmp_path / "attempts" / f"{attempt_id}.json").write_text(
+        json.dumps({
+            **job,
+            "attempt_id": attempt_id,
+            "status": "succeeded",
+            "content": {"lesson": "Repair validation."},
+        })
+    )
+    outputs = [
+        {
+            "questions": [
+                {
+                    "question": "What should be repaired?",
+                    "expected_answer": "Validation.",
+                    "source_excerpt": "Repair validation.",
+                }
+            ]
+            * 3
+        },
+        {"answers": ["Validation."] * 3},
+        {
+            "grounding": 2,
+            "contradiction_free": 2,
+            "outcome_honesty": 2,
+            "actionability": 2,
+            "transfer_correct": [True] * 3,
+            "explanation": "Synthetic controlled assessment.",
+        },
+    ]
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            output = outputs[len(requests)]
+            requests.append(request)
+            response = {"id": "chatcmpl-fixture", "created": 0, "model": "example"}
+            if request.get("stream"):
+                response.update({
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {"content": json.dumps(output)}, "finish_reason": None}],
+                })
+                terminal = {**response, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                payload = b"".join(b"data: " + json.dumps(row).encode() + b"\n\n" for row in (response, terminal))
+                payload += b"data: [DONE]\n\n"
+                content_type = "text/event-stream"
+            else:
+                response.update({
+                    "object": "chat.completion",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": json.dumps(output)},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                })
+                payload = json.dumps(response).encode()
+                content_type = "application/json"
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format: str, *args) -> None:  # noqa: A002
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    environment = tmp_path / "fixture.env"
+    environment.write_text(
+        "OPENAI_API_KEY=synthetic-provider-key\n"
+        "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai-chat:example\n"
+        f"POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL=http://127.0.0.1:{server.server_port}/v1\n"
+        f"POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAMING={streaming}\n"
+        "POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAM_IDLE_TIMEOUT_SECONDS=17.5\n"
+    )
+    args = SimpleNamespace(
+        dataset=tmp_path / "unused-dataset",
+        env_file=environment,
+        output=tmp_path,
+        protection_config=None,
+        max_output_tokens=4096,
+        timeout=180,
+        concurrency=1,
+    )
+    try:
+        asyncio.run(judging.judge(args))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+    assert len(requests) == 3
+    assert all(request.get("stream", False) is (streaming == "auto") for request in requests)
+    assessment = json.loads((tmp_path / "judge/assessments" / f"{attempt_id}.json").read_text())
+    assert assessment["status"] == "succeeded"
+    assert assessment["output"]["transfer_correct"] == [True] * 3

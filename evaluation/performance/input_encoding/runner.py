@@ -82,6 +82,8 @@ def source_hash() -> str:
     root = Path(__file__).resolve().parents[3]
     files = sorted((root / "src/powercontext").rglob("*.py"))
     files += [Path(__file__).parent / name for name in ("dataset.py", "runner.py", "identity.py")]
+    catalog = root / "evaluation/coding/swebench_pro/src/powercontext_eval_swebench_pro"
+    files += [catalog / name for name in ("catalog.py", "adapter.py")]
     return digest({str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files})
 
 

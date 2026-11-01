@@ -381,6 +381,8 @@ async def _run_judges(config, args, catalog, attempts, references, questions_by_
             resources=resources,
             instrumentation=None,
             disable_provider_retries=True,
+            streaming=config.generation_streaming,
+            stream_idle_timeout_seconds=config.generation_stream_idle_timeout_seconds,
             protection=config.protection,
         )
 
