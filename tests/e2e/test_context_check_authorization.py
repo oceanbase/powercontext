@@ -374,3 +374,56 @@ def test_public_check_rejects_stale_context_markers_split_between_native_blocks(
                 assert split.json()["error"]["code"] == "invalid_request"
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("role", ["user", "assistant"])
+@pytest.mark.parametrize("assembled", [False, True], ids=["context-marker", "text-marker"])
+def test_public_anthropic_check_rejects_prepared_markers_across_merged_turns(tmp_path, role, assembled):
+    async def scenario():
+        inference = _inference()
+        target = inference.protection.targets["model"].model_copy(update={"protocol": "anthropic-messages"})
+        inference = inference.model_copy(
+            update={"protection": inference.protection.model_copy(update={"targets": {"model": target}})}
+        )
+        async with _server(tmp_path, inference=inference) as (_, client, _):
+            scope_id = await _scope(client)
+            await _remember(client, scope_id, "Alpha deployment uses port 8123.")
+            prepare: dict[str, Any] = {"scope_id": scope_id, "query": "alpha", "include_reuse": True}
+            if assembled:
+                prepare["assembly"] = {"sections": [{"family": "memory", "limit": 8}]}
+            prepared = await client.post("/v1/context/prepare", json=prepare)
+            assert prepared.status_code == 200, prepared.text
+            envelope = prepared.json()
+            text = envelope["context"]["content"]
+            boundary = text.index("BEGIN_POWERCONTEXT_") + len("BEGIN_PO")
+
+            async def check(messages, *, bound=False):
+                request = _send(scope_id, text, envelope["reuse"]["binding"] if bound else None)
+                request["payload"]["body"] = json.dumps({"model": "test", "max_tokens": 64, "messages": messages})
+                return await client.post("/v1/context/check", json=request)
+
+            allowed = await check(
+                [{"role": "user", "content": text}, {"role": "user", "content": "Continue the task."}],
+                bound=True,
+            )
+            assert allowed.status_code == 200 and allowed.json()["decision"] == "allow", allowed.text
+            assert allowed.json()["coverage"]["complete"] and allowed.json()["binding"]
+
+            for contents in (
+                [text[:boundary], text[boundary:]],
+                [[{"type": "text", "text": text[:boundary]}], [{"type": "text", "text": text[boundary:]}]],
+                [
+                    text[:boundary],
+                    [],
+                    [{"type": "text", "text": ""}],
+                    text[boundary : boundary + 1],
+                    text[boundary + 1 :],
+                ],
+            ):
+                messages = [{"role": role, "content": content} for content in contents]
+                messages.append({"role": "user", "content": "Continue the task."})
+                rejected = await check(messages)
+                assert rejected.status_code == 422, rejected.text
+                assert rejected.json()["error"]["code"] == "invalid_request"
+
+    asyncio.run(scenario())

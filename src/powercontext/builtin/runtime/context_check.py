@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Annotated, Literal, TypeAlias
@@ -209,7 +209,7 @@ def _located_bytes(text: str, location: ModelJsonTextLocation) -> bytes:
     return content[start:end]
 
 
-def _require_unsplit_markers(parts: Sequence[object]) -> None:
+def _require_unsplit_markers(parts: Iterable[object]) -> None:
     # A locator covers one JSON string. A marker crossing native text blocks
     # cannot be covered by any supported locator, including in system content.
     overlap = max(map(len, _MARKERS)) - 1
@@ -228,6 +228,28 @@ def _require_unsplit_markers(parts: Sequence[object]) -> None:
             if 0 <= start < boundary:
                 raise InvalidRuntimeRequestError("context-binding-required")
         tail = (tail + text[-overlap:])[-overlap:]
+
+
+def _anthropic_turn_parts(messages: object) -> Iterator[object]:
+    # Anthropic combines consecutive messages with the same role into one turn;
+    # a string content is shorthand for one text block in that combined turn.
+    if not isinstance(messages, list):
+        return
+    role = None
+    for message in messages:
+        if not isinstance(message, dict):
+            role = None
+            yield None
+            continue
+        current_role = message.get("role")
+        if current_role not in ("user", "assistant") or current_role != role:
+            yield None
+        role = current_role
+        content = message.get("content")
+        if isinstance(content, list):
+            yield from content
+        else:
+            yield content
 
 
 def _require_bound_markers(value: object, locations: Mapping[str, list[tuple[int, int]]], pointer: str = "") -> None:
@@ -279,6 +301,8 @@ async def _validate_prepared(
             raise InvalidRuntimeRequestError("context-location-trust")
         bounds.append((item.location.start_byte, item.location.end_byte))
         expiry = verified.expires_at if expiry is None else min(expiry, verified.expires_at)
+    if profile.protocol == "anthropic-messages":
+        _require_unsplit_markers(_anthropic_turn_parts(body.get("messages")))
     _require_bound_markers(body, locations)
     return expiry
 

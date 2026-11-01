@@ -23,9 +23,6 @@ import secrets
 from datetime import UTC, datetime
 from typing import Any
 
-from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
 
 
@@ -50,6 +47,8 @@ class BindingCodec:
         generation: str | None = None,
         max_token_bytes: int = 65536,
     ) -> None:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
         if key is not None and len(key) != 32:
             raise ValueError("context binding keys must contain 32 bytes")  # noqa: TRY003
         if not key_id or not deployment_id or max_token_bytes < 256:
@@ -86,6 +85,8 @@ class BindingCodec:
         return token
 
     def open(self, token: str, *, purpose: str, now: datetime) -> dict[str, Any]:
+        from cryptography.exceptions import InvalidTag
+
         if now.tzinfo is None:
             raise ValueError("binding validation time must include a time zone")  # noqa: TRY003
         if not isinstance(token, str) or len(token) > self.max_token_bytes or not token.startswith("pc1."):
