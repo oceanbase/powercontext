@@ -1,32 +1,35 @@
 name: Managed resource candidates
 
 on:
-  pull_request:
-    paths:
-      - 'scripts/*managed_resource*'
-      - 'scripts/build_ops_bundle.py'
-      - 'scripts/ci_ops_bundle_smoke.py'
-      - 'scripts/build_intel_managed_wheel.py'
-      - 'scripts/managed_resource_intel_build.json'
-      - 'tests/test_managed_resource_producer.py'
-      - 'tests/test_ops_resources.py'
-      - 'src/powercontext/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '.github/workflows/managed-resource-candidates.yml'
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: managed-resource-candidates-${{ github.event.pull_request.number || github.ref }}
+  group: managed-resource-candidates-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    if: ${{ inputs.suites == '' }}
+    uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: managed-resource-candidates.yml
+
   candidate:
+    needs: changes
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').managed_resources) }}
     name: Candidate ${{ matrix.target }}
     strategy:
+      max-parallel: 2
       fail-fast: false
       matrix:
         include:

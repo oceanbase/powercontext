@@ -1,11 +1,17 @@
 name: Desktop validation
 
 on:
-  pull_request:
-    paths: ['desktop/**', 'src/powercontext/**', 'pyproject.toml', 'uv.lock', 'openapi/powercontext.yaml', 'tests/fixtures/transport_loopback_vectors.json', 'tests/test_desktop_fixture_qualification.py', 'website/assets/**', '.github/workflows/desktop.yml']
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
+      installer_run:
+        type: string
+        default: ''
   push:
-    branches: [master, codex/desktop-preview]
-    paths: ['desktop/**', 'src/powercontext/**', 'pyproject.toml', 'uv.lock', 'openapi/powercontext.yaml', 'tests/fixtures/transport_loopback_vectors.json', 'tests/test_desktop_fixture_qualification.py', 'website/assets/**', '.github/workflows/desktop.yml']
+    branches: [codex/desktop-preview]
   workflow_dispatch:
     inputs:
       installer_run:
@@ -15,15 +21,25 @@ on:
         default: ''
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: desktop-${{ github.event.pull_request.number || github.ref }}-${{ inputs.installer_run || 'build' }}
+  group: desktop-${{ github.event.pull_request.number || github.ref }}-${{ inputs.installer_run || 'build' }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    if: ${{ inputs.suites == '' }}
+    uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: desktop.yml
+
   windows:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.installer_run == '' }}
+    needs: changes
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.installer_run == '') &&
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').desktop) }}
     runs-on: windows-2025
     timeout-minutes: 40
     defaults:
@@ -73,9 +89,12 @@ jobs:
       - name: Verify Windows vault across processes
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
       - name: Set up Python fixture tooling
+        timeout-minutes: 5
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.10.12"
+          # Use the release source directly; a stalled mirror download can exhaust the job budget.
+          download-from-astral-mirror: false
           enable-cache: true
           cache-suffix: desktop-${{ github.job }}-py3.12
           cache-dependency-glob: |
@@ -148,7 +167,10 @@ jobs:
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}
 
   macos:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.installer_run == '' }}
+    needs: changes
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.installer_run == '') &&
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').desktop) }}
     strategy:
       fail-fast: false
       matrix:
@@ -202,7 +224,10 @@ jobs:
           if-no-files-found: error
 
   linux:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.installer_run == '' }}
+    needs: changes
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.installer_run == '') &&
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').desktop) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     defaults:

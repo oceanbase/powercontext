@@ -93,6 +93,19 @@ def mysql_inventory(connection: Connection, *, exclude: frozenset[str] = frozens
             key=lambda row: str(row.get("Trigger", "")),
         )
         inventory["views"].sort()
+        if "pc_artifact_vector_spaces" in inventory["tables"]:
+            from sqlalchemy import select
+
+            from powercontext.builtin.persistence.tables import ARTIFACT_VECTOR_SPACES_TABLE
+
+            declarations = (
+                connection
+                .execute(select(ARTIFACT_VECTOR_SPACES_TABLE).order_by(ARTIFACT_VECTOR_SPACES_TABLE.c.space_id))
+                .mappings()
+                .all()
+            )
+            if declarations:
+                inventory["artifact_spaces"] = [dict(space) for space in declarations]
     except DBAPIError as error:
         raise MigrationError(
             "schema_reflection_failed", "Complete database schema reflection is unavailable."
@@ -141,7 +154,10 @@ def read_revision(
 class MySQLSchema:
     """Validate source, intermediate and post-DDL shapes from frozen resources."""
 
-    def __init__(self, bundle: MigrationBundle, *, embedded_code: bool = False) -> None:  # noqa: C901 -- Keep ordered admission checks with their operation.
+    def __init__(  # noqa: C901 -- Keep ordered admission checks with their operation.
+        self, bundle: MigrationBundle, *, embedded_code: bool = False, allow_declared_spaces: bool = False
+    ) -> None:
+        self.allow_declared_spaces = allow_declared_spaces
         self.bundle = bundle
         self.revisions = bundle.revisions
         manifest = json.loads((bundle.snapshot_directory / "manifest.json").read_text())
@@ -338,13 +354,27 @@ class MySQLSchema:
         self.affected_objects = tuple(dict.fromkeys([*self.affected_objects, *tables, declaration_name]))
 
     def _matches(self, inventory: dict[str, Any], expected: dict[str, Any]) -> bool:
-        # Most DDL recovery prefixes have different table sets. Reject them
-        # before normalizing backend defaults for every table.
-        if inventory.keys() != expected.keys() or inventory["tables"].keys() != expected["tables"].keys():
-            return False
-        # Captured backends may expose an explicit default that another backend
-        # omits. Only registered values may be absent; retain it in fingerprints.
         actual = {**inventory, "tables": dict(inventory["tables"])}
+        declarations = actual.pop("artifact_spaces", [])
+        if declarations:
+            from powercontext.builtin.persistence.artifact_vector_space import registered_native_layouts
+
+            if "pc_artifact_vector_spaces" not in expected["tables"]:
+                return False
+            try:
+                layouts = registered_native_layouts(
+                    declarations, actual["tables"], allow_declared=self.allow_declared_spaces
+                )
+            except (ValueError, TypeError, KeyError) as error:
+                raise MigrationError(
+                    "incompatible_schema", "A registered native vector space is incomplete or incompatible."
+                ) from error
+            expected = {**expected, "tables": dict(expected["tables"])}
+            expected["tables"].update(layouts)
+            self.affected_objects = tuple(dict.fromkeys((*self.affected_objects, *sorted(layouts))))
+        # Compare table sets after adding the exactly validated registered spaces.
+        if actual.keys() != expected.keys() or actual["tables"].keys() != expected["tables"].keys():
+            return False
         for name, options in self.optional_table_options.items():
             table = actual["tables"].get(name)
             target = expected["tables"].get(name)

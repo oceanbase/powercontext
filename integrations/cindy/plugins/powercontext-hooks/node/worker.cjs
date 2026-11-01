@@ -257,6 +257,83 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	list_artifact_plugins: {
+		method: "GET",
+		path: "/v1/admin/artifact-plugins",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact_plugin: {
+		method: "GET",
+		path: "/v1/admin/artifact-plugins/{binding_name}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	enable_all_artifact_plugins: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/enable-all",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	reload_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/reload",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	enable_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/enable",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	disable_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/disable",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	unload_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/unload",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
 	get_capabilities: {
 		method: "GET",
 		path: "/v1/capabilities",
