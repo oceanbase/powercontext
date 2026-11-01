@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
     Application = ServerApplication | BuiltinRuntime
 
-OWNED_ARTIFACT_FAMILIES = ("atomic-memory", "experience", "skill", "profile")
+OWNED_ARTIFACT_FAMILIES = ("atomic-memory", "experience", "skill", "profile", "handoff")
 RESOURCE_PAGE_SIZE = 100
 CANDIDATE_PAGE_SIZE = 100
 
@@ -176,7 +176,12 @@ async def plan_ownership_migration(
                 ResourceRef.scope(scope_id),
                 context=context,
             )
-            if not decision.allowed:
+            if not decision.allowed and not (
+                decision.reason_code in {"no-matching-binding", "no-matching-policy"}
+                and await access.static_scope_bootstrap_would_grant(
+                    background_principal, AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id)
+                )
+            ):
                 background.append(
                     BackgroundPermissionGap(
                         scope_id=scope_id,
@@ -421,10 +426,6 @@ async def _artifact_gaps(
         if access is not None and await access.artifact_owner(resource) is not None:
             continue
         gaps.append(ArtifactOwnershipGap(scope_id, record.family, record.artifact_id))
-    if application.handoff is not None and await application.handoff.for_scope(scope_id).revisions():
-        resource = ResourceRef.artifact(scope_id, family="handoff", artifact_id="handoff")
-        if access is None or await access.artifact_owner(resource) is None:
-            gaps.append(ArtifactOwnershipGap(scope_id=scope_id, family="handoff", artifact_id="handoff"))
     return tuple(gaps)
 
 

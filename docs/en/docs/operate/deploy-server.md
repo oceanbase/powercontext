@@ -200,6 +200,8 @@ so an administrator migrates the missing attribution explicitly:
    after all ownership gaps have been filled. HTTP planning accepts `background_principal` when an Access
    store is available; otherwise it returns `503 relationship_management_unavailable`. Use the offline
    command for this check before enabling enforcement.
+   For a configured single-token deployment, the check includes the worker's static Scope preset without
+   creating bindings. An existing Profile still requires its own Artifact write permission.
 3. Backfill with an explicitly named owning Principal — for a single-user static-token deployment that is the
    `server-token` service Principal:
 
@@ -215,6 +217,7 @@ so an administrator migrates the missing attribution explicitly:
    different Scopes; multi-user deployments keep this identity boundary explicit.
 
    The inventory includes merged and retired Artifact identities so supported restoration remains authorized.
+   It also includes committed Handoffs and each published Handoff copy under its recorded identity.
    Offline `apply`, HTTP `apply`, and the HTTP preview report `owner-recovery-pending` or
    `owner-recovery-delivered_relation_missing` when durable recovery evidence already records an identity.
    They preserve that evidence and do not replace its owner. Complete pending ownership delivery through the

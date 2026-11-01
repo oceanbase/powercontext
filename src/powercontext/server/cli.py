@@ -650,7 +650,13 @@ async def _access_ownership_maintenance(
     )
     async with AsyncExitStack() as resources:
         access = await resources.enter_async_context(
-            open_builtin_access_control(settings.database, deployment_id=settings.access.deployment_id)
+            open_builtin_access_control(
+                settings.database,
+                deployment_id=settings.access.deployment_id,
+                static_scope_principal=(
+                    PrincipalRef(type="service", id="server-token") if settings.auth.token is not None else None
+                ),
+            )
         )
         runtime = await resources.enter_async_context(open_builtin_runtime(config, dispatch_processing=False))
         if runtime.scopes is None:

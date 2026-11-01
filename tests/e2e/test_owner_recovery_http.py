@@ -276,21 +276,71 @@ def test_migration_preserves_completed_ownership_evidence_after_external_relatio
 
 
 @pytest.mark.parametrize("completed", [False, True])
-def test_offline_migration_preserves_external_owner_evidence(tmp_path, completed):
+@pytest.mark.parametrize("operation", ["profile", "handoff", "publication"])
+def test_offline_migration_preserves_external_owner_evidence(tmp_path, completed, operation):
     from powercontext.server.cli import app as server_cli
 
     async def seed():
-        async with _server(tmp_path, interrupted=True) as (app, client, access):
+        async with _server(tmp_path) as (app, client, access):
             scope_id = await _scope(client)
-            created = await client.post(
-                f"/v1/scopes/{scope_id}/artifacts",
-                json={"family": "profile", "content": {"content": "# Original private profile"}},
-            )
+            path = f"/v1/scopes/{scope_id}/artifacts"
+            payload = {"family": "profile", "content": {"content": "# Original private profile"}}
+            if operation != "profile":
+                source = await client.post(f"/v1/scopes/{scope_id}/sources", json={"content": "Verified task state."})
+                assert source.status_code == 201, source.text
+                content = {
+                    "schema": "powercontext.handoff.v1",
+                    "objective": "Continue verified work.",
+                    "state": [
+                        {
+                            "text": "Verified task state.",
+                            "citations": [
+                                {
+                                    "kind": "source",
+                                    "source_ref": {"name": "content", "source_id": source.json()["source_id"]},
+                                }
+                            ],
+                        }
+                    ],
+                    "disposition": "complete",
+                    "next_action": None,
+                    "omissions": [],
+                }
+                payload = {"family": "handoff", "content": content}
+                if operation == "publication":
+                    original = await client.post(path, json=payload)
+                    assert original.status_code == 201, original.text
+                    target = await client.post(
+                        "/v1/scopes",
+                        json={"title": "Target", "summary": "Recovery", "idempotency_key": "recovery-target"},
+                    )
+                    assert target.status_code == 201, target.text
+                    destination = target.json()["scope_id"]
+                    path = "/v1/artifact-publications"
+                    payload = {
+                        "source": {
+                            "scope_id": scope_id,
+                            "artifact": {"family": "handoff", "artifact_id": "handoff", "revision": 1},
+                        },
+                        "target_scope_id": destination,
+                        "idempotency_key": "recovery-publication",
+                    }
+                    scope_id = destination
+            access.relationships.unavailable = True
+            created = await client.post(path, json=payload)
             assert created.status_code == 503, created.text
             (intent,) = await app.state.owner_recovery.pending(scope_id=scope_id)
             if completed:
                 access.relationships.unavailable = False
                 await app.state.owner_recovery.replay(intent.operation_id)
+            else:
+                preview = await client.post(
+                    "/v1/access/ownership/apply",
+                    json={"scope_ids": [scope_id], "owner": {"type": "user", "id": "bob"}, "dry_run": True},
+                )
+                assert preview.status_code == 200, preview.text
+                assert preview.json()["applied"] == []
+                assert [item["conflict_code"] for item in preview.json()["conflicts"]] == ["owner-recovery-pending"]
             return scope_id, intent
 
     scope_id, intent = asyncio.run(seed())

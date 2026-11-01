@@ -39,11 +39,11 @@ from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.builtin.scope import ScopeApplication, ScopeDraft
 from powercontext.cli.app import create_cli
 from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import AccessAuditContext, AccessConflictError, PrincipalRef, ResourceRef
+from powercontext.server.authz import AccessAction, AccessAuditContext, AccessConflictError, PrincipalRef, ResourceRef
 from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.ownership import ArtifactOwnershipGap, apply_ownership_migration
-from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
+from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, MetricsConfig, ServerSettings
 
 ADMIN = PrincipalRef(type="service", id="admin")
 SERVER_TOKEN = PrincipalRef(type="service", id="server-token")
@@ -125,6 +125,243 @@ async def _create_legacy_data(client: httpx.AsyncClient) -> tuple[str, str, dict
         201,
     )
     return scope, f"/v1/scopes/{scope}/artifacts/atomic-memory/{artifact['artifact_id']}", candidate
+
+
+@pytest.mark.parametrize("profile_owner", [None, "server-token", "other", "revoked"])
+def test_background_plan_accounts_for_static_preset_without_granting_bindings(
+    tmp_path: Path, profile_owner: str | None
+) -> None:
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{(tmp_path / 'static-background.db').as_posix()}")
+        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        async with app.router.lifespan_context(app):
+            scope = await app.state.application.scopes.create(
+                ScopeDraft(title="Legacy", summary="No static bindings", idempotency_key="static-background")
+            )
+            if profile_owner in {"server-token", "other"}:
+                from powercontext.builtin.records import ArtifactWrite
+
+                await app.state.application.records.for_scope(scope.scope_id).create_artifact(
+                    "profile", ArtifactWrite(content={"content": "# Legacy profile"})
+                )
+        settings = _settings(database, "enforced").model_copy(
+            update={"auth": BearerAuthConfig(token=SecretStr("static-test-token"))}
+        )
+        app = create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://test",
+                headers={"Authorization": "Bearer static-test-token"},
+            ) as client,
+        ):
+            access = app.state.access_control
+            context = AccessAuditContext(transport="background", operation="test.background")
+            if profile_owner in {"server-token", "other"}:
+                await access.establish_artifact_owner(
+                    ResourceRef.artifact(scope.scope_id, family="profile", artifact_id="profile"),
+                    PrincipalRef(type="service", id=profile_owner),
+                    idempotency_key="static-profile-owner",
+                    context=context,
+                )
+            resource = ResourceRef.scope(scope.scope_id)
+            if profile_owner == "revoked":
+                checked(
+                    await client.post(f"/v1/scopes/{scope.scope_id}/sources", json={"content": "Initialize preset."}),
+                    201,
+                )
+                bindings = checked(
+                    await client.post(
+                        "/v1/access/bindings/list",
+                        json={
+                            "management_resource": {"type": "scope", "scope_id": scope.scope_id},
+                            "role": "scope.contributor",
+                        },
+                    ),
+                    200,
+                )
+                (binding,) = bindings["items"]
+                checked(
+                    await client.post(
+                        "/v1/access/bindings/revoke",
+                        json={
+                            "binding_id": binding["binding_id"],
+                            "expected_version": binding["version"],
+                            "idempotency_key": "revoke-static",
+                        },
+                    ),
+                    200,
+                )
+            assert not (
+                await access.check(SERVER_TOKEN, AccessAction.SCOPE_CONTRIBUTE, resource, context=context)
+            ).allowed
+            for principal, gaps in (("server-token", int(profile_owner in {"other", "revoked"})), ("other-worker", 1)):
+                plan = checked(
+                    await client.post(
+                        "/v1/access/ownership/plan",
+                        json={
+                            "scope_ids": [scope.scope_id],
+                            "background_principal": {"type": "service", "id": principal},
+                        },
+                    ),
+                    200,
+                )
+                assert len(plan["background"]) == gaps
+            assert not (
+                await access.check(SERVER_TOKEN, AccessAction.SCOPE_CONTRIBUTE, resource, context=context)
+            ).allowed
+            # The worker materializes this configured preset before its real authorization.
+            await access.bootstrap_static_scope(SERVER_TOKEN, scope.scope_id, context=context)
+            decision = await access.check(SERVER_TOKEN, AccessAction.SCOPE_CONTRIBUTE, resource, context=context)
+            assert decision.allowed == (profile_owner != "revoked")
+
+    asyncio.run(scenario())
+
+
+def test_migration_inventories_published_handoff_identities(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{(tmp_path / 'published.db').as_posix()}")
+        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+        ):
+            scope, _, _ = await _create_legacy_data(client)
+            original = checked(
+                await client.post(
+                    f"/v1/scopes/{scope}/artifacts",
+                    json={
+                        "family": "handoff",
+                        "content": {
+                            "schema": "powercontext.handoff.v1",
+                            "objective": "Completed task.",
+                            "state": [
+                                {
+                                    "text": "Verified task state.",
+                                    "citations": [
+                                        {
+                                            "kind": "source",
+                                            "source_ref": {"name": "content", "source_id": "legacy-source"},
+                                        }
+                                    ],
+                                }
+                            ],
+                            "disposition": "complete",
+                            "next_action": None,
+                            "omissions": [],
+                        },
+                    },
+                ),
+                201,
+            )
+            target = checked(
+                await client.post(
+                    "/v1/scopes", json={"title": "Target", "summary": "Copies", "idempotency_key": "copy-target"}
+                ),
+                201,
+            )["scope_id"]
+            for key in ("first-copy", "second-copy"):
+                checked(
+                    await client.post(
+                        "/v1/artifact-publications",
+                        json={
+                            "source": {
+                                "scope_id": scope,
+                                "artifact": {
+                                    "family": "handoff",
+                                    "artifact_id": "handoff",
+                                    "revision": original["revision"],
+                                },
+                            },
+                            "target_scope_id": target,
+                            "idempotency_key": key,
+                        },
+                    ),
+                    201,
+                )
+            records = await app.state.application.records.for_scope(target).logical_artifacts()
+            identities = {record.artifact_id for record in records if record.family == "handoff"}
+            assert len(identities) == 2 and all(identity.startswith("pub_") for identity in identities)
+        async with _enforced_server(database, tmp_path) as (client, access):
+            plan = checked(await client.post("/v1/access/ownership/plan", json={"scope_ids": [target]}), 200)
+            assert {item["artifact_id"] for item in plan["scopes"][0]["artifact_gaps"]} == identities
+            payload = {"scope_ids": [target], "owner": {"type": ADMIN.type, "id": ADMIN.id}}
+            preview = checked(await client.post("/v1/access/ownership/apply", json={**payload, "dry_run": True}), 200)
+            applied = checked(await client.post("/v1/access/ownership/apply", json=payload), 200)
+            assert preview["applied"] == applied["applied"]
+            assert applied["conflicts"] == []
+            for identity in identities:
+                resource = ResourceRef.artifact(target, family="handoff", artifact_id=identity)
+                relation = await access.artifact_owner(resource)
+                assert relation is not None and relation.owner == ADMIN
+                await access.require(
+                    ADMIN,
+                    AccessAction.ARTIFACT_WRITE,
+                    resource,
+                    context=AccessAuditContext(transport="http", operation="test.migrated-handoff"),
+                )
+            repeated = checked(await client.post("/v1/access/ownership/apply", json=payload), 200)
+            assert repeated["applied"] == [] and repeated["conflicts"] == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("static_token", [False, True])
+def test_offline_background_plan_uses_configured_static_preset_without_grants(
+    tmp_path: Path, static_token: bool
+) -> None:
+    from powercontext.server.cli import app as server_cli
+
+    database = SQLiteConfig(url=f"sqlite+aiosqlite:///{(tmp_path / 'offline-static.db').as_posix()}")
+
+    async def seed() -> str:
+        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        async with app.router.lifespan_context(app):
+            scope = await app.state.application.scopes.create(
+                ScopeDraft(title="Legacy", summary="Static preview", idempotency_key="offline-static")
+            )
+            return scope.scope_id
+
+    scope_id = asyncio.run(seed())
+    environment = tmp_path / "offline-static.env"
+    environment.write_text(
+        f"POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_DATABASE_URL={database.url}\n"
+        f"POWERCONTEXT_SERVER_ACCESS_MODE={'enforced' if static_token else 'disabled'}\n"
+        f"POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID={DEPLOYMENT}\n"
+        "POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES=[]\n"
+        + ("POWERCONTEXT_SERVER_AUTH_TOKEN=static-test-token\n" if static_token else ""),
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(
+        create_cli([server_cli]),
+        [
+            "server",
+            "access-ownership-migrate",
+            "--env-file",
+            str(environment),
+            "--action",
+            "plan",
+            "--scope-id",
+            scope_id,
+            "--background-principal",
+            "service:server-token",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(json.loads(result.output)["background"]) == (0 if static_token else 1)
+
+    async def verify() -> None:
+        async with open_builtin_access_control(database, deployment_id=DEPLOYMENT) as access:
+            decision = await access.check(
+                SERVER_TOKEN,
+                AccessAction.SCOPE_CONTRIBUTE,
+                ResourceRef.scope(scope_id),
+                context=AccessAuditContext(transport="background", operation="test.offline-static"),
+            )
+            assert not decision.allowed
+
+    asyncio.run(verify())
 
 
 def test_disabled_data_becomes_mutable_again_after_ownership_migration(tmp_path: Path) -> None:

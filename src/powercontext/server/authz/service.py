@@ -896,6 +896,34 @@ class AccessControlService:
         actions = ROLE_ACTIONS if resource.type is AccessResourceType.SCOPE else ROLE_CHILD_ACTIONS
         return any(action in actions[role] for role in _STATIC_SCOPE_ROLES)
 
+    async def static_scope_bootstrap_would_grant(
+        self, principal: PrincipalRef, action: AccessAction, resource: ResourceRef
+    ) -> bool:
+        """Inspect whether a denied check can gain a new local preset binding.
+
+        An existing preset receipt is final, including after revocation. This
+        preview must not treat that receipt as a grant or recreate its binding.
+        """
+        if not self.can_bootstrap_static_scope(principal, action, resource):
+            return False
+        from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+        from powercontext.server.authz.repository import RelationalAccessRepository
+
+        repository = self.relationships
+        if type(repository) is not RelationalAccessRepository or type(self.provider) not in {
+            BuiltinAuthorizationProvider,
+            CasbinAuthorizationProvider,
+        }:
+            return False
+        actions = ROLE_ACTIONS if resource.type is AccessResourceType.SCOPE else ROLE_CHILD_ACTIONS
+        for role in _STATIC_SCOPE_ROLES:
+            if action not in actions[role]:
+                continue
+            key = f"static-preset:{self.deployment_id}:{principal.id}:{resource.scope_id}:{role.value}"
+            if len(key) <= 255 and not await _access_call(repository.static_scope_initialized(principal, (key,))):
+                return True
+        return False
+
     async def bootstrap_static_scope(
         self,
         principal: PrincipalRef | None,
