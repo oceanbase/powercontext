@@ -32,19 +32,17 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionInput,
     project_atomic_memory_evidence,
 )
-from powercontext.builtin.artifacts.atomic_memory.input_encoding import (
-    collect_atomic_memory_input_encodings,
-    decode_atomic_memory_input,
-)
 from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
 from powercontext.builtin.artifacts.prompt.service import PromptService
 from powercontext.builtin.inference.errors import InferencePrivacyError, InvalidInferenceOutputError
+from powercontext.builtin.inference.input_encoding import decode_input
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig, PrivacyPolicy, UpstreamProfile
-from powercontext.builtin.inference.usage import bind_usage_reporter
+from powercontext.builtin.inference.usage import bind_usage_reporter, collect_input_encodings
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import composition
+from powercontext.builtin.runtime.atomic_memory_input import ATOMIC_MEMORY_INPUT_SCHEMA
 from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, ContentCapture
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
@@ -106,7 +104,7 @@ def test_configured_encoding_preserves_model_input_and_observes_only_generation(
             assert pipeline is not None
             value = _value()
             with (
-                collect_atomic_memory_input_encodings() as reports,
+                collect_input_encodings() as reports,
                 bind_usage_reporter(report, generation_purpose=ModelUsagePurpose.MEMORY_EXTRACTION),
             ):
                 budget_payload = (
@@ -127,7 +125,10 @@ def test_configured_encoding_preserves_model_input_and_observes_only_generation(
                 assert reports[0].candidate_bytes is not None
                 assert reports[0].candidate_bytes < reports[0].original_bytes
             if mode == "active":
-                assert decode_atomic_memory_input(prompts[0]) == value.model_dump_json()
+                assert (
+                    decode_input(prompts[0], schema=ATOMIC_MEMORY_INPUT_SCHEMA, stage="atomic_memory.extract")
+                    == value.model_dump_json()
+                )
             else:
                 assert prompts[0] == value.model_dump_json()
 
@@ -192,7 +193,7 @@ def test_stage_budget_uses_the_exact_input_sent_and_rejects_uncompressed_overflo
                 limit = runtime_config.atomic_memory_input_tokens_limit
                 assert pipeline.estimator.estimate(f"{instructions}\n{original}") > limit
 
-                with collect_atomic_memory_input_encodings() as reports:
+                with collect_input_encodings() as reports:
                     if mode == "off":
                         with pytest.raises(InvalidInferenceOutputError, match="atomic-memory-input-budget"):
                             await context.triggers.flush(limit=3)
@@ -207,7 +208,10 @@ def test_stage_budget_uses_the_exact_input_sent_and_rejects_uncompressed_overflo
                         assert flushed.source_count == flushed.current_cursor == 3
                         assert (await context.triggers.cursor()).sequence == 3
                         assert prompts == [expected]
-                        assert decode_atomic_memory_input(prompts[0]) == original
+                        assert (
+                            decode_input(prompts[0], schema=ATOMIC_MEMORY_INPUT_SCHEMA, stage="atomic_memory.extract")
+                            == original
+                        )
                         assert len(reports) == 1 and reports[0].reason == "applied"
 
     asyncio.run(scenario())
@@ -257,10 +261,11 @@ def test_custom_prompt_preserves_original_input_contract(monkeypatch) -> None:
             assert pipeline is not None
             value = _value()
             async with service.bind("scope", "atomic_memory.extract"):
-                with collect_atomic_memory_input_encodings() as reports:
+                with collect_input_encodings() as reports:
                     await pipeline.extract(value)
             assert prompts == [value.model_dump_json()]
             assert len(reports) == 1 and reports[0].selected_bytes == reports[0].original_bytes
+            assert reports[0].reason == "unsupported_prompt"
 
     asyncio.run(scenario())
 
@@ -388,7 +393,7 @@ def test_safe_deep_input_falls_back_before_model_and_budget_check(monkeypatch) -
             )
             pipeline = pipelines[1]
             assert pipeline is not None and pipeline.input_renderer is not None
-            with collect_atomic_memory_input_encodings() as reports:
+            with collect_input_encodings() as reports:
                 assert pipeline.input_renderer(value) == original
                 assert reports == []
                 assert await pipeline.extract(value) == ()
