@@ -1,9 +1,6 @@
 name: SeekDB extended lock observation
 
 on:
-  pull_request:
-    paths:
-      - .github/workflows/seekdb-lock-observation.yml
   workflow_dispatch:
 
 permissions:

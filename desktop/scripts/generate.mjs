@@ -91,6 +91,13 @@ function collectSchemas(value) {
 for (const item of Object.values(contract.paths))
   for (const op of Object.values(item))
     if (wanted.includes(op?.operationId)) collectSchemas(op);
+// OpenAPI Generator inlines plain string aliases instead of emitting model files.
+const stringAliases = new Set(
+  [...schemaNames].filter((name) => {
+    const schema = contract.components.schemas[name];
+    return schema.type === "string" && !schema.enum;
+  }),
+);
 function snakeCase(name) {
   return name
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
@@ -124,7 +131,9 @@ async function generateRustModels() {
     join(tmpdir(), "powercontext-desktop-openapi-"),
   );
   const output = join(temporary, "generated");
-  const modelNames = [...schemaNames].sort();
+  const modelNames = [...schemaNames]
+    .filter((name) => !stringAliases.has(name))
+    .sort();
   const generatorCli = createRequire(import.meta.url).resolve(
     "@openapitools/openapi-generator-cli/main.js",
   );
@@ -238,7 +247,11 @@ const rustDeclarations = `\n#[rustfmt::skip]\npub fn declarations(config: &ts_rs
   ...new Set([...schemaNames, ...rustModelNames]),
 ]
   .sort()
-  .map((name) => `        <${name} as ts_rs::TS>::decl(config),`)
+  .map((name) =>
+    stringAliases.has(name)
+      ? `        format!("type ${name} = {};", <String as ts_rs::TS>::name(config)),`
+      : `        <${name} as ts_rs::TS>::decl(config),`,
+  )
   .join("\n")}\n    ]\n}\n`;
 const outputs = {
   "src-tauri/src/transport/wire.rs":

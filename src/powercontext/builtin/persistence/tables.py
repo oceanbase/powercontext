@@ -15,6 +15,7 @@
 """Shared dialect-neutral relational tables."""
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -34,6 +35,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.mysql import BINARY, DATETIME, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
 
+from powercontext.builtin.persistence.artifact_search_schema import artifact_search_tables
 from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
     MAX_ARTIFACT_HANDLE_KEY_LENGTH,
@@ -568,7 +570,22 @@ ARTIFACT_PROCESSING_BINDING_STATES_TABLE = Table(
     Column("scan_generation", BigInteger, nullable=False, server_default="0"),
     Column("scan_in_progress", Boolean, nullable=False, server_default="0"),
     Column("scan_upper_pending_sequence", BigInteger),
+    Column("plugin_id", String(128)),
+    Column("plugin_family", String(128)),
+    Column("plugin_spec", JSON(none_as_null=True)),
+    Column("binding_generation", BigInteger, nullable=False, server_default="0"),
+    Column("desired_state", String(16)),
+    Column("phase", String(16)),
+    Column("last_error", String(1024)),
     CheckConstraint("scan_generation >= 0", name="ck_pc_processing_scan_generation"),
+)
+
+ARTIFACT_FAMILY_SCHEMAS_TABLE = Table(
+    "pc_artifact_family_schemas",
+    SHARED_METADATA,
+    Column("family", identity_string(128), primary_key=True),
+    Column("schema_version", identity_string(128), primary_key=True),
+    Column("declaration", JSON, nullable=False),
 )
 
 ARTIFACT_PROCESSING_SEQUENCES_TABLE = Table(
@@ -1065,6 +1082,7 @@ RECALL_EFFORT_DAILY_TABLE = Table(
 
 
 SHARED_TABLES = (
+    ARTIFACT_FAMILY_SCHEMAS_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
     ARTIFACTS_TABLE,
@@ -1430,3 +1448,17 @@ BUILTIN_TABLES = (
         LEXICAL_PROJECTION_VERSIONS_TABLE,
     )
 )
+
+
+# Search builds are independent of generation bindings.
+
+(
+    ARTIFACT_VECTOR_SPACES_TABLE,
+    ARTIFACT_VECTOR_INDEXES_TABLE,
+    ARTIFACT_SEARCH_STATES_TABLE,
+    ARTIFACT_INDEX_COVERAGE_TABLE,
+    ARTIFACT_INDEX_CHANGES_TABLE,
+    ARTIFACT_VECTORS_TABLE,
+    ARTIFACT_SEARCH_TEXT_TABLE,
+) = ARTIFACT_SEARCH_TABLES = artifact_search_tables(SHARED_METADATA, identity_string)
+BUILTIN_TABLES += ARTIFACT_SEARCH_TABLES
