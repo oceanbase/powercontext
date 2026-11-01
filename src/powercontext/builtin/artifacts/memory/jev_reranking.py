@@ -128,7 +128,7 @@ async def _settle_scores(
     for task in tasks:
         if not task.done() and not task.cancelling():
             task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
     if failure is not None:
         prior = InferenceUsage(
             requests=len(usages),
@@ -136,7 +136,10 @@ async def _settle_scores(
             output_tokens=sum(item.output_tokens for item in usages),
             incomplete=any(task.cancelled() for task in tasks),
         )
-        failure.usage = prior if failure.usage is None else combine_inference_usage(prior, failure.usage)
+        for result in results:
+            if isinstance(result, InferencePrivacyError) and result.usage is not None:
+                prior = combine_inference_usage(prior, result.usage)
+        failure.usage = prior
 
 
 class JevMemoryReranker:

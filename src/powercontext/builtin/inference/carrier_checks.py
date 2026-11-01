@@ -29,23 +29,10 @@ from powercontext.builtin.inference.model_payload import (
 from powercontext.builtin.inference.privacy import PrivacyDecision, PrivacyPolicy
 
 
-def _stream_fragments(  # noqa: C901 - normalize distinct streamed text and tool carriers
-    value: object, parts: dict[tuple[str, ...], list[str]], path: tuple[str, ...] = ()
-) -> None:
+def _stream_fragments(value: object, parts: dict[tuple[str, ...], list[str]], path: tuple[str, ...] = ()) -> None:
     """Join a content field across events, retaining choice/tool identities."""
 
     if isinstance(value, dict):
-        identity = value.get("index")
-        identity_suffix = (str(identity.lexical),) if hasattr(identity, "lexical") else ()
-        event_type = value.get("type")
-        if event_type in ("content_block_start", "content_block_delta"):
-            block = value.get("content_block", value.get("delta"))
-            if isinstance(block, dict):
-                for key in ("text", "thinking", "partial_json"):
-                    fragment = block.get(key)
-                    if isinstance(fragment, str):
-                        parts[("anthropic", *identity_suffix, key)].append(fragment)
-            return
         for key, child in value.items():
             key = cast(str, key)
             if key in {
@@ -60,14 +47,17 @@ def _stream_fragments(  # noqa: C901 - normalize distinct streamed text and tool
                 "reasoning_content",
                 "delta",
             } and isinstance(child, str):
-                parts[path + identity_suffix + (key,)].append(child)
+                parts[(*path, key)].append(child)
             elif isinstance(child, (dict, list)):
-                _stream_fragments(child, parts, path + identity_suffix + (key,))
+                _stream_fragments(child, parts, (*path, key))
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            # Sparse tool deltas carry their stable provider index inside child.
-            suffix = () if isinstance(child, dict) and "index" in child else (str(index),)
-            _stream_fragments(child, parts, path + suffix)
+            # Only these protocol positions define stream identities. Extra
+            # index/type metadata must not split fields that the SDK joins.
+            identity = None
+            if path in {("choices",), ("choices", "0", "delta", "tool_calls")} and isinstance(child, dict):
+                identity = json_unsigned_integer(child.get("index"))
+            _stream_fragments(child, parts, (*path, str(index if identity is None else identity)))
 
 
 def inspect_sse(policy: PrivacyPolicy, body: bytes, profile_id: str) -> PrivacyDecision:  # noqa: C901 - protocol-specific terminal signals

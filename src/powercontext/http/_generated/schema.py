@@ -7682,7 +7682,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "number",
                         "maximum": 120.0,
                         "minimum": 0.0,
-                        "exclusiveMinimum": 1.0,
+                        "exclusiveMinimum": True,
                         "default": 120,
                     },
                 },
@@ -9654,88 +9654,270 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "status": {"$ref": "#/components/schemas/PreparedContextStatus"},
                     "content": {"type": "string", "nullable": True},
                     "content_bytes": {"type": "integer", "minimum": 0.0},
-                    "reason": {
-                        "allOf": [{"$ref": "#/components/schemas/PreparedContextReason"}],
-                        "description": "Why this "
-                        "preparation "
-                        "lost a "
-                        "retrieval "
-                        "channel "
-                        "it would "
-                        "otherwise "
-                        "have "
-                        "used. "
-                        "Absent "
-                        "unless "
-                        "the "
-                        "request "
-                        "asked "
-                        "with "
-                        "`explain` "
-                        "and a "
-                        "channel "
-                        "was "
-                        "lost, so "
-                        "a "
-                        "response "
-                        "a Host "
-                        "injects "
-                        "keeps "
-                        "its four "
-                        "fields. "
-                        "The "
-                        "values "
-                        "are the "
-                        "two "
-                        "inference "
-                        "failures "
-                        "among "
-                        "RFC "
-                        "1435's "
-                        "four "
-                        "`SearchGroup.fallback_reason` "
-                        "spellings, "
-                        "so a "
-                        "later "
-                        "Receipt "
-                        "reuses "
-                        "them "
-                        "instead "
-                        "of "
-                        "restating "
-                        "the "
-                        "cause. "
-                        "`none` "
-                        "travels "
-                        "as "
-                        "absence, "
-                        "and "
-                        "`reused_fts_fallback` "
-                        "is not a "
-                        "cause "
-                        "here: a "
-                        "later "
-                        "round "
-                        "reusing "
-                        "a failed "
-                        "round's "
-                        "keyword-only "
-                        "outcome "
-                        "is still "
-                        "explained "
-                        "by that "
-                        "round's "
-                        "`inference_*` "
-                        "value, "
-                        "which "
-                        "outranks "
-                        "it.",
-                        "nullable": True,
+                    "receipt": {
+                        "$ref": "#/components/schemas/PreparedContextReceipt",
+                        "description": "Present only when requested and successfully assembled.",
                     },
                 },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["schema", "status", "content", "content_bytes"],
+            },
+            "PreparedContextReceipt": {
+                "properties": {
+                    "schema": {"type": "string", "enum": ["powercontext.prepared-context-receipt.v1"]},
+                    "receipt_id": {"type": "string", "format": "uuid"},
+                    "policy_id": {"type": "string", "enum": ["powercontext.prepared-context-receipt.v1"]},
+                    "query_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "nullable": True},
+                    "requested_max_bytes": {"type": "integer", "maximum": 32768.0, "minimum": 512.0},
+                    "used_bytes": {"type": "integer", "minimum": 0.0},
+                    "truncated": {"type": "boolean"},
+                    "non_deterministic": {"type": "boolean"},
+                    "retrieval": {"$ref": "#/components/schemas/PreparedContextRetrieval"},
+                    "selected": {
+                        "items": {"$ref": "#/components/schemas/PreparedContextSelectedItem"},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                    "omitted": {
+                        "items": {"$ref": "#/components/schemas/PreparedContextOmittedGroup"},
+                        "type": "array",
+                        "maxItems": 16,
+                    },
+                    "stages": {
+                        "items": {"$ref": "#/components/schemas/PreparedContextStageTiming"},
+                        "type": "array",
+                        "maxItems": 8,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "schema",
+                    "receipt_id",
+                    "policy_id",
+                    "query_digest",
+                    "content_digest",
+                    "requested_max_bytes",
+                    "used_bytes",
+                    "truncated",
+                    "non_deterministic",
+                    "retrieval",
+                    "selected",
+                    "omitted",
+                    "stages",
+                ],
+            },
+            "PreparedContextRetrieval": {
+                "properties": {
+                    "rounds": {
+                        "items": {"$ref": "#/components/schemas/PreparedContextRecallRound"},
+                        "type": "array",
+                        "maxItems": 3,
+                    },
+                    "searches": {
+                        "items": {"$ref": "#/components/schemas/PreparedContextSearchGroup"},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                    "rerank_configs": {
+                        "items": {"$ref": "#/components/schemas/PreparedContextRerankConfig"},
+                        "type": "array",
+                        "maxItems": 8,
+                    },
+                    "reranks": {
+                        "items": {"$ref": "#/components/schemas/PreparedContextRerankGroup"},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["rounds", "searches", "rerank_configs", "reranks"],
+            },
+            "PreparedContextRecallRound": {
+                "properties": {
+                    "round": {"type": "integer", "maximum": 2.0, "minimum": 0.0},
+                    "outcome": {"type": "string", "enum": ["completed", "expansion_failed"]},
+                    "retained": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["round", "outcome", "retained"],
+            },
+            "PreparedContextSearchGroup": {
+                "properties": {
+                    "round": {"type": "integer", "maximum": 2.0, "minimum": 0.0},
+                    "family": {"$ref": "#/components/schemas/PreparedContextFamily"},
+                    "mode": {"type": "string", "enum": ["fts", "vector", "hybrid", "snapshot", "code", "none"]},
+                    "outcome": {"type": "string", "enum": ["completed", "not_run", "failed"]},
+                    "fallback_reason": {
+                        "type": "string",
+                        "enum": ["none", "inference_unavailable", "inference_timeout", "reused_fts_fallback"],
+                    },
+                    "count": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["round", "family", "mode", "outcome", "fallback_reason", "count"],
+            },
+            "PreparedContextRerankConfig": {
+                "properties": {
+                    "config_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "policy_id": {"type": "string"},
+                    "model": {"type": "string", "nullable": True},
+                    "effective_settings": {
+                        "additionalProperties": {
+                            "anyOf": [{"type": "string"}, {"type": "integer"}, {"type": "number"}, {"type": "boolean"}]
+                        },
+                        "type": "object",
+                    },
+                    "timeout_seconds": {"type": "number", "minimum": 0.0, "exclusiveMinimum": True},
+                    "max_requests": {"type": "integer", "minimum": 1.0},
+                    "config_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "prompt": {"$ref": "#/components/schemas/PreparedContextPromptIdentity"},
+                    "non_deterministic": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "config_id",
+                    "policy_id",
+                    "model",
+                    "effective_settings",
+                    "timeout_seconds",
+                    "max_requests",
+                    "config_digest",
+                    "prompt",
+                    "non_deterministic",
+                ],
+            },
+            "PreparedContextPromptIdentity": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "key": {"type": "string"},
+                    "definition_version": {"type": "string"},
+                    "builtin_version": {"type": "string"},
+                    "selection": {"type": "string", "enum": ["built_in", "artifact"]},
+                    "selected_version": {"type": "string"},
+                    "compiled_digest": {"type": "string"},
+                    "artifact_address": {"$ref": "#/components/schemas/PreparedContextPromptArtifactAddress"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "key",
+                    "definition_version",
+                    "builtin_version",
+                    "selection",
+                    "selected_version",
+                    "compiled_digest",
+                    "artifact_address",
+                ],
+                "nullable": True,
+            },
+            "PreparedContextPromptArtifactAddress": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact"],
+                "nullable": True,
+            },
+            "PreparedContextRerankGroup": {
+                "properties": {
+                    "round": {"type": "integer", "maximum": 2.0, "minimum": 0.0},
+                    "config_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "outcome": {"type": "string", "enum": ["selected", "fallback", "failed"]},
+                    "fallback_reason": {
+                        "type": "string",
+                        "enum": [
+                            "none",
+                            "empty_selection",
+                            "inference_unavailable",
+                            "inference_timeout",
+                            "invalid_output",
+                        ],
+                    },
+                    "count": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["round", "config_id", "outcome", "fallback_reason", "count"],
+            },
+            "PreparedContextFamily": {
+                "type": "string",
+                "enum": ["atomic-memory", "topic-memory", "experience", "profile", "code"],
+            },
+            "PreparedContextCodeEvidence": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "fingerprint": {"type": "string"},
+                    "path": {"type": "string"},
+                    "file_sha256": {"type": "string"},
+                    "start_line": {"type": "integer", "minimum": 1.0},
+                    "end_line": {"type": "integer", "minimum": 1.0},
+                    "snippet_sha256": {"type": "string"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "fingerprint",
+                    "path",
+                    "file_sha256",
+                    "start_line",
+                    "end_line",
+                    "snippet_sha256",
+                ],
+            },
+            "PreparedContextSelectedItem": {
+                "properties": {
+                    "kind": {"$ref": "#/components/schemas/PreparedContextFamily"},
+                    "artifact_address": {"$ref": "#/components/schemas/ArtifactAddress"},
+                    "code_evidence": {"$ref": "#/components/schemas/PreparedContextCodeEvidence"},
+                    "rendered_bytes": {"type": "integer", "minimum": 0.0},
+                    "truncated": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "rendered_bytes", "truncated"],
+            },
+            "PreparedContextOmittedGroup": {
+                "properties": {
+                    "family": {"$ref": "#/components/schemas/PreparedContextFamily"},
+                    "reason": {
+                        "type": "string",
+                        "enum": [
+                            "duplicate",
+                            "blank",
+                            "family_limit",
+                            "entry_limit",
+                            "below_min_bytes",
+                            "no_fitting_truncation",
+                            "rerank_not_selected",
+                            "not_retrieved",
+                        ],
+                    },
+                    "count": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "reason", "count"],
+            },
+            "PreparedContextStageTiming": {
+                "properties": {
+                    "stage": {"type": "string"},
+                    "duration_ms": {"type": "number", "minimum": 0.0},
+                    "count": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["stage", "duration_ms", "count"],
             },
             "BootstrapContextItem": {
                 "properties": {
@@ -11388,36 +11570,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "preparation.",
                         "default": False,
                     },
-                    "explain": {
+                    "include_receipt": {
                         "type": "boolean",
-                        "description": "Opt "
-                        "into "
-                        "reporting "
-                        "which "
-                        "retrieval "
-                        "channel "
-                        "this "
-                        "preparation "
-                        "lost, "
-                        "as "
-                        "`reason` "
-                        "on "
-                        "the "
-                        "response. "
-                        "Off "
-                        "by "
-                        "default, "
-                        "because "
-                        "a "
-                        "response "
-                        "a "
-                        "Host "
-                        "injects "
-                        "keeps "
-                        "its "
-                        "four "
-                        "fields.",
+                        "description": "Opt into a bounded, content-free PreparedContext Receipt.",
                         "default": False,
+                        "nullable": True,
                     },
                     "assembly": {"$ref": "#/components/schemas/ContextAssembly"},
                     "bootstrap_receipt_id": {
@@ -13218,7 +13375,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "BootstrapContextStatus": {"type": "string", "enum": ["ready", "empty", "skipped"]},
             "BootstrapContextItemKind": {"type": "string", "enum": ["atomic-memory", "handoff"]},
             "BootstrapReceiptState": {"type": "string", "enum": ["pending", "injected", "skipped", "failed"]},
-            "PreparedContextReason": {"type": "string", "enum": ["inference_timeout", "inference_unavailable"]},
             "BootstrapSkipReason": {
                 "type": "string",
                 "enum": ["disabled", "no_eligible_context", "already_delivered", "preparation_failed"],

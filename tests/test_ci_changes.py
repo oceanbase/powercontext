@@ -89,6 +89,13 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["tests/test_ci_installation_roles.py"], {"tests", "packaging"}),
         (["scripts/capture_release_schema.py"], {"upgrade", "release_schema"}),
         (["scripts/probe_seekdb_migration_lock.py"], {"seekdb_lock"}),
+        (["tests/seekdb_support.py"], {"tests", "database", "seekdb_lock"}),
+        (["tests/test_seekdb_migration_probe.py"], {"tests", "database", "upgrade", "seekdb_lock"}),
+        (["tests/e2e/test_seekdb_restart_recovery.py"], {"tests", "database", "seekdb_lock"}),
+        (
+            ["tests/builtin/persistence/test_mysql_migration_runner.py"],
+            {"tests", "database", "upgrade", "candidate_replay", "seekdb_lock"},
+        ),
         (["tests/test_database_migration_cli.py"], {"tests", "database", "upgrade"}),
         ([".github/workflows/skill-guidance.yml"], {"skill_guidance"}),
         ([".licenserc.yaml"], set()),
@@ -123,7 +130,15 @@ def test_shared_or_unclassified_changes_run_every_suite(path: str) -> None:
     assert all(select_suites(["docs/en/docs/quickstart.md", path], RULES).values())
 
 
-@pytest.mark.parametrize("path", ["src/powercontext/server/authz/owner_recovery.py", "uv.lock", "pyproject.toml"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/powercontext/server/authz/owner_recovery.py",
+        "src/powercontext/builtin/persistence/mysql.py",
+        "uv.lock",
+        "pyproject.toml",
+    ],
+)
 def test_shared_runtime_inputs_keep_backend_upgrade_and_consumer_coverage(path: str) -> None:
     selected = select_suites([path], RULES)
     assert {
@@ -140,7 +155,7 @@ def test_shared_runtime_inputs_keep_backend_upgrade_and_consumer_coverage(path: 
         "managed_resources",
     } <= {suite for suite, enabled in selected.items() if enabled}
     assert not selected["release_schema"]
-    assert not selected["seekdb_lock"]
+    assert selected["seekdb_lock"] is (path != "src/powercontext/server/authz/owner_recovery.py")
 
 
 def git(repository: Path, *arguments: str) -> str:
