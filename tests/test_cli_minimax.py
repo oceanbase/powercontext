@@ -343,6 +343,37 @@ def test_invalid_explicit_launcher_fails_before_install(native):
     assert not (native[0] / "absent").exists()
 
 
+def test_path_launcher_is_reusable_after_the_working_directory_changes(native, monkeypatch):
+    from powercontext.client.transport_policy import load_client_settings
+
+    root, command, _, run = native
+    launcher = root / "bin/mcode"
+    launcher.parent.mkdir()
+    shutil.copy2(command, launcher)
+    monkeypatch.setattr(minimax.shutil, "which", lambda _name: "bin/mcode")
+    original = run.side_effect
+
+    def run_from_directory(arguments, **kwargs):
+        selected = Path(arguments[0])
+        if not selected.is_absolute():
+            selected = (kwargs.get("cwd") or Path.cwd()) / selected
+        if not selected.is_file():
+            raise FileNotFoundError(selected)
+        return original(arguments, **kwargs)
+
+    run.side_effect = run_from_directory
+    result = invoke(
+        "setup", "minimax", "--source", str(ROOT), "--minimax-data-dir", str(root / "宿主 profile"), "--json"
+    )
+    assert result.exit_code == 0, result.output
+    assert load_client_settings("minimax")["minimax_command"] == str(launcher)
+    elsewhere = root / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    result = invoke("doctor", "minimax", "--json")
+    assert result.exit_code == 0, result.output
+
+
 def test_malformed_private_json_fails_without_install_or_secret_output(native):
     path = native[0] / "宿主 profile/mcp.json"
     path.parent.mkdir()
@@ -696,6 +727,67 @@ def disabled_private(native, request, monkeypatch):
     config = {"custom": "保持原格式", "mcpServers": {"other": {"command": "other-server"}, "powercontext": entry}}
     path.write_bytes((json.dumps(config, ensure_ascii=False, indent=4) + "\n").encode())
     return path
+
+
+@pytest.fixture
+def remote_bundle(native):
+    source = native[0] / "remote-bundle"
+    shutil.copytree(PACKAGE, source)
+    mcp = source / "powercontext.mcp.json"
+    configuration = json.loads(mcp.read_bytes())
+    configuration["mcpServers"]["powercontext"]["url"] = "http://192.0.2.10:8000/mcp"
+    mcp.write_text(json.dumps(configuration))
+    return source
+
+
+@pytest.mark.parametrize("consent", ["omitted", "refused", "other-endpoint"])
+def test_bundled_http_requires_consent_before_publication(native, disabled_private, remote_bundle, consent):
+    from powercontext.client.transport_policy import client_config_file
+
+    if consent == "other-endpoint":
+        installation.write_json(
+            client_config_file(),
+            {"version": 1, "hosts": {"minimax": {"server_url": "http://127.0.0.1:8000", "allow_insecure_http": True}}},
+        )
+    before = {path: path.read_bytes() for path in native[0].rglob("*") if path.is_file()}
+    arguments = ["--no-allow-insecure-http"] if consent == "refused" else []
+    result = setup(native, *arguments, source=remote_bundle)
+    assert result.exit_code == 1, result.output
+    assert "--allow-insecure-http" in result.output
+    assert not installed(native).exists()
+    assert {path: path.read_bytes() for path in native[0].rglob("*") if path.is_file()} == before
+
+
+def test_bundled_http_consent_is_bound_to_the_active_endpoint(native, disabled_private, remote_bundle):
+    from powercontext.cli.native_transport import resolve_host_transport
+    from powercontext.client.transport_policy import load_client_settings
+
+    original = disabled_private.read_bytes()
+    result = setup(native, "--allow-insecure-http", source=remote_bundle)
+    assert result.exit_code == 0, result.output
+    settings = load_client_settings("minimax")
+    assert settings["server_url"] == "http://192.0.2.10:8000"
+    assert settings["allow_insecure_http"] is True
+    assert resolve_host_transport("minimax") == ("http://192.0.2.10:8000", True)
+    for operation in ("setup", "config"):
+        result = setup(native) if operation == "setup" else invoke("config", "agent", "minimax", "--json")
+        assert result.exit_code == 0, result.output
+        assert disabled_private.read_bytes() == original
+        assert resolve_host_transport("minimax") == ("http://192.0.2.10:8000", True)
+
+
+def test_explicit_endpoint_overrides_incoming_bundle_without_enabling_private_entry(
+    native, disabled_private, remote_bundle, monkeypatch
+):
+    from powercontext.cli.native_transport import resolve_host_transport
+
+    monkeypatch.setenv("POWERCONTEXT_MINIMAX_AUTHORIZATION", "replacement-token")
+    result = setup(native, "--server-url", "https://selected.example", source=remote_bundle)
+    assert result.exit_code == 0, result.output
+    private = json.loads(disabled_private.read_bytes())["mcpServers"]["powercontext"]
+    assert private["url"] == "https://selected.example/mcp"
+    assert private["enabled"] is False
+    assert resolve_host_transport("minimax") == ("https://selected.example", False)
 
 
 @pytest.mark.parametrize("operation", ["setup", "config"])

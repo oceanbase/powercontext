@@ -27,7 +27,7 @@ import sqlite3
 import stat
 import subprocess
 import tempfile
-from contextlib import closing
+from contextlib import closing, nullcontext
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
@@ -93,7 +93,8 @@ def _command(explicit: Path | None, saved: dict[str, Any], data_dir: Path | None
         if not candidate.is_file() or not os.access(candidate, os.X_OK):
             raise SetupError("MiniMax launcher is unavailable; correct --minimax-command")
         return str(candidate)
-    return shutil.which("mcode")
+    discovered = shutil.which("mcode")
+    return str(Path(discovered).absolute()) if discovered is not None else None
 
 
 def _data_dir(explicit: Path | None, saved: dict[str, Any], command: str | None, *, read_only: bool) -> Path:
@@ -263,15 +264,20 @@ class MiniMaxInstaller:
             return entry
         return _mcp_entry(_object(self.plugin / _MCP))
 
-    def native_endpoint(self) -> str | None:
+    def native_endpoint(self, package: Path | None = None) -> str | None:
         entry = self.native_entry()
+        if entry is None and package is not None:
+            private = _mcp_entry(_object(self.data_dir / "mcp.json"))
+            if private is not None and private.get("enabled") is False:
+                # A disabled private entry leaves the incoming bundle active on first install.
+                entry = _mcp_entry(_object(package / _MCP), required=True)
         return _endpoint(entry) if entry is not None else None
 
-    def install(self, source, *, connection=None) -> dict[str, Any]:  # noqa: C901
+    def install(self, source, *, connection=None, package: Path | None = None) -> dict[str, Any]:  # noqa: C901
         self.native_entry()  # Malformed private configuration must fail before publication.
         if self.plugin.is_symlink() or self.plugin.parent.is_symlink():
             raise SetupError("MiniMax plugin installation must not replace a symbolic link")
-        with source.package("minimax") as package:
+        with source.package("minimax") if package is None else nullcontext(package) as package:
             incoming = require_minimax_package(package)
             bundled = _object(package / _MCP)
             if connection is not None:

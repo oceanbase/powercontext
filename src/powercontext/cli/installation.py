@@ -21,7 +21,7 @@ import os
 import shutil
 import tempfile
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -159,23 +159,24 @@ def setup(
     try:
         validate_setup_authorization(host)
         installer = installers()[host](**options) if host == "minimax" else None
-        native = {"native_endpoint": installer.native_endpoint()} if installer is not None else {}
-        connection = prepare_setup_transport(
-            host,
-            server_url=server_url,
-            allow_insecure_http=allow_insecure_http,
-            json_output=json_output,
-            dsh_target=options.get("dsh_target"),
-            **native,
-        )
-        if installer is None:
-            installer = installers()[host](**options)
         source_package = PluginSource(source, ref)
-        report = (
-            installer.install(source_package, connection=connection)
-            if host == "minimax"
-            else installer.install(source_package)
-        )
+        with source_package.package(host) if host == "minimax" else nullcontext() as package:
+            native = {"native_endpoint": installer.native_endpoint(package)} if installer is not None else {}
+            connection = prepare_setup_transport(
+                host,
+                server_url=server_url,
+                allow_insecure_http=allow_insecure_http,
+                json_output=json_output,
+                dsh_target=options.get("dsh_target"),
+                **native,
+            )
+            if installer is None:
+                installer = installers()[host](**options)
+            report = (
+                installer.install(source_package, connection=connection, package=package)
+                if host == "minimax"
+                else installer.install(source_package)
+            )
         try:
             report.update(installer.configure(connection))
         except Exception as error:
