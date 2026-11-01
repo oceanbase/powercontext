@@ -107,6 +107,7 @@ _OCEANBASE_QUERY_OVERRIDES = frozenset(
     }
 )
 _SHA = re.compile(r"[0-9a-f]{40}")
+_OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _INVALID_DOCKER_COPY_SYMLINK = re.compile(r'invalid symlink "[^"\r\n]+" -> "[^"\r\n]+"')
 _DOCKER_NETWORK_CONTROL_LOCK = threading.Lock()
 _DOCKER_NETWORK_CREATE_ATTEMPTS = 3
@@ -1231,6 +1232,7 @@ class DockerSut:
                 self._stage_tokensflow_binary(config, paths)
                 tokensflow_binary_staged = True
             self._initialize_workspace(config, arm, paths)
+            trim_future_history(self._docker, paths.workspace)
             self._prewarm(config, arm, paths, network, relay_url)
             self._start_container(
                 config,
@@ -3096,6 +3098,37 @@ def _tool_directory_mount(
     if require_executable and not os.access(resolved, os.X_OK):
         raise UnsafeSutConfiguration("Tool binary is not executable")
     return f"type=bind,src={resolved.parent},dst={destination},readonly"
+
+
+def trim_future_history(runner: Any, workspace: Path) -> None:
+    """Keep only HEAD and its ancestors so the agent cannot read the reference fix from git.
+
+    Task images ship the upstream history, including the fix commit, on branches, remotes, and tags. The working
+    tree and index are left untouched, so the final ``git diff HEAD`` is unchanged.
+    """
+
+    def git(*argv: str, check: bool = True, input_bytes: bytes | None = None) -> str:
+        return runner.run(
+            ("git", *argv), cwd=workspace, timeout=600, check=check, input_bytes=input_bytes
+        ).stdout.strip()
+
+    head = git("rev-parse", "--verify", "HEAD^{commit}")
+    if _OBJECT_ID.fullmatch(head) is None:
+        raise UnsafeSutConfiguration("Workspace HEAD is not a commit")
+    branch = git("symbolic-ref", "--quiet", "HEAD", check=False)
+    refs = git("for-each-ref", "--format=%(refname)").splitlines()
+    git("update-ref", "--no-deref", "HEAD", head)
+    if refs:
+        git("update-ref", "--no-deref", "--stdin", input_bytes="".join(f"delete {ref}\n" for ref in refs).encode())
+    for pseudo_ref in ("ORIG_HEAD", "FETCH_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+        git("update-ref", "-d", pseudo_ref, check=False)
+    if branch.startswith("refs/heads/"):
+        git("update-ref", branch, head)
+        git("symbolic-ref", "HEAD", branch)
+    git("reflog", "expire", "--expire=now", "--all")
+    git("gc", "--quiet", "--prune=now")
+    if git("rev-list", "--all", "--not", "HEAD"):
+        raise UnsafeSutConfiguration("Workspace git history still reaches commits after HEAD")
 
 
 def _reject_retained_secrets(data: bytes, variants: tuple[str, ...]) -> None:

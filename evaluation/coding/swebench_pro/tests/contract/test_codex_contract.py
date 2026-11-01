@@ -66,6 +66,7 @@ from powercontext_eval_swebench_pro.powercontext_sut import (
     auth_secret_variants,
     loopback_proxy_environment,
     run_codex_contract_smoke,
+    trim_future_history,
     validate_treatment,
 )
 from powercontext_eval_swebench_pro.process import CommandFailed, CommandResult, CommandTimedOut, ProcessRunner
@@ -652,6 +653,41 @@ def test_workspace_initialization_recovers_from_docker_cp_rejecting_an_escaping_
     assert fallback[fallback.index("--entrypoint") + 1] == "/bin/cp"
     assert fallback[-4:] == ("--archive", "--no-preserve=ownership", "/app/.", "/workspace")
     assert not paths.workspace.joinpath("partial-copy").exists()
+
+
+def test_workspace_history_keeps_only_head_and_its_ancestors(tmp_path: Path) -> None:
+    def git(*argv: str) -> str:
+        return subprocess.run(
+            ("git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.test", *argv),
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    git("init", "--quiet", "--initial-branch=main")
+    (tmp_path / "module.py").write_text("value = 1\n")
+    git("add", "module.py")
+    git("commit", "--quiet", "-m", "base")
+    base = git("rev-parse", "HEAD")
+    # The reference fix lives after the base commit on a branch, a remote-tracking ref, and a tag.
+    git("switch", "--quiet", "-c", "devel")
+    (tmp_path / "module.py").write_text("value = 2\n")
+    git("commit", "--quiet", "-am", "reference fix")
+    fix = git("rev-parse", "HEAD")
+    git("update-ref", "refs/remotes/origin/devel", fix)
+    git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/devel")
+    git("tag", "v2", fix)
+    git("switch", "--quiet", "main")
+    (tmp_path / "module.py").write_text("value = 3\n")
+
+    trim_future_history(ProcessRunner(), tmp_path)
+
+    assert git("rev-parse", "HEAD") == base
+    assert git("symbolic-ref", "HEAD") == "refs/heads/main"
+    assert git("for-each-ref", "--format=%(refname)") == "refs/heads/main"
+    assert subprocess.run(("git", "cat-file", "-e", fix), cwd=tmp_path, check=False).returncode != 0
+    assert "+value = 3" in git("diff", "HEAD")
 
 
 def test_parallel_workspace_initialization_shares_a_bounded_docker_budget(tmp_path: Path) -> None:
