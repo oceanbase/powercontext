@@ -4027,8 +4027,115 @@ export interface components {
             status: components["schemas"]["PreparedContextStatus"];
             content: string | null;
             content_bytes: number;
-            /** @description Why this preparation lost a retrieval channel it would otherwise have used. Absent unless the request asked with `explain` and a channel was lost, so a response a Host injects keeps its four fields. The values are the two inference failures among RFC 1435's four `SearchGroup.fallback_reason` spellings, so a later Receipt reuses them instead of restating the cause. `none` travels as absence, and `reused_fts_fallback` is not a cause here: a later round reusing a failed round's keyword-only outcome is still explained by that round's `inference_*` value, which outranks it. */
-            reason?: components["schemas"]["PreparedContextReason"] | null;
+            /** @description Present only when requested and successfully assembled. */
+            receipt?: components["schemas"]["PreparedContextReceipt"];
+        };
+        PreparedContextReceipt: {
+            /** @enum {string} */
+            schema: "powercontext.prepared-context-receipt.v1";
+            /** Format: uuid */
+            receipt_id: string;
+            /** @enum {string} */
+            policy_id: "powercontext.prepared-context-receipt.v1";
+            query_digest: string;
+            content_digest: string | null;
+            requested_max_bytes: number;
+            used_bytes: number;
+            truncated: boolean;
+            non_deterministic: boolean;
+            retrieval: components["schemas"]["PreparedContextRetrieval"];
+            selected: components["schemas"]["PreparedContextSelectedItem"][];
+            omitted: components["schemas"]["PreparedContextOmittedGroup"][];
+            stages: components["schemas"]["PreparedContextStageTiming"][];
+        };
+        PreparedContextRetrieval: {
+            rounds: components["schemas"]["PreparedContextRecallRound"][];
+            searches: components["schemas"]["PreparedContextSearchGroup"][];
+            rerank_configs: components["schemas"]["PreparedContextRerankConfig"][];
+            reranks: components["schemas"]["PreparedContextRerankGroup"][];
+        };
+        PreparedContextRecallRound: {
+            round: number;
+            /** @enum {string} */
+            outcome: "completed" | "expansion_failed";
+            retained: boolean;
+        };
+        PreparedContextSearchGroup: {
+            round: number;
+            family: components["schemas"]["PreparedContextFamily"];
+            /** @enum {string} */
+            mode: "fts" | "vector" | "hybrid" | "snapshot" | "code" | "none";
+            /** @enum {string} */
+            outcome: "completed" | "not_run" | "failed";
+            /** @enum {string} */
+            fallback_reason: "none" | "inference_unavailable" | "inference_timeout" | "reused_fts_fallback";
+            count: number;
+        };
+        PreparedContextRerankConfig: {
+            config_id: string;
+            policy_id: string;
+            model: string | null;
+            effective_settings: {
+                [key: string]: string | number | boolean;
+            };
+            timeout_seconds: number;
+            max_requests: number;
+            config_digest: string;
+            prompt: components["schemas"]["PreparedContextPromptIdentity"];
+            non_deterministic: boolean;
+        };
+        PreparedContextPromptIdentity: {
+            scope_id: string;
+            key: string;
+            definition_version: string;
+            builtin_version: string;
+            /** @enum {string} */
+            selection: "built_in" | "artifact";
+            selected_version: string;
+            compiled_digest: string;
+            artifact_address: components["schemas"]["PreparedContextPromptArtifactAddress"];
+        } | null;
+        PreparedContextPromptArtifactAddress: {
+            scope_id: string;
+            artifact: components["schemas"]["ArtifactReference"];
+        } | null;
+        PreparedContextRerankGroup: {
+            round: number;
+            config_id: string;
+            /** @enum {string} */
+            outcome: "selected" | "fallback" | "failed";
+            /** @enum {string} */
+            fallback_reason: "none" | "empty_selection" | "inference_unavailable" | "inference_timeout" | "invalid_output";
+            count: number;
+        };
+        /** @enum {string} */
+        PreparedContextFamily: "atomic-memory" | "topic-memory" | "experience" | "profile" | "code";
+        PreparedContextCodeEvidence: {
+            scope_id: string;
+            fingerprint: string;
+            path: string;
+            file_sha256: string;
+            start_line: number;
+            end_line: number;
+            snippet_sha256: string;
+        };
+        PreparedContextSelectedItem: {
+            kind: components["schemas"]["PreparedContextFamily"];
+            artifact_address?: components["schemas"]["ArtifactAddress"];
+            code_evidence?: components["schemas"]["PreparedContextCodeEvidence"];
+            rendered_bytes: number;
+            truncated: boolean;
+        };
+        PreparedContextOmittedGroup: {
+            family: components["schemas"]["PreparedContextFamily"];
+            /** @enum {string} */
+            reason: "duplicate" | "blank" | "family_limit" | "entry_limit" | "below_min_bytes" | "no_fitting_truncation" | "rerank_not_selected" | "not_retrieved";
+            count: number;
+        };
+        PreparedContextStageTiming: {
+            stage: string;
+            duration_ms: number;
+            count: number;
         };
         BootstrapContextItem: {
             kind: components["schemas"]["BootstrapContextItemKind"];
@@ -4782,10 +4889,10 @@ export interface components {
              */
             include_code: boolean;
             /**
-             * @description Opt into reporting which retrieval channel this preparation lost, as `reason` on the response. Off by default, because a response a Host injects keeps its four fields.
+             * @description Opt into a bounded, content-free PreparedContext Receipt.
              * @default false
              */
-            explain: boolean;
+            include_receipt: boolean | null;
             assembly?: components["schemas"]["ContextAssembly"];
             /** @description Optional exact receipt for the last successfully injected bootstrap package. Only fully delivered Atomic Memory revisions from an injected same-Scope receipt are removed before candidate limiting and sufficiency assessment; Artifacts whose bootstrap bodies were truncated remain eligible. */
             bootstrap_receipt_id?: string;
@@ -5413,8 +5520,6 @@ export interface components {
         BootstrapContextItemKind: "atomic-memory" | "handoff";
         /** @enum {string} */
         BootstrapReceiptState: "pending" | "injected" | "skipped" | "failed";
-        /** @enum {string} */
-        PreparedContextReason: "inference_timeout" | "inference_unavailable";
         /** @enum {string} */
         BootstrapSkipReason: "disabled" | "no_eligible_context" | "already_delivered" | "preparation_failed";
         /** @enum {string} */

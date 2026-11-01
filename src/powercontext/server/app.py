@@ -1564,9 +1564,8 @@ def create_app(
     _add_route(app, SEARCH_MEMORY, search_memory)
     _add_route(app, PREPARE_BOOTSTRAP_CONTEXT, prepare_bootstrap_context)
     _add_route(app, RECORD_BOOTSTRAP_DELIVERY, record_bootstrap_delivery)
-    # This response publishes exactly the fields it built: ``reason`` exists only when the request asked
-    # with ``explain``, and serializing the model's defaults would add a null that every Host's
-    # four-field validator rejects on an ordinary injection.
+    # Omit the optional Receipt unless it was requested and successfully built; Host validators
+    # still require exactly four fields on the ordinary injection path.
     _add_route(app, PREPARE_CONTEXT, prepare_context, response_model_exclude_unset=True)
     _add_route(app, QUERY_CODE, query_code)
     _add_route(app, CREATE_WORK_CONTRACT, create_work_contract)

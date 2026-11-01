@@ -331,19 +331,43 @@ def test_prepare_requires_read_access_to_every_referenced_scope(tmp_path, assemb
             response = await client.post("/v1/context/prepare", headers={"Authorization": "Bearer bob"}, json=payload)
             assert response.status_code == 403
             assert "PRIVATE" not in response.text
+            opted_denied = await client.post(
+                "/v1/context/prepare",
+                headers={"Authorization": "Bearer bob"},
+                json={**payload, "include_receipt": True},
+            )
+            assert opted_denied.status_code == 403 and "PRIVATE" not in opted_denied.text
             disabled = await client.post(
                 "/v1/context/prepare",
                 headers={"Authorization": "Bearer bob"},
                 json={
                     **payload,
                     "assembly": {"sections": []},
+                    "include_receipt": True,
                 },
             )
             assert disabled.status_code == 200 and disabled.json()["status"] == "empty"
+            assert disabled.json()["receipt"]["selected"] == []
             grant = await _grant(client, shared, "bob", "scope.viewer")
             allowed = await client.post("/v1/context/prepare", headers={"Authorization": "Bearer bob"}, json=payload)
             assert allowed.status_code == 200
             assert "PRIVATE shared deployment contract." in allowed.json()["content"]
+            opted_allowed = await client.post(
+                "/v1/context/prepare",
+                headers={"Authorization": "Bearer bob"},
+                json={**payload, "include_receipt": True},
+            )
+            assert opted_allowed.status_code == 200
+            selected = opted_allowed.json()["receipt"]["selected"]
+            assert selected and all(item["artifact_address"]["scope_id"] == shared for item in selected)
+            artifact = selected[0]["artifact_address"]["artifact"]
+            exact_path = (
+                f"/v1/scopes/{shared}/artifacts/{artifact['family']}/"
+                f"{artifact['artifact_id']}/revisions/{artifact['revision']}"
+            )
+            exact = await client.get(exact_path, headers={"Authorization": "Bearer bob"})
+            assert exact.status_code == 200
+            assert exact.json()["revision"] == artifact["revision"]
             revoked = await client.post(
                 "/v1/access/bindings/revoke",
                 json={
@@ -355,6 +379,8 @@ def test_prepare_requires_read_access_to_every_referenced_scope(tmp_path, assemb
             assert revoked.status_code == 200, revoked.text
             denied = await client.post("/v1/context/prepare", headers={"Authorization": "Bearer bob"}, json=payload)
             assert denied.status_code == 403 and "PRIVATE" not in denied.text
+            revoked_exact = await client.get(exact_path, headers={"Authorization": "Bearer bob"})
+            assert revoked_exact.status_code == 403
 
     asyncio.run(scenario())
 
