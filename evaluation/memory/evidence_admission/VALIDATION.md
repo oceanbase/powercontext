@@ -187,3 +187,28 @@ but retained zero of four exact literals and failed the bound quality gate. A ra
 the same output hash and score without new provider requests; the stopped-session guard prevents advancing to Unicode.
 These results establish neither successful Unicode generation nor formal all-arm acceptance.
 See [V13_RESULTS.zh.md](V13_RESULTS.zh.md) for measured usage, review limits and the unchanged historical results.
+
+
+## Inline cell protocol validation
+
+V15 adds 22 behavior regressions. The full evaluator run passes 447 tests with 1926 warnings in 508.98 seconds
+on Python 3.11.15. Recorded v14 templates replay through their historical Pipeline with no provider requests;
+the Unicode loss remains 1/3, and the earliest template-free probe is not claimed replayable.
+
+Three reexecuted datasets cover 1620 identities, one content identity, all arms, three budgets and three repetitions.
+Selected ranges and wire roundtrips match; candidate executable required claims are 495/495, including same-request
+coverage. Additional protocol budget rejections and nondeterministic groups are zero. Existing native preparation
+rejections, unavailability and cancellation remain separate. All costs are local estimates and calls are potential plans.
+
+The frozen minimal manifest requires one request per case. Unicode needs four requests with 1195 inline cells;
+its ordinary per-call and cumulative packing budgets pass, but this stricter manifest fails. Execution stops before
+SDK preflight or credentials. No v15 provider request, live semantic success or production authorization is claimed.
+
+Ruff, v15/root/Pydantic AI integration types, both lock checks and integration manifest/guidance checks pass.
+All repository hooks were executed: historical v14 contract JSON formatting fails; automatic formatting was restored
+to preserve historical bytes. Other hooks pass, and all new JSON files pass the same format hook separately.
+The broader evaluation type check retains the existing LongMemEval ScopedAtomicMemory.evidence diagnostic.
+Other Python versions and a real SDK/provider preflight were not run. Sandbox SQLite thread wakeups stalled;
+persistence tests and comparisons completed in the approved local execution environment without provider traffic.
+
+See [V15_RESULTS.zh.md](V15_RESULTS.zh.md) and [results/v15-offline](results/v15-offline) for counts, hashes and limits.

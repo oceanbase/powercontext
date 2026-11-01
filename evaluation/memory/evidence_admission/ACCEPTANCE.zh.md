@@ -3,6 +3,12 @@
 本评估对应 [issue #2074](https://github.com/oceanbase/powercontext/issues/2074)，当前唯一总体决策为
 `insufficient_evidence`。包、Source 重放、准入比较和本地审计已经实现，正式线上联合验收尚未完成，不能授权生产修改。
 
+[v15 结果](V15_RESULTS.zh.md)在同一内容身份下重新执行三集 1620 条离线比较：候选可执行必需事实
+495/495，新增协议预算拒绝与非确定性均为 0。原始准备的完整投影/窗口预算拒绝、故障与取消仍单独保留。
+最小线上清单预检发现 Unicode 在 4K 需要四次请求，超过冻结的每例一次约束，已停止在 SDK 预检前，
+本轮新增 provider 请求为 0。447 项回归通过；新协议的真实生成质量及正式联合比较仍未验证。
+历史 v14 的 exact-literals 4/4 与 Unicode 1/3 已离线回放，不覆盖其失败或追认原有执行满足正式合同。
+
 issue 要求完成可复放的评估并选择一个决策，并不要求必须找到通过的候选。`no_production_change` 和
 `insufficient_evidence` 也是允许的研究结论；只有 `bounded_projection_follow_up_required` 才要求候选通过全部冻结门槛，
 并生成单独的生产后续契约。生产实现、私有语料和可信结构分层并非无条件必备交付。
