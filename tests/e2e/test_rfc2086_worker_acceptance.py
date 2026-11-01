@@ -29,7 +29,7 @@ from typing import Any, Literal, cast
 import pytest
 from pydantic import AnyHttpUrl, SecretStr
 
-from powercontext.builtin.artifacts.atomic_memory.input_encoding import decode_atomic_memory_input
+from powercontext.builtin.inference.input_encoding import decode_input
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig, UpstreamProfile
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
@@ -42,6 +42,7 @@ from powercontext.builtin.runtime import (
     RuntimeConfig,
     open_builtin_runtime,
 )
+from powercontext.builtin.runtime.atomic_memory_input import ATOMIC_MEMORY_INPUT_SCHEMA
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
 from powercontext.builtin.scope import ScopeDraft
 
@@ -60,8 +61,8 @@ class WorkerHandler(BaseHTTPRequestHandler):
         cast(WorkerServer, self.server).requests.append(payload)
         prompt = next(item["content"] for item in payload["messages"] if item["role"] == "user")
         task = json.loads(prompt)
-        if task.get("schema") == "powercontext.atomic-memory-input.v1":
-            task = json.loads(decode_atomic_memory_input(prompt))
+        if task.get("schema") == ATOMIC_MEMORY_INPUT_SCHEMA:
+            task = json.loads(decode_input(prompt, schema=ATOMIC_MEMORY_INPUT_SCHEMA))
         if "proposal" in task:
             output = {
                 "action": "create",
@@ -231,9 +232,7 @@ def test_privacy_rejection_keeps_source_pending_and_recovers_after_restart(
             for item in request["messages"]
             if item["role"] == "user"
         ]
-        assert any(item.get("schema") == "powercontext.atomic-memory-input.v1" for item in sent) == (
-            encoding == "active"
-        )
+        assert any(item.get("schema") == ATOMIC_MEMORY_INPUT_SCHEMA for item in sent) == (encoding == "active")
         async with (
             SQLiteProfile.open(database, tables=BUILTIN_TABLES) as profile,
             profile.database.transaction() as conn,
