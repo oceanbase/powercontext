@@ -1,11 +1,15 @@
 name: E2E harness
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
+      suite:
+        type: string
+        default: all
   workflow_dispatch:
     inputs:
       suite:
@@ -17,6 +21,7 @@ on:
           - recall-effort
 
 permissions:
+  actions: read
   contents: read
 
 env:
@@ -24,18 +29,21 @@ env:
   UV_VERSION: "0.10.12"
 
 concurrency:
-  group: e2e-harness-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: e2e-harness-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
 
 jobs:
   changes:
+    if: ${{ inputs.suites == '' }}
     uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: e2e-harness.yml
 
   validate:
     needs: changes
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
-          (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').harness) }}
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').harness) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -65,7 +73,7 @@ jobs:
 
   recall-effort:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').database) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -321,10 +329,11 @@ jobs:
     needs: changes
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
-          (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').database) }}
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ubuntu-latest
     timeout-minutes: 145
     strategy:
+      max-parallel: 2
       fail-fast: false
       matrix:
         shard: [0, 1, 2]
@@ -481,7 +490,7 @@ jobs:
     needs: [changes, atomic-memory-clean-oceanbase-shards]
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
-          (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').database) }}
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -518,6 +527,8 @@ jobs:
 
   acceptance:
     needs: validate
+    # Main supplies scope, so the detector ancestor is intentionally skipped.
+    if: ${{ !cancelled() && needs.validate.result == 'success' }}
     runs-on: ubuntu-latest
     # OceanBase regressions can take 32 minutes before the separate replay scenarios.
     timeout-minutes: ${{ matrix.database == 'oceanbase' && 60 || 40 }}

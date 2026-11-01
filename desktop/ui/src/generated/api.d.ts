@@ -261,6 +261,131 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/artifact-plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Artifact plugin registrations */
+        get: operations["list_artifact_plugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get an Artifact plugin registration */
+        get: operations["get_artifact_plugin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/enable-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable the currently disabled Artifact plugins
+         * @description Captures registrations and generations at request start, then accepts each eligible enable independently. Enabled, unloaded, failed and transitioning plugins are skipped. Concurrent changes and validation failures are reported per plugin without rolling back successes. Does not discover or reload plugins; poll each status URL for the asynchronous outcome.
+         */
+        post: operations["enable_all_artifact_plugins"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/reload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load or update a Worker-loaded Artifact plugin
+         * @description Reads the binding's direct child entry under POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR and fixes its resolved immutable directory. The manifest binding_name must match the directory entry and request path. Saves validated configuration and declarations without creating a pipeline. Existing enabled or disabled plugins keep their state; initial, unloaded or failed registrations become disabled. This initial path supports the global SQLite Supervisor. Plugin code is loaded only in child processes.
+         */
+        post: operations["reload_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable an Artifact plugin */
+        post: operations["enable_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable an Artifact plugin */
+        post: operations["disable_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/unload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unload an Artifact plugin */
+        post: operations["unload_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/capabilities": {
         parameters: {
             query?: never;
@@ -2885,6 +3010,8 @@ export interface components {
             scope_id: string;
             family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
+            /** @description Persisted schema version for a custom Artifact family. */
+            schema_version?: string | null;
             revision: number;
             sources: components["schemas"]["SourceTypeReference"][];
             artifacts: components["schemas"]["ArtifactReference"][];
@@ -2926,6 +3053,8 @@ export interface components {
             scope_id: string;
             family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
+            /** @description Persisted schema version for a custom Artifact family. */
+            schema_version?: string | null;
             revision: number;
             content: {
                 [key: string]: unknown;
@@ -3259,7 +3388,58 @@ export interface components {
             /** @enum {string} */
             effect: "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
         };
+        CustomArtifactFamilySchema: {
+            family: string;
+            schema_version: string;
+            content_schema: {
+                [key: string]: unknown;
+            };
+            /** @description Legacy persisted text fields; new plugins use search. */
+            search_fields: string[];
+            /** @description Persistent declarative indexes and supported search modes. */
+            search?: {
+                [key: string]: unknown;
+            };
+        };
+        ReloadArtifactPluginRequest: {
+            expected_generation: number;
+        };
+        ChangeArtifactPluginStateRequest: {
+            expected_generation: number;
+        };
+        ArtifactPluginState: {
+            binding_name: string;
+            plugin_id: string;
+            family: string;
+            binding_generation: number;
+            /** @enum {string} */
+            desired_state: "enabled" | "disabled" | "unloaded";
+            /** @enum {string} */
+            phase: "activating" | "enabled" | "stopping" | "disabled" | "unloading" | "unloaded" | "failed";
+            last_error: string | null;
+        };
+        ArtifactPluginPage: {
+            items: components["schemas"]["ArtifactPluginState"][];
+        };
+        EnableArtifactPluginResult: {
+            binding_name: string;
+            /** @enum {string} */
+            outcome: "accepted" | "skipped" | "failed";
+            /** @description Registration status URL for the asynchronous result. */
+            status_url: string;
+            state: components["schemas"]["ArtifactPluginState"];
+            /**
+             * @description Safe per-plugin failure code; null for accepted or skipped entries.
+             * @enum {string|null}
+             */
+            error: "conflict" | "invalid_plugin" | "unavailable" | null;
+        };
+        EnableAllArtifactPluginsResponse: {
+            items: components["schemas"]["EnableArtifactPluginResult"][];
+        };
         Capabilities: {
+            /** @default [] */
+            custom_artifact_schemas: components["schemas"]["CustomArtifactFamilySchema"][];
             /** @default {} */
             prompts: {
                 [key: string]: components["schemas"]["PromptCapability"];
@@ -4784,8 +4964,32 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description Existing embedding space identity shared with Memory; no additional modality or version fields. */
+        EmbeddingProfile: {
+            profile_id: string;
+            model: string;
+            dimension: number;
+            /**
+             * @default l2
+             * @enum {string}
+             */
+            distance: "l2";
+            /**
+             * @default unit
+             * @enum {string}
+             */
+            normalization: "none" | "unit";
+        };
         SearchArtifactsRequest: {
-            query: string;
+            query?: string;
+            query_vector?: {
+                profile: components["schemas"]["EmbeddingProfile"];
+                vector: number[];
+            };
+            indexes?: {
+                text?: string[];
+                vector?: string[];
+            };
             /** @default 10 */
             limit: number;
             mode?: string;
@@ -5182,8 +5386,7 @@ export interface components {
         CaptureStatus: "accepted";
         /** @enum {string} */
         BaseArtifactFamily: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory";
-        /** @enum {string} */
-        ArtifactReadFamily: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory";
+        ArtifactReadFamily: string;
         /** @enum {string} */
         StatsPeriod: "today" | "7d" | "30d";
         /** @enum {string} */
@@ -6312,6 +6515,217 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_artifact_plugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Durable registration states. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Durable registration state without plugin configuration secrets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    enable_all_artifact_plugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-plugin acceptance, skip or failure results. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnableAllArtifactPluginsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    reload_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReloadArtifactPluginRequest"];
+            };
+        };
+        responses: {
+            /** @description Definition saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    enable_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Target saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    disable_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Target saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    unload_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Target saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };
     };

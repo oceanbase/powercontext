@@ -66,8 +66,9 @@ class _SearcherBinding(Generic[RequestT, OutcomeT_co]):
 class ArtifactSearchService:
     """Dispatch repository-known Families without knowing their concrete models."""
 
-    def __init__(self, *, known_families: Iterable[str]) -> None:
+    def __init__(self, *, known_families: Iterable[str], fallback=None) -> None:
         self._known_families = frozenset(known_families)
+        self._fallback = fallback
         self._bindings: dict[str, _SearcherBinding[Any, ArtifactSearchOutcome]] = {}
 
     def register(
@@ -105,6 +106,8 @@ class ArtifactSearchService:
 
     def _binding(self, family: str) -> _SearcherBinding[Any, ArtifactSearchOutcome]:
         if family not in self._known_families:
+            if self._fallback is not None:
+                return _SearcherBinding(self._fallback(family), None)
             raise ArtifactSearchFamilyNotFound(family)
         binding = self._bindings.get(family)
         if binding is None:

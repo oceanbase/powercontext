@@ -38,6 +38,19 @@ def short_tmp_path() -> Iterator[Path]:
 
 
 @pytest.fixture(autouse=True)
+def isolated_artifact_family_profiles():
+    """Plugin registration in one test must not change another Server's readiness."""
+    from powercontext.server.authz.profiles import ARTIFACT_FAMILY_PROFILES
+
+    original = dict(ARTIFACT_FAMILY_PROFILES)
+    try:
+        yield
+    finally:
+        ARTIFACT_FAMILY_PROFILES.clear()
+        ARTIFACT_FAMILY_PROFILES.update(original)
+
+
+@pytest.fixture(autouse=True)
 def isolated_client_connection_settings(tmp_path, monkeypatch, request):
     """Isolate daily runtime settings and persistent setup consent, preserving explicit real E2E runs."""
 
