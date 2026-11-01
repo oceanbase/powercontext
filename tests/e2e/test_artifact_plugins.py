@@ -30,9 +30,10 @@ import httpx
 import pytest
 import yaml
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.server.authz import AccessAction, AccessAuditContext, AccessDeniedError, PrincipalRef, ResourceRef
 from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.server.authz.owner_recovery import OwnerRecovery
 from powercontext.server.authz.profiles import register_custom_artifact_access_family
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples/artifact_plugins/incident_report"
@@ -1074,3 +1075,67 @@ async def _migrate_registered_custom_family(tmp_path: Path) -> None:
                 resource,
                 context=AccessAuditContext(transport="test", operation="artifact.write"),
             )
+
+
+def test_offline_migration_reports_pending_custom_family_owner(tmp_path: Path) -> None:
+    asyncio.run(_offline_migration_reports_pending_custom_family_owner(tmp_path))
+
+
+async def _offline_migration_reports_pending_custom_family_owner(tmp_path: Path) -> None:
+    plugin = deploy_plugin(EXAMPLE, tmp_path / "pending-v1", None)
+    async with running_server(tmp_path, access_mode="disabled") as client:
+        scope = await create_scope(client, "custom-pending")
+        await reload_plugin(client, tmp_path, plugin, 0)
+        await change(client, "enable", 1, "enabled")
+        await capture(client, scope, "pending-report")
+        (report,) = await contents(client, scope, "incident-report", 1)
+        await change(client, "disable", 2, "disabled")
+
+    resource = ResourceRef.artifact(scope, family="incident-report", artifact_id=report["artifact_id"])
+    database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'server.db'}")
+    async with open_builtin_access_control(database) as access, SQLiteProfile.open(database, tables=()) as profile:
+        recovery = OwnerRecovery(profile.database, access)
+        await recovery.initialize()
+        async with profile.database.transaction() as connection:
+            await recovery.for_transaction(connection).establish_artifact_owner(
+                resource,
+                PrincipalRef(type="user", id="alice"),
+                idempotency_key="custom-family-pending",
+                context=AccessAuditContext(transport="test", operation="artifact.write"),
+            )
+        assert [item.resource for item in await recovery.pending(scope_id=scope)] == [resource]
+
+    # A separate process holds no custom family profile; only persisted declarations identify it.
+    environment = tmp_path / "offline.env"
+    environment.write_text(
+        "POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\n"
+        f"POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{(tmp_path / 'server.db').as_posix()}\n"
+        "POWERCONTEXT_SERVER_ACCESS_MODE=disabled\n"
+        "POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES=[]\n",
+        encoding="utf-8",
+    )
+    result = await asyncio.create_subprocess_exec(
+        str(Path(sys.executable).with_name("powercontext")),
+        "server",
+        "access-ownership-migrate",
+        "--env-file",
+        str(environment),
+        "--action",
+        "apply",
+        "--owner",
+        "user:bob",
+        "--scope-id",
+        scope,
+        "--maintenance-confirmed",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await result.communicate()
+    assert result.returncode == 1, (stdout + stderr).decode()
+    migrated = json.loads(stdout)
+    assert migrated["applied"] == []
+    assert [item["detail"] for item in migrated["conflicts"]] == ["owner-recovery-pending"]
+
+    async with open_builtin_access_control(database) as access:
+        register_custom_artifact_access_family("incident-report")
+        assert await access.artifact_owner(resource) is None
