@@ -118,6 +118,13 @@ For an explicit save request:
    returns successfully. A prompt Source captured by the Hook is not a Memory
    write and does not satisfy this request.
 
+For `remember I prefer uv for Python`, call `remember_memory` with the resolved
+Scope in place of the placeholder:
+
+```json
+{"scope_id": "<resolved scope_id>", "kind": "preference", "text": "The user prefers uv for Python."}
+```
+
 Never save secrets, credentials, tokens, or a verbatim copy of the full prompt.
 
 ### Search Memory

@@ -28,4 +28,3 @@ HIDDEN_PARAMETERS = frozenset(
         "bootstrap_receipt_id",
     }
 )
-MEMORY_KINDS = ("decision", "constraint", "current-state", "task-outcome", "next-step", "agent-note")
