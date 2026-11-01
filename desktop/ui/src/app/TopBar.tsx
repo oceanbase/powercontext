@@ -294,9 +294,10 @@ export function TopBar({
                 </p>
                 <p className="menu-note">
                   {t.accessMode}:{" "}
-                  {report?.connectionIdentity?.value?.access_mode ??
-                    report?.identity.value?.mode ??
-                    t.unverified}
+                  {report?.connectionIdentity
+                    ? (report.connectionIdentity.value?.access_mode ??
+                      t.unverified)
+                    : (report?.identity.value?.mode ?? t.unverified)}
                 </p>
               </>
             ) : (

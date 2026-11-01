@@ -140,16 +140,37 @@ async fn main() {
     assert_eq!(exact.text, text);
     // Exercise the same native context owner used by product IPC, not only bare HTTP adapters.
     let temporary = tempfile::tempdir().unwrap();
-    let manager = ConnectionManager::with_compatibility(
-        ProfileRepository::open(
-            temporary.path().join("profiles.json"),
-            std::sync::Arc::new(NativeVault),
+    let repository = ProfileRepository::open(
+        temporary.path().join("profiles.json"),
+        std::sync::Arc::new(NativeVault),
+    )
+    .unwrap();
+    let product = args.get(2).is_some_and(|argument| argument == "product");
+    let manager = if product {
+        ConnectionManager::new(repository)
+    } else {
+        ConnectionManager::with_compatibility(
+            repository,
+            vec![fixture.compatibility_profile.clone()],
         )
-        .unwrap(),
-        vec![fixture.compatibility_profile.clone()],
-    );
+    };
     let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&args[1]).unwrap()).unwrap();
-    let compatibility = &fixture.compatibility_profile.id;
+    let compatibility = if product {
+        manager
+            .state()
+            .unwrap()
+            .compatibility_profiles
+            .into_iter()
+            .find(|profile| {
+                profile.server_commit == fixture.compatibility_profile.server_commit
+                    && profile.contract_sha256 == fixture.compatibility_profile.contract_sha256
+                    && profile.artifact_sha256 == fixture.compatibility_profile.artifact_sha256
+            })
+            .expect("independently qualified product record for the actual wheel")
+            .id
+    } else {
+        fixture.compatibility_profile.id.clone()
+    };
     let credential = raw["token"]
         .as_str()
         .map(|value| serde_json::json!({"secret":value,"storage":"session_only"}));

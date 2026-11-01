@@ -107,7 +107,7 @@ async def _scope(client):
     return result.json()["scope_id"]
 
 
-def test_connection_identity_and_owned_memory_survive_denied_server_observation(tmp_path: Path) -> None:
+def test_connection_identity_and_owned_memory_survive_denied_server_observation(tmp_path: Path, monkeypatch) -> None:
     async def scenario() -> None:
         async with _server(tmp_path) as (app, client, _access):
 
@@ -115,6 +115,8 @@ def test_connection_identity_and_owned_memory_survive_denied_server_observation(
                 pytest.fail("Ordinary connection and Memory operations must not probe readiness")
 
             app.state.readiness_probe = forbidden_probe
+            monkeypatch.setattr(app.state.authentication_provider, "readiness", forbidden_probe)
+            monkeypatch.setattr(_access, "readiness", forbidden_probe)
             scope_id = await _scope(client)
             await _grant(client, scope_id, "alice", "scope.contributor")
             client.headers["Authorization"] = "Bearer alice"

@@ -1,5 +1,60 @@
 # Desktop validation
 
+## Server 9624761b connection identity qualification
+
+`sqlite-atomic-9624761b-v1` qualifies Server source
+`9624761bf3e88b9275562602ef6eac5c5fc54562` with normalized OpenAPI SHA-256
+`45872d54c03a235ecbab13eab346efb2fd102d8bc2937f683fbb82d40bd11edf` and wheel
+`powercontext-1.4.2.dev0+g9624761b-py3-none-any.whl`, SHA-256
+`609b020d37f5d93867d4a103eabfcbda8a9397546eea544cd30957386210e6d1`.
+The wheel was built from that exact Git archive with an explicit archive-build version.
+All 670 runtime files match the archived sources after CRLF normalization.
+
+On 2026-11-01, Windows 10 x64 / Python 3.11.15 / Rust 1.95.0 exercised the actual
+debug native adapter against independent built-wheel SQLite Server processes in four modes:
+anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and enforced Provider.
+All four passed first with disposable fixture evidence and then with ordinary
+`ConnectionManager::new` selecting the bundled product record by its exact source,
+contract and wheel identities. The twelve qualified operations are `get_connection_identity`,
+`get_server_info`, `get_liveness`, `get_readiness`, `get_capabilities`, `get_access_principal`,
+`list_scopes`, `get_scope`, `get_default_scope`, `remember_memory`, `search_memory`, and
+`get_artifact_revision`. The existing `get_access_principal` anonymous-mode 503 remains
+an expected error; explicit anonymous evidence comes only from the new identity operation.
+
+The probe verifies saved/passively checked profiles remain inactive with no readiness
+observation, explicit readiness produces a separate timestamp without changing generation,
+and explicit activation/Scope selection permits Memory save, search and exact reads.
+Existing lost-response/no-replay, original write target, Principal change/revocation and
+Scope pagination assertions passed. The native probe executable SHA-256 was
+`10871e418986ebb196910b407f711bc8b5879f033f8e31471e1acc914cdbe7c4`.
+The Desktop test helper/catalog working tree was dirty; Server runtime sources match the
+recorded clean archive. These are protocol results, not signed-package or installed UI acceptance.
+
+Native tests: 95 passed, including no readiness requests during ordinary anonymous/authenticated
+actions, access-mode changes, unavailable/denied identity without fallback, independent
+capability denial, failed explicit readiness preserving Scope/Memory, and stale probe cancellation.
+Frontend: 150 passed, including English/Chinese explicit action and accessible explanation;
+these use jsdom/mocked IPC. Server/client regressions: 114 passed. A real SQLite/Access ASGI
+regression additionally rejects all readiness entry points after startup and verifies a user
+without `server.observe` can obtain identity and save/read in an independently granted Scope.
+Server startup readiness is a separate lifecycle responsibility and is unchanged.
+
+The new public operation does not certify arbitrary remote binaries or authorize resource
+operations. Anonymous legacy Servers without its qualified identity contract require an upgrade;
+qualified authenticated legacy profiles retain Principal checks. Existing product qualification
+records retain their original source, wheel, contract and operation evidence. Installed WebView,
+system vault, IME/accessibility/scaling and Windows 11/macOS qualification remain separate.
+
+该记录绑定准确的 Server 源码、wheel 和契约，670 个运行时文件已逐一核对。真实 SQLite Server 的匿名本机、
+Bearer、HTTPS 自定义 CA／路径前缀及强制 Provider 四种模式均通过；随后使用普通产品连接管理器和打包资格记录
+再次通过。验证覆盖轻量连接身份、显式就绪探测、精确 Scope、记忆读写、原始写入目标、响应丢失不重放及撤权。
+原生 95 项、前端 150 项、Server／客户端 114 项测试通过。前端使用模拟 IPC；实际 SQLite／Access 集成另外确认：
+无观察权限但有独立 Scope 授权时仍可确认身份并读写，普通请求不会调用模型或 Provider 就绪探测。
+Server 启动时的就绪检查归属独立生命周期，未在本次改变。
+
+匿名旧版 Server 缺少已验证的轻量身份接口时需要升级；已验证的已认证旧版配置继续复核 Principal。
+这些证据不代替安装后的 WebView、系统凭据库、输入法／无障碍／缩放和 Windows 11／macOS 平台验收。
+
 Desktop is an unsigned internal Windows and macOS preview. Passing CI does not establish release qualification.
 
 ## Reproducible checks

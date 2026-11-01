@@ -330,7 +330,7 @@ def retained_fixture_server(
                 print("Fixture Server diagnostics could not be retained.", file=sys.stderr)
 
 
-def main() -> None:
+def main(*, product_qualification: bool = False) -> None:
     import httpx
     from fixture_qualification import fixture_profile
 
@@ -449,7 +449,7 @@ def main() -> None:
                     fixture_path = case / "client.json"
                     fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
                     probe = subprocess.run(
-                        [str(executable), str(fixture_path)],
+                        [str(executable), str(fixture_path), *(["product"] if product_qualification else [])],
                         capture_output=True,
                         text=True,
                         timeout=120,
@@ -469,6 +469,7 @@ def main() -> None:
                         "performance": probe_measurement(probe.stdout),
                     })
     report = {
+        "qualificationMode": "bundled-product" if product_qualification else "disposable-fixture",
         "environment": {
             "os": platform.platform(),
             "architecture": platform.machine(),
@@ -499,4 +500,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--serve":
         serve(Path(sys.argv[2]))
     else:
-        main()
+        main(product_qualification="--product-qualification" in sys.argv[1:])
