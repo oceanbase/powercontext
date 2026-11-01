@@ -1122,11 +1122,10 @@ def test_unhandled_errors_return_the_server_request_id() -> None:
     assert re.fullmatch(r"[0-9a-f]{16}", response.headers["X-PowerContext-Request-ID"])
 
 
-def test_prepare_context_keeps_the_four_field_envelope_unless_the_request_explains(tmp_path) -> None:
+def test_prepare_context_keeps_the_four_field_envelope_without_receipt_opt_in(tmp_path) -> None:
     """Every Host validator compares the key set exactly, so an injected response cannot grow a fifth field.
 
-    ``explain`` is the opt-in that publishes ``reason``, and it publishes nothing on a deployment that
-    lost no channel: this Server has no embedding model, so both responses carry the same four fields.
+    ``include_receipt`` is opt-in. A keyword-only deployment still reports completed FTS retrieval.
     """
 
     app = create_server_app(
@@ -1141,13 +1140,14 @@ def test_prepare_context_keeps_the_four_field_envelope_unless_the_request_explai
         plain = client.post("/v1/context/prepare", json={"scope_id": scope_id, "query": "alpha beta"})
         explained = client.post(
             "/v1/context/prepare",
-            json={"scope_id": scope_id, "query": "alpha beta", "explain": True},
+            json={"scope_id": scope_id, "query": "alpha beta", "include_receipt": True},
         )
 
     assert plain.status_code == 200
     assert explained.status_code == 200
     assert set(plain.json()) == {"schema", "status", "content", "content_bytes"}
-    assert set(explained.json()) == {"schema", "status", "content", "content_bytes"}
+    assert set(explained.json()) == {"schema", "status", "content", "content_bytes", "receipt"}
+    assert explained.json()["receipt"]["retrieval"]["rounds"][0]["retained"] is True
 
 
 def test_prepare_context_rejects_memory_specific_tuning_fields(tmp_path) -> None:

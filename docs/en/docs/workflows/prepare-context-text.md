@@ -51,19 +51,27 @@ text, including the historical-evidence notice, section headings, literal bodies
 truncation flags. An empty result has `status: "empty"`, `content: null`, and `content_bytes: 0`. HTTP 4xx/5xx
 responses or invalid response shapes leave the previous file untouched and return a non-zero exit code.
 
-Add `"explain": true` to the request to also learn whether the preparation lost a retrieval channel it would
-otherwise have used: the response then carries a `reason`, `inference_timeout` when the
-`recall_embedding_timeout_seconds` budget expired and `inference_unavailable` when the provider failed. Those are
-two of the four spellings RFC 1435 gives `SearchGroup.fallback_reason`, namely the two inference failures, and the
-same ones the fallback event logs, so the API and the log never classify one cause two ways. The other two are not
-missing by accident: `none` is carried by the field's absence, and `reused_fts_fallback` is not a cause at this
-level — a later round that reuses a failed round's keyword-only outcome is already explained by that round's
-`inference_*` value, which outranks it. The field
-is absent unless a channel was lost, and absent entirely from a request that does not ask, so the four fields a
-Host validates never change. It names a lost channel, not an empty scope: a keyword-only deployment that never
-asks for vectors never sets it. The same event is logged as `memory.search.embedding_fallback` or
-`topic_memory.search.embedding_fallback`, so an operator keeps the signal even for a Host that never opts in, and
-neither the log nor the reason carries the query.
+For diagnostics, set `"include_receipt": true`. A successful receipt adds `receipt` beside the four
+injection fields. It identifies selected exact Artifact revisions and code line ranges in injection order,
+summarizes retrieval modes, rerank configuration, omissions and stage timings, and hashes the normalized
+query and final UTF-8 content. For example, `receipt.retrieval.searches` distinguishes ordinary `fts`
+from `fts` after `inference_timeout` or `inference_unavailable`; `receipt.omitted` distinguishes a
+zero-hit search from an item dropped by the byte budget. An empty context has `content_digest: null`.
+The receipt never contains the query or evidence bodies. It is an ephemeral diagnostic, not model
+input or a durable read key: inspect selected revisions through the existing authorized exact-read
+APIs. If assembly cannot provide complete evidence or exceeds 8192 serialized UTF-8 bytes, the
+response still delivers the original context without `receipt` and records a content-free diagnostic.
+Omitting `include_receipt`, setting it to `false`, or sending `null` keeps the four-field response
+that official host validators expect; automatic host recall never requests the receipt.
+
+## Migrate from `explain` and `reason`
+
+This is a breaking change for callers upgrading from PowerContext 1.4.1: `explain` is no longer accepted in
+prepare requests, and the top-level `reason` response field has been removed. A request that still sends
+`explain` receives HTTP 422 (`invalid_request`). Replace `"explain": true` with `"include_receipt": true`, then
+read each search's fallback from `receipt.retrieval.searches[]`, together with its `family`, `round`, `mode`,
+and `fallback_reason`. Check that `receipt` is present before reading it: Receipt construction can fail open or
+exceed its 8192-byte limit, in which case the original prepared context is returned without a Receipt.
 
 The equivalent Python request uses the shared Client:
 

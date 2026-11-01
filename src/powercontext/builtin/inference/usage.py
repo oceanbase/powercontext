@@ -83,6 +83,12 @@ class UsageReportingStructuredGenerator(Generic[InputT, OutputT]):
     def __init__(self, delegate: StructuredGenerator[InputT, OutputT]) -> None:
         self._delegate = delegate
 
+    def receipt_configuration(self) -> dict[str, object]:
+        reader = getattr(self._delegate, "receipt_configuration", None)
+        if not callable(reader):
+            raise TypeError("generation configuration unavailable")  # noqa: TRY003
+        return reader()
+
     async def generate(self, value: InputT, /) -> GenerationResult[OutputT]:
         result = await self._delegate.generate(value)
         await _report(ModelUsageOperation.GENERATION, result.usage)

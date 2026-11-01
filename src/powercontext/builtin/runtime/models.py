@@ -54,6 +54,7 @@ from powercontext.builtin.review import (
     CandidateStatus,
 )
 from powercontext.builtin.review.generation import SkillGenerationOrigin
+from powercontext.builtin.runtime.receipt import PreparedContextReceipt
 from powercontext.builtin.sources import ExternalSkillImportMode
 from powercontext.builtin.tags import TagFilter
 from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
@@ -331,15 +332,16 @@ class PrepareContextRequest(_PreparedContextModel):
     assembly: ContextAssembly | None = None
     bootstrap_receipt_id: Annotated[str, Field(min_length=1, max_length=64)] | None = None
     include_code: bool = Field(default=False, strict=True)
-    #: Opt into ``reason`` on the response. Off by default: a preparation a Host injects has to keep
-    #: the four fields its validator knows, and a lost channel is not part of the injected content.
-    explain: bool = Field(default=False, strict=True)
+    include_receipt: bool = Field(default=False, strict=True)
 
     @model_validator(mode="before")
     @classmethod
     def reject_null_assembly(cls, value: Any) -> Any:
-        if isinstance(value, Mapping) and "assembly" in value and value["assembly"] is None:
-            raise ValueError("assembly must be omitted or contain an object")  # noqa: TRY003
+        if isinstance(value, Mapping):
+            if "assembly" in value and value["assembly"] is None:
+                raise ValueError("assembly must be omitted or contain an object")  # noqa: TRY003
+            if value.get("include_receipt", False) is None:
+                return {**value, "include_receipt": False}
         return value
 
     @field_validator("query")
@@ -364,10 +366,7 @@ class PreparedContext(_PreparedContextModel):
     status: PreparedContextStatus
     content: str | None
     content_bytes: Annotated[int, Field(ge=0)]
-    #: Why a retrieval channel was lost, mirroring ``BootstrapContext.reason``. Filled only when the
-    #: request asked with ``explain``: a Host injects ``content`` and validates the four fields it
-    #: knows, so an unrequested reason would break every Host for a fact none of them reads.
-    reason: PreparedContextReason | None = None
+    receipt: PreparedContextReceipt | None = None
 
     @model_validator(mode="after")
     def validate_content(self) -> PreparedContext:
