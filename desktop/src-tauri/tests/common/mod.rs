@@ -22,6 +22,16 @@ use sha2::{Digest, Sha256};
 
 pub const PROFILE_ID: &str = "synthetic-native-fixture";
 
+#[allow(dead_code)] // Each integration test is compiled as a separate crate.
+pub fn discovery_document(id: &str) -> serde_json::Value {
+    serde_json::json!({"schema_version":{"major":1,"minor":0},"product":"powercontext","server_id":id,
+        "package_version":"synthetic","api_contract_version":{"major":1,"minor":4},"feature_contracts":{
+            "connection.identity":{"version":{"major":1,"minor":0},"operations":["get_connection_identity"]},
+            "access.principal":{"version":{"major":1,"minor":0},"operations":["get_access_principal"]},
+            "scope.selection":{"version":{"major":1,"minor":0},"operations":["list_scopes","get_scope","get_default_scope"]},
+            "memory.explicit":{"version":{"major":1,"minor":0},"operations":["remember_memory","search_memory"]}}})
+}
+
 pub fn connection_manager(profiles: ProfileRepository) -> ConnectionManager {
     let contract: serde_json::Value =
         serde_json::from_str(include_str!("../../src/transport/operations.json")).unwrap();

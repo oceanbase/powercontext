@@ -84,6 +84,18 @@ pnpm --dir desktop desktop:dev
 
 连接配置存放在应用数据目录，JSON 不包含秘密。重启后需要重新验证连接和选择范围；仅会话凭据不保留。移除连接仅移除此桌面的配置和自有凭据，不停止 Server 或删除业务数据。
 
+## 显式就绪探测与连接身份
+
+保存、检查、激活、刷新及普通 Scope／Memory 操作均不探测模型或依赖的就绪状态。
+检查已保存配置后，可点击带有说明的“探测就绪状态”执行可选诊断；探测时间与连接检查时间分别记录。
+探测失败不会授予或撤销业务权限、激活连接、切换 Scope 或丢弃输入。打开页面和重开 Desktop 均不会执行此操作。
+
+公开操作 `get_connection_identity` 在不探测 readiness、不要求 `server.observe` 的情况下返回实际部署、请求 Principal、
+认证状态和 Access 模式。匿名 loopback 配置要求该操作有匹配的验证记录，且明确返回认证／Access 已禁用、Principal 为空。
+通用 503、选择“无 token”或先前的 readiness 结果均不能确立匿名身份。旧 Server 缺少已验证的此操作时，匿名使用需要升级；
+独立验证过的已认证旧版配置继续复核 Principal。身份／认证失败不会触发降级。部署、Principal、认证或 Access 模式变化会使
+活动上下文失效。能力观察被拒绝与已验证、逐项获得授权的 Memory 操作分别处理。
+
 ## 原生发现结果
 
 连接检查通过现有原生传输调用公开的 `get_server_info`。`CheckReport.discovery` 返回 `supported`、`missing`、`denied`、`unavailable`、`invalid` 或 `incompatible`，并包含观察到的 Server 元数据、安全错误，以及逐项操作的 `qualified`／`unsupported`／`unverified` 状态和原因。兼容的发现协议 minor 版本可增加响应及其嵌套版本、功能对象的可选字段。

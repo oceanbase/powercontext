@@ -109,6 +109,10 @@ export const connectionMessages = {
     cleanup: "部分旧凭据等待清理，重新启动后会再次尝试。",
     live: "服务可达性",
     readiness: "就绪状态",
+    probeReadiness: "探测就绪状态",
+    readinessExplanation:
+      "仅点击探测时才检查就绪状态，可能调用已配置的模型和依赖。此操作不会激活连接或授予权限。",
+    readinessTime: "就绪探测时间",
     identity: "服务返回的身份",
     access: "访问控制",
     capabilities: "服务声明的运行能力（不是授权列表）",
@@ -264,6 +268,10 @@ export const connectionMessages = {
     cleanup: "Some old credentials await cleanup. Restart to try again.",
     live: "Server reachability",
     readiness: "Readiness",
+    probeReadiness: "Probe readiness",
+    readinessExplanation:
+      "Only this explicit action probes readiness and may call configured models and dependencies. It does not activate a connection or grant permissions.",
+    readinessTime: "Readiness probed at",
     identity: "Server-reported identity",
     access: "Access control",
     capabilities: "Server-declared capabilities (not granted permissions)",

@@ -16,6 +16,7 @@
     "allow-save-profile",
     "allow-remove-profile",
     "allow-check-connection",
+    "allow-probe-readiness",
     "allow-disconnect",
     "allow-invalidate-profile",
     "allow-list-scopes",

@@ -710,6 +710,57 @@ impl Capabilities {
     }
 }
 
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum ConnectionAuthentication {
+    #[serde(rename = "disabled")]
+    #[default]
+    Disabled,
+    #[serde(rename = "authenticated")]
+    Authenticated,
+}
+
+impl std::fmt::Display for ConnectionAuthentication {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Disabled => write!(f, "disabled"),
+            Self::Authenticated => write!(f, "authenticated"),
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionIdentity {
+    #[serde(rename = "server_id")]
+    pub server_id: String,
+    #[serde(rename = "authentication")]
+    pub authentication: ConnectionAuthentication,
+    #[serde(rename = "access_mode")]
+    pub access_mode: AccessControlMode,
+    #[ts(type = "AccessPrincipal | null")]
+    #[serde(rename = "principal", deserialize_with = "Option::deserialize")]
+    pub principal: Option<AccessPrincipal>,
+}
+
+impl ConnectionIdentity {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        server_id: String,
+        authentication: ConnectionAuthentication,
+        access_mode: AccessControlMode,
+        principal: Option<AccessPrincipal>,
+    ) -> ConnectionIdentity {
+        ConnectionIdentity {
+            server_id,
+            authentication,
+            access_mode,
+            principal,
+        }
+    }
+}
+
 /// ContractVersion : A major/minor compatibility version. A major increment may remove or incompatibly change the governed contract. A minor increment only adds backward-compatible behavior or fields.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 pub struct ContractVersion {
@@ -1579,6 +1630,8 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <BuiltinProfile as ts_rs::TS>::decl(config),
         <Capabilities as ts_rs::TS>::decl(config),
         <Configuration as ts_rs::TS>::decl(config),
+        <ConnectionAuthentication as ts_rs::TS>::decl(config),
+        <ConnectionIdentity as ts_rs::TS>::decl(config),
         <ContractVersion as ts_rs::TS>::decl(config),
         <CustomArtifactFamilySchema as ts_rs::TS>::decl(config),
         <DreamOperation as ts_rs::TS>::decl(config),

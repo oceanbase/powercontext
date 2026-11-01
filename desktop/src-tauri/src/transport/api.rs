@@ -337,6 +337,33 @@ impl ServerApi {
         }
         Ok(result)
     }
+    pub async fn connection_identity(&self) -> Result<ConnectionIdentity, ApiFailure> {
+        let result: ConnectionIdentity = self
+            .execute(
+                ObservedOperation::GetConnectionIdentity,
+                None,
+                &[],
+                None,
+                false,
+            )
+            .await?;
+        let valid = match result.authentication {
+            ConnectionAuthentication::Disabled => {
+                result.access_mode == AccessControlMode::Disabled && result.principal.is_none()
+            }
+            ConnectionAuthentication::Authenticated => {
+                result.principal.as_ref().is_some_and(|principal| {
+                    !principal.id.is_empty()
+                        && principal.id.chars().count() <= 255
+                        && matches!(principal.r#type, Type::User | Type::Service)
+                })
+            }
+        };
+        if result.server_id.is_empty() || result.server_id.chars().count() > 128 || !valid {
+            return Err(SafeError::InvalidResponse.into());
+        }
+        Ok(result)
+    }
     pub async fn capabilities(&self) -> Result<Capabilities, ApiFailure> {
         self.execute(ObservedOperation::GetCapabilities, None, &[], None, false)
             .await

@@ -106,6 +106,21 @@ Search uses FTS in the selected Scope and returns at most 10 matches. This is no
 
 A successful save that returns no memory record is reported as an operation success without inventing a reference. A timeout or interrupted dispatched write is **unknown**, not a safe invitation to retry: inspect the original Server/Scope before deciding whether to submit again. Identical text alone cannot identify that operation. Desktop does not automatically replay writes or keep an offline queue. Switching context hides old results while retaining minimal original-operation metadata for this session. See [validation guide](VALIDATION.md) for tested behavior and qualification gaps.
 
+## Explicit readiness and connection identity
+
+Saving, checking, activating, refreshing and ordinary Scope/Memory operations do not probe model or dependency readiness.
+After checking a saved profile, **Probe readiness** explains and performs the optional diagnostic explicitly. Its timestamp
+is separate from the connection check. A failed probe does not grant or revoke business permissions, activate a profile,
+change the Scope, or discard input. Opening a page and reopening Desktop do not run this action.
+
+The public `get_connection_identity` operation reports the actual deployment, request Principal, authentication state
+and Access mode without readiness probes or `server.observe`. Anonymous loopback profiles require matching qualification
+for that operation and explicit disabled authentication/Access with no Principal. A generic 503, selected no-token profile,
+or previous readiness result cannot establish anonymous identity. Older Servers without this qualified operation require
+an upgrade for anonymous use; independently qualified authenticated legacy profiles retain Principal revalidation.
+Identity/authentication failures do not fall back. Changes to deployment, Principal, authentication or Access mode invalidate
+the active context. Denied capability observations remain independent of qualified, individually authorized Memory operations.
+
 ## Native discovery results
 
 Connection checks call the public `get_server_info` operation through the existing native transport. `CheckReport.discovery` reports `supported`, `missing`, `denied`, `unavailable`, `invalid`, or `incompatible`, the observed Server metadata, safe errors, and per-operation `qualified`/`unsupported`/`unverified` results with reasons. Compatible discovery minor versions accept additional optional fields in the response and its nested version/feature objects.

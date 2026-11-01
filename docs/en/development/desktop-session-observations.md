@@ -22,9 +22,9 @@ Every record declares `unit` and the owning operation ID in `operation`.
 | `user_operation` | One native Memory or Scope action invocation, including rejected invocations | Monotonic time from entering the native action through context/identity checks, response validation and result construction, or failure/cancellation |
 
 HTTP coverage includes `get_server_info`, `get_liveness`, `get_readiness`, `get_capabilities`,
-`get_access_principal`, `list_scopes`, `get_scope`, `get_default_scope`, `remember_memory`, `search_memory`, and `get_artifact_revision`. Native connection
+`get_access_principal`, `get_connection_identity`, `list_scopes`, `get_scope`, `get_default_scope`, `remember_memory`, `search_memory`, and `get_artifact_revision`. Native connection
 checks contribute their individual HTTP requests, not an additional user operation. Identity revalidation and its
-existing anonymous-access readiness fallback also contribute HTTP requests. A user action can therefore issue multiple
+lightweight anonymous identity checks also contribute HTTP requests. Readiness requests occur only for explicit diagnostics, not identity fallback. A user action can therefore issue multiple
 HTTP requests. The summary's `coverage.httpOperations` and `coverage.identityChecksIncluded` disclose that coverage.
 
 User-operation coverage is the six Memory/Scope operations listed in `coverage.userOperations`: `list_scopes`,

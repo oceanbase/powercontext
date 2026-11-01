@@ -444,6 +444,8 @@ from powercontext.http import (
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectionAuthentication,
+    ConnectionIdentity,
     ConnectorCheckpointState,
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
@@ -723,6 +725,7 @@ from powercontext.http._generated.operations import (
     GET_CANDIDATE,
     GET_CANDIDATE_HISTORY,
     GET_CAPABILITIES,
+    GET_CONNECTION_IDENTITY,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_DREAM_RUN,
@@ -1508,6 +1511,7 @@ def create_app(
     _add_route(app, PUBLISH_ARTIFACT, publish_artifact)
     _add_route(app, GET_STATS, get_stats)
     _add_route(app, GET_ACCESS_PRINCIPAL, get_access_principal)
+    _add_route(app, GET_CONNECTION_IDENTITY, get_connection_identity)
     _add_route(app, CHECK_ACCESS, check_access)
     _add_route(app, LIST_ACCESS_RESOURCES, list_access_resources)
     _add_route(app, LIST_ACCESS_ROLES, list_access_roles)
@@ -1808,6 +1812,23 @@ async def get_server_info(request: Request) -> ServerInfo:
     if info is None:
         raise _RuntimeNotReadyError
     return info
+
+
+async def get_connection_identity(request: Request) -> ConnectionIdentity:
+    info = await get_server_info(request)
+    principal = current_principal()
+    if principal is None and (
+        request.app.state.access_mode != "disabled" or request.app.state.authentication_provider is not None
+    ):
+        raise AccessIdentityRequiredError
+    return ConnectionIdentity(
+        server_id=info.server_id,
+        authentication=ConnectionAuthentication.DISABLED
+        if principal is None
+        else ConnectionAuthentication.AUTHENTICATED,
+        access_mode=request.app.state.access_mode,
+        principal=None if principal is None else _access_principal_response(principal),
+    )
 
 
 async def get_access_principal(request: Request) -> AccessMeResponse:

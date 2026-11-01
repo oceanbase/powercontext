@@ -20,9 +20,9 @@ Desktop 为 [#2107](https://github.com/oceanbase/powercontext/issues/2107) 提�
 | `http_request` | 一次交给原生 HTTP 客户端的请求 | 从派发到完成有界响应读取、JSON 解码，或失败、取消的单调时钟耗时 |
 | `user_operation` | 一次原生 Memory 或 Scope 操作调用，包括被拒绝的调用 | 从进入原生操作到完成上下文与身份检查、响应校验及结果构造，或失败、取消的单调时钟耗时 |
 
-HTTP 覆盖 `get_server_info`、`get_liveness`、`get_readiness`、`get_capabilities`、`get_access_principal`、`list_scopes`、
+HTTP 覆盖 `get_server_info`、`get_liveness`、`get_readiness`、`get_capabilities`、`get_access_principal`、`get_connection_identity`、`list_scopes`、
 `get_scope`、`get_default_scope`、`remember_memory`、`search_memory` 和 `get_artifact_revision`。
-连接检查只计入它实际发出的各项 HTTP 请求，不额外产生用户操作。身份复核及现有匿名访问的就绪检查回退也计入 HTTP 请求。
+连接检查只计入它实际发出的各项 HTTP 请求，不额外产生用户操作。身份复核和轻量匿名身份检查也计入 HTTP 请求。readiness 请求只用于显式诊断，不再作为身份回退。
 因此，一次用户操作可能产生多个请求；`coverage.httpOperations` 和 `coverage.identityChecksIncluded` 明确说明该范围。
 
 用户操作覆盖 `coverage.userOperations` 中的六项 Memory/Scope 操作：`list_scopes`、`get_scope`、

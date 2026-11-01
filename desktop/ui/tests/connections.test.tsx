@@ -43,6 +43,7 @@ vi.mock("../src/shared/ipc", () => ({
     state: vi.fn(),
     save: vi.fn(),
     check: vi.fn(),
+    probeReadiness: vi.fn(),
   },
 }));
 const profile: ProfileView = {
@@ -121,6 +122,50 @@ function discoveryState(discovery: DiscoveryResult): DesktopState {
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+test.each(["en", "zh"] as const)(
+  "readiness is explained and requested only by explicit action (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    const current = discoveryState({
+      status: "supported",
+      server: null,
+      error: null,
+      reason: null,
+      operations: {},
+    });
+    const onState = vi.fn();
+    vi.mocked(desktopApi.probeReadiness).mockResolvedValue(current);
+    render(
+      <Connections
+        state={current}
+        language={language}
+        initialProfileId={profile.id}
+        onState={onState}
+        onDirty={vi.fn()}
+      />,
+    );
+    expect(desktopApi.probeReadiness).not.toHaveBeenCalled();
+    const button = screen.getByRole("button", {
+      name: language === "en" ? "Probe readiness" : "探测就绪状态",
+    });
+    expect(
+      document.getElementById(button.getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toMatch(
+      language === "en"
+        ? /configured models and dependencies/
+        : /已配置的模型和依赖/,
+    );
+    await user.click(button);
+    await waitFor(() => expect(onState).toHaveBeenCalledWith(current));
+    expect(desktopApi.probeReadiness).toHaveBeenCalledExactlyOnceWith(
+      profile.id,
+      profile.revision,
+    );
+    expect(desktopApi.check).not.toHaveBeenCalled();
+  },
+);
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();

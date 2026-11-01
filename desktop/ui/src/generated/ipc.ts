@@ -83,7 +83,7 @@ export type CompatibilityReason = "product_mismatch" | "schema_version" | "api_v
 export type CompatibilityStatus = "qualified" | "unsupported" | "unverified";
 export type OperationCompatibility = { status: CompatibilityStatus, reason: CompatibilityReason, qualificationId: string | null, };
 export type DiscoveryResult = { status: DiscoveryStatus, server: ServerInfo | null, error: ApiFailure | null, reason: CompatibilityReason | null, operations: { [key in string]: OperationCompatibility }, };
-export type CheckReport = { connectionId: string, revision: number, checkedAt: number, liveness: Fact<HealthResponse>, readiness: Fact<ReadinessResponse>, identity: Fact<AccessMeResponse>, capabilities: Fact<Capabilities>, compatibilityVerified: boolean, anonymousAccess: boolean, supportedOperations: Array<string>, discovery?: DiscoveryResult, };
+export type CheckReport = { connectionId: string, revision: number, checkedAt: number, liveness: Fact<HealthResponse>, readiness: Fact<ReadinessResponse>, readinessCheckedAt?: number, identity: Fact<AccessMeResponse>, connectionIdentity?: Fact<ConnectionIdentity>, capabilities: Fact<Capabilities>, compatibilityVerified: boolean, anonymousAccess: boolean, supportedOperations: Array<string>, discovery?: DiscoveryResult, };
 export type CompatibilityProfile = { id: string, serverCommit: string, contractSha256: string, artifactSha256: string, operations: Array<string>, evidence: string, };
 export type ActiveView = { connectionId: string, generation: number, report: CheckReport, scope: ScopeDescriptor | null, };
 export type MemoryContext = { connectionId: string, endpoint: string, serverId: string | null, principal: AccessPrincipal | null, generation: number, scopeId: string, };
@@ -101,7 +101,7 @@ export type MemorySearchHit = { artifact: ArtifactReference, text: string, score
 export type MemorySearchResponse = { hits: Array<MemorySearchHit>, };
 export type AtomicMemoryDetail = { artifact: ArtifactReference, kind: string, text: string, source_refs: Array<SourceTypeReference>, };
 export type ObservationUnit = "http_request" | "user_operation";
-export type ObservedOperation = "get_liveness" | "get_server_info" | "get_readiness" | "get_capabilities" | "get_access_principal" | "list_scopes" | "get_scope" | "get_default_scope" | "remember_memory" | "search_memory" | "get_artifact_revision";
+export type ObservedOperation = "get_liveness" | "get_server_info" | "get_readiness" | "get_capabilities" | "get_access_principal" | "get_connection_identity" | "list_scopes" | "get_scope" | "get_default_scope" | "remember_memory" | "search_memory" | "get_artifact_revision";
 export type ObservationOutcome = "success" | "failure" | "cancelled" | "unknown";
 export type SessionObservation = { unit: ObservationUnit, operation: ObservedOperation, outcome: ObservationOutcome, completedAtMs: number, durationMs: number, httpStatus: number | null, errorCode: SafeError | null, };
 export type OutcomeCounts = { success: number, failure: number, cancelled: number, unknown: number, };
@@ -183,6 +183,8 @@ external_skill_registry?: boolean,
  */
 handoff_generation: boolean, search_modes: Array<MemorySearchMode>, context_versions: Array<PreparedContextSchema>, };
 export type Configuration = "configured" | "unconfigured" | "unknown";
+export type ConnectionAuthentication = "disabled" | "authenticated";
+export type ConnectionIdentity = { server_id: string, authentication: ConnectionAuthentication, access_mode: AccessControlMode, principal: AccessPrincipal | null, };
 export type ContractVersion = { major: number, minor: number, };
 export type CustomArtifactFamilySchema = { family: string, schema_version: string, content_schema: Record<string, unknown>,
 /**

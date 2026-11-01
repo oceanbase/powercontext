@@ -33,6 +33,7 @@ import { messages, type Language } from "./messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
 import { useConfirmation } from "./useConfirmation";
 import connectionsIcon from "../assets/connections.svg";
+import { connectionPrincipal, identityVerified } from "./context";
 
 type Props = {
   state: DesktopState | null;
@@ -73,7 +74,7 @@ export function Connections({
   const [compatibility, setCompatibility] = useState("");
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<
-    "save" | "check" | "activate" | "remove" | null
+    "save" | "check" | "activate" | "remove" | "readiness" | null
   >(null);
   const pending = useRef(false);
   const [notice, setNotice] = useState<{
@@ -210,7 +211,7 @@ export function Connections({
       active?.connectionId === profile.id &&
       active.report.revision === profile.revision &&
       active.report.compatibilityVerified &&
-      (active.report.anonymousAccess || active.report.identity.value)
+      (active.report.anonymousAccess || identityVerified(active.report))
     ) {
       onActivated?.(trigger);
     } else {
@@ -521,9 +522,14 @@ export function Connections({
                 <dd>
                   {report?.anonymousAccess
                     ? t.noIdentity
-                    : fact(
-                        report?.identity,
-                        (v) => `${v.principal.type}: ${v.principal.id}`,
+                    : fact<unknown>(
+                        report?.connectionIdentity ?? report?.identity,
+                        () => {
+                          const principal = connectionPrincipal(report);
+                          return principal
+                            ? `${principal.type}: ${principal.id}`
+                            : t.unverified;
+                        },
                       )}
                 </dd>
               </div>
@@ -581,7 +587,29 @@ export function Connections({
               </div>
             </dl>
             <p className="note-line">{t.noPermissionClaim}</p>
+            <p id="readiness-explanation" className="note-line">
+              {t.readinessExplanation}
+            </p>
+            {report?.readinessCheckedAt && (
+              <p>
+                {t.readinessTime}:{" "}
+                {new Date(report.readinessCheckedAt * 1000).toLocaleString(
+                  language === "zh" ? "zh-CN" : "en-US",
+                )}
+              </p>
+            )}
             <div className="actions">
+              <button
+                disabled={dirty || !!busy || !report}
+                aria-describedby="readiness-explanation"
+                onClick={() =>
+                  void action("readiness", () =>
+                    desktopApi.probeReadiness(profile.id, profile.revision),
+                  )
+                }
+              >
+                {busy === "readiness" ? t.wait : t.probeReadiness}
+              </button>
               <button
                 disabled={dirty || !!busy}
                 onClick={(event) => void check(false, event.currentTarget)}

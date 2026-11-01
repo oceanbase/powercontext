@@ -66,6 +66,7 @@ from powercontext.http import (
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectionIdentity,
     ConnectorCheckpointState,
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
@@ -258,6 +259,7 @@ from powercontext.http._generated.operations import (
     GET_CANDIDATE,
     GET_CANDIDATE_HISTORY,
     GET_CAPABILITIES,
+    GET_CONNECTION_IDENTITY,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_DREAM_RUN,
@@ -590,6 +592,10 @@ class PowerContextClient:
         """Capture explicit session-local work state as Source evidence."""
 
         return await self._request(CAPTURE_WORKING_NOTE, request)
+
+    async def get_connection_identity(self) -> ConnectionIdentity:
+        """Observe deployment and request identity without readiness probes."""
+        return await self._request(GET_CONNECTION_IDENTITY)
 
     async def get_access_principal(self) -> AccessMeResponse:
         """Return the authenticated Principal and enforceable Access capabilities."""

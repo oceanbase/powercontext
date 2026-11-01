@@ -27,6 +27,18 @@ export function operationSupported(
   );
 }
 
+export function connectionPrincipal(report: CheckReport | undefined) {
+  return report?.connectionIdentity
+    ? report.connectionIdentity.value?.principal
+    : report?.identity.value?.principal;
+}
+
+export function identityVerified(report: CheckReport | undefined): boolean {
+  return report?.connectionIdentity
+    ? !!report.connectionIdentity.value
+    : !!report?.identity.value;
+}
+
 // Presentation only: operation authorization remains at the native boundary.
 export function activeCheckReport(state: DesktopState | null) {
   const active = state?.active;

@@ -86,6 +86,9 @@ async fn main() {
         return;
     }
     api.live().await.unwrap();
+    let identity = api.connection_identity().await.unwrap();
+    assert_eq!(identity.server_id, server_id);
+    assert_eq!(identity.principal.is_some(), has_token);
     api.readiness().await.unwrap();
     if has_token {
         api.principal().await.unwrap();
@@ -158,13 +161,19 @@ async fn main() {
     assert!(manager.state().unwrap().active.is_none());
     let checked = manager.check(&profile, false).await.unwrap();
     assert!(checked.active.is_none());
+    assert!(checked.reports.iter().all(|report| report.readiness.value.is_none() && report.readiness_checked_at.is_none()));
     assert!(
         checked
             .reports
             .iter()
             .any(|report| report.connection_id == profile)
     );
-    let generation = manager.check(&profile, true).await.unwrap().generation;
+    let state = manager.check(&profile, true).await.unwrap();
+    let generation = state.generation;
+    let revision = state.active.as_ref().unwrap().report.revision;
+    let probed = manager.probe_readiness(&profile, revision).await.unwrap();
+    assert_eq!(probed.generation, generation);
+    assert!(probed.reports[0].readiness_checked_at.is_some());
     let generation = manager
         .select_scope(generation, &fixture.scope_id)
         .await
