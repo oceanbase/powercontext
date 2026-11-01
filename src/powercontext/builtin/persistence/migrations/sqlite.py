@@ -202,6 +202,38 @@ class SQLiteMigrationRunner:
             raise MigrationError(plan.state, "Inspect and explicitly apply the registered bundle before verification.")
         return MigrationResult(revision=self.bundle.head, changed=False, readiness_scope=self.bundle.readiness_scope)
 
+    def admit_snapshot(self, snapshot: Path) -> MigrationPlan:
+        """Check a private SQLite snapshot using this target's original recovery identity.
+
+        The caller must copy a stable main file and WAL, exclude SHM, and keep
+        source identities stable throughout this check. Only the snapshot is
+        opened by SQLite. This entry cannot initialize, migrate or recover data.
+        """
+        from .connections import BackendIdentity
+        from .locking import assert_no_local_migration
+        from .mysql import require_completed_domain_maintenance
+        from .vector_profile import read_embedding_profile
+
+        if self.bundle.readiness_scope != "server":
+            raise MigrationError("unsupported_target", "Admission requires the complete Server bundle.")
+        self.bundle.assert_unchanged()
+        assert_no_local_migration(self.database)
+        evidence = self._evidence()
+        if evidence is not None and evidence["state"] != "complete":
+            raise MigrationError("recovery_required", "Complete recorded Server maintenance before startup.")
+        require_completed_domain_maintenance(
+            self.evidence_path.parent, BackendIdentity("sqlite", self._database_id(), self.database.name)
+        )
+        with self._connect(read_only=True, snapshot=snapshot) as connection:
+            profile = self.bundle.vector_profile.profile if self.bundle.vector_profile is not None else None
+            if read_embedding_profile(connection) != profile:
+                raise MigrationError("embedding_profile_mismatch", "Configuration differs from managed storage.")
+            plan = self._inspect(connection, backup_policy="skip", service=None, shared_database=False)
+            if plan.state != "ready":
+                raise MigrationError("migration_required", "Explicit full Server maintenance is required.")
+        assert_no_local_migration(self.database)
+        return plan
+
     def apply(
         self,
         *,
@@ -304,8 +336,10 @@ class SQLiteMigrationRunner:
             raise MigrationError("unsupported_target", "Use a regular SQLite file without hard-link aliases.")
 
     @contextmanager
-    def _connect(self, *, read_only: bool) -> Iterator[Connection]:
-        uri = self.database.as_uri() + ("?mode=ro" if read_only else "?mode=rwc")
+    def _connect(self, *, read_only: bool, snapshot: Path | None = None) -> Iterator[Connection]:
+        if snapshot is not None and not read_only:
+            raise MigrationError("unsupported_target", "A snapshot is only available for read-only admission.")
+        uri = (snapshot or self.database).as_uri() + ("?mode=ro" if read_only else "?mode=rwc")
 
         def connect() -> sqlite3.Connection:
             driver = sqlite3.connect(uri, uri=True, isolation_level=None, timeout=0)

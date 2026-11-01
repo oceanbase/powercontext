@@ -158,6 +158,12 @@ class UsageReportingStructuredGenerator(Generic[InputT, OutputT]):
         # A distinct nested model call still establishes its own attribution.
         self._delegate = delegate._delegate if type(delegate) is UsageReportingStructuredGenerator else delegate
 
+    def receipt_configuration(self) -> dict[str, object]:
+        reader = getattr(self._delegate, "receipt_configuration", None)
+        if not callable(reader):
+            raise TypeError("generation configuration unavailable")  # noqa: TRY003
+        return reader()
+
     async def generate(self, value: InputT, /) -> GenerationResult[OutputT]:
         reports: list[InputEncodingReport] = []
         token = _CALL_INPUT_ENCODINGS.set(reports)
