@@ -99,6 +99,7 @@ try:
     )
     from pydantic_ai.models import Model, ModelRequestParameters
     from pydantic_ai.models.wrapper import WrapperModel
+    from pydantic_ai.profiles.openai import SAMPLING_PARAMS
     from pydantic_ai.settings import ModelSettings, merge_model_settings
     from pydantic_ai.usage import RunUsage, UsageLimits
     from pydantic_core import PydanticSerializationError
@@ -111,6 +112,28 @@ InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
 
 logger = logging.getLogger(__name__)
+
+
+def _receipt_model_settings(model: Model, settings: ModelSettings | None) -> dict[str, object]:
+    """Return settings that the pinned provider will pass to its request builder."""
+
+    effective = dict(settings or {})
+    profile = getattr(model, "profile", None)
+    if not hasattr(profile, "get") or not profile.get("openai_supports_reasoning", False):
+        return effective
+
+    reasoning_effort = effective.get("openai_reasoning_effort")
+    if reasoning_effort is not None:
+        reasoning_active = reasoning_effort != "none"
+    elif (thinking := effective.get("thinking")) is not None and profile.get("supports_thinking", False):
+        reasoning_active = thinking is not False
+    else:
+        reasoning_active = bool(profile.get("openai_reasoning_enabled_by_default", False))
+    if profile.get("openai_supports_reasoning_effort_none", False) and not reasoning_active:
+        return effective
+    for setting in SAMPLING_PARAMS:
+        effective.pop(setting, None)
+    return effective
 
 
 class InferenceLimits(BaseModel):
@@ -261,6 +284,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         if not instructions.strip():
             raise PydanticAIConfigurationError("instructions")
         self._limits = InferenceLimits() if limits is None else limits
+        self._receipt_model = model
         self._input_type = input_type
         self._prompt_key = prompt_key
         try:
@@ -271,6 +295,10 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                     model_settings,
                     ModelSettings(max_tokens=self._limits.max_output_tokens_per_request),
                 )
+            self._receipt_settings = _receipt_model_settings(
+                model,
+                merge_model_settings(model.settings, bounded_settings),
+            )
             self._agent = Agent(
                 model if self._limits.allow_continuations else _CompleteResponseModel(model),
                 deps_type=input_type,
@@ -294,6 +322,27 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 return output
 
             self._agent.output_validator(check)
+
+    def receipt_configuration(self) -> dict[str, object]:
+        """Report the bound model and effective non-content controls for receipt validation."""
+        model_name = getattr(self._receipt_model, "model_name", None)
+        system = getattr(self._receipt_model, "system", None)
+        if not isinstance(model_name, str) or not isinstance(system, str):
+            raise TypeError("rerank model identity unavailable")  # noqa: TRY003
+        return {
+            "model": f"{system}:{model_name}",
+            "effective_settings": {
+                **(self._receipt_settings or {}),
+                "allow_continuations": self._limits.allow_continuations,
+                **(
+                    {"output_tokens_limit": self._limits.output_tokens_limit}
+                    if self._limits.output_tokens_limit is not None
+                    else {}
+                ),
+            },
+            "timeout_seconds": self._limits.timeout_seconds,
+            "max_requests": self._limits.max_requests,
+        }
 
     async def generate(self, value: InputT, /) -> GenerationResult[OutputT]:
         """Generate one structured value within the configured request and time limits."""

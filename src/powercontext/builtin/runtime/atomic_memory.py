@@ -93,6 +93,7 @@ from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFA
 from powercontext.builtin.persistence.tags import tag_predicate
 from powercontext.builtin.records import BaseOperationNotSupportedError, InvalidBaseAccessRequestError
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeAccess, merge_artifact_tags
+from powercontext.builtin.runtime.receipt_capture import current_receipt_evidence
 from powercontext.builtin.tags import TagFilter
 
 logger = logging.getLogger(__name__)
@@ -977,15 +978,24 @@ class ScopedAtomicMemory:
         )
         binding = nullcontext() if prompt is None else prompt.service.bind(self.scope_id, "memory.rerank")
         started = perf_counter()
-        async with binding:
-            decision = await reranker.rerank(query, candidates, min(limit, len(candidates)))
-        ranks = decision.selected_ranks
-        if (
-            len(ranks) > limit
-            or len(set(ranks)) != len(ranks)
-            or any(rank < 1 or rank > len(candidates) for rank in ranks)
-        ):
-            raise InvalidInferenceOutputError("atomic-memory-rerank", "Reranker returned invalid candidate ranks")
+        evidence = current_receipt_evidence()
+        async with binding as selected_prompt:
+            try:
+                decision = await reranker.rerank(query, candidates, min(limit, len(candidates)))
+                ranks = decision.selected_ranks
+                _validate_rerank_ranks(ranks, limit, len(candidates))
+            except Exception as error:
+                if evidence is not None:
+                    evidence.rerank(
+                        configuration=_rerank_receipt_configuration(reranker, evidence),
+                        prompt=selected_prompt,
+                        outcome="failed",
+                        fallback=_rerank_receipt_failure(error),
+                    )
+                raise
+            else:
+                if evidence is not None:
+                    _record_rerank_decision(evidence, reranker, selected_prompt, decision, len(candidates))
         trace = AtomicMemoryRerankTrace(
             reranker.policy_id,
             candidates,
@@ -1080,6 +1090,43 @@ class ScopedAtomicMemory:
                 if attempt == application.restore_retry_budget:
                     raise
         raise AssertionError("restoration retry loop ended without a result")  # noqa: TRY003
+
+
+def _validate_rerank_ranks(ranks, limit: int, candidate_count: int) -> None:
+    if len(ranks) > limit or len(set(ranks)) != len(ranks) or any(rank < 1 or rank > candidate_count for rank in ranks):
+        raise InvalidInferenceOutputError("atomic-memory-rerank", "Reranker returned invalid candidate ranks")
+
+
+def _rerank_receipt_configuration(reranker, evidence):
+    reader = getattr(reranker, "receipt_configuration", None)
+    if not callable(reader):
+        return None
+    try:
+        return reader()
+    except Exception as error:
+        evidence.incomplete = type(error).__name__
+        return None
+
+
+def _record_rerank_decision(evidence, reranker, prompt, decision, candidate_count: int) -> None:
+    if decision.used_fallback and decision.fallback_reason is None:
+        evidence.incomplete = "rerank-fallback-reason-missing"
+        return
+    evidence.rerank(
+        configuration=_rerank_receipt_configuration(reranker, evidence),
+        prompt=prompt,
+        outcome="fallback" if decision.used_fallback else "selected",
+        fallback=(decision.fallback_reason or "none") if decision.used_fallback else "none",
+        omitted_count=candidate_count - len(decision.selected_ranks),
+    )
+
+
+def _rerank_receipt_failure(error: Exception) -> str:
+    if isinstance(error, InferenceTimeoutError):
+        return "inference_timeout"
+    if isinstance(error, InferenceUnavailableError):
+        return "inference_unavailable"
+    return "invalid_output"
 
 
 def _validate_limit(limit: int) -> None:

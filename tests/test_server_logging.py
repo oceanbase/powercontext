@@ -371,6 +371,34 @@ logging.getLogger("powercontext.server.app").warning(
             assert f" {field}={json.dumps(value)}" in result.stdout
 
 
+@pytest.mark.parametrize("log_format", ["json", "console"])
+def test_receipt_correlation_is_visible_without_query_or_content(log_format) -> None:
+    script = f"""
+import logging
+from powercontext.server.logging import configure_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+configure_server_logging(ServerLoggingConfig(format={log_format!r}))
+logging.getLogger("powercontext.builtin.runtime.application").info(
+    "PreparedContext Receipt built",
+    extra={{
+        "event": "context.receipt.built", "operation": "prepare_context", "outcome": "success", "unit": "context",
+        "receipt_id": "00000000-0000-0000-0000-000000000001",
+        "query": "private-query-sentinel", "content": "private-content-sentinel",
+    }},
+)
+"""
+    result = subprocess.run([sys.executable, "-c", script], check=True, capture_output=True, text=True, timeout=120)
+    assert "private-query-sentinel" not in result.stdout + result.stderr
+    assert "private-content-sentinel" not in result.stdout + result.stderr
+    if log_format == "json":
+        payload = json.loads(result.stdout)
+        assert payload["receipt_id"] == "00000000-0000-0000-0000-000000000001"
+        assert payload["operation"] == "prepare_context"
+    else:
+        assert ' receipt_id="00000000-0000-0000-0000-000000000001"' in result.stdout
+        assert ' operation="prepare_context"' in result.stdout
+
+
 def _run_configured_logging_probe(log_format: str, *, processing: bool = False, range_known: bool = True) -> list[str]:
     script = f"""
 import logging

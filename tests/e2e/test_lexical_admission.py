@@ -28,6 +28,7 @@ from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_buil
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend
+from tests.e2e.server_storage import prepare_server_database
 from tests.e2e.test_topic_memory_generic_api import _scope
 
 
@@ -48,15 +49,15 @@ def _content(family: str, body: str, number: int) -> dict[str, JsonValue]:
 
 
 def _lexical_app(backend: MigrationBackend):
-    return create_server_app(
-        settings=ServerSettings(
-            database=backend.config,
-            runtime=RuntimeConfig(artifact_processing_families=()),
-            auth=BearerAuthConfig(enabled=False),
-            access=AccessControlConfig(mode="disabled"),
-            mcp=McpConfig(enabled=False),
-        ),
+    settings = ServerSettings(
+        database=backend.config,
+        runtime=RuntimeConfig(artifact_processing_families=()),
+        auth=BearerAuthConfig(enabled=False),
+        access=AccessControlConfig(mode="disabled"),
+        mcp=McpConfig(enabled=False),
     )
+    prepare_server_database(settings, evidence_dir=backend.directory / "migration-evidence")
+    return create_server_app(settings=settings)
 
 
 @pytest.mark.parametrize("family", ["experience", "skill"])

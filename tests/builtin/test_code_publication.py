@@ -308,7 +308,7 @@ def test_a_commit_can_be_recalled_before_its_tables_exist(tmp_path, monkeypatch)
             return Cursor()
 
     monkeypatch.setattr(pymysql, "connect", lambda **options: Connection())
-    store = SeekDBGraphStore(tmp_path / "seekdb", {})
+    store = SeekDBGraphStore(tmp_path / "seekdb", {}, database="test")
 
     store.remove_generation("a" * 32, "binding", time.monotonic() + 30)
 
@@ -490,7 +490,7 @@ def test_a_recorded_identifier_is_validated_before_any_table_is_touched(tmp_path
             return Cursor()
 
     monkeypatch.setattr(pymysql, "connect", lambda **options: Connection())
-    store = SeekDBGraphStore(tmp_path / "seekdb", {})
+    store = SeekDBGraphStore(tmp_path / "seekdb", {}, database="test")
 
     with pytest.raises(CodeError):
         store.remove_generation("not-hex", "binding", time.monotonic() + 30)
@@ -538,7 +538,7 @@ def test_the_node_and_edge_deletes_are_scoped_to_the_binding(tmp_path, monkeypat
             return Cursor()
 
     monkeypatch.setattr(pymysql, "connect", lambda **options: Connection())
-    store = SeekDBGraphStore(tmp_path / "seekdb", {})
+    store = SeekDBGraphStore(tmp_path / "seekdb", {}, database="test")
 
     store.remove_generation("b" * 32, "binding", time.monotonic() + 30)
 

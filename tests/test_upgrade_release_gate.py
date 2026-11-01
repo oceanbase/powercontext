@@ -447,9 +447,46 @@ def test_publishing_jobs_require_upgrade_acceptance_unless_manually_bypassed():
     main = yaml.safe_load((root / ".github/workflows/master.yml").read_text())["jobs"]
     assert main["upgrade-acceptance"]["uses"] == build["uses"]
     verdict = main["upgrade-release-gate"]
-    assert verdict["name"] == "Upgrade release gate" and verdict["if"] == "always()"
-    assert verdict["needs"] == "upgrade-acceptance"
-    assert verdict["steps"][0]["run"] == 'test "$UPGRADE_RESULT" = success'
+    assert verdict["name"] == "Upgrade release gate"
+    assert "!cancelled()" in verdict["if"]
+    dependencies = verdict["needs"]
+    assert {"quality", "upgrade-acceptance"} <= set([dependencies] if isinstance(dependencies, str) else dependencies)
+    assert not verdict.get("continue-on-error")
+    assert all(not step.get("continue-on-error") for step in verdict["steps"])
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the Actions gate runs in Bash")
+@pytest.mark.parametrize(
+    ("scope_result", "selected", "upgrade_result", "passes"),
+    [
+        ("success", "false", "skipped", True),
+        ("success", "false", "failure", False),
+        ("success", "true", "success", True),
+        ("success", "true", "skipped", False),
+        ("success", "true", "failure", False),
+        ("success", "true", "cancelled", False),
+        ("failure", "", "skipped", False),
+        ("success", "", "skipped", False),
+    ],
+)
+def test_upgrade_gate_distinguishes_not_required_from_missing_acceptance(
+    scope_result: str, selected: str, upgrade_result: str, passes: bool
+) -> None:
+    root = Path(__file__).parents[1]
+    workflow = yaml.safe_load((root / ".github/workflows/master.yml").read_text())
+    script = workflow["jobs"]["upgrade-release-gate"]["steps"][0]["run"]
+    result = subprocess.run(
+        ["bash", "-e", "-c", script],  # noqa: S607 -- execute the checked-in Actions gate
+        env={
+            **os.environ,
+            "SCOPE_RESULT": scope_result,
+            "UPGRADE_SELECTED": selected,
+            "UPGRADE_RESULT": upgrade_result,
+        },
+        capture_output=True,
+        check=False,
+    )
+    assert (result.returncode == 0) == passes
 
 
 @pytest.mark.parametrize(
@@ -475,6 +512,21 @@ def test_repository_baseline_covers_all_three_databases(configuration, monkeypat
         "seekdb",
         "oceanbase",
     }
+
+
+def test_upgrade_collection_keeps_failure_evidence_without_starting_after_cancellation():
+    root = Path(__file__).parents[1]
+    jobs = yaml.safe_load((root / ".github/workflows/upgrade-release.yml").read_text())["jobs"]
+    collect = jobs["collect"]
+    assert set(collect["needs"]) == {"prepare", "cases"}
+    # Explicit !cancelled() overrides the implicit success() check, so failed
+    # cases still reach evidence collection while superseded runs stop here.
+    assert collect["if"] == (
+        "${{ !cancelled() && needs.prepare.result == 'success' && !inputs.skip_upgrade_acceptance }}"
+    )
+    assert any(step.get("if") == "always()" for step in jobs["cases"]["steps"])
+    verdict = next(step for step in collect["steps"] if "CASE_JOBS_RESULT" in step.get("env", {}))
+    assert verdict["run"] == 'test "$CASE_JOBS_RESULT" = success'
 
 
 def test_upgrade_cases_require_isolated_backends_and_always_clean_up():

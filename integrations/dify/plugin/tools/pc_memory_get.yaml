@@ -77,18 +77,13 @@ output_schema:
         family:
           $ref: '#/definitions/Result/properties/family'
           type: string
-          enum: &id001
-          - memory
-          - atomic-memory
-          - experience
-          - skill
-          - handoff
-          - profile
-          - prompt
-          - topic-memory
         artifact_id:
           $ref: '#/definitions/Result/properties/artifact_id'
           type: string
+        schema_version:
+          $ref: '#/definitions/Result/properties/schema_version'
+          type: string
+          description: Persisted schema version for a custom Artifact family.
         revision:
           $ref: '#/definitions/Result/properties/revision'
           type: number
@@ -180,12 +175,19 @@ output_schema:
           pattern: .*\S.*
         family:
           type: string
-          enum: *id001
+          minLength: 1
+          maxLength: 128
+          pattern: ^[a-z][a-z0-9-]*$
         artifact_id:
           type: string
           minLength: 1
           maxLength: 128
           pattern: ^[\x21-\x7E]+$
+        schema_version:
+          anyOf:
+          - type: string
+            description: Persisted schema version for a custom Artifact family.
+          - type: 'null'
         revision:
           type: integer
           minimum: 1

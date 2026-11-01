@@ -277,12 +277,12 @@ def test_prepare_client_preserves_omitted_and_explicit_assembly() -> None:
     asyncio.run(scenario())
 
 
-def test_prepare_client_omits_the_explain_flag_a_server_may_not_know() -> None:
+def test_prepare_client_omits_the_receipt_flag_a_server_may_not_know() -> None:
     """A client upgraded ahead of its Server must not send a key that Server rejects.
 
     ``PREPARE_CONTEXT`` serializes its defaults, so the new field would otherwise travel on every
     ordinary request; a Server that predates it answers ``422 invalid_request`` instead of
-    preparing. ``explain: false`` asks for nothing, so leaving it out says the same thing.
+    preparing. ``include_receipt: false`` asks for nothing, so leaving it out says the same thing.
     """
 
     async def scenario() -> None:
@@ -304,15 +304,23 @@ def test_prepare_client_omits_the_explain_flag_a_server_may_not_know() -> None:
             client = PowerContextClient("https://memory.example", http_client=http_client)
             await client.prepare_context(PrepareContextRequest(scope_id="scope", query="default"))
             await client.prepare_context(
-                PrepareContextRequest.model_validate({"scope_id": "scope", "query": "asked", "explain": True})
+                PrepareContextRequest.model_validate({"scope_id": "scope", "query": "asked", "include_receipt": True})
             )
             await client.prepare_context(
-                PrepareContextRequest.model_validate({"scope_id": "scope", "query": "declined", "explain": False})
+                PrepareContextRequest.model_validate({
+                    "scope_id": "scope",
+                    "query": "declined",
+                    "include_receipt": False,
+                })
+            )
+            await client.prepare_context(
+                PrepareContextRequest.model_validate({"scope_id": "scope", "query": "null", "include_receipt": None})
             )
 
-        assert "explain" not in bodies[0]
-        assert bodies[1]["explain"] is True
-        assert "explain" not in bodies[2]
+        assert "include_receipt" not in bodies[0]
+        assert bodies[1]["include_receipt"] is True
+        assert "include_receipt" not in bodies[2]
+        assert "include_receipt" not in bodies[3]
         # The fields an older Server does understand still travel, so the omission is targeted.
         assert bodies[0]["max_bytes"] == 8000
         assert bodies[0]["include_code"] is False

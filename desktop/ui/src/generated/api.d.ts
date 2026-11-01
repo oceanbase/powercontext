@@ -261,6 +261,131 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/artifact-plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Artifact plugin registrations */
+        get: operations["list_artifact_plugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get an Artifact plugin registration */
+        get: operations["get_artifact_plugin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/enable-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable the currently disabled Artifact plugins
+         * @description Captures registrations and generations at request start, then accepts each eligible enable independently. Enabled, unloaded, failed and transitioning plugins are skipped. Concurrent changes and validation failures are reported per plugin without rolling back successes. Does not discover or reload plugins; poll each status URL for the asynchronous outcome.
+         */
+        post: operations["enable_all_artifact_plugins"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/reload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load or update a Worker-loaded Artifact plugin
+         * @description Reads the binding's direct child entry under POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR and fixes its resolved immutable directory. The manifest binding_name must match the directory entry and request path. Saves validated configuration and declarations without creating a pipeline. Existing enabled or disabled plugins keep their state; initial, unloaded or failed registrations become disabled. This initial path supports the global SQLite Supervisor. Plugin code is loaded only in child processes.
+         */
+        post: operations["reload_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable an Artifact plugin */
+        post: operations["enable_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable an Artifact plugin */
+        post: operations["disable_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/unload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unload an Artifact plugin */
+        post: operations["unload_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/capabilities": {
         parameters: {
             query?: never;
@@ -2885,6 +3010,8 @@ export interface components {
             scope_id: string;
             family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
+            /** @description Persisted schema version for a custom Artifact family. */
+            schema_version?: string | null;
             revision: number;
             sources: components["schemas"]["SourceTypeReference"][];
             artifacts: components["schemas"]["ArtifactReference"][];
@@ -2926,6 +3053,8 @@ export interface components {
             scope_id: string;
             family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
+            /** @description Persisted schema version for a custom Artifact family. */
+            schema_version?: string | null;
             revision: number;
             content: {
                 [key: string]: unknown;
@@ -3259,7 +3388,58 @@ export interface components {
             /** @enum {string} */
             effect: "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
         };
+        CustomArtifactFamilySchema: {
+            family: string;
+            schema_version: string;
+            content_schema: {
+                [key: string]: unknown;
+            };
+            /** @description Legacy persisted text fields; new plugins use search. */
+            search_fields: string[];
+            /** @description Persistent declarative indexes and supported search modes. */
+            search?: {
+                [key: string]: unknown;
+            };
+        };
+        ReloadArtifactPluginRequest: {
+            expected_generation: number;
+        };
+        ChangeArtifactPluginStateRequest: {
+            expected_generation: number;
+        };
+        ArtifactPluginState: {
+            binding_name: string;
+            plugin_id: string;
+            family: string;
+            binding_generation: number;
+            /** @enum {string} */
+            desired_state: "enabled" | "disabled" | "unloaded";
+            /** @enum {string} */
+            phase: "activating" | "enabled" | "stopping" | "disabled" | "unloading" | "unloaded" | "failed";
+            last_error: string | null;
+        };
+        ArtifactPluginPage: {
+            items: components["schemas"]["ArtifactPluginState"][];
+        };
+        EnableArtifactPluginResult: {
+            binding_name: string;
+            /** @enum {string} */
+            outcome: "accepted" | "skipped" | "failed";
+            /** @description Registration status URL for the asynchronous result. */
+            status_url: string;
+            state: components["schemas"]["ArtifactPluginState"];
+            /**
+             * @description Safe per-plugin failure code; null for accepted or skipped entries.
+             * @enum {string|null}
+             */
+            error: "conflict" | "invalid_plugin" | "unavailable" | null;
+        };
+        EnableAllArtifactPluginsResponse: {
+            items: components["schemas"]["EnableArtifactPluginResult"][];
+        };
         Capabilities: {
+            /** @default [] */
+            custom_artifact_schemas: components["schemas"]["CustomArtifactFamilySchema"][];
             /** @default {} */
             prompts: {
                 [key: string]: components["schemas"]["PromptCapability"];
@@ -3847,8 +4027,115 @@ export interface components {
             status: components["schemas"]["PreparedContextStatus"];
             content: string | null;
             content_bytes: number;
-            /** @description Why this preparation lost a retrieval channel it would otherwise have used. Absent unless the request asked with `explain` and a channel was lost, so a response a Host injects keeps its four fields. The values are the two inference failures among RFC 1435's four `SearchGroup.fallback_reason` spellings, so a later Receipt reuses them instead of restating the cause. `none` travels as absence, and `reused_fts_fallback` is not a cause here: a later round reusing a failed round's keyword-only outcome is still explained by that round's `inference_*` value, which outranks it. */
-            reason?: components["schemas"]["PreparedContextReason"] | null;
+            /** @description Present only when requested and successfully assembled. */
+            receipt?: components["schemas"]["PreparedContextReceipt"];
+        };
+        PreparedContextReceipt: {
+            /** @enum {string} */
+            schema: "powercontext.prepared-context-receipt.v1";
+            /** Format: uuid */
+            receipt_id: string;
+            /** @enum {string} */
+            policy_id: "powercontext.prepared-context-receipt.v1";
+            query_digest: string;
+            content_digest: string | null;
+            requested_max_bytes: number;
+            used_bytes: number;
+            truncated: boolean;
+            non_deterministic: boolean;
+            retrieval: components["schemas"]["PreparedContextRetrieval"];
+            selected: components["schemas"]["PreparedContextSelectedItem"][];
+            omitted: components["schemas"]["PreparedContextOmittedGroup"][];
+            stages: components["schemas"]["PreparedContextStageTiming"][];
+        };
+        PreparedContextRetrieval: {
+            rounds: components["schemas"]["PreparedContextRecallRound"][];
+            searches: components["schemas"]["PreparedContextSearchGroup"][];
+            rerank_configs: components["schemas"]["PreparedContextRerankConfig"][];
+            reranks: components["schemas"]["PreparedContextRerankGroup"][];
+        };
+        PreparedContextRecallRound: {
+            round: number;
+            /** @enum {string} */
+            outcome: "completed" | "expansion_failed";
+            retained: boolean;
+        };
+        PreparedContextSearchGroup: {
+            round: number;
+            family: components["schemas"]["PreparedContextFamily"];
+            /** @enum {string} */
+            mode: "fts" | "vector" | "hybrid" | "snapshot" | "code" | "none";
+            /** @enum {string} */
+            outcome: "completed" | "not_run" | "failed";
+            /** @enum {string} */
+            fallback_reason: "none" | "inference_unavailable" | "inference_timeout" | "reused_fts_fallback";
+            count: number;
+        };
+        PreparedContextRerankConfig: {
+            config_id: string;
+            policy_id: string;
+            model: string | null;
+            effective_settings: {
+                [key: string]: string | number | boolean;
+            };
+            timeout_seconds: number;
+            max_requests: number;
+            config_digest: string;
+            prompt: components["schemas"]["PreparedContextPromptIdentity"];
+            non_deterministic: boolean;
+        };
+        PreparedContextPromptIdentity: {
+            scope_id: string;
+            key: string;
+            definition_version: string;
+            builtin_version: string;
+            /** @enum {string} */
+            selection: "built_in" | "artifact";
+            selected_version: string;
+            compiled_digest: string;
+            artifact_address: components["schemas"]["PreparedContextPromptArtifactAddress"];
+        } | null;
+        PreparedContextPromptArtifactAddress: {
+            scope_id: string;
+            artifact: components["schemas"]["ArtifactReference"];
+        } | null;
+        PreparedContextRerankGroup: {
+            round: number;
+            config_id: string;
+            /** @enum {string} */
+            outcome: "selected" | "fallback" | "failed";
+            /** @enum {string} */
+            fallback_reason: "none" | "empty_selection" | "inference_unavailable" | "inference_timeout" | "invalid_output";
+            count: number;
+        };
+        /** @enum {string} */
+        PreparedContextFamily: "atomic-memory" | "topic-memory" | "experience" | "profile" | "code";
+        PreparedContextCodeEvidence: {
+            scope_id: string;
+            fingerprint: string;
+            path: string;
+            file_sha256: string;
+            start_line: number;
+            end_line: number;
+            snippet_sha256: string;
+        };
+        PreparedContextSelectedItem: {
+            kind: components["schemas"]["PreparedContextFamily"];
+            artifact_address?: components["schemas"]["ArtifactAddress"];
+            code_evidence?: components["schemas"]["PreparedContextCodeEvidence"];
+            rendered_bytes: number;
+            truncated: boolean;
+        };
+        PreparedContextOmittedGroup: {
+            family: components["schemas"]["PreparedContextFamily"];
+            /** @enum {string} */
+            reason: "duplicate" | "blank" | "family_limit" | "entry_limit" | "below_min_bytes" | "no_fitting_truncation" | "rerank_not_selected" | "not_retrieved";
+            count: number;
+        };
+        PreparedContextStageTiming: {
+            stage: string;
+            duration_ms: number;
+            count: number;
         };
         BootstrapContextItem: {
             kind: components["schemas"]["BootstrapContextItemKind"];
@@ -4602,10 +4889,10 @@ export interface components {
              */
             include_code: boolean;
             /**
-             * @description Opt into reporting which retrieval channel this preparation lost, as `reason` on the response. Off by default, because a response a Host injects keeps its four fields.
+             * @description Opt into a bounded, content-free PreparedContext Receipt.
              * @default false
              */
-            explain: boolean;
+            include_receipt: boolean | null;
             assembly?: components["schemas"]["ContextAssembly"];
             /** @description Optional exact receipt for the last successfully injected bootstrap package. Only fully delivered Atomic Memory revisions from an injected same-Scope receipt are removed before candidate limiting and sufficiency assessment; Artifacts whose bootstrap bodies were truncated remain eligible. */
             bootstrap_receipt_id?: string;
@@ -4784,8 +5071,32 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description Existing embedding space identity shared with Memory; no additional modality or version fields. */
+        EmbeddingProfile: {
+            profile_id: string;
+            model: string;
+            dimension: number;
+            /**
+             * @default l2
+             * @enum {string}
+             */
+            distance: "l2";
+            /**
+             * @default unit
+             * @enum {string}
+             */
+            normalization: "none" | "unit";
+        };
         SearchArtifactsRequest: {
-            query: string;
+            query?: string;
+            query_vector?: {
+                profile: components["schemas"]["EmbeddingProfile"];
+                vector: number[];
+            };
+            indexes?: {
+                text?: string[];
+                vector?: string[];
+            };
             /** @default 10 */
             limit: number;
             mode?: string;
@@ -5182,8 +5493,7 @@ export interface components {
         CaptureStatus: "accepted";
         /** @enum {string} */
         BaseArtifactFamily: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory";
-        /** @enum {string} */
-        ArtifactReadFamily: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory";
+        ArtifactReadFamily: string;
         /** @enum {string} */
         StatsPeriod: "today" | "7d" | "30d";
         /** @enum {string} */
@@ -5210,8 +5520,6 @@ export interface components {
         BootstrapContextItemKind: "atomic-memory" | "handoff";
         /** @enum {string} */
         BootstrapReceiptState: "pending" | "injected" | "skipped" | "failed";
-        /** @enum {string} */
-        PreparedContextReason: "inference_timeout" | "inference_unavailable";
         /** @enum {string} */
         BootstrapSkipReason: "disabled" | "no_eligible_context" | "already_delivered" | "preparation_failed";
         /** @enum {string} */
@@ -6312,6 +6620,217 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_artifact_plugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Durable registration states. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Durable registration state without plugin configuration secrets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    enable_all_artifact_plugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-plugin acceptance, skip or failure results. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnableAllArtifactPluginsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    reload_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReloadArtifactPluginRequest"];
+            };
+        };
+        responses: {
+            /** @description Definition saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    enable_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Target saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    disable_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Target saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    unload_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Target saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };
     };
