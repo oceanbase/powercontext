@@ -3264,95 +3264,6 @@ class AccessPrincipal(BaseModel):
     description: Annotated[StrictStr | None, Field(max_length=255, min_length=1)] = None
 
 
-class ScopeId1(RootModel[StrictStr]):
-    root: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-
-
-class PlanAccessOwnershipRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_ids: Annotated[
-        list[ScopeId1] | None,
-        Field(
-            description="Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments.",
-            min_length=1,
-        ),
-    ] = None
-    background_principal: Annotated[
-        AccessPrincipal | None,
-        Field(
-            description="Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each selected Scope is checked for scope.contribute and write permission on an existing Profile, including after all ownership gaps have been filled. An available Access store is required."
-        ),
-    ] = None
-
-
-class OwnershipGapKind(StrEnum):
-    ARTIFACT_OWNER = "artifact_owner"
-    CANDIDATE_ATTESTATION = "candidate_attestation"
-
-
-class OwnershipGapItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: OwnershipGapKind
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    family: Annotated[StrictStr, Field(max_length=128, min_length=1)]
-    artifact_id: Annotated[StrictStr | None, Field(max_length=256)] = None
-    entry_id: Annotated[StrictStr | None, Field(max_length=256)] = None
-    candidate_id: Annotated[StrictStr | None, Field(max_length=128)] = None
-    version: Annotated[StrictInt | None, Field(ge=1)] = None
-    conflict_code: Annotated[StrictStr | None, Field(max_length=64)] = None
-
-
-class AccessOwnershipScopePlan(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    artifact_gaps: list[OwnershipGapItem]
-    candidate_gaps: list[OwnershipGapItem]
-
-
-class Allowed(Enum):
-    BOOLEAN_FALSE = False
-
-
-class BackgroundPermissionGap(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    principal_id: Annotated[StrictStr, Field(max_length=255, min_length=1)]
-    allowed: Allowed
-    reason_code: Annotated[StrictStr | None, Field(max_length=64)]
-
-
-class ApplyAccessOwnershipRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    owner: AccessPrincipal
-    scope_ids: Annotated[
-        list[ScopeId1] | None,
-        Field(
-            description="Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments.",
-            min_length=1,
-        ),
-    ] = None
-    dry_run: StrictBool = False
-
-
-class AccessOwnershipApplyResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dry_run: StrictBool
-    applied: list[OwnershipGapItem]
-    conflicts: list[OwnershipGapItem]
-
-
 class Type3(StrEnum):
     GROUP = "group"
 
@@ -4048,6 +3959,104 @@ class SourceInstancesQuery(BaseModel):
     instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
     input: dict[str, Any] | None = None
     view: View1 = View1.DISCOVERY
+
+
+class ScopeId1(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class PlanAccessOwnershipRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_ids: Annotated[
+        list[ScopeId1] | None,
+        Field(
+            description="Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments.",
+            min_length=1,
+        ),
+    ] = None
+    background_principal: Annotated[
+        AccessPrincipal | None,
+        Field(
+            description="Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each selected Scope is checked for scope.contribute and write permission on an existing Profile, including after all ownership gaps have been filled. An available Access store is required."
+        ),
+    ] = None
+
+
+class OwnershipGapKind(StrEnum):
+    ARTIFACT_OWNER = "artifact_owner"
+    CANDIDATE_ATTESTATION = "candidate_attestation"
+
+
+class OwnershipGapItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: OwnershipGapKind
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    artifact_id: Annotated[StrictStr | None, Field(max_length=256)] = None
+    entry_id: Annotated[StrictStr | None, Field(max_length=256)] = None
+    candidate_id: Annotated[StrictStr | None, Field(max_length=128)] = None
+    version: Annotated[StrictInt | None, Field(ge=1)] = None
+    conflict_code: Annotated[StrictStr | None, Field(max_length=64)] = None
+
+
+class AccessOwnershipScopePlan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    artifact_gaps: list[OwnershipGapItem]
+    candidate_gaps: list[OwnershipGapItem]
+
+
+class Allowed(Enum):
+    BOOLEAN_FALSE = False
+
+
+class BackgroundPermissionGap(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    principal_id: Annotated[StrictStr, Field(max_length=255, min_length=1)]
+    allowed: Allowed
+    reason_code: Annotated[StrictStr | None, Field(max_length=64)]
+
+
+class AccessOwnershipPlan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: AccessControlMode
+    scopes: list[AccessOwnershipScopePlan]
+    background: list[BackgroundPermissionGap]
+
+
+class ApplyAccessOwnershipRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    owner: AccessPrincipal
+    scope_ids: Annotated[
+        list[ScopeId1] | None,
+        Field(
+            description="Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments.",
+            min_length=1,
+        ),
+    ] = None
+    dry_run: StrictBool = False
+
+
+class AccessOwnershipApplyResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dry_run: StrictBool
+    applied: list[OwnershipGapItem]
+    conflicts: list[OwnershipGapItem]
 
 
 class RecallManifestRequest(BaseModel):
@@ -5272,15 +5281,6 @@ class SourcePage(BaseModel):
     )
     items: list[SourceRecord]
     next_cursor: Annotated[StrictStr | None, Field(...)]
-
-
-class AccessOwnershipPlan(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    mode: AccessControlMode
-    scopes: list[AccessOwnershipScopePlan]
-    background: list[BackgroundPermissionGap]
 
 
 class ArtifactFamilyAccessCapability(BaseModel):
