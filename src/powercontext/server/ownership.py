@@ -24,7 +24,6 @@ idempotent Access-store transaction that can be safely repeated.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
@@ -38,6 +37,7 @@ from powercontext.server.authz import (
     AccessUnavailableError,
     PrincipalRef,
     ResourceRef,
+    bounded_idempotency_key,
 )
 from powercontext.server.authz.models import MemoryEntrySelector
 from powercontext.server.authz.owner_recovery import flush_owner_writes, owner_recovery_session, owner_write_access
@@ -156,11 +156,12 @@ async def plan_ownership_migration(
         raise AccessUnavailableError("relationship_management_unavailable")
     scopes: list[ScopeOwnershipPlan] = []
     selected = tuple(dict.fromkeys(scope_ids))
+    families = await _owned_artifact_families(application)
     for scope_id in selected:
         scopes.append(
             ScopeOwnershipPlan(
                 scope_id=scope_id,
-                artifact_gaps=await _artifact_gaps(application, access, scope_id),
+                artifact_gaps=await _artifact_gaps(application, access, scope_id, families),
                 candidate_gaps=await _candidate_gaps(application, access, scope_id),
             )
         )
@@ -226,9 +227,10 @@ async def apply_ownership_migration(
     context = migration_context(MIGRATION_OPERATION, transport=transport, context=context)
     items: list[ArtifactOwnershipGap | CandidateOwnershipGap] = []
     conflicts: list[OwnershipDisposition] = []
+    families = await _owned_artifact_families(application)
     for scope_id in dict.fromkeys(scope_ids):
         inventory = (
-            *await _artifact_gaps(application, None, scope_id),
+            *await _artifact_gaps(application, None, scope_id, families),
             *await _candidate_gaps(application, None, scope_id),
         )
         for item in inventory:
@@ -390,16 +392,29 @@ def _validate_migration_owner(owner: PrincipalRef) -> None:
         raise AccessInvalidRequestError("principal")
 
 
+async def _owned_artifact_families(application: Application) -> frozenset[str]:
+    """Families whose Artifact lifecycle Access enforces, including saved plugins."""
+
+    from powercontext.server.artifact_plugins import read_artifact_declarations
+
+    families = set(OWNED_ARTIFACT_FAMILIES)
+    database = getattr(application, "primary_database", None)
+    if database is not None:
+        families.update(declaration["family"] for declaration in await read_artifact_declarations(database))
+    return frozenset(families)
+
+
 async def _artifact_gaps(
     application: Application,
     access: AccessControlService | None,
     scope_id: str,
+    families: frozenset[str],
 ) -> tuple[ArtifactOwnershipGap, ...]:
     records = application.records.for_scope(scope_id)
 
     gaps: list[ArtifactOwnershipGap] = []
     for record in await records.logical_artifacts():
-        if record.family not in OWNED_ARTIFACT_FAMILIES:
+        if record.family not in families:
             continue
         resource = ResourceRef.artifact(scope_id, family=record.family, artifact_id=record.artifact_id)
         if access is not None and await access.artifact_owner(resource) is not None:
@@ -465,7 +480,7 @@ async def _attest_gap_owner(
         family=gap.family,
         proposed_owner=owner,
         target=target,
-        idempotency_key=_migration_key("candidate-owner", gap.scope_id, gap.candidate_id),
+        idempotency_key=bounded_idempotency_key("candidate-owner", gap.scope_id, gap.candidate_id),
     )
 
 
@@ -491,16 +506,7 @@ def _owner_identity(gap: ArtifactOwnershipGap) -> tuple[str, ResourceRef]:
         )
         return f"base-artifact-owner:{sha256(resource.key.encode()).hexdigest()}", resource
     if gap.family == "profile" and gap.artifact_id == "profile":
-        key = _migration_key("profile-owner", gap.scope_id)
+        key = bounded_idempotency_key("profile-owner", gap.scope_id)
     else:
-        key = _migration_key(f"{gap.family}-owner", gap.scope_id, gap.artifact_id)
+        key = bounded_idempotency_key(f"{gap.family}-owner", gap.scope_id, gap.artifact_id)
     return key, ResourceRef.artifact(gap.scope_id, family=gap.family, artifact_id=gap.artifact_id)
-
-
-def _migration_key(prefix: str, *identity: str) -> str:
-    """Keep accepted keys stable; hash complete identity parts for longer keys."""
-    key = f"{prefix}:{':'.join(identity)}"
-    if len(key) <= 255:
-        return key
-    encoded = json.dumps((prefix, *identity), ensure_ascii=False, separators=(",", ":")).encode()
-    return f"{prefix}:{sha256(encoded).hexdigest()}"

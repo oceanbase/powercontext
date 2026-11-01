@@ -399,6 +399,24 @@ def test_long_scope_ownership_migration_matches_preview(tmp_path: Path, scope_le
                 attestation = await access.candidate_owner(scope_id, candidate["candidate_id"])
                 assert attestation is not None and attestation.proposed_owner == ADMIN
                 keys.append(attestation.idempotency_key)
+                approved = checked(
+                    await client.post(
+                        "/v1/candidates/approve",
+                        json={
+                            "scope_id": scope_id,
+                            "candidate_id": candidate["candidate_id"],
+                            "expected_version": candidate["version"],
+                        },
+                    ),
+                    200,
+                )
+                assert approved["status"] == "approved"
+                target = approved["result_artifact"]
+                relation = await access.artifact_owner(
+                    ResourceRef.artifact(scope_id, family=target["family"], artifact_id=target["artifact_id"])
+                )
+                assert relation is not None and relation.owner == ADMIN
+                keys.append(relation.idempotency_key)
             assert all(len(key) <= 255 for key in keys)
             assert len(set(keys)) == len(keys)
             repeated = checked(await client.post("/v1/access/ownership/apply", json=payload), 200)

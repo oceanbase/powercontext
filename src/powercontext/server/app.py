@@ -862,6 +862,7 @@ from powercontext.server.authz import (
     ReplaceBinding,
     ResourceRef,
     access_control_for_mode,
+    bounded_idempotency_key,
 )
 from powercontext.server.authz.models import (
     ROLE_ACTIONS,
@@ -2757,7 +2758,7 @@ async def flush_profile(
             await bound.establish_artifact_owner(
                 resource,
                 principal,
-                idempotency_key=f"profile-owner:{request.scope_id}",
+                idempotency_key=bounded_idempotency_key("profile-owner", request.scope_id),
                 context=context,
             )
         if candidate is not None:
@@ -2767,7 +2768,7 @@ async def flush_profile(
                 family="profile",
                 proposed_owner=principal,
                 target=None if candidate.target is None else resource,
-                idempotency_key=f"candidate-owner:{request.scope_id}:{candidate.candidate_id}",
+                idempotency_key=bounded_idempotency_key("candidate-owner", request.scope_id, candidate.candidate_id),
             )
 
     result = await application.profiles.flush(
@@ -3682,7 +3683,7 @@ async def commit_handoff(
             await owner_write_access(access, connection).establish_artifact_owner(
                 ResourceRef.artifact(request.scope_id, family="handoff", artifact_id=artifact.artifact_id),
                 principal,
-                idempotency_key=f"handoff-owner:{request.scope_id}:{artifact.artifact_id}",
+                idempotency_key=bounded_idempotency_key("handoff-owner", request.scope_id, artifact.artifact_id),
                 context=context,
             )
         committed = True
@@ -3700,7 +3701,7 @@ async def commit_handoff(
                 family="handoff",
                 artifact_id=result.artifact_id,
             ),
-            idempotency_key=f"handoff-owner:{request.scope_id}:{result.artifact_id}",
+            idempotency_key=bounded_idempotency_key("handoff-owner", request.scope_id, result.artifact_id),
             operation=COMMIT_HANDOFF.operation_id,
         )
     elif access is not None and not committed:
@@ -4560,7 +4561,7 @@ async def _attest_candidate_owner(
         family=family,
         proposed_owner=_require_principal(),
         target=logical_target,
-        idempotency_key=f"candidate-owner:{scope_id}:{candidate_id}",
+        idempotency_key=bounded_idempotency_key("candidate-owner", scope_id, candidate_id),
     )
 
 
@@ -4616,7 +4617,7 @@ def _candidate_owner_commit(request: Request, scope_id: str) -> dict[str, Any]:
                 family=target.family,
                 artifact_id=target.artifact_id,
             ),
-            idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
+            idempotency_key=bounded_idempotency_key("candidate-owner", scope_id, candidate.candidate_id),
         )
 
     return {"on_commit": on_commit}
@@ -4791,7 +4792,7 @@ async def approve_candidate(
                 artifact_id=artifact.artifact_id,
             ),
             attestation.proposed_owner,
-            idempotency_key=f"candidate-artifact-owner:{request.scope_id}:{request.candidate_id}",
+            idempotency_key=bounded_idempotency_key("candidate-artifact-owner", request.scope_id, request.candidate_id),
             context=_access_audit_context(APPROVE_CANDIDATE.operation_id),
         )
     return await _candidate_response(http_request, request.scope_id, result)

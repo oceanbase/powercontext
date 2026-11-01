@@ -83,6 +83,7 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
     access_control_for_mode,
+    bounded_idempotency_key,
 )
 from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.authz.owner_recovery import (
@@ -604,7 +605,9 @@ def _scheduled_access_runners(
                             family=candidate.target.family,
                             artifact_id=candidate.target.artifact_id,
                         ),
-                        idempotency_key=f"background-candidate-owner:{scope_id}:{candidate.candidate_id}",
+                        idempotency_key=bounded_idempotency_key(
+                            "background-candidate-owner", scope_id, candidate.candidate_id
+                        ),
                     )
                     for candidate in candidates
                 )
@@ -627,7 +630,7 @@ def _scheduled_access_runners(
                     family="experience",
                     proposed_owner=principal,
                     target=None,
-                    idempotency_key=f"background-candidate-owner:{scope_id}:{candidate_id}",
+                    idempotency_key=bounded_idempotency_key("background-candidate-owner", scope_id, candidate_id),
                 )
                 for candidate_id in result.candidate_ids
             )
@@ -663,7 +666,7 @@ def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_princi
                 await bound.establish_artifact_owner(
                     resource,
                     principal,
-                    idempotency_key=f"profile-owner:{scope_id}",
+                    idempotency_key=bounded_idempotency_key("profile-owner", scope_id),
                     context=context,
                 )
             if candidate is not None:
@@ -673,7 +676,7 @@ def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_princi
                     family="profile",
                     proposed_owner=principal,
                     target=None if candidate.target is None else resource,
-                    idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
+                    idempotency_key=bounded_idempotency_key("candidate-owner", scope_id, candidate.candidate_id),
                 )
 
         recovery = (

@@ -27,7 +27,13 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 import yaml
+
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.server.authz import AccessAction, AccessAuditContext, AccessDeniedError, PrincipalRef, ResourceRef
+from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.server.authz.profiles import register_custom_artifact_access_family
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples/artifact_plugins/incident_report"
 SUMMARY_EXAMPLE = EXAMPLE.parent / "ticket_summary"
@@ -99,6 +105,7 @@ async def running_server(
     directory_from_env: bool = True,
     database_url: str | None = None,
     database_settings: dict[str, Any] | None = None,
+    access_mode: str = "enforced",
 ):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -115,13 +122,14 @@ async def running_server(
         "POWERCONTEXT_SERVER_RUNTIME": json.dumps({"artifact_processing_families": []}),
         "POWERCONTEXT_SERVER_WORKSPACE": str(directory),
         "POWERCONTEXT_HOME": str(directory / "home"),
-        "POWERCONTEXT_SERVER_AUTH_ENABLED": "true",
-        "POWERCONTEXT_SERVER_AUTH_TOKEN": ADMIN_AUTHORIZATION_VALUE,
-        "POWERCONTEXT_SERVER_ACCESS_MODE": "enforced",
+        "POWERCONTEXT_SERVER_AUTH_ENABLED": "true" if access_mode != "disabled" else "false",
+        "POWERCONTEXT_SERVER_ACCESS_MODE": access_mode,
         "POWERCONTEXT_SERVER_MCP_ENABLED": "false",
         "POWERCONTEXT_SERVER_METRICS_ENABLED": "true",
         "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "false",
     })
+    if access_mode != "disabled":
+        env["POWERCONTEXT_SERVER_AUTH_TOKEN"] = ADMIN_AUTHORIZATION_VALUE
     (directory / "plugins").mkdir(exist_ok=True)
     if directory_from_env:
         env["POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR"] = str(directory / "plugins")
@@ -1021,3 +1029,48 @@ async def _repair_failed_restore(tmp_path: Path) -> None:
         assert repaired["revision"] == 1
         assert repaired["content"]["title"] == "Repaired: during-failure"
         assert len((await query(client, healthy_scope, "ticket-summary"))["results"]) == 1
+
+
+def test_ownership_migration_restores_a_registered_custom_family(tmp_path: Path) -> None:
+    asyncio.run(_migrate_registered_custom_family(tmp_path))
+
+
+async def _migrate_registered_custom_family(tmp_path: Path) -> None:
+    plugin = deploy_plugin(EXAMPLE, tmp_path / "migration-v1", None)
+    async with running_server(tmp_path, access_mode="disabled") as client:
+        scope = await create_scope(client, "custom-migration")
+        await reload_plugin(client, tmp_path, plugin, 0)
+        await change(client, "enable", 1, "enabled")
+        await capture(client, scope, "legacy-report")
+        report = (await contents(client, scope, "incident-report", 1))[0]
+        # A disabled plugin stays disabled after restart, so no replay repairs the legacy owner.
+        await change(client, "disable", 2, "disabled")
+    async with running_server(tmp_path) as client:
+        plan = (await client.post("/v1/access/ownership/plan", json={"scope_ids": [scope]})).json()
+        assert [(gap["family"], gap["artifact_id"]) for gap in plan["scopes"][0]["artifact_gaps"]] == [
+            ("incident-report", report["artifact_id"])
+        ]
+        applied = await client.post(
+            "/v1/access/ownership/apply",
+            json={"scope_ids": [scope], "owner": {"type": "service", "id": "server-token"}},
+        )
+        assert applied.status_code == 200, applied.text
+        assert [item["kind"] for item in applied.json()["applied"]] == ["artifact_owner"]
+    async with open_builtin_access_control(SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'server.db'}")) as access:
+        register_custom_artifact_access_family("incident-report")
+        resource = ResourceRef.artifact(scope, family="incident-report", artifact_id=report["artifact_id"])
+        relation = await access.artifact_owner(resource)
+        assert relation is not None and relation.owner == PrincipalRef(type="service", id="server-token")
+        await access.require(
+            relation.owner,
+            AccessAction.ARTIFACT_WRITE,
+            resource,
+            context=AccessAuditContext(transport="test", operation="artifact.write"),
+        )
+        with pytest.raises(AccessDeniedError):
+            await access.require(
+                PrincipalRef(type="user", id="worker"),
+                AccessAction.ARTIFACT_WRITE,
+                resource,
+                context=AccessAuditContext(transport="test", operation="artifact.write"),
+            )
