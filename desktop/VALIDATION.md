@@ -51,13 +51,67 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. `sqlite-atomic-cc5980f0-v1` records the ten protocol operations qualified below. The bundled contract is qualified by `sqlite-source-artifact-87b6fae2-v1` for the exact source snapshot and wheel recorded below. The preceding `sqlite-artifact-merge-87d01f68-v1` record retains its original qualification. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. `sqlite-atomic-cc5980f0-v1` records the ten protocol operations qualified below. The bundled contract has the twelve-operation statistics product qualification `sqlite-stats-0b0a1c71-v1` below. `sqlite-source-artifact-87b6fae2-v1` retains its independently qualified eleven operations and does not authorize statistics. The preceding `sqlite-artifact-merge-87d01f68-v1` record retains its original qualification. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit.
 
 Selecting a compatibility profile does not attest the remote binary identity. Existing `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` / `sqlite-6e237568-v1` / `sqlite-legacy-58f7f4f6-v1` selections require explicitly choosing an available matching profile and rechecking the connection. Desktop reads memories only through Atomic Memory references, so Servers that answer only with Memory entry citations are not qualified. CLI diagnostics separately verify the registered executable path and digest, then validate the diagnostic response schema. The observed version is optional report information; a registration does not require a version.
 
 ### Current-Scope statistics qualification
+
+#### Server 0b0a1c71 statistics product qualification
+
+`sqlite-stats-0b0a1c71-v1` qualifies all twelve bundled Desktop operations,
+including `get_stats` and discovery, against Server source
+`0b0a1c71f56bf00fb9ce1cffb7d7a185cc50752d` and normalized OpenAPI digest
+`37936d7897ec2d981dcc195d3b7b7a9f99c572d866c0193b37df43617077c155`.
+The qualification wheel is
+`powercontext-1.4.1.dev276+g9e7d8d8da.d20261101-py3-none-any.whl`, SHA-256
+`a4371b7102ed22008ca0002f6e99c811df0917bcbd8bad0c4138f315dbcb6d26`.
+Its version reflects the Desktop checkout used to build it during integration;
+all 665 packaged runtime files in `powercontext/` and
+`powercontext_service_bootstrap/` match the recorded Server commit byte for byte.
+The sorted newline-terminated `wheel/path sha256` manifest hashes to
+`5949a03b7c47da3191dec0cbe4c5fa056d93194e95732fee63a3869a529c6e58`.
+
+On 2026-11-01, macOS ARM64, the isolated built-wheel SQLite Server passed
+anonymous loopback, static Bearer loopback, explicit-CA HTTPS with a base path,
+and enforced authentication Provider modes. The native probe was built without
+`ci-fixtures`. In product-qualification mode it uses `ConnectionManager::new`
+and selects this checked-in record through the ordinary connection check,
+activation and exact-Scope selection path; it does not inject a qualification.
+All four modes completed explicit statistics reads through that manager for
+UTC today/7d/30d, persisted inventory, zero and partial usage, and independent
+Memory operations. Existing identity/revocation, context cancellation and
+uncertain-write checks also passed. Partial model usage is seeded into the
+Runtime recorder; this is not an actual model-provider invocation.
+
+Reproduce with a wheel whose digest matches the record and a default native build:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --locked python desktop/tests/real_server.py --product-qualification sqlite-stats-0b0a1c71-v1
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session bundled_product_qualification_covers_every_desktop_operation
+```
+
+The harness rejects a mismatched wheel/digest or an incomplete operation set.
+It also requires the native probe to return the selected product record ID and
+product qualification source; a stale fixture-only executable cannot satisfy
+product acceptance merely by ignoring the input flag.
+The regression reads only checked-in product records, even when CI fixture
+features are enabled. It requires one matching-digest record covering every
+bundled operation; historical partial qualifications remain unchanged.
+The regression failed before the statistics product record was added and passed
+afterwards. Ignored local evidence is in
+`desktop/.artifacts/stats-current/wheel-identity.json`,
+`desktop/.artifacts/stats-current/product-server.log`, and
+`desktop/.artifacts/real-server.json` (`qualificationSource: bundled product records`).
+
+These checks establish a local built-wheel/native SQLite path. They do not
+establish installed Windows/Intel acceptance, signing/notarization, external
+production deployment, or release/upgrade qualification. Operators must match
+the recorded Server source and wheel; discovery alone does not attest a remote binary.
+
 
 #### Server 27404931 statistics and discovery qualification
 

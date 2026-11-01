@@ -31,6 +31,8 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 struct Fixture {
     compatibility_profile: CompatibilityProfile,
+    #[serde(default)]
+    product_qualification: bool,
     response_loss_path: Option<String>,
     statistics_usage_path: Option<String>,
     identity_change_path: Option<String>,
@@ -149,14 +151,22 @@ async fn main() {
     assert_eq!(exact.text, text);
     // Exercise the same native context owner used by product IPC, not only bare HTTP adapters.
     let temporary = tempfile::tempdir().unwrap();
-    let manager = ConnectionManager::with_compatibility(
-        ProfileRepository::open(
-            temporary.path().join("profiles.json"),
-            std::sync::Arc::new(NativeVault),
+    let repository = ProfileRepository::open(
+        temporary.path().join("profiles.json"),
+        std::sync::Arc::new(NativeVault),
+    )
+    .unwrap();
+    if fixture.product_qualification && cfg!(feature = "ci-fixtures") {
+        panic!("product qualification must not inject CI records");
+    }
+    let manager = if fixture.product_qualification {
+        ConnectionManager::new(repository)
+    } else {
+        ConnectionManager::with_compatibility(
+            repository,
+            vec![fixture.compatibility_profile.clone()],
         )
-        .unwrap(),
-        vec![fixture.compatibility_profile.clone()],
-    );
+    };
     let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&args[1]).unwrap()).unwrap();
     let compatibility = &fixture.compatibility_profile.id;
     let credential = raw["token"]
@@ -350,7 +360,8 @@ async fn main() {
         "{}",
         serde_json::json!({
             "result":"passed",
-            "qualification":"candidate native real-Server evidence; product profile is separate",
+            "qualificationSource": if fixture.product_qualification { "bundled product records" } else { "disposable fixture" },
+            "qualificationId":fixture.compatibility_profile.id,
             "contractSha256":fixture.compatibility_profile.contract_sha256,
             "performance": {
                 "scope":"Native ConnectionManager round trips, including identity recheck; local fixture; no UI latency or approved budget",

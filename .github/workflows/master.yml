@@ -5,7 +5,10 @@ on:
     branches:
       - master
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+  schedule:
+    - cron: '17 20 * * *'
   workflow_dispatch:
     inputs:
       upgrade_selection:
@@ -18,14 +21,17 @@ on:
           - full
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: master-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   seekdb-managed-startup:
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
     name: SeekDB managed startup regression (priority)
     timeout-minutes: 20
     runs-on: ubuntu-latest
@@ -78,33 +84,38 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  changes:
-    uses: ./.github/workflows/ci-changes.yml
-
   upgrade-acceptance:
-    needs: seekdb-managed-startup
-    # Collect selected upgrade cases even when the priority regression fails.
-    if: ${{ !cancelled() }}
+    needs: [quality, seekdb-managed-startup, tests]
+    # Keep diagnostics when the selected priority regression fails.
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
     uses: ./.github/workflows/upgrade-release.yml
     with:
       selection: ${{ github.event_name == 'workflow_dispatch' && inputs.upgrade_selection || 'full' }}
 
   upgrade-release-gate:
     name: Upgrade release gate
-    needs: upgrade-acceptance
-    if: always()
+    needs: [quality, upgrade-acceptance]
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require the selected parallel acceptance workflow
         env:
+          SCOPE_RESULT: ${{ needs.quality.result }}
+          UPGRADE_SELECTED: ${{ fromJSON(needs.quality.outputs.suites || '{}').upgrade }}
           UPGRADE_RESULT: ${{ needs.upgrade-acceptance.result }}
-        run: test "$UPGRADE_RESULT" = success
+        run: |
+          if [ "$SCOPE_RESULT" = success ] && [ "$UPGRADE_SELECTED" = false ]; then
+            test "$UPGRADE_RESULT" = skipped
+            echo "Upgrade acceptance is not required by this change."
+          else
+            test "$UPGRADE_RESULT" = success
+          fi
 
   oceanbase-engine-recovery:
     name: OceanBase engine crash recovery
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').tests) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -162,13 +173,40 @@ jobs:
           retention-days: 7
 
   quality:
-    timeout-minutes: 20
+    name: CI preflight
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    timeout-minutes: 30
     runs-on: ubuntu-latest
+    outputs:
+      suites: ${{ steps.select.outputs.suites }}
+      test-matrix: ${{ steps.select.outputs.test-matrix }}
+      required-jobs: ${{ steps.select.outputs.required-jobs }}
     steps:
-      - name: Check out
+      - name: Check out the complete branch history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Select checks
+        id: select
+        timeout-minutes: 5
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_BASELINE_WORKFLOW: master.yml
+          CI_FULL_VALIDATION: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci_changes.py
+
+      - name: Check License Header
+        timeout-minutes: 10
+        uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          config: .licenserc.yaml
+          mode: check
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
@@ -190,15 +228,15 @@ jobs:
         run: make contract-test
 
   tests:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').tests) }}
+    name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
+    needs: [quality]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     timeout-minutes: 40
     runs-on: ubuntu-latest
     strategy:
-      matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
-        suite: [unit, e2e]
-      fail-fast: false
+      fail-fast: true
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"python-version":["3.11","3.12","3.13","3.14"],"suite":["unit","e2e"]}') }}
     defaults:
       run:
         shell: bash
@@ -246,15 +284,15 @@ jobs:
         run: make e2e-test
 
   isolated-installations:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').tests) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
     timeout-minutes: 20
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
+      max-parallel: 2
       matrix:
         python-version: ["3.11", "3.14"]
-        extras: ["core", "builtin", "cli", "builtin,cli", "server,cli"]
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -271,34 +309,38 @@ jobs:
         with:
           version: "0.10.12"
 
-      - name: Build and install only the requested wheel extras
-        env:
-          ROLE_EXTRAS: ${{ matrix.extras }}
+      - name: Build one wheel for all installation roles
         run: |
-          uv build --wheel --out-dir "$RUNNER_TEMP/role-wheel"
-          uv venv --python "$(command -v python)" "$RUNNER_TEMP/role-venv"
+          uv build --wheel --python "$(command -v python)" --out-dir "$RUNNER_TEMP/role-wheel"
+
+      - name: Verify all roles in independent environments
+        run: |
           wheel="$(find "$RUNNER_TEMP/role-wheel" -name '*.whl' -print -quit)"
-          if [ "$ROLE_EXTRAS" = core ]; then
-            uv pip install --python "$RUNNER_TEMP/role-venv/bin/python" "$wheel"
-          else
-            uv pip install --python "$RUNNER_TEMP/role-venv/bin/python" "$wheel[$ROLE_EXTRAS]"
+          python scripts/ci_installation_roles.py --wheel "$wheel" \
+            --python "$(command -v python)" --output-dir "$RUNNER_TEMP/installation-roles"
+
+      - name: Summarize installation roles
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/installation-roles/summary.md" ]; then
+            cat "$RUNNER_TEMP/installation-roles/summary.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Verify installed role behavior without checkout imports
-        env:
-          ROLE_EXTRAS: ${{ matrix.extras }}
-        run: |
-          "$RUNNER_TEMP/role-venv/bin/python" -I scripts/ci_role_smoke.py "$ROLE_EXTRAS"
-
-      - name: Verify unrelated packages do not enable optional CLI roles
-        if: matrix.extras == 'cli'
-        run: |
-          uv pip install --python "$RUNNER_TEMP/role-venv/bin/python" sqlalchemy fastapi
-          "$RUNNER_TEMP/role-venv/bin/python" -I scripts/ci_role_smoke.py cli
+      - name: Save installation role reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: installation-roles-py${{ matrix.python-version }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/installation-roles/summary.json
+            ${{ runner.temp }}/installation-roles/summary.md
+            ${{ runner.temp }}/installation-roles/logs/*.log
+          if-no-files-found: warn
+          retention-days: 7
 
   docs-tests:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').docs_tests) }}
+    needs: [quality]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').docs_tests) }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -322,6 +364,8 @@ jobs:
             tests/e2e/test_mcp_full_profile.py
 
   worker-observability:
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').observability) }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -363,8 +407,8 @@ jobs:
           if-no-files-found: error
 
   evaluation-tests:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').evaluation) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').evaluation) }}
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
@@ -425,8 +469,8 @@ jobs:
           echo "::error title=evaluation unit tests failed::${detail}"
 
   code-seekdb:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').database) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     timeout-minutes: 30
     runs-on: ubuntu-latest
     strategy:
@@ -560,8 +604,8 @@ jobs:
           if-no-files-found: ignore
 
   atomic-memory-clean-seekdb:
-    needs: [changes, seekdb-managed-startup]
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').database) }}
+    needs: [quality, seekdb-managed-startup, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     name: Atomic Memory clean migration (SeekDB)
     timeout-minutes: 55
     runs-on: ubuntu-latest
@@ -622,8 +666,8 @@ jobs:
           retention-days: 7
 
   windows-unit-portability:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').tests) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     timeout-minutes: 20
     runs-on: windows-latest
     steps:
@@ -718,8 +762,8 @@ jobs:
           tests/test_service_environment.py
 
   dify-tools:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').dify) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dify) }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -784,8 +828,8 @@ jobs:
         run: make dify-test
 
   hermes-skills:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').hermes) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').hermes) }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -811,8 +855,8 @@ jobs:
         run: uv run pytest tests/e2e/test_hermes_skills.py
 
   dsh-package:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').dsh) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dsh) }}
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
@@ -858,8 +902,8 @@ jobs:
         run: uv run pytest tests/test_integration_guidance_evaluation.py::test_dsh_controlled_native_handoff_uses_only_mcp_tools_and_preserves_complete_carriers
 
   cindy-package:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').cindy) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').cindy) }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -901,8 +945,8 @@ jobs:
         run: uv run pytest tests/e2e/test_cindy_mcp_chain.py tests/e2e/test_cindy_hooks_chain.py -q
 
   pi-package:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').pi) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').pi) }}
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
@@ -930,8 +974,8 @@ jobs:
         run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[pi]"
 
   opencode-package:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').opencode) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opencode) }}
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
@@ -954,8 +998,8 @@ jobs:
         run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[opencode]"
 
   openclaw-package:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').openclaw) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
@@ -980,8 +1024,8 @@ jobs:
         run: mise exec node@24.15.0 -- uv run pytest tests/test_integration_guidance_evaluation.py::test_openclaw_handoff_adapter_preserves_generated_source_identity
 
   opendal-package:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').opendal) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opendal) }}
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
@@ -1000,8 +1044,8 @@ jobs:
 
 
   website-link-validation-windows:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').website) }}
+    needs: [quality]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
     timeout-minutes: 20
     runs-on: windows-latest
     steps:
@@ -1026,8 +1070,8 @@ jobs:
         run: pnpm --dir website test:links
 
   check-website:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').website) }}
+    needs: [quality]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
@@ -1056,10 +1100,174 @@ jobs:
           POWERCONTEXT_TEST_BLOG_SITE: "1"
         run: uv run pytest tests/e2e/test_blog_site.py -q
 
+  harness-validation:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').database || fromJSON(needs.quality.outputs.suites || '{}').harness) }}
+    uses: ./.github/workflows/e2e-harness.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  desktop-validation:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').desktop) }}
+    uses: ./.github/workflows/desktop.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  managed-resource-candidates:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').managed_resources) }}
+    uses: ./.github/workflows/managed-resource-candidates.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  native-service:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').native) }}
+    uses: ./.github/workflows/native-service.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  kimi-acceptance:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').kimi) }}
+    uses: ./.github/workflows/kimi-code-acceptance.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  zcode-acceptance:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').zcode) }}
+    uses: ./.github/workflows/zcode-acceptance.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  skill-guidance:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').skill_guidance) }}
+    uses: ./.github/workflows/skill-guidance.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  candidate-replay:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').candidate_replay) }}
+    uses: ./.github/workflows/candidate-schema-replay.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  release-schema:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').release_schema) }}
+    uses: ./.github/workflows/capture-release-schema.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  seekdb-lock:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').seekdb_lock) }}
+    uses: ./.github/workflows/seekdb-lock-probe.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  ci-result:
+    name: CI result
+    needs:
+      - seekdb-managed-startup
+      - upgrade-acceptance
+      - upgrade-release-gate
+      - oceanbase-engine-recovery
+      - quality
+      - tests
+      - isolated-installations
+      - docs-tests
+      - worker-observability
+      - evaluation-tests
+      - code-seekdb
+      - atomic-memory-clean-seekdb
+      - windows-unit-portability
+      - dify-tools
+      - hermes-skills
+      - dsh-package
+      - cindy-package
+      - pi-package
+      - opencode-package
+      - openclaw-package
+      - opendal-package
+      - website-link-validation-windows
+      - check-website
+      - harness-validation
+      - desktop-validation
+      - managed-resource-candidates
+      - helm
+      - native-service
+      - kimi-acceptance
+      - zcode-acceptance
+      - skill-guidance
+      - candidate-replay
+      - release-schema
+      - seekdb-lock
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful selected checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          REQUIRED: ${{ needs.quality.outputs.required-jobs }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          results = json.loads(os.environ["RESULTS"])
+          failed = {name: job["result"] for name, job in results.items()
+                    if job["result"] not in {"success", "skipped"}}
+          if failed:
+              raise SystemExit(f"CI checks did not succeed: {failed}")
+          required = json.loads(os.environ["REQUIRED"])
+          if not {"quality", "upgrade-release-gate"} <= set(required):
+              raise SystemExit("The required CI result contract is missing")
+          missing = {name: results.get(name, {}).get("result", "missing") for name in required
+                     if results.get(name, {}).get("result") != "success"}
+          if missing:
+              raise SystemExit(f"Selected CI checks did not run successfully: {missing}")
+          print("All selected CI checks passed.")
+          PYTHON
+
   helm:
     name: Helm deployment contracts
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').helm) }}
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').helm) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
