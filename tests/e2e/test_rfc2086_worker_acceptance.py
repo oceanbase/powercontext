@@ -24,10 +24,12 @@ import asyncio
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, cast
+from typing import Any, Literal, cast
 
+import pytest
 from pydantic import AnyHttpUrl, SecretStr
 
+from powercontext.builtin.artifacts.atomic_memory.input_encoding import decode_atomic_memory_input
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig, UpstreamProfile
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
@@ -58,6 +60,8 @@ class WorkerHandler(BaseHTTPRequestHandler):
         cast(WorkerServer, self.server).requests.append(payload)
         prompt = next(item["content"] for item in payload["messages"] if item["role"] == "user")
         task = json.loads(prompt)
+        if task.get("schema") == "powercontext.atomic-memory-input.v1":
+            task = json.loads(decode_atomic_memory_input(prompt))
         if "proposal" in task:
             output = {
                 "action": "create",
@@ -101,7 +105,10 @@ class WorkerHandler(BaseHTTPRequestHandler):
         pass
 
 
-def test_privacy_rejection_keeps_source_pending_and_recovers_after_restart(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("encoding", ["off", "active"])
+def test_privacy_rejection_keeps_source_pending_and_recovers_after_restart(
+    tmp_path, monkeypatch, encoding: Literal["off", "active"]
+) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-worker-key")
     server = WorkerServer(("127.0.0.1", 0), WorkerHandler)
     server.requests = []
@@ -132,6 +139,7 @@ def test_privacy_rejection_keeps_source_pending_and_recovers_after_restart(tmp_p
                 generation_base_url=AnyHttpUrl(base_url),
                 generation_model_settings={"max_tokens": 1024},
                 protection=policy,
+                atomic_memory_input_encoding=encoding,
             ),
             runtime=RuntimeConfig(
                 artifact_processing_families=("memory",),
@@ -217,6 +225,15 @@ def test_privacy_rejection_keeps_source_pending_and_recovers_after_restart(tmp_p
             assert records[0].artifact.content.text == _MEMORY
             assert records[0].artifact.lineage.sources == (receipt.source_ref,)
         assert server.requests
+        sent = [
+            json.loads(item["content"])
+            for request in server.requests
+            for item in request["messages"]
+            if item["role"] == "user"
+        ]
+        assert any(item.get("schema") == "powercontext.atomic-memory-input.v1" for item in sent) == (
+            encoding == "active"
+        )
         async with (
             SQLiteProfile.open(database, tables=BUILTIN_TABLES) as profile,
             profile.database.transaction() as conn,

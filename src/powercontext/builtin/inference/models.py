@@ -16,12 +16,38 @@
 
 from __future__ import annotations
 
-from typing import Generic, TypeAlias, TypeVar
+from dataclasses import dataclass
+from typing import Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, Field
 
 OutputT = TypeVar("OutputT", covariant=True)
 EmbeddingVector: TypeAlias = tuple[float, ...]
+MAX_INPUT_ENCODINGS = 128
+
+
+@dataclass(frozen=True, slots=True)
+class InputEncodingReport:
+    """Local preparation estimates, separate from provider-reported usage.
+
+    Contains no content, references, paths, or content hashes. Reports belong to
+    one capability call and are not persisted by the model usage recorder.
+    """
+
+    mode: Literal["off", "shadow", "active"]
+    stage: str
+    codec: Literal["none", "shared-json-v1", "shared-json-v2"]
+    reason: str
+    original_bytes: int
+    original_estimated_tokens: int
+    candidate_bytes: int | None
+    candidate_estimated_tokens: int | None
+    selected_bytes: int
+    selected_estimated_tokens: int
+    estimator_id: str
+    estimator_version: str
+    replacements: int = 0
+    shared_values: int = 0
 
 
 class InferenceUsage(BaseModel):
@@ -35,6 +61,7 @@ class InferenceUsage(BaseModel):
     reasoning_tokens: int | None = None
     target_model: str | None = None
     incomplete: bool = False
+    input_encodings: tuple[InputEncodingReport, ...] = Field(default=(), max_length=MAX_INPUT_ENCODINGS)
 
 
 def combine_inference_usage(left: InferenceUsage, right: InferenceUsage) -> InferenceUsage:
@@ -44,10 +71,13 @@ def combine_inference_usage(left: InferenceUsage, right: InferenceUsage) -> Infe
         a, b = getattr(left, name), getattr(right, name)
         return None if a is None or b is None else a + b
 
+    encodings = (left.input_encodings + right.input_encodings)[:MAX_INPUT_ENCODINGS]
     if left.requests == 0:
-        return right.model_copy(update={"incomplete": left.incomplete or right.incomplete})
+        return right.model_copy(
+            update={"incomplete": left.incomplete or right.incomplete, "input_encodings": encodings}
+        )
     if right.requests == 0:
-        return left.model_copy(update={"incomplete": left.incomplete or right.incomplete})
+        return left.model_copy(update={"incomplete": left.incomplete or right.incomplete, "input_encodings": encodings})
     return InferenceUsage(
         requests=left.requests + right.requests,
         input_tokens=total("input_tokens"),
@@ -57,6 +87,7 @@ def combine_inference_usage(left: InferenceUsage, right: InferenceUsage) -> Infe
         reasoning_tokens=total("reasoning_tokens"),
         target_model=right.target_model if left.target_model in (None, right.target_model) else None,
         incomplete=left.incomplete or right.incomplete,
+        input_encodings=encodings,
     )
 
 

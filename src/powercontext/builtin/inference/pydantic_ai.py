@@ -259,6 +259,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         name: str | None = None,
         prompt_key: str | None = None,
         output_check: Callable[[InputT, OutputT], None] | None = None,
+        input_renderer: Callable[[InputT], str] | None = None,
     ) -> None:
         if isinstance(model, str) or not isinstance(model, Model):
             raise PydanticAIConfigurationError("model-instance")
@@ -267,6 +268,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         self._limits = InferenceLimits() if limits is None else limits
         self._input_type = input_type
         self._prompt_key = prompt_key
+        self._input_renderer = input_renderer
         try:
             self._input_adapter = TypeAdapter(input_type)
             bounded_settings = model_settings
@@ -305,7 +307,11 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         if not isinstance(value, self._input_type):
             raise PydanticAIConfigurationError("input-type", self._input_type.__qualname__)
         try:
-            prompt = self._input_adapter.dump_json(value).decode("utf-8")
+            prompt = (
+                self._input_adapter.dump_json(value).decode("utf-8")
+                if self._input_renderer is None
+                else self._input_renderer(value)
+            )
         except (PydanticSerializationError, PydanticUserError, ValidationError, UnicodeError) as error:
             raise PydanticAIConfigurationError("serialize") from error
 
