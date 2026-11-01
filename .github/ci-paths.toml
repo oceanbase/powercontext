@@ -31,10 +31,11 @@ tests = [
 ]
 evaluation = ["evaluation/**"]
 database = [
+  "tests/seekdb_support.py",
   "tests/builtin/persistence/**", "tests/builtin/*native_code*", "tests/builtin/runtime/*recall*",
   "tests/builtin/runtime/test_statistics.py", "tests/builtin/runtime/test_model_usage_recorder.py",
   "tests/builtin/runtime/test_prepared_context.py", "tests/e2e/*atomic*", "tests/e2e/*mysql*",
-  "tests/e2e/*native_code*", "tests/e2e/test_recall_sufficiency_gate.py",
+  "tests/e2e/*native_code*", "tests/e2e/test_seekdb_restart_recovery.py", "tests/e2e/test_recall_sufficiency_gate.py",
   "tests/e2e/test_context_text_assembly.py", "tests/e2e/test_scope_search_migration.py",
   "scripts/run_atomic_memory_clean_migration.py",
   ".github/workflows/e2e-harness.yml", ".github/actions/setup-upgrade-oceanbase/**",
@@ -114,7 +115,13 @@ release_schema = [
   "tests/release_upgrades/test_full_server.py", ".github/workflows/capture-release-schema.yml",
   ".github/actions/setup-upgrade-oceanbase/**",
 ]
-seekdb_lock = ["scripts/probe_seekdb_migration_lock.py", ".github/workflows/seekdb-lock-probe.yml", ".github/workflows/seekdb-lock-observation.yml"]
+seekdb_lock = [
+  "scripts/probe_seekdb_migration_lock.py", ".github/workflows/seekdb-lock-probe.yml",
+  ".github/workflows/seekdb-lock-observation.yml", "tests/seekdb_support.py",
+  "tests/test_seekdb_migration_probe.py", "tests/e2e/test_seekdb_restart_recovery.py",
+  "tests/builtin/persistence/test_mysql_migration_runner.py",
+  "src/powercontext/builtin/persistence/**", "pyproject.toml", "uv.lock",
+]
 skill_guidance = [
   "evaluation/skills/skill-up/**",
   "integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/**",
