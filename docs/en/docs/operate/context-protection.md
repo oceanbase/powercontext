@@ -10,7 +10,7 @@ Prepare context once, retain its short-lived reuse proof, and validate the exact
 ## Prepare once, validate each use
 
 The default `POST /v1/context/prepare` response remains `schema`, `status`, `content`, and `content_bytes`.
-The existing `explain` option still controls optional diagnostics. Add `include_reuse: true` for:
+Add `include_reuse: true` for:
 
 ```json
 {
@@ -32,6 +32,9 @@ The existing `explain` option still controls optional diagnostics. Add `include_
   }
 }
 ```
+
+Add `include_receipt: true` to request a bounded, content-free preparation receipt. With both options enabled,
+the receipt is included in `context.receipt`; it does not change the injected content or replace the reuse proof.
 
 The angle-bracket values, byte count, and time above are documentation examples, not a runtime masking format.
 Use the exact returned content and binding. The Python

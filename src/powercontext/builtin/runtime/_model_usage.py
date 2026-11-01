@@ -66,7 +66,9 @@ def _snapshot(
     usage: InferenceUsage,
     usage_date: date,
 ) -> _ModelUsageRecord:
-    return _ModelUsageRecord(scope_id, usage_date, purpose, operation, usage.model_copy(deep=True))
+    # Preparation estimates are local diagnostics, not part of the persisted usage.
+    counts = usage.model_copy(update={"input_encodings": ()}, deep=True)
+    return _ModelUsageRecord(scope_id, usage_date, purpose, operation, counts)
 
 
 class _ModelUsageRecorder:

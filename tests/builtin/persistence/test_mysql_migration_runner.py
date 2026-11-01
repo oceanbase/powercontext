@@ -27,6 +27,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib import import_module
 from pathlib import Path
 from typing import Literal, cast
 from unittest.mock import Mock
@@ -126,44 +127,19 @@ def _oceanbase_scratch_target(config: OceanBaseConfig, evidence_directory: Path)
                 pytest.fail("OceanBase owned test database cleanup failed", pytrace=False)
 
 
-@contextmanager
-def _seekdb_scenario_lifetime(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    binding = pytest.importorskip("pylibseekdb")
-    open_instance = binding.aopen
-    instances = {}
-
-    async def open_with_scenario_lifetime(path: str):
-        # Keep a real native lease across this scenario's independent
-        # maintenance connections. Rapid last-client exits in seekdb 1.4
-        # can strand a background DDL lock on restart. Engine restart and
-        # cross-process ownership have separate connection acceptance tests.
-        # Acquire lazily so inspecting a missing target still creates nothing.
-        if path not in instances:
-            instances[path] = await open_instance(path)
-        return await open_instance(path)
-
-    monkeypatch.setattr(binding, "aopen", open_with_scenario_lifetime)
-    try:
-        yield
-    finally:
-        for instance in instances.values():
-            instance.close()
-
-
 @pytest.fixture(params=("seekdb", "oceanbase"), ids=("seekdb", "oceanbase"))
 def backend(
     request: pytest.FixtureRequest,
     short_tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[_BackendTarget]:
     if os.environ.get("POWERCONTEXT_TEST_MIGRATION_SQL_LOG") == "1":
         caplog.set_level(logging.INFO, logger="sqlalchemy.engine")
     if request.param == "seekdb":
         if os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1":
             pytest.skip("real seekdb probe not enabled")
-        with _seekdb_scenario_lifetime(monkeypatch):
-            yield _BackendTarget(SeekDBConfig(path=short_tmp_path / "seekdb"), short_tmp_path / "evidence")
+        import_module("pylibseekdb")
+        yield _BackendTarget(SeekDBConfig(path=short_tmp_path / "seekdb"), short_tmp_path / "evidence")
         return
     value = os.environ.get("POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL")
     if not value:
@@ -1218,9 +1194,24 @@ def test_mysql_committed_revision_recovers_before_evidence_advance(backend: _Bac
     recovery = replacement.plan(backup_policy="manual")
     assert recovery.source_revision == "p0002"
     replacement = _acknowledge_known_completed_interruption(backend, recovery)
-    assert _apply(replacement, policy="manual").state == "ready"
+    upgrade = replacement._upgrade
+    recovered_p0003 = False
+
+    def observe_recovery(connection, config, source, target, guard) -> None:
+        nonlocal recovered_p0003
+        upgrade(connection, config, source, target, guard)
+        if target == "p0003":
+            assert connection.exec_driver_sql("SELECT version_num FROM pc_schema_revision").scalar_one() == "p0003"
+            recovered_p0003 = True
+
+    with monkeypatch.context() as patch:
+        patch.setattr(replacement, "_upgrade", observe_recovery)
+        assert _apply(replacement, policy="manual").state == "ready"
+    assert recovered_p0003, "Recovery did not reach p0003"
     assert replacement.verify().revision == "p0004"
-    assert _read_state(backend)["content"] == [(b'{"content":"preserved"}',)]
+    state = _read_state(backend)
+    assert state["content"] == [(b'{"content":"preserved"}',)]
+    assert state["tags"] == [("Keep",)]
 
 
 def test_mysql_completed_head_with_an_interrupted_run_requires_exact_acknowledgement(backend: _BackendTarget) -> None:

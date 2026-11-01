@@ -51,7 +51,7 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The `sqlite-atomic-e4fbead8-v1` record matches the bundled contract and qualifies eleven SQLite protocol operations against the exact Server source and wheel below. Historical records retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The bundled API contract requires a new independently qualified Server record; historical records retain their tested contract identities. Historical records retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit.
 
@@ -210,6 +210,31 @@ uv run --no-sync python desktop/tests/real_server.py
 
 本记录绑定上述精确源码、契约及 wheel；四种真实 SQLite／HTTP 连接场景均已通过。
 保护和编码使用默认关闭配置。该记录不替代 Windows／macOS 安装包、GUI 或原生凭据库验收。
+
+#### Server bae5d714 protocol qualification
+
+`sqlite-atomic-bae5d714-v1` qualifies Server source
+`bae5d714d577c10fa71d7bf43d40d4f8a61d628b` for OpenAPI digest
+`0f6befcd87645b83e63ea6393ba57002387302b4e53cf85fc474a218292f4104`.
+The wheel `powercontext-1.3.1.dev389+gbae5d714d-py3-none-any.whl` has SHA-256
+`6ed5b4dd83bac3ba8b2ca9a9d89dcd4bc016a796f2cf13d0c45b8f103e1c680d`.
+
+On 2026-11-01, macOS 15.7.4 ARM64, Python 3.11.15 and Rust 1.97.1 ran
+`desktop/tests/real_server.py` against that wheel in independent SQLite Server
+processes. Anonymous loopback, static Bearer, HTTPS with an explicit CA and
+base path, and injected-provider/enforced access all passed. The eleven
+recorded operations cover Server identity, health/readiness, principal and
+capabilities,
+Scope listing/detail/default, Atomic Memory save/search and exact Artifact
+revision reads. The native probe also verified Scope pagination, identity
+changes, same-identity revocation, committed writes with lost responses
+without replay, and independent Server survival after the client exited.
+The report is retained in ignored `desktop/.artifacts/real-server.json`.
+
+This qualifies the listed SQLite protocol operations for the recorded source
+and wheel. It does not establish Windows or macOS installed-application
+qualification, native credential persistence, signing, notarization or
+release acceptance.
 
 #### Server 0a49db9b protocol qualification
 

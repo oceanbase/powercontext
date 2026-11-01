@@ -169,18 +169,30 @@ def test_merged_memory_keeps_exact_inactive_ancestry_eligible():
     asyncio.run(scenario())
 
 
-def test_empty_prepare_envelope_remains_explicit_and_bound():
+@pytest.mark.parametrize("receipt", [False, True])
+@pytest.mark.parametrize("empty_sections", [False, True])
+def test_empty_prepare_envelope_remains_explicit_and_bound(receipt, empty_sections):
     async def scenario():
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
             scope = await _scope(runtime)
             assert runtime.scopes is not None
             assert runtime.atomic_memory is not None
             scoped = runtime.context.for_scope(scope.scope_id)
-            prepared = await scoped.prepare(_request())
+            request = _request(include_receipt=receipt)
+            if empty_sections:
+                request = request.model_copy(update={"assembly": ContextAssembly(sections=())})
+            prepared = await scoped.prepare(request)
             assert isinstance(prepared, PreparedContextWithReuse)
             assert prepared.context.status == "empty"
             assert prepared.context.content is None
             assert prepared.context.content_bytes == 0
+            if receipt:
+                assert prepared.context.receipt is not None
+                assert prepared.context.receipt.used_bytes == 0
+                assert prepared.context.receipt.content_digest is None
+                assert prepared.context.receipt.selected == ()
+            else:
+                assert prepared.context.receipt is None
             checked = await scoped.validate_reuse(prepared.reuse.binding)
             assert checked.content_bytes == 0
             assert checked.ordered_roots == ()

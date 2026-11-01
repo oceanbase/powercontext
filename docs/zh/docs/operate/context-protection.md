@@ -10,7 +10,7 @@ description: 复用精确的 Atomic Memory 上下文，并按当前授权检查�
 ## 准备一次，每次复用都验证
 
 `POST /v1/context/prepare` 默认仍返回 `schema`、`status`、`content`、`content_bytes`；
-既有 `explain` 选项仍控制可选诊断。增加 `include_reuse: true` 后返回：
+增加 `include_reuse: true` 后返回：
 
 ```json
 {
@@ -32,6 +32,9 @@ description: 复用精确的 Atomic Memory 上下文，并按当前授权检查�
   }
 }
 ```
+
+增加 `include_receipt: true` 可请求有界、无正文的准备回执。两个选项同时启用时，回执位于
+`context.receipt`；它不会改变注入正文，也不能替代复用证明。
 
 以上尖括号内容、字节数和时间只是文档示例，不是运行时脱敏格式。实际使用返回的准确正文和绑定。
 Python Client 返回 `PreparedContext` 或 `PreparedContextWithReuse`，读取字段前先判断结果类型。

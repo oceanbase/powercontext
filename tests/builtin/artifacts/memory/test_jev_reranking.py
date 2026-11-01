@@ -27,10 +27,12 @@ from pydantic import SecretStr, ValidationError
 from powercontext.builtin.artifacts.memory import JevMemoryReranker, JevRerankConfig
 from powercontext.builtin.inference.errors import (
     InferenceConfigurationError,
+    InferencePrivacyError,
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
 )
+from powercontext.builtin.inference.models import InferenceUsage
 
 
 @dataclass(frozen=True)
@@ -115,6 +117,32 @@ def test_partial_failure_does_not_return_a_successful_decision():
                 await JevMemoryReranker(_config(max_concurrency=1), client).rerank(
                     "query", (_Text("one"), _Text("two")), 2
                 )
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("order", [("success", "first", "second"), ("second", "success", "first")])
+def test_concurrent_privacy_refusals_preserve_all_completed_usage(order):
+    async def scenario():
+        def respond(request):
+            candidate = json.loads(request.content)["state"]["candidate"]
+            if candidate == "success":
+                return _response()
+            usage = {
+                "first": InferenceUsage(requests=1, input_tokens=11, output_tokens=2),
+                "second": InferenceUsage(requests=1, input_tokens=13, output_tokens=3),
+            }[candidate]
+            raise InferencePrivacyError("before_release", "block", ("forbidden_content",), usage=usage)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            with pytest.raises(InferencePrivacyError) as caught:
+                await JevMemoryReranker(_config(), client).rerank("query", tuple(_Text(text) for text in order), 2)
+        assert caught.value.phase == "before_release"
+        assert caught.value.usage is not None
+        assert caught.value.usage.requests == 3
+        assert caught.value.usage.input_tokens == 44
+        assert caught.value.usage.output_tokens == 6
+        assert caught.value.usage.incomplete is False
 
     asyncio.run(scenario())
 

@@ -104,6 +104,24 @@ function snakeCase(name) {
     .replace(/([A-Z])([A-Z][a-z])/g, "$1_$2")
     .toLowerCase();
 }
+function normalizeNullableReceiptRefs(value) {
+  const normalized = structuredClone(value);
+  for (const [schemaName, propertyName] of [
+    ["PreparedContextRerankConfig", "prompt"],
+    ["PreparedContextPromptIdentity", "artifact_address"],
+  ]) {
+    const property =
+      normalized.components.schemas[schemaName].properties[propertyName];
+    if (property.$ref && property.nullable === true) {
+      const { $ref, ...rest } = property;
+      normalized.components.schemas[schemaName].properties[propertyName] = {
+        allOf: [{ $ref }],
+        ...rest,
+      };
+    }
+  }
+  return normalized;
+}
 function run(command, args, cwd) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -259,7 +277,9 @@ const outputs = {
     "// rustfmt uses this generated layout verbatim.\n" +
     rustModels +
     rustDeclarations,
-  "ui/src/generated/api.d.ts": header + astToString(await openapiTS(contract)),
+  "ui/src/generated/api.d.ts":
+    header +
+    astToString(await openapiTS(normalizeNullableReceiptRefs(contract))),
   "ui/src/generated/operations.ts":
     header +
     "export const contractSha256 = " +

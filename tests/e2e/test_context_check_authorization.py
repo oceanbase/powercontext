@@ -16,6 +16,7 @@
 
 import asyncio
 import json
+from hashlib import sha256
 from typing import Any
 
 import pytest
@@ -181,31 +182,45 @@ def test_public_anthropic_check_only_binds_inspectable_document_sources(tmp_path
     asyncio.run(scenario())
 
 
-async def _prepare(client, scope_id, *, headers=None, reuse=True):
+async def _prepare(client, scope_id, *, headers=None, reuse=True, receipt=False, assembled=True):
     return await client.post(
         "/v1/context/prepare",
         headers=headers,
         json={
             "scope_id": scope_id,
             "query": "alpha",
-            "assembly": {"sections": [{"family": "memory", "limit": 8}]},
+            **({"assembly": {"sections": [{"family": "memory", "limit": 8}]}} if assembled else {}),
             "include_reuse": reuse,
+            "include_receipt": receipt,
         },
     )
 
 
-def test_public_envelope_send_release_and_exact_revision_invalidation(tmp_path):
+@pytest.mark.parametrize("receipt", [False, True])
+@pytest.mark.parametrize("assembled", [False, True], ids=["context", "text"])
+def test_public_envelope_send_release_and_exact_revision_invalidation(tmp_path, receipt, assembled):
     async def scenario():
         async with _server(tmp_path, inference=_inference()) as (_, client, _):
             scope_id = await _scope(client)
             record = await _remember(client, scope_id, "Alpha deployment uses port 8123.")
-            ordinary = await _prepare(client, scope_id, reuse=False)
+            ordinary = await _prepare(client, scope_id, reuse=False, assembled=assembled)
             assert ordinary.status_code == 200, ordinary.text
             assert set(ordinary.json()) == {"schema", "status", "content", "content_bytes"}
-            prepared = await _prepare(client, scope_id)
+            prepared = await _prepare(client, scope_id, receipt=receipt, assembled=assembled)
             assert prepared.status_code == 200, prepared.text
             envelope = prepared.json()
             assert envelope["schema"] == "powercontext.prepared-context-with-reuse.v1"
+            assert {key: value for key, value in envelope["context"].items() if key != "receipt"} == ordinary.json()
+            if receipt:
+                recorded = envelope["context"]["receipt"]
+                assert (
+                    recorded["content_digest"]
+                    == "sha256:" + sha256(envelope["context"]["content"].encode()).hexdigest()
+                )
+                assert recorded["used_bytes"] == envelope["context"]["content_bytes"]
+                assert recorded["selected"][0]["artifact_address"]["scope_id"] == scope_id
+            else:
+                assert "receipt" not in envelope["context"]
             request = _send(scope_id, envelope["context"]["content"], envelope["reuse"]["binding"])
             sent = await client.post("/v1/context/check", json=request)
             assert sent.status_code == 200, sent.text

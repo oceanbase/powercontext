@@ -15,12 +15,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import cast
 
+import httpx
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -52,7 +55,9 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model, ModelRequestParameters, ModelResponseState, StreamedResponse
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.instrumented import InstrumentationSettings, InstrumentedModel
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
 
@@ -224,6 +229,68 @@ def test_structured_generator_passes_explicit_model_settings() -> None:
 
         assert result.output == Answer("stable")
         assert observed_temperatures == [0.0]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("model_name", "overrides"),
+    [
+        ("o3", {}),
+        ("gpt-4o", {}),
+        ("gpt-5.1", {}),
+        ("gpt-5.1", {"openai_reasoning_effort": "low"}),
+        ("gpt-5.1", {"openai_reasoning_effort": "none"}),
+        ("gpt-5.1", {"thinking": "medium"}),
+        ("gpt-5.1", {"thinking": False}),
+        ("gpt-5.1", {"openai_reasoning_effort": "none", "thinking": "medium"}),
+    ],
+)
+@pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
+def test_structured_generator_receipt_uses_reasoning_provider_settings(
+    model_name: str, overrides: OpenAIChatModelSettings
+) -> None:
+    requests: list[dict[str, object]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "receipt-settings",
+                "object": "chat.completion",
+                "created": 0,
+                "model": model_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": '{"value":"stable"}'},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            settings: OpenAIChatModelSettings = {"temperature": 0.0, "top_p": 0.2, "max_tokens": 512}
+            settings.update(overrides)
+            generator = PydanticAIStructuredGenerator(
+                model=OpenAIChatModel(model_name, provider=OpenAIProvider(api_key="test", http_client=client)),
+                instructions="Return a value.",
+                input_type=Question,
+                output_type=Answer,
+                model_settings=settings,
+            )
+            result = await generator.generate(Question("settings evidence"))
+            assert result.output == Answer("stable")
+            effective = cast(dict[str, object], generator.receipt_configuration()["effective_settings"])
+            sent = requests[0]
+            for key in ("temperature", "top_p"):
+                assert (key in effective) == (key in sent)
+                assert effective.get(key) == sent.get(key)
+            assert effective["max_tokens"] == sent["max_completion_tokens"] == 512
 
     asyncio.run(scenario())
 

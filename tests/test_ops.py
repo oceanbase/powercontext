@@ -507,6 +507,7 @@ print(json.dumps(result), flush=True)
     # owns the worker whose exit releases both locks.
     bootstrap = """import runpy, site, sys
 packages, repository, script, *arguments = sys.argv[1:]
+sys.path.insert(0, packages)
 site.addsitedir(packages)
 sys.path.insert(0, repository)
 sys.argv = [script, *arguments]

@@ -17,6 +17,7 @@
     "trace-with-langfuse",
     "troubleshoot",
     "configuration",
-    "inference-protection"
+    "inference-protection",
+    "input-encoding"
   ]
 }
