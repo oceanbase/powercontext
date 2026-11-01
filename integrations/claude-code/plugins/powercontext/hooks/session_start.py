@@ -245,13 +245,15 @@ def _post_json(
         method="POST",
     )
     timeout = min(settings.request_timeout_seconds, _remaining_time(deadline))
+    # One deadline covers the headers and the body, so a slow header phase leaves the body only what is left.
+    request_deadline = min(deadline, monotonic() + timeout)
     try:
         with open_bounded(request, timeout=timeout) as response:
             if response.status != 200:
                 raise _HttpStatusError(response.status, path)
-            raw = _read_response(response, deadline=min(deadline, monotonic() + timeout))
+            raw = _read_response(response, deadline=request_deadline)
     except HTTPError as error:
-        code = read_error_code(error, deadline=min(deadline, monotonic() + timeout))
+        code = read_error_code(error, deadline=request_deadline)
         raise _HttpStatusError(error.code, path, code) from error
     try:
         value = json.loads(raw)
