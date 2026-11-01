@@ -154,6 +154,15 @@ class ArtifactSearchUnsupported(PowerContextError, ValueError):
         super().__init__(f"Artifact search is unsupported for {family}" + (f": {field}" if field else ""))
 
 
+class ArtifactSearchUnavailable(PowerContextError, RuntimeError):
+    """A declared search capability cannot serve a complete current projection."""
+
+    def __init__(self, family: str, reason: str) -> None:
+        self.family = family
+        self.reason = reason
+        super().__init__(f"Artifact search is unavailable for {family}: {reason}")
+
+
 class ArtifactSearchContractError(PowerContextError, RuntimeError):
     """A search implementation returned values that violate the public contract."""
 
@@ -179,6 +188,7 @@ __all__ = [
     "ArtifactSearchMatch",
     "ArtifactSearchOutcome",
     "ArtifactSearchQuery",
+    "ArtifactSearchUnavailable",
     "ArtifactSearchUnsupported",
     "ArtifactSearcher",
     "ChannelScore",

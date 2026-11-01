@@ -38,6 +38,7 @@ from powercontext.server.settings import (
     ServerSettings,
 )
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend
+from tests.e2e.server_storage import prepare_server_database
 
 
 @pytest.mark.parametrize("require_authentication", [False, True], ids=["anonymous-default", "authenticated"])
@@ -123,17 +124,16 @@ def test_dashboard_selected_note_uses_one_policy_and_content_snapshot(
     from powercontext.server.authz import AccessAction, BuiltinAuthorizationProvider
     from powercontext.server.dashboard.routes import LABELS
 
-    app = create_server_app(
-        settings=ServerSettings(
-            database=migration_backend.config,
-            runtime=RuntimeConfig(artifact_processing_families=()),
-            dashboard=DashboardConfig(enabled=True),
-            access=AccessControlConfig(mode="enforced"),
-            auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-snapshot")),
-            mcp=McpConfig(enabled=False),
-        ),
-        scheduler_path=migration_backend.directory / "scheduler.db",
+    settings = ServerSettings(
+        database=migration_backend.config,
+        runtime=RuntimeConfig(artifact_processing_families=()),
+        dashboard=DashboardConfig(enabled=True),
+        access=AccessControlConfig(mode="enforced"),
+        auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-snapshot")),
+        mcp=McpConfig(enabled=False),
     )
+    prepare_server_database(settings, evidence_dir=migration_backend.directory / "migration-evidence")
+    app = create_server_app(settings=settings, scheduler_path=migration_backend.directory / "scheduler.db")
 
     async def scenario() -> None:
         async with (
@@ -218,6 +218,7 @@ def test_review_disclosures_follow_current_read_and_decision_grants(migration_ba
         auth=BearerAuthConfig(token=SecretStr("review-acceptance")),
         mcp=McpConfig(enabled=False),
     )
+    prepare_server_database(settings, evidence_dir=migration_backend.directory / "migration-evidence")
     app = create_server_app(settings=settings, scheduler_path=migration_backend.directory / "scheduler.db")
 
     async def scenario():

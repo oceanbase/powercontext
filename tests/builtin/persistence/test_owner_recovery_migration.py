@@ -15,38 +15,77 @@
 """Append owner recovery storage without changing historical migration evidence."""
 
 import json
+import shutil
 import sqlite3
 from contextlib import closing
 
 import pytest
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.persistence.migrations.bundle import MigrationBundle
 from powercontext.builtin.persistence.migrations.deployment import server_bundle
 from powercontext.builtin.persistence.migrations.models import MigrationError
 from powercontext.builtin.persistence.migrations.mysql_schema import MySQLSchema
 from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
 from tests.builtin.persistence.test_mysql_migration_schema import _inventory, _ReflectedDatabase
-from tests.builtin.persistence.test_portable_storage_migration import apply, configuration, previous_bundle
+from tests.builtin.persistence.test_portable_storage_migration import apply, configuration
 
 
 @pytest.mark.parametrize("vectors", [False, True])
-def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checksums(tmp_path, vectors):
+@pytest.mark.parametrize("previous_revision", ["s1402", "v1_4_1_004", "v1_4_1_006"])
+def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checksums(
+    tmp_path, vectors, previous_revision
+):
     embedding = EmbeddingProfile(profile_id="owner-vectors", model="fixture", dimension=3) if vectors else None
     current = server_bundle(embedding_profile=embedding)
-    previous = previous_bundle(tmp_path / "previous", embedding, include_portable=True)
+    directory = tmp_path / "previous"
+    shutil.copytree(current.directory, directory, ignore=shutil.ignore_patterns("__pycache__"))
+    manifest_path = directory / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    removed_revisions = (
+        ("v1_5_0_001",)
+        if previous_revision == "v1_4_1_006"
+        else ("v1_4_1_005", "v1_4_1_006", "v1_5_0_001")
+        if previous_revision == "v1_4_1_004"
+        else ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001")
+    )
+    for revision in removed_revisions:
+        for resource in manifest["revision_resources"].pop(revision):
+            (directory / resource).unlink()
+        for script in (directory / "versions").glob(f"{revision}_*.py"):
+            script.unlink()
+        (directory / "mysql/versions" / f"{revision}.py").unlink()
+        del manifest["sqlite_fingerprints"][revision]
+        del manifest["domain_readiness"][revision]
+        manifest["mysql_state_layouts"].remove(f"schemas/mysql-{revision}.json")
+    manifest["domain_steps"] = [step for step in manifest["domain_steps"] if step["revision"] not in removed_revisions]
+    (directory / "artifact_storage_readiness.py").unlink()
+    if previous_revision != "v1_4_1_006":
+        manifest["affected_objects"].remove("pc_source_write_plugins")
+    if previous_revision == "s1402":
+        manifest["affected_objects"].remove("pc_access_owner_recovery")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    previous = MigrationBundle(directory, embedding_profile=embedding)
     database = tmp_path / "managed.db"
     old = SQLiteMigrationRunner(database, previous, configuration=configuration(embedding))
-    assert apply(old).revision == "s1402"
+    assert apply(old).revision == previous_revision
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
             "INSERT INTO pc_scopes (scope_id,title,summary,scope_id_search,title_search,summary_search,version) "
             "VALUES ('original','title','summary','original','title','summary',1)"
         )
+        if previous_revision == "v1_4_1_006":
+            connection.execute("INSERT INTO pc_source_write_plugins VALUES (?, ?)", ("tickets", b"retained definition"))
+        if previous_revision == "v1_4_1_004":
+            connection.execute(
+                "INSERT INTO pc_access_owner_recovery (operation_id,deployment_id,scope_id,completed,payload) "
+                "VALUES ('pending','deployment','original',0,'retained intent')"
+            )
     original_evidence = json.loads(old.evidence_path.read_text(encoding="utf-8"))
     upgraded = SQLiteMigrationRunner(database, current, configuration=configuration(embedding))
     plan = upgraded.plan()
-    assert plan.source_revision == "s1402" and plan.revisions == ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006")
-    assert apply(upgraded).revision == "v1_4_1_006"
+    assert plan.source_revision == previous_revision and plan.revisions == removed_revisions
+    assert apply(upgraded).revision == "v1_5_0_001"
     assert upgraded.verify().state == "ready"
     assert not apply(upgraded).changed
     evidence = json.loads(upgraded.evidence_path.read_text(encoding="utf-8"))
@@ -56,7 +95,14 @@ def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checks
         assert connection.execute("SELECT scope_id,title,version FROM pc_scopes").fetchall() == [
             ("original", "title", 1)
         ]
-        assert connection.execute("SELECT COUNT(*) FROM pc_access_owner_recovery").fetchone() == (0,)
+        expected_intents = [("pending", "retained intent", 0)] if previous_revision == "v1_4_1_004" else []
+        assert (
+            connection.execute("SELECT operation_id,payload,completed FROM pc_access_owner_recovery").fetchall()
+            == expected_intents
+        )
+        expected_plugins = [("tickets", b"retained definition")] if previous_revision == "v1_4_1_006" else []
+        assert connection.execute("SELECT * FROM pc_source_write_plugins").fetchall() == expected_plugins
+        assert connection.execute("SELECT COUNT(*) FROM pc_artifact_family_schemas").fetchone() == (0,)
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", current, configuration=configuration(embedding))
     apply(fresh)
     assert upgraded.plan().schema_fingerprint == fresh.plan().schema_fingerprint
