@@ -23,10 +23,12 @@ from datetime import UTC, date, datetime
 from pydantic import JsonValue
 
 # The date alternative must not turn an unsupported timestamp suffix into a shorter valid literal.
+# ASCII identifier boundaries allow ISO literals to directly adjoin Chinese and other non-ASCII prose.
 _ISO_LITERAL = re.compile(
     r"(?<![\w])\d{4}-\d{2}-\d{2}"
     r"(?:[Tt ]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[Zz]|[+-]\d{2}(?::?\d{2})?)?"
-    r"(?![\w]|[.,:+-]\d)|(?![\w]|[Tt ]\d{2}:))"
+    r"(?![\w]|[.,:+-]\d)|(?![\w]|[Tt ]\d{2}:))",
+    re.ASCII,
 )
 _STATEMENT_FIELDS = frozenset({"statement", "subject", "effective_at", "event_at", "recorded_at"})
 _CARRIER_FIELDS = frozenset({"content", "source_type", "source_id", "metadata"})

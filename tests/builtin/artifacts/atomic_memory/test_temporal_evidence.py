@@ -109,14 +109,34 @@ def test_source_and_artifact_time_literals_preserve_the_complete_timestamp(liter
 
 
 @pytest.mark.parametrize("separator", ["T", " "])
-def test_unsupported_time_suffix_does_not_turn_into_a_shorter_literal(separator):
-    assert text_time_literals(f"The port changed at 2026-05-01{separator}09:00:00+08:00:30.") == ()
+@pytest.mark.parametrize(
+    "template",
+    ["The port changed at {}.", "自{}起，端口为6432。"],  # noqa: RUF001 - Chinese punctuation
+)
+def test_unsupported_time_suffix_does_not_turn_into_a_shorter_literal(separator, template):
+    assert text_time_literals(template.format(f"2026-05-01{separator}09:00:00+08:00:30")) == ()
 
 
-@pytest.mark.parametrize("literal", ["2026-05-01T09:00:00.1234567Z", "2026-05-01T09:00:00+0800"])
-def test_reconciliation_rejects_loss_of_selected_artifact_precision_or_timezone(literal):
+@pytest.mark.parametrize("literal", ["2026-05-01", "2026-05-01T09:00:00.1234567Z", "2026-05-01T09:00:00+0800"])
+def test_time_literals_can_touch_chinese_words(literal):
+    text = f"自{literal}起，星河项目生产数据库端口为6432。"  # noqa: RUF001 - Chinese punctuation
+    assert text_time_literals(text) == (literal,)
+    assert preserves_time_literals(text, (literal,))
+
+
+@pytest.mark.parametrize("text", ["id2026-05-01", "2026-05-01T", "2026-05-010", "2026-05-01_01"])
+def test_time_literals_do_not_extract_date_fragments_from_ascii_identifiers(text):
+    assert text_time_literals(text) == ()
+
+
+@pytest.mark.parametrize("literal", ["2026-05-01", "2026-05-01T09:00:00.1234567Z", "2026-05-01T09:00:00+0800"])
+@pytest.mark.parametrize(
+    "template",
+    ["The policy uses port 6432 effective {}.", "自{}起，星河项目端口为6432。"],  # noqa: RUF001 - Chinese punctuation
+)
+def test_reconciliation_rejects_loss_of_selected_artifact_time(literal, template):
     ref = ArtifactRef(family="atomic-memory", artifact_id="port-policy", revision=1)
-    old = f"The policy uses port 6432 effective {literal}."
+    old = template.format(literal)
     request = AtomicMemoryReconciliationInput(
         proposal=AtomicMemoryComparisonItem(
             item_id="proposal",
@@ -153,7 +173,11 @@ def test_reconciliation_rejects_loss_of_selected_artifact_precision_or_timezone(
         target_ids=("old",),
         content=AtomicMemoryReconciliationContent(
             kind="decision",
-            text="The policy uses port 6432 effective 2026-05-01T09:00:00 and requires TLS.",
+            text=(
+                "The policy uses port 6432 and requires TLS."
+                if len(literal) == 10
+                else "The policy uses port 6432 effective 2026-05-01T09:00:00 and requires TLS."
+            ),
             description="Port policy",
         ),
         evidence_ids=("source", "artifact"),

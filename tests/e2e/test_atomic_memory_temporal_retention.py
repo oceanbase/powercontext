@@ -148,6 +148,56 @@ def test_extraction_corrects_an_omitted_effective_date_before_publication(monkey
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("literal", ["2026-05-01", "2026-05-01T09:00:00.1234567+08:00"])
+def test_flush_accepts_effective_times_adjacent_to_chinese_words(monkeypatch, tmp_path: Path, literal: str) -> None:
+    statement = "星河项目生产数据库端口为6432。"
+    text = f"自{literal}起，{statement}"  # noqa: RUF001 - Chinese punctuation
+
+    async def respond(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        (prompt,) = (
+            part.content
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        )
+        value = json.loads(str(prompt))
+        evidence_ids = [item["evidence_id"] for item in value["evidence"]]
+        content = {"kind": "decision", "text": text, "description": "星河项目生产数据库端口"}
+        if "proposal" not in value:
+            return _json({"candidates": [{**content, "evidence_ids": evidence_ids}]})
+        return _json({
+            "action": "create",
+            "compared_ids": [],
+            "target_ids": [],
+            "content": content,
+            "evidence_ids": evidence_ids,
+            "reason": "Preserve the explicit effective time in the policy.",
+        })
+
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(respond))
+    monkeypatch.setattr(
+        "pydantic_ai.embeddings.infer_embedding_model", lambda *_args, **_kwargs: TestEmbeddingModel(dimensions=3)
+    )
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(_config(tmp_path), scheduler_path=tmp_path / "scheduler.db") as runtime:
+            assert runtime.scopes is not None and runtime.atomic_memory is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="星河项目", summary="生产数据库端口", idempotency_key="policy")
+            )
+            await runtime.records.for_scope(scope.scope_id).create_source(
+                "content", {"statement": statement, "effective_at": literal}
+            )
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            assert (await memory.flush()).current_cursor == 1
+            (published,) = (await memory.list()).items
+            assert published.artifact.content.text == text
+            assert published.ref.revision == 1
+
+    asyncio.run(scenario())
+
+
 def test_unrepaired_effective_date_loss_leaves_the_source_unprocessed(monkeypatch, tmp_path: Path) -> None:
     provider = _Provider(omit_extracted_date=True, corrects=False)
     monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(provider.respond))
