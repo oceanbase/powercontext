@@ -425,10 +425,17 @@ def test_init_force_defaults_to_preserving_existing_inference_configuration(tmp_
     assert not tuple(tmp_path.glob(".env.bak-*"))
 
 
-@pytest.mark.parametrize("setting", ["POWERCONTEXT_SERVER_HTTP_UDS", "POWERCONTEXT_SERVER_HTTP"])
-def test_init_template_force_rejects_uds_before_prompts_or_writes(tmp_path: Path, setting: str) -> None:
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("POWERCONTEXT_SERVER_HTTP_UDS", "/run/powercontext/core.sock"),
+        ("POWERCONTEXT_SERVER_HTTP", '{"uds":"/run/powercontext/core.sock"}'),
+        ("POWERCONTEXT_SERVER_HTTP", '{"UDS":"/run/powercontext/core.sock"}'),
+        ("POWERCONTEXT_SERVER_HTTP", '{"UdS":"/run/powercontext/core.sock"}'),
+    ],
+)
+def test_init_template_force_rejects_uds_before_prompts_or_writes(tmp_path: Path, setting: str, value: str) -> None:
     environment = tmp_path / ".env"
-    value = '{"uds":"/run/powercontext/core.sock"}' if setting.endswith("HTTP") else "/run/powercontext/core.sock"
     original = f"{setting}={shlex.quote(value)}\nPOWERCONTEXT_SERVER_HTTP_PORT=18000\n"
     environment.write_text(original, encoding="utf-8")
 

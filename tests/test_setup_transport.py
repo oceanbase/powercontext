@@ -80,11 +80,18 @@ def test_explicit_remote_endpoint_overrides_file_and_local_port(tmp_path):
 
 @pytest.mark.parametrize("source", ["file", "process"])
 @pytest.mark.parametrize("port", [None, "18000"])
-@pytest.mark.parametrize("setting", ["POWERCONTEXT_SERVER_HTTP_UDS", "POWERCONTEXT_SERVER_HTTP"])
-def test_uds_server_has_no_implicit_agent_setup_endpoint(tmp_path, monkeypatch, source, port, setting):
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("POWERCONTEXT_SERVER_HTTP_UDS", "/run/powercontext/core.sock"),
+        ("POWERCONTEXT_SERVER_HTTP", '{"uds":"/run/powercontext/core.sock"}'),
+        ("POWERCONTEXT_SERVER_HTTP", '{"UDS":"/run/powercontext/core.sock"}'),
+        ("POWERCONTEXT_SERVER_HTTP", '{"UdS":"/run/powercontext/core.sock"}'),
+    ],
+)
+def test_uds_server_has_no_implicit_agent_setup_endpoint(tmp_path, monkeypatch, source, port, setting, value):
     from powercontext.cli.transport import prepare_setup_transport
 
-    value = '{"uds":"/run/powercontext/core.sock"}' if setting.endswith("HTTP") else "/run/powercontext/core.sock"
     values = {setting: value}
     if port is not None:
         values["POWERCONTEXT_SERVER_HTTP_PORT"] = port

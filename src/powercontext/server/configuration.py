@@ -77,11 +77,16 @@ def resolve_http_configuration(*environments: Mapping[str, str]) -> HttpConfig:
             if parsed is not None:
                 if not isinstance(parsed, dict):
                     raise ValueError("HTTP settings must be an object")  # noqa: TRY003, TRY301
+                if not source.case_sensitive:
+                    parsed = source._replace_field_names_case_insensitively(field, parsed)
                 values.update(parsed)
         return HttpConfig.model_validate(values)
     except (ValueError, SettingsError) as error:
         # Environment values may contain private paths; report the owning boundary only.
-        raise ServerConfigurationError(ValueError("Invalid Server HTTP configuration")) from error
+        message = "Invalid Server HTTP configuration"
+        if isinstance(error, ValidationError) and any(problem["loc"] == ("port",) for problem in error.errors()):
+            message = "Server HTTP port must be an integer between 1 and 65535"
+        raise ServerConfigurationError(ValueError(message)) from error
 
 
 class _ServerSettingsWithEnvironmentFile(ServerSettings):

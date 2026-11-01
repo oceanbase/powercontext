@@ -183,6 +183,28 @@ def test_invalid_uds_external_scheme_is_rejected(short_tmp_path, scheme):
             "/run/private/core.sock",
             8124,
         ),
+        (
+            {"POWERCONTEXT_SERVER_HTTP": '{"UDS":"/run/private/core.sock","PORT":8123}'},
+            {},
+            "/run/private/core.sock",
+            8123,
+        ),
+        (
+            {"POWERCONTEXT_SERVER_HTTP": '{"UdS":"/run/private/core.sock","PoRt":8123}'},
+            {"POWERCONTEXT_SERVER_HTTP": '{"UDS":null,"PORT":8124}'},
+            None,
+            8124,
+        ),
+        (
+            {
+                "POWERCONTEXT_SERVER_HTTP": '{"UDS":null,"PORT":8123}',
+                "powercontext_server_http_uds": "/run/private/core.sock",
+                "POWERCONTEXT_SERVER_HTTP_PORT": "8124",
+            },
+            {},
+            "/run/private/core.sock",
+            8124,
+        ),
     ],
 )
 def test_http_detection_matches_server_source_precedence(
@@ -199,6 +221,16 @@ def test_http_detection_matches_server_source_precedence(
         assert listener == settings.http
     assert listener.uds == (Path(expected_uds) if expected_uds else None)
     assert listener.port == expected_port
+
+
+def test_invalid_http_port_reports_remediation_without_private_configuration():
+    with pytest.raises(ValueError, match="port must be an integer between 1 and 65535") as error:
+        resolve_http_configuration({
+            "POWERCONTEXT_SERVER_HTTP": '{"UDS":"/run/private/core.sock","PORT":"private-invalid-port"}'
+        })
+
+    assert "/run/private/core.sock" not in str(error.value)
+    assert "private-invalid-port" not in str(error.value)
 
 
 @_UNIX

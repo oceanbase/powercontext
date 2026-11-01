@@ -39,11 +39,17 @@ def available_listener(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    "setting", ["POWERCONTEXT_SERVER_HTTP_UDS", "powercontext_server_http_uds", "POWERCONTEXT_SERVER_HTTP"]
+    ("setting", "value"),
+    [
+        ("POWERCONTEXT_SERVER_HTTP_UDS", "/run/powercontext/core.sock"),
+        ("powercontext_server_http_uds", "/run/powercontext/core.sock"),
+        ("POWERCONTEXT_SERVER_HTTP", '{"uds":"/run/powercontext/core.sock"}'),
+        ("POWERCONTEXT_SERVER_HTTP", '{"UDS":"/run/powercontext/core.sock"}'),
+        ("POWERCONTEXT_SERVER_HTTP", '{"UdS":"/run/powercontext/core.sock"}'),
+    ],
 )
-def test_wizard_rejects_uds_configuration_before_prompts_or_writes(tmp_path: Path, setting: str) -> None:
+def test_wizard_rejects_uds_configuration_before_prompts_or_writes(tmp_path: Path, setting: str, value: str) -> None:
     output = tmp_path / "server.env"
-    value = '{"uds":"/run/powercontext/core.sock"}' if setting.endswith("HTTP") else "/run/powercontext/core.sock"
     content = f"{setting}={shlex.quote(value)}\nPOWERCONTEXT_SERVER_HTTP_PORT=18000\n"
     output.write_text(content, encoding="utf-8")
 
