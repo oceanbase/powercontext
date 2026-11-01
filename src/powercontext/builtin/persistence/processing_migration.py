@@ -297,6 +297,9 @@ async def apply_processing_migration(  # noqa: C901 - explicit durable maintenan
                 # Names/definitions are fixed constants, never user SQL.
                 await connection.exec_driver_sql(f"ALTER TABLE {STATES.name} ADD COLUMN {name} {definition}")
                 return ProcessingMigrationProgress(phase="schema")
+        from powercontext.builtin.persistence.custom_artifacts import ensure_artifact_plugin_schema
+
+        await ensure_artifact_plugin_schema(connection)
         problems = await _schema_issues(connection)
         if problems:
             raise ProcessingSchemaNotReadyError(reason="; ".join(problems))

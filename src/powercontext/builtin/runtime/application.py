@@ -280,6 +280,13 @@ from powercontext.builtin.runtime.recall_sufficiency import (
     build_recall_candidates,
     recall_effort,
 )
+from powercontext.builtin.runtime.receipt import RecallRound
+from powercontext.builtin.runtime.receipt_builder import ReceiptEvidence
+from powercontext.builtin.runtime.receipt_capture import (
+    bind_receipt_evidence,
+    current_receipt_evidence,
+    unbind_receipt_evidence,
+)
 from powercontext.builtin.runtime.skill_search import SkillArtifactSearcher, search_skill_library
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics, overview_selection
 from powercontext.builtin.runtime.topic_memory_recovery import TopicMemoryRecoveryService
@@ -428,6 +435,7 @@ class TopicMemoryRecallOutcome:
     embedding_calls: int = 0
     #: Non-null only when Topic Memory wanted a vector and had to fall back to FTS.
     embedding_fallback: str | None = None
+    mode: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1066,7 +1074,12 @@ class ScopedContextApplication:
             raise InvalidRuntimeRequestError("context-assembly-entry-limit")
         async with self._runtime._scope_operation(self.scope_id) as scope:
             if request.assembly is not None and not request.assembly.sections and not request.include_code:
-                return PreparedContextBuilder().empty()
+                empty = PreparedContextBuilder().empty()
+                return (
+                    self._attach_receipt(request, PreparedContextBuild(context=empty, origins=()), ReceiptEvidence())
+                    if request.include_receipt
+                    else empty
+                )
             if authorize_scopes is not None:
                 await authorize_scopes((self.scope_id, *scope.context_references))
             token = _PREPARE_ATOMIC_CONTEXT.set(atomic_context)
@@ -1076,7 +1089,12 @@ class ScopedContextApplication:
                 _PREPARE_ATOMIC_CONTEXT.reset(token)
 
     async def _prepare(self, request: PrepareContextRequest, scope: ScopeDescriptor, /) -> PreparedContext:
-        build, effort = await self._prepare_build(request, scope)
+        evidence = ReceiptEvidence() if request.include_receipt else None
+        token = bind_receipt_evidence(evidence)
+        try:
+            build, effort = await self._prepare_build(request, scope)
+        finally:
+            unbind_receipt_evidence(token)
         if effort is not None:
             try:
                 # An explicit sink replaces the relational recorder. Both receive
@@ -1118,12 +1136,44 @@ class ScopedContextApplication:
             else:
                 if measurement is not None:
                     await self._runtime.statistics.for_scope(self.scope_id).record_recall(measurement)
-        context = build.context
-        if request.explain and build.degradation is not None:
-            # The reason is set here, not in the Builder: the Builder is pure and never sees a
-            # failed provider, so the only layer that can name the cause is the one that ran it.
-            context = context.model_copy(update={"reason": build.degradation})
-        return context
+        return self._attach_receipt(request, build, evidence)
+
+    def _attach_receipt(
+        self, request: PrepareContextRequest, build: PreparedContextBuild, evidence: ReceiptEvidence | None
+    ) -> PreparedContext:
+        if evidence is None:
+            return build.context
+        try:
+            receipt = evidence.build(request, build.context, build, self.scope_id)
+        except Exception as error:
+            log_safely(
+                logger,
+                logging.WARNING,
+                "PreparedContext Receipt omitted",
+                extra={
+                    "event": "context.receipt.omitted",
+                    "operation": "prepare_context",
+                    "outcome": "failure",
+                    "unit": "context",
+                    "error_code": "receipt-byte-limit"
+                    if isinstance(error, ValueError) and str(error) == "receipt-byte-limit"
+                    else "receipt-assembly-failed",
+                },
+            )
+            return build.context
+        log_safely(
+            logger,
+            logging.INFO,
+            "PreparedContext Receipt built",
+            extra={
+                "event": "context.receipt.built",
+                "operation": "prepare_context",
+                "outcome": "success",
+                "unit": "context",
+                "receipt_id": receipt.receipt_id,
+            },
+        )
+        return build.context.model_copy(update={"receipt": receipt})
 
     async def _prepare_build(
         self,
@@ -1182,17 +1232,13 @@ class ScopedContextApplication:
             embedding_budget=embedding_budget,
             excluded_memory=injected_memory_keys,
         )
+        evidence = current_receipt_evidence()
+        if evidence is not None:
+            evidence.rounds.append(RecallRound(round=0, outcome="completed", retained=True))
         memory_candidates = list(round_zero.memory)
         experience_candidates = list(round_zero.experience)
         topic_memory_hits = round_zero.topic_memory.hits
-        profile_candidates: list[PreparedProfileCandidate] = []
-        profiles = self._runtime.profiles
-        if "profile" in families and profiles is not None:
-            async with profiles.database.transaction() as connection:
-                for scope_id in scope_ids:
-                    profile = await profiles.latest(connection, scope_id)
-                    if profile is not None:
-                        profile_candidates.append(PreparedProfileCandidate(scope_id=scope_id, profile=profile))
+        profile_candidates = await self._prepare_profiles(scope_ids, families, evidence)
 
         policy = self._runtime.recall_sufficiency_policy
         recall_effort: RecallEffort | None = None
@@ -1218,8 +1264,21 @@ class ScopedContextApplication:
                 round_zero=round_zero,
                 excluded_memory=injected_memory_keys,
             )
+        if evidence is not None:
+            evidence.round = 0
         memory_candidates = await self._available_atomic_candidates(memory_candidates)
         code = await self._code_candidates(request) if request.include_code else ()
+        self._record_unretrieved(
+            evidence,
+            families,
+            request.include_code,
+            memory_candidates,
+            topic_memory_hits,
+            experience_candidates,
+            profile_candidates,
+            code,
+        )
+        started_build = perf_counter() if evidence is not None else None
         with self._runtime._stage(
             "context.build",
             attributes={
@@ -1280,9 +1339,53 @@ class ScopedContextApplication:
                         "powercontext.context.build.recall.truncated_items": recall_effort.truncated_items,
                         "powercontext.context.build.recall.dropped_items": recall_effort.dropped_items,
                     })
+        if evidence is not None and started_build is not None:
+            evidence.stage("context.build", (perf_counter() - started_build) * 1000)
         # Round zero is the round that embeds: later expansion rounds reuse its vector when it
         # has one, so a cause observed here is the whole preparation's cause.
         return replace(build, degradation=round_zero.degradation), recall_effort
+
+    async def _prepare_profiles(
+        self, scope_ids: Sequence[str], families: set[str], evidence: ReceiptEvidence | None
+    ) -> list[PreparedProfileCandidate]:
+        candidates: list[PreparedProfileCandidate] = []
+        profiles = self._runtime.profiles
+        if "profile" in families and profiles is not None:
+            async with profiles.database.transaction() as connection:
+                for scope_id in scope_ids:
+                    profile = await profiles.latest(connection, scope_id)
+                    if evidence is not None:
+                        evidence.search("profile", "snapshot", "completed")
+                    if profile is not None:
+                        candidates.append(PreparedProfileCandidate(scope_id=scope_id, profile=profile))
+        elif "profile" in families and evidence is not None:
+            for _scope_id in scope_ids:
+                evidence.search("profile", None, "not_run")
+        return candidates
+
+    @staticmethod
+    def _record_unretrieved(
+        evidence: ReceiptEvidence | None,
+        families: set[str],
+        include_code: bool,
+        memory: Sequence[PreparedMemoryCandidates],
+        topic: Sequence[TopicMemorySearchHit],
+        experience: Sequence[PreparedExperienceCandidates],
+        profiles: Sequence[PreparedProfileCandidate],
+        code: Sequence[PreparedCodeCandidate],
+    ) -> None:
+        if evidence is None:
+            return
+        retrieved = {
+            MEMORY_FAMILY: any(group.hits for group in memory),
+            TOPIC_MEMORY_FAMILY: bool(topic),
+            EXPERIENCE_FAMILY: any(group.hits for group in experience),
+            "profile": bool(profiles),
+            "code": bool(code),
+        }
+        for family in families | ({"code"} if include_code else set()):
+            if not retrieved[family]:
+                evidence.omitted[("atomic-memory" if family == MEMORY_FAMILY else family, "not_retrieved")] = 1
 
     async def _available_atomic_candidates(
         self, candidates: list[PreparedMemoryCandidates]
@@ -1299,6 +1402,7 @@ class ScopedContextApplication:
         return available
 
     async def _code_candidates(self, request: PrepareContextRequest) -> tuple[PreparedCodeCandidate, ...]:
+        evidence = current_receipt_evidence()
         try:
             result = await self._runtime.code.for_scope(self.scope_id).query(
                 CodeQueryRequest.model_validate({
@@ -1307,6 +1411,8 @@ class ScopedContextApplication:
                 })
             )
         except CodeError as error:
+            if evidence is not None:
+                evidence.search("code", "code", "failed")
             log_safely(
                 logger,
                 logging.INFO,
@@ -1318,6 +1424,8 @@ class ScopedContextApplication:
             )
             return ()
         candidates = code_candidates(result) if isinstance(result, CodeQueryResult) else ()
+        if evidence is not None:
+            evidence.search("code", "code", "completed")
         log_safely(
             logger,
             logging.INFO,
@@ -1403,6 +1511,8 @@ class ScopedContextApplication:
         committed_memory = memory_candidates
         committed_experience = experience_candidates
         committed_topic = topic_memory_hits
+        evidence = current_receipt_evidence()
+        retained_omissions = None if evidence is None else evidence.omitted.copy()
         try:
             budget = builder.probe_budget(
                 request=request,
@@ -1423,6 +1533,10 @@ class ScopedContextApplication:
             last_signals = assessment.signals
             while not assessment.sufficient and families_recoverable > 0 and len(expansions) < policy.max_rounds:
                 plan = expander.plan(len(expansions) + 1, policy)
+                evidence = current_receipt_evidence()
+                if evidence is not None:
+                    evidence.round = len(expansions) + 1
+                    retained_omissions = evidence.omitted.copy()
                 issued = await self._recall_round(
                     request,
                     scope_ids,
@@ -1442,6 +1556,8 @@ class ScopedContextApplication:
                         identity = _memory_identity(group.scope_id, hit)
                         memory_ranks[identity] = len(memory_ranks)
                         if identity in seen_memory:
+                            if evidence is not None:
+                                evidence.omitted[("atomic-memory", "duplicate")] += 1
                             continue
                         seen_memory.add(identity)
                         bucket.append(hit)
@@ -1452,6 +1568,8 @@ class ScopedContextApplication:
                         identity = _experience_identity(group.scope_id, hit)
                         experience_ranks[identity] = len(experience_ranks)
                         if identity in seen_experience:
+                            if evidence is not None:
+                                evidence.omitted[("experience", "duplicate")] += 1
                             continue
                         seen_experience.add(identity)
                         bucket.append(hit)
@@ -1459,6 +1577,8 @@ class ScopedContextApplication:
                 for hit in issued.topic_memory.hits:
                     identity = _topic_identity(hit)
                     if identity in seen_topic:
+                        if evidence is not None:
+                            evidence.omitted[("topic-memory", "duplicate")] += 1
                         continue
                     seen_topic.add(identity)
                     accumulated_topic.append(hit)
@@ -1503,6 +1623,14 @@ class ScopedContextApplication:
                     experience_candidates,
                     builder.experience_candidate_limit,
                 )
+                if evidence is not None:
+                    evidence.omitted[("atomic-memory", "family_limit")] += sum(
+                        map(len, memory_hits_by_scope.values())
+                    ) - sum(len(group.hits) for group in staged_memory)
+                    evidence.omitted[("topic-memory", "family_limit")] += len(accumulated_topic) - len(staged_topic)
+                    evidence.omitted[("experience", "family_limit")] += sum(
+                        map(len, experience_hits_by_scope.values())
+                    ) - sum(len(group.hits) for group in staged_experience)
                 budget = builder.probe_budget(
                     request=request,
                     current_scope_id=self.scope_id,
@@ -1523,6 +1651,8 @@ class ScopedContextApplication:
                 committed_experience = staged_experience
                 committed_topic = staged_topic
                 expansions.append(plan.action)
+                if evidence is not None:
+                    evidence.rounds.append(RecallRound(round=evidence.round, outcome="completed", retained=True))
                 added_embeddings += issued.embedding_calls
                 added_generation_calls += issued.generation_calls
                 admission_by_family = list(issued.admissions)
@@ -1540,6 +1670,11 @@ class ScopedContextApplication:
                 assessment = replace(assessment, reason=REASON_AT_MAX_ROUNDS)
             reason = assessment.reason
         except Exception as error:
+            evidence = current_receipt_evidence()
+            if evidence is not None and evidence.round > len(expansions):
+                evidence.rounds.append(RecallRound(round=evidence.round, outcome="expansion_failed", retained=False))
+                if retained_omissions is not None:
+                    evidence.omitted = retained_omissions
             log_safely(
                 logger,
                 logging.ERROR,
@@ -1600,6 +1735,8 @@ class ScopedContextApplication:
                 request,
                 memory_limit=memory_limit,
                 experience_limit=builder.experience_candidate_limit if EXPERIENCE_FAMILY in families else 0,
+                memory_requested=MEMORY_FAMILY in families,
+                experience_requested=EXPERIENCE_FAMILY in families,
                 admission=admission,
                 reuse=reuse.get(scope_id, shared_embedding),
                 allow_embedding=scope_id not in reuse or reuse[scope_id] is not None,
@@ -1628,11 +1765,21 @@ class ScopedContextApplication:
             )
             embedding_calls += outcome.embedding_calls
             generation_calls += outcome.generation_calls
+        unbounded_memory = memory_candidates
+        unbounded_experience = experience_candidates
         memory_candidates = _limit_memory_candidates(memory_candidates, builder.memory_candidate_limit)
         experience_candidates = _limit_experience_candidates(
             experience_candidates,
             builder.experience_candidate_limit,
         )
+        evidence = current_receipt_evidence()
+        if evidence is not None:
+            for family, before, after in (
+                ("atomic-memory", unbounded_memory, memory_candidates),
+                ("experience", unbounded_experience, experience_candidates),
+            ):
+                dropped = sum(len(group.hits) for group in before) - sum(len(group.hits) for group in after)
+                evidence.omitted[(family, "family_limit")] += dropped
         atomic = self._runtime.atomic_memory
         topic_embedding = topic_reuse.get(self.scope_id)
         if (
@@ -1656,6 +1803,15 @@ class ScopedContextApplication:
         )
         if TOPIC_MEMORY_FAMILY in families:
             topic_reuse[self.scope_id] = topic_outcome.query_embedding
+            evidence = current_receipt_evidence()
+            if evidence is not None:
+                evidence.search(
+                    "topic-memory",
+                    topic_outcome.mode,
+                    "completed" if self._runtime._topic_memory_search is not None else "not_run",
+                    topic_outcome.embedding_fallback or "none",
+                    scope_id=self.scope_id,
+                )
         return _RecallRoundOutcome(
             memory=tuple(memory_candidates),
             experience=tuple(experience_candidates),
@@ -1674,12 +1830,16 @@ class ScopedContextApplication:
         *,
         memory_limit: int,
         experience_limit: int,
+        memory_requested: bool,
+        experience_requested: bool,
         admission: AdmissionFloor | None,
         reuse: MemoryQueryEmbedding | None,
         allow_embedding: bool = True,
         embedding_budget: _EmbeddingBudget,
     ) -> _ScopeRecallOutcome:
+        evidence = current_receipt_evidence()
         async with self._runtime._scoped_operation(scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_RECALL):
+            started_memory = perf_counter() if evidence is not None else None
             with self._runtime._stage(
                 _MEMORY_SEARCH_STAGE,
                 attributes={_MEMORY_SEARCH_REQUESTED_MODE: "auto", _MEMORY_SEARCH_LIMIT: memory_limit},
@@ -1694,18 +1854,24 @@ class ScopedContextApplication:
                 atomic = self._runtime.atomic_memory
                 if memory_limit > 0 and atomic is not None:
                     policy = self._runtime.recall_sufficiency_policy
-                    result = await atomic.for_scope(scope_id).search(
-                        request.query,
-                        limit=memory_limit,
-                        mode="auto",
-                        admission=admission,
-                        query_embedding=reuse,
-                        embedding_timeout_seconds=embedding_budget.remaining,
-                        allow_embedding=allow_embedding and embedding_budget.remaining > 0,
-                        recovery_admission=None if policy is None else policy.round2_admission,
-                        context=_PREPARE_ATOMIC_CONTEXT.get(),
-                        _trace=False,
-                    )
+                    try:
+                        result = await atomic.for_scope(scope_id).search(
+                            request.query,
+                            limit=memory_limit,
+                            mode="auto",
+                            admission=admission,
+                            query_embedding=reuse,
+                            embedding_timeout_seconds=embedding_budget.remaining,
+                            allow_embedding=allow_embedding and embedding_budget.remaining > 0,
+                            recovery_admission=None if policy is None else policy.round2_admission,
+                            context=_PREPARE_ATOMIC_CONTEXT.get(),
+                            _trace=False,
+                        )
+                    except Exception:
+                        if evidence is not None and started_memory is not None and memory_requested:
+                            evidence.stage(_MEMORY_SEARCH_STAGE, (perf_counter() - started_memory) * 1000)
+                            evidence.search("atomic-memory", None, "failed")
+                        raise
                     embedding_budget.spend(result.embedding_wait_seconds)
                     memory_hits = result.hits
                     memory_admission = result.admission
@@ -1724,35 +1890,25 @@ class ScopedContextApplication:
                     if search_mode is not None:
                         attributes[_MEMORY_SEARCH_MODE] = search_mode
                     span.set_attributes(attributes)
+            if evidence is not None and started_memory is not None and memory_requested:
+                evidence.stage(_MEMORY_SEARCH_STAGE, (perf_counter() - started_memory) * 1000)
+                evidence.search(
+                    "atomic-memory",
+                    search_mode if memory_limit > 0 and atomic is not None else None,
+                    "completed" if memory_limit > 0 and atomic is not None else "not_run",
+                    memory_embedding_fallback or "none",
+                    scope_id=scope_id,
+                )
 
-            experience_recall = self._runtime._experience_recall
-            with self._runtime._stage(
-                "experience.search",
-                attributes={
-                    "powercontext.experience.search.configured": experience_recall is not None,
-                    "powercontext.experience.search.limit": experience_limit,
-                },
-            ) as span:
-                if experience_recall is None or experience_limit == 0:
-                    experience_outcome = ExperienceSearchOutcome()
-                elif admission is None:
-                    experience_outcome = await experience_recall(scope_id, request.query, experience_limit)
-                else:
-                    experience_outcome = await experience_recall(
-                        scope_id,
-                        request.query,
-                        experience_limit,
-                        admission=admission,
-                    )
-                experience_hits = experience_outcome.hits
-                if span is not None:
-                    span.set_attributes({"powercontext.experience.search.result_count": len(experience_hits)})
+            experience_outcome = await self._recall_experience(
+                scope_id, request.query, experience_limit, admission, evidence, experience_requested
+            )
         return _ScopeRecallOutcome(
             memory=PreparedMemoryCandidates(
                 scope_id=scope_id,
                 hits=memory_hits,
             ),
-            experience=PreparedExperienceCandidates(scope_id=scope_id, hits=experience_hits),
+            experience=PreparedExperienceCandidates(scope_id=scope_id, hits=experience_outcome.hits),
             memory_admission=memory_admission,
             experience_admission=(
                 None
@@ -1766,6 +1922,48 @@ class ScopedContextApplication:
             generation_calls=memory_generation_calls,
         )
 
+    async def _recall_experience(
+        self,
+        scope_id: str,
+        query: str,
+        limit: int,
+        admission: AdmissionFloor | None,
+        evidence: ReceiptEvidence | None,
+        requested: bool,
+    ) -> ExperienceSearchOutcome:
+        reader = self._runtime._experience_recall
+        started = perf_counter() if evidence is not None else None
+        with self._runtime._stage(
+            "experience.search",
+            attributes={
+                "powercontext.experience.search.configured": reader is not None,
+                "powercontext.experience.search.limit": limit,
+            },
+        ) as span:
+            if reader is None or limit == 0:
+                outcome = ExperienceSearchOutcome()
+            else:
+                try:
+                    if admission is None:
+                        outcome = await reader(scope_id, query, limit)
+                    else:
+                        outcome = await reader(scope_id, query, limit, admission=admission)
+                except Exception:
+                    if evidence is not None and started is not None and requested:
+                        evidence.stage("experience.search", (perf_counter() - started) * 1000)
+                        evidence.search("experience", None, "failed")
+                    raise
+            if span is not None:
+                span.set_attributes({"powercontext.experience.search.result_count": len(outcome.hits)})
+        if evidence is not None and started is not None and requested:
+            evidence.stage("experience.search", (perf_counter() - started) * 1000)
+            evidence.search(
+                "experience",
+                outcome.mode if reader is not None and limit > 0 else None,
+                "completed" if reader is not None and limit > 0 else "not_run",
+            )
+        return outcome
+
     async def _topic_memory_hits(
         self,
         query: str,
@@ -1776,6 +1974,8 @@ class ScopedContextApplication:
         allow_embedding: bool,
         embedding_budget: _EmbeddingBudget,
     ) -> TopicMemoryRecallOutcome:
+        evidence = current_receipt_evidence()
+        started = perf_counter() if evidence is not None else None
         configured = self._runtime._topic_memory_search is not None
         bounded_query = bounded_topic_memory_query(query)
         with self._runtime._stage(
@@ -1785,29 +1985,39 @@ class ScopedContextApplication:
                 "powercontext.topic_memory.search.limit": limit,
             },
         ) as span:
-            result = (
-                TopicMemorySearchResult(mode="fts")
-                if not configured
-                else (
-                    await self._runtime.topic_memory.for_scope(self.scope_id).search(
-                        SearchTopicMemoryRequest(query=bounded_query, limit=limit),
-                        admission=admission,
-                        query_embedding=reuse,
-                        embedding_timeout_seconds=embedding_budget.remaining,
-                        allow_embedding=allow_embedding and embedding_budget.remaining > 0,
+            try:
+                result = (
+                    TopicMemorySearchResult(mode="fts")
+                    if not configured
+                    else (
+                        await self._runtime.topic_memory.for_scope(self.scope_id).search(
+                            SearchTopicMemoryRequest(query=bounded_query, limit=limit),
+                            admission=admission,
+                            query_embedding=reuse,
+                            embedding_timeout_seconds=embedding_budget.remaining,
+                            allow_embedding=allow_embedding and embedding_budget.remaining > 0,
+                        )
                     )
                 )
-            )
+            except Exception:
+                if evidence is not None and started is not None:
+                    evidence.stage("topic_memory.search", (perf_counter() - started) * 1000)
+                    evidence.search("topic-memory", None, "failed")
+                raise
             embedding_budget.spend(result.embedding_wait_seconds)
             if span is not None:
                 span.set_attributes({"powercontext.topic_memory.search.result_count": len(result.hits)})
-            return TopicMemoryRecallOutcome(
+            outcome = TopicMemoryRecallOutcome(
                 hits=result.hits,
                 admission=result.admission,
                 query_embedding=result.query_embedding,
                 embedding_calls=result.embedding_calls,
                 embedding_fallback=result.embedding_fallback,
+                mode=result.mode if configured else None,
             )
+        if evidence is not None and started is not None:
+            evidence.stage("topic_memory.search", (perf_counter() - started) * 1000)
+        return outcome
 
 
 def _limit_memory_candidates(

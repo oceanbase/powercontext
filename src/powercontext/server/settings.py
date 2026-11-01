@@ -247,6 +247,7 @@ class ServerSettings(BaseSettings):
     handoff_generation_verification_secrets: tuple[SecretStr, ...] = Field(default=(), max_length=8, repr=False)
     code: CodeConfig = Field(default_factory=CodeConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    artifact_plugins_dir: Path | None = None
     source_plugins_dir: Path | None = None
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)

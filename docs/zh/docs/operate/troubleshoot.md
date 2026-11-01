@@ -260,7 +260,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_portable_restore_receipts,pc_source_cursors,pc_memory_source_windows,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_work_blocks,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_source_write_plugins,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_recall_effort_daily,pc_receipt_migration_review,pc_decision_observations,pc_lexical_projection_versions' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_portable_restore_receipts,pc_source_cursors,pc_memory_source_windows,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_work_blocks,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_source_write_plugins,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_recall_effort_daily,pc_receipt_migration_review,pc_decision_observations,pc_lexical_projection_versions,pc_artifact_family_schemas,pc_artifact_vector_spaces,pc_artifact_search_states' \
      -f <export-directory>
    ```
 
@@ -268,7 +268,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_dream_runs,pc_context_bootstrap_receipts,pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_handles,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
+     --table 'pc_dream_runs,pc_context_bootstrap_receipts,pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_handles,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions,pc_artifact_vector_indexes,pc_artifact_index_changes' \
      -f <export-directory>
    ```
 
@@ -280,16 +280,20 @@ collation，但不会包含数据库 URL 或凭据。
      -f <export-directory>
    ```
 
-   第 3 层成功完成后，导入第 4 层中的 Profile Policy：
+   第 3 层成功完成后，导入第 4 层中的 Profile Policy 和 Artifact 检索投影：
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_profile_policies' \
+     --table 'pc_profile_policies,pc_artifact_index_coverage,pc_artifact_search_text' \
      -f <export-directory>
    ```
 
    每个命令成功完成后才能开始下一层。OBLoader 出现任何错误、bad record 或 conflict record 时，都应判定恢复
    失败。同一层内的表互不引用，因此层内顺序无关。
+   `pc_artifact_vectors` 仅用于 SQLite。OceanBase/seekDB 在第 4 层之后恢复已登记的 `pc_av_<space_id>` 行数据：
+   先通过数据库初始化创建并校验已恢复登记的空间物理表。
+   保留精确的 `space_id` 和 `build_id`；导入向量行之前，不从内容重新分配这些身份。
+   固定 schema、原生空间和已恢复索引状态全部验证完成前，保持所有写入方停止。
 6. 如果安装中还存在上面未列出的 PowerContext 管理表，则这些已测试的层并未对它们分类。检查其外键约束，将每张
    表放在其所有父表之后；不要把它们加入全表导入命令。
 7. 逐表比较源数据库和目标数据库的记录数，检查 identity column collation，并测试仅大小写或重音不同的

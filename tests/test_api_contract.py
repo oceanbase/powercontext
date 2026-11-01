@@ -93,6 +93,7 @@ from powercontext.http import (
     StatsPeriod,
     WorkSourceReceipt,
 )
+from powercontext.http._generated.models import PreparedContextRerankConfig
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
@@ -328,6 +329,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
     assert set(properties) == {
         "artifact_dreaming",
         "artifact_dreaming_operations",
+        "custom_artifact_schemas",
         "source_types",
         "artifact_families",
         "memory_extraction",
@@ -538,23 +540,55 @@ def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_to
         "assembly",
         "bootstrap_receipt_id",
         "include_code",
-        "explain",
+        "include_receipt",
     }
     assert set(schemas["PreparedContext"]["properties"]) == {
         "schema",
         "status",
         "content",
         "content_bytes",
-        "reason",
+        "receipt",
     }
-    # ``reason`` is a cause code, not a retrieval result: it must stay out of the ban below while
-    # remaining optional, so a Host written before it existed still validates an injected response.
-    assert "reason" not in schemas["PreparedContext"]["required"]
-    assert schemas["PreparedContext"]["properties"]["reason"]["nullable"] is True
-    # ``explain`` is how a caller asks for it, so the default stays the four-field envelope.
-    assert schemas["PrepareContextRequest"]["properties"]["explain"]["default"] is False
-    assert "explain" not in schemas["PrepareContextRequest"]["required"]
+    assert "receipt" not in schemas["PreparedContext"]["required"]
+    assert schemas["PreparedContext"]["properties"]["receipt"]["$ref"] == "#/components/schemas/PreparedContextReceipt"
+    assert schemas["PrepareContextRequest"]["properties"]["include_receipt"]["default"] is False
+    assert "include_receipt" not in schemas["PrepareContextRequest"]["required"]
+    assert schemas["PreparedContextReceipt"]["properties"]["selected"]["maxItems"] == 32
+    assert schemas["PreparedContextReceipt"]["properties"]["retrieval"]["$ref"] == (
+        "#/components/schemas/PreparedContextRetrieval"
+    )
+    rerank_config = schemas["PreparedContextRerankConfig"]["properties"]
+    assert rerank_config["effective_settings"]["additionalProperties"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "integer"},
+        {"type": "number"},
+        {"type": "boolean"},
+    ]
+    assert rerank_config["timeout_seconds"] == {
+        "type": "number",
+        "minimum": 0,
+        "exclusiveMinimum": True,
+    }
     assert not {"memory", "mode", "selection"} & set(schemas["PreparedContext"]["properties"])
+
+
+def test_prepared_context_rerank_timeout_uses_openapi_30_exclusive_minimum() -> None:
+    values = {
+        "config_id": f"sha256:{'a' * 64}",
+        "policy_id": "test",
+        "model": None,
+        "effective_settings": {"max_tokens": 512, "temperature": 0.0},
+        "max_requests": 1,
+        "config_digest": f"sha256:{'b' * 64}",
+        "prompt": None,
+        "non_deterministic": False,
+    }
+
+    config = PreparedContextRerankConfig.model_validate({**values, "timeout_seconds": 0.5})
+    assert config.timeout_seconds == 0.5
+    assert config.effective_settings == {"max_tokens": 512, "temperature": 0.0}
+    with pytest.raises(ValidationError):
+        PreparedContextRerankConfig.model_validate({**values, "timeout_seconds": 0.0})
 
 
 def test_bootstrap_context_has_typed_prepare_and_delivery_operations() -> None:
@@ -1010,7 +1044,8 @@ def test_standard_artifact_reads_share_topic_memory_family_and_display_metadata(
     for path in read_paths:
         family = next(parameter for parameter in paths[path]["get"]["parameters"] if parameter["name"] == "family")
         assert family["schema"] == {"$ref": "#/components/schemas/ArtifactReadFamily"}
-    assert "topic-memory" in contract["components"]["schemas"]["ArtifactReadFamily"]["enum"]
+    http_models.ArtifactReadFamily.model_validate("topic-memory")
+    http_models.ArtifactReadFamily.model_validate("incident-report")
     assert "topic-memory" in contract["components"]["schemas"]["BaseArtifactFamily"]["enum"]
     item = http_models.ArtifactCollectionItem.model_validate({
         "scope_id": "scope-a",
@@ -1025,9 +1060,28 @@ def test_standard_artifact_reads_share_topic_memory_family_and_display_metadata(
         "published_at": "2026-09-10T00:00:00Z",
         "source_count": 2,
     })
-    assert item.family.value == "topic-memory"
+    assert item.family == "topic-memory"
     assert item.title == "A topic"
     assert item.source_count == 2
+
+
+@pytest.mark.parametrize("model", [http_models.ArtifactCollectionItem, ArtifactRevision])
+@pytest.mark.parametrize("family", ["atomic-memory", "incident-report"])
+def test_artifact_read_family_remains_a_string_with_contract_validation(model, family):
+    value = {
+        "scope_id": "scope",
+        "family": family,
+        "artifact_id": "artifact",
+        "revision": 1,
+        "content": {},
+        "sources": [],
+        "artifacts": [],
+        "content_digest": f"sha256:{'0' * 64}",
+    }
+    assert model.model_validate(value).family == family
+    for invalid in ("", "INVALID", "x" * 129, 123):
+        with pytest.raises(ValidationError):
+            model.model_validate({**value, "family": invalid})
 
 
 def test_base_access_uses_a_dedicated_source_type_reference() -> None:

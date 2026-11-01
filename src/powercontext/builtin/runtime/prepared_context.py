@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from itertools import chain
@@ -39,6 +40,7 @@ from powercontext.builtin.runtime.prepared_text import (
     ContextTextItem,
     fit_context_text_item,
     render_context_text,
+    rendered_text_fragment_bytes,
 )
 from powercontext.builtin.runtime.recall_sufficiency import RecallBudgetView
 
@@ -98,6 +100,14 @@ class PreparedContextOmissions:
 
 
 @dataclass(frozen=True)
+class PreparedContextFragment:
+    origin: PreparedContextOrigin | CodeEvidenceRef
+    kind: str
+    rendered_bytes: int
+    truncated: bool
+
+
+@dataclass(frozen=True)
 class PreparedContextBuild:
     """Final public context and the exact origins selected to produce it.
 
@@ -116,6 +126,8 @@ class PreparedContextBuild:
     omissions: PreparedContextOmissions = PreparedContextOmissions()
     code_origins: tuple[CodeEvidenceRef, ...] = ()
     lineages: tuple[tuple[ArtifactAddress, ArtifactLineage], ...] = ()
+    fragments: tuple[PreparedContextFragment, ...] = ()
+    omitted: tuple[tuple[str, str, int], ...] = ()
     #: Why this preparation lost a retrieval channel. Filled by the layer that ran the search,
     #: never by the Builder: a pure selector cannot know whether a provider answered in time.
     degradation: PreparedContextReason | None = None
@@ -233,7 +245,7 @@ class PreparedContextBuilder:
         if sum(len(candidates.hits) for candidates in experience_candidates) > self.experience_candidate_limit:
             raise PreparedContextInvariantError("experience-candidate-limit")
 
-        content, origins, omissions = self._select_entries(
+        content, origins, omissions, fragments, omitted = self._select_entries(
             request=request,
             current_scope_id=current_scope_id,
             memory_candidates=memory_candidates,
@@ -242,7 +254,9 @@ class PreparedContextBuilder:
             topic_memory_hits=topic_memory_hits,
         )
         if content is None:
-            return PreparedContextBuild(context=self.empty(), origins=(), omissions=omissions)
+            return PreparedContextBuild(
+                context=self.empty(), origins=(), omissions=omissions, fragments=fragments, omitted=omitted
+            )
         content_bytes = len(content.encode("utf-8"))
         # The assembly path is bounded by construction (every fitted item is measured against
         # `max_bytes`), so the ceiling check belongs to the non-assembly renderer only.
@@ -252,6 +266,8 @@ class PreparedContextBuilder:
             context=PreparedContext(status="ready", content=content, content_bytes=content_bytes),
             origins=origins,
             omissions=omissions,
+            fragments=fragments,
+            omitted=omitted,
         )
 
     def probe_budget(
@@ -275,7 +291,7 @@ class PreparedContextBuilder:
         counters because both go through :meth:`_select_entries`.
         """
 
-        content, origins, omissions = self._select_entries(
+        content, origins, omissions, _, _ = self._select_entries(
             request=request,
             current_scope_id=current_scope_id,
             memory_candidates=memory_candidates,
@@ -301,7 +317,13 @@ class PreparedContextBuilder:
         topic_memory_hits: Sequence[TopicMemorySearchHit],
         experience_candidates: Sequence[PreparedExperienceCandidates],
         profile_candidates: Sequence[PreparedProfileCandidate],
-    ) -> tuple[str | None, tuple[PreparedContextOrigin, ...], PreparedContextOmissions]:
+    ) -> tuple[
+        str | None,
+        tuple[PreparedContextOrigin, ...],
+        PreparedContextOmissions,
+        tuple[PreparedContextFragment, ...],
+        tuple[tuple[str, str, int], ...],
+    ]:
         """Run one complete pure selection pass and render it.
 
         Returns ``(content, origins, omissions)``; ``content`` is ``None`` exactly when nothing
@@ -320,29 +342,53 @@ class PreparedContextBuilder:
                 topic_memory_hits=topic_memory_hits,
             )
 
+        counts: Counter[tuple[str, str]] = Counter()
+        count = counts if request.include_receipt else None
         memory_entries = _interleave_groups(
             tuple(
                 self._memory_entries(
                     candidates.hits,
                     scope_id=None if candidates.scope_id == current_scope_id else candidates.scope_id or None,
+                    omitted=count,
                 )
                 for candidates in memory_candidates
             )
         )
-        topic_memory_entries = self._topic_memory_entries(topic_memory_hits)
-        experience_entries = _interleave_groups(
+        topic_memory_entries = self._topic_memory_entries(topic_memory_hits, omitted=count)
+        experience_entries_all = _interleave_groups(
             tuple(
                 self._experience_entries(
                     candidates.hits,
                     scope_id=None if candidates.scope_id == current_scope_id else candidates.scope_id or None,
+                    omitted=count,
                 )
                 for candidates in experience_candidates
             )
-        )[: self.experience_entry_limit]
-        entries, omissions = self._fit_entries(request, memory_entries, topic_memory_entries, experience_entries)
+        )
+        experience_entries = experience_entries_all[: self.experience_entry_limit]
+        if count is not None:
+            counts[("experience", "family_limit")] += len(experience_entries_all) - len(experience_entries)
+        entries, omissions = self._fit_entries(request, memory_entries, topic_memory_entries, experience_entries, count)
+        fragments = (
+            tuple(
+                PreparedContextFragment(
+                    entry.origin,
+                    entry.kind,
+                    len(
+                        _escape_line_boundaries(
+                            json.dumps(_render_entry(entry), ensure_ascii=False, separators=(",", ":"))
+                        ).encode("utf-8")
+                    ),
+                    entry.truncated,
+                )
+                for entry in entries
+            )
+            if count is not None
+            else ()
+        )
         if not entries:
-            return None, (), omissions
-        return _render(entries), tuple(entry.origin for entry in entries), omissions
+            return None, (), omissions, (), _omitted_counts(counts)
+        return _render(entries), tuple(entry.origin for entry in entries), omissions, fragments, _omitted_counts(counts)
 
     def _select_text(
         self,
@@ -353,12 +399,21 @@ class PreparedContextBuilder:
         experience_candidates: Sequence[PreparedExperienceCandidates],
         profile_candidates: Sequence[PreparedProfileCandidate],
         topic_memory_hits: Sequence[TopicMemorySearchHit],
-    ) -> tuple[str | None, tuple[PreparedContextOrigin, ...], PreparedContextOmissions]:
+    ) -> tuple[
+        str | None,
+        tuple[PreparedContextOrigin, ...],
+        PreparedContextOmissions,
+        tuple[PreparedContextFragment, ...],
+        tuple[tuple[str, str, int], ...],
+    ]:
         assembly = request.assembly
         if assembly is None:
             raise PreparedContextInvariantError("text-assembly-missing")
         included: list[ContextTextItem] = []
         origins: list[PreparedContextOrigin] = []
+        fragments: list[PreparedContextFragment] = []
+        counts: Counter[tuple[str, str]] = Counter()
+        count = counts if request.include_receipt else None
         truncated_items = 0
         dropped_below_min_bytes = 0
         dropped_no_fitting_truncation = 0
@@ -369,28 +424,22 @@ class PreparedContextBuilder:
                 if self._text_entry_limit is None
                 else min(section.limit, self._text_entry_limit - len(included))
             )
-            if section.family == "profile":
-                entries = self._profile_entries(profile_candidates)
-            elif section.family == "topic-memory":
-                entries = self._topic_memory_entries(topic_memory_hits, scope_id=current_scope_id)
-            else:
-                groups = (
-                    tuple(
-                        tuple(self._memory_entries((hit,), scope_id=group.scope_id) for hit in group.hits)
-                        for group in memory_candidates
-                    )
-                    if section.family == "memory"
-                    else tuple(
-                        tuple(self._experience_entries((hit,), scope_id=group.scope_id) for hit in group.hits)
-                        for group in experience_candidates
-                    )
-                )
-                entries = tuple(chain.from_iterable(_interleave_groups(groups)))
+            entries = self._section_entries(
+                section.family,
+                current_scope_id,
+                memory_candidates,
+                experience_candidates,
+                profile_candidates,
+                topic_memory_hits,
+                count,
+            )
             seen: set[tuple[str, str, str, int, str | None, str | None]] = set()
             rank = 0
             selected_count = 0
-            for entry in entries:
+            omission_reason = "entry_limit" if limit < section.limit else "family_limit"
+            for index, entry in enumerate(entries):
                 if selected_count >= limit:
+                    self._record_text_limit(count, entry.kind, len(entries) - index, omission_reason)
                     break
                 item = _text_item(entry)
                 artifact = item.artifact
@@ -402,7 +451,9 @@ class PreparedContextBuilder:
                     item.entry_id,
                     item.entry_version_id,
                 )
-                if identity in seen or not item.content.strip():
+                skip_reason = _text_skip_reason(identity, seen, item.content)
+                if skip_reason is not None:
+                    _count_text_omission(count, entry.kind, skip_reason)
                     continue
                 seen.add(identity)
                 rank += 1
@@ -410,10 +461,23 @@ class PreparedContextBuilder:
                 if outcome.item is None:
                     dropped_below_min_bytes += int(outcome.dropped_below_min_bytes)
                     dropped_no_fitting_truncation += int(outcome.dropped_no_fitting_truncation)
+                    if count is not None:
+                        reason = "below_min_bytes" if outcome.dropped_below_min_bytes else "no_fitting_truncation"
+                        counts[(entry.kind, reason)] += 1
                     continue
                 fitted = outcome.item
                 included.append(fitted)
                 origins.append(entry.origin)
+                if count is not None:
+                    number = 1 + sum(fragment.kind == entry.kind for fragment in fragments)
+                    fragments.append(
+                        PreparedContextFragment(
+                            entry.origin,
+                            entry.kind,
+                            rendered_text_fragment_bytes(fitted, assembly, number),
+                            fitted.truncated,
+                        )
+                    )
                 selected_count += 1
                 truncated_items += int(fitted.truncated)
         omissions = PreparedContextOmissions(
@@ -423,11 +487,46 @@ class PreparedContextBuilder:
             dropped_no_fitting_truncation=dropped_no_fitting_truncation,
         )
         if not included:
-            return None, (), omissions
+            return None, (), omissions, (), _omitted_counts(counts)
         content = render_context_text(included, assembly)
-        return content, tuple(origins), omissions
+        return content, tuple(origins), omissions, tuple(fragments), _omitted_counts(counts)
 
-    def _profile_entries(self, candidates: Sequence[PreparedProfileCandidate]) -> tuple[_PreparedContextEntry, ...]:
+    def _record_text_limit(
+        self, omitted: Counter[tuple[str, str]] | None, kind: str, remaining: int, reason: str
+    ) -> None:
+        if omitted is not None:
+            omitted[(kind, reason)] += remaining
+
+    def _section_entries(
+        self,
+        family: str,
+        current_scope_id: str | None,
+        memory_candidates: Sequence[PreparedMemoryCandidates],
+        experience_candidates: Sequence[PreparedExperienceCandidates],
+        profile_candidates: Sequence[PreparedProfileCandidate],
+        topic_memory_hits: Sequence[TopicMemorySearchHit],
+        omitted: Counter[tuple[str, str]] | None,
+    ) -> tuple[_PreparedContextEntry, ...]:
+        if family == "profile":
+            return self._profile_entries(profile_candidates, omitted=omitted)
+        if family == "topic-memory":
+            return self._topic_memory_entries(topic_memory_hits, scope_id=current_scope_id, omitted=omitted)
+        groups = (
+            tuple(
+                tuple(self._memory_entries((hit,), scope_id=group.scope_id, omitted=omitted) for hit in group.hits)
+                for group in memory_candidates
+            )
+            if family == "memory"
+            else tuple(
+                tuple(self._experience_entries((hit,), scope_id=group.scope_id, omitted=omitted) for hit in group.hits)
+                for group in experience_candidates
+            )
+        )
+        return tuple(chain.from_iterable(_interleave_groups(groups)))
+
+    def _profile_entries(
+        self, candidates: Sequence[PreparedProfileCandidate], *, omitted: Counter[tuple[str, str]] | None = None
+    ) -> tuple[_PreparedContextEntry, ...]:
         entries = []
         for candidate in candidates:
             origin = ArtifactAddress(scope_id=candidate.scope_id, artifact=candidate.profile.as_ref())
@@ -447,6 +546,7 @@ class PreparedContextBuilder:
         hits: Sequence[AtomicMemorySearchHit],
         *,
         scope_id: str | None = None,
+        omitted: Counter[tuple[str, str]] | None = None,
     ) -> tuple[_PreparedContextEntry, ...]:
         entries: list[_PreparedContextEntry] = []
         seen: set[tuple[str, str, int]] = set()
@@ -457,6 +557,8 @@ class PreparedContextBuilder:
                 raise PreparedContextInvariantError("memory-ref-mismatch")
             identity = (ref.family, ref.artifact_id, ref.revision)
             if identity in seen or not hit.text.strip():
+                if omitted is not None:
+                    omitted[("atomic-memory", "duplicate" if identity in seen else "blank")] += 1
                 continue
             seen.add(identity)
             origin: PreparedContextOrigin = ref
@@ -480,17 +582,22 @@ class PreparedContextBuilder:
         hits: Sequence[TopicMemorySearchHit],
         *,
         scope_id: str | None = None,
+        omitted: Counter[tuple[str, str]] | None = None,
     ) -> tuple[_PreparedContextEntry, ...]:
         topic_entries: list[_PreparedContextEntry] = []
         seen_topics: set[tuple[str, int]] = set()
-        for hit in hits:
+        for index, hit in enumerate(hits):
             if hit.artifact_ref.family != TopicMemory.family:
                 raise PreparedContextInvariantError("topic-memory-family-mismatch")
             identity = (hit.artifact_ref.artifact_id, hit.artifact_ref.revision)
             if identity in seen_topics:
+                if omitted is not None:
+                    omitted[("topic-memory", "duplicate")] += 1
                 continue
             seen_topics.add(identity)
             if len(topic_entries) >= self.topic_memory_entry_limit:
+                if omitted is not None:
+                    omitted[("topic-memory", "family_limit")] += len(hits) - index
                 break
             content = {"title": hit.title, "summary": hit.summary}
             if hit.snippet is not None:
@@ -518,6 +625,7 @@ class PreparedContextBuilder:
         hits: Sequence[ExperienceSearchHit],
         *,
         scope_id: str | None = None,
+        omitted: Counter[tuple[str, str]] | None = None,
     ) -> tuple[_PreparedContextEntry, ...]:
         experience_entries: list[_PreparedContextEntry] = []
         seen_experiences: set[tuple[str, int]] = set()
@@ -526,6 +634,8 @@ class PreparedContextBuilder:
                 raise PreparedContextInvariantError("experience-family-mismatch")
             identity = (hit.artifact_ref.artifact_id, hit.artifact_ref.revision)
             if identity in seen_experiences:
+                if omitted is not None:
+                    omitted[("experience", "duplicate")] += 1
                 continue
             seen_experiences.add(identity)
             origin: PreparedContextOrigin = hit.artifact_ref
@@ -550,13 +660,18 @@ class PreparedContextBuilder:
         memory_entries: Sequence[_PreparedContextEntry],
         topic_memory_entries: Sequence[_PreparedContextEntry],
         experience_entries: Sequence[_PreparedContextEntry],
+        omitted: Counter[tuple[str, str]] | None = None,
     ) -> tuple[tuple[_PreparedContextEntry, ...], PreparedContextOmissions]:
         entries: list[_PreparedContextEntry] = []
         truncated_items = 0
         dropped_below_min_bytes = 0
         dropped_no_fitting_truncation = 0
-        for candidate in _interleave(memory_entries, topic_memory_entries, experience_entries):
+        ordered = _interleave(memory_entries, topic_memory_entries, experience_entries)
+        for index, candidate in enumerate(ordered):
             if len(entries) >= self.entry_limit:
+                if omitted is not None:
+                    for remaining in ordered[index:]:
+                        omitted[(remaining.kind, "entry_limit")] += 1
                 break
             fit = self._fit_entry(
                 entries,
@@ -569,6 +684,9 @@ class PreparedContextBuilder:
             if fit.entry is None:
                 dropped_below_min_bytes += int(fit.dropped_below_min_bytes)
                 dropped_no_fitting_truncation += int(fit.dropped_no_fitting_truncation)
+                if omitted is not None:
+                    reason = "below_min_bytes" if fit.dropped_below_min_bytes else "no_fitting_truncation"
+                    omitted[(candidate.kind, reason)] += 1
                 continue
             entries.append(fit.entry)
             if fit.entry.truncated:
@@ -654,6 +772,10 @@ def _interleave(
     return tuple(ordered)
 
 
+def _omitted_counts(counts: Counter[tuple[str, str]]) -> tuple[tuple[str, str, int], ...]:
+    return tuple((family, reason, total) for (family, reason), total in sorted(counts.items()) if total > 0)
+
+
 def _interleave_groups(groups: Sequence[Sequence[_Item]]) -> tuple[_Item, ...]:
     ordered: list[_Item] = []
     for index in range(max((len(group) for group in groups), default=0)):
@@ -687,6 +809,23 @@ def _text_item(entry: _PreparedContextEntry) -> ContextTextItem:
     if isinstance(origin, ArtifactAddress):
         return ContextTextItem(artifact=origin, content=entry.content, recall_rank=0)
     raise PreparedContextInvariantError("text-scope-missing")
+
+
+def _text_skip_reason(
+    identity: tuple[str, str, str, int, str | None, str | None],
+    seen: set[tuple[str, str, str, int, str | None, str | None]],
+    content: str,
+) -> str | None:
+    if identity in seen:
+        return "duplicate"
+    if not content.strip():
+        return "blank"
+    return None
+
+
+def _count_text_omission(omitted: Counter[tuple[str, str]] | None, kind: str, reason: str) -> None:
+    if omitted is not None:
+        omitted[(kind, reason)] += 1
 
 
 def _render_entry(entry: _PreparedContextEntry) -> dict[str, object]:

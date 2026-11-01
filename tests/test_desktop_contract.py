@@ -46,3 +46,14 @@ def test_desktop_contract_identity_matches_openapi(manifest: str) -> None:
         actual = match.group(1)
 
     assert actual == expected, f"Stale Desktop contract identity in {manifest}; run 'pnpm --dir desktop generate'."
+
+
+def test_bundled_desktop_contract_has_a_qualified_business_profile() -> None:
+    native = REPOSITORY_ROOT / "desktop/src-tauri/src"
+    contract = json.loads((native / "transport/operations.json").read_text(encoding="utf-8"))
+    profiles = json.loads((native / "connections/compatibility.json").read_text(encoding="utf-8"))
+    required = {"remember_memory", "search_memory", "get_artifact_revision"}
+    assert any(
+        profile["contractSha256"] == contract["contractSha256"] and required <= set(profile["operations"])
+        for profile in profiles
+    ), "The bundled Desktop contract has no qualified profile for save, search and exact reads."

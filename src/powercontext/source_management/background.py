@@ -31,6 +31,7 @@ import threading
 import time
 from contextlib import suppress
 from pathlib import Path
+from typing import cast
 
 from typing_extensions import override
 
@@ -155,7 +156,8 @@ def _control(listener, identity, state_path):
         try:
             connection, _ = listener.accept()
             with connection:
-                _, uid, _ = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+                peer_cred = cast(int, vars(socket)["SO_PEERCRED"])
+                _, uid, _ = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, peer_cred, 12))
                 if uid != os.getuid():
                     continue
                 connection.settimeout(2)

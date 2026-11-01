@@ -25,6 +25,7 @@ from datetime import timedelta
 from functools import partial
 from ipaddress import ip_address
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from urllib.parse import urlsplit
 
@@ -107,6 +108,7 @@ from powercontext.builtin.persistence.atomic_memory_readiness import (
     ensure_supported_atomic_memory_schema,
 )
 from powercontext.builtin.persistence.bootstrap_receipts import BootstrapReceiptRepository
+from powercontext.builtin.persistence.custom_artifacts import ensure_artifact_plugin_schema
 from powercontext.builtin.persistence.experience_index import ensure_artifact_head_searchable_text
 from powercontext.builtin.persistence.lexical_projection import refresh_lexical_projections
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
@@ -203,6 +205,7 @@ from powercontext.builtin.runtime.readiness import (
     dependency_readiness_probe,
 )
 from powercontext.builtin.runtime.recall_sufficiency import RecallSufficiencyPolicy
+from powercontext.builtin.runtime.receipt_capture import current_receipt_evidence
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryWorkerSpec,
@@ -309,6 +312,10 @@ class _TracingMemoryReranker:
         self.policy_id = delegate.policy_id
         self.supports_atomic_memory = getattr(delegate, "supports_atomic_memory", False)
 
+    def receipt_configuration(self) -> dict[str, object] | None:
+        configuration = getattr(self._delegate, "receipt_configuration", None)
+        return configuration() if callable(configuration) else None
+
     async def rerank(
         self,
         query: str,
@@ -316,20 +323,26 @@ class _TracingMemoryReranker:
         limit: int,
         /,
     ) -> MemoryRerankDecision:
-        with self._tracing.stage(
-            "memory.rerank",
-            attributes={
-                "powercontext.memory.rerank.candidate_count": len(candidates),
-                "powercontext.memory.rerank.limit": limit,
-            },
-        ) as span:
-            decision = await self._delegate.rerank(query, candidates, limit)
-            span.set_attributes({
-                "powercontext.memory.rerank.selected_count": len(decision.selected_ranks),
-                "powercontext.memory.rerank.discarded_rank_count": decision.discarded_rank_count,
-                "powercontext.memory.rerank.used_fallback": decision.used_fallback,
-            })
-            return decision
+        evidence = current_receipt_evidence()
+        started = perf_counter() if evidence is not None else None
+        try:
+            with self._tracing.stage(
+                "memory.rerank",
+                attributes={
+                    "powercontext.memory.rerank.candidate_count": len(candidates),
+                    "powercontext.memory.rerank.limit": limit,
+                },
+            ) as span:
+                decision = await self._delegate.rerank(query, candidates, limit)
+                span.set_attributes({
+                    "powercontext.memory.rerank.selected_count": len(decision.selected_ranks),
+                    "powercontext.memory.rerank.discarded_rank_count": decision.discarded_rank_count,
+                    "powercontext.memory.rerank.used_fallback": decision.used_fallback,
+                })
+                return decision
+        finally:
+            if evidence is not None and started is not None:
+                evidence.stage("memory.rerank", (perf_counter() - started) * 1000)
 
 
 class _TracingDecisionModel:
@@ -758,21 +771,8 @@ async def open_builtin_runtime(
                 if spec.processing_family in registered_families or (spec.family is None and registered_families)
             )
         topic_memory_processing_available = _topic_memory_processing_available(config, processing_bindings)
-        artifact_search = ArtifactSearchService(known_families=contexts.repositories.artifacts.families)
-        artifact_search.register(
-            ExperienceArtifactSearcher(contexts.database, contexts.repositories.artifacts, contexts.experience_index)
-        )
-        artifact_search.register(contexts.list_skills)
-        topic_memory_searcher = TopicMemorySearcher(
-            search=contexts.search_topic_memories,
-            embedding_model=configured_embedding,
-            observer=topic_memory_search_observer,
-            capabilities=contexts.topic_memory_index.capabilities,
-        )
-        artifact_search.register(topic_memory_searcher, embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL)
-        artifact_search.register(
-            AtomicArtifactSearcher(application=contexts.atomic_memory),
-            embedding_purpose=ModelUsagePurpose.MEMORY_RECALL,
+        artifact_search, topic_memory_searcher = compose_artifact_search(
+            contexts, configured_embedding, observer=topic_memory_search_observer
         )
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
@@ -1114,6 +1114,32 @@ async def _open_artifact_processing_supervisor(
         yield ArtifactProcessingSupervisors(tuple(supervisors))
 
 
+def compose_artifact_search(contexts, embedding_model=None, *, observer=None):
+    """Use the same Family-owned Searchers in Server, SDK and generation Workers."""
+    from powercontext.builtin.runtime.custom_artifact_search import CustomArtifactSearcher
+
+    artifact_search = ArtifactSearchService(
+        known_families=contexts.repositories.artifacts.families,
+        fallback=lambda family: CustomArtifactSearcher(contexts.database, family, embedding_model),
+    )
+    artifact_search.register(
+        ExperienceArtifactSearcher(contexts.database, contexts.repositories.artifacts, contexts.experience_index)
+    )
+    artifact_search.register(contexts.list_skills)
+    topic_memory_searcher = TopicMemorySearcher(
+        search=contexts.search_topic_memories,
+        embedding_model=embedding_model,
+        observer=observer,
+        capabilities=contexts.topic_memory_index.capabilities,
+    )
+    artifact_search.register(topic_memory_searcher, embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL)
+    artifact_search.register(
+        AtomicArtifactSearcher(application=contexts.atomic_memory),
+        embedding_purpose=ModelUsagePurpose.MEMORY_RECALL,
+    )
+    return artifact_search, topic_memory_searcher
+
+
 @asynccontextmanager
 async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource lifetimes stay together.
     config: BuiltinConfig,
@@ -1182,6 +1208,7 @@ async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource
                         validate_only=True,
                     )
                 else:
+                    await ensure_artifact_plugin_schema(connection)
                     await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
                     await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
                     await ensure_skill_distribution_schema(connection)
@@ -1272,6 +1299,7 @@ async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource
                     connection, topic_index, worker=_topic_memory_worker, recovery=_archive_recovery, validate_only=True
                 )
             else:
+                await ensure_artifact_plugin_schema(connection)
                 await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
                 await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
                 await ensure_skill_distribution_schema(connection)

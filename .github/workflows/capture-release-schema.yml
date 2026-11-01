@@ -1,29 +1,37 @@
 name: Capture released Server schema
 
 on:
-  pull_request:
-    paths:
-      - scripts/capture_release_schema.py
-      - scripts/upgrade_database_probe.py
-      - scripts/upgrade_process.py
-      - tests/release_upgrades/test_full_server.py
-      - .github/workflows/capture-release-schema.yml
-      - .github/actions/setup-upgrade-oceanbase/**
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: release-schema-${{ github.event.pull_request.number || github.ref }}
+  group: release-schema-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    if: ${{ inputs.suites == '' }}
+    uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: capture-release-schema.yml
+
   capture:
+    needs: changes
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').release_schema) }}
     name: Capture 1.4.0 (${{ matrix.backend }}, ${{ matrix.configuration }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
+      max-parallel: 2
       fail-fast: false
       matrix:
         backend: [sqlite, seekdb, oceanbase]

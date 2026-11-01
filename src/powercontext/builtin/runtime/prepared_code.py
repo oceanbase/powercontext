@@ -111,24 +111,30 @@ def _render(items: Sequence[PreparedCodeCandidate]) -> str:
         "BEGIN_POWERCONTEXT_CODE_V1",
     ]
     for item in items:
-        ref = item.origin
-        citation = {
-            "scope_id": ref.scope_id,
-            "fingerprint": ref.fingerprint,
-            "path": ref.path,
-            "file_sha256": ref.file_sha256,
-            "start_line": ref.start_line,
-            "end_line": ref.end_line,
-            "snippet_sha256": ref.snippet_sha256,
-            "checked_at": item.checked_at,
-            "truncated": item.truncated,
-        }
-        parts.append("    " + json.dumps(citation, ensure_ascii=True, separators=(",", ":")))
-        # Encode each original line as a literal JSON string so controls and marker-like
-        # source text cannot escape the data boundary. The citation hashes original bytes.
-        parts.append("\n".join("    " + json.dumps(line, ensure_ascii=False) for line in source_lines(item.content)))
+        parts.extend(_item_parts(item))
     parts.append("END_POWERCONTEXT_CODE_V1")
     return "\n\n".join(parts)
+
+
+def _item_parts(item: PreparedCodeCandidate) -> tuple[str, str]:
+    ref = item.origin
+    citation = {
+        "scope_id": ref.scope_id,
+        "fingerprint": ref.fingerprint,
+        "path": ref.path,
+        "file_sha256": ref.file_sha256,
+        "start_line": ref.start_line,
+        "end_line": ref.end_line,
+        "snippet_sha256": ref.snippet_sha256,
+        "checked_at": item.checked_at,
+        "truncated": item.truncated,
+    }
+    # Encode each original line as a literal JSON string so controls and marker-like
+    # source text cannot escape the data boundary. The citation hashes original bytes.
+    return (
+        "    " + json.dumps(citation, ensure_ascii=True, separators=(",", ":")),
+        "\n".join("    " + json.dumps(line, ensure_ascii=False) for line in source_lines(item.content)),
+    )
 
 
 def _fit(
@@ -162,20 +168,49 @@ def assemble_code(
     limit = min(4, total_entries // 2 if has_history else total_entries)
     budget = request.max_bytes // 2 if has_history else request.max_bytes
     selected: list[PreparedCodeCandidate] = []
-    for candidate in candidates:
+    omitted: dict[tuple[str, str], int] = {}
+    for index, candidate in enumerate(candidates):
         if len(selected) >= limit:
+            omitted[("code", "family_limit")] = len(candidates) - index
             break
         fitted = _fit(selected, candidate, budget)
         if fitted is not None:
             selected.append(fitted)
+        else:
+            omitted[("code", "no_fitting_truncation")] = omitted.get(("code", "no_fitting_truncation"), 0) + 1
     if not selected:
-        return history(request, total_entries)
+        historical = history(request, total_entries)
+        return (
+            replace(
+                historical,
+                omitted=historical.omitted + tuple((kind, reason, total) for (kind, reason), total in omitted.items()),
+            )
+            if request.include_receipt
+            else historical
+        )
     code = _render(selected)
     remainder = request.max_bytes - len(code.encode()) - 2
     historical = history(request.model_copy(update={"max_bytes": max(0, remainder)}), total_entries - len(selected))
     content = (historical.context.content + "\n\n" if historical.context.content else "") + code
+    if request.include_receipt:
+        from powercontext.builtin.runtime.prepared_context import PreparedContextFragment
+
+        fragments = historical.fragments + tuple(
+            PreparedContextFragment(
+                item.origin,
+                "code",
+                len("\n\n".join(_item_parts(item)).encode("utf-8")),
+                item.truncated,
+            )
+            for item in selected
+        )
+        omitted_groups = historical.omitted + tuple((kind, reason, total) for (kind, reason), total in omitted.items())
+    else:
+        fragments, omitted_groups = (), ()
     return replace(
         historical,
         context=PreparedContext(status="ready", content=content, content_bytes=len(content.encode())),
         code_origins=tuple(item.origin for item in selected),
+        fragments=fragments,
+        omitted=omitted_groups,
     )
