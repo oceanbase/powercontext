@@ -25,6 +25,8 @@ from powercontext.builtin.inference.privacy import PrivacyPolicy
 from powercontext.builtin.inference.tokens import TokenEstimator
 from powercontext.builtin.runtime.input_preparation import render_input
 
+ATOMIC_MEMORY_INPUT_SCHEMA = "powercontext.atomic-memory-input.v1"
+
 
 def render_atomic_memory_input(
     value: AtomicMemoryExtractionInput | AtomicMemoryReconciliationInput,
@@ -45,5 +47,5 @@ def render_atomic_memory_input(
         estimator=estimator,
         policy=policy,
         observe=observe,
-        schema="powercontext.atomic-memory-input.v1",
+        schema=ATOMIC_MEMORY_INPUT_SCHEMA,
     )
