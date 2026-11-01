@@ -4,6 +4,7 @@
   "defaultOpen": false,
   "pages": [
     "releasing",
+    "ci-scope",
     "managed-resource-production",
     "core-protocol",
     "memory-layer",

@@ -685,6 +685,109 @@ class ArtifactDreamingOperationCapability(BaseModel):
     effect: Effect
 
 
+class CustomArtifactFamilySchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: StrictStr
+    schema_version: StrictStr
+    content_schema: dict[str, Any]
+    search_fields: Annotated[
+        list[StrictStr], Field(description="Legacy persisted text fields; new plugins use search.")
+    ]
+    search: Annotated[
+        dict[str, Any] | None, Field(description="Persistent declarative indexes and supported search modes.")
+    ] = None
+
+
+class ReloadArtifactPluginRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expected_generation: Annotated[StrictInt, Field(ge=0)]
+
+
+class ChangeArtifactPluginStateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expected_generation: Annotated[StrictInt, Field(ge=1)]
+
+
+class DesiredState(StrEnum):
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+    UNLOADED = "unloaded"
+
+
+class Phase(StrEnum):
+    ACTIVATING = "activating"
+    ENABLED = "enabled"
+    STOPPING = "stopping"
+    DISABLED = "disabled"
+    UNLOADING = "unloading"
+    UNLOADED = "unloaded"
+    FAILED = "failed"
+
+
+class ArtifactPluginState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding_name: StrictStr
+    plugin_id: StrictStr
+    family: StrictStr
+    binding_generation: Annotated[StrictInt, Field(ge=1)]
+    desired_state: DesiredState
+    phase: Phase
+    last_error: Annotated[StrictStr | None, Field(...)]
+
+
+class ArtifactPluginPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[ArtifactPluginState]
+
+
+class Outcome(StrEnum):
+    ACCEPTED = "accepted"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+class ErrorEnum(StrEnum):
+    CONFLICT = "conflict"
+    INVALID_PLUGIN = "invalid_plugin"
+    UNAVAILABLE = "unavailable"
+
+
+class Error(RootModel[ErrorEnum | None]):
+    root: Annotated[
+        ErrorEnum | None, Field(description="Safe per-plugin failure code; null for accepted or skipped entries.")
+    ] = None
+
+
+class EnableArtifactPluginResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding_name: StrictStr
+    outcome: Outcome
+    status_url: Annotated[StrictStr, Field(description="Registration status URL for the asynchronous result.")]
+    state: ArtifactPluginState
+    error: Annotated[
+        Error | None, Field(description="Safe per-plugin failure code; null for accepted or skipped entries.")
+    ]
+
+
+class EnableAllArtifactPluginsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[EnableArtifactPluginResult]
+
+
 class Configuration(StrEnum):
     CONFIGURED = "configured"
     UNCONFIGURED = "unconfigured"
@@ -1284,7 +1387,7 @@ class PreparedContextLocation(BaseModel):
     location: ModelJsonTextLocation
 
 
-class Phase(StrEnum):
+class Phase1(StrEnum):
     BEFORE_SEND = "before_send"
 
 
@@ -1299,7 +1402,7 @@ class CheckContextBeforeSend(BaseModel):
     prepared_contexts: Annotated[list[PreparedContextLocation], Field(max_length=16)]
 
 
-class Phase1(StrEnum):
+class Phase2(StrEnum):
     BEFORE_RELEASE = "before_release"
 
 
@@ -1339,7 +1442,7 @@ class Schema8(StrEnum):
     POWERCONTEXT_CONTEXT_CHECK_V1 = "powercontext.context-check.v1"
 
 
-class Phase2(StrEnum):
+class Phase3(StrEnum):
     BEFORE_SEND = "before_send"
     BEFORE_RELEASE = "before_release"
 
@@ -1359,7 +1462,7 @@ class ContextCheckResult(BaseModel):
         extra="forbid",
     )
     schema_: Annotated[Schema8, Field(alias="schema")]
-    phase: Phase2
+    phase: Phase3
     decision: Decision
     reason_codes: Annotated[list[ReasonCode], Field(max_length=32)]
     coverage: ContextCheckCoverage
@@ -1820,7 +1923,7 @@ class Validation(StrEnum):
     UNKNOWN = "unknown"
 
 
-class Outcome(StrEnum):
+class Outcome1(StrEnum):
     SUCCESS = "success"
     FAILURE = "failure"
     UNKNOWN = "unknown"
@@ -2312,7 +2415,7 @@ class CodeQueryResponse(RootModel[CodeQueryResult | CodeStatus]):
     root: CodeQueryResult | CodeStatus
 
 
-class Outcome1(StrEnum):
+class Outcome2(StrEnum):
     INJECTED = "injected"
     FAILED = "failed"
 
@@ -2323,7 +2426,7 @@ class RecordBootstrapDeliveryRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     receipt_id: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    outcome: Outcome1
+    outcome: Outcome2
 
 
 class ContextAssemblyFamily(StrEnum):
@@ -2448,11 +2551,57 @@ class ArtifactSearchFusion(BaseModel):
         return value
 
 
+class Distance(StrEnum):
+    L2 = "l2"
+
+
+class Normalization(StrEnum):
+    NONE = "none"
+    UNIT = "unit"
+
+
+class EmbeddingProfile(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    profile_id: Annotated[StrictStr, Field(min_length=1, pattern=".*\\S.*")]
+    model: Annotated[StrictStr, Field(min_length=1, pattern=".*\\S.*")]
+    dimension: Annotated[StrictInt, Field(ge=1)]
+    distance: Distance = Distance.L2
+    normalization: Normalization = Normalization.UNIT
+
+
+class QueryVector(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    profile: EmbeddingProfile
+    vector: Annotated[list[StrictFloat], Field(min_length=1)]
+
+
+class TextItem(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(min_length=1)]
+
+
+class VectorItem(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(min_length=1)]
+
+
+class Indexes(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    text: Annotated[list[TextItem] | None, Field(min_length=1)] = None
+    vector: Annotated[list[VectorItem] | None, Field(min_length=1)] = None
+
+
 class SearchArtifactsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    query: Annotated[StrictStr | None, Field(max_length=8192, min_length=1, pattern=".*\\S.*")] = None
+    query_vector: QueryVector | None = None
+    indexes: Indexes | None = None
     limit: Annotated[StrictInt, Field(ge=1, le=200)] = 10
     mode: Annotated[StrictStr | None, Field(min_length=1, pattern=".*\\S.*")] = None
     filters: dict[str, Any] | None = None
@@ -3101,15 +3250,8 @@ class BaseArtifactFamily(StrEnum):
     TOPIC_MEMORY = "topic-memory"
 
 
-class ArtifactReadFamily(StrEnum):
-    MEMORY = "memory"
-    ATOMIC_MEMORY = "atomic-memory"
-    EXPERIENCE = "experience"
-    SKILL = "skill"
-    HANDOFF = "handoff"
-    PROFILE = "profile"
-    PROMPT = "prompt"
-    TOPIC_MEMORY = "topic-memory"
+class ArtifactReadFamily(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
 
 
 class StatsPeriod(StrEnum):
@@ -3828,7 +3970,7 @@ class SourceInstancesResponse(BaseModel):
     management: Management | None = None
 
 
-class Outcome2(StrEnum):
+class Outcome3(StrEnum):
     SAVED = "saved"
     UNCHANGED = "unchanged"
 
@@ -3837,7 +3979,7 @@ class SourceCollectionResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    outcome: Outcome2
+    outcome: Outcome3
     source_refs: list[SourceTypeReference]
 
 
@@ -4288,8 +4430,11 @@ class FlushProfileResponse(BaseModel):
 
 class ArtifactCollectionItem(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    family: ArtifactReadFamily
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    schema_version: Annotated[
+        StrictStr | None, Field(description="Persisted schema version for a custom Artifact family.")
+    ] = None
     revision: Annotated[StrictInt, Field(ge=1)]
     sources: list[SourceTypeReference]
     artifacts: list[ArtifactReference]
@@ -4332,8 +4477,11 @@ class ArtifactRevisionPage(BaseModel):
 
 class ArtifactRevision(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    family: ArtifactReadFamily
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    schema_version: Annotated[
+        StrictStr | None, Field(description="Persisted schema version for a custom Artifact family.")
+    ] = None
     revision: Annotated[StrictInt, Field(ge=1)]
     content: dict[str, Any]
     sources: list[SourceTypeReference]
@@ -4738,7 +4886,7 @@ class RecordSkillUsageRequest(BaseModel):
     selected: StrictBool
     invoked: Invoked
     validation: Validation
-    outcome: Outcome
+    outcome: Outcome1
     task_source: SourceReference | None = None
     environment_fingerprint: Annotated[StrictStr | None, Field(pattern="^sha256:[0-9a-f]{64}$")] = None
 
@@ -5483,6 +5631,7 @@ class Capabilities(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    custom_artifact_schemas: Annotated[list[CustomArtifactFamilySchema], Field(validate_default=True)] = []
     prompts: Annotated[dict[str, PromptCapability], Field(validate_default=True)] = {}
     artifact_dreaming: Annotated[
         StrictBool, Field(description="Whether asynchronous Artifact Dream execution is configured.")

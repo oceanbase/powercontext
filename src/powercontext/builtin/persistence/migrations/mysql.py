@@ -267,6 +267,7 @@ class MySQLMigrationRunner:
         backup_policy: BackupPolicy = "auto",
         service: dict[str, Any] | None = None,
         shared_database: bool = False,
+        _startup: bool = False,
         require_existing_database: bool = False,
     ) -> MigrationPlan:
         self._assert_unchanged()
@@ -275,7 +276,12 @@ class MySQLMigrationRunner:
             connection: Connection | None, identity: BackendIdentity, _guard: Callable[[], None]
         ) -> MigrationPlan:
             return self._inspect(
-                connection, identity, backup_policy=backup_policy, service=service, shared_database=shared_database
+                connection,
+                identity,
+                backup_policy=backup_policy,
+                service=service,
+                shared_database=shared_database,
+                allow_declared_spaces=_startup,
             )
 
         if isinstance(self.connections.config, SeekDBConfig) and not require_existing_database:
@@ -540,6 +546,7 @@ class MySQLMigrationRunner:
         backup_policy: BackupPolicy,
         service: dict[str, Any] | None = None,
         shared_database: bool = False,
+        allow_declared_spaces: bool = False,
     ) -> MigrationPlan:
         if backup_policy not in {"auto", "manual", "skip"}:
             raise MigrationError("invalid_backup_policy", "Choose auto, manual or skip.")
@@ -588,6 +595,7 @@ class MySQLMigrationRunner:
                     "server_migration_unavailable",
                     f"The complete {source.release} Server schema is recognized, but its full upgrade is unavailable.",
                 )
+        self.schema.allow_declared_spaces = allow_declared_spaces and current == self.bundle.head
         current, adopt = self._recognize_source(inventory, initialized, current, evidence)
         if initialized and self.bundle.pending(current) and evidence is None:
             raise MigrationError("recovery_required", "The original external maintenance evidence is missing.")
@@ -646,7 +654,7 @@ class MySQLMigrationRunner:
             "backup_policy": backup_policy,
             "backup_available": available,
             "backup_reason": reasons,
-            "affected_objects": self.bundle.affected_objects,
+            "affected_objects": self.schema.affected_objects,
             "retained_objects": self.bundle.retained_objects,
             "service": service,
             "shared_database": shared_database,

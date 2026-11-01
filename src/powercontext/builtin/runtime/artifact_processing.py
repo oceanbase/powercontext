@@ -133,6 +133,8 @@ class ArtifactProcessingBinding:
     # Applies to every invocation, including explicit requests and retries.
     # Domains inspect durable metadata here; they retain their Worker guards.
     work_block: Callable[[AsyncConnection, str, str], Awaitable[ArtifactProcessingBlock | None]] | None = None
+    # Hot-managed definitions can revoke a Scope even for an older accepted request.
+    invocation_scope_filter: Callable[[AsyncConnection, tuple[str, ...]], Awaitable[frozenset[str]]] | None = None
     # Receives one fixed telemetry summary after every worker execution attempt.
     # It must not affect domain scheduling or completion semantics.
     worker_model_usage_observer: Callable[[ArtifactProcessingModelUsageDelta | None], None] | None = None
@@ -557,9 +559,14 @@ class ArtifactProcessingSupervisor:
         self._rotation = 0
         self._lease_lost = False
         self._unreaped: list[ArtifactProcessingWorkerHandle] = []
+        self._binding_changes: asyncio.Queue[tuple[str, ArtifactProcessingBinding | None, asyncio.Future[None]]] = (
+            asyncio.Queue()
+        )
 
     @property
     def status(self) -> ArtifactProcessingSupervisorStatus:
+        if not self._families:
+            return ArtifactProcessingSupervisorStatus.DISABLED
         if self._fence is not None and any(state.degraded for state in self._families.values()):
             return ArtifactProcessingSupervisorStatus.DEGRADED
         return self._status
@@ -651,6 +658,42 @@ class ArtifactProcessingSupervisor:
                 state.discovery_pending = True
         self._wake.set()
 
+    async def replace_binding(self, name: str, binding: ArtifactProcessingBinding | None) -> None:
+        """Change one global binding at a scheduling boundary and reap its old children."""
+
+        if self._supervisor_group != "global" or self._task is None or self._stop.is_set():
+            raise ValueError("hot registration requires a running global Supervisor")  # noqa: TRY003
+        if binding is not None and binding.binding_name != name:
+            raise ValueError("replacement binding identity must match")  # noqa: TRY003
+        done = asyncio.get_running_loop().create_future()
+        self._binding_changes.put_nowait((name, binding, done))
+        self._wake.set()
+        await asyncio.shield(done)
+
+    async def _apply_binding_changes(self) -> None:
+        while not self._binding_changes.empty():
+            name, binding, done = self._binding_changes.get_nowait()
+            try:
+                state = self._families.get(name)
+                if state is not None:
+                    tasks = [worker.task for worker in state.running.values()]
+                    for task in tasks:
+                        task.cancel()
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for result in results:
+                        if isinstance(result, _WorkerTerminationError):
+                            raise result  # noqa: TRY301 - propagate failed child reaping to leadership revocation
+                    del self._families[name]
+                if binding is not None:
+                    if any(item.binding.artifact_family == binding.artifact_family for item in self._families.values()):
+                        raise ValueError("an Artifact family already has a binding")  # noqa: TRY003, TRY301
+                    self._families[name] = _FamilyState(binding)
+                done.set_result(None)
+            except BaseException as error:
+                done.set_exception(error)
+                if isinstance(error, (asyncio.CancelledError, _WorkerTerminationError)):
+                    raise
+
     async def close(self) -> None:
         self._stop.set()
         self._wake.set()
@@ -666,6 +709,7 @@ class ArtifactProcessingSupervisor:
             while not self._stop.is_set():
                 self._wake.clear()
                 try:
+                    await self._apply_binding_changes()
                     if self._lease_lost:
                         await self._lose_leadership()
                     if self._fence is None:
@@ -694,6 +738,9 @@ class ArtifactProcessingSupervisor:
                 except TimeoutError:
                     pass
         finally:
+            while not self._binding_changes.empty():
+                _, _, done = self._binding_changes.get_nowait()
+                done.set_exception(RuntimeError("Supervisor stopped before applying the binding"))
             cleanup = asyncio.create_task(
                 self._lose_leadership(), name=f"artifact-supervisor-cleanup-{self._supervisor_group}"
             )
@@ -1046,7 +1093,7 @@ class ArtifactProcessingSupervisor:
         state.pending_since.setdefault(scope, time.time())
         state.retries[scope] = _RetryState(failures, deadline, block, request_generation, probe_error)
 
-    async def _dispatch(self, state: _FamilyState) -> None:
+    async def _dispatch(self, state: _FamilyState) -> None:  # noqa: C901 - ordered admission and worker scheduling
         # Rejections do not occupy slots. Bound their admission work so a page
         # of slow metadata probes cannot monopolize the shared control loop.
         loop = asyncio.get_running_loop()
@@ -1061,6 +1108,10 @@ class ArtifactProcessingSupervisor:
             async with self._database.transaction() as connection:
                 fence = self._require_current_fence()
                 await self._leases.require_fence(connection, fence)
+                allowed = state.binding.invocation_scope_filter
+                if allowed is not None and scope not in await allowed(connection, (scope,)):
+                    state.retries.pop(scope, None)
+                    continue
                 row = await self._intents.load(connection, scope, state.binding.binding_name, for_update=True)
             if row is None or row.requested_generation <= row.handled_generation:
                 state.retries.pop(scope, None)
@@ -1649,6 +1700,8 @@ class ArtifactProcessingSupervisors:
     @property
     def status(self) -> ArtifactProcessingSupervisorStatus:
         states = [item.status for item in self.supervisors]
+        if all(state is ArtifactProcessingSupervisorStatus.DISABLED for state in states):
+            return ArtifactProcessingSupervisorStatus.DISABLED
         if ArtifactProcessingSupervisorStatus.DEGRADED in states:
             return ArtifactProcessingSupervisorStatus.DEGRADED
         if ArtifactProcessingSupervisorStatus.LEADER in states:
@@ -1668,6 +1721,11 @@ class ArtifactProcessingSupervisors:
     def wake(self, binding_name: str | None = None) -> None:
         for supervisor in self.supervisors:
             supervisor.wake(binding_name)
+
+    async def replace_binding(self, name: str, binding: ArtifactProcessingBinding | None) -> None:
+        if len(self.supervisors) != 1:
+            raise ValueError("hot registration requires one global Supervisor")  # noqa: TRY003
+        await self.supervisors[0].replace_binding(name, binding)
 
     async def close(self) -> None:
         await asyncio.gather(*(item.close() for item in self.supervisors))

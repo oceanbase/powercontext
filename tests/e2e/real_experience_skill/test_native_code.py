@@ -41,6 +41,7 @@ from powercontext.http import PrepareContextRequest, RememberMemoryRequest
 from powercontext.http._generated.models import PreparedContext
 from powercontext.server.configuration import server_settings_context
 from powercontext.server.settings import McpConfig, MetricsConfig
+from tests.e2e.server_storage import prepare_server_database
 
 from .harness import _configured_access_token, _start_configured_server, _without_scheduled_processing
 
@@ -98,6 +99,7 @@ async def _database(config, name: str, *, drop: bool = False) -> None:
 
 
 async def _scope(settings, root: Path) -> str:
+    await asyncio.to_thread(prepare_server_database, settings, evidence_dir=root / "migration-evidence")
     async with open_builtin_runtime(
         BuiltinConfig(database=settings.database, inference=settings.inference, runtime=settings.runtime),
         scheduler_path=root / "scheduler.db",

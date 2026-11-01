@@ -247,6 +247,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
+      max-parallel: 3
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
@@ -297,7 +298,7 @@ jobs:
   collect:
     name: Verify the selected upgrade matrix
     needs: [prepare, cases]
-    if: always() && needs.prepare.result == 'success' && !inputs.skip_upgrade_acceptance
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && !inputs.skip_upgrade_acceptance }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

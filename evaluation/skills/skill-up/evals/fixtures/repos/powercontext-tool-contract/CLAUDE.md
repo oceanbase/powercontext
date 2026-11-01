@@ -87,12 +87,12 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 
 ## mcp__powercontext__get_artifact
 
-- Required: `artifact_id: string`, `family: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory"`, `scope_id: string`.
+- Required: `artifact_id: string`, `family: ArtifactReadFamily`, `scope_id: string`.
 - Optional: `If-None-Match: string`.
 
 ## mcp__powercontext__get_artifact_revision
 
-- Required: `artifact_id: string`, `family: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory"`, `revision: integer`, `scope_id: string`.
+- Required: `artifact_id: string`, `family: ArtifactReadFamily`, `revision: integer`, `scope_id: string`.
 - Optional: (none).
 
 ## mcp__powercontext__get_atomic_memory_state

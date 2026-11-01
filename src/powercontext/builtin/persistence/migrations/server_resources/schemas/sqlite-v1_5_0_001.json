@@ -1,0 +1,765 @@
+{
+  "statements": [
+    "ALTER TABLE pc_artifact_processing_binding_states ADD COLUMN plugin_id VARCHAR(128)",
+    "ALTER TABLE pc_artifact_processing_binding_states ADD COLUMN plugin_family VARCHAR(128)",
+    "ALTER TABLE pc_artifact_processing_binding_states ADD COLUMN plugin_spec JSON",
+    "ALTER TABLE pc_artifact_processing_binding_states ADD COLUMN binding_generation BIGINT DEFAULT '0' NOT NULL",
+    "ALTER TABLE pc_artifact_processing_binding_states ADD COLUMN desired_state VARCHAR(16)",
+    "ALTER TABLE pc_artifact_processing_binding_states ADD COLUMN phase VARCHAR(16)",
+    "ALTER TABLE pc_artifact_processing_binding_states ADD COLUMN last_error VARCHAR(1024)",
+    "CREATE TABLE pc_artifact_family_schemas (\n\tfamily VARCHAR(128) NOT NULL, \n\tschema_version VARCHAR(128) NOT NULL, \n\tdeclaration JSON NOT NULL, \n\tPRIMARY KEY (family, schema_version)\n)",
+    "CREATE TABLE pc_artifact_vector_spaces (\n\tspace_id VARCHAR(32) NOT NULL, \n\tprofile_fingerprint VARCHAR(64) NOT NULL, \n\tprofile_json JSON NOT NULL, \n\tdimension INTEGER NOT NULL, \n\tdistance VARCHAR(16) NOT NULL, \n\tnormalization VARCHAR(16) NOT NULL, \n\tstorage_format_version VARCHAR(64) NOT NULL, \n\tbackend VARCHAR(32) NOT NULL, \n\tphysical_table VARCHAR(128) NOT NULL, \n\tprovision_state VARCHAR(32) NOT NULL, \n\tPRIMARY KEY (space_id), \n\tCONSTRAINT uq_pc_artifact_vector_space UNIQUE (backend, profile_fingerprint, storage_format_version), \n\tCONSTRAINT ck_pc_artifact_vector_dimension CHECK (dimension > 0)\n)",
+    "CREATE TABLE pc_artifact_vector_indexes (\n\tindex_def_id VARCHAR(64) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tindex_name VARCHAR(128) NOT NULL, \n\tschema_version VARCHAR(128) NOT NULL, \n\tprojection_version VARCHAR(128) NOT NULL, \n\tspace_id VARCHAR(32), \n\tsource_kind VARCHAR(16) NOT NULL, \n\tprojection_spec JSON NOT NULL, \n\tdefinition_fingerprint VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (index_def_id), \n\tCONSTRAINT uq_pc_artifact_index_definition UNIQUE (family, index_name, schema_version, projection_version, space_id, definition_fingerprint), \n\tFOREIGN KEY(space_id) REFERENCES pc_artifact_vector_spaces (space_id), \n\tFOREIGN KEY(family, schema_version) REFERENCES pc_artifact_family_schemas (family, schema_version)\n)",
+    "CREATE TABLE pc_artifact_search_states (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tbuild_id VARCHAR(32), \n\tstate VARCHAR(16) NOT NULL, \n\tmanifest JSON NOT NULL, \n\tcleanup_targets JSON NOT NULL, \n\tvalidation_token VARCHAR(32), \n\tstart_seq BIGINT DEFAULT '0' NOT NULL, \n\tapplied_seq BIGINT DEFAULT '0' NOT NULL, \n\tchange_seq BIGINT DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (scope_id, family)\n)",
+    "CREATE TABLE pc_artifact_index_coverage (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tbuild_id VARCHAR(32) NOT NULL, \n\tindex_def_id VARCHAR(64) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tschema_version VARCHAR(128) NOT NULL, \n\tfragment_count INTEGER NOT NULL, \n\tprojection_input_hash VARCHAR(64) NOT NULL, \n\tgovernance_generation BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, family, build_id, index_def_id, artifact_id), \n\tFOREIGN KEY(scope_id, family) REFERENCES pc_artifact_search_states (scope_id, family), \n\tCONSTRAINT ck_pc_artifact_index_fragment_count CHECK (fragment_count >= 0)\n)",
+    "CREATE TABLE pc_artifact_index_changes (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tseq BIGINT NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER, \n\toperation VARCHAR(16) NOT NULL, \n\tschema_version VARCHAR(128), \n\tgovernance_generation BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, family, seq), \n\tFOREIGN KEY(scope_id, family) REFERENCES pc_artifact_search_states (scope_id, family)\n)",
+    "CREATE TABLE pc_artifact_vectors (\n\tvector_id VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tschema_version VARCHAR(128) NOT NULL, \n\tindex_def_id VARCHAR(64) NOT NULL, \n\tbuild_id VARCHAR(32) NOT NULL, \n\tfragment_id VARCHAR(128) NOT NULL, \n\tfragment_locator TEXT NOT NULL, \n\tinput_hash VARCHAR(64) NOT NULL, \n\tgovernance_generation BIGINT NOT NULL, \n\tspace_id VARCHAR(32) NOT NULL, \n\tdimension INTEGER NOT NULL, \n\tembedding BLOB NOT NULL, \n\tPRIMARY KEY (vector_id), \n\tCONSTRAINT uq_pc_artifact_vectors_fragment UNIQUE (build_id, index_def_id, artifact_id, fragment_id), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision), \n\tFOREIGN KEY(scope_id, family) REFERENCES pc_artifact_search_states (scope_id, family), \n\tCONSTRAINT ck_pc_artifact_vectors_encoding CHECK (dimension > 0 AND length(embedding) = 4 * dimension)\n)",
+    "CREATE INDEX ix_pc_artifact_vectors_search ON pc_artifact_vectors (scope_id, family, build_id, space_id, index_def_id, artifact_id)",
+    "CREATE TABLE pc_artifact_search_text (\n\ttext_id VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tschema_version VARCHAR(128) NOT NULL, \n\tindex_def_id VARCHAR(64) NOT NULL, \n\tbuild_id VARCHAR(32) NOT NULL, \n\tfragment_id VARCHAR(128) NOT NULL, \n\tfragment_locator TEXT NOT NULL, \n\tinput_hash VARCHAR(64) NOT NULL, \n\tgovernance_generation BIGINT NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\tPRIMARY KEY (text_id), \n\tCONSTRAINT uq_pc_artifact_search_text_fragment UNIQUE (build_id, index_def_id, artifact_id, fragment_id), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision), \n\tFOREIGN KEY(scope_id, family) REFERENCES pc_artifact_search_states (scope_id, family)\n)",
+    "CREATE INDEX ix_pc_artifact_search_text_search ON pc_artifact_search_text (scope_id, family, build_id, index_def_id, artifact_id)",
+    "CREATE VIRTUAL TABLE pc_artifact_search_fts USING fts5(text_id UNINDEXED, scope_id UNINDEXED, family UNINDEXED, artifact_id UNINDEXED, revision UNINDEXED, build_id UNINDEXED, index_def_id UNINDEXED, searchable_text, tokenize='unicode61')",
+    "CREATE TRIGGER pc_artifact_search_fts_delete AFTER delete ON pc_artifact_search_text BEGIN DELETE FROM pc_artifact_search_fts WHERE text_id = old.text_id; END",
+    "CREATE TRIGGER pc_artifact_search_fts_insert AFTER insert ON pc_artifact_search_text BEGIN INSERT INTO pc_artifact_search_fts (text_id, scope_id, family, artifact_id, revision, build_id, index_def_id, searchable_text) VALUES (new.text_id, new.scope_id, new.family, new.artifact_id, new.revision, new.build_id, new.index_def_id, new.searchable_text); END",
+    "CREATE TRIGGER pc_artifact_search_fts_update AFTER update ON pc_artifact_search_text BEGIN DELETE FROM pc_artifact_search_fts WHERE text_id = old.text_id;INSERT INTO pc_artifact_search_fts (text_id, scope_id, family, artifact_id, revision, build_id, index_def_id, searchable_text) VALUES (new.text_id, new.scope_id, new.family, new.artifact_id, new.revision, new.build_id, new.index_def_id, new.searchable_text); END"
+  ],
+  "layout": [
+    [
+      "index",
+      "ix_pc_artifact_search_text_search",
+      "pc_artifact_search_text",
+      "CREATE INDEX ix_pc_artifact_search_text_search ON pc_artifact_search_text (scope_id, family, build_id, index_def_id, artifact_id)"
+    ],
+    [
+      "index",
+      "ix_pc_artifact_tags_family_key",
+      "pc_artifact_tags",
+      "CREATE INDEX ix_pc_artifact_tags_family_key ON pc_artifact_tags (scope_id, family, tag_key_hash, target_type, artifact_id, target_id)"
+    ],
+    [
+      "index",
+      "ix_pc_artifact_tags_key",
+      "pc_artifact_tags",
+      "CREATE INDEX ix_pc_artifact_tags_key ON pc_artifact_tags (scope_id, tag_key_hash, family, target_type, artifact_id, target_id)"
+    ],
+    [
+      "index",
+      "ix_pc_artifact_vectors_search",
+      "pc_artifact_vectors",
+      "CREATE INDEX ix_pc_artifact_vectors_search ON pc_artifact_vectors (scope_id, family, build_id, space_id, index_def_id, artifact_id)"
+    ],
+    [
+      "index",
+      "ix_pc_context_bootstrap_receipts_created_at",
+      "pc_context_bootstrap_receipts",
+      "CREATE INDEX ix_pc_context_bootstrap_receipts_created_at ON pc_context_bootstrap_receipts (created_at)"
+    ],
+    [
+      "index",
+      "ix_pc_decision_observations_operation",
+      "pc_decision_observations",
+      "CREATE INDEX ix_pc_decision_observations_operation ON pc_decision_observations (scope_id, operation_id, created_at)"
+    ],
+    [
+      "index",
+      "ix_pc_decision_observations_scope_created",
+      "pc_decision_observations",
+      "CREATE INDEX ix_pc_decision_observations_scope_created ON pc_decision_observations (scope_id, created_at, observation_id)"
+    ],
+    [
+      "index",
+      "ix_pc_dream_dispatch",
+      "pc_dream_runs",
+      "CREATE INDEX ix_pc_dream_dispatch ON pc_dream_runs (scope_id, operation, status, request_generation)"
+    ],
+    [
+      "index",
+      "ix_pc_dream_list",
+      "pc_dream_runs",
+      "CREATE INDEX ix_pc_dream_list ON pc_dream_runs (scope_id, accepted_at, run_id)"
+    ],
+    [
+      "index",
+      "ix_pc_dream_runs_proposal_fingerprint",
+      "pc_dream_runs",
+      "CREATE INDEX ix_pc_dream_runs_proposal_fingerprint ON pc_dream_runs (scope_id, principal_key, proposal_fingerprint)"
+    ],
+    [
+      "index",
+      "ix_pc_processing_intent_binding_sequence",
+      "pc_artifact_processing_intents",
+      "CREATE INDEX ix_pc_processing_intent_binding_sequence ON pc_artifact_processing_intents (binding_name, pending_sequence)"
+    ],
+    [
+      "index",
+      "ix_pc_recurrence_observation_key",
+      "pc_recurrence_observation",
+      "CREATE INDEX ix_pc_recurrence_observation_key ON pc_recurrence_observation (scope_id, signature_key_hash)"
+    ],
+    [
+      "index",
+      "ix_pc_recurrence_observation_outcome",
+      "pc_recurrence_observation",
+      "CREATE INDEX ix_pc_recurrence_observation_outcome ON pc_recurrence_observation (scope_id, task_outcome_source_type, task_outcome_source_id, task_outcome_position)"
+    ],
+    [
+      "index",
+      "ix_pc_recurrence_observation_revision",
+      "pc_recurrence_observation",
+      "CREATE INDEX ix_pc_recurrence_observation_revision ON pc_recurrence_observation (scope_id, family, artifact_id, revision)"
+    ],
+    [
+      "table",
+      "pc_access_audit",
+      "pc_access_audit",
+      "CREATE TABLE pc_access_audit (\n\tcursor INTEGER NOT NULL, \n\tevent_id VARCHAR(64) NOT NULL, \n\toccurred_at VARCHAR(32) NOT NULL, \n\trequest_id VARCHAR(128), \n\ttransport VARCHAR(16) NOT NULL, \n\toperation VARCHAR(128) NOT NULL, \n\tprincipal_type VARCHAR(16) NOT NULL, \n\tprincipal_id VARCHAR(255) NOT NULL, \n\tprincipal_description TEXT, \n\tactor_type VARCHAR(16), \n\tactor_id VARCHAR(255), \n\tactor_description TEXT, \n\taction VARCHAR(64) NOT NULL, \n\tresource_type VARCHAR(16) NOT NULL, \n\tdeployment_id VARCHAR(128), \n\tscope_id VARCHAR(256), \n\tfamily VARCHAR(128), \n\tartifact_id VARCHAR(128), \n\tselector_type VARCHAR(32), \n\tselector_entry_id VARCHAR(128), \n\tallowed BOOLEAN NOT NULL, \n\treason_code VARCHAR(64) NOT NULL, \n\tpolicy_revision VARCHAR(64), \n\tmatched_subject_type VARCHAR(16), \n\tmatched_subject_id VARCHAR(255), \n\tmatched_subject_description TEXT, \n\tbinding_id VARCHAR(64), \n\ttarget_type VARCHAR(16), \n\ttarget_id VARCHAR(255), \n\ttarget_description TEXT, \n\trole VARCHAR(32), \n\texpected_version INTEGER, \n\tresult_version INTEGER, \n\tPRIMARY KEY (cursor), \n\tUNIQUE (event_id)\n)"
+    ],
+    [
+      "table",
+      "pc_access_idempotency",
+      "pc_access_idempotency",
+      "CREATE TABLE pc_access_idempotency (\n\tactor_id VARCHAR(255) NOT NULL, \n\tidempotency_key_hash VARCHAR(64) NOT NULL, \n\toperation VARCHAR(64) NOT NULL, \n\tpayload_hash VARCHAR(64) NOT NULL, \n\tresult_binding_id VARCHAR(64), \n\tsecondary_binding_id VARCHAR(64), \n\tPRIMARY KEY (actor_id, idempotency_key_hash), \n\tCONSTRAINT uq_pc_access_idempotency_actor_key UNIQUE (actor_id, idempotency_key_hash)\n)"
+    ],
+    [
+      "table",
+      "pc_access_owner_recovery",
+      "pc_access_owner_recovery",
+      "CREATE TABLE pc_access_owner_recovery (\n\toperation_id VARCHAR(64) NOT NULL, \n\tdeployment_id VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tcompleted BOOLEAN NOT NULL, \n\tpayload TEXT NOT NULL, \n\tPRIMARY KEY (operation_id), \n\tCONSTRAINT uq_pc_access_owner_recovery_pending UNIQUE (deployment_id, completed, operation_id)\n)"
+    ],
+    [
+      "table",
+      "pc_access_owners",
+      "pc_access_owners",
+      "CREATE TABLE pc_access_owners (\n\towner_kind VARCHAR(16) NOT NULL, \n\tobject_key_hash VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128), \n\tcandidate_id VARCHAR(128), \n\ttarget_artifact_id VARCHAR(128), \n\tselector_type VARCHAR(32), \n\tselector_entry_id VARCHAR(128), \n\towner_type VARCHAR(16) NOT NULL, \n\towner_id VARCHAR(255) NOT NULL, \n\towner_description TEXT, \n\testablished_at VARCHAR(32), \n\tpolicy_revision VARCHAR(64), \n\tidempotency_key VARCHAR(255) NOT NULL, \n\tPRIMARY KEY (owner_kind, object_key_hash), \n\tCONSTRAINT ck_pc_access_owners_kind CHECK ((owner_kind = 'artifact' AND artifact_id IS NOT NULL AND candidate_id IS NULL AND target_artifact_id IS NULL AND established_at IS NOT NULL AND policy_revision IS NOT NULL) OR (owner_kind = 'candidate' AND candidate_id IS NOT NULL AND artifact_id IS NULL AND selector_type IS NULL AND selector_entry_id IS NULL AND established_at IS NULL AND policy_revision IS NULL))\n)"
+    ],
+    [
+      "table",
+      "pc_access_relationship_heads",
+      "pc_access_relationship_heads",
+      "CREATE TABLE pc_access_relationship_heads (\n\tname VARCHAR(32) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tPRIMARY KEY (name), \n\tCONSTRAINT ck_pc_access_relationship_heads_revision_nonnegative CHECK (revision >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_access_relationships",
+      "pc_access_relationships",
+      "CREATE TABLE pc_access_relationships (\n\tbinding_id VARCHAR(64) NOT NULL, \n\tsubject_type VARCHAR(16) NOT NULL, \n\tsubject_id VARCHAR(255) NOT NULL, \n\tsubject_description TEXT, \n\tresource_key_hash VARCHAR(64) NOT NULL, \n\tresource_type VARCHAR(16) NOT NULL, \n\tdeployment_id VARCHAR(128), \n\tscope_id VARCHAR(256), \n\tfamily VARCHAR(128), \n\tartifact_id VARCHAR(128), \n\tselector_type VARCHAR(32), \n\tselector_entry_id VARCHAR(128), \n\trole VARCHAR(32) NOT NULL, \n\tsingleton_key VARCHAR(64), \n\tgranted_by_type VARCHAR(16) NOT NULL, \n\tgranted_by_id VARCHAR(255) NOT NULL, \n\tgranted_by_description TEXT, \n\treason TEXT, \n\tcreated_at VARCHAR(32) NOT NULL, \n\texpires_at VARCHAR(32), \n\tstate VARCHAR(16) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tpolicy_revision VARCHAR(64) NOT NULL, \n\tidempotency_key VARCHAR(255) NOT NULL, \n\trevoked_at VARCHAR(32), \n\trevoked_by_type VARCHAR(16), \n\trevoked_by_id VARCHAR(255), \n\trevoked_by_description TEXT, \n\tPRIMARY KEY (binding_id), \n\tCONSTRAINT ck_pc_access_relationships_version_positive CHECK (version > 0), \n\tUNIQUE (singleton_key)\n)"
+    ],
+    [
+      "table",
+      "pc_agent_skill_targets",
+      "pc_agent_skill_targets",
+      "CREATE TABLE pc_agent_skill_targets (\n\tscope_id VARCHAR(256) NOT NULL, \n\ttarget_id VARCHAR(64) NOT NULL, \n\tdisplay_name VARCHAR(128) NOT NULL, \n\tagent_kind VARCHAR(32) NOT NULL, \n\tinstallation_scope VARCHAR(16) NOT NULL, \n\tdelivery_mode VARCHAR(16) NOT NULL, \n\tinstallation_id VARCHAR(128), \n\tstate VARCHAR(16) NOT NULL, \n\tenrollment_token_digest VARCHAR(64), \n\tenrollment_expires_at DATETIME, \n\tcredential_subject VARCHAR(128), \n\tcredential_verifier VARCHAR(64), \n\treceiver_version VARCHAR(64), \n\tenvironment_fingerprint VARCHAR(64), \n\tmachine_hostname VARCHAR(255), \n\tworkspace_name VARCHAR(128), \n\tlast_seen_at DATETIME, \n\tgeneration BIGINT NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tupdated_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id, target_id), \n\tCONSTRAINT uq_pc_agent_skill_targets_installation UNIQUE (scope_id, agent_kind, installation_scope, installation_id), \n\tCONSTRAINT uq_pc_agent_skill_targets_enrollment_token UNIQUE (enrollment_token_digest), \n\tCONSTRAINT uq_pc_agent_skill_targets_credential_subject UNIQUE (credential_subject), \n\tCONSTRAINT uq_pc_agent_skill_targets_credential_verifier UNIQUE (credential_verifier), \n\tCONSTRAINT ck_pc_agent_skill_targets_agent_kind CHECK (agent_kind IN ('codex', 'claude_code')), \n\tCONSTRAINT ck_pc_agent_skill_targets_installation_scope CHECK (installation_scope IN ('project')), \n\tCONSTRAINT ck_pc_agent_skill_targets_delivery_mode CHECK (delivery_mode = 'agent_pull'), \n\tCONSTRAINT ck_pc_agent_skill_targets_state CHECK (state IN ('pending', 'active', 'revoked')), \n\tCONSTRAINT ck_pc_agent_skill_targets_state_payload CHECK ((state = 'pending' AND enrollment_token_digest IS NOT NULL AND enrollment_expires_at IS NOT NULL AND installation_id IS NULL AND credential_subject IS NULL AND credential_verifier IS NULL) OR (state = 'active' AND enrollment_token_digest IS NULL AND enrollment_expires_at IS NULL AND installation_id IS NOT NULL AND credential_subject IS NOT NULL AND credential_verifier IS NOT NULL) OR (state = 'revoked' AND enrollment_token_digest IS NULL AND enrollment_expires_at IS NULL AND credential_verifier IS NULL)), \n\tCONSTRAINT ck_pc_agent_skill_targets_generation_nonnegative CHECK (generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_family_schemas",
+      "pc_artifact_family_schemas",
+      "CREATE TABLE pc_artifact_family_schemas (\n\tfamily VARCHAR(128) NOT NULL, \n\tschema_version VARCHAR(128) NOT NULL, \n\tdeclaration JSON NOT NULL, \n\tPRIMARY KEY (family, schema_version)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_fts",
+      "pc_artifact_fts",
+      "CREATE VIRTUAL TABLE pc_artifact_fts USING fts5(\n    scope_id UNINDEXED,\n    family UNINDEXED,\n    artifact_id UNINDEXED,\n    revision UNINDEXED,\n    searchable_text,\n    tokenize='unicode61'\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_fts_config",
+      "pc_artifact_fts_config",
+      "CREATE TABLE 'pc_artifact_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_artifact_fts_content",
+      "pc_artifact_fts_content",
+      "CREATE TABLE 'pc_artifact_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4)"
+    ],
+    [
+      "table",
+      "pc_artifact_fts_data",
+      "pc_artifact_fts_data",
+      "CREATE TABLE 'pc_artifact_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_artifact_fts_docsize",
+      "pc_artifact_fts_docsize",
+      "CREATE TABLE 'pc_artifact_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_artifact_fts_idx",
+      "pc_artifact_fts_idx",
+      "CREATE TABLE 'pc_artifact_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_artifact_handles",
+      "pc_artifact_handles",
+      "CREATE TABLE pc_artifact_handles (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\thandle_key VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tPRIMARY KEY (scope_id, family, handle_key), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_handles_revision_positive CHECK (revision > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_heads",
+      "pc_artifact_heads",
+      "CREATE TABLE pc_artifact_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tsearchable_text TEXT, \n\tlifecycle_state VARCHAR(16) DEFAULT 'active' NOT NULL, \n\treplacement_artifact_id VARCHAR(128), \n\tmerged_into_id VARCHAR(128), \n\tgovernance_generation BIGINT DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_heads_revision_positive CHECK (revision > 0), \n\tCONSTRAINT ck_pc_artifact_heads_lifecycle_state CHECK (lifecycle_state IN ('active', 'deprecated', 'retired')), \n\tCONSTRAINT ck_pc_artifact_heads_governance_generation_nonnegative CHECK (governance_generation >= 0), \n\tCONSTRAINT ck_pc_artifact_heads_replacement_deprecated CHECK (replacement_artifact_id IS NULL OR lifecycle_state = 'deprecated'), \n\tCONSTRAINT ck_pc_artifact_heads_merge_target CHECK (merged_into_id IS NULL OR (lifecycle_state = 'deprecated' AND merged_into_id <> artifact_id AND replacement_artifact_id IS NULL))\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_index_changes",
+      "pc_artifact_index_changes",
+      "CREATE TABLE pc_artifact_index_changes (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tseq BIGINT NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER, \n\toperation VARCHAR(16) NOT NULL, \n\tschema_version VARCHAR(128), \n\tgovernance_generation BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, family, seq), \n\tFOREIGN KEY(scope_id, family) REFERENCES pc_artifact_search_states (scope_id, family)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_index_coverage",
+      "pc_artifact_index_coverage",
+      "CREATE TABLE pc_artifact_index_coverage (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tbuild_id VARCHAR(32) NOT NULL, \n\tindex_def_id VARCHAR(64) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tschema_version VARCHAR(128) NOT NULL, \n\tfragment_count INTEGER NOT NULL, \n\tprojection_input_hash VARCHAR(64) NOT NULL, \n\tgovernance_generation BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, family, build_id, index_def_id, artifact_id), \n\tFOREIGN KEY(scope_id, family) REFERENCES pc_artifact_search_states (scope_id, family), \n\tCONSTRAINT ck_pc_artifact_index_fragment_count CHECK (fragment_count >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_lineage_artifacts",
+      "pc_artifact_lineage_artifacts",
+      "CREATE TABLE pc_artifact_lineage_artifacts (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tordinal INTEGER NOT NULL, \n\tupstream_family VARCHAR(128) NOT NULL, \n\tupstream_artifact_id VARCHAR(128) NOT NULL, \n\tupstream_revision INTEGER NOT NULL, \n\tis_merge_input BOOLEAN DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision, ordinal), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, upstream_family, upstream_artifact_id, upstream_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_lineage_sources",
+      "pc_artifact_lineage_sources",
+      "CREATE TABLE pc_artifact_lineage_sources (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tordinal INTEGER NOT NULL, \n\tsource_type VARCHAR(128) NOT NULL, \n\tsource_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision, ordinal), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, source_type, source_id) REFERENCES pc_sources (scope_id, source_type, source_id) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_auto_wave_targets",
+      "pc_artifact_processing_auto_wave_targets",
+      "CREATE TABLE pc_artifact_processing_auto_wave_targets (\n\twave_id VARCHAR(36) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tcompleted BOOLEAN DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (wave_id, binding_name, scope_id), \n\tCONSTRAINT ck_pc_artifact_processing_auto_wave_target_source_positive CHECK (source_through >= 1)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_binding_states",
+      "pc_artifact_processing_binding_states",
+      "CREATE TABLE pc_artifact_processing_binding_states (\n\tbinding_name VARCHAR(128) NOT NULL, \n\tlast_auto_wave_completed_at DATETIME, \n\tlast_schedule_checkpoint_at DATETIME, \n\tscan_generation BIGINT DEFAULT '0' NOT NULL, \n\tscan_in_progress BOOLEAN DEFAULT '0' NOT NULL, \n\tscan_upper_pending_sequence BIGINT, plugin_id VARCHAR(128), plugin_family VARCHAR(128), plugin_spec JSON, binding_generation BIGINT DEFAULT '0' NOT NULL, desired_state VARCHAR(16), phase VARCHAR(16), last_error VARCHAR(1024), \n\tPRIMARY KEY (binding_name), \n\tCONSTRAINT ck_pc_processing_scan_generation CHECK (scan_generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_intents",
+      "pc_artifact_processing_intents",
+      "CREATE TABLE \"pc_artifact_processing_intents\" (\n\tbinding_name VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tpending_sequence BIGINT NOT NULL, \n\tdirty_generation BIGINT DEFAULT '0' NOT NULL, \n\tclean_generation BIGINT DEFAULT '0' NOT NULL, \n\trequested_generation BIGINT DEFAULT '0' NOT NULL, \n\thandled_generation BIGINT DEFAULT '0' NOT NULL, \n\tlast_auto_scan_generation BIGINT DEFAULT '0' NOT NULL, \n\tconsecutive_dream_attempts BIGINT DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (binding_name, scope_id), \n\tCONSTRAINT ck_pc_processing_intent_sequence CHECK (pending_sequence > 0), \n\tCONSTRAINT ck_pc_processing_intent_dirty CHECK (clean_generation >= 0 AND clean_generation <= dirty_generation), \n\tCONSTRAINT ck_pc_processing_intent_request CHECK (handled_generation >= 0 AND handled_generation <= requested_generation), \n\tCONSTRAINT ck_pc_processing_intent_scan CHECK (last_auto_scan_generation >= 0), \n\tUNIQUE (pending_sequence)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_leases",
+      "pc_artifact_processing_leases",
+      "CREATE TABLE pc_artifact_processing_leases (\n\tsupervisor_group VARCHAR(64) NOT NULL, \n\tholder_id VARCHAR(36) NOT NULL, \n\tsupervisor_generation BIGINT NOT NULL, \n\tlease_expires_at DATETIME, \n\tPRIMARY KEY (supervisor_group), \n\tCONSTRAINT ck_pc_artifact_processing_leases_generation_positive CHECK (supervisor_generation > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_migration_receipts",
+      "pc_artifact_processing_migration_receipts",
+      "CREATE TABLE pc_artifact_processing_migration_receipts (\n\tmigration_id VARCHAR(64) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_snapshot BLOB NOT NULL, \n\trequested_generation BIGINT NOT NULL, \n\tdirty_generation BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tPRIMARY KEY (migration_id, binding_name, scope_id)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_pending",
+      "pc_artifact_processing_pending",
+      "CREATE TABLE pc_artifact_processing_pending (\n\tbinding_name VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tflush_generation BIGINT DEFAULT '0' NOT NULL, \n\thandled_flush_generation BIGINT DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (binding_name, scope_id), \n\tCONSTRAINT ck_pc_artifact_processing_pending_source_positive CHECK (source_through >= 1), \n\tCONSTRAINT ck_pc_artifact_processing_pending_flush_nonnegative CHECK (flush_generation >= 0), \n\tCONSTRAINT ck_pc_artifact_processing_pending_handled_nonnegative CHECK (handled_flush_generation >= 0), \n\tCONSTRAINT ck_pc_artifact_processing_pending_handled_not_ahead CHECK (handled_flush_generation <= flush_generation)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_schema",
+      "pc_artifact_processing_schema",
+      "CREATE TABLE pc_artifact_processing_schema (\n\tsingleton INTEGER NOT NULL, \n\tschema_version INTEGER NOT NULL, \n\tsource_version INTEGER DEFAULT '1490' NOT NULL, \n\tphase VARCHAR(32) NOT NULL, \n\tmigration_id VARCHAR(64) NOT NULL, \n\tconfig_manifest TEXT NOT NULL, \n\tPRIMARY KEY (singleton), \n\tCONSTRAINT ck_pc_processing_schema_singleton CHECK (singleton = 1)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_sequences",
+      "pc_artifact_processing_sequences",
+      "CREATE TABLE pc_artifact_processing_sequences (\n\tsingleton INTEGER NOT NULL, \n\tsequence BIGINT NOT NULL, \n\tPRIMARY KEY (singleton), \n\tCONSTRAINT ck_pc_processing_sequence CHECK (singleton = 1 AND sequence >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_publications",
+      "pc_artifact_publications",
+      "CREATE TABLE pc_artifact_publications (\n\ttarget_scope_id VARCHAR(256) NOT NULL, \n\ttarget_family VARCHAR(128) NOT NULL, \n\ttarget_artifact_id VARCHAR(128) NOT NULL, \n\ttarget_revision INTEGER NOT NULL, \n\tsource_scope_id VARCHAR(256) NOT NULL, \n\tsource_family VARCHAR(128) NOT NULL, \n\tsource_artifact_id VARCHAR(128) NOT NULL, \n\tsource_revision INTEGER NOT NULL, \n\tcontent_digest VARCHAR(64) NOT NULL, \n\tidempotency_key VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (target_scope_id, target_family, target_artifact_id, target_revision), \n\tFOREIGN KEY(target_scope_id, target_family, target_artifact_id, target_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tFOREIGN KEY(source_scope_id, source_family, source_artifact_id, source_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT uq_pc_artifact_publications_request UNIQUE (target_scope_id, idempotency_key)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_search_fts",
+      "pc_artifact_search_fts",
+      "CREATE VIRTUAL TABLE pc_artifact_search_fts USING fts5(text_id UNINDEXED, scope_id UNINDEXED, family UNINDEXED, artifact_id UNINDEXED, revision UNINDEXED, build_id UNINDEXED, index_def_id UNINDEXED, searchable_text, tokenize='unicode61')"
+    ],
+    [
+      "table",
+      "pc_artifact_search_fts_config",
+      "pc_artifact_search_fts_config",
+      "CREATE TABLE 'pc_artifact_search_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_artifact_search_fts_content",
+      "pc_artifact_search_fts_content",
+      "CREATE TABLE 'pc_artifact_search_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5, c6, c7)"
+    ],
+    [
+      "table",
+      "pc_artifact_search_fts_data",
+      "pc_artifact_search_fts_data",
+      "CREATE TABLE 'pc_artifact_search_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_artifact_search_fts_docsize",
+      "pc_artifact_search_fts_docsize",
+      "CREATE TABLE 'pc_artifact_search_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_artifact_search_fts_idx",
+      "pc_artifact_search_fts_idx",
+      "CREATE TABLE 'pc_artifact_search_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_artifact_search_states",
+      "pc_artifact_search_states",
+      "CREATE TABLE pc_artifact_search_states (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tbuild_id VARCHAR(32), \n\tstate VARCHAR(16) NOT NULL, \n\tmanifest JSON NOT NULL, \n\tcleanup_targets JSON NOT NULL, \n\tvalidation_token VARCHAR(32), \n\tstart_seq BIGINT DEFAULT '0' NOT NULL, \n\tapplied_seq BIGINT DEFAULT '0' NOT NULL, \n\tchange_seq BIGINT DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (scope_id, family)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_search_text",
+      "pc_artifact_search_text",
+      "CREATE TABLE pc_artifact_search_text (\n\ttext_id VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tschema_version VARCHAR(128) NOT NULL, \n\tindex_def_id VARCHAR(64) NOT NULL, \n\tbuild_id VARCHAR(32) NOT NULL, \n\tfragment_id VARCHAR(128) NOT NULL, \n\tfragment_locator TEXT NOT NULL, \n\tinput_hash VARCHAR(64) NOT NULL, \n\tgovernance_generation BIGINT NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\tPRIMARY KEY (text_id), \n\tCONSTRAINT uq_pc_artifact_search_text_fragment UNIQUE (build_id, index_def_id, artifact_id, fragment_id), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision), \n\tFOREIGN KEY(scope_id, family) REFERENCES pc_artifact_search_states (scope_id, family)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_tags",
+      "pc_artifact_tags",
+      "CREATE TABLE pc_artifact_tags (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\ttarget_type VARCHAR(12) NOT NULL, \n\ttarget_id VARCHAR(128) NOT NULL, \n\ttag_key_hash BLOB NOT NULL, \n\ttag_key VARCHAR(128) NOT NULL, \n\ttag VARCHAR(64) NOT NULL, \n\tassigned_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, target_type, target_id, tag_key_hash), \n\tFOREIGN KEY(scope_id, family, artifact_id) REFERENCES pc_artifact_heads (scope_id, family, artifact_id) ON DELETE CASCADE, \n\tCONSTRAINT ck_pc_artifact_tags_target CHECK ((target_type = 'artifact' AND target_id = artifact_id) OR (target_type = 'memory_entry' AND family = 'memory'))\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_vector_indexes",
+      "pc_artifact_vector_indexes",
+      "CREATE TABLE pc_artifact_vector_indexes (\n\tindex_def_id VARCHAR(64) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tindex_name VARCHAR(128) NOT NULL, \n\tschema_version VARCHAR(128) NOT NULL, \n\tprojection_version VARCHAR(128) NOT NULL, \n\tspace_id VARCHAR(32), \n\tsource_kind VARCHAR(16) NOT NULL, \n\tprojection_spec JSON NOT NULL, \n\tdefinition_fingerprint VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (index_def_id), \n\tCONSTRAINT uq_pc_artifact_index_definition UNIQUE (family, index_name, schema_version, projection_version, space_id, definition_fingerprint), \n\tFOREIGN KEY(space_id) REFERENCES pc_artifact_vector_spaces (space_id), \n\tFOREIGN KEY(family, schema_version) REFERENCES pc_artifact_family_schemas (family, schema_version)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_vector_spaces",
+      "pc_artifact_vector_spaces",
+      "CREATE TABLE pc_artifact_vector_spaces (\n\tspace_id VARCHAR(32) NOT NULL, \n\tprofile_fingerprint VARCHAR(64) NOT NULL, \n\tprofile_json JSON NOT NULL, \n\tdimension INTEGER NOT NULL, \n\tdistance VARCHAR(16) NOT NULL, \n\tnormalization VARCHAR(16) NOT NULL, \n\tstorage_format_version VARCHAR(64) NOT NULL, \n\tbackend VARCHAR(32) NOT NULL, \n\tphysical_table VARCHAR(128) NOT NULL, \n\tprovision_state VARCHAR(32) NOT NULL, \n\tPRIMARY KEY (space_id), \n\tCONSTRAINT uq_pc_artifact_vector_space UNIQUE (backend, profile_fingerprint, storage_format_version), \n\tCONSTRAINT ck_pc_artifact_vector_dimension CHECK (dimension > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_vectors",
+      "pc_artifact_vectors",
+      "CREATE TABLE pc_artifact_vectors (\n\tvector_id VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tschema_version VARCHAR(128) NOT NULL, \n\tindex_def_id VARCHAR(64) NOT NULL, \n\tbuild_id VARCHAR(32) NOT NULL, \n\tfragment_id VARCHAR(128) NOT NULL, \n\tfragment_locator TEXT NOT NULL, \n\tinput_hash VARCHAR(64) NOT NULL, \n\tgovernance_generation BIGINT NOT NULL, \n\tspace_id VARCHAR(32) NOT NULL, \n\tdimension INTEGER NOT NULL, \n\tembedding BLOB NOT NULL, \n\tPRIMARY KEY (vector_id), \n\tCONSTRAINT uq_pc_artifact_vectors_fragment UNIQUE (build_id, index_def_id, artifact_id, fragment_id), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision), \n\tFOREIGN KEY(scope_id, family) REFERENCES pc_artifact_search_states (scope_id, family), \n\tCONSTRAINT ck_pc_artifact_vectors_encoding CHECK (dimension > 0 AND length(embedding) = 4 * dimension)\n)"
+    ],
+    [
+      "table",
+      "pc_artifacts",
+      "pc_artifacts",
+      "CREATE TABLE \"pc_artifacts\" (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tcontent BLOB NOT NULL, \n\tcreated_at DATETIME, \n\tcreated_by VARCHAR(2048), \n\trestored_from_revision INTEGER, \n\trollback_reason VARCHAR(1024), \n\tPRIMARY KEY (scope_id, family, artifact_id, revision)\n)"
+    ],
+    [
+      "table",
+      "pc_atomic_memory_current",
+      "pc_atomic_memory_current",
+      "CREATE TABLE pc_atomic_memory_current (\n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision BIGINT NOT NULL, \n\tstate_version BIGINT NOT NULL, \n\tcontent_hash VARCHAR(64) NOT NULL, \n\tprojection_format VARCHAR(64) NOT NULL, \n\tkind TEXT NOT NULL, \n\ttext TEXT NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\ttag_keys TEXT NOT NULL, \n\tembedding BLOB, \n\tprofile_fingerprint VARCHAR(64), \n\tembedding_input_hash VARCHAR(64), description VARCHAR(200), \n\tPRIMARY KEY (scope_id, artifact_id), \n\tCONSTRAINT ck_pc_atomic_memory_current_revision CHECK (revision > 0), \n\tCONSTRAINT ck_pc_atomic_memory_current_state_version CHECK (state_version >= 0), \n\tCONSTRAINT ck_pc_atomic_memory_current_embedding_metadata CHECK ((embedding IS NULL AND profile_fingerprint IS NULL AND embedding_input_hash IS NULL) OR (embedding IS NOT NULL AND profile_fingerprint IS NOT NULL AND embedding_input_hash IS NOT NULL))\n)"
+    ],
+    [
+      "table",
+      "pc_atomic_memory_current_fts",
+      "pc_atomic_memory_current_fts",
+      "CREATE VIRTUAL TABLE pc_atomic_memory_current_fts USING fts5(scope_id UNINDEXED, artifact_id UNINDEXED, revision UNINDEXED, state_version UNINDEXED, content_hash UNINDEXED, projection_format UNINDEXED, kind UNINDEXED, text UNINDEXED, searchable_text, tag_keys UNINDEXED, identity_token, tokenize='unicode61')"
+    ],
+    [
+      "table",
+      "pc_atomic_memory_current_fts_config",
+      "pc_atomic_memory_current_fts_config",
+      "CREATE TABLE 'pc_atomic_memory_current_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_atomic_memory_current_fts_content",
+      "pc_atomic_memory_current_fts_content",
+      "CREATE TABLE 'pc_atomic_memory_current_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)"
+    ],
+    [
+      "table",
+      "pc_atomic_memory_current_fts_data",
+      "pc_atomic_memory_current_fts_data",
+      "CREATE TABLE 'pc_atomic_memory_current_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_atomic_memory_current_fts_docsize",
+      "pc_atomic_memory_current_fts_docsize",
+      "CREATE TABLE 'pc_atomic_memory_current_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_atomic_memory_current_fts_idx",
+      "pc_atomic_memory_current_fts_idx",
+      "CREATE TABLE 'pc_atomic_memory_current_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_candidate_heads",
+      "pc_candidate_heads",
+      "CREATE TABLE \"pc_candidate_heads\" (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tcandidate_kind VARCHAR(16) DEFAULT 'artifact' NOT NULL, \n\tresult_payload BLOB, \n\tresult_family VARCHAR(128), \n\tresult_artifact_id VARCHAR(128), \n\tresult_revision INTEGER, \n\tdecision_reason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, candidate_id, version) REFERENCES pc_candidate_versions (scope_id, candidate_id, version) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, result_family, result_artifact_id, result_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_candidate_kind CHECK (candidate_kind IN ('artifact', 'tag')), \n\tCONSTRAINT ck_pc_candidate_heads_status CHECK (status IN ('pending', 'approved', 'rejected')), \n\tCONSTRAINT ck_pc_candidate_heads_terminal_result CHECK ((status = 'approved' AND candidate_kind = 'artifact' AND result_payload IS NULL AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL AND result_revision IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR (status = 'approved' AND candidate_kind = 'tag' AND result_payload IS NOT NULL AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL) OR (status = 'rejected' AND result_payload IS NULL AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NOT NULL) OR (status = 'pending' AND result_payload IS NULL AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL))\n)"
+    ],
+    [
+      "table",
+      "pc_candidate_versions",
+      "pc_candidate_versions",
+      "CREATE TABLE \"pc_candidate_versions\" (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tproposal BLOB NOT NULL, \n\tsource_refs BLOB NOT NULL, \n\tartifact_refs BLOB NOT NULL, \n\ttarget_family VARCHAR(128), \n\ttarget_artifact_id VARCHAR(128), \n\ttarget_revision INTEGER, \n\treason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id, version), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, target_family, target_artifact_id, target_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_candidate_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_candidate_versions_target_complete CHECK ((target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR (target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0))\n)"
+    ],
+    [
+      "table",
+      "pc_connector_checkpoints",
+      "pc_connector_checkpoints",
+      "CREATE TABLE pc_connector_checkpoints (\n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_id VARCHAR(256) NOT NULL, \n\tconnector_name VARCHAR(128) NOT NULL, \n\tconnector_version VARCHAR(128) NOT NULL, \n\tcheckpoint BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, binding_id)\n)"
+    ],
+    [
+      "table",
+      "pc_context_bootstrap_receipts",
+      "pc_context_bootstrap_receipts",
+      "CREATE TABLE pc_context_bootstrap_receipts (\n\treceipt_id VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tevent_key VARCHAR(64), \n\trequest_digest VARCHAR(71) NOT NULL, \n\tintegration VARCHAR(64) NOT NULL, \n\tlifecycle VARCHAR(16) NOT NULL, \n\tprofile VARCHAR(64) NOT NULL, \n\tstate VARCHAR(16) NOT NULL, \n\treason VARCHAR(32), \n\tmax_bytes INTEGER NOT NULL, \n\tpackage_digest VARCHAR(71), \n\tcontent_bytes INTEGER NOT NULL, \n\ttruncated BOOLEAN NOT NULL, \n\titems BLOB NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tPRIMARY KEY (receipt_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tCONSTRAINT uq_pc_context_bootstrap_receipts_event UNIQUE (event_key), \n\tCONSTRAINT ck_pc_context_bootstrap_receipts_state CHECK (state IN ('pending', 'injected', 'skipped', 'failed')), \n\tCONSTRAINT ck_pc_context_bootstrap_receipts_budget CHECK (max_bytes >= 512 AND max_bytes <= 8192), \n\tCONSTRAINT ck_pc_context_bootstrap_receipts_content_bytes CHECK (content_bytes >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_decision_observations",
+      "pc_decision_observations",
+      "CREATE TABLE pc_decision_observations (\n\tscope_id VARCHAR(256) NOT NULL, \n\tobservation_id VARCHAR(128) NOT NULL, \n\toperation_id VARCHAR(256) NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tconsumer VARCHAR(128) NOT NULL, \n\tpolicy_id VARCHAR(256) NOT NULL, \n\tpolicy_version VARCHAR(64) NOT NULL, \n\tmode VARCHAR(16) NOT NULL, \n\tprivacy_boundary VARCHAR(32) NOT NULL, \n\tcoverage VARCHAR(16) NOT NULL, \n\tverdict VARCHAR(16) NOT NULL, \n\tassessment_source VARCHAR(32) NOT NULL, \n\tfinal_action VARCHAR(128) NOT NULL, \n\tused_fallback BOOLEAN NOT NULL, \n\tfallback_reason VARCHAR(128), \n\tprovider_id VARCHAR(128), \n\tbackend_model_id VARCHAR(256), \n\tmodel_policy_id VARCHAR(256), \n\trequests BIGINT NOT NULL, \n\tinput_tokens BIGINT, \n\toutput_tokens BIGINT, \n\tlatency_ms FLOAT, \n\tpayload BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, observation_id), \n\tCONSTRAINT ck_pc_decision_observations_requests_nonnegative CHECK (requests >= 0), \n\tCONSTRAINT ck_pc_decision_observations_input_tokens_nonnegative CHECK (input_tokens IS NULL OR input_tokens >= 0), \n\tCONSTRAINT ck_pc_decision_observations_output_tokens_nonnegative CHECK (output_tokens IS NULL OR output_tokens >= 0), \n\tCONSTRAINT ck_pc_decision_observations_latency_nonnegative CHECK (latency_ms IS NULL OR latency_ms >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_dream_runs",
+      "pc_dream_runs",
+      "CREATE TABLE \"pc_dream_runs\" (\n\tscope_id VARCHAR(256) NOT NULL, \n\trun_id VARCHAR(64) NOT NULL, \n\tprincipal_key VARCHAR(64) NOT NULL, \n\tidempotency_key VARCHAR(128) NOT NULL, \n\trequest_digest VARCHAR(71) NOT NULL, \n\tproposal_fingerprint VARCHAR(71), \n\toperation VARCHAR(32) NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\taccepted_at BIGINT NOT NULL, \n\tgeneration INTEGER NOT NULL, \n\trequest_generation BIGINT NOT NULL, \n\tpayload BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, run_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tCONSTRAINT uq_pc_dream_idempotency UNIQUE (scope_id, principal_key, idempotency_key), \n\tCONSTRAINT ck_pc_dream_generation CHECK (generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_external_skill_registrations",
+      "pc_external_skill_registrations",
+      "CREATE TABLE pc_external_skill_registrations (\n\tscope_id VARCHAR(256) NOT NULL, \n\texternal_skill_id VARCHAR(128) NOT NULL, \n\tprovider VARCHAR(128) NOT NULL, \n\tagent_kind VARCHAR(128) NOT NULL, \n\thost_id VARCHAR(128) NOT NULL, \n\tinstallation_scope VARCHAR(16) NOT NULL, \n\tlocator VARCHAR(2000) NOT NULL, \n\tlocator_hash VARCHAR(64) NOT NULL, \n\tfingerprint VARCHAR(64) NOT NULL, \n\tname VARCHAR(128) NOT NULL, \n\tdescription VARCHAR(2000) NOT NULL, \n\tPRIMARY KEY (scope_id, external_skill_id), \n\tCONSTRAINT uq_pc_external_skill_registrations_binding UNIQUE (scope_id, provider, host_id, installation_scope, locator_hash), \n\tCONSTRAINT ck_pc_external_skill_registrations_scope CHECK (installation_scope IN ('user', 'project', 'plugin'))\n)"
+    ],
+    [
+      "table",
+      "pc_lexical_projection_versions",
+      "pc_lexical_projection_versions",
+      "CREATE TABLE pc_lexical_projection_versions (\n\tprojection VARCHAR(128) NOT NULL, \n\tanalyzer_version VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (projection)\n)"
+    ],
+    [
+      "table",
+      "pc_memory_artifact_archive",
+      "pc_memory_artifact_archive",
+      "CREATE TABLE pc_memory_artifact_archive (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tcontent BLOB NOT NULL, \n\tmemory_citations BLOB, \n\tmetadata BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision)\n)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_heads",
+      "pc_memory_entry_heads",
+      "CREATE TABLE pc_memory_entry_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tmemory_artifact_id VARCHAR(128) NOT NULL, \n\thead_revision INTEGER NOT NULL, \n\tentry_id VARCHAR(128) NOT NULL, \n\tentry_version_id VARCHAR(128) NOT NULL, \n\tentry_content_hash VARCHAR(64) NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\tPRIMARY KEY (scope_id, memory_artifact_id, entry_id), \n\tFOREIGN KEY(scope_id, memory_artifact_id, entry_id, entry_version_id) REFERENCES pc_memory_entry_versions (scope_id, memory_artifact_id, entry_id, entry_version_id) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_memory_entry_heads_revision_positive CHECK (head_revision > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_versions",
+      "pc_memory_entry_versions",
+      "CREATE TABLE pc_memory_entry_versions (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tmemory_artifact_id VARCHAR(128) NOT NULL, \n\tentry_id VARCHAR(128) NOT NULL, \n\tentry_version_id VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tprevious_version_id VARCHAR(128), \n\tkind VARCHAR(128) NOT NULL, \n\ttext TEXT NOT NULL, \n\tsource_refs BLOB NOT NULL, \n\tartifact_refs BLOB NOT NULL, \n\tentry_content_hash VARCHAR(64) NOT NULL, \n\tcreated_in_revision INTEGER NOT NULL, \n\tPRIMARY KEY (scope_id, memory_artifact_id, entry_version_id), \n\tCONSTRAINT uq_pc_memory_entry_versions_logical_version UNIQUE (scope_id, memory_artifact_id, entry_id, version), \n\tCONSTRAINT uq_pc_memory_entry_versions_identity UNIQUE (scope_id, memory_artifact_id, entry_id, entry_version_id), \n\tCONSTRAINT ck_pc_memory_entry_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_memory_entry_versions_revision_positive CHECK (created_in_revision > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_memory_source_windows",
+      "pc_memory_source_windows",
+      "CREATE TABLE pc_memory_source_windows (\n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\twindow_limit BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id), \n\tCONSTRAINT ck_pc_memory_source_window_positive CHECK (source_through > 0 AND window_limit > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_model_usage_daily",
+      "pc_model_usage_daily",
+      "CREATE TABLE pc_model_usage_daily (\n\tscope_id VARCHAR(256) NOT NULL, \n\tusage_date DATE NOT NULL, \n\tpurpose VARCHAR(64) NOT NULL, \n\toperation VARCHAR(16) NOT NULL, \n\trequests BIGINT NOT NULL, \n\tinput_tokens BIGINT NOT NULL, \n\toutput_tokens BIGINT NOT NULL, \n\tinput_complete BOOLEAN NOT NULL, \n\toutput_complete BOOLEAN NOT NULL, \n\tPRIMARY KEY (scope_id, usage_date, purpose, operation), \n\tCONSTRAINT ck_pc_model_usage_daily_operation CHECK (operation IN ('generation', 'embedding')), \n\tCONSTRAINT ck_pc_model_usage_daily_requests_nonnegative CHECK (requests >= 0), \n\tCONSTRAINT ck_pc_model_usage_daily_input_nonnegative CHECK (input_tokens >= 0), \n\tCONSTRAINT ck_pc_model_usage_daily_output_nonnegative CHECK (output_tokens >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_portable_restore_receipts",
+      "pc_portable_restore_receipts",
+      "CREATE TABLE pc_portable_restore_receipts (\n\tbundle_id VARCHAR(36) NOT NULL, \n\tformat_version INTEGER NOT NULL, \n\ttotal_digest VARCHAR(71) NOT NULL, \n\trecord_count BIGINT NOT NULL, \n\tstatus VARCHAR(32) NOT NULL, \n\tinserted BIGINT NOT NULL, \n\talready_present BIGINT NOT NULL, \n\tprojections_ready BOOLEAN NOT NULL, \n\tupdated_at DATETIME NOT NULL, \n\tPRIMARY KEY (bundle_id), \n\tCONSTRAINT ck_pc_portable_restore_receipts_status CHECK (status IN ('authoritative_restored', 'ready')), \n\tCONSTRAINT ck_pc_portable_restore_receipts_record_count CHECK (record_count >= 0), \n\tCONSTRAINT ck_pc_portable_restore_receipts_inserted CHECK (inserted >= 0), \n\tCONSTRAINT ck_pc_portable_restore_receipts_existing CHECK (already_present >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_profile_policies",
+      "pc_profile_policies",
+      "CREATE TABLE \"pc_profile_policies\" (\n\tscope_id VARCHAR(256) NOT NULL, \n\tgeneration_enabled BOOLEAN NOT NULL, \n\tactivation_mode VARCHAR(32) NOT NULL, \n\tpending_candidate_id VARCHAR(128), \n\tversion BIGINT NOT NULL, \n\tupdated_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, pending_candidate_id) REFERENCES pc_candidate_heads (scope_id, candidate_id) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_profile_policies_activation_mode CHECK (activation_mode IN ('automatic', 'review_required')), \n\tCONSTRAINT ck_pc_profile_policies_version_positive CHECK (version > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_recall_effort_daily",
+      "pc_recall_effort_daily",
+      "CREATE TABLE pc_recall_effort_daily (\n\tscope_id VARCHAR(256) NOT NULL, \n\tusage_date DATE NOT NULL, \n\tpolicy_id VARCHAR(128) NOT NULL, \n\tassessment VARCHAR(64) NOT NULL, \n\tpreparations BIGINT NOT NULL CONSTRAINT ck_recall_effort_preparations_nonnegative CHECK (preparations >= 0), \n\trounds BIGINT NOT NULL CONSTRAINT ck_recall_effort_rounds_nonnegative CHECK (rounds >= 0), \n\texpanded_preparations BIGINT NOT NULL CONSTRAINT ck_recall_effort_expanded_preparations_nonnegative CHECK (expanded_preparations >= 0), \n\tadmission_expansions BIGINT NOT NULL CONSTRAINT ck_recall_effort_admission_expansions_nonnegative CHECK (admission_expansions >= 0), \n\tpolicy_floor_expansions BIGINT NOT NULL CONSTRAINT ck_recall_effort_policy_floor_expansions_nonnegative CHECK (policy_floor_expansions >= 0), \n\tcandidate_round_samples BIGINT NOT NULL CONSTRAINT ck_recall_effort_candidate_round_samples_nonnegative CHECK (candidate_round_samples >= 0), \n\tcandidates_assessed BIGINT NOT NULL CONSTRAINT ck_recall_effort_candidates_assessed_nonnegative CHECK (candidates_assessed >= 0), \n\tfinal_candidate_pool BIGINT NOT NULL CONSTRAINT ck_recall_effort_final_candidate_pool_nonnegative CHECK (final_candidate_pool >= 0), \n\tadded_embeddings BIGINT NOT NULL CONSTRAINT ck_recall_effort_added_embeddings_nonnegative CHECK (added_embeddings >= 0), \n\tadded_generation_calls BIGINT NOT NULL CONSTRAINT ck_recall_effort_added_generation_calls_nonnegative CHECK (added_generation_calls >= 0), \n\ttruncated_items BIGINT NOT NULL CONSTRAINT ck_recall_effort_truncated_items_nonnegative CHECK (truncated_items >= 0), \n\tdropped_items BIGINT NOT NULL CONSTRAINT ck_recall_effort_dropped_items_nonnegative CHECK (dropped_items >= 0), \n\tdropped_below_min_bytes BIGINT NOT NULL CONSTRAINT ck_recall_effort_dropped_below_min_bytes_nonnegative CHECK (dropped_below_min_bytes >= 0), \n\tdropped_no_fitting_truncation BIGINT NOT NULL CONSTRAINT ck_recall_effort_dropped_no_fitting_truncation_nonnegative CHECK (dropped_no_fitting_truncation >= 0), \n\tPRIMARY KEY (scope_id, usage_date, policy_id, assessment), \n\tCONSTRAINT ck_pc_recall_effort_daily_drop_total CHECK (dropped_items = dropped_below_min_bytes + dropped_no_fitting_truncation)\n)"
+    ],
+    [
+      "table",
+      "pc_recall_token_daily",
+      "pc_recall_token_daily",
+      "CREATE TABLE pc_recall_token_daily (\n\tscope_id VARCHAR(256) NOT NULL, \n\tusage_date DATE NOT NULL, \n\testimator_id VARCHAR(128) NOT NULL, \n\testimator_version VARCHAR(64) NOT NULL, \n\tpreparations BIGINT NOT NULL, \n\tready_preparations BIGINT NOT NULL, \n\tcomparable_preparations BIGINT NOT NULL, \n\tbaseline_tokens BIGINT NOT NULL, \n\trecalled_tokens BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, usage_date, estimator_id, estimator_version), \n\tCONSTRAINT ck_pc_recall_token_daily_preparations_nonnegative CHECK (preparations >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_ready_nonnegative CHECK (ready_preparations >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_comparable_nonnegative CHECK (comparable_preparations >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_comparable_ready CHECK (comparable_preparations <= ready_preparations), \n\tCONSTRAINT ck_pc_recall_token_daily_ready_total CHECK (ready_preparations <= preparations), \n\tCONSTRAINT ck_pc_recall_token_daily_baseline_nonnegative CHECK (baseline_tokens >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_recalled_nonnegative CHECK (recalled_tokens >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_receipt_migration_review",
+      "pc_receipt_migration_review",
+      "CREATE TABLE pc_receipt_migration_review (\n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_id VARCHAR(256) NOT NULL, \n\treason VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (scope_id, source_id)\n)"
+    ],
+    [
+      "table",
+      "pc_recurrence_match",
+      "pc_recurrence_match",
+      "CREATE TABLE pc_recurrence_match (\n\tscope_id VARCHAR(256) NOT NULL, \n\tmatch_key VARCHAR(71) NOT NULL, \n\ttask_outcome_source_type VARCHAR(128) NOT NULL, \n\ttask_outcome_source_id VARCHAR(256) NOT NULL, \n\ttask_outcome_position BIGINT NOT NULL, \n\tfailure_item_kind VARCHAR(16) NOT NULL, \n\tfailure_item_index INTEGER NOT NULL, \n\tfailure_item_digest VARCHAR(71) NOT NULL, \n\tcandidate_set_mode VARCHAR(32) NOT NULL, \n\tcandidate_set_digest VARCHAR(71) NOT NULL, \n\tresult VARCHAR(16) NOT NULL, \n\ttarget_family VARCHAR(128), \n\ttarget_artifact_id VARCHAR(128), \n\ttarget_revision INTEGER, \n\tsignature_key TEXT, \n\tpayload BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, match_key), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tCONSTRAINT uq_pc_recurrence_match_identity UNIQUE (scope_id, task_outcome_source_type, task_outcome_source_id, failure_item_kind, failure_item_index), \n\tCONSTRAINT ck_pc_recurrence_match_result CHECK (result IN ('matched', 'unmatched', 'ambiguous')), \n\tCONSTRAINT ck_pc_recurrence_match_candidate_set_mode CHECK (candidate_set_mode IN ('handoff_citations', 'scope_heads')), \n\tCONSTRAINT ck_pc_recurrence_match_failure_item_kind CHECK (failure_item_kind IN ('observation', 'check')), \n\tCONSTRAINT ck_pc_recurrence_match_position_positive CHECK (task_outcome_position > 0), \n\tCONSTRAINT ck_pc_recurrence_match_item_index_nonnegative CHECK (failure_item_index >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_recurrence_observation",
+      "pc_recurrence_observation",
+      "CREATE TABLE pc_recurrence_observation (\n\tscope_id VARCHAR(256) NOT NULL, \n\tobservation_id VARCHAR(71) NOT NULL, \n\tselection_key VARCHAR(71) NOT NULL, \n\tverdict_key VARCHAR(71) NOT NULL, \n\tevent VARCHAR(16) NOT NULL, \n\tmatch_basis VARCHAR(8) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tsignature_key TEXT NOT NULL, \n\tsignature_key_hash BLOB NOT NULL, \n\ttask_outcome_source_type VARCHAR(128) NOT NULL, \n\ttask_outcome_source_id VARCHAR(256) NOT NULL, \n\ttask_outcome_position BIGINT NOT NULL, \n\tpayload BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, observation_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tCONSTRAINT uq_pc_recurrence_observation_selection UNIQUE (scope_id, selection_key), \n\tCONSTRAINT uq_pc_recurrence_observation_verdict UNIQUE (scope_id, verdict_key), \n\tCONSTRAINT ck_pc_recurrence_observation_event CHECK (event IN ('selected', 'recurred', 'avoided')), \n\tCONSTRAINT ck_pc_recurrence_observation_revision_positive CHECK (revision > 0), \n\tCONSTRAINT ck_pc_recurrence_observation_position_positive CHECK (task_outcome_position > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_scope_bindings",
+      "pc_scope_bindings",
+      "CREATE TABLE pc_scope_bindings (\n\tintegration VARCHAR(128) NOT NULL, \n\tkind VARCHAR(64) NOT NULL, \n\texternal_id VARCHAR(256) NOT NULL, \n\texternal_id_search TEXT NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (integration, kind, external_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_scope_context_references",
+      "pc_scope_context_references",
+      "CREATE TABLE pc_scope_context_references (\n\tscope_id VARCHAR(256) NOT NULL, \n\treferenced_scope_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (scope_id, referenced_scope_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tFOREIGN KEY(referenced_scope_id) REFERENCES pc_scopes (scope_id) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_scope_context_references_not_self CHECK (scope_id <> referenced_scope_id)\n)"
+    ],
+    [
+      "table",
+      "pc_scope_creation_requests",
+      "pc_scope_creation_requests",
+      "CREATE TABLE pc_scope_creation_requests (\n\tidempotency_key VARCHAR(256) NOT NULL, \n\trequest_digest VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (idempotency_key), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_scope_external_references",
+      "pc_scope_external_references",
+      "CREATE TABLE pc_scope_external_references (\n\tscope_id VARCHAR(256) NOT NULL, \n\tordinal INTEGER NOT NULL, \n\tkind VARCHAR(128) NOT NULL, \n\tvalue VARCHAR(2000) NOT NULL, \n\tvalue_search TEXT NOT NULL, \n\tvalue_digest VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (scope_id, ordinal), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tCONSTRAINT uq_pc_scope_external_references_value UNIQUE (scope_id, kind, value_digest), \n\tCONSTRAINT ck_pc_scope_external_references_ordinal_nonnegative CHECK (ordinal >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_scope_settings",
+      "pc_scope_settings",
+      "CREATE TABLE pc_scope_settings (\n\tname VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (name), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_scopes",
+      "pc_scopes",
+      "CREATE TABLE pc_scopes (\n\tscope_id VARCHAR(256) NOT NULL, \n\ttitle VARCHAR(256) NOT NULL, \n\tsummary VARCHAR(2000) NOT NULL, \n\tscope_id_search TEXT NOT NULL, \n\ttitle_search TEXT NOT NULL, \n\tsummary_search TEXT NOT NULL, \n\tparent_scope_id VARCHAR(256), \n\tversion INTEGER NOT NULL, \n\tPRIMARY KEY (scope_id), \n\tFOREIGN KEY(parent_scope_id) REFERENCES pc_scopes (scope_id) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_scopes_version_positive CHECK (version > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_server_identity",
+      "pc_server_identity",
+      "CREATE TABLE pc_server_identity (\n\tsingleton_key INTEGER NOT NULL, \n\tserver_id VARCHAR(36) NOT NULL, \n\tPRIMARY KEY (singleton_key), \n\tCONSTRAINT ck_pc_server_identity_singleton CHECK (singleton_key = 1), \n\tUNIQUE (server_id)\n)"
+    ],
+    [
+      "table",
+      "pc_skill_packages",
+      "pc_skill_packages",
+      "CREATE TABLE pc_skill_packages (\n\tscope_id VARCHAR(256) NOT NULL, \n\ttree_digest VARCHAR(64) NOT NULL, \n\tarchive_digest VARCHAR(64) NOT NULL, \n\tarchive_bytes BLOB NOT NULL, \n\tmanifest BLOB NOT NULL, \n\tfile_count INTEGER NOT NULL, \n\tuncompressed_size BIGINT NOT NULL, \n\tarchive_size BIGINT NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id, tree_digest), \n\tCONSTRAINT ck_pc_skill_packages_file_count CHECK (file_count > 0 AND file_count <= 256), \n\tCONSTRAINT ck_pc_skill_packages_uncompressed_size CHECK (uncompressed_size > 0 AND uncompressed_size <= 4194304), \n\tCONSTRAINT ck_pc_skill_packages_archive_size CHECK (archive_size > 0 AND archive_size <= 5242880)\n)"
+    ],
+    [
+      "table",
+      "pc_skill_publications",
+      "pc_skill_publications",
+      "CREATE TABLE pc_skill_publications (\n\tscope_id VARCHAR(256) NOT NULL, \n\ttarget_id VARCHAR(64) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\tdesired_state VARCHAR(16) DEFAULT 'published' NOT NULL, \n\tdesired_revision INTEGER NOT NULL, \n\tdesired_tree_digest VARCHAR(64) NOT NULL, \n\tobserved_revision INTEGER, \n\tobserved_tree_digest VARCHAR(64), \n\tobserved_generation BIGINT, \n\tdestination TEXT, \n\tstate VARCHAR(32) NOT NULL, \n\tselected_runtime_variant VARCHAR(128), \n\tenvironment_fingerprint VARCHAR(64), \n\tlast_error_code VARCHAR(128), \n\tobserved_at DATETIME, \n\tgeneration BIGINT NOT NULL, \n\tupdated_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id, target_id, artifact_id), \n\tCONSTRAINT ck_pc_skill_publications_desired_revision_positive CHECK (desired_revision > 0), \n\tCONSTRAINT ck_pc_skill_publications_observed_revision_positive CHECK (observed_revision IS NULL OR observed_revision > 0), \n\tCONSTRAINT ck_pc_skill_publications_desired_state CHECK (desired_state IN ('published', 'unpublished')), \n\tCONSTRAINT ck_pc_skill_publications_state CHECK (state IN ('unpublished', 'pending', 'current', 'update_available', 'delivery_failed', 'conflict', 'drifted', 'incompatible')), \n\tCONSTRAINT ck_pc_skill_publications_observed_generation_nonnegative CHECK (observed_generation IS NULL OR observed_generation >= 0), \n\tCONSTRAINT ck_pc_skill_publications_generation_nonnegative CHECK (generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_source_cursors",
+      "pc_source_cursors",
+      "CREATE TABLE pc_source_cursors (\n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tcursor BLOB NOT NULL, \n\tgeneration BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, binding_name), \n\tCONSTRAINT ck_pc_source_cursors_generation_nonnegative CHECK (generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_source_definition_manifests",
+      "pc_source_definition_manifests",
+      "CREATE TABLE pc_source_definition_manifests (\n\tdefinition_name VARCHAR(128) NOT NULL, \n\tdefinition_version VARCHAR(128) NOT NULL, \n\tfingerprint VARCHAR(71) NOT NULL, \n\tmanifest BLOB NOT NULL, \n\tPRIMARY KEY (definition_name, definition_version), \n\tCONSTRAINT uq_pc_source_definition_manifest_fingerprint UNIQUE (definition_name, fingerprint)\n)"
+    ],
+    [
+      "table",
+      "pc_source_journal_heads",
+      "pc_source_journal_heads",
+      "CREATE TABLE pc_source_journal_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tposition BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id), \n\tCONSTRAINT ck_pc_source_journal_heads_position_nonnegative CHECK (position >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_source_write_plugins",
+      "pc_source_write_plugins",
+      "CREATE TABLE pc_source_write_plugins (\n\tplugin_id VARCHAR(128) NOT NULL, \n\tdefinition BLOB NOT NULL, \n\tPRIMARY KEY (plugin_id)\n)"
+    ],
+    [
+      "table",
+      "pc_sources",
+      "pc_sources",
+      "CREATE TABLE pc_sources (\n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_type VARCHAR(128) NOT NULL, \n\tsource_id VARCHAR(256) NOT NULL, \n\tpayload BLOB NOT NULL, \n\tjournal_position BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, source_type, source_id), \n\tCONSTRAINT uq_pc_sources_scope_journal_position UNIQUE (scope_id, journal_position)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_active_chunks",
+      "pc_topic_memory_active_chunks",
+      "CREATE TABLE pc_topic_memory_active_chunks (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tchunk_ordinal INTEGER NOT NULL, \n\tstart_offset INTEGER NOT NULL, \n\tend_offset INTEGER NOT NULL, \n\tchunk_text TEXT NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\tpolicy_version VARCHAR(32) NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id, chunk_ordinal), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_topic_memory_revision_publications (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_topic_memory_active_chunks_family CHECK (family = 'topic-memory'), \n\tCONSTRAINT ck_pc_topic_memory_active_chunks_revision_positive CHECK (revision > 0), \n\tCONSTRAINT ck_pc_topic_memory_active_chunks_ordinal_nonnegative CHECK (chunk_ordinal >= 0), \n\tCONSTRAINT ck_pc_topic_memory_active_chunks_start_nonnegative CHECK (start_offset >= 0), \n\tCONSTRAINT ck_pc_topic_memory_active_chunks_offsets CHECK (end_offset > start_offset)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_active_topics",
+      "pc_topic_memory_active_topics",
+      "CREATE TABLE pc_topic_memory_active_topics (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\ttitle TEXT NOT NULL, \n\tsummary TEXT NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\tsource_count INTEGER NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_topic_memory_revision_publications (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_topic_memory_active_topics_family CHECK (family = 'topic-memory'), \n\tCONSTRAINT ck_pc_topic_memory_active_topics_revision_positive CHECK (revision > 0), \n\tCONSTRAINT ck_pc_topic_memory_active_topics_sources_nonnegative CHECK (source_count >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts",
+      "pc_topic_memory_chunk_fts",
+      "CREATE VIRTUAL TABLE pc_topic_memory_chunk_fts USING fts5(\n    scope_id UNINDEXED, artifact_id UNINDEXED, revision UNINDEXED,\n    chunk_ordinal UNINDEXED, start_offset UNINDEXED,\n    title UNINDEXED, summary UNINDEXED, chunk_text UNINDEXED,\n    searchable_text, tokenize='unicode61'\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts_config",
+      "pc_topic_memory_chunk_fts_config",
+      "CREATE TABLE 'pc_topic_memory_chunk_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts_content",
+      "pc_topic_memory_chunk_fts_content",
+      "CREATE TABLE 'pc_topic_memory_chunk_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5, c6, c7, c8)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts_data",
+      "pc_topic_memory_chunk_fts_data",
+      "CREATE TABLE 'pc_topic_memory_chunk_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts_docsize",
+      "pc_topic_memory_chunk_fts_docsize",
+      "CREATE TABLE 'pc_topic_memory_chunk_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts_idx",
+      "pc_topic_memory_chunk_fts_idx",
+      "CREATE TABLE 'pc_topic_memory_chunk_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_topic_memory_fts_index",
+      "pc_topic_memory_fts_index",
+      "CREATE TABLE pc_topic_memory_fts_index (\n\tsingleton INTEGER NOT NULL, \n\tschema_version INTEGER NOT NULL, \n\tPRIMARY KEY (singleton), \n\tCONSTRAINT ck_pc_topic_memory_fts_index_singleton CHECK (singleton = 1)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_processing_targets",
+      "pc_topic_memory_processing_targets",
+      "CREATE TABLE pc_topic_memory_processing_targets (\n\tbinding_name VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\ttarget_request_generation BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tcaptured_flush_generation BIGINT NOT NULL, \n\tobserved_dirty_generation BIGINT NOT NULL, \n\tPRIMARY KEY (binding_name, scope_id), \n\tCONSTRAINT ck_pc_topic_processing_target CHECK (target_request_generation > 0 AND source_through >= 0 AND captured_flush_generation >= 0 AND observed_dirty_generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_retrieval_shape",
+      "pc_topic_memory_retrieval_shape",
+      "CREATE TABLE pc_topic_memory_retrieval_shape (\n\tsingleton INTEGER NOT NULL, \n\tshape VARCHAR(16) NOT NULL, \n\tprofile_fingerprint VARCHAR(64), \n\tPRIMARY KEY (singleton), \n\tCONSTRAINT ck_pc_topic_memory_retrieval_shape_singleton CHECK (singleton = 1), \n\tCONSTRAINT ck_pc_topic_memory_retrieval_shape_value CHECK (shape IN ('fts', 'hybrid')), \n\tCONSTRAINT ck_pc_topic_memory_retrieval_shape_profile CHECK ((shape = 'fts' AND profile_fingerprint IS NULL) OR (shape = 'hybrid' AND profile_fingerprint IS NOT NULL))\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_revision_publications",
+      "pc_topic_memory_revision_publications",
+      "CREATE TABLE pc_topic_memory_revision_publications (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tpublished_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_topic_memory_publications_family CHECK (family = 'topic-memory'), \n\tCONSTRAINT ck_pc_topic_memory_publications_revision_positive CHECK (revision > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts",
+      "pc_topic_memory_topic_fts",
+      "CREATE VIRTUAL TABLE pc_topic_memory_topic_fts USING fts5(\n    scope_id UNINDEXED, artifact_id UNINDEXED, revision UNINDEXED,\n    title UNINDEXED, summary UNINDEXED, searchable_text, tokenize='unicode61'\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts_config",
+      "pc_topic_memory_topic_fts_config",
+      "CREATE TABLE 'pc_topic_memory_topic_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts_content",
+      "pc_topic_memory_topic_fts_content",
+      "CREATE TABLE 'pc_topic_memory_topic_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts_data",
+      "pc_topic_memory_topic_fts_data",
+      "CREATE TABLE 'pc_topic_memory_topic_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts_docsize",
+      "pc_topic_memory_topic_fts_docsize",
+      "CREATE TABLE 'pc_topic_memory_topic_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts_idx",
+      "pc_topic_memory_topic_fts_idx",
+      "CREATE TABLE 'pc_topic_memory_topic_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_topic_memory_work_blocks",
+      "pc_topic_memory_work_blocks",
+      "CREATE TABLE pc_topic_memory_work_blocks (\n\tblock_id VARCHAR(36) NOT NULL, \n\tattempt_id VARCHAR(36) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT, \n\tbudget_source_through BIGINT, \n\tlegacy_source_through BIGINT, \n\ttarget_source_through BIGINT NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tlast_error_code VARCHAR(64), \n\terror_code VARCHAR(64) NOT NULL, \n\tblocked_at DATETIME NOT NULL, \n\tretried_at DATETIME, \n\tretry_request_generation BIGINT, \n\tPRIMARY KEY (block_id), \n\tCONSTRAINT ck_pc_topic_block_window CHECK (source_after >= 0 AND target_source_through > source_after AND (source_through IS NULL OR (source_through > source_after AND source_through <= target_source_through)) AND (budget_source_through IS NULL OR (budget_source_through > source_after AND budget_source_through <= target_source_through)) AND (source_through IS NULL OR budget_source_through IS NULL OR source_through <= budget_source_through) AND (legacy_source_through IS NULL OR (legacy_source_through > source_after AND legacy_source_through <= target_source_through))), \n\tCONSTRAINT ck_pc_topic_block_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0), \n\tCONSTRAINT ck_pc_topic_block_acceptance CHECK ((retried_at IS NULL AND retry_request_generation IS NULL) OR (retried_at IS NOT NULL AND retry_request_generation IS NOT NULL AND retry_request_generation > 0)), \n\tCONSTRAINT uq_pc_topic_block_identity UNIQUE (scope_id, binding_name, source_after, attempt_id)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_work_budgets",
+      "pc_topic_memory_work_budgets",
+      "CREATE TABLE \"pc_topic_memory_work_budgets\" (\n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tattempt_id VARCHAR(36) NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tfailure_code VARCHAR(64) NOT NULL, \n\tattempt_source_through BIGINT, \n\tstarted_at DATETIME, \n\tfinished_at DATETIME, \n\tsupervisor_group VARCHAR(64), \n\tsupervisor_generation BIGINT, \n\tholder_id VARCHAR(36), \n\tlast_error_code VARCHAR(64), \n\tPRIMARY KEY (scope_id, binding_name, source_after), \n\tCONSTRAINT ck_pc_topic_budget_window CHECK (source_after >= 0 AND source_through > source_after), \n\tCONSTRAINT ck_pc_topic_budget_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0), \n\tCONSTRAINT ck_pc_topic_budget_attempt_range CHECK (attempt_source_through IS NULL OR (attempt_source_through > source_after AND attempt_source_through <= source_through))\n)"
+    ],
+    [
+      "trigger",
+      "pc_artifact_search_fts_delete",
+      "pc_artifact_search_text",
+      "CREATE TRIGGER pc_artifact_search_fts_delete AFTER delete ON pc_artifact_search_text BEGIN DELETE FROM pc_artifact_search_fts WHERE text_id = old.text_id; END"
+    ],
+    [
+      "trigger",
+      "pc_artifact_search_fts_insert",
+      "pc_artifact_search_text",
+      "CREATE TRIGGER pc_artifact_search_fts_insert AFTER insert ON pc_artifact_search_text BEGIN INSERT INTO pc_artifact_search_fts (text_id, scope_id, family, artifact_id, revision, build_id, index_def_id, searchable_text) VALUES (new.text_id, new.scope_id, new.family, new.artifact_id, new.revision, new.build_id, new.index_def_id, new.searchable_text); END"
+    ],
+    [
+      "trigger",
+      "pc_artifact_search_fts_update",
+      "pc_artifact_search_text",
+      "CREATE TRIGGER pc_artifact_search_fts_update AFTER update ON pc_artifact_search_text BEGIN DELETE FROM pc_artifact_search_fts WHERE text_id = old.text_id;INSERT INTO pc_artifact_search_fts (text_id, scope_id, family, artifact_id, revision, build_id, index_def_id, searchable_text) VALUES (new.text_id, new.scope_id, new.family, new.artifact_id, new.revision, new.build_id, new.index_def_id, new.searchable_text); END"
+    ],
+    [
+      "trigger",
+      "pc_atomic_memory_fts_delete",
+      "pc_atomic_memory_current",
+      "CREATE TRIGGER pc_atomic_memory_fts_delete AFTER DELETE ON pc_atomic_memory_current BEGIN DELETE FROM pc_atomic_memory_current_fts WHERE identity_token MATCH ('i' || lower(hex(old.scope_id)) || 'x' || lower(hex(old.artifact_id))); END"
+    ],
+    [
+      "trigger",
+      "pc_atomic_memory_fts_insert",
+      "pc_atomic_memory_current",
+      "CREATE TRIGGER pc_atomic_memory_fts_insert AFTER INSERT ON pc_atomic_memory_current BEGIN INSERT INTO pc_atomic_memory_current_fts (scope_id, artifact_id, revision, state_version, content_hash, projection_format, kind, text, searchable_text, tag_keys, identity_token) VALUES (new.scope_id, new.artifact_id, new.revision, new.state_version, new.content_hash, new.projection_format, new.kind, new.text, new.searchable_text, new.tag_keys, 'i' || lower(hex(new.scope_id)) || 'x' || lower(hex(new.artifact_id))); END"
+    ],
+    [
+      "trigger",
+      "pc_atomic_memory_fts_update",
+      "pc_atomic_memory_current",
+      "CREATE TRIGGER pc_atomic_memory_fts_update AFTER UPDATE ON pc_atomic_memory_current BEGIN DELETE FROM pc_atomic_memory_current_fts WHERE identity_token MATCH ('i' || lower(hex(old.scope_id)) || 'x' || lower(hex(old.artifact_id))); INSERT INTO pc_atomic_memory_current_fts (scope_id, artifact_id, revision, state_version, content_hash, projection_format, kind, text, searchable_text, tag_keys, identity_token) VALUES (new.scope_id, new.artifact_id, new.revision, new.state_version, new.content_hash, new.projection_format, new.kind, new.text, new.searchable_text, new.tag_keys, 'i' || lower(hex(new.scope_id)) || 'x' || lower(hex(new.artifact_id))); END"
+    ]
+  ]
+}
