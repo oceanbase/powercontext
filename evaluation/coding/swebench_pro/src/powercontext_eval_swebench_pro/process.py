@@ -53,6 +53,7 @@ _TIMEOUT_RETURN_CODE = 124
 _CANCELLED_RETURN_CODE = 130
 _CANCELLATION_POLL_SECONDS = 0.05
 _TERMINATION_GRACE_SECONDS = 1.5
+_FAILURE_STDERR_TAIL_CHARS = 2000
 _DESCENDANT_SCAN_ATTEMPTS = 3
 _PROXY_ENVIRONMENT_KEYS = frozenset(
     {
@@ -431,7 +432,13 @@ def _result(
 
 def _failure_message(prefix: str, result: CommandResult, redactor: _Redactor) -> str:
     executable = result.argv[0] if result.argv else "<unknown>"
-    return redactor(f"{prefix}: {executable!r} in {result.cwd!r} (exit {result.returncode})")
+    message = f"{prefix}: {executable!r} in {result.cwd!r} (exit {result.returncode})"
+    stderr_tail = result.stderr.strip()
+    if stderr_tail:
+        if len(stderr_tail) > _FAILURE_STDERR_TAIL_CHARS:
+            stderr_tail = f"...{stderr_tail[-_FAILURE_STDERR_TAIL_CHARS:]}"
+        message = f"{message}\n{stderr_tail}"
+    return redactor(message)
 
 
 __all__ = [
