@@ -121,9 +121,13 @@ export type AccessResourceType = "server" | "scope" | "artifact";
 export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "server.observer" | "server.admin";
 export type ArtifactDreamingOperationCapability = { operation: DreamOperation, output_kind: OutputKind, effect: Effect, };
 export type ArtifactFamilyAccessCapability = { family: string, enabled: boolean, share_unit: ShareUnit, actions: Array<AccessAction>, grantable_roles: Array<AccessRole>, };
-export type ArtifactReadFamily = "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory";
+export type ArtifactReadFamily = string;
 export type ArtifactReference = { family: string, artifact_id: string, revision: number, };
-export type ArtifactRevision = { scope_id: string, family: ArtifactReadFamily, artifact_id: string, revision: number, content: Record<string, unknown>, sources: Array<SourceTypeReference>, artifacts: Array<ArtifactReference>, content_digest: string,
+export type ArtifactRevision = { scope_id: string, family: string, artifact_id: string,
+/**
+ * Persisted schema version for a custom Artifact family.
+ */
+schema_version?: string | null, revision: number, content: Record<string, unknown>, sources: Array<SourceTypeReference>, artifacts: Array<ArtifactReference>, content_digest: string,
 /**
  * When this revision was committed. Absent for revisions stored before this field existed.
  */
@@ -149,7 +153,7 @@ score: number, matched_by: Array<MatchedBy>, };
 export type AtomicMemorySearchMode = "text" | "vector" | "hybrid";
 export type AtomicMemoryState = "active" | "forgotten" | "merged" | "retired";
 export type BuiltinProfile = "coding" | "conversation";
-export type Capabilities = { prompts?: { [key in string]: PromptCapability },
+export type Capabilities = { custom_artifact_schemas?: Array<CustomArtifactFamilySchema>, prompts?: { [key in string]: PromptCapability },
 /**
  * Whether asynchronous Artifact Dream execution is configured.
  */
@@ -180,6 +184,15 @@ external_skill_registry?: boolean,
 handoff_generation: boolean, search_modes: Array<MemorySearchMode>, context_versions: Array<PreparedContextSchema>, };
 export type Configuration = "configured" | "unconfigured" | "unknown";
 export type ContractVersion = { major: number, minor: number, };
+export type CustomArtifactFamilySchema = { family: string, schema_version: string, content_schema: Record<string, unknown>,
+/**
+ * Legacy persisted text fields; new plugins use search.
+ */
+search_fields: Array<string>,
+/**
+ * Persistent declarative indexes and supported search modes.
+ */
+search?: Record<string, unknown>, };
 export type DreamOperation = "refine_experience" | "derive_skill" | "revise_skill" | "revise_profile" | "revise_memory" | "revise_topic_memory" | "refresh_handoff" | "revise_prompt" | "revise_tags";
 export type Effect = "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
 export type ExtractionBackground = {

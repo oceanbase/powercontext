@@ -29,6 +29,10 @@
       "schemas/sqlite-v1_4_1_005.json",
       "schemas/mysql-v1_4_1_005.json"
     ],
+    "v1_5_0_001": [
+      "schemas/sqlite-v1_5_0_001.json",
+      "schemas/mysql-v1_5_0_001.json"
+    ],
     "v1_4_1_006": [
       "schemas/sqlite-v1_4_1_006.json",
       "schemas/mysql-v1_4_1_006.json"
@@ -56,6 +60,9 @@
     "v1_4_1_005": [
       "2e24be9f699c202cb9d7985690b2be947bdc98f8f64c1c4e4b8e16e35a580fc4"
     ],
+    "v1_5_0_001": [
+      "8f2d4a32f3558612b1bd390c262b8b3e355b172e34cc99692f38c11876226ebd"
+    ],
     "v1_4_1_006": [
       "cacce80bdfb14aff889b7babebc9ab8487b7f0a11d2dbbd3d77a3717a23df74c"
     ]
@@ -63,12 +70,14 @@
   "affected_objects": [
     "pc_access_audit",
     "pc_access_idempotency",
+    "pc_access_owner_recovery",
     "pc_access_owners",
     "pc_access_relationship_heads",
     "pc_access_relationships",
     "pc_agent_skill_targets",
     "pc_artifact_candidate_heads",
     "pc_artifact_candidate_versions",
+    "pc_artifact_family_schemas",
     "pc_artifact_fts",
     "pc_artifact_fts_config",
     "pc_artifact_fts_content",
@@ -77,6 +86,8 @@
     "pc_artifact_fts_idx",
     "pc_artifact_handles",
     "pc_artifact_heads",
+    "pc_artifact_index_changes",
+    "pc_artifact_index_coverage",
     "pc_artifact_lineage_artifacts",
     "pc_artifact_lineage_sources",
     "pc_artifact_processing_auto_wave_targets",
@@ -88,7 +99,21 @@
     "pc_artifact_processing_schema",
     "pc_artifact_processing_sequences",
     "pc_artifact_publications",
+    "pc_artifact_search_fts",
+    "pc_artifact_search_fts_config",
+    "pc_artifact_search_fts_content",
+    "pc_artifact_search_fts_data",
+    "pc_artifact_search_fts_delete",
+    "pc_artifact_search_fts_docsize",
+    "pc_artifact_search_fts_idx",
+    "pc_artifact_search_fts_insert",
+    "pc_artifact_search_fts_update",
+    "pc_artifact_search_states",
+    "pc_artifact_search_text",
     "pc_artifact_tags",
+    "pc_artifact_vector_indexes",
+    "pc_artifact_vector_spaces",
+    "pc_artifact_vectors",
     "pc_artifacts",
     "pc_atomic_memory_current",
     "pc_atomic_memory_current_fts",
@@ -105,16 +130,20 @@
     "pc_dream_runs",
     "pc_external_skill_registrations",
     "pc_lexical_projection_versions",
+    "pc_memory_artifact_archive",
     "pc_memory_entry_heads",
     "pc_memory_entry_versions",
     "pc_memory_source_windows",
     "pc_model_usage_daily",
+    "pc_portable_restore_receipts",
     "pc_profile_policies",
     "pc_recall_effort_daily",
     "pc_recall_token_daily",
     "pc_receipt_migration_review",
     "pc_recurrence_match",
     "pc_recurrence_observation",
+    "pc_retained_dream_candidate_heads",
+    "pc_retained_dream_candidate_versions",
     "pc_scope_bindings",
     "pc_scope_context_references",
     "pc_scope_creation_requests",
@@ -148,11 +177,6 @@
     "pc_topic_memory_topic_fts_idx",
     "pc_topic_memory_work_blocks",
     "pc_topic_memory_work_budgets",
-    "pc_retained_dream_candidate_heads",
-    "pc_retained_dream_candidate_versions",
-    "pc_memory_artifact_archive",
-    "pc_portable_restore_receipts",
-    "pc_access_owner_recovery",
     "pc_source_write_plugins"
   ],
   "readiness_scope": "server",
@@ -194,6 +218,27 @@
         "seekdb",
         "oceanbase"
       ]
+    },
+    {
+      "id": "artifact_storage",
+      "revision": "v1_5_0_001",
+      "kind": "data",
+      "module": "artifact_storage_readiness.py",
+      "resources": [
+        "server_domain.py",
+        "server_vector_domain.py",
+        "atomic_memory_readiness_1300.py",
+        "dream/upgrade.py",
+        "dream/schema.json"
+      ],
+      "depends_on": [
+        "portable_storage"
+      ],
+      "backends": [
+        "sqlite",
+        "seekdb",
+        "oceanbase"
+      ]
     }
   ],
   "domain_readiness": {
@@ -213,6 +258,10 @@
     ],
     "v1_4_1_005": [
       "server_upgrade",
+      "portable_storage"
+    ],
+    "v1_5_0_001": [
+      "artifact_storage",
       "portable_storage"
     ],
     "v1_4_1_006": [
@@ -235,6 +284,7 @@
     "schemas/mysql-s1402.json",
     "schemas/mysql-v1_4_1_004.json",
     "schemas/mysql-v1_4_1_005.json",
+    "schemas/mysql-v1_5_0_001.json",
     "schemas/mysql-v1_4_1_006.json"
   ],
   "mysql_history": "mysql",
