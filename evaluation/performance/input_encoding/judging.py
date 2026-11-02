@@ -34,7 +34,7 @@ from powercontext.builtin.runtime.config import InferenceConfig
 from powercontext.server.configuration import server_settings_context
 
 from .dataset import digest, load_catalog, projection, write_json
-from .identity import prepare_configuration_identity
+from .identity import prepare_configuration_identity, require_private_identity_support
 from .runner import source_hash, usage_totals
 
 
@@ -295,6 +295,8 @@ def _save_reference_records(directory, manifest, references):
 
 
 async def judge(args) -> None:
+    if not getattr(args, "validate_only", False):
+        require_private_identity_support()
     catalog = load_catalog(args.dataset)
     manifest = json.loads((args.output / "manifest.json").read_text())
     attempts = [json.loads(path.read_text()) for path in sorted((args.output / "attempts").glob("*.json"))]

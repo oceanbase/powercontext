@@ -42,7 +42,7 @@ from powercontext.builtin.runtime.config import InferenceConfig
 from powercontext.server.configuration import server_settings_context
 
 from .dataset import MODES, digest, write_json
-from .identity import prepare_configuration_identity
+from .identity import prepare_configuration_identity, require_private_identity_support
 from .runner import source_hash, usage_totals
 
 SCHEMAS = {"v1": codec.INPUT_ENCODING_SCHEMA, "v2": codec.INPUT_ENCODING_SCHEMA_V2}
@@ -363,6 +363,8 @@ def _read_records(plan, cases, output: Path) -> dict[str, dict[str, Any]]:
 
 
 async def run(args) -> dict[str, Any]:
+    if not args.dry_run:
+        require_private_identity_support()
     cases = load_cases()
     schemas = tuple(SCHEMAS) if args.schema == "both" else (args.schema,)
     plan = build_plan(cases, schemas)

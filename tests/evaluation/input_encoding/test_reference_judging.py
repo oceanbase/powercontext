@@ -25,6 +25,7 @@ import pytest
 
 from evaluation.performance.input_encoding import judging
 from evaluation.performance.input_encoding.dataset import digest
+from evaluation.performance.input_encoding.identity import supports_private_identity
 from evaluation.performance.input_encoding.report import judge_report
 from powercontext.builtin.runtime.config import InferenceConfig
 
@@ -115,13 +116,14 @@ def test_invalid_reference_stops_before_credentials_or_execution_artifacts(tmp_p
         })
     )
     monkeypatch.setattr(judging, "load_catalog", lambda path: catalog)
-    args = SimpleNamespace(dataset=dataset, output=tmp_path, reference_questions=path)
+    args = SimpleNamespace(dataset=dataset, output=tmp_path, reference_questions=path, validate_only=True)
     with pytest.raises(ValueError, match="outside its source"):
         asyncio.run(judging.judge(args))
     assert not (tmp_path / "judge").exists()
     assert not (tmp_path / "judge-runtime").exists()
 
 
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_reference_judge_keeps_solver_blind_and_rejects_resume_after_reference_rotation(tmp_path, monkeypatch):
     instance, catalog, reference, reference_path = reference_fixture(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "fixture-key")

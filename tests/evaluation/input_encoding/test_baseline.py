@@ -28,6 +28,7 @@ from sqlalchemy.exc import OperationalError
 from evaluation.performance.input_encoding import runner
 from evaluation.performance.input_encoding.__main__ import main
 from evaluation.performance.input_encoding.dataset import digest, write_json
+from evaluation.performance.input_encoding.identity import supports_private_identity
 from powercontext.builtin.persistence.bootstrap import MissingDatabaseError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.oceanbase import profile as oceanbase
@@ -105,6 +106,7 @@ def test_baseline_database_inspection_never_provisions_a_database(monkeypatch, e
 
 @pytest.mark.parametrize("state", ["missing", "existing", "removed_before_reopen"])
 @pytest.mark.parametrize("override", [False, True])
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_run_never_provisions_external_databases(tmp_path, monkeypatch, state, override):
     databases = set() if state == "missing" else {"evaluation"}
     statements = []
@@ -192,6 +194,7 @@ def test_run_never_provisions_external_databases(tmp_path, monkeypatch, state, o
 
 
 @pytest.mark.parametrize("include_kind", [False, True])
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_run_cli_uses_existing_sqlite_override_with_optional_kind(tmp_path, monkeypatch, include_kind):
     database = {"url": f"sqlite+aiosqlite:///{tmp_path / 'existing.db'}"}
     if include_kind:

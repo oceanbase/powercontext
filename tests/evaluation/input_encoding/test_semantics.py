@@ -28,6 +28,7 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
 from evaluation.performance.input_encoding import semantics
+from evaluation.performance.input_encoding.identity import supports_private_identity
 from powercontext.builtin.inference.errors import InferencePrivacyError
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.runtime.config import InferenceConfig
@@ -269,6 +270,7 @@ def _mock_live_run(tmp_path, monkeypatch):
     return args, plan
 
 
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_resume_regrades_output_without_replaying_calls(tmp_path, monkeypatch):
     args, plan = _mock_live_run(tmp_path, monkeypatch)
     job = plan["attempts"][0]
@@ -287,6 +289,7 @@ def test_resume_regrades_output_without_replaying_calls(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("field", ["id", "prompt_sha256"])
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_resume_rejects_changed_attempt_identity_before_provider(tmp_path, monkeypatch, field):
     args, plan = _mock_live_run(tmp_path, monkeypatch)
     path = tmp_path / "attempts" / f"{plan['attempts'][0]['id']}.json"
@@ -297,6 +300,7 @@ def test_resume_rejects_changed_attempt_identity_before_provider(tmp_path, monke
         asyncio.run(semantics.run(args))
 
 
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_orphan_attempts_are_rejected_before_private_configuration(tmp_path, monkeypatch):
     semantics.write_json(tmp_path / "attempts" / "orphan.json", {"status": "answered"})
 
@@ -330,6 +334,7 @@ def test_failed_attempt_retains_known_usage_without_raw_provider_errors(tmp_path
     assert "UNTRUSTED_PROVIDER_DETAIL" not in (tmp_path / "attempts" / f"{job['id']}.json").read_text()
 
 
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_changed_runtime_source_rejects_resume_before_provider(tmp_path, monkeypatch):
     args, _ = _mock_live_run(tmp_path, monkeypatch)
     monkeypatch.setattr(semantics, "source_hash", lambda: "changed-runtime-adapter")
@@ -337,6 +342,7 @@ def test_changed_runtime_source_rejects_resume_before_provider(tmp_path, monkeyp
         asyncio.run(semantics.run(args))
 
 
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_provider_open_failure_leaves_fixed_denominators_and_no_success(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-probe-credential")
 

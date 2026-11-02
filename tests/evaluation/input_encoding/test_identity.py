@@ -23,8 +23,13 @@ from evaluation.performance.input_encoding.identity import (
     KEY_FILENAME,
     ConfigurationIdentityError,
     prepare_configuration_identity,
+    supports_private_identity,
 )
 from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig
+
+pytestmark = pytest.mark.skipif(
+    not supports_private_identity(), reason="Live evaluation requires POSIX private-file support"
+)
 
 
 def _configuration(*, database="database-password", forbidden="private-account", header="header-credential"):

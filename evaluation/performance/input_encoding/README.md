@@ -18,6 +18,12 @@ RTK 的参考点是同时保留原始/优化输出、负收益与真实会话用
 
 ## 执行
 
+真实执行命令 `run`、`judge`（不含 `--validate-only`）和 `semantic-probe`（不含 `--dry-run`）
+目前仅支持具备 POSIX 私密文件能力的主机与文件系统，例如 Linux/macOS 上支持这些权限的文件系统。
+恢复身份密钥要求当前用户所有、精确 `0600` 权限、单一硬链接，并禁止跟随符号链接；
+Windows 的 ACL/reparse-point 私密文件实现尚未支持，这些命令会在读取私密配置或写入执行文件前明确拒绝。
+`offline`、`report`、`judge --validate-only` 和 `semantic-probe --dry-run` 不需要身份密钥，仍可使用。
+
 使用根项目 Python 环境，从仓库根目录执行。产物放在 `/data/codex-tmp/` 的独立目录中。离线阶段无需 `.env`、数据库或模型：
 
 ```bash

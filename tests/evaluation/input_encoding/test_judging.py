@@ -27,7 +27,7 @@ from pydantic import ValidationError
 
 from evaluation.performance.input_encoding import judging
 from evaluation.performance.input_encoding.dataset import digest, projection, sources
-from evaluation.performance.input_encoding.identity import ConfigurationIdentityError
+from evaluation.performance.input_encoding.identity import ConfigurationIdentityError, supports_private_identity
 from evaluation.performance.input_encoding.report import judge_report
 from powercontext.builtin.inference.errors import InferencePrivacyError, InvalidInferenceOutputError
 from powercontext.builtin.inference.models import InferenceUsage
@@ -72,6 +72,7 @@ def test_judge_records_safe_privacy_diagnostics_and_wrapped_usage(tmp_path):
     assert "untrusted-provider-secret" not in path.read_text()
 
 
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_judge_applies_protection_and_output_budget_before_opening_provider(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "fixture-provider-before")
     (tmp_path / "manifest.json").write_text(json.dumps({"model": "openai-chat:example"}))
@@ -135,6 +136,7 @@ def test_judge_applies_protection_and_output_budget_before_opening_provider(tmp_
     assert not (tmp_path / "judge/answers").exists()
 
 
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_automatic_judge_grades_successful_outputs_despite_oversized_failed_case(tmp_path, monkeypatch):
     successful = SimpleNamespace(
         instance_id="successful-case",
@@ -225,6 +227,7 @@ def test_automatic_judge_grades_successful_outputs_despite_oversized_failed_case
 
 
 @pytest.mark.parametrize("streaming", ["auto", "disabled"])
+@pytest.mark.skipif(not supports_private_identity(), reason="Live evaluation requires POSIX private-file support")
 def test_judge_uses_configured_streaming_for_real_provider_requests(tmp_path, monkeypatch, streaming):
     instance = SimpleNamespace(
         instance_id="fixture-case",

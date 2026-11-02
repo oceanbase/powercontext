@@ -22,6 +22,7 @@ import json
 from pathlib import Path
 
 from .dataset import DEFAULT_DATASET, offline
+from .identity import ConfigurationIdentityError
 from .judging import judge
 from .report import build_report
 from .runner import run
@@ -81,6 +82,13 @@ def main() -> None:
     for key in ("iterations", "repeats", "concurrency", "timeout", "max_output_tokens"):
         if getattr(args, key, None) is not None and getattr(args, key) <= 0:
             parser.error(f"{key} must be positive")
+    try:
+        _execute(args, parser)
+    except ConfigurationIdentityError as error:
+        parser.error(str(error))
+
+
+def _execute(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     if args.command == "offline":
         print(json.dumps(offline(args.dataset, args.output, iterations=args.iterations), ensure_ascii=False, indent=2))
     elif args.command == "run":

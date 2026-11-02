@@ -78,6 +78,26 @@ class ConfigurationIdentityError(ValueError):
     """A safe diagnostic that never includes configuration values."""
 
 
+def supports_private_identity() -> bool:
+    """Whether this platform provides the required private-file primitives."""
+    return (
+        os.name == "posix"
+        and hasattr(os, "O_NOFOLLOW")
+        and hasattr(os, "O_NONBLOCK")
+        and callable(getattr(os, "getuid", None))
+    )
+
+
+def require_private_identity_support() -> None:
+    """Reject unsupported live execution before credentials, files, or services."""
+    if not supports_private_identity():
+        raise ConfigurationIdentityError(  # noqa: TRY003
+            "Live input-encoding evaluation requires POSIX private-file support; Windows is not supported. "
+            "Use a POSIX host for live execution, or use offline, report, judge --validate-only, "
+            "or semantic-probe --dry-run."
+        )
+
+
 def _canonical(value: Any, *, private: bool) -> Any:
     if isinstance(value, (SecretStr, SecretBytes)):
         return _canonical(value.get_secret_value(), private=True) if private else "**********"
@@ -207,6 +227,7 @@ def prepare_configuration_identity(
     argument allows controlled local verification without reading credentials.
     Values and key material are never returned, written to JSON, or put in errors.
     """
+    require_private_identity_support()
     if previous is None and (directory / "manifest.json").exists():
         raise ConfigurationIdentityError("Existing run lacks private configuration identity; use a new output")  # noqa: TRY003
     if previous is not None and previous.get("schema") != IDENTITY_SCHEMA:

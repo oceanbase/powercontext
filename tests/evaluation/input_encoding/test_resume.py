@@ -22,7 +22,11 @@ from types import SimpleNamespace
 import pytest
 
 from evaluation.performance.input_encoding import runner
-from evaluation.performance.input_encoding.identity import ConfigurationIdentityError
+from evaluation.performance.input_encoding.identity import ConfigurationIdentityError, supports_private_identity
+
+pytestmark = pytest.mark.skipif(
+    not supports_private_identity(), reason="Live evaluation requires POSIX private-file support"
+)
 
 
 class RuntimeBoundaryReached(RuntimeError):
