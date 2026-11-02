@@ -80,6 +80,8 @@ struct FakeGate {
     prepare_result: Mutex<Option<Result<PrepareContextResult, GateError>>>,
     prepare_queries: Mutex<Vec<String>>,
     captured: Mutex<Vec<(String, String)>>,
+    /// 设置后，prepare 在返回前等待屏障，用于让并发请求的准备互相重叠。
+    prepare_barrier: Mutex<Option<Arc<tokio::sync::Barrier>>>,
 }
 
 impl GateClient for FakeGate {
@@ -127,7 +129,13 @@ impl GateClient for FakeGate {
                     content: None,
                     content_bytes: 0,
                 })));
-        async move { step }
+        let barrier = self.prepare_barrier.lock().unwrap().clone();
+        async move {
+            if let Some(barrier) = barrier {
+                barrier.wait().await;
+            }
+            step
+        }
     }
 
     async fn capture(
@@ -305,6 +313,7 @@ fn harness(
         seen: Mutex::new(Vec::new()),
         prepared_seen: Mutex::new(Vec::new()),
         prepare_result: Mutex::new(None),
+        prepare_barrier: Mutex::new(None),
         prepare_queries: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
     });
@@ -1755,4 +1764,53 @@ async fn requests_without_a_conversation_id_never_inherit_an_injection() {
     let sent = sends(&gate);
     assert_eq!(sent[0].1.len(), 1);
     assert!(sent[1].1.is_empty());
+}
+
+#[tokio::test]
+async fn concurrent_requests_of_a_turn_commit_one_prepared_value() {
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(3), (0..3).map(|_| raw_response()).collect(), 2);
+    // 两个并发请求都错过缓存并同时准备：第一个得到块，第二个得到空结果。
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
+    *gate.prepare_barrier.lock().unwrap() = Some(Arc::new(tokio::sync::Barrier::new(2)));
+    let r = RendererRef(renderer.clone());
+    let (a, b) = tokio::join!(
+        executor.run(tool_loop_call("hello", 0, false), &r, &NoopEvidenceSink),
+        executor.run(tool_loop_call("hello", 1, false), &r, &NoopEvidenceSink),
+    );
+    assert!(matches!(a, ManagedOutcome::Released { .. }));
+    assert!(matches!(b, ManagedOutcome::Released { .. }));
+    assert_eq!(
+        gate.prepare_queries.lock().unwrap().len(),
+        2,
+        "both requests prepared concurrently"
+    );
+    *gate.prepare_barrier.lock().unwrap() = None;
+
+    // 稍后的同一回合请求重放已提交的那一份。
+    executor
+        .run(tool_loop_call("hello", 2, false), &r, &NoopEvidenceSink)
+        .await;
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    let injected = |(body, declared): &(String, Vec<PreparedContextLocation>)| {
+        declared.first().map(|d| {
+            let body: serde_json::Value = serde_json::from_str(body).unwrap();
+            let text = body
+                .pointer(&d.location.pointer)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_owned();
+            (
+                d.binding.clone(),
+                text[..d.location.end_byte as usize].to_owned(),
+            )
+        })
+    };
+    let sent = sends(&gate);
+    assert_eq!(sent.len(), 3);
+    // 三个请求注入同一个值（同为同一个块，或同为不注入）。
+    assert_eq!(injected(&sent[0]), injected(&sent[1]));
+    assert_eq!(injected(&sent[1]), injected(&sent[2]));
 }
