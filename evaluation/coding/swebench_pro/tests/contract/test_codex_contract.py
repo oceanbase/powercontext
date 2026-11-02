@@ -91,6 +91,8 @@ EXPECTED_COMMON = (
     "gpt-5.6-sol",
     "-c",
     'model_reasoning_effort="medium"',
+    "-c",
+    'web_search="disabled"',
 )
 
 
@@ -179,6 +181,48 @@ def test_codex_runner_writes_exact_jsonl_and_summary_artifacts(tmp_path: Path) -
     }
     assert outcome.last_message == "last"
     assert outcome.usage == {"input_tokens": 7, "output_tokens": 3}
+    assert outcome.isolation_flags == ()
+
+
+def _completed(item: dict[str, object]) -> str:
+    return json.dumps({"type": "item.completed", "item": item}) + "\n"
+
+
+@pytest.mark.parametrize(
+    ("items", "flags"),
+    [
+        # Shapes from Codex 0.145 runs on SWE-bench Pro images.
+        (
+            [{"id": "item_15", "type": "web_search", "query": "site:github.com/ansible/ansible host_label"}],
+            ("web_search",),
+        ),
+        (
+            [
+                {"type": "command_execution", "command": "/bin/bash -lc 'curl -IL https://github.com/ansible/ansible'"},
+                {"type": "command_execution", "command": "/bin/bash -lc 'git fetch origin devel'"},
+            ],
+            ("network_command",),
+        ),
+        (
+            [
+                {"type": "command_execution", "command": "/bin/bash -lc \"rg -n 'host_label' lib && git log -5\""},
+                {"type": "command_execution", "command": "/bin/bash -lc 'python -m pytest test/units -q'"},
+            ],
+            (),
+        ),
+    ],
+)
+def test_codex_runner_flags_web_search_and_network_commands(
+    tmp_path: Path, items: list[dict[str, object]], flags: tuple[str, ...]
+) -> None:
+    raw = "".join(_completed(item) for item in items) + _completed({"type": "agent_message", "text": "done"})
+    outcome = CodexRunner(FakeRunner(command_result(raw))).run(
+        CodexInvocation(Arm.OFF, inside_disposable_container=True),
+        prompt=b"prompt",
+        cwd=tmp_path,
+        store=ArtifactStore(tmp_path / "result"),
+    )
+    assert outcome.isolation_flags == flags
 
 
 def test_codex_runner_can_disable_retained_output_secret_scan(tmp_path: Path) -> None:
