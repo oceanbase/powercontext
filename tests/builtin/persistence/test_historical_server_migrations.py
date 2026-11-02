@@ -571,6 +571,14 @@ def test_dependent_views_survive_rebuild_and_retry(tmp_path, name, interruption)
         ("(NULLIF('', ''))", False),
         ("(CAST(NULL AS TEXT))", False),
         ("(1/0)", False),
+        ("(NULLIF(last_insert_rowid() > 0, 1))", False),
+        ("(NULLIF(total_changes() > 0, 1))", False),
+        ("(CASE WHEN random() = 0 THEN NULL ELSE 1 END)", False),
+        ("(datetime('now'))", False),
+        ("(date('2026-01-01'))", True),
+        ("CURRENT_DATE", True),
+        ("CURRENT_TIME", True),
+        ("CURRENT_TIMESTAMP", True),
         ("(CAST(7 AS TEXT))", True),
         ("'NULL'", True),
         ('"NULL"', True),
@@ -614,10 +622,14 @@ def test_required_extension_defaults_must_allow_source_writes(tmp_path, default,
         repository = SourceRepository((CONTENT_SOURCE_ADAPTER,))
         async with SQLiteProfile.open(SQLiteConfig(url=f"sqlite+aiosqlite:///{runner.database}"), tables=()) as profile:
             async with profile.database.transaction() as connection:
-                stored = await repository.add(connection, "extension-scope", value)
+                for scope in ("scope-one", "scope-two"):
+                    stored = await repository.add(connection, scope, value)
+                    assert (await repository.get(connection, scope, stored.ref)).value == value
+                    assert await repository.journal_position(connection, scope) == 1
             async with profile.database.transaction() as connection:
-                assert (await repository.get(connection, "extension-scope", stored.ref)).value == value
-                assert await repository.journal_position(connection, "extension-scope") == 1
+                for scope in ("scope-one", "scope-two"):
+                    assert (await repository.get(connection, scope, stored.ref)).value == value
+                    assert await repository.journal_position(connection, scope) == 1
 
     asyncio.run(write_and_read())
 

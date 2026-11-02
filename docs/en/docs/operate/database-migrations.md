@@ -36,7 +36,10 @@ Independent tables and their rows are preserved during registered upgrades and i
 independent table to a recognized 1.3.0 or 1.4.0 source does not schedule historical conversion. This does not authorize
 arbitrary layouts: required managed structure, domain state, vector configuration and recovery evidence must still pass
 validation. An extra required column must have a usable default; SQL `DEFAULT NULL` cannot satisfy `NOT NULL`, whereas
-the string default `'NULL'` remains usable.
+the string default `'NULL'` remains usable. SQLite accepts non-NULL deterministic expressions and direct
+`CURRENT_DATE`, `CURRENT_TIME` and `CURRENT_TIMESTAMP` defaults. Other defaults depending on connection state,
+randomness or the current clock are rejected before admission; one successful evaluation cannot establish that
+later writes can omit a required column.
 
 On seekDB and OceanBase, registered column additions and modifications explicitly use their declared character set
 and collation when those are specified by the migration.

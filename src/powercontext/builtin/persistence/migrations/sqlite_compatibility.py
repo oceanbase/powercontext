@@ -141,11 +141,22 @@ def _default(value: str | None, column_type: str) -> tuple[str, ...] | None:
 def _usable_default(expression: str | None) -> bool:
     if expression is None:
         return False
-    # Evaluate constant defaults on an isolated SQLite connection, never with
-    # application tables, user functions or loadable extensions available.
+    # These direct SQL defaults always produce a non-NULL timestamp string.
+    if re.fullmatch(r"[\s(]*CURRENT_(?:DATE|TIME|TIMESTAMP)[\s)]*", expression, re.IGNORECASE):
+        return True
+    # SQLite enforces deterministic functions in generated expressions, including
+    # date/time arguments at evaluation. A successful one-off SELECT would also
+    # accept defaults depending on connection state, randomness or the clock.
+    prefix = "_pc_default"
+    while any(token.startswith(prefix) for token in sql_tokens(expression)):
+        prefix += "_"
     connection = sqlite3.connect(":memory:")
     try:
-        return bool(connection.execute("SELECT (" + expression + ") IS NOT NULL").fetchone()[0])
+        connection.execute(
+            f"CREATE TABLE probe ({prefix}_input INTEGER, {prefix}_value GENERATED ALWAYS AS ({expression}))"
+        )
+        connection.execute(f"INSERT INTO probe ({prefix}_input) VALUES (0)")  # noqa: S608 -- locally generated identifier
+        return bool(connection.execute(f"SELECT {prefix}_value IS NOT NULL FROM probe").fetchone()[0])  # noqa: S608 -- locally generated identifier
     except sqlite3.Error:
         return False
     finally:
@@ -301,7 +312,7 @@ def differences(connection: Connection, rows: list[list[Any]]) -> tuple[str, ...
                 defaults = {column["name"]: column["default"] for column in inspect(connection).get_columns(name)}
                 for column in required_extensions:
                     if not _usable_default(defaults[column]):
-                        issues.append(f"{name}.{column}: extra required column prevents writes")
+                        issues.append(f"{name}.{column}: extra required column needs a supported non-NULL default")
         elif sql_tokens(actual_sql or "") != sql_tokens(sql or ""):
             issues.append(f"definition differs: {name}")
     for name, (kind, table, _) in actual.items():
