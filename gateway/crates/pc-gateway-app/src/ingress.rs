@@ -85,6 +85,10 @@ struct OpenAiResponsesRequest {
     conversation: Option<String>,
     #[serde(default)]
     stream: Option<bool>,
+    /// 入口未建模的其余顶层字段（Codex 发送 reasoning、include、prompt_cache_key、
+    /// parallel_tool_calls 等）。原样透传，由 Core 的请求字段白名单裁决。
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 pub async fn chat_completions(
@@ -150,6 +154,7 @@ async fn ingress_common(
                 .into_response();
         }
     };
+    let mut client_stream = false;
     let canonical = match format {
         Format::Chat => {
             let chat: OpenAiChatRequest = match serde_json::from_slice(&body) {
@@ -184,6 +189,7 @@ async fn ingress_common(
                         .into_response()
                 }
             };
+            client_stream = r.stream.unwrap_or(false);
             match to_canonical_responses(r) {
                 Ok(c) => c,
                 Err(msg) => {
@@ -241,7 +247,161 @@ async fn ingress_common(
         .executor
         .run(call, &renderer, state.evidence.as_ref())
         .await;
+    if client_stream {
+        return respond_responses_sse(outcome);
+    }
     respond(outcome)
+}
+
+/// 流式 Responses 客户端：把放行（或允许降级直通）后的完整响应重放为 Responses SSE 事件。
+/// 非 200 或无法解析的结果按普通 JSON 返回，错误状态码不被包装成流；
+/// 降级直通的流保留 `x-pc-degraded` 头。
+fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
+    let (body, degraded) = match &outcome {
+        ManagedOutcome::Released {
+            status: 200, body, ..
+        } => (body, false),
+        ManagedOutcome::Degraded {
+            status: 200, body, ..
+        } => (body, true),
+        _ => return respond(outcome),
+    };
+    let Ok(resp) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return respond(outcome);
+    };
+    let mut response = (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/event-stream")],
+        responses_sse(&resp),
+    )
+        .into_response();
+    if degraded {
+        response.headers_mut().insert(
+            "x-pc-degraded",
+            header::HeaderValue::from_static("passthrough_without_memory"),
+        );
+    }
+    response
+}
+
+/// 事件序列：response.created → 每个 output item 的 output_item.added/done
+/// （message 的每个内容部件在其间重放 content_part.added → 一次性 delta → done → content_part.done）
+/// → 按响应状态选择的终止事件（completed / incomplete / failed）。
+fn responses_sse(resp: &serde_json::Value) -> String {
+    use serde_json::{json, Value};
+    let mut out = String::new();
+    let mut seq: u64 = 0;
+    let mut push = |event: &str, mut data: Value| {
+        data["type"] = json!(event);
+        data["sequence_number"] = json!(seq);
+        seq += 1;
+        out.push_str("event: ");
+        out.push_str(event);
+        out.push_str("\ndata: ");
+        out.push_str(&data.to_string());
+        out.push_str("\n\n");
+    };
+    let mut created = resp.clone();
+    created["status"] = json!("in_progress");
+    created["output"] = json!([]);
+    if created.get("error").is_some() {
+        created["error"] = Value::Null;
+    }
+    push("response.created", json!({"response": created}));
+    let items = resp.get("output").and_then(Value::as_array);
+    for (output_index, item) in items.into_iter().flatten().enumerate() {
+        let parts = match (
+            item.get("type").and_then(Value::as_str),
+            item.get("content"),
+        ) {
+            (Some("message"), Some(Value::Array(parts))) => Some(parts),
+            _ => None,
+        };
+        let Some(parts) = parts else {
+            push(
+                "response.output_item.added",
+                json!({"output_index": output_index, "item": item}),
+            );
+            push(
+                "response.output_item.done",
+                json!({"output_index": output_index, "item": item}),
+            );
+            continue;
+        };
+        // 与上游流一致：added 时 message 尚无内容，内容由随后的部件事件补齐。
+        let mut added = item.clone();
+        added["content"] = json!([]);
+        added["status"] = json!("in_progress");
+        push(
+            "response.output_item.added",
+            json!({"output_index": output_index, "item": added}),
+        );
+        let item_id = item.get("id").cloned().unwrap_or(Value::Null);
+        for (content_index, part) in parts.iter().enumerate() {
+            let at = json!({"item_id": item_id, "output_index": output_index, "content_index": content_index});
+            let with = |mut base: Value, extra: Value| {
+                if let (Some(b), Some(e)) = (base.as_object_mut(), extra.as_object()) {
+                    b.extend(e.clone());
+                }
+                base
+            };
+            let mut empty = part.clone();
+            let text_kind = match part.get("type").and_then(Value::as_str) {
+                Some("output_text") => {
+                    empty["text"] = json!("");
+                    if empty.get("annotations").is_some() {
+                        empty["annotations"] = json!([]);
+                    }
+                    if empty.get("logprobs").is_some() {
+                        empty["logprobs"] = json!([]);
+                    }
+                    Some(("text", "response.output_text"))
+                }
+                Some("refusal") => {
+                    empty["refusal"] = json!("");
+                    Some(("refusal", "response.refusal"))
+                }
+                _ => None,
+            };
+            push(
+                "response.content_part.added",
+                with(at.clone(), json!({"part": empty})),
+            );
+            if let Some((field, prefix)) = text_kind {
+                let text = part.get(field).cloned().unwrap_or(json!(""));
+                let is_text = field == "text";
+                let mut delta = with(at.clone(), json!({"delta": text}));
+                let mut done = with(at.clone(), json!({ field: text }));
+                if is_text {
+                    let logprobs = json!({
+                        "logprobs": part.get("logprobs").filter(|value| !value.is_null()).cloned().unwrap_or(json!([]))
+                    });
+                    delta = with(delta, logprobs.clone());
+                    done = with(done, logprobs);
+                }
+                push(&format!("{prefix}.delta"), delta);
+                push(&format!("{prefix}.done"), done);
+            }
+            push(
+                "response.content_part.done",
+                with(at, json!({"part": part})),
+            );
+        }
+        push(
+            "response.output_item.done",
+            json!({"output_index": output_index, "item": item}),
+        );
+    }
+    // 终止事件取自已获准的响应状态：失败或不完整的响应不能被报告为完成。
+    let has_error = resp.get("error").is_some_and(|e| !e.is_null());
+    let terminal = match resp.get("status").and_then(Value::as_str) {
+        _ if has_error => "response.failed",
+        Some("failed") | Some("cancelled") => "response.failed",
+        Some("incomplete") => "response.incomplete",
+        _ => "response.completed",
+    };
+    push(terminal, json!({"response": resp}));
+    out
 }
 
 fn bearer_headers(key: &str) -> Vec<(String, String)> {
@@ -291,6 +451,7 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
         tool_choice: chat.tool_choice,
         store: None,
         previous_response_id: None,
+        passthrough_fields: None,
         token_limit_field: if chat.max_completion_tokens.is_some() {
             Some("max_completion_tokens".into())
         } else if chat.max_tokens.is_some() {
@@ -302,23 +463,21 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
     })
 }
 
-/// Responses 入口 → 规范类型：消息项照常映射；
-/// Responses 专有 item（function_call 等）原样封进 content，
-/// 由 `OpenAiResponsesRenderer` 按原样作为顶层 input item 透出（无跨格式转换）。
+/// Responses 入口 → 规范类型。
+///
+/// 只有普通用户消息进入规范形态（注入与召回查询只需要它们）。其余 input item
+/// 一律原样封装为单元素 content，由 `OpenAiResponsesRenderer` 原样作为顶层 item 透出：
+/// developer/system 消息保留原 role 与 type，function_call 等专有 item、以及
+/// Codex 放工具定义的 `additional_tools` 这类不在白名单里的 item 也不被改写。
 fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest, String> {
     let mut messages = Vec::with_capacity(r.input.len());
     for item in r.input {
-        let role_str = item.get("role").and_then(|v| v.as_str()).unwrap_or("");
-        let role = match role_str {
-            "system" | "developer" => Role::System,
-            "user" => Role::User,
-            "assistant" => Role::Assistant,
-            "tool" => Role::Tool,
-            // 无 role 的顶层 item（function_call/function_call_output 等）：
-            // 原样保留，role 占位为 tool。
-            _ => Role::Tool,
-        };
-        if role_str.is_empty() {
+        let role = item.get("role").and_then(|v| v.as_str()).unwrap_or("");
+        let kind = item
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("message");
+        if role != "user" || kind != "message" {
             messages.push(CanonicalMessage {
                 role: Role::Tool,
                 content: vec![item],
@@ -334,13 +493,16 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
             _ => vec![],
         };
         messages.push(CanonicalMessage {
-            role,
+            role: Role::User,
             content,
             content_null: false,
             tool_calls: None,
             tool_call_id: None,
         });
     }
+    let mut extra = r.extra;
+    // client_metadata 是客户端本地的回合元数据（Codex 的 x-codex-turn-metadata），不是发给模型的字段。
+    extra.remove("client_metadata");
     Ok(CanonicalRequest {
         model: r.model,
         messages,
@@ -350,7 +512,10 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
         output_limits: OutputLimits {
             max_output_tokens: r.max_output_tokens,
         },
-        stream: r.stream.unwrap_or(false),
+        // 上游一律非流式：发送检查目前只支持 openai-chat 的流式，Responses 流式请求会被 withhold。
+        // 客户端要求流式时，由 `respond_responses_sse` 在 before_release 放行后重放为 SSE，
+        // 保持“检查通过前不释放任何内容”的语义。
+        stream: false,
         // Responses 的结构化输出在 text.format，不在 response_format（Chat 字段）。
         response_format: r.text,
         tool_choice: r.tool_choice,
@@ -358,6 +523,7 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
         previous_response_id: r.previous_response_id,
         conversation: r.conversation,
         token_limit_field: None,
+        passthrough_fields: (!extra.is_empty()).then_some(extra),
     })
 }
 
@@ -459,6 +625,311 @@ mod tests {
         let t = &canonical.messages[1];
         assert_eq!(t.tool_call_id.as_deref(), Some("call_1"));
         assert_eq!(t.content[0], serde_json::json!("sunny"));
+    }
+
+    /// 按 Codex 0.145 的真实请求形态构造（工具定义在 additional_tools item 里）。
+    fn codex_request(stream: bool) -> serde_json::Value {
+        serde_json::json!({
+            "model": "gpt-5.6-sol",
+            "input": [
+                {"type": "additional_tools", "role": "developer",
+                 "tools": [{"type": "custom", "name": "exec", "description": "Run code"}]},
+                {"type": "message", "role": "developer",
+                 "content": [{"type": "input_text", "text": "base instructions"}]},
+                {"role": "developer", "content": "shorthand developer message"},
+                {"type": "message", "role": "user",
+                 "content": [{"type": "input_text", "text": "Fix the bug"}]},
+                {"type": "reasoning", "summary": [], "encrypted_content": "gAAAA"},
+                {"type": "custom_tool_call", "call_id": "c1", "name": "exec", "input": "ls"},
+                {"type": "custom_tool_call_output", "call_id": "c1", "output": "util.py"}
+            ],
+            "tool_choice": "auto",
+            "parallel_tool_calls": false,
+            "reasoning": {"effort": "low", "context": "all_turns"},
+            "store": false,
+            "stream": stream,
+            "include": ["reasoning.encrypted_content"],
+            "prompt_cache_key": "session-1",
+            "client_metadata": {"x-codex-turn-metadata": "{}"}
+        })
+    }
+
+    fn render_responses(client: &serde_json::Value) -> serde_json::Value {
+        use pc_gateway_protocol::WireRenderer;
+        let r: OpenAiResponsesRequest = serde_json::from_value(client.clone()).unwrap();
+        let canonical = to_canonical_responses(r).unwrap();
+        let payload = pc_gateway_protocol::OpenAiResponsesRenderer
+            .render(&canonical, None)
+            .unwrap();
+        serde_json::from_slice(&payload.bytes).unwrap()
+    }
+
+    #[test]
+    fn responses_ingress_forwards_non_user_items_verbatim() {
+        let client = codex_request(false);
+        let upstream = render_responses(&client);
+        let sent = client["input"].as_array().unwrap();
+        let got = upstream["input"].as_array().unwrap();
+        assert_eq!(got.len(), sent.len());
+        for (i, (s, g)) in sent.iter().zip(got).enumerate() {
+            if s["role"] == "user" {
+                // 用户消息走规范形态（供注入使用），内容部件不变。
+                assert_eq!(g["role"], "user");
+                assert_eq!(g["content"], s["content"]);
+            } else {
+                assert_eq!(g, s, "input[{i}] must reach the upstream unchanged");
+            }
+        }
+    }
+
+    #[test]
+    fn responses_ingress_passes_through_unmodeled_fields() {
+        let upstream = render_responses(&codex_request(false));
+        for field in [
+            "reasoning",
+            "include",
+            "prompt_cache_key",
+            "parallel_tool_calls",
+        ] {
+            assert_eq!(
+                upstream[field],
+                codex_request(false)[field],
+                "{field} must be forwarded"
+            );
+        }
+        assert!(
+            upstream.get("client_metadata").is_none(),
+            "client-local metadata is not sent"
+        );
+        assert_eq!(upstream["tool_choice"], "auto");
+        assert_eq!(upstream["store"], false);
+    }
+
+    #[test]
+    fn passthrough_fields_never_override_modeled_ones() {
+        let r: OpenAiResponsesRequest = serde_json::from_value(serde_json::json!({
+            "model": "m", "input": [], "store": false, "metadata": {"k": "v"}
+        }))
+        .unwrap();
+        let canonical = to_canonical_responses(r).unwrap();
+        let extra = canonical.passthrough_fields.clone().unwrap();
+        assert!(extra.contains_key("metadata"));
+        assert!(
+            !extra.contains_key("store"),
+            "modeled fields are not collected twice"
+        );
+    }
+
+    #[test]
+    fn streaming_responses_clients_get_a_non_streaming_upstream_request() {
+        let upstream = render_responses(&codex_request(true));
+        assert_eq!(upstream["stream"], false);
+    }
+
+    fn sse_events(text: &str) -> Vec<serde_json::Value> {
+        text.split("\n\n")
+            .filter(|e| !e.is_empty())
+            .map(|e| {
+                let (head, data) = e.split_once("\ndata: ").unwrap();
+                let event: serde_json::Value = serde_json::from_str(data).unwrap();
+                assert_eq!(head.strip_prefix("event: "), event["type"].as_str());
+                event
+            })
+            .collect()
+    }
+
+    fn event_types(events: &[serde_json::Value]) -> Vec<&str> {
+        events.iter().map(|e| e["type"].as_str().unwrap()).collect()
+    }
+
+    #[test]
+    fn released_responses_are_replayed_as_sse_events() {
+        let resp = serde_json::json!({
+            "id": "resp_1", "object": "response", "status": "completed", "model": "m",
+            "output": [
+                {"type": "reasoning", "summary": []},
+                {"id": "msg_1", "type": "message", "role": "assistant", "status": "completed",
+                 "content": [{"type": "output_text", "text": "fixture-ok", "annotations": []}]}
+            ],
+            "usage": {"input_tokens": 3, "output_tokens": 1}
+        });
+        let events = sse_events(&responses_sse(&resp));
+        assert_eq!(
+            event_types(&events),
+            [
+                "response.created",
+                "response.output_item.added",
+                "response.output_item.done",
+                "response.output_item.added",
+                "response.content_part.added",
+                "response.output_text.delta",
+                "response.output_text.done",
+                "response.content_part.done",
+                "response.output_item.done",
+                "response.completed"
+            ]
+        );
+        assert_eq!(events[0]["response"]["status"], "in_progress");
+        assert_eq!(events[3]["item"]["content"], serde_json::json!([]));
+        assert_eq!(events[8]["item"], resp["output"][1]);
+        assert_eq!(events[9]["response"], resp);
+        for (i, e) in events.iter().enumerate() {
+            assert_eq!(e["sequence_number"], i);
+        }
+    }
+
+    #[test]
+    fn replayed_text_reaches_delta_stream_consumers() {
+        let resp = serde_json::json!({
+            "id": "resp_1", "object": "response", "status": "completed",
+            "output": [
+                {"id": "msg_1", "type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": "fixture-", "annotations": []},
+                             {"type": "refusal", "refusal": "no"},
+                             {"type": "output_text", "text": "ok", "annotations": []}]}
+            ]
+        });
+        let events = sse_events(&responses_sse(&resp));
+        // 只读 output_text.delta 的标准消费循环必须拿到完整答案。
+        let text: String = events
+            .iter()
+            .filter(|e| e["type"] == "response.output_text.delta")
+            .map(|e| e["delta"].as_str().unwrap())
+            .collect();
+        assert_eq!(text, "fixture-ok");
+        let refusal = events
+            .iter()
+            .find(|e| e["type"] == "response.refusal.delta")
+            .unwrap();
+        assert_eq!(refusal["delta"], "no");
+        assert_eq!(refusal["content_index"], 1);
+        let done = events
+            .iter()
+            .find(|e| e["type"] == "response.output_text.done" && e["content_index"] == 2)
+            .unwrap();
+        assert_eq!(done["text"], "ok");
+        assert_eq!(done["item_id"], "msg_1");
+    }
+
+    #[test]
+    fn replay_terminal_event_follows_response_status() {
+        let failed = serde_json::json!({
+            "id": "resp_1", "object": "response", "status": "failed", "output": [],
+            "error": {"code": "server_error", "message": "upstream failed"}
+        });
+        let events = sse_events(&responses_sse(&failed));
+        assert_eq!(
+            event_types(&events),
+            ["response.created", "response.failed"]
+        );
+        assert_eq!(events[1]["response"]["error"]["code"], "server_error");
+        assert!(events[0]["response"]["error"].is_null());
+
+        let incomplete = serde_json::json!({
+            "id": "resp_2", "object": "response", "status": "incomplete", "output": [],
+            "incomplete_details": {"reason": "max_output_tokens"}
+        });
+        let events = sse_events(&responses_sse(&incomplete));
+        assert_eq!(event_types(&events).last(), Some(&"response.incomplete"));
+    }
+
+    #[tokio::test]
+    async fn replayed_text_events_preserve_logprobs() {
+        let logprobs = serde_json::json!([{
+            "token": "hello", "logprob": -0.125, "bytes": [104, 101, 108, 108, 111],
+            "top_logprobs": [{"token": "hi", "logprob": -2.5, "bytes": [104, 105]}]
+        }]);
+        let resp = serde_json::json!({
+            "id": "resp_1", "object": "response", "status": "completed",
+            "output": [{
+                "id": "msg_1", "type": "message", "role": "assistant", "status": "completed",
+                "content": [
+                    {"type": "output_text", "text": "hello", "annotations": [], "logprobs": logprobs},
+                    {"type": "output_text", "text": " world", "annotations": [], "logprobs": null},
+                    {"type": "output_text", "text": "!", "annotations": []}
+                ]
+            }]
+        });
+        for degraded in [false, true] {
+            let body = bytes::Bytes::from(serde_json::to_vec(&resp).unwrap());
+            let outcome = if degraded {
+                ManagedOutcome::Degraded {
+                    status: 200,
+                    content_type: "application/json".into(),
+                    body,
+                }
+            } else {
+                ManagedOutcome::Released {
+                    binding: None,
+                    status: 200,
+                    content_type: "application/json".into(),
+                    body,
+                }
+            };
+            let response = respond_responses_sse(outcome);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let events = sse_events(std::str::from_utf8(&body).unwrap());
+            let added = events
+                .iter()
+                .find(|e| e["type"] == "response.content_part.added" && e["content_index"] == 0)
+                .unwrap();
+            assert_eq!(added["part"]["logprobs"], serde_json::json!([]));
+            for (content_index, expected) in [
+                (0, logprobs.clone()),
+                (1, serde_json::json!([])),
+                (2, serde_json::json!([])),
+            ] {
+                for kind in ["response.output_text.delta", "response.output_text.done"] {
+                    let event = events
+                        .iter()
+                        .find(|e| e["type"] == kind && e["content_index"] == content_index)
+                        .unwrap();
+                    assert_eq!(event["logprobs"], expected);
+                }
+            }
+            let done = events
+                .iter()
+                .find(|e| e["type"] == "response.content_part.done" && e["content_index"] == 0)
+                .unwrap();
+            assert_eq!(done["part"], resp["output"][0]["content"][0]);
+            assert_eq!(events.last().unwrap()["response"], resp);
+        }
+    }
+
+    #[test]
+    fn degraded_responses_are_replayed_as_a_marked_stream() {
+        let outcome = ManagedOutcome::Degraded {
+            status: 200,
+            content_type: "application/json".into(),
+            body: bytes::Bytes::from_static(
+                br#"{"id":"resp_1","object":"response","status":"completed","output":[]}"#,
+            ),
+        };
+        let response = respond_responses_sse(outcome);
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/event-stream"
+        );
+        assert_eq!(
+            response.headers()["x-pc-degraded"],
+            "passthrough_without_memory"
+        );
+    }
+
+    #[test]
+    fn upstream_errors_are_not_wrapped_in_a_stream() {
+        let outcome = ManagedOutcome::Released {
+            binding: None,
+            status: 400,
+            content_type: "application/json".into(),
+            body: bytes::Bytes::from_static(br#"{"error":{"message":"bad"}}"#),
+        };
+        let response = respond_responses_sse(outcome);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
     }
 
     #[test]
