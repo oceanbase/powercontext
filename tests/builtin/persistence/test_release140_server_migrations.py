@@ -277,3 +277,23 @@ def test_release140_bridge_preserves_ordinary_and_generated_extensions(tmp_path)
         connection.execute("UPDATE pc_artifacts SET extension_note='Changed'")
         assert connection.execute("SELECT extension_value FROM pc_artifacts").fetchone() == ("Changed:1",)
     assert not _apply(runner).changed
+
+
+def test_release140_bridge_preserves_dependent_views(tmp_path):
+    _, _, runner = _source(tmp_path)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("CREATE VIEW custom_artifacts AS SELECT artifact_id,content FROM pc_artifacts")
+        connection.execute("CREATE VIEW custom_nested AS SELECT * FROM custom_artifacts")
+        before = connection.execute("SELECT * FROM custom_nested").fetchall()
+        definitions = connection.execute(
+            "SELECT name,sql FROM sqlite_schema WHERE name LIKE 'custom_%' ORDER BY name"
+        ).fetchall()
+    _apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT * FROM custom_nested").fetchall() == before
+        assert (
+            connection.execute("SELECT name,sql FROM sqlite_schema WHERE name LIKE 'custom_%' ORDER BY name").fetchall()
+            == definitions
+        )
+    assert not _apply(runner).changed

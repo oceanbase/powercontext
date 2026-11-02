@@ -296,6 +296,40 @@ def verify(connection: Connection, bundle: MigrationBundle, revision: str | None
 
 
 @contextmanager
+def preserve_rebuild_views(connection: Connection, replacements: dict[str, str]) -> Iterator[None]:
+    """Keep references to final names while replacement tables take their place."""
+    previous = connection.exec_driver_sql("PRAGMA legacy_alter_table").scalar_one()
+
+    def is_replacement(statement):
+        tokens = sql_tokens(statement)
+        return (
+            len(tokens) == 6
+            and tokens[:2] == ("alter", "table")
+            and tokens[3:5] == ("rename", "to")
+            and replacements.get(tokens[2]) == tokens[5]
+        )
+
+    def before_execute(conn, _cursor, statement, *_args):
+        if is_replacement(statement):
+            # Modern RENAME validates views while their final table name is
+            # temporarily absent. Keep those references intact for this swap.
+            conn.exec_driver_sql("PRAGMA legacy_alter_table=ON")
+
+    def after_execute(conn, _cursor, statement, *_args):
+        if is_replacement(statement):
+            conn.exec_driver_sql(f"PRAGMA legacy_alter_table={int(previous)}")
+
+    event.listen(connection, "before_cursor_execute", before_execute)
+    event.listen(connection, "after_cursor_execute", after_execute)
+    try:
+        yield
+    finally:
+        event.remove(connection, "before_cursor_execute", before_execute)
+        event.remove(connection, "after_cursor_execute", after_execute)
+        connection.exec_driver_sql(f"PRAGMA legacy_alter_table={int(previous)}")
+
+
+@contextmanager
 def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revision: str) -> Iterator[None]:  # noqa: C901 -- Adapt declared creation and preserve independent extensions.
     """Satisfy additive schema operations already completed by a released tool.
 
@@ -377,9 +411,18 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
                 return "SELECT 1", ()
         return statement, parameters
 
+    replacements = {}
+    if revision == "s1400":
+        replacements = {rebuild_prefix + name: name for name in expected}
+        if bundle.source_revision != "r1400":
+            replacements.update({
+                "pc_dream_upgrade_" + name.removeprefix("pc_"): name
+                for name in ("pc_candidate_heads", "pc_candidate_versions")
+            })
     event.listen(connection, "before_cursor_execute", before_execute, retval=True)
     try:
-        yield
+        with preserve_rebuild_views(connection, replacements):
+            yield
         # Frozen table rebuilds drop attached indexes. Restore independently
         # owned indexes whose table survives; registered changes retain priority.
         for _, name, table, sql in extra_indexes:

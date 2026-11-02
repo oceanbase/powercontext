@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager, closing
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine, event
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference.models import EmbeddingResult
@@ -479,4 +479,80 @@ def test_memory_lineage_is_archived_without_accepting_unmapped_data(tmp_path, un
         assert connection.execute("SELECT payload FROM pc_sources WHERE source_id='evidence'").fetchone() == (
             b'{"text":"Preserved source evidence."}',
         )
+    assert not apply(runner).changed
+
+
+@pytest.mark.parametrize(
+    ("name", "interruption"),
+    [
+        ("first-release", None),
+        ("evolved-atomic", None),
+        ("evolved-atomic", "pc_historical_pc_artifact_lineage_sources"),
+        ("evolved-atomic", "pc_full_upgrade_pc_artifacts"),
+    ],
+)
+def test_dependent_views_survive_rebuild_and_retry(tmp_path, name, interruption):
+    runner = source(tmp_path, name)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("ALTER TABLE pc_artifact_lineage_sources ADD COLUMN extension_note TEXT")
+        connection.execute("CREATE VIEW custom_artifacts AS SELECT scope_id,artifact_id FROM pc_artifacts")
+        connection.execute("CREATE VIEW custom_lineage AS SELECT scope_id,artifact_id FROM pc_artifact_lineage_sources")
+        connection.execute("CREATE VIEW custom_counts AS SELECT count(*) AS total FROM custom_artifacts")
+        connection.execute("CREATE VIEW custom_candidates AS SELECT candidate_id FROM pc_artifact_candidate_heads")
+        connection.execute("CREATE TABLE extension_audit (total INTEGER)")
+        connection.execute(
+            "CREATE TRIGGER custom_count_write INSTEAD OF UPDATE ON custom_counts "
+            "BEGIN INSERT INTO extension_audit VALUES (NEW.total); END"
+        )
+        definitions = connection.execute(
+            "SELECT name,sql FROM sqlite_schema WHERE name LIKE 'custom_%' AND name!='custom_candidates' ORDER BY name"
+        ).fetchall()
+    before = dump(runner.database)
+    runner.plan()
+    assert dump(runner.database) == before
+    if interruption:
+
+        def interrupt(connection, _cursor, statement, *_args):
+            if statement.startswith("ALTER TABLE") and interruption in statement and "RENAME TO" in statement:
+                # Reference layouts also execute frozen DDL; interrupt only the real database.
+                files = connection.exec_driver_sql("PRAGMA database_list").all()
+                if any(Path(filename) == runner.database for _, _, filename in files if filename):
+                    raise MigrationError("interrupted", "Injected after table replacement")
+
+        event.listen(Engine, "after_cursor_execute", interrupt)
+        try:
+            with pytest.raises(MigrationError, match="interrupted"):
+                apply(runner)
+        finally:
+            event.remove(Engine, "after_cursor_execute", interrupt)
+        if interruption.startswith("pc_historical_"):
+            assert dump(runner.database) == before
+        backup = json.loads(runner.evidence_path.read_text())["backup"]["location"]
+        assert apply(runner).backup_ref == backup
+    else:
+        apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        assert (
+            connection.execute(
+                "SELECT name,sql FROM sqlite_schema WHERE name LIKE 'custom_%' AND name!='custom_candidates' ORDER BY name"
+            ).fetchall()
+            == definitions
+        )
+        assert (
+            connection.execute("SELECT * FROM custom_artifacts").fetchall()
+            == connection.execute("SELECT scope_id,artifact_id FROM pc_artifacts").fetchall()
+        )
+        assert (
+            connection.execute("SELECT * FROM custom_lineage").fetchall()
+            == connection.execute("SELECT scope_id,artifact_id FROM pc_artifact_lineage_sources").fetchall()
+        )
+        assert (
+            connection.execute("SELECT * FROM custom_candidates").fetchall()
+            == connection.execute("SELECT candidate_id FROM pc_candidate_heads").fetchall()
+        )
+        count = connection.execute("SELECT total FROM custom_counts").fetchone()[0]
+        connection.execute("UPDATE custom_counts SET total=total")
+        assert connection.execute("SELECT total FROM extension_audit").fetchall() == [(count,)]
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert not apply(runner).changed
