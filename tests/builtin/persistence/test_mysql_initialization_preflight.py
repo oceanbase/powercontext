@@ -127,7 +127,12 @@ def test_initialization_recovery_defers_seed_checks_only_for_registered_prefix(t
                     config = runner.bundle.config(connection)
                     config.attributes["configuration"] = runner.configuration
                     if target == "s1300":
-                        native_execute(connection, "@mysql_operations.py:initialize_processing", runner.configuration)
+                        native_execute(
+                            connection,
+                            "@mysql_operations.py:initialize_processing",
+                            runner.configuration,
+                            revision=target,
+                        )
                         command.stamp(config, target)
                     else:
                         command.upgrade(config, target)

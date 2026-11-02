@@ -264,7 +264,7 @@ class MySQLSchema:
             self._prefixes[revision] = prefixes
             self._schemas[revision] = copy.deepcopy(inventory)
 
-    def execute(self, connection: Connection, statement: str, configuration: dict[str, Any]) -> None:
+    def execute(self, connection: Connection, statement: str, configuration: dict[str, Any], *, revision: str) -> None:
         if statement.startswith("@"):
             import runpy
 
@@ -274,7 +274,33 @@ class MySQLSchema:
             operation = runpy.run_path(str(self.bundle.snapshot_directory / resource))["execute"]
             operation(connection, "@" + name, configuration)
         else:
-            connection.exec_driver_sql(statement, execution_options={"no_parameters": True})
+            connection.exec_driver_sql(
+                self._column_encoding(statement, revision), execution_options={"no_parameters": True}
+            )
+
+    def _column_encoding(self, statement: str, revision: str) -> str:
+        """Apply declared column encodings independently of historical table defaults."""
+        tokens = _tokens(statement)
+        if tokens[:2] != ["alter", "table"] or tokens[3:5] not in (["add", "column"], ["modify", "column"]):
+            return statement
+        if len(_parts(tokens[5:])) != 1:
+            return statement
+        position = self._statements[revision].index(statement) + 1
+        expected = self._prefixes[revision][position]["tables"][tokens[2]]["columns"][tokens[5]]
+        declared = _column(tokens[5:], {"charset": None, "collation": None})
+        options = ""
+        for option, keyword in (("charset", "CHARACTER SET"), ("collation", "COLLATE")):
+            if declared[option] is None and expected[option] is not None:
+                options += " " + keyword + " " + _quote(expected[option])
+        if not options:
+            return statement
+        # Insert after the type, preserving literal defaults and all other SQL.
+        end = 7
+        if tokens[end : end + 1] == ["("]:
+            _, end = _group(tokens, end)
+        lexemes = [match for match in _LEXEME.finditer(statement) if not match.group().isspace()]
+        offset = lexemes[end - 1].end()
+        return statement[:offset] + options + statement[offset:]
 
     def _extend_embedded_code(self, manifest: dict[str, Any]) -> None:
         resource = manifest.get("mysql_schema_extensions", {}).get("seekdb_code")

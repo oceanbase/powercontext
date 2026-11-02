@@ -512,6 +512,20 @@ def test_historical_memory_upgrades_and_resumes_native_ddl(backend, monkeypatch,
                 _apply(runner, policy="manual")
         plan = runner.plan(backup_policy="manual")
         runner = _full_server_runner(backend, acknowledge_previous_run=(plan.coordination or {}).get("pending_run_id"))
+    if encoding == "gbk":
+        # A committed registered ADD must also be resumable on the old GBK table.
+        def interrupt_added_column(_connection, _cursor, statement, _parameters, _context, _many):
+            if statement.startswith("ALTER TABLE pc_artifacts ADD COLUMN `created_by`"):
+                raise _InterruptedDDL
+
+        event.listen(Engine, "after_cursor_execute", interrupt_added_column)
+        try:
+            with pytest.raises(_InterruptedDDL):
+                _apply(runner, policy="manual")
+        finally:
+            event.remove(Engine, "after_cursor_execute", interrupt_added_column)
+        plan = runner.plan(backup_policy="manual")
+        runner = _full_server_runner(backend, acknowledge_previous_run=(plan.coordination or {}).get("pending_run_id"))
     result = _apply(runner, policy="manual")
     assert result.state == "ready" and runner.verify().state == "ready"
 
@@ -525,6 +539,20 @@ def test_historical_memory_upgrades_and_resumes_native_ddl(backend, monkeypatch,
             ).scalar_one()
             == 1
         )
+
+        columns = mysql_inventory(connection)["tables"]["pc_artifacts"]["columns"]
+        assert columns["created_by"]["charset"] == columns["rollback_reason"]["charset"] == "utf8mb4"
+        connection.execute(
+            text(
+                "INSERT INTO pc_artifacts (scope_id,family,artifact_id,revision,content,created_by,rollback_reason) "
+                "VALUES ('historical-upgrade','experience','encoding-check',1,:content,:author,:reason)"
+            ),
+            {"content": b"{}", "author": "升级😀", "reason": "原因😀"},
+        )
+        connection.commit()
+        assert connection.exec_driver_sql(
+            "SELECT created_by,rollback_reason FROM pc_artifacts WHERE artifact_id='encoding-check'"
+        ).one() == ("升级😀", "原因😀")
 
     backend.connections().run(verify, writable=True)
     # A recovery acknowledgement belongs to the interrupted operation only.
@@ -615,7 +643,7 @@ def test_mysql_vector_upgrade_preserves_space_and_registered_indexes(
         def initialize_source(connection, _identity, _guard):
             baseline = runner.schema.recovery(mysql_inventory(connection), None)
             for statement in baseline.pending_statements:
-                runner.schema.execute(connection, statement, runner.configuration)
+                runner.schema.execute(connection, statement, runner.configuration, revision=baseline.revision)
             connection.execute(
                 text("INSERT INTO pc_topic_memory_retrieval_shape VALUES (1,'hybrid',:profile)"),
                 {"profile": topic_memory_embedding_profile_fingerprint(profile)},
@@ -1074,7 +1102,7 @@ def _load_full_server_baseline(backend: _BackendTarget) -> None:
         source = runner.schema.recovery(mysql_inventory(connection), None)
         assert source.revision == "s1300"
         for statement in source.pending_statements:
-            runner.schema.execute(connection, statement, runner.configuration)
+            runner.schema.execute(connection, statement, runner.configuration, revision=source.revision)
         connection.exec_driver_sql(
             "INSERT INTO pc_scopes (scope_id,title,summary,scope_id_search,title_search,summary_search,version) "
             "VALUES ('historical','retained title','retained summary','historical','retained title','retained summary',1)"

@@ -37,6 +37,11 @@ arbitrary layouts: required managed structure, domain state, vector configuratio
 validation. An extra required column must have a usable default; SQL `DEFAULT NULL` cannot satisfy `NOT NULL`, whereas
 the string default `'NULL'` remains usable.
 
+On seekDB and OceanBase, registered column additions and modifications explicitly use their declared character set
+and collation when those are specified by the migration.
+A historical GBK table default therefore cannot silently change the encoding of a new UTF-8 field.
+Existing table defaults and independent extension fields are not converted by this step.
+
 `plan` exposes `compatibility_steps` and their checksum without changing the database. The existing `apply` command
 performs normalization after maintenance confirmation and backup. SQLite rolls back an unsuccessful normalization.
 seekDB and OceanBase record each structural operation's intent and postcondition in the existing external maintenance

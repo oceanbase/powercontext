@@ -566,7 +566,7 @@ class MySQLMigrationRunner:
                 raise MigrationError("recovery_required", "The stored intent does not match the schema transition.")
             for statement in recovery.pending_statements:
                 guard()
-                self.schema.execute(connection, statement, self.configuration)
+                self.schema.execute(connection, statement, self.configuration, revision=revision)
                 # DDL may already have committed; rollback cannot undo it.
                 guard()
                 self.schema.recovery(mysql_inventory(connection), source)
