@@ -33,8 +33,10 @@ powercontext setup dsh --source ./powercontext-dsh-dev
 
 更新时执行 `git -C powercontext-dsh-dev pull --ff-only`，记录新的 commit，再重复两个安装命令。
 本地目录必须包含仓库提交的已构建文件 `lib/index.js`。
-`setup dsh --source oceanbase/powercontext --ref master` 会直接复用有效缓存 checkout，不会 fetch；
-重复运行不代表更新了移动分支。只有残缺 checkout 会被替换。
+`setup dsh --source oceanbase/powercontext --ref master` 每次安装都会创建新的 checkout，并 clone 指定 ref；
+重复运行会重新解析移动分支，不复用之前的 checkout。Server 也应从同一 ref 更新，并在重装插件后重启 DSH。
+使用 `--json` 时，从 `hosts.dsh.result.plugin_path` 获取插件路径，再执行
+`git -C <plugin_path> rev-parse HEAD` 记录插件 commit；Server checkout 的 commit 单独记录。
 
 在交互终端中运行 `powercontext setup dsh` 会询问安装到 `web` 还是 `desktop`。
 非交互模式或使用 `--json` 时，未指定 profile 默认安装到 `web`。显式指定目标不会询问：
@@ -84,6 +86,12 @@ Setup 不会启动 Server。安装完成后重启 DSH。
 面向模型的 PowerContext 能力通过 DSH 原生的 `@deepseek-ai/dsh-mcp-client` 注册。
 
 召回查询会排除 DSH 的 runtime-context snapshot 及其清空标记，避免宿主目录内容挤掉用户问题。
+
+运行 `powercontext setup dsh --json` 时，`hosts.dsh.setup: "complete"` 表示已完成安装和配置；
+注册结果位于 `hosts.dsh.checks.plugin.checks.registration: "present"`。同一报告还包含 Server 诊断，
+因此安装完成后整体 `ok` 仍可能为 `false`，退出码仍可能为 1。查看 `hosts.dsh.checks` 下的失败项，
+启动或修正所选 Server，再运行 `powercontext doctor dsh --json`。此命令会另行探测 Server；
+注册成功本身不证明运行中会话的连接正常。重启 DSH 后使用 `/pc doctor` 验证当前会话。
 
 ## 启动 Server 和宿主
 

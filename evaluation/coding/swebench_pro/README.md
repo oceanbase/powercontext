@@ -83,6 +83,11 @@ uv run --project evaluation swebench-pro run \
 The instance ID must come from the pinned catalog. Paths derive from `--root` and can be overridden individually.
 Native networking is the default; TokensFlow telemetry and proxy integration are optional.
 
+Before starting the agent, the runner removes Git history outside HEAD's ancestors and verifies that no other
+commit objects remain readable. Shared object stores, linked worktrees, or retained future commits stop the run.
+The sanitized checkout is mounted at both `/workspace` and `/app`, preserving task files, staged changes, and
+absolute `/app` paths while hiding the image's original repository. This does not restrict network access.
+
 To test against OceanBase, pass `--database-config /absolute/private/database.json`. This private JSON object must
 contain exactly `off` and `on`, each using the `settings.database` shape (`kind`, `url`, and optional profile
 settings). Create a separate evaluation database for each arm:
@@ -148,3 +153,15 @@ uv run --project evaluation pytest -c evaluation/pyproject.toml evaluation/codin
 
 These local tests verify the pinned contracts, runner phases, report semantics, and command wiring using controlled
 inputs and processes. They do not execute a real model or establish the outcome of a full SWE-bench Pro run.
+
+To check the agent-visible Git history in a real container, select an already cached task image that contains
+commits outside its HEAD ancestry:
+
+```bash
+POWERCONTEXT_EVAL_TEST_TASK_IMAGE='jefzda/sweap-images:<cached-task-tag>' \
+  uv run --project evaluation pytest -c evaluation/pyproject.toml \
+  evaluation/coding/swebench_pro/tests/contract/test_workspace_container.py -m live -q
+```
+
+This test uses the production container launch and mounts with an inert Server executable. It checks both task
+paths and shared edits without pulling images, accessing the network, or running a model.
