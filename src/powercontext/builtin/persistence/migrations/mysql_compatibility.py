@@ -598,6 +598,10 @@ def _normalize_identity(connection, schema, revision, journal, evidence, guard):
 
 
 def apply(connection, schema, configuration, journal, evidence, guard, *, embedding_factory=None):
+    def record_counter(pending):
+        evidence.compatibility_processing_counter = pending
+        journal.write(evidence)
+
     revision = schema.bundle.source_revision or schema.bundle.revisions[0]
     with recorded_ddl(connection, schema, journal, evidence, guard):
         _resume_rebuild(connection, schema, journal, evidence, guard)
@@ -612,7 +616,12 @@ def apply(connection, schema, configuration, journal, evidence, guard, *, embedd
             if check in legacy["checks"].values():
                 connection.exec_driver_sql("ALTER TABLE pc_artifact_tags DROP CHECK " + _quote(name))
         historical._scopes(connection)
-        historical._processing(connection, configuration)
+        historical._processing(
+            connection,
+            configuration,
+            temporary_counter=evidence.compatibility_processing_counter,
+            record_counter=record_counter,
+        )
         historical.convert_memory(
             connection, schema.bundle, database=_Database(connection, guard), embedding_factory=embedding_factory
         )

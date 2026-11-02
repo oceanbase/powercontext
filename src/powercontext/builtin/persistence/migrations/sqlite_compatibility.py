@@ -314,6 +314,7 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
     ]
     extra_columns = {}
     generated_sources = {}
+    rebuild_prefix = "pc_release1400_" if bundle.source_revision == "r1400" else "pc_full_upgrade_"
     if revision == "s1400":
         # This released revision rebuilds tables and copies every source column.
         # Extend its temporary destination with independently owned columns.
@@ -330,20 +331,21 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
                     for column in extensions
                 ]
             if any(column.computed is not None for column in table.columns):
-                generated_sources["pc_full_upgrade_" + name] = name
+                generated_sources[rebuild_prefix + name] = name
 
     def before_execute(conn, _cursor, statement, parameters, _context, _many):  # noqa: C901 -- Adapt only exact frozen DDL and copy statements.
         tokens = sql_tokens(statement)
         if len(tokens) > 2 and tokens[:2] == ("insert", "into") and tokens[2] in generated_sources:
-            name = generated_sources[tokens[2]]
+            target = tokens[2]
+            name = generated_sources[target]
             # The revision may add ordinary columns before copying this table.
             # Read the writable set at execution, retaining its new data too.
             columns = inspect(conn).get_columns(name)
             fields = ",".join(quote(column["name"]) for column in columns)
-            original = f"INSERT INTO pc_full_upgrade_{name} ({fields}) SELECT {fields} FROM {name}"  # noqa: S608 -- frozen table names and quoted columns
+            original = f"INSERT INTO {target} ({fields}) SELECT {fields} FROM {name}"  # noqa: S608 -- frozen table names and quoted columns
             if statement == original:
                 writable = ",".join(quote(column["name"]) for column in columns if column.get("computed") is None)
-                statement = f"INSERT INTO pc_full_upgrade_{name} ({writable}) SELECT {writable} FROM {name}"  # noqa: S608 -- frozen table names and quoted columns
+                statement = f"INSERT INTO {target} ({writable}) SELECT {writable} FROM {name}"  # noqa: S608 -- frozen table names and quoted columns
             return statement, parameters
         if len(tokens) > 5 and tokens[:2] == ("alter", "table") and tokens[3:5] == ("add", "column"):
             name, column = tokens[2], tokens[5]
@@ -356,8 +358,8 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
                     return "SELECT 1", ()
         if len(tokens) > 3 and tokens[:2] == ("create", "table"):
             name = tokens[2]
-            if revision == "s1400" and name.startswith("pc_full_upgrade_"):
-                source = name.removeprefix("pc_full_upgrade_")
+            if revision == "s1400" and name.startswith(rebuild_prefix):
+                source = name.removeprefix(rebuild_prefix)
                 additions = extra_columns.get(source, [])
                 if additions:
                     position = statement.index("(") + 1

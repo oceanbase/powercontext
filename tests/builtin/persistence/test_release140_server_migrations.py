@@ -247,3 +247,33 @@ def test_release140_current_dream_tasks_keep_their_format_or_fail_before_writes(
                 "queued",
                 before_payload,
             )
+
+
+def test_release140_bridge_preserves_ordinary_and_generated_extensions(tmp_path):
+    _, _, runner = _source(tmp_path)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("ALTER TABLE pc_artifacts ADD COLUMN extension_note TEXT COLLATE NOCASE DEFAULT 'MiXeD'")
+        connection.execute(
+            "ALTER TABLE pc_artifacts ADD COLUMN extension_value TEXT COLLATE NOCASE "
+            "GENERATED ALWAYS AS (extension_note || ':' || revision) VIRTUAL"
+        )
+        connection.execute("CREATE INDEX extension_lookup ON pc_artifacts(extension_value)")
+        before = connection.execute(
+            "SELECT artifact_id,revision,content,extension_note,extension_value FROM pc_artifacts"
+        ).fetchall()
+    assert runner.plan(backup_policy="skip").source_revision == "r1400"
+    _apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        assert (
+            connection.execute(
+                "SELECT artifact_id,revision,content,extension_note,extension_value FROM pc_artifacts"
+            ).fetchall()
+            == before
+        )
+        assert connection.execute(
+            "SELECT count(*) FROM pc_artifacts INDEXED BY extension_lookup WHERE extension_value='mixed:1'"
+        ).fetchone() == (1,)
+        connection.execute("UPDATE pc_artifacts SET extension_note='Changed'")
+        assert connection.execute("SELECT extension_value FROM pc_artifacts").fetchone() == ("Changed:1",)
+    assert not _apply(runner).changed

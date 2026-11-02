@@ -415,3 +415,68 @@ def test_extension_column_collation_survives_rebuild(tmp_path, definition, match
     with closing(sqlite3.connect(runner.database)) as connection:
         assert connection.execute("SELECT extension_value = 'mixed' FROM pc_source_journal_heads").fetchall() == before
     assert not apply(runner).changed
+
+
+@pytest.mark.parametrize("unmapped", [None, "extension", "merge"])
+def test_memory_lineage_is_archived_without_accepting_unmapped_data(tmp_path, unmapped):
+    runner = source(tmp_path, "memory-release")
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        scope, family, artifact, revision, upstream = connection.execute(
+            "SELECT a.scope_id,a.family,a.artifact_id,a.revision,b.revision FROM pc_artifacts a "
+            "JOIN pc_artifacts b ON a.scope_id=b.scope_id AND a.family=b.family AND a.artifact_id=b.artifact_id "
+            "AND a.revision>b.revision WHERE a.family='memory' ORDER BY a.revision,b.revision LIMIT 1"
+        ).fetchone()
+        connection.execute(
+            "INSERT INTO pc_sources(scope_id,source_type,source_id,payload,journal_position) VALUES (?, 'message', 'evidence', ?, 1)",
+            (scope, b'{"text":"Preserved source evidence."}'),
+        )
+        connection.execute("UPDATE pc_source_journal_heads SET position=1 WHERE scope_id=?", (scope,))
+        connection.execute(
+            "INSERT INTO pc_artifact_lineage_sources(scope_id,family,artifact_id,revision,ordinal,source_type,source_id) "
+            "VALUES (?,?,?,?,0,'message','evidence')",
+            (scope, family, artifact, revision),
+        )
+        connection.execute(
+            "ALTER TABLE pc_artifact_lineage_artifacts ADD COLUMN is_merge_input BOOLEAN DEFAULT '0' NOT NULL"
+        )
+        connection.execute(
+            "INSERT INTO pc_artifact_lineage_artifacts(scope_id,family,artifact_id,revision,ordinal,"
+            "upstream_family,upstream_artifact_id,upstream_revision) VALUES (?,?,?,?,0,?,?,?)",
+            (scope, family, artifact, revision, family, artifact, upstream),
+        )
+        if unmapped == "extension":
+            connection.execute("ALTER TABLE pc_artifact_lineage_sources ADD COLUMN extension_note TEXT DEFAULT 'keep'")
+        elif unmapped == "merge":
+            connection.execute("UPDATE pc_artifact_lineage_artifacts SET is_merge_input=1")
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    before = dump(runner.database)
+    if unmapped:
+        with pytest.raises(MigrationError, match="needs a mapping"):
+            apply(runner)
+        assert dump(runner.database) == before
+        return
+    apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        metadata = json.loads(
+            connection.execute(
+                "SELECT metadata FROM pc_memory_artifact_archive WHERE scope_id=? AND artifact_id=? AND revision=?",
+                (scope, artifact, revision),
+            ).fetchone()[0]
+        )
+        assert metadata["lineage"] == {
+            "sources": [{"ordinal": 0, "source_type": "message", "source_id": "evidence"}],
+            "artifacts": [
+                {
+                    "ordinal": 0,
+                    "upstream_family": family,
+                    "upstream_artifact_id": artifact,
+                    "upstream_revision": upstream,
+                }
+            ],
+        }
+        assert connection.execute("SELECT count(*) FROM pc_atomic_memory_current").fetchone() == (4,)
+        assert connection.execute("SELECT payload FROM pc_sources WHERE source_id='evidence'").fetchone() == (
+            b'{"text":"Preserved source evidence."}',
+        )
+    assert not apply(runner).changed

@@ -437,18 +437,7 @@ def _full_server_runner(
     )
 
 
-@pytest.mark.parametrize(
-    ("backend", "interrupted", "encoding"),
-    [
-        ("seekdb", False, "utf8mb4"),
-        ("seekdb", True, "utf8mb4"),
-        ("oceanbase", False, "utf8mb4"),
-        ("oceanbase", True, "utf8mb4"),
-        ("oceanbase", True, "gbk"),
-    ],
-    indirect=["backend"],
-)
-def test_historical_memory_upgrades_and_resumes_native_ddl(backend, monkeypatch, interrupted, encoding):  # noqa: C901 -- Native fixture and interruption scenario.
+def _load_historical_memory(backend, encoding="utf8mb4"):
     fixture = "oceanbase-first-release.json" if encoding == "gbk" else "seekdb-memory-release.json"
     capture = json.loads((Path(__file__).parent / "fixtures/historical" / fixture).read_text())
 
@@ -483,6 +472,21 @@ def test_historical_memory_upgrades_and_resumes_native_ddl(backend, monkeypatch,
         connection.commit()
 
     backend.connections().run(load, writable=True)
+
+
+@pytest.mark.parametrize(
+    ("backend", "interrupted", "encoding"),
+    [
+        ("seekdb", False, "utf8mb4"),
+        ("seekdb", True, "utf8mb4"),
+        ("oceanbase", False, "utf8mb4"),
+        ("oceanbase", True, "utf8mb4"),
+        ("oceanbase", True, "gbk"),
+    ],
+    indirect=["backend"],
+)
+def test_historical_memory_upgrades_and_resumes_native_ddl(backend, monkeypatch, interrupted, encoding):
+    _load_historical_memory(backend, encoding)
     runner = _full_server_runner(backend)
     before = backend.connections().run(lambda c, *_: mysql_inventory(c))
     plan = runner.plan(backup_policy="manual")
@@ -525,6 +529,52 @@ def test_historical_memory_upgrades_and_resumes_native_ddl(backend, monkeypatch,
     backend.connections().run(verify, writable=True)
     # A recovery acknowledgement belongs to the interrupted operation only.
     # A later invocation must not resend its already-consumed token.
+    assert not _apply(_full_server_runner(backend), policy="manual").changed
+
+
+@pytest.mark.parametrize("point", ["before_add", "after_add", "before_drop", "after_drop"])
+def test_historical_processing_counter_recovers_every_ddl_boundary(backend, point):
+    _load_historical_memory(backend)
+    runner = _full_server_runner(backend)
+    operation = "ADD" if point.endswith("add") else "DROP"
+    prefix = f"ALTER TABLE pc_artifact_processing_intents {operation} COLUMN consecutive_dream_attempts"
+    event_name = "before_cursor_execute" if point.startswith("before") else "after_cursor_execute"
+
+    def interrupt(connection, _cursor, statement, _parameters, _context, _many):
+        if statement.startswith(prefix):
+            if point == "before_drop":
+                # Preserve the completed domain phase while its owned column
+                # still exists, as a separate durable recovery checkpoint.
+                connection.commit()
+                assert (
+                    connection.exec_driver_sql("SELECT phase FROM pc_artifact_processing_schema").scalar_one()
+                    == "complete"
+                )
+            raise _InterruptedDDL
+
+    event.listen(Engine, event_name, interrupt)
+    try:
+        with pytest.raises(_InterruptedDDL):
+            _apply(runner, policy="manual")
+    finally:
+        event.remove(Engine, event_name, interrupt)
+    (evidence_path,) = backend.evidence_directory.rglob("maintenance.json")
+    original = json.loads(evidence_path.read_text())
+    plan = runner.plan(backup_policy="manual")
+    resumed = _full_server_runner(backend, acknowledge_previous_run=(plan.coordination or {}).get("pending_run_id"))
+    assert _apply(resumed, policy="manual").state == "ready"
+    assert resumed.verify().state == "ready"
+    completed = json.loads(evidence_path.read_text())
+    assert completed["maintenance_window_id"] == original["maintenance_window_id"]
+    assert completed["manual_ref"] == original["manual_ref"]
+
+    def verify(connection, _identity, _guard):
+        columns = mysql_inventory(connection)["tables"]["pc_artifact_processing_intents"]["columns"]
+        assert columns["consecutive_dream_attempts"]["type"][0] == "bigint"
+        assert connection.exec_driver_sql("SELECT count(*) FROM pc_atomic_memory_current").scalar_one() == 4
+        assert connection.exec_driver_sql("SELECT count(*) FROM pc_memory_artifact_archive").scalar_one() == 4
+
+    backend.connections().run(verify)
     assert not _apply(_full_server_runner(backend), policy="manual").changed
 
 

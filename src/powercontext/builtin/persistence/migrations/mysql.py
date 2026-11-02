@@ -73,6 +73,7 @@ class _Evidence(BaseModel):
     compatibility_fingerprint: str | None = None
     compatibility_pending: dict[str, Any] | None = None
     compatibility_rebuild: dict[str, Any] | None = None
+    compatibility_processing_counter: bool = False
     compatibility_complete: bool = True
 
     @model_validator(mode="after")
@@ -81,6 +82,8 @@ class _Evidence(BaseModel):
             self.compatibility_steps and self.compatibility_checksum and self.compatibility_fingerprint
         ):
             raise ValueError("Historical conversion requires its original definitions and checkpoint")  # noqa: TRY003
+        if self.compatibility_processing_counter and self.compatibility_complete:
+            raise ValueError("The temporary Processing counter must be removed before adoption")  # noqa: TRY003
         if self.compatibility_pending is not None:
             pending = self.compatibility_pending
             if (
