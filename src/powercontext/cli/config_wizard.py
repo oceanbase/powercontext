@@ -115,7 +115,7 @@ def run_wizard(output: Path, *, language: str | None = None, advanced: bool = Fa
     """Collect answers and write files only after explicit final confirmation."""
 
     from powercontext.cli.config import ConfigError
-    from powercontext.server.configuration import resolve_http_configuration
+    from powercontext.server.configuration import has_uds_configuration
 
     output = output.expanduser().absolute()
     state: Wizard | None = None
@@ -123,10 +123,7 @@ def run_wizard(output: Path, *, language: str | None = None, advanced: bool = Fa
         _check_output(output)
         content = output.read_text(encoding="utf-8") if output.exists() else ""
         original = parse_environment(content, source=str(output))
-        if (
-            resolve_http_configuration(original).uds is not None
-            or resolve_http_configuration(original, os.environ).uds is not None
-        ):
+        if has_uds_configuration(original) or has_uds_configuration(original, os.environ):
             raise WizardInputError(  # noqa: TRY003
                 "The wizard supports TCP listeners; edit UDS configuration directly in the environment file "
                 "and clear process UDS overrides before using the wizard. "

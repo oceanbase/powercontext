@@ -373,17 +373,14 @@ def init_command(
         run_wizard(output, language=None if language is None else language.value, advanced=advanced)
         return
 
-    from powercontext.server.configuration import ServerConfigurationError, resolve_http_configuration
+    from powercontext.server.configuration import ServerConfigurationError, has_uds_configuration
 
     if output.exists() and not force:
         _fail(f"{output} already exists; use --force")
     try:
         existing = output.read_text(encoding="utf-8") if output.exists() else ""
         values = parse_environment(existing, source=str(output))
-        if (
-            resolve_http_configuration(values).uds is not None
-            or resolve_http_configuration(values, os.environ).uds is not None
-        ):
+        if has_uds_configuration(values) or has_uds_configuration(values, os.environ):
             raise ConfigError(  # noqa: TRY003, TRY301
                 "The template supports TCP listeners; edit UDS configuration directly in the environment file "
                 "and clear process UDS overrides before using the template. "

@@ -61,12 +61,8 @@ class _EnvironmentMappingSource(EnvSettingsSource):
         self.env_vars = {name if self.case_sensitive else name.lower(): value for name, value in environment.items()}
 
 
-def resolve_http_configuration(*environments: Mapping[str, str]) -> HttpConfig:
-    """Resolve only HTTP settings, with later environment sources taking precedence.
-
-    Use the Server's source parser so JSON objects, case-insensitive names and flat
-    nested overrides behave identically, without requiring unrelated runtime settings.
-    """
+def _http_configuration_values(*environments: Mapping[str, str]) -> dict[str, Any]:
+    """Parse HTTP fields with Server casing and source precedence, before validation."""
     values: dict[str, Any] = {}
     field = ServerSettings.model_fields["http"]
     try:
@@ -80,11 +76,31 @@ def resolve_http_configuration(*environments: Mapping[str, str]) -> HttpConfig:
                 if not source.case_sensitive:
                     parsed = source._replace_field_names_case_insensitively(field, parsed)
                 values.update(parsed)
-        return HttpConfig.model_validate(values)
     except (ValueError, SettingsError) as error:
         # Environment values may contain private paths; report the owning boundary only.
+        raise ServerConfigurationError(ValueError("Invalid Server HTTP configuration")) from error
+    return values
+
+
+def has_uds_configuration(*environments: Mapping[str, str]) -> bool:
+    """Detect a configured UDS value without validating editable TCP settings."""
+
+    return _http_configuration_values(*environments).get("uds") is not None
+
+
+def resolve_http_configuration(*environments: Mapping[str, str]) -> HttpConfig:
+    """Resolve only HTTP settings, with later environment sources taking precedence.
+
+    Use the Server's source parser so JSON objects, case-insensitive names and flat
+    nested overrides behave identically, without requiring unrelated runtime settings.
+    """
+
+    values = _http_configuration_values(*environments)
+    try:
+        return HttpConfig.model_validate(values)
+    except ValidationError as error:
         message = "Invalid Server HTTP configuration"
-        if isinstance(error, ValidationError) and any(problem["loc"] == ("port",) for problem in error.errors()):
+        if any(problem["loc"] == ("port",) for problem in error.errors()):
             message = "Server HTTP port must be an integer between 1 and 65535"
         raise ServerConfigurationError(ValueError(message)) from error
 
@@ -208,6 +224,7 @@ def server_settings_context(
 __all__ = [
     "DEFAULT_SERVER_ENV_FILE",
     "ServerConfigurationError",
+    "has_uds_configuration",
     "resolve_http_configuration",
     "resolve_server_environment_file",
     "server_settings_context",

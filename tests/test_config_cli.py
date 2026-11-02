@@ -425,6 +425,27 @@ def test_init_force_defaults_to_preserving_existing_inference_configuration(tmp_
     assert not tuple(tmp_path.glob(".env.bak-*"))
 
 
+@pytest.mark.parametrize("stored_port", ["invalid", "0", "65536"])
+def test_init_template_preserves_confirmation_with_invalid_stored_tcp_port(tmp_path: Path, stored_port: str) -> None:
+    environment = tmp_path / ".env"
+    original = config_cli.render_managed_block(_configuration()).replace(
+        "POWERCONTEXT_SERVER_HTTP_PORT=8000", f"POWERCONTEXT_SERVER_HTTP_PORT={stored_port}"
+    )
+    environment.write_text(original, encoding="utf-8")
+
+    result = CliRunner().invoke(
+        config_cli.app,
+        ["init", "--template", "--output", str(environment), "--force"],
+        input="\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Replace them with a model-free configuration? [y/N]" in result.output
+    assert "No changes written." in result.output
+    assert environment.read_text(encoding="utf-8") == original
+    assert list(tmp_path.iterdir()) == [environment]
+
+
 @pytest.mark.parametrize(
     ("setting", "value"),
     [
@@ -434,9 +455,12 @@ def test_init_force_defaults_to_preserving_existing_inference_configuration(tmp_
         ("POWERCONTEXT_SERVER_HTTP", '{"UdS":"/run/powercontext/core.sock"}'),
     ],
 )
-def test_init_template_force_rejects_uds_before_prompts_or_writes(tmp_path: Path, setting: str, value: str) -> None:
+@pytest.mark.parametrize("stored_port", ["18000", "invalid"])
+def test_init_template_force_rejects_uds_before_prompts_or_writes(
+    tmp_path: Path, setting: str, value: str, stored_port: str
+) -> None:
     environment = tmp_path / ".env"
-    original = f"{setting}={shlex.quote(value)}\nPOWERCONTEXT_SERVER_HTTP_PORT=18000\n"
+    original = f"{setting}={shlex.quote(value)}\nPOWERCONTEXT_SERVER_HTTP_PORT={stored_port}\n"
     environment.write_text(original, encoding="utf-8")
 
     result = CliRunner().invoke(
