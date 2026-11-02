@@ -27,7 +27,7 @@ from click import unstyle
 from typer.testing import CliRunner
 
 from powercontext_eval_swebench_pro.cli import app
-from powercontext_eval_swebench_pro.models import Arm
+from powercontext_eval_swebench_pro.models import Arm, TreatmentMode
 from powercontext_eval_swebench_pro.runner import MinimalRunResult, RunConfig
 
 
@@ -241,6 +241,62 @@ def test_swebench_pro_run_defaults_optional_integrations_off(monkeypatch) -> Non
     assert captured[0].tokensflow_egress_network is None
     assert captured[0].proxy_url is None
     assert captured[0].database_configs is None
+    assert captured[0].treatment_mode is TreatmentMode.OFF_ON
+    assert captured[0].codex_config is None
+
+
+def test_swebench_pro_run_passes_treatment_mode_and_absolute_codex_config(monkeypatch, tmp_path: Path) -> None:
+    captured: list[RunConfig] = []
+
+    class FakeCatalog:
+        def require(self, _instance_id: str) -> object:
+            return object()
+
+    def fake_run(config: RunConfig, *, instance: object) -> MinimalRunResult:
+        del instance
+        captured.append(config)
+        return MinimalRunResult("run-direct", Path("/tmp/report.md"), False, None)
+
+    monkeypatch.setattr("powercontext_eval_swebench_pro.cli.SweBenchProCatalog.load", lambda _path: FakeCatalog())
+    monkeypatch.setattr("powercontext_eval_swebench_pro.cli.run_swebench_pro_instance", fake_run)
+    (tmp_path / "codex.toml").write_text('model_provider = "gateway"\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "run",
+            "--root",
+            "/srv/evaluation",
+            "--instance-id",
+            "instance_owner__repo-b",
+            "--treatment-mode",
+            "off_only",
+            "--codex-config",
+            "codex.toml",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured[0].treatment_mode is TreatmentMode.OFF_ONLY
+    # The Codex home copy requires an absolute source path.
+    assert captured[0].codex_config == tmp_path / "codex.toml"
+    assert captured[0].codex_config.is_absolute()
+
+
+def test_swebench_pro_run_rejects_a_missing_codex_config(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "powercontext_eval_swebench_pro.cli.run_swebench_pro_instance",
+        lambda *args, **kwargs: pytest.fail("the run must not start"),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["run", "--root", "/srv/evaluation", "--instance-id", "x", "--codex-config", str(tmp_path / "missing.toml")],
+    )
+
+    assert result.exit_code != 0
+    assert "does not exist" in result.output
 
 
 def test_cli_creates_a_single_arm_luna_batch_atomically_paused(monkeypatch) -> None:

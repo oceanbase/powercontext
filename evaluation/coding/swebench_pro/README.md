@@ -81,7 +81,9 @@ uv run --project evaluation swebench-pro run \
 ```
 
 The instance ID must come from the pinned catalog. Paths derive from `--root` and can be overridden individually.
-Native networking is the default; TokensFlow telemetry and proxy integration are optional.
+Native networking is the default; TokensFlow telemetry and proxy integration are optional. `--treatment-mode`
+(`off_on`, `on_only` or `off_only`) selects the arms, and `--codex-config` copies a private Codex `config.toml`
+into each arm's Codex home, for example to send model traffic through a gateway.
 
 Before starting the agent, the runner removes Git history outside HEAD's ancestors and verifies that no other
 commit objects remain readable. Shared object stores, linked worktrees, or retained future commits stop the run.
