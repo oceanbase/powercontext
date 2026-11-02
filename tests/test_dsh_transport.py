@@ -724,8 +724,11 @@ def test_installed_bundle_uses_the_native_transport_override(dsh_profile, tmp_pa
         dsh_profile,
         "- id: powercontext-dsh\n  config:\n    baseUrl: http://memory.example\n    allowInsecureHttp: true\n",
     )
+    original = {path: path.read_bytes() for path in dsh_profile.rglob("*") if path.is_file()}
     assert read_dsh_settings()["baseUrl"] == "http://memory.example"
     assert resolve_host_transport("dsh") == ("http://memory.example", True)
+
+    assert {path: path.read_bytes() for path in dsh_profile.rglob("*") if path.is_file()} == original
 
 
 def test_unreadable_third_party_bundle_is_skipped_with_warning(dsh_profile, capsys):

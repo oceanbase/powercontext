@@ -15,7 +15,7 @@
  */
 
 // Read configuration using the installed DSH's parser and patch algorithm.
-// Never call loadProfile/prepareProfile: those initialize or rewrite host files.
+// Never prepare/load the real profile: native normalization runs only on disposable metadata.
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
@@ -118,6 +118,8 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
   if (requireInstalled && !bundles.includes(plugin)) fail('PowerContext is not enabled in this profile', manifestPath)
   // The native reader may normalize retired bundles by rewriting package.json.
   // Give it disposable metadata while resolving the real installed dependencies.
+  // In the tested hosts, readProfileManifest/bundlePatchPaths only read bundle files;
+  // only dropRetiredBundles writes, and it receives the snapshot profile directory.
   const snapshot = mkdtempSync(join(tmpdir(), 'powercontext-dsh-inspect-'))
   let composition
   try {
@@ -138,11 +140,16 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
   if (!Array.isArray(composition?.layers) || composition.layers.some(layer => !Array.isArray(layer?.patches))) {
     fail('Installed DSH does not expose the expected profile composition; upgrade or reinstall DSH', anchor)
   }
-  const skippedBundles = (composition.skippedBundles ?? []).map(({ packageName, reason }) => {
-    const incompatible = typeof reason === 'string' && reason.includes('incompatible with dsh')
+  const skipped = composition.skippedBundles ?? []
+  if (!Array.isArray(skipped) || skipped.some(entry => !entry || typeof entry.packageName !== 'string'
+    || typeof entry.reason !== 'string')) {
+    fail('Installed DSH does not expose the expected profile composition; upgrade or reinstall DSH', anchor)
+  }
+  const skippedBundles = skipped.map(({ packageName, reason }) => {
+    const incompatible = /incompatible with (?:@deepseek-ai\/)?dsh\b/.test(reason)
     if (packageName === plugin) fail(incompatible
       ? 'PowerContext is incompatible with the installed DSH; resolve its version compatibility'
-      : 'PowerContext cannot be loaded by the installed DSH; reinstall its bundle', manifestPath)
+      : 'PowerContext cannot be loaded by the installed DSH; check host compatibility and reinstall its bundle', manifestPath)
     // Native reasons can contain raw YAML and credentials. Report only the omitted identity.
     return `DSH skipped ${incompatible ? 'an incompatible' : 'a'} bundle; its patches were not applied: ${packageName}`
   })
