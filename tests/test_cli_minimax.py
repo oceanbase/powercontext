@@ -478,6 +478,39 @@ def test_new_package_file_cannot_overwrite_user_file(native):
     assert (installed(native) / "custom.txt").read_text() == "user"
 
 
+@pytest.mark.parametrize("render_connection", [False, True], ids=["source-package", "rendered-package"])
+def test_matching_user_file_is_not_adopted_and_deleted_by_later_upgrade(native, render_connection):
+    from powercontext.cli.transport import SetupTransport
+
+    root, command, *_ = native
+    source = root / "package"
+    shutil.copytree(PACKAGE, source)
+    installer = minimax.MiniMaxInstaller(minimax_data_dir=root / "profile", minimax_command=command)
+    connection = SetupTransport("minimax", "http://127.0.0.1:8000", False) if render_connection else None
+    installer.install(installation.PluginSource(str(source)), connection=connection)
+    user_file = installer.plugin / "user-notes.md"
+    user_file.write_bytes(b"original user notes\n")
+    assert "user-notes.md" not in json.loads(installer.record.read_bytes())["files"]
+
+    before_record = installer.record.read_bytes()
+    before_files = {
+        path.relative_to(installer.plugin): path.read_bytes() for path in installer.plugin.rglob("*") if path.is_file()
+    }
+    incoming_file = source / "user-notes.md"
+    incoming_file.write_bytes(user_file.read_bytes())
+    with pytest.raises(installation.SetupError, match="conflict"):
+        installer.install(installation.PluginSource(str(source)), connection=connection)
+    assert installer.record.read_bytes() == before_record
+    assert {
+        path.relative_to(installer.plugin): path.read_bytes() for path in installer.plugin.rglob("*") if path.is_file()
+    } == before_files
+
+    incoming_file.unlink()
+    installer.install(installation.PluginSource(str(source)), connection=connection)
+    assert user_file.read_bytes() == b"original user notes\n"
+    assert "user-notes.md" not in json.loads(installer.record.read_bytes())["files"]
+
+
 @pytest.mark.parametrize("collision", ["directory", "empty-directory", "parent-file"])
 def test_package_path_type_conflicts_leave_user_content_and_installation_unchanged(native, collision):
     assert setup(native).exit_code == 0

@@ -33,7 +33,7 @@ from typing import Any, cast
 
 from powercontext.cli.authorization import normalize_authorization, setup_authorization_value
 from powercontext.cli.installation import SetupError, publish
-from powercontext.client.transport_policy import load_client_settings, normalize_client_url
+from powercontext.client.transport_policy import load_client_settings, normalize_client_url, resolve_client_transport
 from powercontext.paths import powercontext_data_dir
 
 _MANIFEST = ".minimax-plugin/plugin.json"
@@ -307,6 +307,8 @@ class MiniMaxInstaller:
                 digest = current.get(name)
                 if digest is None and (self.plugin / name).is_file():
                     raise SetupError(f"MiniMax installation conflict: {name} aliases an existing file")
+                if digest is not None and name not in owned:
+                    raise SetupError(f"MiniMax installation conflict: {name} is a user-owned file")
                 if digest is not None and digest != owned.get(name) and digest != incoming.get(name):
                     raise SetupError(f"MiniMax installation conflict: {name}; preserve your changes before setup")
             record = {
@@ -537,8 +539,7 @@ class MiniMaxInstaller:
         if entry is None:
             raise SetupError("MiniMax has no effective PowerContext MCP endpoint")
         endpoint = _endpoint(entry)
-        saved = load_client_settings("minimax")
-        allowed = bool(saved.get("allow_insecure_http")) and saved.get("server_url") == endpoint
+        endpoint, allowed = resolve_client_transport("minimax", server_url=endpoint)
         checks = server_diagnostics(server_url=endpoint, allow_insecure_http=allowed)
 
         async def probe():

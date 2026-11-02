@@ -201,10 +201,7 @@ def resolve_host_transport(host: str, *, dsh_target: DshTarget | None = None) ->
         endpoint = MiniMaxInstaller().native_endpoint()
         if endpoint is None:
             raise ValueError("MiniMax PowerContext MCP endpoint is not configured")  # noqa: TRY003
-        from powercontext.client.transport_policy import load_client_settings
-
-        saved = load_client_settings(host)
-        return endpoint, saved.get("allow_insecure_http") is True and saved.get("server_url") == endpoint
+        return resolve_client_transport(host, server_url=endpoint)
     if host == "zcode":
         from powercontext.cli.zcode import zcode_plugin_dir
 
